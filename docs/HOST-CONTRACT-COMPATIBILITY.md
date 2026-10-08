@@ -8,9 +8,6 @@ The compatibility gate is:
 node scripts/diagnostics/application/checkHostContract.mjs <full-candidate-commit> ~/.muxr/releases/host/<full-host-commit>
 ```
 
-CI also runs `scripts/diagnostics/application/checkPluginBridge.mjs`, which only asserts those five
-types exist in `RequestMap` (no host release dir required).
-
 It fails closed unless:
 
 - both inputs identify exact full commits;

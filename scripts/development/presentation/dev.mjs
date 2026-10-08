@@ -19,8 +19,6 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
-import { devHerdrSocket } from '../application/devHerdrSocket.mjs';
-import { sourcePlugins as startSourcePlugins } from '../application/sourcePlugins.mjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 
@@ -58,14 +56,6 @@ if (args.length > 0) {
     process.stderr.write('Unknown arguments. Use yarn dev --help.\n');
     process.exit(1);
 }
-let upstreamPath;
-try {
-    upstreamPath = devHerdrSocket();
-} catch (error) {
-    process.stderr.write(`${error.message}\n`);
-    process.exit(1);
-}
-
 function selectedPort(name, fallback) {
     const value = process.env[name];
     if (value === undefined) return fallback;
@@ -83,8 +73,6 @@ if (new Set([metroPort, relayPort, hostHttpPort]).size !== 3) throw new Error('D
 const children = new Map(); // label -> child
 let shuttingDown = false;
 let exitCode = 0;
-let sourcePlugins;
-let sourcePluginsStarting;
 let exiting = false;
 
 // ------------------------------------------------- sanitized environment
@@ -176,13 +164,6 @@ function killChildren(signal = 'SIGTERM') {
 async function exitSupervisor() {
     if (exiting) return;
     exiting = true;
-    try {
-        const adapter = sourcePlugins ?? await sourcePluginsStarting?.catch(() => undefined);
-        await adapter?.close();
-    } catch (error) {
-        process.stderr.write(`dev | source plugin cleanup failed: ${error.message}\n`);
-        exitCode ||= 1;
-    }
     process.exit(exitCode);
 }
 
@@ -318,24 +299,6 @@ for (const [label, script] of [['setup-push', 'setup-push'], ['setup-canvaskit',
         process.stderr.write(`dev | ${label} failed; fix it and rerun \`yarn dev\`.\n`);
         process.exit(1);
     }
-}
-
-// Capture upstream from the original environment, never from the adapter override.
-sourcePluginsStarting = startSourcePlugins({
-    root,
-    upstreamPath,
-    onError: (error) => { process.stderr.write(`dev | source plugin adapter failed: ${error.message}\n`); finish(1); },
-});
-try {
-    sourcePlugins = await sourcePluginsStarting;
-    if (shuttingDown) await Promise.withResolvers().promise;
-    upEnv.HERDR_SOCKET_PATH = sourcePlugins.socketPath;
-    process.stdout.write(`dev | local bundled projections/RPC/stream scripts active (${sourcePlugins.pluginIds.length} source IDs; registered entries only). Native Herdr registrations stay installed.\n`);
-    process.stdout.write(`dev | source plugin socket: ${sourcePlugins.socketPath}\n`);
-} catch (error) {
-    process.stderr.write(`dev | source plugin adapter startup failed: ${error.message}\n`);
-    finish(1);
-    await Promise.withResolvers().promise;
 }
 
 // ---------------------------------------------------------------- watchers
