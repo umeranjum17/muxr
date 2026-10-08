@@ -325,7 +325,7 @@ export default function PairScreen() {
                             autoCapitalize="none"
                             autoCorrect={false}
                             keyboardType="url"
-                            placeholder={browser ? 'https://your-relay/pair#…' : 'Paste the pairing string'}
+                            placeholder={browser ? 'https://your-relay/pair#…' : 'Paste it here'}
                             placeholderTextColor={styles.inputPlaceholder.color}
                             returnKeyType="go"
                             style={styles.input}
@@ -337,7 +337,7 @@ export default function PairScreen() {
                             ? 'Shown by muxr pair --browser on that computer.'
                             : sshRoute
                                 ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
-                                : 'For a computer you are not standing at — copy the string from its terminal.'}</Text>
+                                : "If you can't point this phone at that screen — copy the string from its terminal."}</Text>
                         {!sshRoute && <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />}
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>

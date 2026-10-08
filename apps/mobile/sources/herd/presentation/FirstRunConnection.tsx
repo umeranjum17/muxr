@@ -81,7 +81,7 @@ export function FirstRunConnection() {
             browser
                 ? 'Paste the link shown by muxr pair --browser for eight hours of control, muxr pair --browser-personal for 30 days on a browser only you use, or muxr pair --browser-view for view-only access.'
                 : 'Paste the pairing string shown by muxr on the computer.',
-            { placeholder: browser ? 'https://your-relay/pair#…' : 'Paste the pairing string' },
+            { placeholder: browser ? 'https://your-relay/pair#…' : 'Paste it here' },
         );
         if (!pasted?.trim()) return;
         await processPairLink(pasted.trim());
@@ -128,7 +128,7 @@ export function FirstRunConnection() {
             </>}
             <Text style={styles.otherWaysText}>Other ways to connect</Text>
             <View style={styles.otherWaysBody}>
-                <ActionButton variant="secondary" title="Paste the pairing string" icon="keypad-outline"
+                <ActionButton variant="secondary" title="Paste the pairing string" icon="keypad-outline" wrap
                     action={browser ? promptForPairingString : async () => { router.push('/pair'); }} />
                 <Text style={styles.routeHint}>Use this if you can't point this phone at that screen.</Text>
                 {sshAvailable && <>
