@@ -5,6 +5,8 @@
 ## Sub-features
 
 - Native pairing offers use the running host's private pairing socket and existing BYOKit link.
+- After verified pairing, a computer without `WAYLAND_DISPLAY` or `DISPLAY` skips screen-sharing approval with one plain line and exits 0.
+- Caught screen-sharing failures preserve the real reason and say pairing is done only after verified pairing. Fatal CLI exceptions/rejections print one plain line and exit 1; `MUXR_DEBUG=1` enables their stack.
 - A QR needs its matrix width and half-block row count plus one cursor row, not spare rows for instructions already printed above it.
 - Narrow or short terminals print an omission reason and the complete pairing string.
 - At the approval prompt, Enter re-asks without rejecting the device; `y` approves and `n` declines.
@@ -68,6 +70,39 @@ registration refuses before pairing — expected scope-guard behavior, not a bug
 To disprove the check, delete the non-TTY guard at the top of the `linkPair` loop:
 the command then stays at the approval prompt or loops re-minting offers. Restore
 the candidate before continuing.
+
+## Headless pairing and CLI failures
+
+Use the native Android app on a task-owned emulator with the private stack; start
+the relay/host before taking its device lock. For loopback relay fixtures, reverse
+only the owned relay port with `adb -s <owned-serial> reverse tcp:<port> tcp:<port>`.
+
+1. Run `env -u WAYLAND_DISPLAY -u DISPLAY node scripts/cli.mjs pair` in the
+   private terminal. Open the offer in the native app, compare the words and
+   approve on the computer. Save the emulator's paired view and terminal output.
+   Expect verified pairing followed by
+   `Screen-sharing approval skipped: no display on this computer.`, exit 0.
+   Confirm enrollment with `node scripts/cli.mjs devices list`.
+2. Stop only the lab host, keeping its relay alive. Run the same public pairing
+   command with `MUXR_PAIR_SOCKET_WAIT_MS=0`. Expect exit 1 and one line naming
+   `muxr daemon start` and `muxr pair`; no Node stack. Restart only the lab host
+   if more proof remains.
+3. For the CLI fatal boundary, import `scripts/cli.mjs` with argv `--version`,
+   then use the real published `EngineClient` and a real Node child with piped
+   stdio. End `child.stdin` and call `client.request('hello', {})` inside an
+   async try/catch. This forces the kit's unhandled Socket error, not a mocked
+   Promise rejection. Keep stdout identity separate from stderr: expect exit 1
+   and exactly one stderr line carrying `write after end`. Repeat with
+   `MUXR_DEBUG=1`: exit 1 with the diagnostic stack. Never patch the kit or resume
+   execution after a fatal event.
+4. Exercise a rejected Promise after the same CLI import: expect one plain
+   stderr line and exit 1. Also run `env -u WAYLAND_DISPLAY -u DISPLAY node
+   scripts/cli.mjs desktop setup`: the headless skip exits 0 even when approval
+   was explicitly requested.
+
+The forced kit case proves fatal CLI containment, not recovery or successful
+pairing. A scoped lab cannot exercise installation of the real background
+service: retain that limitation rather than touching the owner's service.
 
 ## Gotchas
 

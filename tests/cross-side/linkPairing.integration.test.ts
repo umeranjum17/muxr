@@ -208,7 +208,7 @@ describe('native pairing over the byokit link', () => {
                     ...state, relayLocation, relayRole: 'shared', mintSecret: undefined, machineCredential: state.mintSecret,
                 };
                 await expect(runComputerPairing(connection, { approve: () => { throw new Error('no code should be offered'); } }))
-                    .rejects.toThrow('Start muxr on this computer first, then run `muxr pair` again.');
+                    .rejects.toThrow('Start muxr on this computer with `muxr daemon start`, then run `muxr pair` again.');
             }
             expect(output).not.toHaveBeenCalled();
         } finally {
