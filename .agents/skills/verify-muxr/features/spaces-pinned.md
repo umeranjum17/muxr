@@ -26,9 +26,10 @@ Preconditions:
   Herdr) instead of `../SKILL.md` Launch: the host's `--fake` source has no spaces.
 
 - **Seed and pair.** From the repo root, in its own shell:
-  `SERIAL=<serial> node --input-type=module < .agents/skills/verify-muxr/features/spacesLab.mjs`.
+  `SERIAL=<serial> node --input-type=module -e "$(< .agents/skills/verify-muxr/features/spacesLab.mjs)"`.
+  Keep stdin attached: the recipe reads computer numbers and stops at EOF.
   It adds `api-server`, `infra` and `mobile-app` with `pi` agents named
-  `umer-*`, opens the app's `muxr://pair` link and prints `lab ready`; tap
+  `umer-*`, opens the app's `muxr://pair` link and prints `lab computer 1 ready`; tap
   `Pair`, then `Don't allow` on the notification prompt.
 - **Pin.** Long-press `api-server` -> `Pin to top`, then `infra`. Both lead
   under `Pinned`; `mobile-app` stays under `Spaces`.
@@ -43,11 +44,9 @@ Preconditions:
   Use a helper-backed `HERDR_BIN` wrapper for each session; never the default.
   Write a JSON array of live-stack configs (`sourceRoot`, private `authHome`,
   `socketPath`, `clientSocketPath`, helper-backed `binPath`, `machineName`),
-  naming the computers `Umer desk` and `Umer laptop`. Start the same recipe with
-  `SPACES_LAB_HOSTS=<config-file> SERIAL=<serial> node --input-type=module < .agents/skills/verify-muxr/features/spacesLab.mjs`.
-  For live labs, put the recipe in a shell pane with stdin attached (the `node
-  --input-type=module < ...` form uses stdin for source); run
-  `node --input-type=module -e "$(< .agents/skills/verify-muxr/features/spacesLab.mjs)"` instead.
+  naming the computers `Umer desk` and `Umer laptop`. Run the **Seed and pair**
+  command with `SPACES_LAB_HOSTS=<config-file>` also set; live mode uses those
+  sessions without seeding fake workspaces.
   Enter `2` to pair B, then use the header's machine picker to return to A.
   On a baseline native APK, pin A's `api-server`: B's `backend` incorrectly
   appears pinned. Leave A active and upgrade in place with the same signer.
@@ -69,10 +68,11 @@ Preconditions:
 
 - The app reads the system theme at launch; a live `uimode` change shows the
   old theme until it is relaunched, and each launch re-asks for notifications.
-- Pins are a phone-local, machine-scoped preference: a reinstall or `pm clear`
-  drops them. For migration proof, never clear data between baseline and upgrade.
+- Pin scope is documented in [README.md](../../../../README.md#every-agent-every-machine).
+  A reinstall or `pm clear` drops pins; never clear data between baseline and upgrade.
 - `spaces-pins-v1` is removed only when empty. Matched pins are written to
   `spaces-pins-v2` before removing them from v1; unmatched pins remain in v1.
 - A header reading `offline` mid-run means the `adb reverse` tunnel to the
   relay port went away (an adb server restart drops it); re-add it with
-  `adb reverse tcp:<port> tcp:<port>` for the relay port `lab ready` printed.
+  `adb -s "$SERIAL" reverse tcp:<port> tcp:<port>` for the relay port printed
+  for that lab computer.
