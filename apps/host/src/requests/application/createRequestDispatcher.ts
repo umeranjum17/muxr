@@ -1,3 +1,4 @@
+import { EngineRefused } from '@desklink/host';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -69,7 +70,7 @@ import {
 } from '../../plans/index.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
-import { PreviewDesktops, deviceCapabilities, withPreview, type DevicePreviewTargets } from '../../desktop/index.js';
+import { deviceCapabilities, withPreview, type DevicePreviewTargets } from '../../desktop/index.js';
 import type { DesktopSessions } from '../../desktop/index.js';
 import { AgentCatalog } from './agentCatalog.js';
 
@@ -91,10 +92,6 @@ export interface RequestDispatcherOptions {
     getDeviceContext?: (deviceId: string) => PeerDeviceContext | undefined;
     /** The live-desktop owner. Absent means this host cannot show a desktop. */
     desktop?: DesktopSessions;
-    /** Target sessions for an agent's own screen; absent means targets are refused. */
-    previewDesktops?: PreviewDesktops;
-    /** Announced presence by pane, for stamping session lists. */
-    previewForPane?: (paneId: string) => PreviewPresence | undefined;
     /** Target routers for pane-owned devices (emulators, claimed simulators); absent means device targets are refused. */
     deviceTargets?: DevicePreviewTargets[];
     /** Announced device presence by pane, for stamping session lists. */
@@ -135,31 +132,20 @@ function desktopOrThrow(options: RequestDispatcherOptions): DesktopSessions {
     return options.desktop;
 }
 
-function previewOrThrow(options: RequestDispatcherOptions): PreviewDesktops {
-    if (options.previewDesktops === undefined) throw new Error('This host has no agent screens to watch.');
-    return options.previewDesktops;
-}
-
-/**
- * Try each device router in turn: the first that owns the session answers.
- * A refusal means "not my kind"; when no router answers, a screen target is
- * tried next, or the last refusal stands. Any other failure is the answer.
- */
 async function firstDeviceTarget<T>(
     options: RequestDispatcherOptions,
     attempt: (targets: DevicePreviewTargets) => Promise<T>,
-): Promise<{ answered: true; value: T } | { answered: false }> {
+): Promise<T> {
     let refusal: unknown;
     for (const targets of options.deviceTargets ?? []) {
         try {
-            return { answered: true, value: await attempt(targets) };
+            return await attempt(targets);
         } catch (error) {
             if ((error as { code?: unknown })?.code !== 'permission-denied') throw error;
             refusal = error;
         }
     }
-    if (refusal !== undefined && options.previewDesktops === undefined) throw refusal;
-    return { answered: false };
+    throw refusal ?? new EngineRefused('permission-denied', 'that session has no device to watch');
 }
 
 function deviceTargetFor(options: RequestDispatcherOptions, desktopId: string): DevicePreviewTargets | undefined {
@@ -266,14 +252,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'session.list': async (params) => {
             const listed = await listAgents(source, params.cwd === undefined ? {} : { cwd: params.cwd });
             if (!listed.ok) return useCaseData(listed);
-            const deviceFor = options.devicePreviewForPane;
-            const keeperFor = options.previewForPane;
-            // A device chip wins over a screen chip; a pane never shows both.
-            if (deviceFor !== undefined && keeperFor !== undefined) {
-                return withPreview(listed.data, (paneId) => deviceFor(paneId) ?? keeperFor(paneId));
-            }
-            if (deviceFor !== undefined) return withPreview(listed.data, deviceFor);
-            if (keeperFor !== undefined) return withPreview(listed.data, keeperFor);
+            if (options.devicePreviewForPane !== undefined) return withPreview(listed.data, options.devicePreviewForPane);
             return useCaseData(listed);
         },
         'changes.list': async (params) => changesList(await changesInput(params.sessionId, params.root)),
@@ -356,14 +335,9 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'host.update': (params, context) => repairHost(params, context.deviceId),
         'desktop.capabilities': async (params) => {
             if (params.target !== undefined) {
-                // A device target wins; a screen target answers next. A
-                // named target must resolve before anything is reported
-                // about it, and the answer is that target's, never the
-                // desktop's; an unknown session is refused, never the desktop.
                 const sessionId = params.target.sessionId;
-                const device = await firstDeviceTarget(options, (targets) => targets.resolveTarget(sessionId));
-                if (device.answered) return deviceCapabilities();
-                return previewOrThrow(options).capabilitiesFor(params.target.sessionId);
+                await firstDeviceTarget(options, (targets) => targets.resolveTarget(sessionId));
+                return deviceCapabilities();
             }
             if (options.desktop === undefined) {
                 return { available: false, unavailableReason: 'This host has no desktop engine.', input: false, clipboard: false };
@@ -378,24 +352,12 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 isConnected: () => options.isDesktopConnectionActive?.(connectionId) === true,
             };
             if (params.target !== undefined) {
-                // A device target wins; a screen target opens next. Neither
-                // ever falls back to the whole desktop.
                 const sessionId = params.target.sessionId;
-                const device = await firstDeviceTarget(options, (targets) => targets.openTarget(sessionId, {
+                return firstDeviceTarget(options, (targets) => targets.openTarget(sessionId, {
                     permissions: params.permissions,
                     ...(params.maxFps === undefined ? {} : { maxFps: params.maxFps }),
                     ...(params.loopbackTcp === true ? { loopbackTcp: true } : {}),
                 }, owner === undefined ? undefined : { deviceId: owner.deviceId }));
-                if (device.answered) return device.value;
-                return previewOrThrow(options).openTarget(params.target.sessionId, {
-                    permissions: params.permissions,
-                    ...(params.maxWidth === undefined ? {} : { maxWidth: params.maxWidth }),
-                    ...(params.maxHeight === undefined ? {} : { maxHeight: params.maxHeight }),
-                    ...(params.bitrateKbps === undefined ? {} : { bitrateKbps: params.bitrateKbps }),
-                    ...(params.maxFps === undefined ? {} : { maxFps: params.maxFps }),
-                    ...(params.loopbackTcp === true ? { loopbackTcp: true } : {}),
-                    ...(params.awaitConsent === true ? { awaitConsent: true } : {}),
-                }, owner);
             }
             if (options.desktop === undefined) {
                 throw new Error('This host has no desktop engine.');
@@ -415,25 +377,12 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             if (device !== undefined) {
                 return device.answer(params.desktopId, params.sdp, context.connectionId, context.deviceId);
             }
-            if (options.previewDesktops?.owns(params.desktopId) === true) {
-                return options.previewDesktops.answer(params.desktopId, params.sdp, context.connectionId, context.deviceId);
-            }
             return desktopOrThrow(options).answer(params.desktopId, params.sdp, context.connectionId, context.deviceId);
         },
         'desktop.candidate': async (params, context) => {
             const device = deviceTargetFor(options, params.desktopId);
             if (device !== undefined) {
                 return device.candidate(
-                    params.desktopId,
-                    params.candidate,
-                    params.sdpMid ?? null,
-                    params.sdpMLineIndex ?? null,
-                    context.connectionId,
-                    context.deviceId,
-                );
-            }
-            if (options.previewDesktops?.owns(params.desktopId) === true) {
-                return options.previewDesktops.candidate(
                     params.desktopId,
                     params.candidate,
                     params.sdpMid ?? null,
@@ -456,18 +405,12 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             if (device !== undefined) {
                 return device.poll(params.desktopId, params.cursor, context.connectionId, context.deviceId);
             }
-            if (options.previewDesktops?.owns(params.desktopId) === true) {
-                return options.previewDesktops.poll(params.desktopId, params.cursor, context.connectionId, context.deviceId);
-            }
             return desktopOrThrow(options).poll(params.desktopId, params.cursor, context.connectionId, context.deviceId);
         },
         'desktop.close': async (params, context) => {
             const device = deviceTargetFor(options, params.desktopId);
             if (device !== undefined) {
                 return device.close(params.desktopId, context.connectionId, context.deviceId);
-            }
-            if (options.previewDesktops?.owns(params.desktopId) === true) {
-                return options.previewDesktops.close(params.desktopId, context.connectionId, context.deviceId);
             }
             return desktopOrThrow(options).close(params.desktopId, context.connectionId, context.deviceId);
         },

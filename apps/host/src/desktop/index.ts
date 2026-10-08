@@ -10,17 +10,7 @@ export {
     type PreviewLeaseSnapshot,
     type PreviewLeaseTrackerOptions,
 } from './application/previewLease.js';
-export {
-    PreviewDesktops,
-    PreviewPresenceTracker,
-    cleanPreviewTitle,
-    previewKindForClass,
-    withPreview,
-    type PreviewDesktopsOptions,
-    type PreviewPresenceTrackerOptions,
-    type PreviewScreenWindow,
-    type PreviewScreens,
-} from './application/previewPresence.js';
+export { withPreview } from './application/previewPresence.js';
 export {
     AndroidEmulatorWatcher,
     AndroidMirrors,

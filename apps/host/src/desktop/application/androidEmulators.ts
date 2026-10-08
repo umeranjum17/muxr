@@ -276,7 +276,7 @@ interface AndroidPaneState {
     timer: ReturnType<typeof setTimeout> | undefined;
 }
 
-/** The kinds a device mirror announces; screens announce through the keeper. */
+/** The kinds a device mirror announces. */
 export type DevicePreviewKind = Extract<PreviewPresence['kind'], 'android' | 'ios'>;
 
 /**
@@ -1172,8 +1172,6 @@ function offeredAsBaseline(sdp: string): string {
  * emulators, claimed simulators). Handles carry the kind's prefix so later
  * answer/candidate/poll/close route back here and never at the Computer
  * session; the prefix alone grants nothing, the map does.
- * Merge note (P1.3): fold into `PreviewDesktops` there as its device
- * branch once that lands; the shapes match on purpose.
  */
 export class DevicePreviewTargets {
     readonly kind: DevicePreviewKind;
