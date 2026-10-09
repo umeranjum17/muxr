@@ -10,10 +10,12 @@ deletes the old caches).
 ## Sub-features
 
 - The worker registers on every web load, not only after push subscribe.
-- Navigation is network-first; a failed navigation falls back to the cached
-  `/index.html`, and the shell's hashed `/_expo/` and `/assets/` files are
-  served cache-first so the app boots offline.
-- A new web build changes `sw.js` (its `SHELL_VERSION` is the shell hash), so
+- Navigation is network-first; a failed or stalled (over 4 s) navigation falls
+  back to the cached `/index.html`, and the shell's hashed `/_expo/` and
+  `/assets/` files plus `/canvaskit.wasm` are served cache-first so the app
+  boots offline.
+- A new web build changes `sw.js` (its `SHELL_VERSION` is set at export from
+  a hash of `index.html` and the worker source), so
   the next online load installs the new worker, precaches the new shell under
   `muxr-shell-<hash>`, and deletes the previous caches on activate.
 - Relay, link, API and `/health` traffic is never cached.
@@ -66,10 +68,11 @@ so the app runs same-origin as it does in production.
   window. `--app=` reports `display-mode: standalone`; a headless tab does not.
 - The relay must be restarted on the same port, or the new origin has neither
   the worker registration nor the shell cache.
-- The shell version is a hash of `index.html`, so any bundle change moves it;
-  if you rebuild without a real change the version is identical and no update
-  is expected.
+- The shell version hashes `index.html` and `sw.js`, so any bundle change moves
+  it; if you rebuild without a real change the version is identical and no
+  update is expected.
 - Never let the worker cache API, relay, link or `/health` responses: only the
-  navigation document and hashed `/_expo/` and `/assets/` files are shell.
+  navigation document, hashed `/_expo/` and `/assets/` files, and
+  `/canvaskit.wasm` are shell.
 - The muxr worker is not registered in development (`__DEV__`), or the dev
   server's unversioned bundles would be pinned; drive the production export.
