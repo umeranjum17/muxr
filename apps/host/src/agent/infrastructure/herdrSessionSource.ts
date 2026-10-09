@@ -781,21 +781,31 @@ export async function createHerdrSessionSource(
         return `${SHELL_ROUTE_PREFIX}${paneId}`;
     }
 
-    function currentAgentRecordsFor(agentSessionRef: HerdrAgentSessionRef): AgentRecord[] {
-        const expectedKey = herdrAgentSessionKey(agentSessionRef);
-        return [...agentsByPane.values()].filter((agent) => {
+    /** One pass over the agents. Matching each route by rescanning every agent made a full herd quadratic. */
+    function agentRecordsBySessionKey(): Map<string, AgentRecord[]> {
+        const index = new Map<string, AgentRecord[]>();
+        for (const agent of agentsByPane.values()) {
             const ref = agentSession(agent);
-            return ref !== undefined && herdrAgentSessionKey(ref) === expectedKey;
-        });
+            if (ref === undefined) continue;
+            const key = herdrAgentSessionKey(ref);
+            const matches = index.get(key);
+            if (matches === undefined) index.set(key, [agent]);
+            else matches.push(agent);
+        }
+        return index;
     }
 
-    function currentAgentRecordFor(agentSessionRef: HerdrAgentSessionRef): AgentRecord | undefined {
-        const matches = currentAgentRecordsFor(agentSessionRef);
+    function currentAgentRecordsFor(agentSessionRef: HerdrAgentSessionRef, index = agentRecordsBySessionKey()): AgentRecord[] {
+        return index.get(herdrAgentSessionKey(agentSessionRef)) ?? [];
+    }
+
+    function currentAgentRecordFor(agentSessionRef: HerdrAgentSessionRef, index?: Map<string, AgentRecord[]>): AgentRecord | undefined {
+        const matches = currentAgentRecordsFor(agentSessionRef, index);
         return matches.length === 1 ? matches[0] : undefined;
     }
 
-    function currentAgentFor(agentSessionRef: HerdrAgentSessionRef): AgentRecord | undefined {
-        const match = currentAgentRecordFor(agentSessionRef);
+    function currentAgentFor(agentSessionRef: HerdrAgentSessionRef, index?: Map<string, AgentRecord[]>): AgentRecord | undefined {
+        const match = currentAgentRecordFor(agentSessionRef, index);
         return listedAgent(match) ? match : undefined;
     }
 
@@ -816,8 +826,9 @@ export async function createHerdrSessionSource(
 
     function currentSessions(): CurrentSession[] {
         const sessions: CurrentSession[] = [];
+        const index = agentRecordsBySessionKey();
         for (const binding of routes.all()) {
-            const agent = currentAgentFor(binding.agentSession);
+            const agent = currentAgentFor(binding.agentSession, index);
             const pane = agent === undefined ? undefined : panesById.get(agent.pane_id);
             if (agent !== undefined && pane !== undefined) {
                 sessions.push({ sessionId: binding.route, paneId: pane.pane_id, pane, agent });
@@ -983,8 +994,7 @@ export async function createHerdrSessionSource(
         return historical === 'starting' || historical === 'failed' ? historical : 'unknown';
     }
 
-    function lifecycleForPane(paneId: string): AgentLifecycle {
-        const session = currentSessionByPane(paneId);
+    function lifecycleForPane(paneId: string, session = currentSessionByPane(paneId)): AgentLifecycle {
         if (session !== undefined) return lifecycleOf(session);
         const raw = agentsByPane.get(paneId)?.agent_status ?? panesById.get(paneId)?.agent_status;
         return raw === 'idle' || raw === 'working' || raw === 'blocked' || raw === 'done' || raw === 'failed'
@@ -2475,6 +2485,8 @@ export async function createHerdrSessionSource(
 
         async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }> {
             const workspaces: HerdrTreeWorkspace[] = [];
+            const sessionsByPane = new Map<string, CurrentSession>();
+            for (const session of currentSessions()) if (!sessionsByPane.has(session.paneId)) sessionsByPane.set(session.paneId, session);
             for (const workspace of workspacesById.values()) {
                 const panes = [...panesById.values()].filter((pane) => pane.workspace_id === workspace.workspace_id);
                 const tabIds = [...new Set(panes.map((pane) => pane.tab_id).filter((tabId): tabId is string => tabId !== undefined))];
@@ -2482,7 +2494,7 @@ export async function createHerdrSessionSource(
                     const tabLabel = tabsById.get(tabId)?.label;
                     const tabPanes = panes.filter((pane) => pane.tab_id === tabId);
                     const treePanes = tabPanes.map((pane) => {
-                        const session = currentSessionByPane(pane.pane_id);
+                        const session = sessionsByPane.get(pane.pane_id);
                         const taskTitle = session === undefined ? undefined : taskTitleForSession(session);
                         const agentKind = agentKindFor(session);
                         const naming = boundedPaneNamingMetadata(pane.tokens);
@@ -2502,7 +2514,7 @@ export async function createHerdrSessionSource(
                                 : { agentName: listedName }),
                             ...(displayAgent === undefined ? {} : { displayAgent }),
                             ...(taskTitle === undefined ? {} : { taskTitle }),
-                            agentStatus: lifecycleForPane(pane.pane_id),
+                            agentStatus: lifecycleForPane(pane.pane_id, session),
                             promptable: agentPromptable(session),
                             ...(pane.terminal_title_stripped === undefined || pane.terminal_title_stripped === null
                                 ? {}
