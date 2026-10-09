@@ -53,6 +53,9 @@ export const TerminalPreview = React.memo((props: {
     /** Quieter text for a terminal that has gone still. The canvas stays
      *  terminal-dark: dimming the whole tile let a light page through it. */
     dimmed?: boolean;
+    /** The Live card asks for an honest empty state when there is no frame;
+     *  small pane-grid tiles keep the plain terminal-dark ground. */
+    emptyState?: boolean;
 }) => {
     const { theme } = useUnistyles();
     const [text, setText] = React.useState('');
@@ -120,7 +123,7 @@ export const TerminalPreview = React.memo((props: {
     // honest empty state stands in -- a calm surface, and once the read has
     // answered, a plain line saying there is nothing yet and why. A tile that
     // has never answered stays quiet until it knows.
-    if (text === '') {
+    if (props.emptyState === true && text === '') {
         const explained = phase === 'empty' || phase === 'failed';
         return (
             <View

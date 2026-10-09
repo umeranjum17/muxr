@@ -141,7 +141,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
             ]}
         >
             <View style={stylesheet.cardBody}>
-                <TerminalPreview sessionId={card.id} paused={paused} live={live} dimmed={!live && !unseenDone} />
+                <TerminalPreview sessionId={card.id} paused={paused} live={live} dimmed={!live && !unseenDone} emptyState />
             </View>
             <View style={stylesheet.cardFooter}>
                 <View style={stylesheet.titleRow}>
