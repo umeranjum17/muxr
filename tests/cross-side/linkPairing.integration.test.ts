@@ -547,13 +547,14 @@ describe('native pairing over the byokit link', () => {
     it('pairs a phone from the compact offer the terminal shows when the full QR cannot fit', async () => {
         let computerWords = '';
         let phoneWords = '';
-        // A 91x37 terminal fits the compact QR and its token but not the full
-        // v1 QR, so the pairing string on screen is the compact offer. Placed after every test
-        // that counts the enrolled-device record, but before the link-drop test
-        // below: that one stops the relay this phone must dial.
+        // A 120x30 terminal fits the compact QR and its one-line token but not
+        // the full v1 QR (39 rows), so the pairing string on screen is the
+        // compact offer. Placed after every test that counts the enrolled-device
+        // record, but before the link-drop test below: that one stops the relay
+        // this phone must dial.
         const { pairing, offer, abort } = await showPairingQr({
             approve: async (req) => { computerWords = req.words; return true; },
-        }, { columns: 91, rows: 37 });
+        }, { columns: 120, rows: 30 });
         expect(offer.startsWith(COMPACT_TAG)).toBe(true);
         let stored: StoredHostedGrant;
         try {

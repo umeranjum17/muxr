@@ -392,13 +392,17 @@ function drawOffer(offer, intent) {
         return true;
     };
     take([title])
-        && (take([label, token]) || take(['Make this window taller to also see the code to type.']))
+        && ((wrappedRows(token) === 1 && take([label, token])) || take(['Make this window wider or taller to also see the code to type.']))
         && take([`Expires at ${new Date(expires).toLocaleTimeString()}; refreshes automatically.`])
         && take(['Compare the two words, then approve on this computer.'])
         && take(['Waiting for the device to finish pairing…']);
-    if (richTerminal()) process.stdout.write('\x1b[H\x1b[2J');
-    lines.forEach((line) => print(line));
-    if (code !== undefined) process.stdout.write(terminalQrText(code));
+    if (!richTerminal()) {
+        lines.forEach((line) => print(line));
+        return;
+    }
+    process.stdout.write('\x1b[H\x1b[2J');
+    if (code !== undefined) process.stdout.write(`${terminalQrText(code)}\n`);
+    process.stdout.write(lines.join('\n'));
 }
 
 async function showApproval(req) {

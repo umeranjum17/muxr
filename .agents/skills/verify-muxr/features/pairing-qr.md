@@ -1,17 +1,17 @@
 # Scan a pairing QR from the terminal
 
-`muxr pair` prints one unwrapped pairing string and instructions, then a centered QR when its complete quiet zone fits the terminal. The host mints both the full v1 offer and the compact offer; the terminal shows the full QR wherever it fits (only it resumes through the kit's pendingGrant when the phone dies before approval) and the compact QR where it cannot (80x24, 91x37). Small or plain terminals retain the exact string instead.
+`muxr pair` prints a centered QR when its complete quiet zone fits the terminal, then the instructions and the unwrapped pairing string when that string fits one line. The host mints both the full v1 offer and the compact offer; the terminal shows the full QR wherever it fits (only it resumes through the kit's pendingGrant when the phone dies before approval) and the compact QR where it cannot (80x24, 91x37). Small or plain terminals retain the exact string instead.
 
 ## Sub-features
 
 - Native pairing offers use the running host's private pairing socket and existing BYOKit link.
-- The printed token is the offer the QR carries: the full string where the full QR fits, the compact string where only it fits. Either scans and pairs; a phone killed before approving a compact offer rescans.
-- Interactive offers draw on the terminal's alternate screen from the top and redraw there on each refresh and resize, so expired codes never reach scrollback. The QR stays whole; text lines are kept in priority order only while the rows left over hold them. Plain output remains append-only.
+- The printed token is the offer the QR carries: the full string where the full QR fits, the compact string where only it fits. Either scans and pairs; a phone killed before approving a compact offer rescans. The token prints only when it fits one terminal line; otherwise the offer asks for a wider or taller window.
+- Interactive offers draw on the terminal's alternate screen from the top and redraw there on each refresh and resize, so expired codes never reach scrollback. The QR comes first and stays whole; the recommended route leads, and the text lines below it are kept in priority order only while the rows left over hold them. Plain output remains append-only.
 - Setup leads with one recommended network route; alternatives are behind Other ways. A first run is four steps; a repeat run is six.
 - After verified pairing, a computer without `WAYLAND_DISPLAY` or `DISPLAY` skips screen-sharing approval with one plain line and exits 0.
 - Caught screen-sharing failures preserve the real reason and say pairing is done only after verified pairing. Fatal CLI exceptions/rejections print one plain line and exit 1; `MUXR_DEBUG=1` enables their stack.
-- A QR needs its matrix width and half-block row count. The offer view prints nothing after the QR, so text above it takes only the rows left over; `printTerminalQr` (setup) keeps one cursor row below.
-- When the token cannot fit beside the QR (80x24), the offer shows one line asking for a taller window; the QR is still whole. Setup's `printTerminalQr` prints an omission reason instead.
+- A QR needs its matrix width and half-block row count. The offer view prints the QR first and the text after it, with no trailing newline, so the text takes only the rows left over; `printTerminalQr` (setup) keeps one cursor row below.
+- When the token does not fit on one line, the offer shows one line asking for a wider or taller window where rows allow; at 80x24 the title takes the only row beside the QR. The QR is still whole. Setup's `printTerminalQr` prints an omission reason instead.
 - At the approval prompt, Enter re-asks without rejecting the device; `y` approves and `n` declines.
 - A non-TTY `muxr pair` (AI agent or script) never approves: it prints exactly one line — `Pairing needs you at this computer's terminal: run `muxr pair` yourself` — and exits 2. The person must run `muxr pair` at the terminal.
 
@@ -111,5 +111,5 @@ service: retain that limitation rather than touching the owner's service.
 
 - Terminal attachment can resize a tmux window. Keep proof sessions detached or use manual window sizing, and record the actual `stty size`.
 - BYOKit's half-block renderer trims trailing spaces. muxr restores the matrix width, including its four-module quiet zone; do not infer width from the longest trimmed line.
-- Text printed above the QR must leave its rows free: a wrapped token or instruction that pushes the QR off the bottom scrolls the quiet zone away.
+- Text printed below the QR must leave its rows free: a wrapped token or instruction that pushes past the bottom scrolls the offer's top off the screen.
 - Offers expire and are private: keep captures in private evidence storage, never commit them. Cancel the offer after capture; this proof does not approve or pair a device.
