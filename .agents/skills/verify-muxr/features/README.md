@@ -73,6 +73,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Read the pairing consent as short, plain bullets](./pairing-consent.md) —
   native release APK and PWA over a private stack: phone and browser control and
   view-only consent, plain copy, at 360dp/270dp font 1.3 and 393/270 px, dark and light.
+- [Land on the first-run browser pairing steps](./first-run-browser-steps.md) —
+  unpaired installed PWA: matching step badges, Step 2's paste button and prompt
+  with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the
+  unchanged native QR branch from a release APK.
 - [Check the self-host](./selfhost-health.md) — relay `/health`, version
   identity, and the owner-only hosts listing.
 - [Name the current workspace and pane](./agent-naming.md) — `muxr name`

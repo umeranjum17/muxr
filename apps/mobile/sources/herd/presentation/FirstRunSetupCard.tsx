@@ -20,6 +20,37 @@ const SETUP_EFFECTS = [
 ] as const;
 
 /**
+ * One numbered step row: the round number badge beside a title (with an
+ * optional inline tag) and hint, then whatever extra content the caller adds.
+ * The single step style shared by every first-run screen, so a step drawn
+ * outside the setup card matches the card's own steps exactly.
+ */
+export function SetupStep(props: {
+    number: number;
+    title: string;
+    hint?: string;
+    tag?: string;
+    children?: React.ReactNode;
+}) {
+    const styles = stylesheet;
+    return (
+        <View style={styles.step}>
+            <View style={styles.badge}><Text style={styles.badgeNumber}>{props.number}</Text></View>
+            <View style={styles.body}>
+                <View style={styles.titleRow}>
+                    <Text style={styles.stepText}>{props.title}</Text>
+                    {props.tag !== undefined && (
+                        <View style={styles.tag}><Text style={styles.tagText}>{props.tag}</Text></View>
+                    )}
+                </View>
+                {props.hint !== undefined && <Text style={styles.stepHint}>{props.hint}</Text>}
+                {props.children}
+            </View>
+        </View>
+    );
+}
+
+/**
  * The three-step first run, shared by the hosted landing and the never-paired
  * Herd: run muxr on the computer, connect this device, review access. Numbered
  * steps, no leading action glyphs; the only compact control is Copy. It carries
@@ -48,69 +79,56 @@ export function FirstRunSetupCard(props: {
     }, [setup.command]);
     return (
         <View style={styles.card}>
-            <View style={styles.step}>
-                <View style={styles.badge}><Text style={styles.badgeNumber}>1</Text></View>
-                <View style={styles.body}>
-                    <Text style={styles.stepText}>On your computer</Text>
-                    <Text style={styles.stepHint}>muxr controls coding agents on a computer you operate. Run muxr there to review setup.</Text>
-                    <View style={styles.commandRow}>
-                        <Text style={styles.command} selectable>{setup.command}</Text>
-                        <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={copied ? 'Copied' : `Copy ${setup.command}`}
-                            hitSlop={10}
-                            style={styles.copy}
-                            onPress={copy}
-                        >
-                            <Ionicons name={copied ? 'checkmark-outline' : 'copy-outline'} size={20} color={theme.colors.textSecondary} />
-                        </Pressable>
-                    </View>
-                    {copyFailed && (
-                        <Text accessibilityLiveRegion="polite" style={styles.copyStatus}>Could not copy. Enter the command shown above on your computer.</Text>
-                    )}
+            <SetupStep
+                number={1}
+                title="On your computer"
+                hint="muxr controls coding agents on a computer you operate. Run muxr there to review setup."
+            >
+                <View style={styles.commandRow}>
+                    <Text style={styles.command} selectable>{setup.command}</Text>
                     <Pressable
                         accessibilityRole="button"
-                        accessibilityState={{ expanded: effectsOpen }}
-                        accessibilityLabel="What running this does"
-                        hitSlop={8}
-                        style={styles.effectsToggle}
-                        onPress={() => setEffectsOpen((open) => !open)}
+                        accessibilityLabel={copied ? 'Copied' : `Copy ${setup.command}`}
+                        hitSlop={10}
+                        style={styles.copy}
+                        onPress={copy}
                     >
-                        <Ionicons name={effectsOpen ? 'chevron-down-outline' : 'chevron-forward-outline'} size={13} color={theme.colors.textSecondary} />
-                        <Text style={styles.effectsToggleText}>What running this does</Text>
+                        <Ionicons name={copied ? 'checkmark-outline' : 'copy-outline'} size={20} color={theme.colors.textSecondary} />
                     </Pressable>
-                    {effectsOpen && (
-                        <View style={styles.effectsBody}>
-                            {SETUP_EFFECTS.map((line) => (
-                                <View key={line} style={styles.effectRow}>
-                                    <Text style={styles.effectDash}>{'–'}</Text>
-                                    <Text style={styles.effectsText}>{line}</Text>
-                                </View>
-                            ))}
-                        </View>
-                    )}
-                    {setup.setupUrl !== undefined && (
-                        <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openExternalUrl(setup.setupUrl!)}>
-                            <Text style={styles.link}>Not installed? Setup guide</Text>
-                        </Pressable>
-                    )}
                 </View>
-            </View>
+                {copyFailed && (
+                    <Text accessibilityLiveRegion="polite" style={styles.copyStatus}>Could not copy. Enter the command shown above on your computer.</Text>
+                )}
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: effectsOpen }}
+                    accessibilityLabel="What running this does"
+                    hitSlop={8}
+                    style={styles.effectsToggle}
+                    onPress={() => setEffectsOpen((open) => !open)}
+                >
+                    <Ionicons name={effectsOpen ? 'chevron-down-outline' : 'chevron-forward-outline'} size={13} color={theme.colors.textSecondary} />
+                    <Text style={styles.effectsToggleText}>What running this does</Text>
+                </Pressable>
+                {effectsOpen && (
+                    <View style={styles.effectsBody}>
+                        {SETUP_EFFECTS.map((line) => (
+                            <View key={line} style={styles.effectRow}>
+                                <Text style={styles.effectDash}>{'–'}</Text>
+                                <Text style={styles.effectsText}>{line}</Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
+                {setup.setupUrl !== undefined && (
+                    <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openExternalUrl(setup.setupUrl!)}>
+                        <Text style={styles.link}>Not installed? Setup guide</Text>
+                    </Pressable>
+                )}
+            </SetupStep>
             {!commandOnly && <>
-            <View style={styles.step}>
-                <View style={styles.badge}><Text style={styles.badgeNumber}>2</Text></View>
-                <View style={styles.body}>
-                    <Text style={styles.stepText}>Connect this device</Text>
-                    <Text style={styles.stepHint}>Scan the QR or paste its pairing link</Text>
-                </View>
-            </View>
-            <View style={[styles.step, { marginBottom: 0 }]}>
-                <View style={styles.badge}><Text style={styles.badgeNumber}>3</Text></View>
-                <View style={styles.body}>
-                    <Text style={styles.stepText}>Review access</Text>
-                    <Text style={styles.stepHint}>Check the computer and access shown, then choose Pair</Text>
-                </View>
-            </View>
+                <SetupStep number={2} title="Connect this device" hint="Scan the QR or paste its pairing link" />
+                <SetupStep number={3} title="Review access" hint="Check the computer and access shown, then choose Pair" />
             </>}
         </View>
     );
@@ -149,6 +167,23 @@ const stylesheet = StyleSheet.create((theme) => ({
     body: {
         flex: 1,
         gap: 4,
+    },
+    titleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        flexWrap: 'wrap',
+    },
+    tag: {
+        borderRadius: 999,
+        backgroundColor: theme.colors.accentSubtle,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+    },
+    tagText: {
+        ...Typography.default('semiBold'),
+        fontSize: 11,
+        color: theme.colors.text,
     },
     stepText: {
         ...Typography.default('semiBold'),

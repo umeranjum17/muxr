@@ -9,7 +9,7 @@ import { useHostedPairing, usePairQrScanner } from '@/pairing';
 import { sshTunnelAvailable } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import * as Clipboard from 'expo-clipboard';
-import { FirstRunSetupCard } from './FirstRunSetupCard';
+import { FirstRunSetupCard, SetupStep } from './FirstRunSetupCard';
 
 const INSTALL_COMMAND = 'npm install -g --ignore-scripts @trymuxr/cli@latest && muxr';
 
@@ -78,14 +78,15 @@ export function FirstRunConnection() {
     const promptForPairingString = React.useCallback(async () => {
         const pasted = await Modal.prompt(
             'Paste the pairing string',
-            browser
-                ? 'Paste the browser link shown by muxr pair --browser on your computer.'
-                : 'Paste the pairing string shown by muxr on the computer.',
-            { placeholder: browser ? 'https://your-relay/pair#…' : 'Paste it here' },
+            // Non-breaking spaces keep the command's words together and word
+            // joiners bind both hyphens to the flag name, so narrow screens can
+            // only wrap before 'muxr' or after '--browser', never mid-flag.
+            'Paste the browser link shown by muxr\u00A0pair\u00A0-\u2060-\u2060browser on your computer.',
+            { placeholder: 'https://your-relay/pair#…' },
         );
         if (!pasted?.trim()) return;
         await processPairLink(pasted.trim());
-    }, [browser, processPairLink]);
+    }, [processPairLink]);
 
     return (
         <View style={styles.section}>
@@ -112,32 +113,44 @@ export function FirstRunConnection() {
                     </View>
                 </View>
             )}
-            <RouteTile
-                title={browser ? 'Step 2 · Paste the browser link' : 'Step 2 · Scan the QR it shows'}
-                badge="Recommended"
-                preview={browser ? 'Run one command on your computer, then paste the browser pairing link.' : 'Point this phone at the QR shown by muxr on your computer.'}
-                onPress={() => {
-                    if (browser) { void promptForPairingString(); return; }
-                    void scanPairQr();
-                }}
-            />
+            {browser ? (
+                <View style={styles.stepCard}>
+                    <SetupStep
+                        number={2}
+                        title="Paste the browser link"
+                        tag="Recommended"
+                        hint="Run one command on your computer, then paste the browser pairing link."
+                    >
+                        <View style={styles.stepAction}>
+                            <ActionButton variant="primary" title="Paste the browser link" icon="keypad-outline" wrap action={promptForPairingString} />
+                        </View>
+                    </SetupStep>
+                </View>
+            ) : (
+                <RouteTile
+                    title="Step 2 · Scan the QR it shows"
+                    badge="Recommended"
+                    preview="Point this phone at the QR shown by muxr on your computer."
+                    onPress={() => { void scanPairQr(); }}
+                />
+            )}
             {!browser && <>
                 <Pressable accessibilityRole="button" accessibilityState={{ expanded: setupDetailsOpen }}
                     style={styles.setupDetailsToggle} onPress={() => setSetupDetailsOpen((open) => !open)}>
                     <Text style={styles.otherWaysText}>Setup details and guide</Text>
                 </Pressable>
                 {setupDetailsOpen && <FirstRunSetupCard variant="command" />}
+                <Text style={styles.otherWaysText}>Other ways to connect</Text>
+                <View style={styles.otherWaysBody}>
+                    <ActionButton variant="secondary" title="Paste the pairing string" icon="keypad-outline" wrap
+                        action={async () => { router.push('/pair'); }} />
+                    <Text style={styles.routeHint}>Use this if you can't point this phone at that screen.</Text>
+                    {sshAvailable && <>
+                        <ActionButton variant="secondary" title="Connect over SSH" icon="terminal-outline" onPress={() => router.push('/pair?route=ssh')} />
+                        <Text style={styles.routeHint}>Use this if you already SSH into that computer; no QR needed.</Text>
+                    </>}
+                </View>
             </>}
-            <Text style={styles.otherWaysText}>Other ways to connect</Text>
-            <View style={styles.otherWaysBody}>
-                <ActionButton variant="secondary" title="Paste the pairing string" icon="keypad-outline" wrap
-                    action={browser ? promptForPairingString : async () => { router.push('/pair'); }} />
-                <Text style={styles.routeHint}>Use this if you can't point this phone at that screen.</Text>
-                {sshAvailable && <>
-                    <ActionButton variant="secondary" title="Connect over SSH" icon="terminal-outline" onPress={() => router.push('/pair?route=ssh')} />
-                    <Text style={styles.routeHint}>Use this if you already SSH into that computer; no QR needed.</Text>
-                </>}
-            </View>
             <Text style={styles.footer}>End-to-end encrypted</Text>
         </View>
     );
@@ -161,6 +174,17 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     routeTilePressed: {
         opacity: 0.85,
+    },
+    stepCard: {
+        width: '100%',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surfaceHigh,
+        padding: 16,
+    },
+    stepAction: {
+        marginTop: 8,
     },
     routeTitleRow: {
         flexDirection: 'row',

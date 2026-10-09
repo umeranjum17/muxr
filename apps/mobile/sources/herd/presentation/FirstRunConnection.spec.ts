@@ -169,15 +169,26 @@ describe('guided first-connection chooser', () => {
         TestRenderer.act(() => { renderer.unmount(); });
     });
 
-    it('offers browser pairing by pasted link and opens the link prompt', async () => {
+    it('offers browser pairing as a numbered step with its own paste button, and no scan hint', async () => {
         platformOs = 'web';
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
-        expect(texts(renderer.root)).toContain('Step 2 · Paste the browser link');
-        expect(texts(renderer.root)).toContain('Run one command on your computer, then paste the browser pairing link.');
-        press(renderer.root, 'Step 2 · Paste the browser link. Recommended. Steps: Run one command on your computer, then paste the browser pairing link.');
+        const visible = texts(renderer.root);
+        // Step 2 is a numbered step (badge 2), like step 1, not inline "Step 2 ·" text.
+        const badges = renderer.root.findAllByType('Text')
+            .map((node: any) => node.props.children)
+            .filter((child: any) => typeof child === 'number');
+        expect(badges).toContain(1);
+        expect(badges).toContain(2);
+        expect(visible).toContain('Paste the browser link');
+        expect(visible).toContain('Run one command on your computer, then paste the browser pairing link.');
+        expect(visible.some((text) => text.includes('Step 2 ·'))).toBe(false);
+        // The camera/scan hint and the duplicate paste route are gone in browser mode.
+        expect(visible.some((text) => text.includes("can't point this phone"))).toBe(false);
+        expect(visible).not.toContain('Other ways to connect');
+        press(renderer.root, 'Paste the browser link');
         await TestRenderer.act(async () => {});
-        expect(Modal.prompt).toHaveBeenCalledWith('Paste the pairing string', expect.stringContaining('muxr pair --browser'), expect.any(Object));
+        expect(Modal.prompt).toHaveBeenCalledWith('Paste the pairing string', expect.stringContaining('muxr\u00A0pair\u00A0-\u2060-\u2060browser'), expect.any(Object));
         expect(scanQr).not.toHaveBeenCalled();
         TestRenderer.act(() => { renderer.unmount(); });
     });
