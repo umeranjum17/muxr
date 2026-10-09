@@ -23,6 +23,7 @@ import {
     DeviceLink,
     LinkError,
     b64url,
+    COMPACT_TAG,
     hostId,
     keyPair,
     pairWithOffer,
@@ -146,7 +147,7 @@ interface ComputerPairingOptions {
 }
 
 /** Starts a computer pairing and resolves once its QR is on screen. */
-async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>): Promise<{
+async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>, ttySize?: { columns: number; rows: number }): Promise<{
     pairing: Promise<unknown>;
     offer: string;
     abort: () => Promise<void>;
@@ -155,7 +156,23 @@ async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>): P
     const controller = new AbortController();
     options = { ...options, signal: controller.signal };
     const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => { out += String(chunk); return true; });
-    const pairing = runComputerPairing(readSelfhostState(), options).finally(() => spy.mockRestore());
+    const overridden: { key: 'isTTY' | 'columns' | 'rows'; descriptor: PropertyDescriptor | undefined }[] = [];
+    if (ttySize !== undefined) {
+        const tty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+        overridden.push({ key: 'isTTY', descriptor: tty });
+        Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+        for (const key of ['columns', 'rows'] as const) {
+            overridden.push({ key, descriptor: Object.getOwnPropertyDescriptor(process.stdout, key) });
+            Object.defineProperty(process.stdout, key, { configurable: true, value: ttySize[key] });
+        }
+    }
+    const pairing = runComputerPairing(readSelfhostState(), options).finally(() => {
+        spy.mockRestore();
+        for (const { key, descriptor } of overridden.reverse()) {
+            if (descriptor === undefined) Reflect.deleteProperty(process.stdout, key);
+            else Object.defineProperty(process.stdout, key, descriptor);
+        }
+    });
     // The machine runs one pairing at a time and frees its slot only when the
     // pairing's socket closes. A test whose offer never appears must cancel
     // its pairing, or it wedges that slot against every later pairing in the
@@ -165,7 +182,8 @@ async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>): P
         controller.abort();
         await pairing.catch(() => undefined);
     };
-    const offer = await until(() => /(?:https?:\/\/[^\s]+\/pair#)?byokit-link:1:[A-Za-z0-9_-]+/.exec(out)?.[0], 'pairing offer on screen', 30_000)
+    const offerPattern = new RegExp(`(?:https?:\\/\\/[^\\s]+\\/pair#)?(?:byokit-link:1:[A-Za-z0-9_-]+|${COMPACT_TAG}[A-Za-z0-9_-]+)`);
+    const offer = await until(() => offerPattern.exec(out)?.[0], 'pairing offer on screen', 30_000)
         .catch(async (error: unknown) => { await stop(); throw error; });
     return { pairing, offer, abort: stop };
 }
@@ -241,7 +259,7 @@ describe('native pairing over the byokit link', () => {
             credential: 'old-relay-credential', deviceId: 'old-device' }));
         let computerWords = '';
         let computerSawName = '';
-        const { pairing, offer } = await showPairingQr({
+        const { pairing, offer, abort } = await showPairingQr({
             approve: async (req) => {
                 computerWords = req.words;
                 computerSawName = req.name;
@@ -250,7 +268,11 @@ describe('native pairing over the byokit link', () => {
         });
         expect(offer).toMatch(/^byokit-link:1:/);
         let phoneWords = '';
-        const stored = await runPhonePairing(offer, { onWords: (words) => { phoneWords = words; } });
+        let stored: StoredHostedGrant;
+        try {
+            // The phone claims exactly what the terminal shows.
+            stored = await runPhonePairing(offer, { onWords: (words) => { phoneWords = words; } });
+        } catch (error) { await abort(); throw error; }
         expect(computerSawName).toBe('Android phone');
         expect(computerWords).not.toBe('');
         expect(phoneWords).toBe(computerWords);
@@ -311,7 +333,6 @@ describe('native pairing over the byokit link', () => {
             client.close();
         }
     }, 90_000);
-
 
     it('pairs a view-only browser over the link and limits its lifetime', async () => {
         phone.platform = 'web';
@@ -520,6 +541,46 @@ describe('native pairing over the byokit link', () => {
         } finally {
             await stop(child);
             await phonePairing?.catch(() => undefined);
+        }
+    }, 60_000);
+
+    it('pairs a phone from the compact offer the terminal shows when the full QR cannot fit', async () => {
+        let computerWords = '';
+        let phoneWords = '';
+        // A 120x30 terminal fits the compact QR and its one-line token but not
+        // the full v1 QR (37 rows), so the pairing string on screen is the
+        // compact offer. Placed after every test that counts the enrolled-device
+        // record, but before the link-drop test below: that one stops the relay
+        // this phone must dial.
+        const { pairing, offer, abort } = await showPairingQr({
+            approve: async (req) => { computerWords = req.words; return true; },
+        }, { columns: 120, rows: 30 });
+        expect(offer.startsWith(COMPACT_TAG)).toBe(true);
+        let stored: StoredHostedGrant;
+        try {
+            stored = await runPhonePairing(offer, { onWords: (words) => { phoneWords = words; } });
+        } catch (error) { await abort(); throw error; }
+        expect(phoneWords).toBe(computerWords);
+        expect(phoneWords).not.toBe('');
+        await pairing;
+        expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
+    }, 90_000);
+
+    it('prints the full pairing string in plain output on an 80-column terminal', async () => {
+        const previous = process.env.MUXR_NO_TUI;
+        process.env.MUXR_NO_TUI = '1';
+        try {
+            const { pairing, offer, abort } = await showPairingQr({ approve: async () => true }, { columns: 80, rows: 24 });
+            try {
+                expect(offer.startsWith('byokit-link:1:')).toBe(true);
+                expect(offer.length).toBeGreaterThan(200);
+            } finally {
+                await abort();
+                await pairing.catch(() => undefined);
+            }
+        } finally {
+            if (previous === undefined) delete process.env.MUXR_NO_TUI;
+            else process.env.MUXR_NO_TUI = previous;
         }
     }, 60_000);
 

@@ -17,6 +17,7 @@ const harness = vi.hoisted(() => ({
 vi.mock('react-native', () => ({
     Platform: { OS: 'android' },
     ActivityIndicator: 'ActivityIndicator',
+    Keyboard: { addListener: () => ({ remove: () => undefined }) },
     Pressable: 'Pressable',
     ScrollView: 'ScrollView',
     Text: 'Text',

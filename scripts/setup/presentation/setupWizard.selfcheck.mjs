@@ -126,9 +126,9 @@ async function checkWizard() {
             assert.deepEqual(answers, [], 'Wizard skipped an expected prompt');
             return output;
         };
-        const recommended = (transcript, title) => {
+        const recommended = (transcript, title, count = 1) => {
             const lines = transcript.split('\n').filter((line) => line.includes('· Recommended'));
-            assert.equal(lines.length, 1, 'Route picker must emit exactly one recommendation');
+            assert.equal(lines.length, count, 'Route picker must emit exactly one recommendation per screen');
             assert.ok(lines[0].includes(title), `Expected ${title}: ${lines[0]}`);
         };
 
@@ -143,10 +143,21 @@ async function checkWizard() {
         tailscaleConnected = true;
         const connected = await run(['', '1', '1', '1']);
         recommended(connected, 'Use muxr away from home (Tailscale)');
-        for (const title of ['Use muxr away from home (Tailscale)', 'Use muxr away from home — phone only (Tailscale)', 'Use muxr away from home (private network)', 'Works only on this Wi-Fi', 'Use muxr away from home (temporary link)', 'Use muxr away from home (your own server)']) {
-            assert.ok(connected.includes(title), `Missing route: ${title}`);
+        // The first screen leads with the single recommended route; the rest
+        // wait behind Other ways.
+        assert.ok(connected.includes('Other ways'));
+        for (const title of ['Use muxr away from home — phone only (Tailscale)', 'Use muxr away from home (private network)', 'Works only on this Wi-Fi', 'Use muxr away from home (temporary link)', 'Use muxr away from home (your own server)']) {
+            assert.ok(!connected.includes(title), `Route leaked past Other ways: ${title}`);
         }
-        assert.ok(connected.indexOf('Works only on this Wi-Fi') < connected.indexOf('Use muxr away from home (temporary link)'));
+        // Through Other ways the hidden routes are all reachable, and leaving
+        // by the same route review mutates nothing.
+        const alternatives = await run(['2', '2', '1', '1']);
+        recommended(alternatives, 'Use muxr away from home (Tailscale)', 2);
+        for (const title of ['Use muxr away from home — phone only (Tailscale)', 'Use muxr away from home (private network)', 'Works only on this Wi-Fi', 'Use muxr away from home (temporary link)', 'Use muxr away from home (your own server)']) {
+            assert.ok(alternatives.includes(title), `Missing route behind Other ways: ${title}`);
+        }
+        assert.match(alternatives, /Connection: Wi-Fi-only route on port/);
+        assert.deepEqual(calls, [], 'Other ways cancellation mutated setup');
         // No providers installed: the status-updates question is hidden,
         // so a first run is five steps of six, not six of seven.
         assert.deepEqual([...connected.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
@@ -205,8 +216,8 @@ async function checkWizard() {
         // The hidden status-updates question counts as declined.
         assert.deepEqual(calls.find(([name]) => name === 'prerequisites')[1], ['--no-integrations']);
 
-        // A provider installed means the question stays on a repeat run:
-        // seven steps, and the run answers it before cancelling at review.
+        // A provider installed means the question stays on a repeat run: it is
+        // asked inside the pairing step, so the run still has six steps.
         // (First runs always skip it and keep the phone default.)
         agentStatus = 'pi: current';
         currentSummary = {
@@ -216,7 +227,7 @@ async function checkWizard() {
         const providers = await run(['', 'wss://relay2.example', '2', '2', '1', '1']);
         assert.match(providers, /Keep agent status up to date\?/);
         assert.deepEqual([...providers.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
-            ['1', '2', '3', '4', '5', '6'].map((step) => [step, '7']));
+            ['1', '2', '3', '4', '5'].map((step) => [step, '6']));
         assert.deepEqual(calls, [], 'Cancellation mutated setup');
         agentStatus = 'pi: not installed';
         currentSummary = undefined;

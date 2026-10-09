@@ -2,7 +2,7 @@ import * as React from 'react';
 import * as Linking from 'expo-linking';
 import { pairingView } from '@byokit/ui-core/link';
 import * as Clipboard from 'expo-clipboard';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -16,6 +16,9 @@ import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
+
+// A cut-off or wrong-case offer still reaches review, which says why it cannot pair.
+const carriesPairingOffer = (raw: string) => looksLikeLinkOffer(raw) || /byokit-link:/i.test(raw) || raw.includes('pair=');
 
 type PairState =
     | { phase: 'confirm'; url: string; machineName: string; linkOffer?: boolean }
@@ -81,6 +84,15 @@ export default function PairScreen() {
     const [sshPassphrase, setSshPassphrase] = React.useState('');
     const [sshError, setSshError] = React.useState<string | undefined>(undefined);
     const [commandCopied, setCommandCopied] = React.useState(false);
+    // The hero icon has no room once the keyboard takes half the screen: it
+    // renders cut off under the header. Hide it while the keyboard is open
+    // instead of showing a clipped badge.
+    const [keyboardOpen, setKeyboardOpen] = React.useState(false);
+    React.useEffect(() => {
+        const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
+        const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false));
+        return () => { show.remove(); hide.remove(); };
+    }, []);
     // Native intent routes the offer into this screen's query param before Expo Router handles the URL.
     const routeParams = useLocalSearchParams();
     const browser = Platform.OS === 'web';
@@ -110,14 +122,14 @@ export default function PairScreen() {
     }, [auth.isAuthenticated, router]);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const switching = getCachedConnectionSettings().machineId !== '';
-    const routePairUrl = typeof routeParams.offer === 'string' && looksLikeLinkOffer(routeParams.offer)
+    const routePairUrl = typeof routeParams.offer === 'string' && carriesPairingOffer(routeParams.offer)
         ? routeParams.offer : undefined;
 
     React.useEffect(() => {
         let cancelled = false;
         const receive = (raw: string | null) => {
             if (cancelled || !raw) return false;
-            if (!raw.includes('byokit-link:') && !raw.includes('pair=')) return false;
+            if (!carriesPairingOffer(raw)) return false;
             reviewPairing(raw, 'intent');
             return true;
         };
@@ -231,9 +243,11 @@ export default function PairScreen() {
         <PairScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" {...(browser ? {} : { bottomOffset: 120 })}>
             <View style={styles.hero}>
-                <View style={styles.iconBadge}>
-                    <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
-                </View>
+                {!keyboardOpen && (
+                    <View style={styles.iconBadge}>
+                        <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
+                    </View>
+                )}
                 <Text style={styles.machineName} numberOfLines={2}>
                     {state === undefined
                         ? 'Securely pair this device'
