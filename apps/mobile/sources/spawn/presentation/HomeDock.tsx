@@ -25,7 +25,6 @@ import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
 import { FOCUS_BACK_SIZE, FOCUS_BACK_TOP, focusDockMaxHeight } from './focusDockLayout';
 import { t } from '@/text';
-import { Modal } from '@/modal';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
 import { RealtimeTalkButton } from '@/conversation/ui';
@@ -572,9 +571,11 @@ export const HomeDock = React.memo(({
     const currentProject = resolveDockOption(projectOptions, [selectedPath, '~']);
     const worktreeSelectionKey = selectedWorktreeKey(sessionType, worktreeKey);
     const [existingWorktrees, setExistingWorktrees] = React.useState<DockOption[]>([]);
+    const [worktreeProbeError, setWorktreeProbeError] = React.useState<string | null>(null);
 
     React.useEffect(() => {
         const path = resolveAbsolutePath(selectedPath ?? '~', selectedMachine?.metadata?.homeDir);
+        setWorktreeProbeError(null);
         if (!activeMachineId || !selectedMachine || !isMachineOnline(selectedMachine) || !path) {
             setExistingWorktrees([]);
             return;
@@ -587,7 +588,7 @@ export const HomeDock = React.memo(({
         }, (error: unknown) => {
             if (cancelled) return;
             setExistingWorktrees([]);
-            Modal.alert('Could not list worktrees', error instanceof Error ? error.message : String(error));
+            setWorktreeProbeError(error instanceof Error ? error.message : String(error));
         });
         return () => {
             cancelled = true;
@@ -1185,6 +1186,7 @@ export const HomeDock = React.memo(({
                             setWorktreeKey(next.worktreeKey);
                         }}
                         onClose={() => setOpenSheet(null)}
+                        footer={worktreeProbeError === null ? undefined : <Text style={styles.optionDescription}>{worktreeProbeError}</Text>}
                     />
                 </View>
             </RNModal>
