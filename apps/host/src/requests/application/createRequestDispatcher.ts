@@ -551,6 +551,12 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             planMoveInProgress = true;
             try {
                 const selected = resolvePlanRecord(process.env, params.accountId);
+                if (selected.provider === 'opencode') {
+                    throw Object.assign(
+                        new Error("Moving a conversation between OpenCode accounts isn't supported yet."),
+                        { code: 'plan-account-unavailable' },
+                    );
+                }
                 const record = await resolvePlanLaunch(process.env, params.accountId, selected.provider);
                 if (record === undefined) throw new Error('Sign in to that account before moving.');
                 if (source.movePlanAccount === undefined) {

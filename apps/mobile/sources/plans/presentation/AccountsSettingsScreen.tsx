@@ -17,6 +17,7 @@ import { Pill } from './accountParts';
 const PROVIDERS: { id: string; title: string }[] = [
     { id: 'claude', title: 'Claude' },
     { id: 'codex', title: 'ChatGPT (Codex)' },
+    { id: 'opencode', title: 'OpenCode' },
 ];
 
 /** Settings → Accounts: every sign-in muxr can start an agent on, by provider. */

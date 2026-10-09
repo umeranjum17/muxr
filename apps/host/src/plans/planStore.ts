@@ -11,9 +11,9 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-export type PlanProvider = 'claude' | 'codex';
-export const PLAN_PROVIDERS: PlanProvider[] = ['claude', 'codex'];
-export const PLAN_LABELS: Record<PlanProvider, string> = { claude: 'Claude', codex: 'Codex' };
+export type PlanProvider = 'claude' | 'codex' | 'opencode';
+export const PLAN_PROVIDERS: PlanProvider[] = ['claude', 'codex', 'opencode'];
+export const PLAN_LABELS: Record<PlanProvider, string> = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };
 
 export interface PlanAccountRecord {
     /** Opaque handle; `found-<provider>` for the found sign-in, random otherwise. */
@@ -55,7 +55,7 @@ function validRecord(value: unknown): PlanAccountRecord | undefined {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
     const row = value as Record<string, unknown>;
     if (typeof row.id !== 'string' || row.id === '' || row.id.length > 128) return undefined;
-    if (row.provider !== 'claude' && row.provider !== 'codex') return undefined;
+    if (row.provider !== 'claude' && row.provider !== 'codex' && row.provider !== 'opencode') return undefined;
     if (typeof row.name !== 'string' || row.name.length > 64) return undefined;
     if (typeof row.folder !== 'string' || row.folder === '' || row.folder.length > 8_192) return undefined;
     if (typeof row.found !== 'boolean') return undefined;
