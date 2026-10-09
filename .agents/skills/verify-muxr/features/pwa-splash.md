@@ -5,9 +5,10 @@ start shows the muxr mark on the system theme's background instead of a blank
 body or the manifest's old black flash. The splash is CSS and one inline SVG
 (the native mark from `public/favicon.svg`) written into the shell by
 `scripts/release/application/finalizeWebExport.mjs`; it follows
-`prefers-color-scheme` (light `#F2F2F7`, dark `#000000`) and is removed the
-moment React mounts `#root`, with no script, so it can never cover the app's own
-error or offline screen.
+`prefers-color-scheme` (light `#F2F2F7`, dark `#000000`), sized to the native
+launch splash's measured on-screen proportion (~29dp, `min(10.2vw,29px)`), and
+is removed the moment React mounts `#root`, with no script, so it can never
+cover the app's own error or offline screen.
 
 ## Sub-features
 
@@ -60,9 +61,14 @@ serve that very `apps/mobile/dist` with the repo static server on a free port
    `muxr-shell-<hash>` cached), stop the static server (kill only that exact
    PID), reload, and confirm `#root` has children, the splash is `display:none`,
    and the app's own screen renders instead of a browser error page.
-6. Native comparison: render `sources/assets/images/splash-android-light.png`
-   and `-dark.png` contained in a 393x844 frame as the native reference; the web
-   mark is the same wordmark (reused from `public/favicon.svg`).
+6. Native comparison: build a release APK (`scripts/buildAndroidLocal.sh` needs
+   the captain's signing secrets, so instead generate a throwaway keystore and
+   run `:app:assembleRelease` with `-PreactNativeArchitectures=x86_64` and the
+   `-Prelease*` properties), install it on an x86_64 emulator, launch, and
+   screenshot the OS splash (it shows for several seconds). The native mark and
+   the web mark should be the same size and sit on the same flat background. On
+   the reference 1080px/420dpi screen the native mark is 76px (7.0% of the
+   width); the web `min(10.2vw,29px)` matches at 393 and 270 px.
 
 ## Gotchas
 
