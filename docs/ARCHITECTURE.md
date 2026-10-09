@@ -81,13 +81,11 @@ exist.
 
 **The host owns**: the translation (herdr socket ⇄ app contract), stable session
 ids (herdr pane ids change on cross-workspace moves), the attention/inbox
-derivation, attachment files on disk, push triggers, the
-preview presence it measures from a pane's own screen or its pane-owned
-headless emulator (adb discovery) or a pane-claimed iOS Simulator (vendored idb,
-macOS), and the on-demand desktop
-engine processes it starts and stops — the computer's screen for one authorized
-viewer, or a pane's screen for an agent preview. It manages no agent processes
-and keeps no lifecycle ledger — a closed pane simply disappears from the app.
+derivation, attachment files on disk, push triggers, the preview presence it
+measures from a pane-owned headless emulator (adb discovery) or a pane-claimed
+iOS Simulator (vendored idb, macOS), and the on-demand desktop engine processes
+it starts and stops — the computer's screen for one authorized viewer. It manages
+no agent processes and keeps no lifecycle ledger — a closed pane simply disappears from the app.
 
 **The relay core owns**: blind `@byokit/relay` link routing, push registration,
 shared-relay machine enrollment and readiness/web serving. The host owns pairing
@@ -189,11 +187,10 @@ Beyond the session basics, the host exposes herdr's topology to the app:
   started together.
 - `SessionInfo` carries `workspaceId`/`tabId`/`workspaceLabel`, `terminalTitle`
   (OSC title breadcrumb), worktree provenance, and `preview` when the agent is
-  showing a watchable browser or emulator on its pane's own screen, or a
-  simulator the pane claimed. The host stamps `session.created` and
-  `session.updated` events, including cumulative reconnect replay, with the same
-  device-or-screen preview as session lists; a device preview takes precedence
-  over the pane's screen, so lifecycle updates do not clear its chip.
+  showing a headless emulator or a simulator the pane claimed. The host stamps
+  `session.created` and `session.updated` events, including cumulative reconnect
+  replay, with the same device preview as session lists, so lifecycle updates do
+  not clear its chip.
 
 ## Shared Artifacts and changes
 

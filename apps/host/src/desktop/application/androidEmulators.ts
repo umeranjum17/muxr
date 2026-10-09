@@ -35,8 +35,8 @@ import {
 /**
  * Headless emulators via scrcpy (D2.2).
  *
- * A `-no-window` emulator has no pixels on any screen, so the keeper can never
- * see it. Instead this watches `/proc` for one attributed to an agent pane,
+ * A `-no-window` emulator has no pixels on any screen, so Computer can never
+ * show it. Instead this watches `/proc` for one attributed to an agent pane,
  * starts the vendored scrcpy-server on it, and carries its H.264 through the
  * engine's encoded source — the same WebRTC path as every other preview, with
  * the phone's touch and device keys translated back into scrcpy control
@@ -143,7 +143,7 @@ function consolePort(pid: string, procRoot: string): number | undefined {
 
 /**
  * Every `-no-window` emulator on this machine, attributed to its pane.
- * Headed emulators are the keeper's business and never appear here.
+ * Windowed emulators are visible through Computer and never appear here.
  */
 export function scanAndroidEmulators(procRoot = '/proc'): DiscoveredEmulator[] {
     let pids: string[];

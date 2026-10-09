@@ -186,7 +186,7 @@ describe('a headless emulator in an agent pane', () => {
                 environ: '',
                 stat: '4200 (qemu-system-x86_64) S 4190 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n',
             });
-            // Headed: the keeper's business, invisible here.
+            // Windowed: visible through Computer, invisible here.
             procPid(proc, '4300', {
                 comm: 'qemu-system-x86_64\n',
                 cmdline: 'qemu-system-x86_64\x00-window\x00-port\x005580\x00',

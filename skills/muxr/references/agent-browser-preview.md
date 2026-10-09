@@ -39,8 +39,9 @@ security, or privacy boundary requiring their action or approval.
 
 ## Android and iOS device previews
 
-Device previews remain separate from Computer. An Android emulator attributed
-to this pane appears as a device chip, with or without its own desktop window.
+Device previews remain separate from Computer. A headless Android emulator attributed
+to this pane appears as a device chip. A windowed emulator stays unannounced;
+the person sees it through Computer.
 For an iOS Simulator on macOS, boot one you created and run
 `muxr preview claim <udid>` in that pane. The simulator chip remains while it
 is booted; taps, swipes and Home drive it. Run `muxr preview release` when done.

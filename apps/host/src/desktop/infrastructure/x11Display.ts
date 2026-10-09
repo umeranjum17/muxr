@@ -3,9 +3,8 @@
  * Xauthority cookie entry, a free display number and its socket, and the
  * cleanup a killed server leaves behind.
  *
- * Two owners use these: the host's own screen for a machine that has none
- * (`virtualDisplay.ts`) and the private screen of one agent pane
- * (retired private pane screens used the same helpers).
+ * The owner is Computer's virtual display for a machine with no screen
+ * (`virtualDisplay.ts`).
  */
 import { accessSync, constants, existsSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
