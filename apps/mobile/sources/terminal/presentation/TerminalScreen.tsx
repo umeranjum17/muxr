@@ -110,11 +110,10 @@ function plainTerminalStatus(status: string): string {
         case 'reconnecting': return 'Reconnecting…';
         case 'unconfirmed': return 'Connection unconfirmed';
         case CONNECT_STALLED: return 'Still connecting · Tap to retry';
-        case 'closed':
         case 'disconnected': return 'Disconnected · Tap to reconnect';
         case 'terminal write failed': return 'Could not draw the screen · Tap to retry';
     }
-    return /^terminal:|herdr stream/i.test(status) ? 'The terminal could not open · Tap to retry' : status;
+    return status;
 }
 
 /**

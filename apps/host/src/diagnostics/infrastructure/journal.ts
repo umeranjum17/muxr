@@ -79,6 +79,7 @@ const safeCodes: Record<string, true> = {
     'ticket-scope-mismatch': true,
     'preview-bridge-required': true,
     'agent-not-ready': true,
+    'agent-unavailable': true,
     timeout: true,
     unavailable: true,
     'not-connected': true,

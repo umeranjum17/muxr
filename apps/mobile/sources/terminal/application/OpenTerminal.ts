@@ -377,6 +377,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     function resubscribeNow(): void {
         if (closedByUser) return;
         attempts = 0;
+        goneSince = undefined;
         // An attach already on its way is this resubscribe.
         if (attachInFlight !== undefined) return;
         // A relay drop ends every stream on that link; one still registered is dead.
@@ -418,10 +419,16 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             ...(options?.mode === undefined ? {} : { mode: options.mode }),
             takeover,
         });
-        if (offer === undefined) throw new Error('The connection to the computer is not ready yet.');
+        if (offer === undefined) {
+            goneSince = undefined;
+            throw new Error('The connection to the computer is not ready yet.');
+        }
         const started = Date.now();
         const transport = await offer.catch(() => undefined);
-        if (transport === undefined) throw new Error('The computer is not ready to open this pane yet.');
+        if (transport === undefined) {
+            goneSince = undefined;
+            throw new Error('The computer is not ready to open this pane yet.');
+        }
         if (closedByUser || command.signal?.aborted) {
             transport.close();
             throw new Error('The terminal was closed.');
