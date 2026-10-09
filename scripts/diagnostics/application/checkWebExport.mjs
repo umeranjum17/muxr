@@ -41,6 +41,9 @@ if (manifest !== undefined) {
     const sizes = new Set((manifest.icons ?? []).map((icon) => `${icon.sizes}:${icon.purpose ?? 'any'}`));
     check('manifest 192 + 512 any icons', sizes.has('192x192:any') && sizes.has('512x512:any'));
     check('manifest maskable icons', sizes.has('192x192:maskable') && sizes.has('512x512:maskable'));
+    // The OS launch splash takes one colour; it is the light splash so the
+    // installed PWA never flashes black on a light phone (see finalizeWebExport).
+    check('manifest background matches the light splash', manifest.background_color === '#F2F2F7', String(manifest.background_color));
     for (const icon of manifest.icons ?? []) {
         const file = join(mobile, 'public', String(icon.src).replace(/^\//, ''));
         check(`manifest icon ${icon.src} ships`, existsSync(file));
@@ -110,6 +113,13 @@ if (!existsSync(distIndex)) {
     check('dist index viewport resizes content for the keyboard', /<meta name="viewport" content="[^"]*interactive-widget=resizes-content[^"]*"/.test(distHtml));
     check('dist index has exactly one viewport meta', (distHtml.match(/<meta name="viewport"/g) ?? []).length === 1);
     check('dist index carries no inline scripts (CSP script-src self)', !/<script(?![^>]*\bsrc=)[^>]*>[^<]/.test(distHtml));
+    // The themed web splash: from the first paint, follows the system theme,
+    // reuses the native mark, and hides itself structurally the moment React
+    // mounts so it can never cover the app's own error or offline screen.
+    check('dist index carries the themed web splash', distHtml.includes('id="muxr-splash"') && distHtml.includes('id="muxr-splash-style"'));
+    check('dist splash follows prefers-color-scheme', /@media \(prefers-color-scheme:dark\)/.test(distHtml) && distHtml.includes('#F2F2F7') && distHtml.includes('#000000'));
+    check('dist splash carries the muxr mark', distHtml.includes('aria-label="muxr"') && distHtml.includes('fill="currentColor"'));
+    check('dist splash hides when #root mounts', distHtml.includes('#root:not(:empty)+#muxr-splash{display:none}'));
     const refs = [...new Set(
         [...distHtml.matchAll(/(?:src|href)="(\/[^"]+\.(?:js|css))"/g)].map((match) => match[1]),
     )];
