@@ -4,7 +4,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 
-import { LazyCodeCore } from '@/components/code/lazyCodeSurfaces';
+import { CodeCore } from '@/components/code/lazyCodeSurfaces';
 import { PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES } from '@/components/code/codeLimits';
 import { MissingFileState } from '@/components/document/MissingFileState';
 import { isMissingFileError } from '@/utils/errors';
@@ -205,9 +205,7 @@ export default function FilesScreen() {
                         ? <Text style={{ color: theme.colors.textDestructive, fontSize: 14 }}>{error}</Text>
                         : preview !== undefined
                             ? <>
-                                <React.Suspense fallback={null}>
-                                    <LazyCodeCore code={preview.body} header fileName={preview.path} maxLines={PLUGIN_CODE_MAX_LINES} maxChars={PLUGIN_CODE_MAX_CHARS} />
-                                </React.Suspense>
+                                <CodeCore code={preview.body} header fileName={preview.path} maxLines={PLUGIN_CODE_MAX_LINES} maxChars={PLUGIN_CODE_MAX_CHARS} />
                                 {preview.note !== '' && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 8 }}>{preview.note}</Text>}
                                 <Pressable
                                     accessibilityRole="button"

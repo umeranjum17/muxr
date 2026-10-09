@@ -3,7 +3,7 @@ import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 
-import { LazyNavigableDiff } from '@/components/code/lazyCodeSurfaces';
+import { NavigableDiff } from '@/components/code/lazyCodeSurfaces';
 import { PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES } from '@/components/code/codeLimits';
 import { boundText } from '@/utils/boundedText';
 import { historyShow } from '@/catalog/ops';
@@ -47,9 +47,7 @@ export default function CommitScreen() {
                         : <>
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{shown?.meta}</Text>
                             <View style={{ marginBottom: 10 }}>
-                                <React.Suspense fallback={null}>
-                                    <LazyNavigableDiff patch={boundText(shown?.patch ?? '', PLUGIN_CODE_MAX_LINES, PLUGIN_CODE_MAX_CHARS).text} />
-                                </React.Suspense>
+                                <NavigableDiff patch={boundText(shown?.patch ?? '', PLUGIN_CODE_MAX_LINES, PLUGIN_CODE_MAX_CHARS).text} />
                             </View>
                         </>}
             </ScrollView>

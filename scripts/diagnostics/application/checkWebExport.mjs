@@ -136,11 +136,10 @@ if (!existsSync(distIndex)) {
     // Ratchet, not target. The terminal, the editor/diff surfaces and the
     // syntax highlighter load as lazy chunks, so none of them run on the landing
     // or pair routes. Same web export method on both trees: the merge base
-    // measured 3,031,632 B of initial transfer and this head measures 2,683,296 B
-    // (-348,336 B). The 2,670,000 B target is not met yet, so this ceiling still
-    // holds the previous round's pin (2,863,500 B) and is not yet tightened to
-    // the head figure. Tighten it once the head is under 2,670,000 B.
-    const USABLE_GZIP_CEILING = 2863500;
+    // measures 3,031,632 B of initial transfer and this head measures 2,661,138 B
+    // (-370,494 B). The ceiling is the 2,670,000 B target itself, since the head
+    // figure with ~0.5% headroom (2,674,415 B) would exceed it.
+    const USABLE_GZIP_CEILING = 2670000;
     check(`dist usable gzip ratchet (target 2,670,000 B)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,
@@ -148,10 +147,9 @@ if (!existsSync(distIndex)) {
     // shared application shell, not those payloads.
     const commonRef = refs.find((ref) => ref.includes('__common'));
     const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
-    // Ratchet, not target: the merge base's __common measured 1,106,153 B and
-    // this head measures 986,633 B. The ceiling is the previous round's pin
-    // (989,700 B), not re-pinned to this head.
-    check('dist __common chunk ratchet', commonGzip <= 989700, `${commonGzip} bytes`);
+    // Ratchet, not target: the merge base's __common measures 1,106,153 B and
+    // this head measures 964,565 B (-141,588 B), pinned with ~0.5% headroom.
+    check('dist __common chunk ratchet', commonGzip <= 969388, `${commonGzip} bytes`);
     const distText = [distHtml, ...refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
@@ -178,6 +176,7 @@ if (!existsSync(distIndex)) {
     }).join('\n');
     check('dist initial JS carries no TerminalRoute or xterm payload',
         !initialJs.includes('TerminalRoute=function({id:') && !initialJs.includes('xterm-scrollable-element') && !initialJs.includes('@xterm/addon-webgl'));
+    check('dist initial JS carries no syntax grammar payload', !initialJs.includes('source.cpp'));
     // Expo hashes asset names, so inspect emitted model-sized binaries instead
     // of grepping JS metadata for a legitimate filename.
     const MIN_WHISPER_MODEL_BYTES = 50 * 1024 * 1024;
