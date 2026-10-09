@@ -362,8 +362,8 @@ export const pt: TranslationStructure = {
 
     homeNotices: {
         // Quiet notices at the top of Home
-        versions: 'As versões do app e do host diferem',
-        reviewUpdates: 'revisar atualizações',
+        versions: 'As versões do app e do computador diferem',
+        reviewUpdates: 'Ver atualizações',
         runtimeOffline: ({ name }: { name: string }) => `herdr não responde em ${name}`,
         runtimeStale: 'as sessões podem estar desatualizadas',
         liveEmpty: 'Nenhum agente ativo · inicie um abaixo',

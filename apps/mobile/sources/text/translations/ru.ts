@@ -349,8 +349,8 @@ export const ru: TranslationStructure = {
 
     homeNotices: {
         // Quiet notices at the top of Home
-        versions: 'Версии приложения и хоста различаются',
-        reviewUpdates: 'проверить обновления',
+        versions: 'Версии приложения и компьютера различаются',
+        reviewUpdates: 'Проверить обновления',
         runtimeOffline: ({ name }: { name: string }) => `herdr не отвечает на ${name}`,
         runtimeStale: 'сессии могут быть устаревшими',
         liveEmpty: 'Нет активных агентов · запустите ниже',

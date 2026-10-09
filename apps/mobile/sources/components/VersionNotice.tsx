@@ -3,7 +3,8 @@ import { Platform, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { cardStyle, withAlpha } from '@/components/ui';
+import { withAlpha } from '@/components/ui';
+import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { useMachine } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
@@ -11,12 +12,23 @@ import { getAppVersion } from '@/utils/appVersion';
 import { versionsMismatch } from '@/utils/versionStatus';
 
 /**
- * The two Home notices, drawn as the spine's one quiet card (design-system
- * home.md §3.2): a 6pt dot carries the colour, the sentence stays 13/18 body
- * text with the reason after " · " in secondary. The version notice is the
- * only one with an action, so it is the only one with a chevron.
+ * A version difference is chronic and low-urgency, so it never takes the top
+ * slot: one quiet line (secondary text, no card, no dot, no chevron) at the
+ * foot of Home. The whole line is the action, opening the versions screen.
  */
 const stylesheet = StyleSheet.create((theme) => ({
+    line: {
+        marginHorizontal: 16,
+        marginTop: 8,
+        paddingVertical: 6,
+    },
+    text: {
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        lineHeight: 18,
+        ...Typography.default(),
+    },
+    // The runtime notice keeps the spine's quiet card (design-system home.md §3.2).
     card: {
         minHeight: 52,
         padding: 14,
@@ -25,7 +37,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 8,
     },
     dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.box.warning.text, marginTop: 6 },
-    text: { flex: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18 },
+    cardText: { flex: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18 },
     chevron: { marginTop: 2 },
 }));
 
@@ -34,7 +46,7 @@ function NoticeSentence({ text, sub, chevron }: { text: string; sub?: string; ch
     return (
         <>
             <View style={stylesheet.dot} />
-            <Text numberOfLines={2} style={stylesheet.text}>
+            <Text numberOfLines={2} style={stylesheet.cardText}>
                 {text}
                 {sub === undefined ? null : <Text style={{ color: theme.colors.textSecondary }}> · {sub}</Text>}
             </Text>
@@ -43,21 +55,25 @@ function NoticeSentence({ text, sub, chevron }: { text: string; sub?: string; ch
     );
 }
 
-/** Visible at Home, with one tap to the only detailed version/support screen. */
+/**
+ * The app and the computer run different versions: one quiet line, the whole
+ * line a tap to the only detailed version/support screen.
+ */
 export function VersionNotice() {
-    const { theme } = useUnistyles();
     const router = useRouter();
     const machine = useMachine(getCachedConnectionSettings().machineId);
     if (!versionsMismatch(getAppVersion(), machine?.metadata?.muxrCliVersion)) return null;
     return (
         <Pressable
             accessibilityRole="button"
-            accessibilityLabel="App and host versions differ. Review updates."
+            accessibilityLabel={`${t('homeNotices.versions')}. ${t('homeNotices.reviewUpdates')}.`}
             onPress={() => router.push('/settings/connection')}
-            style={({ pressed }) => [stylesheet.card, cardStyle(theme), pressed && Platform.select({ android: {}, default: { opacity: 0.75 } })]}
-            android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
+            style={({ pressed }) => [stylesheet.line, pressed && Platform.select({ android: {}, default: { opacity: 0.75 } })]}
         >
-            <NoticeSentence text={t('homeNotices.versions')} sub={t('homeNotices.reviewUpdates')} chevron />
+            <Text numberOfLines={2} style={stylesheet.text}>
+                {t('homeNotices.versions')}
+                <Text> · {t('homeNotices.reviewUpdates')}</Text>
+            </Text>
         </Pressable>
     );
 }
@@ -74,15 +90,12 @@ export function RuntimeNotice({ machineName }: { machineName?: string }) {
     );
 }
 
-/** Both notices in the document's order, above the first Home section. */
+/** The runtime notice still leads Home; the version line lives at its foot. */
 export function HomeNotices({ runtimeOffline, machineName }: { runtimeOffline: boolean; machineName?: string }) {
-    const machine = useMachine(getCachedConnectionSettings().machineId);
-    const versionMismatch = versionsMismatch(getAppVersion(), machine?.metadata?.muxrCliVersion);
-    if (!versionMismatch && !runtimeOffline) return null;
+    if (!runtimeOffline) return null;
     return (
-        <View style={{ marginHorizontal: 16, marginTop: 8, marginBottom: 12, gap: 8 }}>
-            {versionMismatch ? <VersionNotice /> : null}
-            {runtimeOffline ? <RuntimeNotice machineName={machineName} /> : null}
+        <View style={{ marginHorizontal: 16, marginTop: 8, marginBottom: 12 }}>
+            <RuntimeNotice machineName={machineName} />
         </View>
     );
 }
