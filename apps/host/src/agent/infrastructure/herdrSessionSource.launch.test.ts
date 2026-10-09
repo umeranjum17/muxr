@@ -12,7 +12,7 @@ import { DeviceLink, hostId, type DeviceGrant } from '@byokit/link';
 import { generateKeyPair } from '@trymuxr/crypto';
 import { startRelay } from '@muxr/relay';
 import { preparePlanSignIn } from '../../plans/planSignIn.js';
-import { planLaunchEnv } from '../../plans/plansApi.js';
+import { planLaunchEnv, resolvePlanLaunch } from '../../plans/plansApi.js';
 import { createAgentWatchStores } from '../application/watchStores.js';
 import { startHost } from '../../host.js';
 import { LinkEndpoint, type MachineCryptoState } from '../../machine/index.js';
@@ -821,6 +821,30 @@ describe('OpenCode account isolation', () => {
         } finally {
             await source.dispose();
             herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+
+    it('starts a lone OpenCode account in its own root when no account is picked', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-solo-'));
+        const bin = join(dir, 'bin');
+        mkdirSync(bin);
+        writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
+        chmodSync(join(bin, 'opencode'), 0o755);
+        const env: NodeJS.ProcessEnv = {
+            ...process.env,
+            HOME: join(dir, 'home'),
+            MUXR_HOME: join(dir, 'muxr'),
+            PATH: `${bin}:${process.env.PATH ?? ''}`,
+        };
+        try {
+            const only = await preparePlanSignIn(env, 'opencode');
+            mkdirSync(join(only.record.folder, '.local', 'share', 'opencode'), { recursive: true });
+            writeFileSync(join(only.record.folder, '.local', 'share', 'opencode', 'auth.json'), '{"openai":{}}');
+            const picked = await resolvePlanLaunch(env, 'auto', 'opencode');
+            expect(picked?.id).toBe(only.record.id);
+            expect(planLaunchEnv(env, picked!).set.HOME).toBe(only.record.folder);
+        } finally {
             rmSync(dir, { recursive: true, force: true });
         }
     }, 20_000);

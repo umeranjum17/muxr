@@ -146,7 +146,7 @@ export async function resolvePlanLaunch(env: NodeJS.ProcessEnv, chosen: string, 
         let reads: ProviderRooms;
         if (kind === 'opencode') reads = opencodeRows(env);
         else reads = await providerRooms(kind === 'codex' ? 'codex' : 'claude', env, deps, await kit.list());
-        if (reads.length < 2) return undefined;
+        if (reads.length < (kind === 'opencode' ? 1 : 2)) return undefined;
         const pick = selection(reads, chosen);
         if (!pick.ok) return undefined;
         record = resolvePlanRecord(env, pick.account.id);

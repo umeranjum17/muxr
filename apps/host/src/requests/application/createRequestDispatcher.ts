@@ -302,13 +302,17 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'session.start': async (params) => {
             const { peerMutation: _peerMutation, planAccount, planEnv: _planEnv, planUnset: _planUnset, signIn: _signIn, ...start } =
                 params as typeof params & { planEnv?: unknown; planUnset?: unknown; signIn?: unknown };
-            if (planAccount !== undefined && (start.kinds !== undefined || start.members !== undefined)) {
+            const chosen = planAccount ?? (start.kind === 'opencode' ? 'auto' : undefined);
+            if (chosen !== undefined && (start.kinds !== undefined || start.members !== undefined)) {
                 throw Object.assign(
                     new Error('A squad cannot start on one plan account. Start its agents separately.'),
                     { code: 'plan-squad-unsupported' },
                 );
             }
-            const record = planAccount === undefined ? undefined : await resolvePlanLaunch(process.env, planAccount, start.kind);
+            const record = chosen === undefined ? undefined : await resolvePlanLaunch(process.env, chosen, start.kind);
+            if (start.kind === 'opencode' && record === undefined && loadPlanAccounts(process.env).some((entry) => entry.provider === 'opencode')) {
+                throw Object.assign(new Error('Sign in to an OpenCode account before starting an agent.'), { code: 'plan-account-unavailable' });
+            }
             const launchEnv = record === undefined ? undefined : planLaunchEnv(process.env, record);
             const started = useCaseData(await startAgent({
                 exists: existsSync,
