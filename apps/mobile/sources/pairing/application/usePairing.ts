@@ -27,12 +27,19 @@ export function useHostedPairing() {
 }
 
 /**
+ * One consent line: the sentence the card shows, plus an optional command the
+ * person just ran on the computer. The card puts the command on its own,
+ * unbreakable line so a long flag never wraps inside itself.
+ */
+export type ConsentLine = { text: string; command?: string };
+
+/**
  * Describe the offer's authority before its one-time code is claimed, as the
  * two or three plain lines the consent card shows: what this device may do,
  * how long it lasts, and the safety check on the computer. An unreadable role
  * is stated as full control, because consent must never understate authority.
  */
-export function pairLinkConsent(scanned: string, machineName: string): string[] {
+export function pairLinkConsent(scanned: string, machineName: string): ConsentLine[] {
     const device = pairingDeviceKind();
     const noun = pairingDeviceNoun();
     const role = linkOfferRole(scanned);
@@ -42,10 +49,13 @@ export function pairLinkConsent(scanned: string, machineName: string): string[] 
     const lasts = device === 'browser'
         ? `It lasts ${hostedPairingDuration(scanned)}, then stops on its own.`
         : `It lasts until you remove it on ${machineName}.`;
-    const ran = device === 'browser'
-        ? `Only continue if you just ran ${role === 'view' ? 'muxr pair --browser-view' : 'muxr pair --browser'} on that computer.`
-        : 'Only continue if you just ran muxr on that computer.';
-    return [can, lasts, ran];
+    const command = device === 'browser'
+        ? (role === 'view' ? 'muxr pair --browser-view' : 'muxr pair --browser')
+        : undefined;
+    const safety: ConsentLine = command === undefined
+        ? { text: 'Only continue if you just ran muxr on that computer.' }
+        : { text: 'Only continue if you just ran this on that computer:', command };
+    return [{ text: can }, { text: lasts }, safety];
 }
 
 export { pairingDeviceNoun };
@@ -59,7 +69,9 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
 } = {}): Promise<boolean> {
     const device = pairingDeviceKind();
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
-    const confirmation = pairLinkConsent(scanned, machineName).join('\n');
+    const confirmation = pairLinkConsent(scanned, machineName)
+        .map((line) => line.command === undefined ? line.text : `${line.text} ${line.command}`)
+        .join('\n');
     const approved = await (options.confirm ?? ((title, words) => Modal.confirm(title, words, { confirmText: 'Pair' })))(
         `Pair with ${machineName}?`,
         confirmation,

@@ -278,7 +278,14 @@ export default function PairScreen() {
                             {pairLinkConsent(state.url, state.machineName).map((line, index) => (
                                 <View key={index} style={styles.grantRow}>
                                     <Text style={styles.grantBullet}>•</Text>
-                                    <Text style={styles.grantText}>{line}</Text>
+                                    <View style={styles.grantBody}>
+                                        <Text style={styles.grantText}>{line.text}</Text>
+                                        {line.command !== undefined && (
+                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.grantCommandScroll}>
+                                                <Text style={styles.grantCommand} numberOfLines={1} selectable>{line.command}</Text>
+                                            </ScrollView>
+                                        )}
+                                    </View>
                                 </View>
                             ))}
                         </View>
@@ -512,15 +519,29 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'flex-start',
         gap: 10,
     },
+    grantBody: {
+        flex: 1,
+        minWidth: 0,
+        gap: 4,
+    },
     grantBullet: {
         width: 18,
         lineHeight: 20,
         textAlign: 'center',
         color: theme.colors.textSecondary,
     },
+    grantCommandScroll: {
+        alignSelf: 'stretch',
+        maxWidth: '100%',
+    },
+    grantCommand: {
+        ...Typography.mono(),
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.text,
+    },
     grantText: {
         ...Typography.default(),
-        flex: 1,
         fontSize: 14,
         lineHeight: 20,
         color: theme.colors.text,
