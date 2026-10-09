@@ -10,7 +10,7 @@ by itself once the link is back. No tap, and no internal words such as
 - `terminal-relay-restart` the relay restarts under an open pane; the pane resubscribes when the computer answers again.
 - `terminal-network-drop` the phone's route to the relay goes away for a while and comes back; same recovery.
 - `terminal-last-frame` the pane's last output stays visible for the whole outage.
-- `terminal-plain-words` a host refusal (pane open on another device, pane could not start) reads as a plain sentence.
+- `terminal-plain-words` only what the person must act on ends the pane, in plain words: `Open on another device · Tap to use it here`, `This pane was closed on the computer`, or the machine's own pairing/update message.
 
 ## How to get to it (user POV)
 
@@ -46,8 +46,8 @@ Preconditions:
 
 - Before the fix, a reconnect showed `terminal: link refused the pane stream` and
   gave up after about 2.5 minutes; a baseline APK reproduces it with the same steps.
-- A host refusal is not retried: `This pane is open on another device. Tap to use it here.`
-  is the expected end state when another device took the pane.
+- Herdr busy, a pane not ready yet and a Herdr stream exit are all retried. Closing the
+  pane in Herdr ends it only after three `agent-unavailable` answers in a row (~9 s).
 - `adb reverse --remove` may leave an already-open socket alive on some adbd
   versions; if the header never reads offline, rely on the `relay` cut.
 - The lab never prints the pairing offer to its logs; keep it that way.
