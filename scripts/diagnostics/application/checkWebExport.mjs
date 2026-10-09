@@ -139,12 +139,13 @@ if (!existsSync(distIndex)) {
     // diff viewer resolves `shiki` to the slim static bundle (shikiSlim.ts),
     // the two @pierre/diffs entry points sit behind one boundary
     // (pierreBundle.ts), and every prism consumer sits behind one lazy chunk
-    // (codeSurfaces.tsx). None of it loads on the landing or pair routes. A
-    // fresh web export measured the initial transfer at 2,849,246 B, which is
-    // above the 2.0 MiB usable-screen target (2,097,152 B) the ratchet is meant
-    // to approach; the ratchet pins that measurement with ~0.5% headroom for
-    // cross-environment variance (exact-byte pins fail on noise). Closing the
-    // gap means splitting the shared application shell, which is the next slice.
+    // (codeSurfaces.tsx). None of it loads on the landing or pair routes. Same
+    // web export method on both trees: the merge base measured 3,031,632 B of
+    // initial transfer and this head measures 2,849,246 B (-182,386 B). That is
+    // still above the 2.0 MiB usable-screen target (2,097,152 B); the ratchet
+    // pins the head measurement with ~0.5% headroom for cross-environment
+    // variance (exact-byte pins fail on noise). Closing the gap means splitting
+    // the shared application shell, which is the next slice.
     const USABLE_GZIP_CEILING = 2863500;
     check(`dist usable gzip ratchet (target 2.0 MiB once the shell splits too)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
@@ -153,8 +154,9 @@ if (!existsSync(distIndex)) {
     // shared application shell, not those payloads.
     const commonRef = refs.find((ref) => ref.includes('__common'));
     const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
-    // Ratchet, not target: a fresh web export measured 984,678 B, so the
-    // ceiling carries ~0.5% headroom for the same cross-environment variance.
+    // Ratchet, not target: the merge base's __common measured 1,106,153 B and
+    // this head's measures 984,678 B, so the ceiling carries ~0.5% headroom for
+    // the same cross-environment variance.
     check('dist __common chunk ratchet', commonGzip <= 989700, `${commonGzip} bytes`);
     const distText = [distHtml, ...refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
