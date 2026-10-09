@@ -21,7 +21,7 @@ Release work updates every dependency with an available security fix and runs th
 
 ## What is not a vulnerability
 
-muxr has a deliberate trust model. Read [docs/PLUGINS.md](docs/PLUGINS.md), section "Trust", before reporting.
+muxr has a deliberate trust model; see [decision 0007](docs/decisions/0007-herdr-is-the-plugin-system.md) for the plugin boundary. Before reporting:
 
 - A paired phone or browser-with-shell-grants is equivalent to sitting at the host user's shell. `session.shell`, `machine.shell`, and `herdr.cli` are the product. "A paired device can run commands as me" is not a vulnerability.
 - Herdr backend plugins run unsandboxed as the host user by design. "A malicious plugin can run code on the host" is not a vulnerability; installing a plugin is equivalent to trusting local code.

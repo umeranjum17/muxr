@@ -1,6 +1,6 @@
 ---
 name: muxr
-description: Set up and operate muxr (control coding agents from your phone) — watch an agent's emulator or simulator chip, open pages on a machine's desktop session for the user to watch through Computer, use durable Shared Artifacts, install/pair/self-host, drive Herdr workspaces/panes/agents/worktrees, hand browser login/2FA/CAPTCHA to the phone, connect computers for cross-machine collaboration and voice, and author/install muxr plugins. Use for any muxr or Herdr setup, orchestration, collaboration, plugin, or troubleshooting task.
+description: Set up and operate muxr (control coding agents from your phone) — watch an agent's emulator or simulator chip, open pages on a machine's desktop session for the user to watch through Computer, use durable Shared Artifacts, install/pair/self-host, drive Herdr workspaces/panes/agents/worktrees, hand browser login/2FA/CAPTCHA to the phone, connect computers for cross-machine collaboration and voice. Use for any muxr or Herdr setup, orchestration, collaboration, or troubleshooting task.
 license: Apache-2.0
 compatibility: Requires the muxr and Herdr CLIs on a paired macOS or Linux host, with shell access for commands.
 ---
@@ -143,8 +143,6 @@ way to clear older history, and it shows the plan before deleting.
   `muxr report` creates a local draft only. Show the complete draft, ask whether
   the user wants to post it, and take no external action without an explicit
   yes. A diagnosis/report request is never posting approval. Keep raw logs local.
-- Secrets belong in plugin write-RPC input only — never in manifests,
-  declarative state, or rendered output.
 - The pane id contains a colon — always quote paths built from it.
 - Never expose the relay through Tailscale Funnel; muxr refuses it by design.
 

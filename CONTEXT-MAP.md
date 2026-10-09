@@ -7,15 +7,14 @@ muxr is one product with several features and modules. The glossary lives in [CO
 - [Herd](./packages/README.md#herd): Agent identity, Agent Lifecycle, Attention, Lifecycle Events, and session snapshots.
 - [Control plane](./packages/README.md#control-plane): Envelope routing, client/host requests, preview/terminal sockets, and encrypted session-log DTOs.
 - [Peer](./packages/README.md#peer): Peer Allowlist, Peer Mutation, and Device Grant constraint shape.
-- [Plugins](./packages/README.md#plugins): Plugin Identity, manifests, and public plugin context.
 - [Realtime](./packages/README.md#realtime): Provider-neutral voice frames and the public Agent map that may cross a stream process.
 - [Worktree](./packages/README.md#worktree): Worktree Landing outcomes.
 - [E2EE](./packages/README.md#e2ee): Device Grant, Pairing Code, v2 Envelope seal/open, and peer descriptors.
 
 ## Relationships
 
-- **Herd → Plugins / Realtime**: public snapshots copy Agent Route, Agent Name, Task Title, and Agent Lifecycle; only Agent Route authorizes.
-- **Control plane → Herd / Peer / Plugins / Worktree**: requests and host frames name those types; they do not re-decide their invariants.
+- **Herd → Realtime**: public snapshots copy Agent Route, Agent Name, Task Title, and Agent Lifecycle; only Agent Route authorizes.
+- **Control plane → Herd / Peer / Worktree**: requests and host frames name those types; they do not re-decide their invariants.
 - **Peer → E2EE**: Device Grant crypto enforces Peer Allowlist constraints already decided in Peer.
 - **Control plane → E2EE**: grant-backed Envelope headers (`envelopeIsHosted`) map once onto v2 context; Routing Channel is shared vocabulary.
 - **E2EE → Peer / Control plane / shared**: crypto imports those context entry points, not the contract mega-barrel.
@@ -28,7 +27,7 @@ Phone features under `apps/mobile/sources/`. Tree and public entries: [apps/mobi
 - **Herd**: Agent rows, live terminals, focus, lifecycle watch from the phone
 - **Spawn**: Start Agent, dock, Worktree landing
 - **Pairing**: Pair Machine, Reconnect Machine (shared with runtime)
-- **Plugins / Terminal / Desktop / Collaboration / Changelog / Settings**: phone chrome and host-backed surfaces
+- **Terminal / Desktop / Collaboration / Changelog / Settings**: phone chrome and host-backed surfaces
 
 ## Mobile runtime features
 
@@ -64,6 +63,5 @@ Application operations: [apps/mobile/sources/USE_CASES.md](./apps/mobile/sources
 ## Relationships
 
 - **CLI → named use cases**: `scripts/cli.mjs` is a composition root. It parses argv/menus and calls named application functions through each feature's public index.
-- **Setup → Plugin (public)**: linking plugins reads Plugin Id from the plugin public index
-- **Release → Setup / Plugin trees**: pack copies compiled context folders into the npm artifact
+- **Release → Setup tree**: pack copies compiled context folders into the npm artifact
 - **Diagnostics → Setup (public)**: self-host and Tailscale checks call setup use cases through the public index

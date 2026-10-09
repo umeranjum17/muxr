@@ -25,12 +25,12 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
 5. **Control real work**
    - Create a disposable git repository and start one real Herdr agent.
    - From the app: see working/waiting/done state, open its real terminal, send input, answer a prompt, stop/restart, and confirm the phone reflects Herdr truth.
-6. **Exercise public plugin parity**
-   - Open Usage and Machine (host product surfaces, not plugins).
+6. **Exercise public surfaces**
+   - Open Usage and Machine (host product surfaces).
    - Browse Files as a hierarchy and open a file.
    - Review Changes with status and +/- metadata.
    - Open/download a Shared Artifact and verify its bytes/SHA.
-   - Create/check/install one minimal third-party plugin through documented commands, and confirm realtime voice works from product Settings with no plugin installed.
+   - Confirm realtime voice works from product Settings.
 7. **Resilience and authority**
    - Restart host and relay; verify reconnect and cumulative state recovery.
    - Interrupt an open terminal; verify it re-attaches by itself, keeps its last frame, and reports only plain words. Use `terminal-reconnect.md` in verify-muxr for the driven recipe.
@@ -50,4 +50,4 @@ Record the source tag/SHA, APK/AAB SHA, environment versions, command transcript
 
 ## Release decision
 
-Ship only when the entire primary flow passes from the public tag and release artifacts without maintainer intervention. Documentation-only platform checks may remain clearly labeled, but setup, pairing, real agent control, plugin flows, restart, revocation, and cleanup are blockers.
+Ship only when the entire primary flow passes from the public tag and release artifacts without maintainer intervention. Documentation-only platform checks may remain clearly labeled, but setup, pairing, real agent control, restart, revocation, and cleanup are blockers.

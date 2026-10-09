@@ -26,10 +26,11 @@ implementation, because a slot is a trust surface, not a styling choice.
 
 In order of most to least welcome:
 
-1. **Plugins.** The plugin system is where most ideas belong. See
-   [docs/PLUGINS.md](docs/PLUGINS.md).
-2. **Docs.** Corrections, clarifications, and worked examples.
-3. **Core.** Small, and only after an ADR or maintainer agreement in an issue.
+1. **Docs.** Corrections, clarifications, and worked examples.
+2. **Core.** Small, and only after an ADR or maintainer agreement in an issue.
+3. **Herdr plugins.** Backend extensions belong to Herdr, not muxr; muxr
+   consumes Herdr actions (Applications) and ships no plugin system of its
+   own — see [decision 0007](docs/decisions/0007-herdr-is-the-plugin-system.md).
 
 ## What will be declined
 
