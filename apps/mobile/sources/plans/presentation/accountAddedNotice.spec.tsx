@@ -24,7 +24,7 @@ vi.mock('react-native-mmkv', () => ({
     },
 }));
 vi.mock('react-native', () => ({
-    Pressable: 'Pressable', Text: 'Text', TextInput: 'TextInput', View: 'View',
+    Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', TextInput: 'TextInput', View: 'View',
     useWindowDimensions: () => ({ width: 270, height: 594 }),
 }));
 const theme = vi.hoisted(() => ({ colors: {
