@@ -28,8 +28,6 @@ import { PathBreadcrumb } from '@/components/PathBreadcrumb';
 import { fileIcon } from './fileIcon';
 import { HOST_CODE_MAX_CHARS, HOST_CODE_MAX_LINES } from './codeLimits';
 
-export { PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES, HOST_CODE_MAX_CHARS, HOST_CODE_MAX_LINES } from './codeLimits';
-
 /** Reanimated's list, so the fade opacity can follow scroll without a JS round trip. */
 const RIGHT_FADE = 28;
 const LEFT_FADE = 16;

@@ -1,15 +1,14 @@
 /**
  * What `import "shiki"` resolves to on web (metro.config.js), for the diff
- * viewer. The stock bundle lazy-imports every grammar; the grammars embed one
- * another, so Metro's serializer files the shared ones under `__common`,
- * which index.html loads eagerly: megabytes of grammars before the first
- * paint. Here the grammars people actually diff are imported statically, so
- * the whole set lives in the lazy diff chunk. Anything else renders
- * unhighlighted, which is what pierre does for unknown languages.
+ * viewer. The grammars people diff most are imported statically, so they live
+ * in the lazy diff chunk. Every other grammar comes from shiki's own lazy
+ * language loader, so each one is fetched in its own chunk only when a diff
+ * needs it.
  */
 import { createBundledHighlighter, createSingletonShorthands, guessEmbeddedLanguages } from '@shikijs/core';
 import type { LanguageRegistration } from '@shikijs/core';
 import { createOnigurumaEngine } from '@shikijs/engine-oniguruma';
+import { bundledLanguages as lazyLanguages } from 'shiki/langs';
 import { bundledThemes } from 'shiki/themes';
 import c from '@shikijs/langs/c';
 import cpp from '@shikijs/langs/cpp';
@@ -46,21 +45,16 @@ export * from '@shikijs/core';
 export { bundledThemes, bundledThemesInfo } from 'shiki/themes';
 export { createJavaScriptRegexEngine } from '@shikijs/engine-javascript';
 export { createOnigurumaEngine } from '@shikijs/engine-oniguruma';
+export { bundledLanguagesAlias, bundledLanguagesBase, bundledLanguagesInfo } from 'shiki/langs';
 
-type Grammar = LanguageRegistration[];
-const grammars: Record<string, Grammar> = {
+const eager: Record<string, LanguageRegistration[]> = {
     c, cpp, css, diff, dockerfile, go, graphql, html, ini, java, javascript, json, jsonc, jsx, kotlin, make,
     markdown, php, python, ruby, rust, scss, shellscript, sql, swift, toml, tsx, typescript, xml, yaml,
 };
-const entries = Object.entries(grammars).map(([id, grammar]) => [id, () => Promise.resolve({ default: grammar })] as const);
-const aliases = Object.entries(grammars).flatMap(([id, grammar]) =>
-    (grammar[grammar.length - 1]?.aliases ?? []).map((alias) => [alias, () => Promise.resolve({ default: grammars[id]! })] as const));
-export const bundledLanguagesBase = Object.fromEntries(entries);
-export const bundledLanguagesAlias = Object.fromEntries(aliases);
-export const bundledLanguages = { ...bundledLanguagesBase, ...bundledLanguagesAlias };
-export const bundledLanguagesInfo = Object.entries(grammars).map(([id, grammar]) => ({
-    id, name: grammar[grammar.length - 1]?.displayName ?? id, aliases: grammar[grammar.length - 1]?.aliases, import: bundledLanguagesBase[id]!,
-}));
+const eagerLoaders = Object.fromEntries(
+    Object.entries(eager).map(([id, grammar]) => [id, () => Promise.resolve({ default: grammar })]),
+);
+export const bundledLanguages = { ...lazyLanguages, ...eagerLoaders };
 
 export const createHighlighter = createBundledHighlighter({
     langs: bundledLanguages,
