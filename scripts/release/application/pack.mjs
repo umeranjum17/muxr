@@ -200,16 +200,10 @@ const copyContext = (name) => {
 };
 copyFileSync(join(root, 'scripts', 'cli.mjs'), join(out, 'cli.mjs'));
 copyFileSync(join(root, 'muxr.config.example.json'), join(out, 'muxr.config.example.json'));
-for (const context of ['setup', 'plugin', 'release', 'diagnostics', 'terminal', 'naming', 'preview']) copyContext(context);
+for (const context of ['setup', 'release', 'diagnostics', 'terminal', 'naming', 'preview']) copyContext(context);
 if (!existsSync(join(out, 'setup', 'domain', 'dist', 'index.js'))) {
     throw new Error('setup domain was not compiled; run yarn build before packing');
 }
-if (!existsSync(join(out, 'plugin', 'domain', 'dist', 'index.js'))) {
-    throw new Error('plugin domain was not compiled; run yarn build before packing');
-}
-const extensionSource = readFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), 'utf8');
-if (!extensionSource.includes("from '@trymuxr/contract'")) throw new Error('plugin validator import changed; update the package rewrite');
-writeFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), extensionSource.replace("from '@trymuxr/contract'", "from '../../contract.mjs'"));
 cpSync(join(root, 'resources'), join(out, 'resources'), { recursive: true });
 // The retention rules live in one compiled host module so `muxr artifacts` and
 // the host's daily sweep cannot drift apart. It imports only node builtins,
@@ -262,7 +256,6 @@ const pkg = {
         '*.mjs',
         'release.json',
         'setup/',
-        'plugin/',
         'release/',
         'diagnostics/',
         'terminal/',

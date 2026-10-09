@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runCommand as run, spawnCommand as spawn, onCommandCleanup, commandSignal, assertCommandActive } from './commands.mjs';
 import { androidArgs } from './deviceTarget.mjs';
+import { waitForRelay } from '../../scripts/diagnostics/application/waitForRelay.mjs';
 
 const RELAY_ENTRY = 'apps/relay/dist/main.js';
 const HOST_ENTRY = 'apps/host/dist/main.js';
@@ -120,7 +121,7 @@ export async function startFakeStack(options = {}) {
 }
 
 /** Explicit live boundary: real auth HOME is never a cleanup or socket-write root. */
-export async function startLiveStack({ sourceRoot, authHome, socketPath, clientSocketPath, binPath }) {
+export async function startLiveStack({ sourceRoot, authHome, socketPath, clientSocketPath, binPath, machineName }) {
     const live = Object.fromEntries(Object.entries({ authHome, socketPath, clientSocketPath, binPath }).map(([key, path]) => {
         if (typeof path !== 'string' || !path.startsWith('/')) throw new Error(`Live stack requires absolute ${key}`);
         return [key, realpathSync(path)];
@@ -132,7 +133,7 @@ export async function startLiveStack({ sourceRoot, authHome, socketPath, clientS
     if (!statSync(live.binPath).isFile()) throw new Error('Live Herdr CLI must be a file');
     // Do not inherit relay identity, provider credentials, CODEX_HOME or fixture env.
     live.env = Object.fromEntries(['PATH', 'LANG', 'LC_ALL'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
-    return startStack({ sourceRoot }, live);
+    return startStack({ sourceRoot, setupHome: () => machineName === undefined ? {} : { MUXR_MACHINE_NAME: machineName } }, live);
 }
 
 async function startStack(options, live) {
@@ -177,9 +178,8 @@ async function startStack(options, live) {
     })}\n`, { encoding: 'utf8', mode: 0o600 });
     chmodSync(journalPath, 0o600);
 
-    const relayPort = await freePort();
-    let hostHttpPort = await freePort();
-    while (hostHttpPort === relayPort) hostHttpPort = await freePort();
+    let relayPort;
+    const hostHttpPort = await freePort();
     const children = [];
     // Which of our processes died, and whether we killed it. A gate that failed
     // because the host exited reads the same as one that timed out unless the
@@ -248,7 +248,7 @@ async function startStack(options, live) {
             cwd: sourceRoot,
             stdio: ['ignore', 'pipe', 'pipe'],
             env: childEnv(home, muxrHome, {
-                MUXR_RELAY_PORT: String(relayPort),
+                MUXR_RELAY_PORT: '0',
                 MUXR_RELAY_HOST: '127.0.0.1',
                 MUXR_RELAY_DATA_DIR: join(muxrHome, 'relay'),
                 MUXR_RELAY_LOCAL_AUTHORITY: '1',
@@ -259,6 +259,8 @@ async function startStack(options, live) {
         track('relay', relay);
         relay.stdout.on('data', (chunk) => relayLog.push(String(chunk)));
         relay.stderr.on('data', (chunk) => relayLog.push(String(chunk)));
+        relayPort = await waitForRelay(relay);
+        if (relayPort === 8792 || relayPort === 8793) throw new Error('Lab relay bound a reserved port');
         if (!await relayHealthy(relayPort)) {
             throw new Error(`the relay never became healthy: ${relayLog.join('').trim().split('\n').slice(-3).join(' | ')}`);
         }
@@ -363,7 +365,7 @@ async function startStack(options, live) {
             stop,
         };
     } catch (cause) {
-        if (!live) stop();
+        stop();
         throw cause;
     }
 }

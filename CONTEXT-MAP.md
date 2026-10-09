@@ -59,7 +59,6 @@ Application operations: [apps/mobile/sources/USE_CASES.md](./apps/mobile/sources
 
 
 - [Setup](./scripts/setup/README.md): Machine identity, pairing, Self-host Connection, Ingress, daemon, wizard, doctor
-- [Plugin](./scripts/plugin/README.md): Plugin Id, npm registry, `muxr plugin`
 - [Release](./scripts/release/README.md): pack the npm CLI and update an installed package
 - [Diagnostics](./scripts/diagnostics/README.md): flow checks, doctor entry, diagnostics dump
 ## Relationships

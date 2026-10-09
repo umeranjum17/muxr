@@ -43,8 +43,8 @@ import {
 
 /**
  * Single source of truth for manifest parsing and validation. The host catalog
- * (`apps/host`) and the CLI (`scripts/plugin/index.mjs`) both call this so
- * `muxr plugin check` accepts and rejects exactly what the runtime does.
+ * (`apps/host`) calls this so the runtime accepts and rejects manifests
+ * consistently.
  *
  * Unknown slots/types/nodes are skipped, not fatal; known shapes with invalid
  * fields throw. All cross-references (data cards, screens, navigation items,
