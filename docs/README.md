@@ -11,7 +11,6 @@ Start here, then follow one path.
 
 ## Extend it
 
-- [Build a muxr plugin](PLUGINS.md)
 - [Host/client contract gate](HOST-CONTRACT-COMPATIBILITY.md)
 
 ## Understand it

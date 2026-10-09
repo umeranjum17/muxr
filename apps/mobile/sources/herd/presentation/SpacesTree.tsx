@@ -133,11 +133,19 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 6,
         paddingVertical: 2,
         maxWidth: 140,
+        // The path chip is the row's flexible label: it ellipsizes first, before
+        // the name, and the agent count never shrinks, so a narrow row keeps the
+        // count whole. The high weight makes the chip give way before the name;
+        // the name keeps its own flexShrink for the extreme long-name case, and
+        // the min width keeps a collapsed chip's ellipsis visible.
+        flexShrink: 100,
+        minWidth: 24,
     },
     branchPillText: {
         fontSize: 10,
         lineHeight: 13,
         color: theme.colors.textSecondary,
+        flexShrink: 1,
         ...Typography.mono(),
     },
     countSummary: {

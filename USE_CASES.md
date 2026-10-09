@@ -1,6 +1,6 @@
 # Use cases
 
-Named application modules for operations muxr actually performs. CLI commands, Herdr plugin entries, and menus are adapters. Domain entities own invariants; use cases coordinate them.
+Named application modules for operations muxr actually performs. CLI commands, Herdr plugin entries, and menus are adapters. Domain entities own invariants; use cases coordinate them. muxr itself ships no plugin system — Herdr is the plugin system, and muxr consumes Herdr actions.
 
 There is no `services/` folder. A use case is one camelCase module that exports a function of the same name, takes a small command object (or argv already parsed into one), and returns an explicit result.
 
@@ -29,24 +29,9 @@ There is no `services/` folder. A use case is one camelCase module that exports 
 | Inspect peer Agent status | `inspectPeerAgent` | Lifecycle Event | `muxr peers status` |
 | Watch a peer Agent | `watchPeerAgent` | Agent Watch | `muxr peers watch` |
 
-## Plugin — Plugin Id
+## Voice
 
-| Capability | Use case | Domain owner | Adapters |
-|---|---|---|---|
-| Check a plugin | `checkPlugin` | Plugin Id | `muxr plugin check` |
-| Report check result | `reportPluginCheck` | Plugin Id | `muxr plugin check` stdout |
-| Create a plugin | `createPlugin` | Plugin Id | `muxr plugin create` |
-| Call a plugin RPC | `callPluginAction` | Plugin Id | `muxr plugin call` |
-| Link a plugin for development | `linkPlugin` | Plugin Id | `muxr plugin dev` |
-| Show plugin docs | `showPluginDocs` | — | `muxr plugin docs` |
-| List installed plugins | `listPlugins` | Plugin Id | `muxr plugin list` |
-| Install a plugin | `installPlugin` | Plugin Id | `muxr plugin install` |
-| Update a plugin | `updatePlugin` | Plugin Id | `muxr plugin update` |
-| Remove a plugin | `removePlugin` | Plugin Id | `muxr plugin remove` |
-
-## Voice (bundled Herdr plugins)
-
-Herdr keeps `rpc.mjs` at the plugin root. Those files are adapters.
+Voice is product code under the host voice module; Herdr plugin adapters are not part of this tree.
 
 | Capability | Use case | Domain owner | Adapters |
 |---|---|---|---|
