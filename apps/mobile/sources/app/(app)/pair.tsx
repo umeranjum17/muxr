@@ -120,7 +120,7 @@ export default function PairScreen() {
             if (cancelled || !raw) return false;
             // Both offer shapes ride here: the full `byokit-link:1:` offer and
             // the uppercase compact offer.
-            if (!raw.toLowerCase().includes('byokit-link:') && !raw.includes('pair=')) return false;
+            if (!looksLikeLinkOffer(raw) && !raw.includes('pair=')) return false;
             reviewPairing(raw);
             return true;
         };

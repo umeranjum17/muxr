@@ -74,10 +74,10 @@ export type PairingInputDecision
  */
 export function decidePairingInput(value: string): PairingInputDecision {
     const compact = value.replace(/\s+/g, '');
-    if (looksLikeLinkOffer(compact)) {
-        // A deep link or pasted link wraps the offer in a URL; the pairing
-        // itself needs the inner offer, never the wrapper.
-        const offer = linkOfferFromUrl(compact) ?? compact;
+    // A deep link or pasted link wraps the offer in a URL; the pairing
+    // itself needs the inner offer, never the wrapper.
+    const offer = linkOfferFromUrl(compact);
+    if (offer !== undefined) {
         if (linkOfferExpired(offer)) return { ok: false, message: EXPIRED_PAIRING_CODE, expired: true };
         // Anything carrying the link tag that neither kit reader accepts is cut off.
         if (readOffer(offer) === undefined) return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
@@ -95,14 +95,6 @@ export class PairingNeedsNewCode extends Error {}
 export function linkOfferFromUrl(value: string): string | undefined {
     const input = value.replace(/\s+/g, '');
     if (isLinkOffer(input)) return input;
-    // expo-router hands a custom-scheme deep link to native-intent as a
-    // path like `/pair#<offer>` (scheme stripped). Accept that form too.
-    const hash = input.indexOf('#');
-    if (hash >= 0) {
-        const before = input.slice(0, hash);
-        const offer = input.slice(hash + 1);
-        if ((before === 'pair' || before === '/pair') && isLinkOffer(offer)) return offer;
-    }
     try {
         const url = new URL(input);
         const app = ['muxr:', 'muxr-dev:', 'muxr-preview:'].includes(url.protocol)

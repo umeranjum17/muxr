@@ -384,7 +384,10 @@ function drawOffer(offer, intent) {
         : 'Other ways: copy the pairing string below (one token):';
     const hint = 'Make this window wider or taller to also see the code to type.';
     const oneLine = !richTerminal() || wrappedRows(token) === 1;
-    let left = richTerminal() ? terminalRows() - (code === undefined ? 0 : qrRows(code)) - (oneLine ? 0 : wrappedRows(hint)) : Infinity;
+    let left = richTerminal() ? terminalRows() - (code === undefined ? 0 : qrRows(code)) : Infinity;
+    const hintRows = oneLine ? 0 : wrappedRows(hint);
+    const hintShown = hintRows <= left;
+    if (hintShown) left -= hintRows;
     const lines = [];
     const take = (block) => {
         const rows = block.reduce((sum, line) => sum + wrappedRows(line), 0);
@@ -394,7 +397,7 @@ function drawOffer(offer, intent) {
         return true;
     };
     const titled = take([title]);
-    if (!oneLine) lines.push(hint);
+    if (!oneLine && hintShown) lines.push(hint);
     titled
         && (oneLine ? take([label, token]) : true)
         && take([`Expires at ${new Date(expires).toLocaleTimeString()}; refreshes automatically.`])

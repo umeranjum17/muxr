@@ -28,7 +28,7 @@ describe('a scanned pairing QR reaches pairing', () => {
         const host = await Host.open({ keys: keyPair(), name: 'Desk', handle: () => ({}), confirm: () => true });
         try {
             const offer = host.offer({ urls: [`ws://100.124.161.1:57709/link/v1/${host.id}`], role: 'control' }).text;
-            for (const url of [offer, ...['muxr', 'muxr-dev', 'muxr-preview'].map((scheme) => `${scheme}://pair#${offer}`), `https://relay.example.test/pair#${offer}`, `/pair#${offer}`, `pair#${offer}`]) {
+            for (const url of [offer, ...['muxr', 'muxr-dev', 'muxr-preview'].map((scheme) => `${scheme}://pair#${offer}`), `https://relay.example.test/pair#${offer}`]) {
                 expect(looksLikeLinkOffer(url)).toBe(true);
                 expect(redirectSystemPath({ path: url, initial: true })).toBe(`/pair?offer=${encodeURIComponent(offer)}`);
                 expect(decidePairingInput(url)).toMatchObject({ ok: true, offer });
@@ -117,7 +117,7 @@ describe('a scanned pairing QR reaches pairing', () => {
             // The same offer arriving as a deep link unwraps to the same text;
             // expo-router may hand native-intent either the full URL or the
             // bare path with the offer in the fragment.
-            for (const url of [`muxr-dev://pair#${compact}`, `https://relay.example.test/pair#${compact}`, `/pair#${compact}`, `pair#${compact}`]) {
+            for (const url of [`muxr-dev://pair#${compact}`, `https://relay.example.test/pair#${compact}`]) {
                 expect(looksLikeLinkOffer(url)).toBe(true);
                 expect(redirectSystemPath({ path: url, initial: true })).toBe(`/pair?offer=${encodeURIComponent(compact)}`);
                 // Whatever the delivery, pairing must receive the inner offer,
