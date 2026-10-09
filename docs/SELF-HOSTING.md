@@ -116,7 +116,7 @@ the terminal, so port 22 is the only inbound port the server needs.
    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb xfce4 xfce4-terminal dbus-x11 libpipewire-0.3-0t64 libxkbcommon0 libevdev2
    ```
 
-   muxr starts a private screen on it when you open the desktop, and again after
+   muxr starts a virtual screen on it when you open the desktop, and again after
    a reboot. If the packages are missing, the phone shows this command.
    On a machine without a Wayland session, muxr uses its X display. To choose
    yourself, set `MUXR_DESKTOP_SOURCE=x11` (optionally with
