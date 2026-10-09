@@ -50,7 +50,8 @@ Preconditions:
 - Before the fix, a reconnect showed `terminal: link refused the pane stream` and
   gave up after about 2.5 minutes; a baseline APK reproduces it with the same steps.
 - Herdr busy, a pane not ready yet and a Herdr stream exit are all retried. Closing the
-  pane in Herdr ends it only after three `agent-unavailable` answers in a row (~9 s).
+  pane in Herdr ends it only after `agent-unavailable` answers have gone on for 30 s
+  in a row; retries continue meanwhile.
 - `adb reverse --remove` may leave an already-open socket alive on some adbd
   versions; if the header never reads offline, rely on the `relay` cut.
 - The lab never prints the pairing offer to its logs; keep it that way.

@@ -208,10 +208,10 @@ export class LinkFirstClient implements SessionClient {
         try {
             stream = await link.stream(name, args);
         } catch (cause) {
-            // A refusal that pairing or an update must fix ends the client here,
-            // the same as a request would, so its words reach the person. A link
-            // this client already stopped has nothing left to report.
-            if (!this.closed && this.link === link) this.mapLinkFailure('terminal.attach', cause);
+            // A terminal refusal that pairing or an update must fix ends the client
+            // here, the same as a request would, so its words reach the person. A
+            // link this client already stopped has nothing left to report.
+            if (name === 'terminal' && !this.closed && this.link === link) this.mapLinkFailure('terminal.attach', cause);
             throw cause;
         }
         let ended = false;

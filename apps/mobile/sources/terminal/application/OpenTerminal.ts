@@ -90,9 +90,10 @@ const RETRY_MAX_MS = 10_000;
 class PaneRefusedError extends Error {}
 
 const TAKEN_OVER = 'Open on another device · Tap to use it here';
-// ponytail: a plan move can miss the route for a moment, so a pane reads as
-// closed on the computer only after this many answers in a row (~9 s).
-const GONE_AFTER = 3;
+// ponytail: a plan move or a lagging Herdr snapshot can miss the route for a
+// while, so a pane reads as closed on the computer only after the host has
+// kept answering "agent unavailable" for this long. Retries go on until then.
+const GONE_AFTER_MS = 30_000;
 const FINAL_ATTACH_REFUSALS: Record<string, string> = {
     takeover: TAKEN_OVER,
     'device-revoked': 'This device was removed from the computer · Pair again',
@@ -172,7 +173,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let attachInFlight: Promise<void> | undefined;
     let attachRequested = false;
     let takeoverRequested = false;
-    let goneAnswers = 0;
+    let goneSince: number | undefined;
 
     // The link is what this channel knows first-hand: attaching, or frames
     // flowing. There is no terminal heartbeat, so the only evidence that an
@@ -261,8 +262,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     };
     const applyClosedFrame = (frame: object): void => {
         const reason = typeof (frame as { reason?: unknown }).reason === 'string' ? (frame as { reason: string }).reason : undefined;
-        // Automatic foreground/reconnect must not steal control back.
-        // Only the user's visible retry action may reverse a takeover.
+        // Only the user's visible retry action may take control back once the
+        // pane has painted; automatic reconnects never do (see scheduleRetry).
         if (reason === 'control moved to another device') {
             surfaceHostRefusal(TAKEN_OVER);
             return;
@@ -288,7 +289,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         queuedInput = undefined;
         retryTimer = setTimeout(() => {
             retryTimer = undefined;
-            // Opening a pane takes it over; until it has painted, a retry is still that open.
+            // Until the pane has painted, a retry is still the person's open and
+            // takes the pane over; after the first frame, retries never do.
             requestAttach(!painted);
         }, Math.min(RETRY_BASE_MS * attempts, RETRY_MAX_MS));
     }
@@ -365,10 +367,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
      *  backoff, so a relay/host reconnect resubscribes instead of waiting out
      *  the timer. */
     function resubscribeNow(): void {
-        if (closedByUser || linkWire !== undefined) return;
+        if (closedByUser) return;
         attempts = 0;
         // An attach already on its way is this resubscribe.
         if (attachInFlight !== undefined) return;
+        // A relay drop ends every stream on that link; one still registered is dead.
+        if (linkWire !== undefined) retireLink(linkWire);
         if (retryTimer !== undefined) {
             clearTimeout(retryTimer);
             retryTimer = undefined;
@@ -451,7 +455,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     firstFrameOfStream = true;
                     if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
                     painted = true;
-                    goneAnswers = 0;
                     if (retryTimer !== undefined) {
                         clearTimeout(retryTimer);
                         retryTimer = undefined;
@@ -548,14 +551,15 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             beforeAck.length = 0;
             recordTerminalChannel('attach', { ok: false, error: ack.error ?? ack.code ?? 'link attach failed' });
             retireLink(transport);
-            goneAnswers = ack.code === 'agent-unavailable' ? goneAnswers + 1 : 0;
+            goneSince = ack.code === 'agent-unavailable' ? (goneSince ?? Date.now()) : undefined;
             let refusal = ack.streamLost || ack.code === undefined ? undefined : FINAL_ATTACH_REFUSALS[ack.code];
-            if (goneAnswers >= GONE_AFTER) refusal = 'This pane was closed on the computer';
+            if (goneSince !== undefined && Date.now() - goneSince >= GONE_AFTER_MS) refusal = 'This pane was closed on the computer';
             // A tap queued meanwhile (Tap to use it here) gets its own attempt.
             if (refusal !== undefined && !attachRequested) throw new PaneRefusedError(refusal);
             if (!closedByUser && !attachRequested) scheduleRetry();
             return;
         }
+        goneSince = undefined;
         recordTerminalChannel('attach', { ok: true });
         return;
     }

@@ -20,6 +20,8 @@ describe('terminal link cutover', () => {
         // The host's next attach answers; each refusal applies to one attach.
         const refusals: Array<{ error: string; code: string }> = [];
         const streams: Array<{ line: (value: string) => void; end: () => void; write: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = [];
+        let goneNow = false;
+        const gone = { error: 'That agent is no longer available. Refresh and try again.', code: 'agent-unavailable' };
         mocks.openTerminalLink.mockImplementation((args: { requestId: string }) => {
             let line!: (value: string) => void;
             let end!: () => void;
@@ -30,7 +32,7 @@ describe('terminal link cutover', () => {
                 onEnd: (listener: () => void) => { end = listener; return () => undefined; },
             };
             streams.push({ line: (value) => line(value), end: () => end(), write: transport.write, close: transport.close });
-            const refused = refusals.shift();
+            const refused = refusals.shift() ?? (goneNow ? gone : undefined);
             setTimeout(() => {
                 if (refused !== undefined) {
                     line(JSON.stringify({ type: 'result', requestId: args.requestId, ok: false, ...refused }));
@@ -103,9 +105,6 @@ describe('terminal link cutover', () => {
         // the pane is reconnecting. It resubscribes at once instead of waiting
         // out the retry backoff, and the last frame stays on screen throughout.
         storage.setState({ socketStatus: 'disconnected' });
-        streams[2]!.end();
-        // The stream-end handler runs on a microtask; let it retire the wire
-        // before the transport comes back.
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(painted).toEqual(['aGk=', 'aGk=', 'aGk=']);
         storage.setState({ socketStatus: 'connected' });
@@ -131,14 +130,20 @@ describe('terminal link cutover', () => {
         await vi.waitFor(() => expect(closes).toEqual(['Open on another device · Tap to use it here']));
         await new Promise((resolve) => setTimeout(resolve, 2000));
         expect(streams).toHaveLength(7);
-        // Taking it back is the tap. If the pane was closed on the computer
-        // meanwhile, the host keeps answering so, and the pane says it in words.
-        const gone = { error: 'That agent is no longer available. Refresh and try again.', code: 'agent-unavailable' };
-        refusals.push(gone, gone, gone);
+        // Taking it back is the tap. While the host keeps answering that the pane
+        // is gone, retries go on for 30 s; only then does the pane say so.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        goneNow = true;
+        const attachesBefore = streams.length;
         channel.reconnect(true);
-        await vi.waitFor(() => expect(closes.at(-1)).toBe('This pane was closed on the computer'), { timeout: 8000 });
-        expect(streams).toHaveLength(10);
-        expect(mocks.openTerminalLink.mock.calls[8]![0].takeover).toBe(true);
+        await vi.advanceTimersByTimeAsync(25_000);
+        expect(closes.at(-1)).toBe('Open on another device · Tap to use it here');
+        expect(streams.length).toBeGreaterThan(attachesBefore + 2);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(closes.at(-1)).toBe('This pane was closed on the computer');
+        expect(mocks.openTerminalLink.mock.calls.at(-1)![0].takeover).toBe(false);
+        vi.useRealTimers();
+        goneNow = false;
         expect(socket).not.toHaveBeenCalled();
         channel.close();
         vi.unstubAllGlobals();
