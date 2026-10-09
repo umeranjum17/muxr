@@ -1,6 +1,6 @@
 # Scan a pairing QR from the terminal
 
-`muxr pair` prints a centered QR when its complete quiet zone fits the terminal, then the instructions and the unwrapped pairing string when that string fits one line. The host mints both the full v1 offer and the compact offer; the terminal shows the full QR wherever it fits (only it resumes through the kit's pendingGrant when the phone dies before approval) and the compact QR where it cannot (80x24, 91x37). Small or plain terminals retain the exact string instead.
+`muxr pair` prints a centered QR when its complete quiet zone fits the terminal, then the instructions and the unwrapped pairing string when that string fits one line. The host mints both the full v1 offer and the compact offer; the terminal shows the full QR wherever it fits (only it resumes through the kit's pendingGrant when the phone dies before approval) and the compact QR where it cannot (80x24, 91x37). Plain output retains the exact string; on small rich terminals the token is hidden and a line asks for a wider or taller window.
 
 ## Sub-features
 
@@ -11,7 +11,7 @@
 - After verified pairing, a computer without `WAYLAND_DISPLAY` or `DISPLAY` skips screen-sharing approval with one plain line and exits 0.
 - Caught screen-sharing failures preserve the real reason and say pairing is done only after verified pairing. Fatal CLI exceptions/rejections print one plain line and exit 1; `MUXR_DEBUG=1` enables their stack.
 - A QR needs its matrix width and half-block row count. The offer view prints the QR first and the text after it, with no trailing newline, so the text takes only the rows left over; `printTerminalQr` (setup) keeps one cursor row below.
-- When the token does not fit on one line, the offer shows one line asking for a wider or taller window where rows allow; at 80x24 the title takes the only row beside the QR. The QR is still whole. Setup's `printTerminalQr` prints an omission reason instead.
+- When the token does not fit on one line, the offer shows one line asking for a wider or taller window where rows allow, and that line takes its row before the title, so at 80x24 the QR and that line are all that show. The QR is still whole. Setup's `printTerminalQr` prints an omission reason instead.
 - At the approval prompt, Enter re-asks without rejecting the device; `y` approves and `n` declines.
 - A non-TTY `muxr pair` (AI agent or script) never approves: it prints exactly one line — `Pairing needs you at this computer's terminal: run `muxr pair` yourself` — and exits 2. The person must run `muxr pair` at the terminal.
 

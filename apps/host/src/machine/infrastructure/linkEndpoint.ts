@@ -443,7 +443,8 @@ export class LinkEndpoint {
             const compact = this.host.compactOffer({ urls, role, kind: intent.kind,
                 ...(intent.lifetime === undefined ? {} : { lifetime: intent.lifetime }) });
             return { ...offer, compactText: compact.text, compactExpires: compact.expires };
-        } catch {
+        } catch (error) {
+            process.stderr.write(`muxr: compact pairing offer unavailable, showing the full offer: ${error instanceof Error ? error.message : String(error)}\n`);
             return offer;
         }
     }

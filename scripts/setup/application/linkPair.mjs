@@ -382,7 +382,9 @@ function drawOffer(offer, intent) {
     const label = intent.kind === 'browser'
         ? 'Open the browser pairing link below (one token):'
         : 'Other ways: copy the pairing string below (one token):';
-    let left = richTerminal() ? terminalRows() - (code === undefined ? 0 : qrRows(code)) : Infinity;
+    const hint = 'Make this window wider or taller to also see the code to type.';
+    const oneLine = !richTerminal() || wrappedRows(token) === 1;
+    let left = richTerminal() ? terminalRows() - (code === undefined ? 0 : qrRows(code)) - (oneLine ? 0 : wrappedRows(hint)) : Infinity;
     const lines = [];
     const take = (block) => {
         const rows = block.reduce((sum, line) => sum + wrappedRows(line), 0);
@@ -391,8 +393,10 @@ function drawOffer(offer, intent) {
         left -= rows;
         return true;
     };
-    take([title])
-        && ((!richTerminal() || wrappedRows(token) === 1) && take([label, token]) || take(['Make this window wider or taller to also see the code to type.']))
+    const titled = take([title]);
+    if (!oneLine) lines.push(hint);
+    titled
+        && (oneLine ? take([label, token]) : true)
         && take([`Expires at ${new Date(expires).toLocaleTimeString()}; refreshes automatically.`])
         && take(['Compare the two words, then approve on this computer.'])
         && take(['Waiting for the device to finish pairing…']);
