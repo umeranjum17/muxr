@@ -632,7 +632,7 @@ if (input[0] === undefined && process.stdin.isTTY && process.stdout.isTTY) {
             ...(!sharedRelay ? [{ value: 'devices', title: 'Pair or manage devices', description: 'pair a phone or browser, list devices, or revoke access' }] : []),
             ...(sharedRelay ? [{ value: 'machines', title: 'Manage agent computers', description: 'create enrollment, list computers, or revoke one' }] : []),
             { value: 'doctor', title: 'Check setup', description: 'run read-only diagnostics; nothing is changed' },
-            { value: 'change', title: sharedRelay ? 'Change shared relay' : 'Change connection and integrations', description: sharedRelay ? 'review public connection, browser hosting, and relay service changes' : 'review networking, browser hosting, coding-agent lifecycle detection, and plugins' },
+            { value: 'change', title: sharedRelay ? 'Change shared relay' : 'Change connection and integrations', description: sharedRelay ? 'review public connection, browser hosting, and relay service changes' : 'review networking, browser hosting, and coding-agent lifecycle detection' },
             { value: 'update', title: 'Update muxr', description: 'check npm first; install only after confirmation' },
             { value: 'advanced', title: 'Advanced', description: 'restart, shared relays, command reference, and full uninstall' },
             { value: 'quit', title: 'Quit' },
