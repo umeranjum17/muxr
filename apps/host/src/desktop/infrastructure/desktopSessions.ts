@@ -18,13 +18,18 @@ import { VirtualDisplay } from './virtualDisplay.js';
  * DISPLAY or an X socket owned by its uid. Only the host selects the source;
  * a client cannot ask to reach another desktop.
  */
-function configuredSource(env: NodeJS.ProcessEnv, x11SocketDirectory: string): SourceRequest | undefined {
+function explicitDesktopSource(env: NodeJS.ProcessEnv): string | undefined {
     const kind = env.MUXR_DESKTOP_SOURCE?.trim();
+    return kind === undefined || kind === '' ? undefined : kind;
+}
+
+function configuredSource(env: NodeJS.ProcessEnv, x11SocketDirectory: string): SourceRequest | undefined {
+    const kind = explicitDesktopSource(env);
     if (kind === 'x11') {
         const display = env.MUXR_DESKTOP_X11_DISPLAY?.trim();
         return display === undefined || display === '' ? { kind: 'x11' } : { kind: 'x11', display };
     }
-    if ((kind !== undefined && kind !== '') || waylandSession(env)) return undefined;
+    if (kind !== undefined || waylandSession(env)) return undefined;
     const display = env.DISPLAY?.trim() || firstXDisplay(x11SocketDirectory);
     return display === undefined || display === '' ? undefined : { kind: 'x11', display };
 }
@@ -55,8 +60,7 @@ function waylandSession(env: NodeJS.ProcessEnv): boolean {
 
 /** Nothing set, no Wayland session and no DISPLAY: a server, whose screen, if any, the host finds or starts. */
 function headless(env: NodeJS.ProcessEnv): boolean {
-    const kind = env.MUXR_DESKTOP_SOURCE?.trim();
-    return (kind === undefined || kind === '') && !waylandSession(env) && !env.DISPLAY?.trim();
+    return explicitDesktopSource(env) === undefined && !waylandSession(env) && !env.DISPLAY?.trim();
 }
 
 /** A headless machine with no X display at all: a server without a screen. */
@@ -70,10 +74,10 @@ function screenless(env: NodeJS.ProcessEnv, x11SocketDirectory: string): boolean
  * screen lives on one, and panes never share it.
  */
 export function hostDesktopForPanes(env: NodeJS.ProcessEnv): { screen: boolean; x11Display?: string | undefined } {
-    const kind = env.MUXR_DESKTOP_SOURCE?.trim();
-    const x11Display = kind !== undefined && kind !== '' && kind !== 'x11'
-        ? undefined
-        : env.MUXR_DESKTOP_X11_DISPLAY?.trim() || env.DISPLAY?.trim() || undefined;
+    const source = explicitDesktopSource(env);
+    const x11Display = source === undefined || source === 'x11'
+        ? env.MUXR_DESKTOP_X11_DISPLAY?.trim() || env.DISPLAY?.trim() || undefined
+        : undefined;
     if (x11Display !== undefined) return { screen: true, x11Display };
     return env.WAYLAND_DISPLAY?.trim() ? { screen: true } : { screen: false };
 }

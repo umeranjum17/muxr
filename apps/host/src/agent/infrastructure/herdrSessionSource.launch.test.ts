@@ -432,6 +432,40 @@ describe('phone launch before herdr detects the agent', () => {
 });
 
 describe('new panes share the host desktop', () => {
+    it('never hands a portal-selected desktop an X display, and keeps Wayland when present', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-portal-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        vi.stubEnv('MUXR_DESKTOP_SOURCE', 'portal');
+        vi.stubEnv('DISPLAY', ':42');
+        vi.stubEnv('WAYLAND_DISPLAY', '');
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const headless = await source.start({ cwd, kind: 'claude' });
+            if (!('info' in headless)) throw new Error('launch rejected');
+            const headlessEnv = herdr.panes.at(-1)?.env as Record<string, string>;
+            expect(headlessEnv).not.toHaveProperty('DISPLAY');
+            expect(headlessEnv.MUXR_AGENT_CAPABILITIES).toContain('run browsers headless');
+
+            vi.stubEnv('WAYLAND_DISPLAY', 'wayland-lab');
+            const wayland = await source.start({ cwd, kind: 'claude' });
+            if (!('info' in wayland)) throw new Error('launch rejected');
+            const waylandEnv = herdr.panes.at(-1)?.env as Record<string, string>;
+            expect(waylandEnv).toMatchObject({ WAYLAND_DISPLAY: 'wayland-lab' });
+            expect(waylandEnv).not.toHaveProperty('DISPLAY');
+        } finally {
+            vi.unstubAllEnvs();
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+
     it('keeps the desktop environment through start, split, worktree, restore and tab creation', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-desktop-'));
         const cwd = join(dir, 'repo');
