@@ -2,6 +2,7 @@
 export * from './application/PairMachine';
 export * from './application/ReconnectMachine';
 export { forgetMachine } from './application/forgetMachine';
+export { resolvePairArrival, type PairArrivalTarget } from './application/pairArrival';
 export { restoreConnection } from './application/restoreConnection';
 export * from './application/useCheckCameraPermissions';
 export * from './application/useDeviceAuthority';
@@ -19,6 +20,7 @@ export {
     grantAuthorizesMachine,
     grantRejectsDowngrade,
     hostedTransportReady,
+    offerMatchesGrant,
     pickGrantForConnection,
     type DeviceAuthority,
     type VerifiedGrantDecision,
@@ -28,6 +30,7 @@ export {
     hostedPairingDisplayName,
     parsePairingString,
     prepareHostedPairingInput,
+    type PairArrivalSource,
     type PairingString,
     type PairingStringParse,
 } from './domain/pairingString';
