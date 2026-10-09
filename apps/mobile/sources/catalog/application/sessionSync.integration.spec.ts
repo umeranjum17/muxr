@@ -329,11 +329,15 @@ describe('session sync flow', () => {
         }
     });
 
-    it('shows the human copy when a busy computer misses the Dock worktree step', async () => {
+    it('shows the human copy when a busy computer misses the Dock worktree steps, never an empty worktree list', async () => {
+        const { createWorktree, listWorktrees } = await import('../../spawn/application/worktree');
+        const human = "Your computer didn't answer. Check the connection, then try again.";
         request.mockRejectedValueOnce(new Error('request timed out'));
-        const { createWorktree } = await import('../../spawn/application/worktree');
-        const result = await createWorktree('machine', '/repo');
-        expect(result).toMatchObject({ success: false, error: "Your computer didn't answer. Check the connection, then try again." });
+        expect(await createWorktree('machine', '/repo')).toMatchObject({ success: false, error: human });
+        request.mockRejectedValueOnce(new Error('request timed out'));
+        await expect(listWorktrees('machine', '/repo')).rejects.toThrow(human);
+        request.mockResolvedValueOnce({ stdout: '', stderr: 'fatal: not a git repository', exitCode: 128 });
+        await expect(listWorktrees('machine', '/repo')).resolves.toEqual([]);
     });
 
     it('quit-agent-keeps-shell while a reported launch failure stays on the retired route', async () => {

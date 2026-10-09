@@ -128,7 +128,10 @@ export async function listWorktrees(
         'git worktree list --porcelain',
         basePath
     );
-    if (!result.success) return [];
+    if (!result.success) {
+        if (result.exitCode === -1) throw new Error(result.stderr);
+        return [];
+    }
 
     // Porcelain output has blocks separated by blank lines.
     // First block is the main worktree — skip it.

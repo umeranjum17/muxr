@@ -25,6 +25,7 @@ import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
 import { FOCUS_BACK_SIZE, FOCUS_BACK_TOP, focusDockMaxHeight } from './focusDockLayout';
 import { t } from '@/text';
+import { Modal } from '@/modal';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
 import { RealtimeTalkButton } from '@/conversation/ui';
@@ -583,6 +584,10 @@ export const HomeDock = React.memo(({
         listWorktreeOptions(activeMachineId, path).then((worktreeOptions) => {
             if (cancelled) return;
             setExistingWorktrees(worktreeOptions);
+        }, (error: unknown) => {
+            if (cancelled) return;
+            setExistingWorktrees([]);
+            Modal.alert('Could not list worktrees', error instanceof Error ? error.message : String(error));
         });
         return () => {
             cancelled = true;

@@ -369,6 +369,13 @@ describe('link session sync flow', () => {
         expect(harness.socketError).toContain('same private network');
         expect(harness.socketError).not.toContain('Pair again:');
 
+        // The relay answering again while the host is still down replaces the
+        // earlier "can't reach" card at the next grace, not only on reconnect.
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
+        await vi.advanceTimersByTimeAsync(30_000);
+        await vi.waitFor(() => expect(harness.socketError).toContain('is not connected'));
+        expect(harness.socketError).not.toContain('same private network');
+
         // A named computer on LAN asks about Wi-Fi; on Tailscale about Tailscale.
         harness.grant = { machineId: 'machine-a', machineName: 'Umer', relayUrl: 'ws://192.168.1.20:8792', source: 'selfhost' } as never;
         health.mockRejectedValueOnce(new Error('network unreachable'));
