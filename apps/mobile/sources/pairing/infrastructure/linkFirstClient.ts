@@ -105,6 +105,12 @@ export function relayWithoutHostMessage(computer: string): string {
     return `Can't reach ${computer}: its muxr relay is online, but the computer is not connected. Wake the computer and make sure muxr is running there; if this device was removed, pair again.`;
 }
 
+/** How long a link may stay offline, redialing, before the phone asks the relay why. */
+const OFFLINE_GRACE_MS = 30_000;
+
+/** How often the relay is asked again while the link stays offline. */
+const OFFLINE_RECHECK_MS = 10_000;
+
 /** One byokit link, including its terminal, desktop, voice and push streams. */
 export class LinkFirstClient implements SessionClient {
     private link: DeviceLink | undefined;
@@ -116,7 +122,7 @@ export class LinkFirstClient implements SessionClient {
     private closed = false;
     private retryTimer: ReturnType<typeof setTimeout> | undefined;
     private retryAttempt = 0;
-    private lastHealthCheck = 0;
+    private offlineCheck: ReturnType<typeof setTimeout> | undefined;
     private healthGeneration = 0;
     private handshake = 0;
     private lastPush: { token: string; level: LifecycleNotificationLevel } | undefined;
@@ -438,6 +444,7 @@ export class LinkFirstClient implements SessionClient {
         if (this.closed || this.link === undefined) return;
         const handshake = ++this.handshake;
         if (status === 'online') {
+            this.stopWatchingOffline();
             this.healthGeneration++;
             this.retryAttempt = 0;
             void this.admitHost(this.link, handshake);
@@ -459,7 +466,7 @@ export class LinkFirstClient implements SessionClient {
             void this.checkHealth(true);
             return;
         }
-        if (status === 'offline' && Date.now() - this.lastHealthCheck > 10_000) void this.checkHealth();
+        if (status === 'offline') this.watchOffline();
         if (this.online) {
             this.online = false;
             this.setState('connecting', true);
@@ -488,10 +495,29 @@ export class LinkFirstClient implements SessionClient {
         }
     }
 
+    /** A link that stays offline gets its relay checked after a grace, and again
+     *  every recheck interval while it stays offline, so the card follows the
+     *  relay coming or going. A busy host misses a heartbeat or a dial deadline
+     *  and comes back on the kit's next redial, so the first offline stays
+     *  "connecting". */
+    private watchOffline(delayMs = OFFLINE_GRACE_MS): void {
+        if (this.offlineCheck !== undefined || this.closed) return;
+        this.offlineCheck = setTimeout(() => {
+            this.offlineCheck = undefined;
+            void this.checkHealth().then(() => {
+                if (!this.closed && !this.online && this.link?.status === 'offline') this.watchOffline(OFFLINE_RECHECK_MS);
+            });
+        }, delayMs);
+    }
+
+    private stopWatchingOffline(): void {
+        if (this.offlineCheck !== undefined) clearTimeout(this.offlineCheck);
+        this.offlineCheck = undefined;
+    }
+
     private async checkHealth(refused = false): Promise<void> {
         const stored = this.options.hostedGrant;
         if (stored === undefined || this.closed) return;
-        this.lastHealthCheck = Date.now();
         const generation = this.healthGeneration;
         const route = describeRoute(stored.relayUrl);
         // The grant's pairing name, never the internal machine id.
@@ -603,6 +629,7 @@ export class LinkFirstClient implements SessionClient {
     private stopLink(): void {
         const link = this.link;
         this.link = undefined;
+        this.stopWatchingOffline();
         this.desktopTransport?.close();
         this.desktopTransport = undefined;
         const wasOnline = this.online;
