@@ -100,6 +100,12 @@ if (!existsSync(distIndex)) {
     process.stdout.write('..  dist export absent — skipping dist budget/origin checks (CI exports first)\n');
 } else {
     const distHtml = read(distIndex);
+    const distWorkerPath = join(mobile, 'dist', 'sw.js');
+    const distWorker = existsSync(distWorkerPath) ? read(distWorkerPath) : '';
+    check('dist service worker installs an offline app shell', distWorker.includes("addEventListener('install'")
+        && distWorker.includes("addEventListener('fetch'") && distWorker.includes("const SHELL_URL = '/index.html'"));
+    check('dist service worker carries a build shell version', /const SHELL_VERSION = '[0-9a-f]{16}'/.test(distWorker));
+    check('dist service worker omits the unfinalized version token', !distWorker.includes('__MUXR_SHELL_VERSION__'));
     check('dist index links the manifest', distHtml.includes('<link rel="manifest" href="/manifest.webmanifest">'));
     check('dist index theme-color', distHtml.includes('name="theme-color"'));
     check('dist index iOS web-app metadata', distHtml.includes('apple-mobile-web-app-capable') && distHtml.includes('rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"'));
