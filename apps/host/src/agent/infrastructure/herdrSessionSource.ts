@@ -30,6 +30,7 @@ import type {
     SessionStatus,
 } from '@trymuxr/contract';
 import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@trymuxr/contract';
+import { hostDesktopForPanes } from '../../desktop/index.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
@@ -111,14 +112,16 @@ const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pa
  */
 function paneEnvironment(): Record<string, string> {
     const agentDir = process.env.PI_CODING_AGENT_DIR?.trim();
+    const desktop = hostDesktopForPanes(process.env);
     const desktopEnv = Object.fromEntries(
         ['DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'XDG_SESSION_TYPE']
             .flatMap((name) => process.env[name] === undefined ? [] : [[name, process.env[name]!]]),
     );
-    const browser = desktopEnv.DISPLAY || desktopEnv.WAYLAND_DISPLAY ? `${DESKTOP_BROWSER}${HEADED_BROWSER}` : HEADLESS_BROWSER;
+    const browser = desktop.screen ? `${DESKTOP_BROWSER}${HEADED_BROWSER}` : HEADLESS_BROWSER;
     return {
         MUXR_AGENT_CAPABILITIES: `${browser}${ARTIFACT_GUIDANCE}`,
         ...desktopEnv,
+        ...(desktop.x11Display === undefined ? {} : { DISPLAY: desktop.x11Display }),
         ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),
     };
 }
@@ -1304,7 +1307,7 @@ export async function createHerdrSessionSource(
             lifecycleEpochByPane.delete(paneId);
             if (!panesById.has(paneId)) artifacts.dropPane(paneId);
         }
-        // A pane that left Herdr's tree takes its screen, keeper and socket with it.
+        // A pane that left Herdr's tree takes its socket with it.
         await routes.flush();
         reconcileLaunchFailures();
 

@@ -64,6 +64,17 @@ function screenless(env: NodeJS.ProcessEnv, x11SocketDirectory: string): boolean
     return headless(env) && firstXDisplay(x11SocketDirectory) === undefined;
 }
 
+/**
+ * The desktop a pane on this host should use: whether there is a screen at
+ * all, and the X display DesktopSessions opens when it is one. Same selection
+ * as Computer's, so a pane is told to run headed exactly when Computer can show it.
+ */
+export function hostDesktopForPanes(env: NodeJS.ProcessEnv, x11SocketDirectory = X11_SOCKET_DIRECTORY): { screen: boolean; x11Display?: string | undefined } {
+    if (screenless(env, x11SocketDirectory)) return { screen: false };
+    const source = configuredSource(env, x11SocketDirectory);
+    return { screen: true, x11Display: source?.kind === 'x11' ? source.display : undefined };
+}
+
 function firstXDisplay(directory: string): string | undefined {
     try {
         const uid = process.getuid?.();
@@ -107,6 +118,7 @@ interface LiveSession extends DesktopSessionRecord {
 }
 
 /** How many notifications one session keeps for a client that fell behind. */
+export const X11_SOCKET_DIRECTORY = '/tmp/.X11-unix';
 const MAX_BACKLOG = 512;
 const LINK_DISCONNECT_GRACE_MS = 20_000;
 
@@ -147,7 +159,7 @@ export class DesktopSessions {
     private readonly portalGrant: PortalGrant | undefined;
     private readonly virtualDisplay: VirtualDisplay;
 
-    constructor(options: DesktopEngineOptions = {}, private readonly x11SocketDirectory = '/tmp/.X11-unix') {
+    constructor(options: DesktopEngineOptions = {}, private readonly x11SocketDirectory = X11_SOCKET_DIRECTORY) {
         this.options = options;
         this.portalGrant = options.stateRoot === undefined ? undefined : new PortalGrant(options.stateRoot);
         this.virtualDisplay = new VirtualDisplay(this.environment, x11SocketDirectory);

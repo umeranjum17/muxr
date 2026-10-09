@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DesktopSessions, type DesktopEngineOptions } from '../infrastructure/desktopSessions.js';
+import { DesktopSessions, hostDesktopForPanes, type DesktopEngineOptions } from '../infrastructure/desktopSessions.js';
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -742,4 +742,12 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
         expect(sent.map((request) => request.method)).toContain('shutdown');
         await desktop.closeAll();
     }, 20_000);
+});
+
+describe('panes share the host desktop selection', () => {
+    it('gives panes the X display the host selected, and no screen on a host with none', () => {
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11', MUXR_DESKTOP_X11_DISPLAY: ':99' })).toEqual({ screen: true, x11Display: ':99' });
+        const missing = join(tmpdir(), 'muxr-no-desktop-socket-that-does-not-exist');
+        expect(hostDesktopForPanes({ XDG_RUNTIME_DIR: missing }, missing)).toEqual({ screen: false });
+    });
 });

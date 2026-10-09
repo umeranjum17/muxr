@@ -362,8 +362,6 @@ describe('phone launch before herdr detects the agent', () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-'));
         const cwd = join(dir, 'repo');
         const herdr = fakeHerdr(dir, cwd);
-        vi.stubEnv('DISPLAY', '');
-        vi.stubEnv('WAYLAND_DISPLAY', '');
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
             dataDir: join(dir, 'data'),
@@ -382,7 +380,6 @@ describe('phone launch before herdr detects the agent', () => {
             // Herdr's own snapshot has replaced the seeded record: launch name, no kind yet.
             await source.refreshHerdr();
             expect(herdr.agents[0]).toEqual({ pane_id: 'w1:p1', name: expect.stringMatching(/^pp_/), agent_status: 'idle' });
-            expect(herdr.tabs[0]).toMatchObject({ env: { MUXR_AGENT_CAPABILITIES: expect.stringContaining('no desktop session, so run browsers headless') } });
             expect(herdr.tabs[0]?.env).toMatchObject({ MUXR_AGENT_CAPABILITIES: expect.stringContaining('muxr share <path>') });
             let pane = treePane(await source.herdrTree(), 'w1:p1');
             expect(pane).toMatchObject({ agentKind: 'claude', sessionId });
@@ -427,7 +424,6 @@ describe('phone launch before herdr detects the agent', () => {
         } finally {
             unsubscribe();
             vi.restoreAllMocks();
-            vi.unstubAllEnvs();
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });

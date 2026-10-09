@@ -281,7 +281,7 @@ export type DevicePreviewKind = Extract<PreviewPresence['kind'], 'android' | 'io
 
 /**
  * Discovered devices → one announced presence of this tracker's kind per pane.
- * Same hysteresis as the keeper road: no flicker on a device restart.
+ * Hysteresis, so a device restart does not flicker the chip.
  */
 export class DevicePresenceTracker {
     private readonly kind: DevicePreviewKind;
