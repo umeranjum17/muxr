@@ -80,7 +80,8 @@ describe('a scanned pairing QR reaches pairing', () => {
         }
     });
 
-    it('ignores barcodes that are not pairing links, and refuses look-alikes that are', () => {        // The camera reports everything in view; none of this may open a
+    it('ignores barcodes that are not pairing links, and refuses look-alikes that are', () => {
+        // The camera reports everything in view; none of this may open a
         // confirmation prompt.
         for (const noise of [
             'WIFI:S:cafe;T:WPA;P:hunter2;;',
