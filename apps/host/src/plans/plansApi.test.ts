@@ -3,13 +3,13 @@
  * stub tools. No real account: one folder's credentials
  * are chmod 000 and the list still works.
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { preparePlanSignIn, planAccountStatus, finishPlanSignIn, cancelPlanSignIn } from './planSignIn.js';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
+import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
 import { loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
 
 const mockState = vi.hoisted(() => ({ failRename: false, failRefreshAllocation: false, failRefreshCleanup: false }));
@@ -522,4 +522,84 @@ it('adopts a found default sign-in into its own managed folder', async () => {
     expect(providers[0]?.accounts.map((account) => account.id).sort()).toEqual([prepared.record.id, work.record.id].sort());
     expect(readFileSync(canary, 'utf8')).toBe('default-fixture-untouched');
     expect(JSON.stringify(prepared)).not.toContain('fixture-token-unlogged');
+});
+
+/** OpenCode accounts are muxr-owned private HOME+XDG roots (the tool keeps its
+ *  sign-in in the XDG data root, not OPENCODE_CONFIG_DIR): two accounts sign in
+ *  and stay apart, and the same root serves the sign-in tab and agent starts. */
+it('keeps two OpenCode sign-ins in their own private roots through sign-in, launch, rename and removal', async () => {
+    const bin = join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'opencode'), `#!/bin/bash
+if [[ "$1 $2" == "auth login" && -n "$OC_FIXTURE" ]]; then
+  mkdir -p "$XDG_DATA_HOME/opencode"
+  printf '{"%s":{"type":"api","key":"INERT_SYNTHETIC"}}' "$OC_FIXTURE" > "$XDG_DATA_HOME/opencode/auth.json"
+elif [[ "$1 $2" == "auth logout" ]]; then
+  printf '{}' > "$XDG_DATA_HOME/opencode/auth.json" 2>/dev/null
+fi
+exit 0
+`);
+    chmodSync(join(bin, 'opencode'), 0o755);
+    env = { ...env, PATH: `${bin}:${env.PATH}`, OPENCODE_CONFIG_DIR: '/tmp/ambient-opencode', OPENCODE_AUTH_CONTENT: 'ambient-auth' };
+    const computerOwn = join(root, 'share', 'opencode');
+    mkdirSync(computerOwn, { recursive: true });
+    writeFileSync(join(computerOwn, 'auth.json'), '{"ambient":{"type":"api","key":"NEVER_ADOPTED"}}');
+
+    const a = await preparePlanSignIn(env, 'opencode');
+    const b = await preparePlanSignIn(env, 'opencode');
+    expect(a.record.folder).not.toBe(b.record.folder);
+    expect(a.record.folder.startsWith(join(env.MUXR_HOME!, 'plans', 'opencode'))).toBe(true);
+    // A brand-new root is private, empty, and never seeded from the computer's own sign-in.
+    for (const record of [a.record, b.record]) {
+        expect((statSync(record.folder).mode & 0o777)).toBe(0o700);
+        expect(existsSync(join(record.folder, '.local', 'share', 'opencode', 'auth.json'))).toBe(false);
+    }
+    // One descriptor for the sign-in tab and agent starts: the private root, with ambient OpenCode redirects carried out.
+    for (const prepared of [a, b]) {
+        const launch = planLaunchEnv(env, prepared.record);
+        expect(launch.set.HOME).toBe(prepared.record.folder);
+        expect(launch.set.XDG_DATA_HOME).toBe(join(prepared.record.folder, '.local', 'share'));
+        expect(launch.set).not.toHaveProperty('OPENCODE_CONFIG_DIR');
+        for (const name of ['OPENCODE_AUTH_CONTENT', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_TEST_HOME', 'OPENCODE_DB']) {
+            expect(launch.unset).toContain(name);
+        }
+    }
+    expect((await listPlans(env)).providers.map((entry) => entry.provider)).toEqual(['opencode']);
+    await expect(resolvePlanLaunch(env, a.record.id, 'claude')).rejects.toMatchObject({ code: 'plan-kind-mismatch' });
+
+    // Sign in to A inside its own tab: only A's root gains credentials; B and the computer's own stay as they were.
+    execFileSync('/bin/sh', ['-c', a.launch.signIn], { env: { ...env, ...a.launch.planEnv, OC_FIXTURE: 'oc-fixture-a' } });
+    const statusA = await planAccountStatus(env, a.record.id);
+    expect(statusA.account.signedIn).toBe(true);
+    expect((await planAccountStatus(env, b.record.id)).account.signedIn).toBe(false);
+    expect((await planAccountStatus(env, b.record.id)).account.name).toBe('OpenCode 2');
+    const bAuth = join(b.record.folder, '.local', 'share', 'opencode', 'auth.json');
+    expect(existsSync(bAuth)).toBe(false);
+    expect(readFileSync(join(computerOwn, 'auth.json'), 'utf8')).toContain('NEVER_ADOPTED');
+    expect(JSON.stringify(statusA)).not.toContain('INERT_SYNTHETIC');
+
+    // Both signed-in state and launch pick the same account, and the list shows the provider with its two roots.
+    expect((await resolvePlanLaunch(env, a.record.id, 'opencode'))?.id).toBe(a.record.id);
+    expect(await resolvePlanLaunch(env, b.record.id, 'opencode')).toBeUndefined();
+    const listed = await listPlans(env);
+    expect(listed.providers.map((entry) => entry.provider)).toContain('opencode');
+    const entry = listed.providers.find((candidate) => candidate.provider === 'opencode')!;
+    expect(entry.accounts.map((account) => account.signedIn)).toEqual([true, false]);
+    expect(entry.accounts.map((account) => account.name)).toEqual(['OpenCode', 'OpenCode 2']);
+
+    // Sign out of A (the tool's own logout inside A's root): B's absence of state is untouched.
+    execFileSync('/bin/sh', ['-c', 'opencode auth logout'], { env: { ...env, ...planLaunchEnv(env, a.record).set } });
+    expect((await planAccountStatus(env, a.record.id)).account.signedIn).toBe(false);
+    expect(existsSync(bAuth)).toBe(false);
+
+    // A cancelled fresh account goes away with its root; a named account renames and removes cleanly.
+    const fresh = await preparePlanSignIn(env, 'opencode');
+    expect(await cancelPlanSignIn(env, fresh.record.id)).toEqual({ removed: true });
+    expect(existsSync(fresh.record.folder)).toBe(false);
+    const renamed = await renamePlanAccount(env, a.record.id, 'Umer');
+    expect(renamed.account.name).toBe('Umer');
+    expect(await removePlanAccount(env, a.record.id)).toEqual({ deletedFolder: true });
+    expect(existsSync(a.record.folder)).toBe(false);
+    expect(existsSync(b.record.folder)).toBe(true);
+    expect(readFileSync(join(computerOwn, 'auth.json'), 'utf8')).toContain('NEVER_ADOPTED');
 });

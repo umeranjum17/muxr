@@ -14,8 +14,8 @@ import {
 
 export const ACTIVE_SESSION_MS = AGENT_STILL_LISTED_MS;
 
-/** Preview kinds this build can open; the host may announce newer ones. */
-const KNOWN_PREVIEW_KINDS = new Set<string>(['browser', 'android', 'ios']);
+/** Preview kinds this build can open; a newer or retired kind is unavailable, never opened. */
+const KNOWN_PREVIEW_KINDS = new Set<string>(['android', 'ios']);
 
 function parseTime(value: string | undefined, fallback = Date.now()): number {
     if (value === undefined) return fallback;

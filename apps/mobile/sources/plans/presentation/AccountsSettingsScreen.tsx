@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Text, View } from 'react-native';
+import { ScrollView, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
@@ -8,7 +8,7 @@ import { ItemList } from '@/components/ItemList';
 import { Switch } from '@/components/Switch';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { providerEntry, providerName, type PlanAccount } from '../domain/planAccounts';
+import { providerName, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, usePlans, usePlansStore } from '../application/plansStore';
 import { planFailure, removeAccount, renameAccount } from '../application/plansApi';
 import { Notice, useAccountFlows, useFlows } from './AccountFlows';
@@ -17,6 +17,7 @@ import { Pill } from './accountParts';
 const PROVIDERS: { id: string; title: string }[] = [
     { id: 'claude', title: 'Claude' },
     { id: 'codex', title: 'ChatGPT (Codex)' },
+    { id: 'opencode', title: 'OpenCode' },
 ];
 
 /** Settings → Accounts: every sign-in muxr can start an agent on, by provider. */
@@ -28,6 +29,14 @@ export function AccountsSettingsScreen() {
     const autoOn = usePlansStore((state) => state.autoOn);
     const setAutoOn = usePlansStore((state) => state.setAutoOn);
     const landed = useFlows((state) => state.landed);
+    const notice = useFlows((state) => state.notice);
+    const listRef = React.useRef<ScrollView>(null);
+    // The notice is the first row of the list. After adding an account the list
+    // is scrolled down to the "Add" row, so bring the notice into view; it then
+    // pushes every account row below it, and the list scrolls to reach them.
+    React.useEffect(() => {
+        if (notice !== null) listRef.current?.scrollTo({ y: 0, animated: false });
+    }, [notice]);
 
     const rename = async (account: PlanAccount) => {
         const name = await Modal.prompt('Rename account', account.email, {
@@ -70,80 +79,71 @@ export function AccountsSettingsScreen() {
     };
 
     return (
-        <View style={styles.screen}>
-            {/* The notice sits above the scrolling list, so it pushes the rows
-                down instead of covering the first one and is always readable. */}
+        <ItemList ref={listRef}>
             <Notice inline />
-            <ItemList>
-                <Text style={styles.lede}>
-                    Only shown when you have more than one account for a provider. With one account, muxr works exactly as before.
-                </Text>
-                {list === null && (
-                    <ItemGroup>
-                        <Item title="This computer can't list accounts yet" subtitle="Update muxr on the computer to use more than one account." subtitleLines={2} />
-                    </ItemGroup>
-                )}
-                {list !== null && PROVIDERS.map((provider) => {
-                    // Below two accounts the host lists none: the computer's own sign-in stays as it is.
-                    const accounts = providerEntry(list, provider.id)?.accounts ?? [];
-                    return (
-                        <ItemGroup key={provider.id} title={provider.title}>
-                            {accounts.map((account) => (
-                                <Item
-                                    key={account.id}
-                                    selected={account.id === landed}
-                                    style={account.id === landed ? { backgroundColor: theme.colors.surfacePressed } : undefined}
-                                    title={account.name}
-                                    subtitle={subtitle(account)}
-                                    subtitleLines={1}
-                                    meta={facts(account)}
-                                    metaLines={0}
-                                    icon={<Ionicons
-                                        name={account.signedIn ? 'person-circle-outline' : 'alert-circle-outline'}
-                                        size={28}
-                                        color={account.signedIn ? theme.colors.text : theme.colors.textSecondary}
-                                    />}
-                                    // Signed out, the row signs in; its other actions sit behind a long press.
-                                    rightElement={account.signedIn ? undefined : <Pill label="Sign in" link />}
-                                    showChevron={account.signedIn}
-                                    onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
-                                    onLongPress={() => actions(account)}
-                                    accessibilityLabel={[account.name, subtitle(account), facts(account)].filter(Boolean).join(', ')}
-                                />
-                            ))}
+            <Text style={styles.lede}>
+                Claude and ChatGPT show once you have more than one account for them; OpenCode shows as soon as you add one. With one Claude or ChatGPT account, muxr works exactly as before.
+            </Text>
+            {list === null && (
+                <ItemGroup>
+                    <Item title="This computer can't list accounts yet" subtitle="Update muxr on the computer to use more than one account." subtitleLines={2} />
+                </ItemGroup>
+            )}
+            {list !== null && PROVIDERS.map((provider) => {
+                const accounts = list.providers.find((entry) => entry.provider === provider.id)?.accounts ?? [];
+                return (
+                    <ItemGroup key={provider.id} title={provider.title}>
+                        {accounts.map((account) => (
                             <Item
-                                title={`Add a ${providerName(provider.id)} account`}
-                                subtitle={accounts.length === 0 ? 'Next to the one already signed in on this computer' : undefined}
-                                subtitleLines={2}
-                                titleStyle={{ color: theme.colors.textLink }}
-                                icon={<Ionicons name="add" size={26} color={theme.colors.textLink} />}
-                                showChevron={false}
-                                onPress={() => flows.add(provider.id)}
+                                key={account.id}
+                                selected={account.id === landed}
+                                style={account.id === landed ? { backgroundColor: theme.colors.surfacePressed } : undefined}
+                                title={account.name}
+                                subtitle={subtitle(account)}
+                                subtitleLines={1}
+                                meta={facts(account)}
+                                metaLines={0}
+                                icon={<Ionicons
+                                    name={account.signedIn ? 'person-circle-outline' : 'alert-circle-outline'}
+                                    size={28}
+                                    color={account.signedIn ? theme.colors.text : theme.colors.textSecondary}
+                                />}
+                                // Signed out, the row signs in; its other actions sit behind a long press.
+                                rightElement={account.signedIn ? undefined : <Pill label="Sign in" link />}
+                                showChevron={account.signedIn}
+                                onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
+                                onLongPress={() => actions(account)}
+                                accessibilityLabel={[account.name, subtitle(account), facts(account)].filter(Boolean).join(', ')}
                             />
-                        </ItemGroup>
-                    );
-                })}
-                {list !== null && (
-                    <ItemGroup title="When you start an agent">
+                        ))}
                         <Item
-                            title="Auto picks the most room left"
-                            subtitle="Off: the account you picked last"
+                            title={`Add a ${providerName(provider.id)} account`}
+                            subtitle={accounts.length === 0 ? 'Next to the one already signed in on this computer' : undefined}
                             subtitleLines={2}
-                            rightElement={<Switch value={autoOn} onValueChange={setAutoOn} />}
+                            titleStyle={{ color: theme.colors.textLink }}
+                            icon={<Ionicons name="add" size={26} color={theme.colors.textLink} />}
                             showChevron={false}
+                            onPress={() => flows.add(provider.id)}
                         />
                     </ItemGroup>
-                )}
-            </ItemList>
-        </View>
+                );
+            })}
+            {list !== null && (
+                <ItemGroup title="When you start an agent">
+                    <Item
+                        title="Auto picks the most room left"
+                        subtitle="Off: the account you picked last"
+                        subtitleLines={2}
+                        rightElement={<Switch value={autoOn} onValueChange={setAutoOn} />}
+                        showChevron={false}
+                    />
+                </ItemGroup>
+            )}
+        </ItemList>
     );
 }
 
 const styles = StyleSheet.create((theme) => ({
-    screen: {
-        flex: 1,
-        backgroundColor: theme.colors.groupped.background,
-    },
     lede: {
         fontSize: 13,
         lineHeight: 18,

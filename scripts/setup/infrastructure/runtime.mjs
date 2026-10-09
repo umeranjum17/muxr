@@ -37,33 +37,51 @@ export const INTEGRATION_COMMANDS = {
 
 export const print = (text = '') => process.stdout.write(`${text}\n`);
 export const error = (text) => process.stderr.write(`${text}\n`);
+/** Whether this terminal takes the in-place, full-screen-capable offer view (not plain or dumb output). */
+export function richTerminal() {
+    return process.stdout.isTTY && process.env.TERM !== 'dumb' && process.env.NO_COLOR === undefined && process.env.MUXR_NO_TUI !== '1';
+}
+// Half-block text rows from the kit (quiet border of 4 unless asked otherwise).
+// The kit trims trailing spaces, so printTerminalQr pads back to the full matrix
+// width: a ragged right edge would eat the quiet zone the phone's scanner needs.
+function qrLines(value, border = 4) {
+    return qrText(value, { border }).split('\n');
+}
+/** Terminal width and height; a zero or missing size means the terminal did not report one, so nothing is limited by it. */
+export const terminalColumns = () => (process.stdout.columns > 0 ? process.stdout.columns : Infinity);
+export const terminalRows = () => (process.stdout.rows > 0 ? process.stdout.rows : Infinity);
+export function qrRows(value, border = 4) {
+    return qrLines(value, border).length;
+}
+/** Whether the QR fits whole, with `otherRows` terminal rows kept for text printed beside it (above it, or the cursor row its newline leaves below). */
+export function qrFits(value, otherRows = 0, border = 4) {
+    if (!richTerminal()) return false;
+    const lines = qrLines(value, border);
+    const width = lines.length * 2 - 1;
+    return width <= terminalColumns() && otherRows + lines.length <= terminalRows();
+}
+/** The QR as centered half-block rows, without a trailing newline. */
+export function terminalQrText(value, border = 4) {
+    const lines = qrLines(value, border);
+    // QR sides are always odd, and each text row covers two module rows, so
+    // the side is lines*2-1; padding is a no-op if the kit ever stops trimming.
+    const width = lines.length * 2 - 1;
+    // Centered in the terminal: a scannable code reads as the primary content
+    // of the screen, not a left-edge decoration.
+    const columns = terminalColumns();
+    const indent = Number.isFinite(columns) ? Math.max(0, Math.floor((columns - width) / 2)) : 0;
+    return lines.map((line) => `${' '.repeat(indent)}\x1b[47m\x1b[30m${line.padEnd(width)}\x1b[0m`).join('\n');
+}
 export async function printTerminalQr(value) {
-    if (!process.stdout.isTTY || process.env.TERM === 'dumb' || process.env.NO_COLOR !== undefined || process.env.MUXR_NO_TUI === '1') {
+    if (!richTerminal()) {
         print('QR omitted in append-only/plain output; use the exact pairing string above.');
         return;
     }
-    // Half-block text rows from the kit (same QR, quiet border of 4 as before).
-    // The kit trims trailing spaces, so pad back to the full matrix width: a
-    // ragged right edge would eat the quiet zone the phone's scanner needs.
-    // QR sides are always odd, and each text row covers two module rows, so
-    // the side is lines*2-1; padding is a no-op if the kit ever stops trimming.
-    const qr = qrText(value, { border: 4 });
-    const lines = qr.split('\n');
-    const width = lines.length * 2 - 1;
-    const tooWide = process.stdout.columns !== undefined && width > process.stdout.columns;
-    // Callers print the pairing string and instructions first. Only the cursor
-    // row after the QR's final newline needs room alongside its quiet zone.
-    const tooTall = process.stdout.rows !== undefined && lines.length + 1 > process.stdout.rows;
-    if (tooWide || tooTall) {
+    if (!qrFits(value, 1)) {
         print(`QR omitted because this terminal is ${process.stdout.columns ?? 'too few'} columns × ${process.stdout.rows ?? 'too few'} rows; use the exact pairing string above.`);
         return;
     }
-    // Centered in the terminal: a scannable code reads as the primary content
-    // of the screen, not a left-edge decoration.
-    const indent = process.stdout.columns !== undefined
-        ? Math.max(0, Math.floor((process.stdout.columns - width) / 2))
-        : 0;
-    print(lines.map((line) => `${' '.repeat(indent)}\x1b[47m\x1b[30m${line.padEnd(width)}\x1b[0m`).join('\n'));
+    print(terminalQrText(value));
 }
 export function env(name) {
     return process.env[name]?.trim() || undefined;

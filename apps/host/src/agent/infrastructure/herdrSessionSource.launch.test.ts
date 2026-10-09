@@ -1,9 +1,9 @@
 import { createHook } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import type { HostFrame, HerdrTreeWorkspace } from '@trymuxr/contract';
@@ -11,6 +11,9 @@ import { WebSocket } from 'ws';
 import { DeviceLink, hostId, type DeviceGrant } from '@byokit/link';
 import { generateKeyPair } from '@trymuxr/crypto';
 import { startRelay } from '@muxr/relay';
+import { preparePlanSignIn } from '../../plans/planSignIn.js';
+import { listPlans, planLaunchEnv } from '../../plans/plansApi.js';
+import { createRequestDispatcher } from '../../requests/index.js';
 import { createAgentWatchStores } from '../application/watchStores.js';
 import { startHost } from '../../host.js';
 import { LinkEndpoint, type MachineCryptoState } from '../../machine/index.js';
@@ -38,7 +41,9 @@ function fakeHerdr(dir: string, cwd: string) {
         releaseStatusAck?: () => void;
         delayAgentWaitMs: number;
         paneText: string;
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '' };
+        /** Every pane.send_text, so a launch's `unset` line can be read back. */
+        sentTexts: string[];
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [] };
     const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
@@ -87,6 +92,27 @@ function fakeHerdr(dir: string, cwd: string) {
             return { ...node, pane_id };
         };
         return { layout: { tab_id, root: assign((params.root ?? {}) as Record<string, unknown>) } };
+    };
+    const handlePaneSendText = (p: Record<string, unknown>) => {
+        const text = String(p.text ?? '');
+        state.sentTexts.push(text);
+        const pane = panes.find((entry) => entry.pane_id === p.pane_id);
+        if (pane === undefined) return {};
+        const paneEnv = (pane.env ?? {}) as Record<string, string>;
+        if (text.startsWith('unset ')) {
+            // The shell sheds the names; a later ${NAME+x} probe reads them as absent.
+            for (const name of text.trim().slice('unset '.length).split(/\s+/)) delete paneEnv[name];
+            return {};
+        }
+        // checkPaneEnv's probe: echo <marker>="$NAME" (or ${NAME+x}), answered from the pane's env.
+        const probe = /^echo ([A-Za-z0-9_]+)="\$\{?([A-Za-z_][A-Za-z0-9_]*)(\+x)?\}?"?$/.exec(text.trim());
+        if (probe !== null) {
+            let value: string;
+            if (probe[3] !== undefined) value = paneEnv[probe[2]!] === undefined ? '' : 'x';
+            else value = paneEnv[probe[2]!] ?? '';
+            state.paneText += `${probe[1]}=${value}\n`;
+        }
+        return {};
     };
     const server = createServer((socket) => {
         let buffer = '';
@@ -179,6 +205,9 @@ function fakeHerdr(dir: string, cwd: string) {
                         break;
                     case 'pane.read':
                         reply = { id, result: { read: { text: state.paneText } } };
+                        break;
+                    case 'pane.send_text':
+                        reply = { id, result: handlePaneSendText(p) };
                         break;
                     case 'pane.close':
                         reply = { id, result: handlePaneClose() };
@@ -731,6 +760,121 @@ describe('isolated pi agent home', () => {
         } finally {
             if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
             else process.env.PI_CODING_AGENT_DIR = previous;
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+});
+
+describe('OpenCode account isolation', () => {
+    it('gives one account the same private root for its sign-in tab and its agents, keeps two accounts apart, and carries blocked variables out', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-'));
+        const bin = join(dir, 'bin');
+        mkdirSync(bin);
+        writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
+        chmodSync(join(bin, 'opencode'), 0o755);
+        const env: NodeJS.ProcessEnv = {
+            ...process.env,
+            HOME: join(dir, 'home'),
+            MUXR_HOME: join(dir, 'muxr'),
+            PATH: `${bin}:${process.env.PATH ?? ''}`,
+        };
+        // Two accounts, each with its own private root muxr created.
+        const a = await preparePlanSignIn(env, 'opencode');
+        const b = await preparePlanSignIn(env, 'opencode');
+        expect(a.record.folder).not.toBe(b.record.folder);
+        const herdr = fakeHerdr(dir, join(dir, 'repo'));
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        const blocked = ['OPENCODE_AUTH', 'OPENCODE_AUTH_CONTENT', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_TEST_HOME', 'OPENCODE_DB'];
+        const tabEnvOf = (index: number) => (herdr.tabs[index] as { env?: Record<string, string> }).env ?? {};
+        try {
+            // The sign-in tab and every agent start for account A land in A's root.
+            const tab = await source.start({ cwd: join(dir, 'repo'), ...a.launch });
+            expect('info' in tab).toBe(true);
+            const launchA = planLaunchEnv(env, a.record);
+            const agentA = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchA.set, planUnset: launchA.unset });
+            expect('info' in agentA).toBe(true);
+            for (const tabEnv of [tabEnvOf(0), tabEnvOf(1)]) {
+                expect(tabEnv.HOME).toBe(a.record.folder);
+                expect(tabEnv.XDG_CONFIG_HOME).toBe(join(a.record.folder, '.config'));
+                expect(tabEnv.XDG_DATA_HOME).toBe(join(a.record.folder, '.local', 'share'));
+                expect(tabEnv.XDG_STATE_HOME).toBe(join(a.record.folder, '.local', 'state'));
+                expect(tabEnv.XDG_CACHE_HOME).toBe(join(a.record.folder, '.cache'));
+                expect(tabEnv.TMPDIR).toBe(join(a.record.folder, '.tmp'));
+            }
+            expect(tabEnvOf(0).MUXR_PLAN_SIGNIN).toBeDefined();
+            // A second account gets a different root for its own agent start.
+            const launchB = planLaunchEnv(env, b.record);
+            const agentB = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchB.set, planUnset: launchB.unset });
+            expect('info' in agentB).toBe(true);
+            expect(tabEnvOf(2).HOME).toBe(b.record.folder);
+            expect(tabEnvOf(2).HOME).not.toBe(a.record.folder);
+            // No blocked OpenCode variable reaches any pane, and the launch carried them out.
+            for (const index of [0, 1, 2]) {
+                for (const name of blocked) expect(tabEnvOf(index)).not.toHaveProperty(name);
+            }
+            const unsets = herdr.state.sentTexts.filter((text) => text.startsWith('unset '));
+            for (const name of blocked) expect(unsets.some((text) => text.includes(name))).toBe(true);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+
+    it('starts a lone OpenCode account through session.start in its own root, and refuses once it is signed out', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-solo-'));
+        const bin = join(dir, 'bin');
+        mkdirSync(bin);
+        mkdirSync(join(dir, 'repo'));
+        writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
+        chmodSync(join(bin, 'opencode'), 0o755);
+        const env: NodeJS.ProcessEnv = {
+            ...process.env,
+            HOME: join(dir, 'home'),
+            MUXR_HOME: join(dir, 'muxr'),
+            PATH: `${bin}:${process.env.PATH ?? ''}`,
+        };
+        const saved = { HOME: process.env.HOME, MUXR_HOME: process.env.MUXR_HOME, PATH: process.env.PATH };
+        Object.assign(process.env, env);
+        const herdr = fakeHerdr(dir, join(dir, 'repo'));
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+        try {
+            const only = await preparePlanSignIn(env, 'opencode');
+            const authFile = join(only.record.folder, '.local', 'share', 'opencode', 'auth.json');
+            mkdirSync(dirname(authFile), { recursive: true });
+            writeFileSync(authFile, '{"openai":{}}');
+            const started = await dispatch({ type: 'session.start', requestId: 'solo', params: { cwd: join(dir, 'repo'), kind: 'opencode' } } as never);
+            expect(started).toMatchObject({ ok: true });
+            expect((await listPlans(env)).providers.find((entry) => entry.provider === 'opencode')?.accounts).toHaveLength(1);
+            expect((herdr.tabs[0] as { env?: Record<string, string> }).env?.HOME).toBe(only.record.folder);
+            rmSync(authFile);
+            const refused = await dispatch({ type: 'session.start', requestId: 'signed-out', params: { cwd: join(dir, 'repo'), kind: 'opencode' } } as never);
+            expect(refused).toMatchObject({ ok: false, code: 'plan-account-unavailable' });
+            expect(herdr.tabs).toHaveLength(1);
+            const omitted = await dispatch({ type: 'session.start', requestId: 'omitted-out', params: { cwd: join(dir, 'repo'), planAccount: only.record.id } } as never);
+            expect(omitted).toMatchObject({ ok: false });
+            writeFileSync(authFile, '{"openai":{}}');
+            const wrongKind = await dispatch({ type: 'session.start', requestId: 'omitted-in', params: { cwd: join(dir, 'repo'), planAccount: only.record.id } } as never);
+            expect(wrongKind).toMatchObject({ ok: false, code: 'plan-kind-mismatch' });
+            expect(herdr.tabs).toHaveLength(1);
+        } finally {
+            for (const [key, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[key];
+                else process.env[key] = value;
+            }
+            await source.dispose();
+            herdr.close();
             rmSync(dir, { recursive: true, force: true });
         }
     }, 20_000);
