@@ -544,6 +544,27 @@ describe('native pairing over the byokit link', () => {
         }
     }, 60_000);
 
+    it('pairs a phone from the compact offer the terminal shows when the full QR cannot fit', async () => {
+        let computerWords = '';
+        let phoneWords = '';
+        // An 80x24 terminal fits the compact QR but not the full v1 QR, so the
+        // pairing string on screen is the compact offer. Placed after every test
+        // that counts the enrolled-device record, but before the link-drop test
+        // below: that one stops the relay this phone must dial.
+        const { pairing, offer, abort } = await showPairingQr({
+            approve: async (req) => { computerWords = req.words; return true; },
+        }, { columns: 80, rows: 24 });
+        expect(offer.startsWith(COMPACT_TAG)).toBe(true);
+        let stored: StoredHostedGrant;
+        try {
+            stored = await runPhonePairing(offer, { onWords: (words) => { phoneWords = words; } });
+        } catch (error) { await abort(); throw error; }
+        expect(phoneWords).toBe(computerWords);
+        expect(phoneWords).not.toBe('');
+        await pairing;
+        expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
+    }, 90_000);
+
     it('names a pairing-link drop after the confirmation words', async () => {
         const { pairing, offer, abort } = await showPairingQr({ approve: async () => {
             await stop(relay);
@@ -584,24 +605,4 @@ describe('native pairing over the byokit link', () => {
             writeFileSync(join(home, 'selfhost.json'), before);
         }
     }, 30_000);
-
-    it('pairs a phone from the compact offer the terminal shows when the full QR cannot fit', async () => {
-        let computerWords = '';
-        let phoneWords = '';
-        // An 80x24 terminal fits the compact QR but not the full v1 QR, so
-        // the pairing string on screen is the compact offer. Placed last: it
-        // enrols one more device after the tests that count the record.
-        const { pairing, offer, abort } = await showPairingQr({
-            approve: async (req) => { computerWords = req.words; return true; },
-        }, { columns: 80, rows: 24 });
-        expect(offer.startsWith(COMPACT_TAG)).toBe(true);
-        let stored: StoredHostedGrant;
-        try {
-            stored = await runPhonePairing(offer, { onWords: (words) => { phoneWords = words; } });
-        } catch (error) { await abort(); throw error; }
-        expect(phoneWords).toBe(computerWords);
-        expect(phoneWords).not.toBe('');
-        await pairing;
-        expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
-    }, 90_000);
 });
