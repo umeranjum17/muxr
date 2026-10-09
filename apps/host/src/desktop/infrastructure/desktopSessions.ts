@@ -10,6 +10,11 @@ import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSessi
 import { PortalGrant } from './portalGrant.js';
 import { VirtualDisplay } from './virtualDisplay.js';
 
+function explicitDesktopSource(env: NodeJS.ProcessEnv): string | undefined {
+    const kind = env.MUXR_DESKTOP_SOURCE?.trim();
+    return kind === undefined || kind === '' ? undefined : kind;
+}
+
 /**
  * Which desktop this host offers.
  *
@@ -19,12 +24,12 @@ import { VirtualDisplay } from './virtualDisplay.js';
  * a client cannot ask to reach another desktop.
  */
 function configuredSource(env: NodeJS.ProcessEnv, x11SocketDirectory: string): SourceRequest | undefined {
-    const kind = env.MUXR_DESKTOP_SOURCE?.trim();
+    const kind = explicitDesktopSource(env);
     if (kind === 'x11') {
         const display = env.MUXR_DESKTOP_X11_DISPLAY?.trim();
         return display === undefined || display === '' ? { kind: 'x11' } : { kind: 'x11', display };
     }
-    if ((kind !== undefined && kind !== '') || waylandSession(env)) return undefined;
+    if (kind !== undefined || waylandSession(env)) return undefined;
     const display = env.DISPLAY?.trim() || firstXDisplay(x11SocketDirectory);
     return display === undefined || display === '' ? undefined : { kind: 'x11', display };
 }
@@ -55,13 +60,28 @@ function waylandSession(env: NodeJS.ProcessEnv): boolean {
 
 /** Nothing set, no Wayland session and no DISPLAY: a server, whose screen, if any, the host finds or starts. */
 function headless(env: NodeJS.ProcessEnv): boolean {
-    const kind = env.MUXR_DESKTOP_SOURCE?.trim();
-    return (kind === undefined || kind === '') && !waylandSession(env) && !env.DISPLAY?.trim();
+    return explicitDesktopSource(env) === undefined && !waylandSession(env) && !env.DISPLAY?.trim();
 }
 
 /** A headless machine with no X display at all: a server without a screen. */
 function screenless(env: NodeJS.ProcessEnv, x11SocketDirectory: string): boolean {
     return headless(env) && firstXDisplay(x11SocketDirectory) === undefined;
+}
+
+/**
+ * The desktop a pane on this host should use, from the host's explicit
+ * configuration only. An X socket is not consulted: Computer's own virtual
+ * screen lives on one, and panes never share it.
+ */
+export function hostDesktopForPanes(env: NodeJS.ProcessEnv): { screen: boolean; x11Display?: string | undefined } {
+    const source = explicitDesktopSource(env);
+    if (source === 'x11') {
+        const x11Display = env.MUXR_DESKTOP_X11_DISPLAY?.trim() || env.DISPLAY?.trim() || undefined;
+        return x11Display === undefined ? { screen: false } : { screen: true, x11Display };
+    }
+    const x11Display = source === undefined ? env.DISPLAY?.trim() || undefined : undefined;
+    if (x11Display !== undefined) return { screen: true, x11Display };
+    return env.WAYLAND_DISPLAY?.trim() ? { screen: true } : { screen: false };
 }
 
 function firstXDisplay(directory: string): string | undefined {
@@ -106,6 +126,7 @@ interface LiveSession extends DesktopSessionRecord {
     revoked: boolean;
 }
 
+export const X11_SOCKET_DIRECTORY = '/tmp/.X11-unix';
 /** How many notifications one session keeps for a client that fell behind. */
 const MAX_BACKLOG = 512;
 const LINK_DISCONNECT_GRACE_MS = 20_000;
@@ -143,15 +164,14 @@ export class DesktopSessions {
     /** The reason the last start attempt failed, when the engine resolved but did not come up. */
     private startFailure: string | null = null;
 
-    private readonly environment: NodeJS.ProcessEnv;
+    private readonly environment: NodeJS.ProcessEnv = process.env;
     private readonly portalGrant: PortalGrant | undefined;
     private readonly virtualDisplay: VirtualDisplay;
 
-    constructor(options: DesktopEngineOptions = {}, environment: NodeJS.ProcessEnv = process.env, private readonly x11SocketDirectory = '/tmp/.X11-unix') {
+    constructor(options: DesktopEngineOptions = {}, private readonly x11SocketDirectory = X11_SOCKET_DIRECTORY) {
         this.options = options;
-        this.environment = environment;
         this.portalGrant = options.stateRoot === undefined ? undefined : new PortalGrant(options.stateRoot);
-        this.virtualDisplay = new VirtualDisplay(environment, x11SocketDirectory);
+        this.virtualDisplay = new VirtualDisplay(this.environment, x11SocketDirectory);
     }
 
     /** Stop the screen this host started, if any; the host calls this as it stops. */
@@ -526,19 +546,10 @@ export class DesktopSessions {
                     // The engine reaches this host's own screen with its cookie. A
                     // headless host may start that screen after the engine, so
                     // the engine always carries it there — even when the service
-                    // inherited a cookie for some other display. A pane's engine
-                    // instead carries that pane's cookie and display, which is
-                    // the only way it can open the pane's private screen.
+                    // inherited a cookie for some other display.
                     {
                         ...process.env,
-                        ...(headless(this.environment)
-                            ? { XAUTHORITY: this.virtualDisplay.authorityFile }
-                            : this.environment.XAUTHORITY !== undefined && this.environment.XAUTHORITY !== ''
-                                ? { XAUTHORITY: this.environment.XAUTHORITY }
-                                : {}),
-                        ...(this.environment.DISPLAY !== undefined && this.environment.DISPLAY !== ''
-                            ? { DISPLAY: this.environment.DISPLAY }
-                            : {}),
+                        ...(headless(this.environment) ? { XAUTHORITY: this.virtualDisplay.authorityFile } : {}),
                     },
                 );
                 this.client = client;

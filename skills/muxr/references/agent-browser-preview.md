@@ -1,48 +1,56 @@
 # Agent browser preview
 
-Use this when a muxr-launched agent opens a page the user should watch or must
-complete themselves (sign-in, 2FA/OTP, CAPTCHA, SSO). There is no in-app Browser:
-the agent's browser or emulator runs on its pane's own screen, and the phone shows a
-live chip in the session header while it is there. Tapping the chip (Watch)
-opens the live view; the first tap on the picture takes control, and Hand back
-returns it. The native iOS client offers the same live view.
+When a muxr-launched agent opens a page the person should watch or must complete
+(sign-in, 2FA/OTP, CAPTCHA, SSO), open it in the normal desktop browser. The
+person views that desktop through the phone's Computer action, not a Browser
+chip or a private pane screen.
 
 A visible browser grants no extra authorization. Stop for the human at any
 password, 2FA/OTP, CAPTCHA, SSO, purchase, publish, destructive, account,
 security, or privacy boundary requiring their action or approval.
 
-## Open for the chip, not for Computer
+## Open on the desktop, watch through Computer
 
-1. Run browsers headed (not headless) so the pane's screen has something to
-   show: a headless browser never raises the chip. If a Chrome fails with a
-   Wayland error, add --ozone-platform=x11.
-2. Tell the user where to look: "Your agent opened a browser — tap the browser
-   chip to watch" (emulator chip for an Android emulator, simulator chip for a claimed iOS Simulator). Never paste ports, token-bearing URLs, or internal ids.
+1. If this computer has a desktop Computer can show (`$MUXR_AGENT_CAPABILITIES`
+   says whether it does), run the browser headed, using that normal desktop
+   environment. Do not replace DISPLAY, clear WAYLAND_DISPLAY, or force X11
+   browser arguments to create a private screen. If a Chrome fails with a
+   Wayland error, add --ozone-platform=x11. If agent terminals have no desktop
+   here that Computer can show, run the browser headless and tell the person
+   Computer cannot show it; a desktop for Computer has to be set up on this
+   computer first.
+2. When the browser is headed, tell the person where to look: "Open Computer to
+   watch the page or finish signing in." Never paste ports, token-bearing URLs,
+   or internal ids.
 3. In a Herdr pane, report the wall as blocked so muxr notifies the phone:
    ```sh
    herdr pane report-agent "$HERDR_PANE_ID" --source "$HERDR_PANE_ID" --agent <your-label> --state blocked \
-     --message "Sign in needed on example.com — tap the browser chip"
+     --message "Sign in needed on example.com — open Computer"
    ```
-   Name the site and wall, not page contents or credentials. If `HERDR_PANE_ID`
+   Name the site and wall, not page contents or credentials. If HERDR_PANE_ID
    is unset, say that no pane is available to notify rather than guessing an id.
-4. Before touching the browser, emulator, or simulator, check `muxr preview status`: while it prints
-   `human` the person is driving — no clicks, typing, refresh, or navigation.
-   Wait for their message or check at most every 30–60 seconds.
-5. Verify the page has advanced before resuming, then report working with the
-   same source and agent values:
+4. While the person is taking over, do not click, type, refresh or navigate.
+   Wait for their message before resuming; verify the page has advanced.
+5. Report working with the same source and agent values:
    ```sh
    herdr pane report-agent "$HERDR_PANE_ID" --source "$HERDR_PANE_ID" --agent <your-label> --state working \
      --message "Signed in, continuing"
    ```
 
-## iOS Simulator (macOS host)
+## Android and iOS device previews
 
-A simulator is not on the pane's screen, so the pane claims it: after booting a
-simulator you created, run `muxr preview claim <udid>` in that pane. The phone
-shows a simulator chip on the pane while the simulator is booted; taps, swipes
-and Home drive it. Run `muxr preview release` when done. Check `muxr preview
-status` before driving the simulator yourself, as for a browser.
+Device previews remain separate from Computer. A headless Android emulator attributed
+to this pane appears as a device chip. A windowed emulator stays unannounced;
+the person sees it through Computer.
+For an iOS Simulator on macOS, boot one you created and run
+`muxr preview claim <udid>` in that pane. The simulator chip remains while it
+is booted; taps, swipes and Home drive it. Run `muxr preview release` when done.
 
-The phone's Computer action still shows this computer's own desktop; it is not
-the agent pane's browser. If the page must run on the machine's desktop
-instead, open it in that desktop's normal browser and say so plainly.
+Before touching a device preview, check `muxr preview status`. While it prints
+`human`, the person is driving: no clicks, typing, refresh or navigation. Wait
+for their message or check at most every 30–60 seconds. This command reports a
+device-preview lease, not permission to act in the normal desktop browser.
+
+On a headless server, Computer's fallback is not a claim that a normal desktop
+browser is available. Report the missing desktop plainly; do not route an
+unknown or retired Browser target to the real desktop.

@@ -93,7 +93,7 @@ Agent instructions
   muxr --skill | muxr skill       print the compact muxr agent skill
   muxr skill <topic>              load one reference only when needed
   muxr name [--workspace ...]     name the current Herdr workspace/pane and report attribution
-  muxr preview status [--json]    check whether the phone is driving this pane's browser, emulator, or simulator
+  muxr preview status [--json]    check whether the phone is driving this pane's emulator or simulator
   muxr preview claim <udid>       offer this pane's booted iOS simulator to the phone (release to stop)
   muxr share <path>               save a file to this pane's Shared Artifacts timeline [--title T versions an .html page in place]
   muxr artifacts [status|prune]   show what Shared Artifacts retention removed, or clear old history
@@ -109,7 +109,7 @@ const COMMAND_HELP = {
     devices: `muxr devices list\nmuxr devices revoke <number|name>\nmuxr devices rotate-keys --unpair-all [--data-dir <dir>]   replace the machine signing, box and data keys; every device pairs again\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n\nSync Herdr lifecycle integrations only. Agent skills and prompt files are never changed.\n`,
     name: `muxr name [--workspace LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]\n\nName the current Herdr workspace and pane through the Herdr CLI; no muxr host is needed.\nThe pane identity comes from HERDR_PANE_ID; names and metadata are passed verbatim within bounds.\n`,
-    preview: `muxr preview status [--json]\nmuxr preview claim <simulator-udid>\nmuxr preview release\n\nstatus asks whether the phone is driving this pane's browser, emulator or simulator right now.\nPrints human while a person holds control (pause browser input), none otherwise.\nclaim offers a booted iOS simulator (macOS host) as this pane's preview; release withdraws it.\nThe pane identity comes from HERDR_PANE_ID; a pane can only read its own lease or claim for itself.\n`,
+    preview: `muxr preview status [--json]\nmuxr preview claim <simulator-udid>\nmuxr preview release\n\nstatus asks whether the phone is driving this pane's emulator or simulator right now.\nPrints human while a person holds control (pause device input), none otherwise.\nclaim offers a booted iOS simulator (macOS host) as this pane's preview; release withdraws it.\nThe pane identity comes from HERDR_PANE_ID; a pane can only read its own lease or claim for itself.\n`,
     share: `muxr share <path> [--title <title>] [--pane <pane-id>]\n\nSave a file to the given pane's durable Shared Artifacts timeline.\nUses HERDR_PANE_ID when --pane is omitted. Name collisions get a numeric suffix.\nAn .html page is stored with its local images inlined; sharing the same --title\nagain adds a new version of that page (muxr skill artifact-pages).\n`,
     artifacts: `muxr artifacts [status]\nmuxr artifacts prune [--dry-run] [--yes]\n\nThe host sweeps Shared Artifacts daily and never touches files that predate retention.\nstatus prints the policy and the last sweep's removals. prune applies the same policy\nto the history that was already there: it deletes files, so it shows the plan first\nand --yes skips the question.\n`,
     pair: `muxr pair [--browser|--browser-view|--browser-personal]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), an eight-hour view-only browser link (--browser-view), or a 30-day control link for a browser only you use (--browser-personal).\n`,

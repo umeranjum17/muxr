@@ -10,7 +10,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
 import { decidePairingInput, linkPairMachineName, looksLikeLinkOffer, PairingNeedsNewCode } from '@/pairing/e2ee';
-import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScanner, type PairingProgress } from '@/pairing';
+import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScanner, resolvePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
@@ -88,18 +88,26 @@ export default function PairScreen() {
     const ConnectBar = Platform.OS === 'ios' ? KeyboardStickyView : View;
     const openedFromSettings = routeParams.source === 'settings';
     const sshRoute = !browser && routeParams.route === 'ssh' && sshTunnelAvailable();
-    const reviewPairing = React.useCallback((raw: string) => {
-        const decided = decidePairingInput(raw);
-        if (!decided.ok) {
-            setState({ phase: 'error', message: decided.message });
-            return;
-        }
-        const offer = decided.offer;
-        setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
-        void linkPairMachineName(offer).then((name) => {
-            if (name !== undefined) setState((current) => current?.url === offer ? { ...current, machineName: name } : current);
+    // pairArrival.ts owns intent restoration; typed, pasted and scanned input
+    // stays on the normal consent/error path.
+    const reviewPairing = React.useCallback((raw: string, source: PairArrivalSource = 'user') => {
+        void resolvePairArrival(raw, { authenticated: auth.isAuthenticated, source }).then((target) => {
+            if (target === 'home') {
+                router.replace('/');
+                return;
+            }
+            const decided = decidePairingInput(raw);
+            if (!decided.ok) {
+                setState({ phase: 'error', message: decided.message });
+                return;
+            }
+            const offer = decided.offer;
+            setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
+            void linkPairMachineName(offer).then((name) => {
+                if (name !== undefined) setState((current) => current?.url === offer ? { ...current, machineName: name } : current);
+            }).catch(() => undefined);
         }).catch(() => undefined);
-    }, []);
+    }, [auth.isAuthenticated, router]);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const switching = getCachedConnectionSettings().machineId !== '';
     const routePairUrl = typeof routeParams.offer === 'string' && looksLikeLinkOffer(routeParams.offer)
@@ -110,23 +118,26 @@ export default function PairScreen() {
         const receive = (raw: string | null) => {
             if (cancelled || !raw) return false;
             if (!raw.includes('byokit-link:') && !raw.includes('pair=')) return false;
-            reviewPairing(raw);
+            reviewPairing(raw, 'intent');
             return true;
         };
         if (routePairUrl !== undefined) {
             receive(routePairUrl);
             return undefined;
         }
-        void Linking.getInitialURL().then((url) => {
-            if (cancelled) return;
-            receive(url);
-        }).catch((cause) => {
-            if (!cancelled) setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
-        });
+        // Settings is deliberate manual entry, not a replay of the launching intent.
+        if (!openedFromSettings) {
+            void Linking.getInitialURL().then((url) => {
+                if (cancelled) return;
+                receive(url);
+            }).catch((cause) => {
+                if (!cancelled) setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
+            });
+        }
         // Warm start: the app was already open when the link arrived.
         const subscription = Linking.addEventListener('url', (event) => receive(event.url));
         return () => { cancelled = true; subscription.remove(); };
-    }, [routePairUrl, browser, sshRoute, reviewPairing]);
+    }, [routePairUrl, browser, sshRoute, openedFromSettings, reviewPairing]);
 
     const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput) => {
         // Link offers pair over the running machine; Direct SSH uses its own route.

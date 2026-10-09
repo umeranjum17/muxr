@@ -47,7 +47,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 - [Connect an older phone without optional UI plugins](./retired-ui-compatibility.md) —
   all five legacy replies over a real paired host, then released Android Home/session acceptance.
-
+- [Open agent pages on the normal desktop](./agent-desktop.md) —
+  guarded real-Herdr launch environment evidence; all launch families,
+  plan-account moves and headless device mirrors stay isolated.
 - [Read a plain Computer failure](./computer-failure.md) —
   real native release app against a guarded Linux lab without ScreenCast:
   plain cause and next step, Try again, themes and 270dp/font 1.3.
@@ -74,6 +76,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [See pinned spaces on the phone's Spaces list](./spaces-pinned.md) —
   native app on an emulator over a private stack: pin, themes, tablet width,
   plus guarded two-computer pin isolation and legacy migration.
+- [Read the computer name in the Home header](./home-header-name.md) —
+  native app over a named fake-Herdr stack: one line with an ellipsis, at
+  270dp and font scale 2.0, light and dark.
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.

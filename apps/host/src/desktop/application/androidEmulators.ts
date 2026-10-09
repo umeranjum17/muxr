@@ -35,8 +35,8 @@ import {
 /**
  * Headless emulators via scrcpy (D2.2).
  *
- * A `-no-window` emulator has no pixels on any screen, so the keeper can never
- * see it. Instead this watches `/proc` for one attributed to an agent pane,
+ * A `-no-window` emulator has no pixels on any screen, so Computer can never
+ * show it. Instead this watches `/proc` for one attributed to an agent pane,
  * starts the vendored scrcpy-server on it, and carries its H.264 through the
  * engine's encoded source — the same WebRTC path as every other preview, with
  * the phone's touch and device keys translated back into scrcpy control
@@ -48,7 +48,7 @@ import {
 // Discovery
 // ---------------------------------------------------------------------------
 
-/** A headless emulator, and the pane whose ancestry owns it. */
+/** An emulator, and the pane whose ancestry owns it. */
 export interface DiscoveredEmulator {
     pid: number;
     paneId: string;
@@ -143,7 +143,7 @@ function consolePort(pid: string, procRoot: string): number | undefined {
 
 /**
  * Every `-no-window` emulator on this machine, attributed to its pane.
- * Headed emulators are the keeper's business and never appear here.
+ * Windowed emulators are visible through Computer and never appear here.
  */
 export function scanAndroidEmulators(procRoot = '/proc'): DiscoveredEmulator[] {
     let pids: string[];
@@ -271,7 +271,7 @@ export function resolveScrcpyServer(start = dirname(fileURLToPath(import.meta.ur
 // Presence
 // ---------------------------------------------------------------------------
 
-/** Announce a headless emulator only once it stays put; withdraw it with grace. */
+/** Announce an emulator only once it stays put; withdraw it with grace. */
 const ANDROID_ANNOUNCE_AFTER_MS = 1500;
 const ANDROID_WITHDRAW_AFTER_MS = 3000;
 
@@ -281,12 +281,12 @@ interface AndroidPaneState {
     timer: ReturnType<typeof setTimeout> | undefined;
 }
 
-/** The kinds a device mirror announces; screens announce through the keeper. */
+/** The kinds a device mirror announces. */
 export type DevicePreviewKind = Extract<PreviewPresence['kind'], 'android' | 'ios'>;
 
 /**
  * Discovered devices → one announced presence of this tracker's kind per pane.
- * Same hysteresis as the keeper road: no flicker on a device restart.
+ * Hysteresis, so a device restart does not flicker the chip.
  */
 export class DevicePresenceTracker {
     private readonly kind: DevicePreviewKind;
@@ -1177,8 +1177,6 @@ function offeredAsBaseline(sdp: string): string {
  * emulators, claimed simulators). Handles carry the kind's prefix so later
  * answer/candidate/poll/close route back here and never at the Computer
  * session; the prefix alone grants nothing, the map does.
- * Merge note (P1.3): fold into `PreviewDesktops` there as its device
- * branch once that lands; the shapes match on purpose.
  */
 export class DevicePreviewTargets {
     readonly kind: DevicePreviewKind;
@@ -1415,7 +1413,7 @@ export interface AndroidWatcherOptions {
 const WATCH_SCAN_MS = 2000;
 
 /**
- * Owns discovery and presence for headless emulators. The host stamps session
+ * Owns discovery and presence for emulators. The host stamps session
  * lists from `previewFor` and pushes on `onChange`; targets open through
  * `targets`, which shares the watcher's serial map.
  */
