@@ -362,12 +362,6 @@ export const SettingsView = React.memo(function SettingsView({
                     icon={<Ionicons name="person-circle-outline" size={29} color="#5856D6" />}
                     onPress={() => router.push('/settings/accounts' as never)}
                 />}
-                <Item
-                    title="Plugin guide"
-                    subtitle="Install, approve and configure extensions"
-                    icon={<Ionicons name="book-outline" size={29} color="#5856D6" />}
-                    onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/blob/main/docs/PLUGINS.md')}
-                />
             </ItemGroup>
 
             <ItemGroup title="Display and alerts">

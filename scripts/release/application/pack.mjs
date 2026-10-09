@@ -234,11 +234,6 @@ copyFileSync(join(root, 'install.sh'), join(out, 'web', 'install.sh'));
 chmodSync(join(out, 'cli.mjs'), 0o755);
 
 copyFileSync(join(root, 'docs', 'npm-readme.md'), join(out, 'README.md'));
-// The tarball is the only documentation a plugin author reaches offline, so the
-// authoring guide ships with it rather than living behind a URL.
-const pluginGuide = readFileSync(join(root, 'docs', 'PLUGINS.md'), 'utf8')
-    .replaceAll('](decisions/', '](https://github.com/umeranjum17/muxr/blob/main/docs/decisions/');
-writeFileSync(join(out, 'PLUGINS.md'), pluginGuide);
 for (const file of ['LICENSE', 'NOTICE']) copyFileSync(join(root, file), join(out, file));
 cpSync(join(root, 'LICENSES'), join(out, 'LICENSES'), { recursive: true });
 
@@ -265,7 +260,6 @@ const pkg = {
         'relay.js',
         'crypto.js',
         'README.md',
-        'PLUGINS.md',
         'LICENSE',
         'NOTICE',
         'LICENSES/',
