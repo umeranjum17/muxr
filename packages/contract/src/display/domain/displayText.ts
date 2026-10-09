@@ -1,28 +1,9 @@
 export const MAX_DISPLAY_BYTES = 4 * 1024;
-/** A bounded user-visible manifest string. Plain strings remain the default-compatible form. */
-export type DisplayText = string | {
-    default: string;
-    translations: Record<string, string>;
-};
-
-export function defaultDisplayText(value: DisplayText): string {
-    return typeof value === 'string' ? value : value.default;
-}
-
-/** Pure locale resolution shared by mobile renderers, config generation, and tests. */
-export function resolveDisplayText(value: DisplayText, language: string): string {
-    if (typeof value === 'string') return value;
-    const entries = Object.entries(value.translations);
-    const exact = entries.find(([locale]) => locale.toLowerCase() === language.toLowerCase())?.[1];
-    if (exact !== undefined) return exact;
-    const base = language.split('-')[0]!.toLowerCase();
-    return entries.find(([locale]) => locale.toLowerCase() === base)?.[1] ?? value.default;
-}
 
 /**
  * Trim a display string to `maxBytes` of UTF-8, never splitting a code point.
- * Used by the host before RPC output reaches mobile and defensively in mobile
- * rendering (`bindText`/`displayText`). Pure JS so both sides can share it.
+ * Used by the host to bound Herdr workspace tokens and by mobile `bindText`.
+ * Pure JS so both sides can share it.
  */
 export function capUtf8Bytes(text: string, maxBytes: number): string {
     if (maxBytes <= 0 || text.length === 0) return '';

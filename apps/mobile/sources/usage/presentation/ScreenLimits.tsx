@@ -3,7 +3,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import type { ScreenTone } from '@trymuxr/contract';
 import type { ScreenLimitsNode } from '../domain/screenModel';
 import { asLimitsPayload, runOutMs, type PluginLimitsPayload, type PluginLimitsWindow } from '../domain/limitsModel';
-import { resolvePath, bindText, resolveDisplayText } from '../domain/dataBinding';
+import { resolvePath, bindText } from '../domain/dataBinding';
 import { toneColor } from '../domain/usageTone';
 import { cardStyle, SectionLabel, Meter } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
@@ -104,12 +104,12 @@ function limitsSummary(payload: PluginLimitsPayload): string {
 export function ScreenLimits({ node, data, asOf }: { node: ScreenLimitsNode; data: unknown; asOf?: string }) {
     const { theme } = useUnistyles();
     const payload = asLimitsPayload(resolvePath(data, node.path));
-    const title = node.title === undefined ? undefined : bindText(resolveDisplayText(node.title), data);
+    const title = node.title === undefined ? undefined : bindText(node.title, data);
     // Nothing to answer with: the section label plus the host's quiet line,
     // following the chart empty-state precedent (no card).
     if (payload.verdict === 'unknown' && payload.windows.length === 0) {
         const message = payload.message ?? '';
-        const empty = node.emptyText === undefined ? '' : bindText(resolveDisplayText(node.emptyText), data);
+        const empty = node.emptyText === undefined ? '' : bindText(node.emptyText, data);
         const line = message !== '' ? message : empty;
         // An absent provider is represented by the screen's empty node; do not
         // leave a lone "Right now" heading behind when there is no limit copy.

@@ -1,11 +1,4 @@
 import { MAX_DISPLAY_BYTES, capUtf8Bytes, sanitizeDisplayText } from '@trymuxr/contract';
-import { resolveDisplayText as resolveForLanguage, type DisplayText } from '@trymuxr/contract';
-import { getCurrentLanguageTag } from '@/text';
-
-/** Resolve manifest copy with the phone's current language preference. */
-export function resolveDisplayText(value: DisplayText): string {
-    return resolveForLanguage(value, getCurrentLanguageTag());
-}
 
 /** `{{data.dotted.path}}` bindings only; no expressions. Unresolved paths render empty. */
 const BINDING = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;

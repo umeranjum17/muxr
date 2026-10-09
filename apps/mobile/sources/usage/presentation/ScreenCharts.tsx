@@ -8,7 +8,7 @@ import type { ScreenTone } from '@trymuxr/contract';
 import type { ScreenChartNode } from '../domain/screenModel';
 import type { Theme } from '@/theme';
 import { toneColor } from '../domain/usageTone';
-import { bindText, resolvePath, resolveDisplayText } from '../domain/dataBinding';
+import { bindText, resolvePath } from '../domain/dataBinding';
 import { asChartSeries, type PluginChartItem } from '../domain/chartModel';
 import { t } from '@/text';
 import { Typography } from '@/constants/Typography';
@@ -130,8 +130,8 @@ export function ScreenChart({ node, data, nested }: { node: ScreenChartNode; dat
     // narrow column on a wide screen.
     const wide = useScreenContentWidth() >= 680;
     const series = asChartSeries(resolvePath(data, node.path));
-    const title = node.title === undefined ? undefined : bindText(resolveDisplayText(node.title), data);
-    const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolveDisplayText(node.emptyText), data);
+    const title = node.title === undefined ? undefined : bindText(node.title, data);
+    const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(node.emptyText, data);
     // Empty says so in one quiet line. A full card drawn around "nothing yet"
     // spends the same space as real data. Inside a section the owning title
     // already carries the context, so an empty chart leaves no trace at all.
