@@ -11,6 +11,10 @@ vi.mock('react-native', () => ({
     AppState: { currentState: 'active', addEventListener: () => ({ remove() {} }) },
 }));
 vi.mock('@/constants/Typography', () => ({ Typography: { mono: () => ({}) } }));
+vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: { text: '#111', textSecondary: '#666', surfaceHigh: '#f8f8f8' } } }) }));
+vi.mock('@/components/ui', () => ({ withAlpha: (color: string) => color }));
+vi.mock('@/text', () => ({ t: (key: string) => key }));
 
 import { refreshPaneSnapshot, usePaneSnapshot } from './paneSnapshots';
 import { TerminalPreview } from '../presentation/TerminalPreview';
