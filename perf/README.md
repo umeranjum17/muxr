@@ -192,7 +192,7 @@ runs the same private stack with simulated phones doing what Home does: a
 `herdr.tree` poll every 5 s, five Live tiles reading their pane every 3 s, one
 controlled terminal, and a fresh dial (open + `machine.hello`) every 20 s. It
 reports per-request p50/p95/failures, dial times, link offline transitions,
-and host/relay CPU and RSS. Before the herd-tree lookup went linear, 300 panes /
+and host/relay CPU and RSS. Before the herd-tree lookup stopped rescanning every agent per route, 300 panes /
 150 agents held the host near a full core and every dial and most requests
 missed the phone's 20 s budget, which is the "computer not available" the app
 showed. Run it after `yarn build`; it is a development signal, not acceptance.
