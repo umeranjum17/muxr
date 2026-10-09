@@ -4,9 +4,13 @@ import { qrMatrix } from '@byokit/ui-core/link';
 
 // This is only a local display of the running host's BYOKit offer, not a
 // pairing endpoint. Binding loopback and checking Host prevents DNS rebinding.
-export async function startPairingPage() {
+export async function startPairingPage(intent) {
     const path = `/${randomBytes(16).toString('hex')}`;
     const nonce = randomBytes(24).toString('base64');
+    const heading = intent.kind === 'browser' ? `Pair a ${intent.authority === 'observe' ? 'view-only' : 'control'} browser` : 'Pair your phone';
+    const scan = intent.kind === 'browser'
+        ? 'Scan with your phone camera to open muxr in your browser. Keep this code private.'
+        : 'Scan with the muxr app. Compare the two words, then approve on the computer. Keep this code private.';
     let offer;
     let svg;
     let url;
@@ -27,7 +31,7 @@ export async function startPairingPage() {
 <title>Pair muxr</title><style nonce="${nonce}">
 body{font:18px system-ui;max-width:680px;margin:24px auto;padding:0 16px;background:#fff;color:#111}
 svg{display:block;width:min(100%,400px);height:auto;margin:16px auto}input{box-sizing:border-box;width:100%;font:14px monospace;padding:12px}button{font:inherit;margin-top:12px;padding:8px 16px}
-</style><h1>Pair your phone</h1><p>Scan with the muxr app. Compare the two words, then approve on the computer. Keep this code private.</p>
+</style><h1>${heading}</h1><p>${scan}</p>
 <div id="qr"></div><p id="expiry" role="status">Waiting for a pairing code…</p>
 <label for="token">Pairing string</label><input id="token" readonly spellcheck="false"><button id="copy" disabled>Copy pairing string</button>
 <script nonce="${nonce}">
