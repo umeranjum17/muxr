@@ -7,7 +7,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { t } from '@/text';
-import { getWebInstallState, promptWebInstall, subscribeWebInstall, type WebInstallState } from '@/utils/webInstall';
+import { getWebInstallState, openedOutsideSafari, promptWebInstall, subscribeWebInstall, type WebInstallState } from '@/utils/webInstall';
 
 function useWebInstallState(): WebInstallState {
     return React.useSyncExternalStore(subscribeWebInstall, getWebInstallState, getWebInstallState);
@@ -58,6 +58,7 @@ export function WebInstallGuideSheet({ onClose }: { onClose?: () => void }) {
             <Text style={styles.title} accessibilityRole="header">{t('webInstall.guideTitle')}</Text>
             <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled">
                 <Text style={styles.lead}>{t('webInstall.guideLead')}</Text>
+                {openedOutsideSafari() && <Text style={styles.lead}>{t('webInstall.guideOpenInSafari')}</Text>}
                 <View style={styles.steps}>
                     <Text style={styles.stepsText}>{t('webInstall.guideSteps')}</Text>
                 </View>

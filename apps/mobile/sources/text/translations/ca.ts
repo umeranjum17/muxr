@@ -298,6 +298,8 @@ export const ca: TranslationStructure = {
         guideLead: 'El Safari instal·la les apps web des del menú Comparteix.',
         guideSteps: '1. Toca el botó Comparteix a la barra.\n2. Toca «Afegeix a la pantalla d’inici».\n3. Toca «Afegeix».',
         guideBenefit: 'A la pantalla d’inici, el muxr et pot avisar quan un agent et necessita.',
+        guideOpenInSafari: 'Obre primer el muxr al Safari. Només el Safari el pot afegir a la pantalla d’inici.',
+        pushNeedsHomeScreen: 'Cal tenir el muxr a la pantalla d’inici primer',
         guideClose: 'Tanca',
     },
 

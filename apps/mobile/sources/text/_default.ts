@@ -312,6 +312,8 @@ export const en = {
         guideLead: 'Safari installs web apps through its Share menu.',
         guideSteps: '1. Tap the Share button in the toolbar.\n2. Tap “Add to Home Screen”.\n3. Tap “Add”.',
         guideBenefit: 'On your Home Screen, muxr can notify you when an agent needs you.',
+        guideOpenInSafari: 'Open muxr in Safari first. Only Safari can add it to your Home Screen.',
+        pushNeedsHomeScreen: 'Needs muxr on your Home Screen first',
         guideClose: 'Close',
     },
 

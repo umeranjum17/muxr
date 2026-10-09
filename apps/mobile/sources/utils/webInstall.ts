@@ -5,8 +5,8 @@ import { Platform } from 'react-native';
  *
  * - `ready`       Chromium offered its install prompt and we are holding it, so
  *                 the row can hand it back to the person on tap.
- * - `ios-guide`   iOS is showing the tab in Safari: there is no prompt API, so
- *                 Add to Home Screen is the only install path.
+ * - `ios-guide`   an iOS tab in any browser: there is no prompt API, so Add to
+ *                 Home Screen is the only install path, and only Safari has it.
  * - `unavailable` installed, native, or a browser tab with no install path at
  *                 all; show nothing.
  */
@@ -24,16 +24,20 @@ function notify(): void {
     for (const listener of listeners) listener();
 }
 
-function isIosSafari(): boolean {
-    if (typeof navigator === 'undefined') return false;
+function iosBrowser(): 'safari' | 'other' | null {
+    if (typeof navigator === 'undefined') return null;
     const ua = navigator.userAgent ?? '';
     // iPadOS 13+ reports a desktop "MacIntel" user agent with touch points.
     const iPad = navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1;
-    const iOS = iPad || /iPhone|iPad|iPod/.test(ua);
+    if (!(iPad || /iPhone|iPad|iPod/.test(ua))) return null;
     // Chrome, Firefox, Edge, Opera and Samsung on iOS all wear a WebKit UA.
     // None of them can add a page to the Home Screen; only Safari can.
-    const otherBrowser = /CriOS|FxiOS|EdgiOS|OPiOS|OPR\/|SamsungBrowser/.test(ua);
-    return iOS && !otherBrowser;
+    return /CriOS|FxiOS|EdgiOS|OPiOS|OPR\/|SamsungBrowser/.test(ua) ? 'other' : 'safari';
+}
+
+/** True on an iOS tab that is not Safari, so the guide can say to open it there first. */
+export function openedOutsideSafari(): boolean {
+    return iosBrowser() === 'other';
 }
 
 function isStandalone(): boolean {
@@ -48,7 +52,7 @@ export function getWebInstallState(): WebInstallState {
     if (Platform.OS !== 'web' || isStandalone()) return 'unavailable';
     // iOS has no prompt API at all, so Add to Home Screen is always the path
     // there — even if a stray installability event ever reached the page.
-    if (isIosSafari()) return 'ios-guide';
+    if (iosBrowser() !== null) return 'ios-guide';
     if (deferredPrompt !== null) return 'ready';
     return 'unavailable';
 }

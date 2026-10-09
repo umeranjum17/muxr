@@ -12,6 +12,7 @@ import { storage, useLocalSettingMutable } from '@/catalog/store';
 import { Modal } from '@/modal';
 import { browserNotificationSummary } from '@/settings';
 import { openWebInstallGuide } from '@/settings/WebInstallSupport';
+import { t } from '@/text';
 import { getWebInstallState } from '@/utils/webInstall';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { registerNativePushNotifications, updateNativePushNotificationLevel } from '@/utils/nativePushNotifications';
@@ -173,7 +174,7 @@ export default function NotificationSettingsScreen() {
                     : 'Sound follows your browser and system settings.'}>
                     <Item
                         title="Browser notifications"
-                        subtitle={homeScreenFirst ? 'Needs muxr on your Home Screen first' : browser === 'subscribed' ? 'On' : browserNotificationSummary(browser, level)}
+                        subtitle={homeScreenFirst ? t('webInstall.pushNeedsHomeScreen') : browser === 'subscribed' ? 'On' : browserNotificationSummary(browser, level)}
                         subtitleLines={homeScreenFirst ? 2 : undefined}
                         showChevron={false}
                         loading={browserBusy}
@@ -187,7 +188,7 @@ export default function NotificationSettingsScreen() {
                         )}
                     />
                     {homeScreenFirst && (
-                        <Item title="Add muxr to your Home Screen" subtitle="Step by step, in Safari" onPress={openWebInstallGuide} />
+                        <Item title={t('webInstall.guideTitle')} onPress={openWebInstallGuide} />
                     )}
                 </ItemGroup>
             ) : (

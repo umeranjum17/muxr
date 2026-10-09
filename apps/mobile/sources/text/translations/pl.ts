@@ -315,6 +315,8 @@ export const pl: TranslationStructure = {
         guideLead: 'Safari instaluje aplikacje internetowe z menu Udostępnij.',
         guideSteps: '1. Dotknij przycisku Udostępnij na pasku.\n2. Dotknij „Dodaj do ekranu głównego”.\n3. Dotknij „Dodaj”.',
         guideBenefit: 'Na ekranie głównym muxr może powiadamiać Cię, gdy agent potrzebuje pomocy.',
+        guideOpenInSafari: 'Najpierw otwórz muxr w Safari. Tylko Safari może dodać go na ekran początkowy.',
+        pushNeedsHomeScreen: 'Najpierw muxr musi być na ekranie początkowym',
         guideClose: 'Zamknij',
     },
 

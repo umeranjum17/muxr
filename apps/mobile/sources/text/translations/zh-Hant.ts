@@ -299,6 +299,8 @@ export const zhHant: TranslationStructure = {
         guideLead: 'Safari 透過「分享」選單安裝網頁應用程式。',
         guideSteps: '1. 點一下工具列中的「分享」按鈕。\n2. 點一下「加入主畫面」。\n3. 點一下「加入」。',
         guideBenefit: '加入主畫面後，當代理需要你時，muxr 可以通知你。',
+        guideOpenInSafari: '請先在 Safari 中開啟 muxr。只有 Safari 可以將它加到主畫面。',
+        pushNeedsHomeScreen: '需要先將 muxr 加到主畫面',
         guideClose: '關閉',
     },
 

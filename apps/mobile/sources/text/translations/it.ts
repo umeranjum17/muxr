@@ -297,6 +297,8 @@ export const it: TranslationStructure = {
         guideLead: 'Safari installa le app web dal menu Condividi.',
         guideSteps: '1. Tocca il pulsante Condividi nella barra.\n2. Tocca «Aggiungi alla schermata Home».\n3. Tocca «Aggiungi».',
         guideBenefit: 'Nella schermata Home, muxr può avvisarti quando un agente ha bisogno di te.',
+        guideOpenInSafari: 'Apri prima muxr in Safari. Solo Safari può aggiungerlo alla schermata Home.',
+        pushNeedsHomeScreen: 'Serve prima muxr nella schermata Home',
         guideClose: 'Chiudi',
     },
 

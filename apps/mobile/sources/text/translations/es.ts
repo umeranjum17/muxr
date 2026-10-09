@@ -298,6 +298,8 @@ export const es: TranslationStructure = {
         guideLead: 'Safari instala apps web desde su menú Compartir.',
         guideSteps: '1. Toca el botón Compartir en la barra.\n2. Toca «Añadir a pantalla de inicio».\n3. Toca «Añadir».',
         guideBenefit: 'En tu pantalla de inicio, muxr puede avisarte cuando un agente te necesita.',
+        guideOpenInSafari: 'Abre muxr en Safari primero. Solo Safari puede añadirlo a la pantalla de inicio.',
+        pushNeedsHomeScreen: 'Primero necesitas muxr en la pantalla de inicio',
         guideClose: 'Cerrar',
     },
 

@@ -300,6 +300,8 @@ export const zhHans: TranslationStructure = {
         guideLead: 'Safari 通过「分享」菜单安装网页应用。',
         guideSteps: '1. 点按工具栏中的「分享」按钮。\n2. 点按「添加到主屏幕」。\n3. 点按「添加」。',
         guideBenefit: '添加到主屏幕后，当代理需要你时，muxr 可以通知你。',
+        guideOpenInSafari: '请先在 Safari 中打开 muxr。只有 Safari 可以将它添加到主屏幕。',
+        pushNeedsHomeScreen: '需要先将 muxr 添加到主屏幕',
         guideClose: '关闭',
     },
 

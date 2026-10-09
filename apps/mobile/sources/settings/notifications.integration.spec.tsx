@@ -9,6 +9,7 @@ vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { addEventLi
 vi.mock('expo-application', () => ({ applicationId: null }));
 vi.mock('expo-notifications', () => ({}));
 vi.mock('@/settings/WebInstallSupport', () => ({ openWebInstallGuide: vi.fn() }));
+vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('@/catalog/store', () => ({
     storage: { getState: () => ({ localSettings: { lifecycleNotificationLevel: state.level } }) },
     useLocalSettingMutable: () => [
@@ -224,8 +225,8 @@ it('sends an iOS Safari tab to the Home Screen guide instead of a dead push swit
     const rows = (type: string) => (rendered!.root as { findAllByType(type: string): { props: any }[] }).findAllByType(type);
     const itemFor = (title: string) => rows('Item').find((item) => item.props.title === title)!;
 
-    expect(itemFor('Browser notifications').props.subtitle).toBe('Needs muxr on your Home Screen first');
+    expect(itemFor('Browser notifications').props.subtitle).toBe('webInstall.pushNeedsHomeScreen');
     expect(rows('Switch').some((item) => item.props.accessibilityLabel === 'Browser notifications')).toBe(false);
-    itemFor('Add muxr to your Home Screen').props.onPress();
+    itemFor('webInstall.guideTitle').props.onPress();
     expect(openWebInstallGuide).toHaveBeenCalledOnce();
 });

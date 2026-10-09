@@ -298,6 +298,8 @@ export const pt: TranslationStructure = {
         guideLead: 'O Safari instala aplicações web através do menu Partilhar.',
         guideSteps: '1. Toque no botão Partilhar na barra.\n2. Toque em «Adicionar ao ecrã inicial».\n3. Toque em «Adicionar».',
         guideBenefit: 'No ecrã inicial, o muxr pode avisá-lo quando um agente precisar de si.',
+        guideOpenInSafari: 'Abra o muxr no Safari primeiro. Só o Safari pode adicioná-lo à tela inicial.',
+        pushNeedsHomeScreen: 'Primeiro precisa do muxr na tela inicial',
         guideClose: 'Fechar',
     },
 

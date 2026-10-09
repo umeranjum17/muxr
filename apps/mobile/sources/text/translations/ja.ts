@@ -300,6 +300,8 @@ export const ja: TranslationStructure = {
         guideLead: 'Safari では「共有」メニューからウェブアプリをインストールします。',
         guideSteps: '1. ツールバーの「共有」ボタンをタップします。\n2. 「ホーム画面に追加」をタップします。\n3. 「追加」をタップします。',
         guideBenefit: 'ホーム画面に追加すると、エージェントがあなたを必要とするときに muxr が通知できます。',
+        guideOpenInSafari: 'まずSafariでmuxrを開いてください。ホーム画面に追加できるのはSafariだけです。',
+        pushNeedsHomeScreen: 'まずホーム画面にmuxrを追加してください',
         guideClose: '閉じる',
     },
 

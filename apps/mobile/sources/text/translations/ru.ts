@@ -285,6 +285,8 @@ export const ru: TranslationStructure = {
         guideLead: 'Safari устанавливает веб-приложения через меню «Поделиться».',
         guideSteps: '1. Нажмите кнопку «Поделиться» на панели.\n2. Нажмите «На главный экран».\n3. Нажмите «Добавить».',
         guideBenefit: 'На главном экране muxr сможет сообщать вам, когда агенту нужна помощь.',
+        guideOpenInSafari: 'Сначала откройте muxr в Safari. Добавить на главный экран можно только из Safari.',
+        pushNeedsHomeScreen: 'Сначала добавьте muxr на главный экран',
         guideClose: 'Закрыть',
     },
 
