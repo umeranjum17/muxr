@@ -1,4 +1,4 @@
-import { hostId, parseOffer, unb64url, type PairOffer } from '@byokit/link';
+import { hostId, parseV1Offer, unb64url, type PairOffer } from '@byokit/link';
 import { linkUrl } from '@byokit/relay/device';
 import { decodeBase64 } from '@/encryption/base64';
 
@@ -80,8 +80,8 @@ export function offerMatchesGrant(
 ): boolean {
     let parsed: PairOffer;
     try {
-        // now=0 inspects without rejecting expiry.
-        parsed = parseOffer(offer, 0);
+        // now=0 inspects without rejecting expiry. Only a version 1 offer carries a host key.
+        parsed = parseV1Offer(offer, 0);
     } catch {
         return false;
     }
