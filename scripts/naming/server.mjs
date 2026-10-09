@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * muxr's agent loopback. It answers `muxr preview status`: whether the phone
- * holds a pane's browser, emulator, or simulator right now. Naming does not come through
+ * holds a pane's emulator or simulator right now. Naming does not come through
  * here; `muxr name` calls the Herdr CLI itself.
  */
 

@@ -24,7 +24,7 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 | Grant peer authority | `peer/application/grantPeerAuthority.ts` | Device Grant, peer limit | `peer.authorize` |
 | Revoke peer authority | `peer/application/revokePeerAuthority.ts` | Device Grant | `peer.revoke` |
 | Admit an inbound peer request | `peer/application/admitPeerRequest.ts` | Peer start surface, mutation receipt | PeerRuntime inbound |
-| Watch an agent's screen | `desktop/application/previewPresence.ts` | Pane screen presence (measured from mapped windows, never tool-claimed) | `session.list` preview stamp, `desktop.open`/`desktop.capabilities` with `target` |
+| Watch an agent's preview | `desktop/application/androidEmulators.ts` | Device presence per pane, measured from the pane's emulator process tree or a claimed simulator (never tool-claimed) | `session.list` preview stamp, `desktop.open`/`desktop.capabilities` with `target` |
 
 Not in this process: StartDictation, StartRealtimeConversation, InterruptPlayback — those live on the phone. Voice selection, keys, readiness, and report wording are product use cases in `voice/`, called directly by the dispatcher; only the realtime stream itself is a `SessionSource` method.
 

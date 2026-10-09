@@ -47,7 +47,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 - [Connect an older phone without optional UI plugins](./retired-ui-compatibility.md) —
   all five legacy replies over a real paired host, then released Android Home/session acceptance.
-
+- [Open agent pages on the normal desktop](./agent-desktop.md) —
+  guarded real-Herdr launch environment evidence; all launch families,
+  plan-account moves and headless device mirrors stay isolated.
 - [Read a plain Computer failure](./computer-failure.md) —
   real native release app against a guarded Linux lab without ScreenCast:
   plain cause and next step, Try again, themes and 270dp/font 1.3.

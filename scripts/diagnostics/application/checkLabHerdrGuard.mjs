@@ -49,9 +49,10 @@ async function stop(child) {
 }
 
 try {
-    // Herdr's own layout: the default session under ~/.config/herdr, a named one under sessions/.
+    // Keep the default socket at its implicit HOME path. The named socket is
+    // supplied by session list, so flatten its fixture path below the Unix limit.
     const desk = await startFakeHerdr({ dir: join(root, 'home', '.config', 'herdr'), titleChurnHz: 0 });
-    const labHerdr = await startFakeHerdr({ dir: join(root, 'home', '.config', 'herdr', 'sessions', lab), titleChurnHz: 0 });
+    const labHerdr = await startFakeHerdr({ dir: join(root, 'l'), titleChurnHz: 0 });
     fakes.push(desk, labHerdr);
     // `session list` is Herdr's own answer; other verbs go to the lab fake.
     env.HERDR_BIN = join(root, 'herdr');

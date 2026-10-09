@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { createServer, type Server, type Socket } from 'node:net';
 import { describe, expect, it } from 'vitest';
 
-import { AndroidEmulatorWatcher, DevicePreviewTargets, DevicePresenceTracker, adbRunner } from './androidEmulators.js';
+import { AndroidEmulatorWatcher, DevicePreviewTargets, DevicePresenceTracker, adbRunner, scanAndroidEmulators } from './androidEmulators.js';
 import { PreviewLeaseTracker, type PreviewLeaseSnapshot } from './previewLease.js';
 
 /**
@@ -186,7 +186,7 @@ describe('a headless emulator in an agent pane', () => {
                 environ: '',
                 stat: '4200 (qemu-system-x86_64) S 4190 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n',
             });
-            // Headed: the keeper's business, invisible here.
+            // Windowed: visible through Computer, invisible here.
             procPid(proc, '4300', {
                 comm: 'qemu-system-x86_64\n',
                 cmdline: 'qemu-system-x86_64\x00-window\x00-port\x005580\x00',
@@ -254,6 +254,8 @@ describe('a headless emulator in an agent pane', () => {
                 watcher.onChange((paneId) => seen.push(paneId));
                 await watcher.scan();
                 await waitFor('presence', () => watcher.previewFor('w9:p1') !== undefined);
+                // The headed emulator on port 5580 is never discovered.
+                expect(scanAndroidEmulators(proc).map((emulator) => emulator.port).sort()).toEqual([5572, 5574]);
                 // The AVD name, readable, never a serial or a pid.
                 expect(watcher.previewFor('w9:p1')).toMatchObject({ kind: 'android', title: 'Medium Phone' });
                 expect(seen).toContain('w9:p1');
