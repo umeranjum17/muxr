@@ -5,7 +5,8 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { hostId } from '@byokit/link';
 import { linkUrl } from '@byokit/relay/device';
-import { askVisible, base64, print, printTerminalQr } from '../infrastructure/runtime.mjs';
+import { askVisible, base64, print, qrFits, qrRows, richTerminal, terminalColumns, terminalQrText, terminalRows } from '../infrastructure/runtime.mjs';
+import { startPairingPage } from '../infrastructure/pairingPage.mjs';
 import { pairingIntent } from '../domain/dist/index.js';
 import { readSelfhostState, selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
 import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
@@ -167,11 +168,13 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
                 const offerOptions = pairingOfferOptions(intent, state);
                 let offer = endpoint.offerPairing(session, relayUrl, offerOptions);
                 send({ offer });
+                const stopped = aborted(controller.signal);
                 for (;;) {
-                    const outcome = await Promise.race([done.promise, aborted(controller.signal), sleep(Math.min(1000, Math.max(offer.expires - Date.now(), 0)))]);
+                    const wake = approve === undefined ? Math.min(1000, Math.max(offerExpires(offer) - Date.now(), 0)) : 1000;
+                    const outcome = await Promise.race([done.promise, stopped, sleep(wake)]);
                     if (outcome !== undefined) { completed = outcome; await sleep(250); return; }
                     if (controller.signal.aborted) return;
-                    if (offer.expires <= Date.now() || burned) {
+                    if (approve === undefined && (offerExpires(offer) <= Date.now() || burned)) {
                         burned = false;
                         offer = endpoint.offerPairing(session, relayUrl, offerOptions);
                         send({ offer });
@@ -220,29 +223,67 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
         // A lab shell (HERDR_SESSION set) must never pair a host serving the live session.
         ...(process.env.HERDR_SESSION?.trim() ? { lab: true } : {}) })}\n`));
     let input = '';
+    let latest;
+    let altScreen = false;
+    // The local QR page is the offer's scannable fallback, started only when an offer has no QR that fits.
+    let page;
+    let queue = Promise.resolve();
+    let settle;
+    const pairing = new Promise((resolve, reject) => { settle = { resolve, reject }; });
+    const leaveAltScreen = () => {
+        if (altScreen) process.stdout.write(ALT_SCREEN_OFF);
+        altScreen = false;
+    };
+    const showOffer = async (offer) => {
+        latest = offer;
+        const code = offerCode(offer, intent);
+        const shown = code ?? (richTerminal() ? compactOffer(offer, intent) : undefined) ?? { text: offer.text, expires: offer.expires };
+        if (page === undefined && richTerminal() && code === undefined) page = await startPairingPage(intent);
+        page?.update(shown);
+        if (richTerminal() && !altScreen) {
+            process.stdout.write(ALT_SCREEN_ON);
+            altScreen = true;
+        }
+        drawOffer(shown, code, intent, page?.url);
+    };
+    // Events run one at a time in arrival order, so a page start cannot draw an offer after the approval has left the alternate screen.
+    const enqueue = (task) => { queue = queue.then(task).catch(settle.reject); };
+    const receive = (event) => {
+        if (event.offer) return showOffer(event.offer);
+        if (event.approval) {
+            leaveAltScreen();
+            void Promise.resolve(approve(event.approval)).then((yes) => socket.write(`${JSON.stringify({ yes })}\n`), settle.reject);
+        } else if (event.error) settle.reject(new Error(event.error));
+        else if (event.result) settle.resolve(event.result);
+    };
+    const onResize = () => { if (altScreen) enqueue(() => showOffer(latest)); };
+    const onInterrupt = () => process.exit(130);
+    process.on('exit', leaveAltScreen);
+    process.on('SIGINT', onInterrupt);
+    process.stdout.on('resize', onResize);
     const cancel = () => socket.write('{"cancel":true}\n');
     signal?.addEventListener('abort', cancel, { once: true });
+    socket.on('error', settle.reject);
+    socket.on('close', () => settle.reject(new Error('running host stopped during pairing')));
+    socket.on('data', (chunk) => {
+        input += chunk.toString('utf8');
+        if (input.length > 4096) { socket.destroy(); return; }
+        const lines = input.split('\n');
+        input = lines.pop() ?? '';
+        for (const line of lines) enqueue(() => receive(JSON.parse(line)));
+    });
     try {
-        return await new Promise((resolve, reject) => {
-            socket.on('error', reject);
-            socket.on('close', () => reject(new Error('running host stopped during pairing')));
-            socket.on('data', (chunk) => {
-                input += chunk.toString('utf8');
-                if (input.length > 4096) { socket.destroy(); return; }
-                const lines = input.split('\n');
-                input = lines.pop() ?? '';
-                for (const line of lines) {
-                    try {
-                        const event = JSON.parse(line);
-                        if (event.offer) showOffer(event.offer, intent);
-                        else if (event.approval) void Promise.resolve(approve(event.approval)).then((yes) => socket.write(`${JSON.stringify({ yes })}\n`), reject);
-                        else if (event.error) reject(new Error(event.error));
-                        else if (event.result) resolve(event.result);
-                    } catch (error) { reject(error); }
-                }
-            });
-        });
-    } finally { signal?.removeEventListener('abort', cancel); socket.destroy(); }
+        return await pairing;
+    } finally {
+        await queue;
+        leaveAltScreen();
+        process.off('exit', leaveAltScreen);
+        process.off('SIGINT', onInterrupt);
+        process.stdout.off('resize', onResize);
+        signal?.removeEventListener('abort', cancel);
+        socket.destroy();
+        await page?.close();
+    }
 }
 
 function pairingOfferOptions(intent, state) {
@@ -331,18 +372,67 @@ async function servePairing(state, req, device, claims, done, intent, admit) {
     };
 }
 
-function showOffer(offer, intent) {
-    print('');
-    print(intent.kind === 'browser'
-        ? `This one-time link grants ${intent.authority === 'observe' ? 'view-only' : 'control'} browser access for ${intent.grantDurationLabel()}. Keep it private.`
-        : 'This one-time QR grants a phone control of agent sessions on this computer. Keep it private.');
-    print(`Pairing code expires at ${new Date(offer.expires).toLocaleString()}.`);
-    print(offer.text);
-    print(intent.kind === 'browser'
-        ? 'Open it in the browser, then compare the two words on this screen before approving.'
-        : 'Scan it with the muxr app, then compare the two words on this screen with the phone before approving.');
-    print('Waiting for the device to finish pairing…');
-    if (process.stdout.isTTY) printTerminalQr(offer.text);
+/** The earliest moment either offer this host may show lapses: a refresh must land before the one on screen does. */
+function offerExpires(offer) {
+    return Math.min(offer.expires, offer.compactExpires ?? offer.expires);
+}
+
+const ALT_SCREEN_ON = '\x1b[?1049h';
+const ALT_SCREEN_OFF = '\x1b[?1049l';
+
+/** Terminal rows one printed line takes once the terminal wraps it. */
+function wrappedRows(line) {
+    return Math.max(1, Math.ceil([...line].length / terminalColumns()));
+}
+
+/** The compact offer's token and expiry, native offers only. */
+function compactOffer(offer, intent) {
+    if (intent.kind !== 'native' || typeof offer.compactText !== 'string') return undefined;
+    return { text: offer.compactText, expires: offer.compactExpires ?? offer.expires };
+}
+
+/** The QR and the pairing string are one offer: the full v1 where its QR and string both fit, else the compact offer at the full quiet zone, else at a two-module zone. Undefined when no QR fits. */
+function offerCode(offer, intent) {
+    const compact = compactOffer(offer, intent);
+    const candidates = [{ text: offer.text, expires: offer.expires, border: 4 }];
+    if (compact !== undefined) candidates.push({ ...compact, border: 4 }, { ...compact, border: 2 });
+    return candidates.find((code) => qrFits(code.text, wrappedRows(code.text), code.border));
+}
+
+/** Draw the offer from the top: the QR whole, then the pairing string, then the text lines in priority order while the rows left over hold them. Where no QR fits the string is the compact token, followed by one line opening the local QR page, which carries the same token. */
+function drawOffer(shown, code, intent, pageUrl) {
+    const token = shown.text;
+    const expires = shown.expires;
+    const title = intent.kind === 'browser'
+        ? `Pair a ${intent.authority === 'observe' ? 'view-only' : 'control'} browser for ${intent.grantDurationLabel()}. Keep the code private.`
+        : 'Pair your phone. Keep the code private.';
+    const label = intent.kind === 'browser'
+        ? 'Open the browser pairing link above (one token):'
+        : 'Other ways: copy the pairing string above (one token):';
+    const pageLine = code === undefined && pageUrl !== undefined ? `Open the QR page: ${pageUrl}` : undefined;
+    let left = richTerminal() ? terminalRows() - (code === undefined ? 0 : qrRows(code.text, code.border)) : Infinity;
+    const lines = [token];
+    left -= wrappedRows(token);
+    if (pageLine !== undefined) { lines.push(pageLine); left -= wrappedRows(pageLine); }
+    const take = (block) => {
+        const rows = block.reduce((sum, line) => sum + wrappedRows(line), 0);
+        if (rows > left) return false;
+        lines.push(...block);
+        left -= rows;
+        return true;
+    };
+    take([title])
+        && take([`Expires at ${new Date(expires).toLocaleTimeString()}; refreshes automatically.`])
+        && take(['Compare the two words, then approve on this computer.'])
+        && take(['Waiting for the device to finish pairing…'])
+        && take([label]);
+    if (!richTerminal()) {
+        lines.forEach((line) => print(line));
+        return;
+    }
+    process.stdout.write('\x1b[H\x1b[2J');
+    if (code !== undefined) process.stdout.write(`${terminalQrText(code.text, code.border)}\n`);
+    process.stdout.write(lines.join('\n'));
 }
 
 async function showApproval(req) {
