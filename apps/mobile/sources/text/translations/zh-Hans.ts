@@ -22,20 +22,17 @@ export const zhHans: TranslationStructure = {
     },
 
     preview: {
-        chipBrowser: '浏览器',
         chipAndroid: '模拟器',
         chipIos: '模拟器',
-        introBrowser: '你的代理打开了浏览器',
         introAndroid: '你的代理启动了 Android 模拟器',
         introIos: '你的代理占用了 iOS 模拟器',
         watch: '观看',
         notNow: '稍后',
-        watchBrowser: '观看浏览器',
         watchAndroid: '观看 Android 模拟器',
         watchIos: '观看 iOS 模拟器',
         reconnecting: '重新连接中…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
-            `${kind === 'android' ? 'Android 模拟器使用中' : kind === 'ios' ? 'iOS 模拟器使用中' : '浏览器使用中'}${title ? `, ${title}` : ''}. 实时观看`,
+        chipAccessibility: ({ kind, title }: { kind: 'android' | 'ios'; title?: string }) =>
+            `${kind === 'ios' ? 'iOS 模拟器使用中' : 'Android 模拟器使用中'}${title ? `, ${title}` : ''}. 实时观看`,
     },
 
     tabs: {

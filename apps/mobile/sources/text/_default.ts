@@ -36,21 +36,18 @@ export const en = {
     },
 
     preview: {
-        // Presence of an agent's browser, emulator, or simulator in the terminal header
-        chipBrowser: 'Browser',
+        // Presence of an agent's emulator or simulator in the terminal header
         chipAndroid: 'Emulator',
         chipIos: 'Simulator',
-        introBrowser: 'Your agent opened a browser',
         introAndroid: 'Your agent started an Android emulator',
         introIos: 'Your agent claimed an iOS simulator',
         watch: 'Watch',
         notNow: 'Not now',
-        watchBrowser: 'Watch browser',
         watchAndroid: 'Watch Android emulator',
         watchIos: 'Watch iOS simulator',
         reconnecting: 'Reconnecting…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
-            `${kind === 'android' ? 'Android emulator in use' : kind === 'ios' ? 'iOS simulator in use' : 'Browser in use'}${title ? `, ${title}` : ''}. Watch live`,
+        chipAccessibility: ({ kind, title }: { kind: 'android' | 'ios'; title?: string }) =>
+            `${kind === 'ios' ? 'iOS simulator in use' : 'Android emulator in use'}${title ? `, ${title}` : ''}. Watch live`,
     },
 
     plugins: {
