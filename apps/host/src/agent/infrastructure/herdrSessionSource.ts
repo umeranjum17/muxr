@@ -93,7 +93,7 @@ const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
-const HEADED_BROWSER = ' Run browsers headed (not headless).';
+const HEADED_BROWSER = ' Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11.';
 const HEADLESS_BROWSER = ' Browser: this host has no desktop session, so run browsers headless; Computer cannot show them.';
 const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.";
 

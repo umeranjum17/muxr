@@ -53,9 +53,9 @@ export interface SessionInfo extends SessionRef, AgentInfo {
     /** Agent Route of the spawning Agent, stored in current Herdr pane metadata. */
     spawnedBy?: string;
     /**
-     * What an agent is showing on this pane's own screen right now, when it is
-     * showing anything a client can watch. Absent means nothing is being shown,
-     * which is the ordinary case; it is never filled speculatively.
+     * What an agent is showing on this pane right now, when it is showing
+     * anything a client can watch. Absent means nothing is being shown, which
+     * is the ordinary case; it is never filled speculatively.
      */
     preview?: PreviewPresence;
 }

@@ -256,7 +256,7 @@ export interface RequestMap extends PeerRequestMap {
     // --- live desktop -------------------------------------------------------
     /**
      * Whether this machine can show and drive its own desktop right now. With a
-     * `target`, the same question about that session's own screen instead.
+     * `target`, the same question about that session's desktop instead.
      */
     'desktop.capabilities': {
         params: { target?: { sessionId: string } };

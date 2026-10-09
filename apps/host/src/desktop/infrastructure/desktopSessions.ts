@@ -143,15 +143,14 @@ export class DesktopSessions {
     /** The reason the last start attempt failed, when the engine resolved but did not come up. */
     private startFailure: string | null = null;
 
-    private readonly environment: NodeJS.ProcessEnv;
+    private readonly environment: NodeJS.ProcessEnv = process.env;
     private readonly portalGrant: PortalGrant | undefined;
     private readonly virtualDisplay: VirtualDisplay;
 
-    constructor(options: DesktopEngineOptions = {}, environment: NodeJS.ProcessEnv = process.env, private readonly x11SocketDirectory = '/tmp/.X11-unix') {
+    constructor(options: DesktopEngineOptions = {}, private readonly x11SocketDirectory = '/tmp/.X11-unix') {
         this.options = options;
-        this.environment = environment;
         this.portalGrant = options.stateRoot === undefined ? undefined : new PortalGrant(options.stateRoot);
-        this.virtualDisplay = new VirtualDisplay(environment, x11SocketDirectory);
+        this.virtualDisplay = new VirtualDisplay(this.environment, x11SocketDirectory);
     }
 
     /** Stop the screen this host started, if any; the host calls this as it stops. */
@@ -526,19 +525,10 @@ export class DesktopSessions {
                     // The engine reaches this host's own screen with its cookie. A
                     // headless host may start that screen after the engine, so
                     // the engine always carries it there — even when the service
-                    // inherited a cookie for some other display. A pane's engine
-                    // instead carries that pane's cookie and display, which is
-                    // the only way it can open the pane's private screen.
+                    // inherited a cookie for some other display.
                     {
                         ...process.env,
-                        ...(headless(this.environment)
-                            ? { XAUTHORITY: this.virtualDisplay.authorityFile }
-                            : this.environment.XAUTHORITY !== undefined && this.environment.XAUTHORITY !== ''
-                                ? { XAUTHORITY: this.environment.XAUTHORITY }
-                                : {}),
-                        ...(this.environment.DISPLAY !== undefined && this.environment.DISPLAY !== ''
-                            ? { DISPLAY: this.environment.DISPLAY }
-                            : {}),
+                        ...(headless(this.environment) ? { XAUTHORITY: this.virtualDisplay.authorityFile } : {}),
                     },
                 );
                 this.client = client;

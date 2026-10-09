@@ -14,9 +14,10 @@ security, or privacy boundary requiring their action or approval.
 1. If the pane has a desktop (DISPLAY or WAYLAND_DISPLAY is set, as
    `$MUXR_AGENT_CAPABILITIES` says), run the browser headed, using that normal
    desktop environment. Do not replace DISPLAY, clear WAYLAND_DISPLAY, or force
-   X11 browser arguments to create a private screen. If neither is set, the host
-   has no desktop: run the browser headless and tell the person Computer cannot
-   show it.
+   X11 browser arguments to create a private screen. If a Chrome fails with a
+   Wayland error, add --ozone-platform=x11. If neither DISPLAY nor WAYLAND_DISPLAY
+   is set, the host has no desktop: run the browser headless and tell the person
+   Computer cannot show it.
 2. When the browser is headed, tell the person where to look: "Open Computer to
    watch the page or finish signing in." Never paste ports, token-bearing URLs,
    or internal ids.
