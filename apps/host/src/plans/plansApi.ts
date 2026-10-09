@@ -201,11 +201,10 @@ async function renameStoredAccount(env: NodeJS.ProcessEnv, record: PlanAccountRe
 }
 
 export async function removePlanAccount(env: NodeJS.ProcessEnv, accountId: string): Promise<{ deletedFolder: boolean }> {
-    const record = resolvePlanRecord(env, accountId);
-    if (record.provider === 'opencode') {
-        removeOpencodeAccount(env, accountId);
-        return { deletedFolder: true };
+    if (loadPlanAccounts(env).some((entry) => entry.id === accountId && entry.provider === 'opencode')) {
+        return { deletedFolder: removeOpencodeAccount(env, accountId) };
     }
+    const record = resolvePlanRecord(env, accountId);
     if (record.found) {
         savePlanAccounts(env, loadPlanAccounts(env).filter((entry) => entry.id !== accountId));
         return { deletedFolder: false };

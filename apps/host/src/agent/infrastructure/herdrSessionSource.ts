@@ -2589,7 +2589,8 @@ export async function createHerdrSessionSource(
         },
 
         async canMovePlanAccount(sessionId: string): Promise<boolean> {
-            return conversationToMove((await resolvePane(sessionId)).agent) !== undefined;
+            const agent = (await resolvePane(sessionId)).agent;
+            return conversationToMove(agent) !== undefined && agent?.agent !== 'opencode';
         },
 
         /** The kit owns the move transaction; muxr owns hidden staging and session routes. */

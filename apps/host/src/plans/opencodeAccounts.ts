@@ -93,11 +93,14 @@ export function addOpencodeAccount(env: NodeJS.ProcessEnv): PlanAccountRecord {
     return record;
 }
 
-/** Forget the account and delete the private root muxr created for it. */
-export function removeOpencodeAccount(env: NodeJS.ProcessEnv, accountId: string): void {
+/** Delete the private root muxr created for the account, then forget it. A root
+ *  outside the plans dir or a symlink is never deleted, only forgotten; returns
+ *  whether the root was deleted. A failed delete keeps the record for a retry. */
+export function removeOpencodeAccount(env: NodeJS.ProcessEnv, accountId: string): boolean {
     const record = loadPlanAccounts(env).find((entry) => entry.id === accountId);
     if (record === undefined) unavailable();
-    if (!insidePlansDir(env, record.folder) || existsSync(record.folder) && lstatSync(record.folder).isSymbolicLink()) unavailable();
+    const owned = insidePlansDir(env, record.folder) && !(existsSync(record.folder) && lstatSync(record.folder).isSymbolicLink());
+    if (owned) rmSync(record.folder, { recursive: true, force: true });
     savePlanAccounts(env, loadPlanAccounts(env).filter((entry) => entry.id !== accountId));
-    rmSync(record.folder, { recursive: true, force: true });
+    return owned;
 }

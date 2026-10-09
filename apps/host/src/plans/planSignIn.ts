@@ -150,8 +150,11 @@ export function finishPlanSignIn(accountId: string): void {
 
 export async function cancelPlanSignIn(env: NodeJS.ProcessEnv, accountId: string): Promise<{ removed: boolean }> {
     if (freshOpencode.delete(accountId)) {
-        removeOpencodeAccount(env, accountId);
-        return { removed: true };
+        const record = loadPlanAccounts(env).find((entry) => entry.id === accountId);
+        if (record !== undefined && !opencodeSignedIn(record)) {
+            removeOpencodeAccount(env, accountId);
+            return { removed: true };
+        }
     }
     if (loadPlanAccounts(env).some((entry) => entry.id === accountId && entry.provider === 'opencode')) return { removed: false };
     try { return await (attempts.get(accountId)?.kit ?? planAccounts(env)).cancel(accountId); }
