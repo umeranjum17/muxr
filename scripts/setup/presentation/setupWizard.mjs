@@ -359,7 +359,9 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         const otherWays = { value: 'other', title: 'Other ways', description: 'choose another network or your own server' };
         const vpnNote = 'Another VPN on your phone? Choose Works only on this Wi-Fi with that VPN\'s allow-local-network option, or pause that VPN to use muxr away from home.';
         if (!recommended) note(vpnNote);
-        mode = await select('How will your phone reach this computer?', recommended ? [recommended, otherWays] : connectionChoices, recommended ? 0 : -1);
+        const connectionPrompt = recommended ? [recommended, otherWays] : connectionChoices;
+        const connectionInitial = recommended ? 0 : -1;
+        mode = await select('How will your phone reach this computer?', connectionPrompt, connectionInitial);
         if (mode === 'other') {
             note(vpnNote);
             mode = await select('Other ways', connectionChoices.filter((choice) => choice !== recommended), -1);
