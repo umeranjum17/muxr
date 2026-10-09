@@ -296,6 +296,7 @@ export const ru: TranslationStructure = {
     liveTerminals: {
         // Live terminals strip on the home screen
         title: 'Активные',
+        previewEmpty: 'Пока нечего показать. Этот агент ещё ничего не вывел.',
     },
 
     recentActivity: {

@@ -311,6 +311,7 @@ export const ja: TranslationStructure = {
     liveTerminals: {
         // Live terminals strip on the home screen
         title: 'ライブ',
+        previewEmpty: 'まだ表示するものがありません。このエージェントはまだ何も出力していません。',
     },
 
     recentActivity: {

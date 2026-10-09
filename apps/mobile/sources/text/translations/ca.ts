@@ -309,6 +309,7 @@ export const ca: TranslationStructure = {
     liveTerminals: {
         // Live terminals strip on the home screen
         title: 'En directe',
+        previewEmpty: 'Encara no hi ha res per mostrar. Aquest agent no ha imprès res.',
     },
 
     recentActivity: {

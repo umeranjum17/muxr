@@ -323,6 +323,8 @@ export const en = {
     liveTerminals: {
         // Live terminals strip on the home screen
         title: 'Live',
+        // A preview tile with no output yet: what and why, in plain words
+        previewEmpty: 'Nothing to show yet. This agent hasn\'t printed anything.',
     },
 
     recentActivity: {

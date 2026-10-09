@@ -45,6 +45,8 @@ async function spawnFakeHerdr(dir, options) {
         ['--agents', options.agents],
         ['--title-churn-hz', options.titleChurnHz],
         ['--terminal-bytes-per-second', options.terminalBytesPerSecond],
+        ['--empty-panes', options.emptyPanes],
+        ['--empty-after-ms', options.emptyAfterMs],
     ]) {
         if (value !== undefined) args.push(flag, String(value));
     }
@@ -112,7 +114,7 @@ function childEnv(home, muxrHome, extra, base = process.env) {
 
 /**
  * @param {{ panes?: number, agents?: number, titleChurnHz?: number,
- *   terminalBytesPerSecond?: number,
+ *   terminalBytesPerSecond?: number, emptyPanes?: number, emptyAfterMs?: number,
  *   transport?: 'adb' | 'loopback' }} [options]
  */
 export async function startFakeStack(options = {}) {

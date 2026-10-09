@@ -19,6 +19,11 @@ export async function startFakeHerdr(options) {
     const agents = options.agents ?? 4;
     const titleChurnHz = Number(options.titleChurnHz ?? 2);
     const terminalBytesPerSecond = options.terminalBytesPerSecond ?? 4096;
+    const emptyPanes = Number(options.emptyPanes ?? 0);
+    // A pane can start empty or go empty after a delay, so a lab can hold both
+    // a pane that has never printed and one whose output has ended.
+    const emptyAfterMs = Number(options.emptyAfterMs ?? 0);
+    const startedAt = Date.now();
     const cwd = join(dir, 'project');
     const attachJsonl = join(dir, 'attach.jsonl');
     const inputJsonl = join(dir, 'input.jsonl');
@@ -28,7 +33,7 @@ export async function startFakeHerdr(options) {
     mkdirSync(cwd, { recursive: true });
     try { writeFileSync(join(cwd, 'README.md'), '# fake-herdr\n\nA deterministic herd.\n', { flag: 'wx' }); } catch { /* already seeded */ }
     try { writeFileSync(join(cwd, 'notes.txt'), 'line 1\nline 2\nline 3\n', { flag: 'wx' }); } catch { /* already seeded */ }
-    const live = createWorld({ panes, agents, cwd, terminalBytesPerSecond });
+    const live = createWorld({ panes, agents, cwd, terminalBytesPerSecond, emptyPanes });
     live.nextTab = live.tabs.length + 1;
     live.nextPane = live.panes.length + 1;
     live.nextWorkspace = 2;
@@ -411,7 +416,9 @@ export async function startFakeHerdr(options) {
                 cellHeightPx: Number(params.cellHeightPx) || pane?.cellHeightPx || 0,
                 at: new Date().toISOString(),
             })}\n`);
-            const body = pane === undefined
+            const silent = pane === undefined
+                || (pane.empty === true && Date.now() - startedAt >= emptyAfterMs);
+            const body = silent
                 ? ''
                 : `${pane.terminal_title_stripped ?? pane.label ?? pane.pane_id}\nready.${pane.output ? `\n${pane.output}` : ''}`;
             const lines = typeof params.lines === 'number' ? body.split('\n').slice(-params.lines).join('\n') : body;
@@ -782,6 +789,8 @@ function parseArgs(argv) {
         agents: 4,
         titleChurnHz: 2,
         terminalBytesPerSecond: 4096,
+        emptyPanes: 0,
+        emptyAfterMs: 0,
     };
     for (let index = 0; index < argv.length; index += 1) {
         const flag = argv[index];
@@ -791,6 +800,8 @@ function parseArgs(argv) {
         else if (flag === '--agents') { out.agents = Number(value); index += 1; }
         else if (flag === '--title-churn-hz') { out.titleChurnHz = Number(value); index += 1; }
         else if (flag === '--terminal-bytes-per-second') { out.terminalBytesPerSecond = Number(value); index += 1; }
+        else if (flag === '--empty-panes') { out.emptyPanes = Number(value); index += 1; }
+        else if (flag === '--empty-after-ms') { out.emptyAfterMs = Number(value); index += 1; }
     }
     if (out.dir === undefined) throw new Error('fake-herdr: --dir is required');
     return out;
