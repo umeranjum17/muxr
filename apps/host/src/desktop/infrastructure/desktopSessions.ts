@@ -75,9 +75,11 @@ function screenless(env: NodeJS.ProcessEnv, x11SocketDirectory: string): boolean
  */
 export function hostDesktopForPanes(env: NodeJS.ProcessEnv): { screen: boolean; x11Display?: string | undefined } {
     const source = explicitDesktopSource(env);
-    const x11Display = source === undefined || source === 'x11'
-        ? env.MUXR_DESKTOP_X11_DISPLAY?.trim() || env.DISPLAY?.trim() || undefined
-        : undefined;
+    if (source === 'x11') {
+        const x11Display = env.MUXR_DESKTOP_X11_DISPLAY?.trim() || env.DISPLAY?.trim() || undefined;
+        return x11Display === undefined ? { screen: false } : { screen: true, x11Display };
+    }
+    const x11Display = source === undefined ? env.DISPLAY?.trim() || undefined : undefined;
     if (x11Display !== undefined) return { screen: true, x11Display };
     return env.WAYLAND_DISPLAY?.trim() ? { screen: true } : { screen: false };
 }

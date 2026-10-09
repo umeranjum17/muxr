@@ -113,7 +113,7 @@ const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pa
 function paneEnvironment(): Record<string, string> {
     const agentDir = process.env.PI_CODING_AGENT_DIR?.trim();
     const desktop = hostDesktopForPanes(process.env);
-    const forwarded = desktop.x11Display === undefined ? ['WAYLAND_DISPLAY', 'XAUTHORITY'] : ['XAUTHORITY'];
+    const forwarded = desktop.screen && desktop.x11Display === undefined ? ['WAYLAND_DISPLAY', 'XAUTHORITY'] : ['XAUTHORITY'];
     const desktopEnv = Object.fromEntries(
         forwarded
             .flatMap((name) => process.env[name] === undefined ? [] : [[name, process.env[name]!]]),

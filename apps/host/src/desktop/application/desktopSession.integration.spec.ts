@@ -754,5 +754,7 @@ describe('panes share the host desktop selection', () => {
         expect(hostDesktopForPanes({ WAYLAND_DISPLAY: 'wayland-0' })).toEqual({ screen: true });
         expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'portal', DISPLAY: ':1', WAYLAND_DISPLAY: 'wayland-0' })).toEqual({ screen: true });
         expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'portal', DISPLAY: ':1' })).toEqual({ screen: false });
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_X11_DISPLAY: ':99', DISPLAY: ':0' })).toEqual({ screen: true, x11Display: ':0' });
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11', WAYLAND_DISPLAY: 'wayland-0' })).toEqual({ screen: false });
     });
 });

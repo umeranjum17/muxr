@@ -1,6 +1,6 @@
 ---
 name: muxr
-description: Set up and operate muxr (control coding agents from your phone) — watch an agent's live browser, emulator, or simulator chip, open pages on a machine's desktop session for the user to watch through Computer, use durable Shared Artifacts, install/pair/self-host, drive Herdr workspaces/panes/agents/worktrees, hand browser login/2FA/CAPTCHA to the phone, connect computers for cross-machine collaboration and voice, and author/install muxr plugins. Use for any muxr or Herdr setup, orchestration, collaboration, plugin, or troubleshooting task.
+description: Set up and operate muxr (control coding agents from your phone) — watch an agent's emulator or simulator chip, open pages on a machine's desktop session for the user to watch through Computer, use durable Shared Artifacts, install/pair/self-host, drive Herdr workspaces/panes/agents/worktrees, hand browser login/2FA/CAPTCHA to the phone, connect computers for cross-machine collaboration and voice, and author/install muxr plugins. Use for any muxr or Herdr setup, orchestration, collaboration, plugin, or troubleshooting task.
 license: Apache-2.0
 compatibility: Requires the muxr and Herdr CLIs on a paired macOS or Linux host, with shell access for commands.
 ---
