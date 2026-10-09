@@ -70,8 +70,8 @@ function screenless(env: NodeJS.ProcessEnv, x11SocketDirectory: string): boolean
  * as Computer's, so a pane is told to run headed exactly when Computer can show it.
  */
 export function hostDesktopForPanes(env: NodeJS.ProcessEnv, x11SocketDirectory = X11_SOCKET_DIRECTORY): { screen: boolean; x11Display?: string | undefined } {
-    if (screenless(env, x11SocketDirectory)) return { screen: false };
     const source = configuredSource(env, x11SocketDirectory);
+    if (screenless(env, x11SocketDirectory) || (source?.kind === 'x11' && source.display === undefined)) return { screen: false };
     return { screen: true, x11Display: source?.kind === 'x11' ? source.display : undefined };
 }
 
@@ -117,8 +117,8 @@ interface LiveSession extends DesktopSessionRecord {
     revoked: boolean;
 }
 
-/** How many notifications one session keeps for a client that fell behind. */
 export const X11_SOCKET_DIRECTORY = '/tmp/.X11-unix';
+/** How many notifications one session keeps for a client that fell behind. */
 const MAX_BACKLOG = 512;
 const LINK_DISCONNECT_GRACE_MS = 20_000;
 
