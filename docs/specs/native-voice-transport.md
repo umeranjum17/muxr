@@ -6,7 +6,6 @@ created: 2026-08-18
 updated: 2026-10-01
 owner: umer
 links:
-  - plugin-primitives
   - ../VOICE-SETUP.md
 ---
 
