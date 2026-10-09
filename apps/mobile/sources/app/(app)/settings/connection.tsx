@@ -630,7 +630,7 @@ export default function ConnectionSettingsScreen() {
                     <Item title="Privacy" subtitle={transportPrivacy} subtitleLines={0} />
                     <Item title="Technical details" subtitle={showDetails ? `Relay address: ${initial.relayUrl}` : 'Show the relay address'} subtitleLines={0} onPress={() => setShowDetails((open) => !open)} />
                     <Item title="Trust on this device" subtitle={trust} subtitleLines={0} />
-                    <Item title="Paired phones & browsers" subtitle={pairedCountText} subtitleLines={0} />
+                    <Item title="Paired phones & browsers" subtitle={pairedCountText} subtitleLines={0} titleLines={0} />
                     {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserAccess} subtitleLines={0} />}
                 </ItemGroup>
 

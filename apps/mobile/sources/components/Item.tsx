@@ -21,6 +21,7 @@ export interface ItemProps {
     title: string | React.ReactNode;
     subtitle?: string;
     subtitleLines?: number; // set 0 or undefined for auto/multiline
+    titleLines?: number; // set 0 to wrap; default one line when a subtitle is present
     /** Facts line beneath the prose subtitle. */
     meta?: string;
     metaLines?: number; // default 1; set 0 to wrap
@@ -133,6 +134,7 @@ export const Item = React.memo<ItemProps>((props) => {
 
     const {
         title,
+        titleLines,
         subtitle,
         subtitleLines,
         meta,
@@ -213,7 +215,9 @@ export const Item = React.memo<ItemProps>((props) => {
                 <View style={styles.centerContent}>
                     <Text 
                         style={[styles.title, titleColor, titleStyle]}
-                        numberOfLines={subtitle ? 1 : 2}
+                        numberOfLines={titleLines !== undefined
+                            ? (titleLines <= 0 ? undefined : titleLines)
+                            : (subtitle ? 1 : 2)}
                     >
                         {title}
                     </Text>
