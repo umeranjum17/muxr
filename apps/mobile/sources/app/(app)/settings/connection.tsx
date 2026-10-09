@@ -569,7 +569,7 @@ export default function ConnectionSettingsScreen() {
         const route = knownRoute ?? describeRoute(initial.relayUrl) ?? 'Unknown';
         const routeDetail = mode !== undefined && routeDetails[mode] !== undefined
             ? routeDetails[mode]
-            : 'The host has not reported its selected route; this label is inferred from the relay address.';
+            : 'The name shown comes from the computer’s connection address.';
         const pairedDeviceCount = status === 'connected' && hostRefresh === 'ready' ? machine?.metadata?.pairedDeviceCount : undefined;
         let pairedCountText: string;
         if (status !== 'connected') pairedCountText = 'Count unavailable while disconnected. Run muxr devices list on the computer.';
@@ -578,9 +578,11 @@ export default function ConnectionSettingsScreen() {
         else if (pairedDeviceCount === undefined) pairedCountText = 'This host has not reported a count. Run muxr devices list on the computer.';
         else pairedCountText = `${pairedDeviceCount} paired at last check`;
         const statusSubtitle = connectionStatusSubtitle({ status, socketError, latestFailure, hostRefresh, herdrRuntime });
-        let routeTitle = 'Route from relay address';
+        let routeTitle = 'Connection name';
         if (knownRoute !== undefined) routeTitle = status === 'connected' && hostRefresh === 'ready' ? 'Current route' : 'Last reported route';
-        let trust = 'No active device grant is available here. Pair again on the computer to restore access.';
+        let trust = Platform.OS === 'web'
+            ? 'This browser has no access now. Pair again on the computer.'
+            : 'This phone has no access now. Pair again on the computer.';
         if (currentGrant !== undefined && !(Platform.OS === 'web' && browserExpiresAt !== undefined && browserExpiresAt <= clock)) {
             const device = Platform.OS === 'web' ? 'browser' : 'phone';
             const canControl = Platform.OS === 'web' ? browserRole === 'Control' : currentGrant.authority !== 'observe';
