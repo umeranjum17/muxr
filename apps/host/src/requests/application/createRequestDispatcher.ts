@@ -310,7 +310,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 );
             }
             const record = chosen === undefined ? undefined : await resolvePlanLaunch(process.env, chosen, start.kind);
-            if (start.kind === 'opencode' && record === undefined && loadPlanAccounts(process.env).some((entry) => entry.provider === 'opencode')) {
+            const openCodeAccounts = loadPlanAccounts(process.env).filter((entry) => entry.provider === 'opencode');
+            const openCodeStart = planAccount === undefined ? start.kind === 'opencode' && openCodeAccounts.length > 0
+                : openCodeAccounts.some((entry) => entry.id === planAccount);
+            if (openCodeStart && record === undefined) {
                 throw Object.assign(new Error('Sign in to an OpenCode account before starting an agent.'), { code: 'plan-account-unavailable' });
             }
             const launchEnv = record === undefined ? undefined : planLaunchEnv(process.env, record);

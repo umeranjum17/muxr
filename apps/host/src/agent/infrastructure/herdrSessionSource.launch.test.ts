@@ -862,6 +862,12 @@ describe('OpenCode account isolation', () => {
             const refused = await dispatch({ type: 'session.start', requestId: 'signed-out', params: { cwd: join(dir, 'repo'), kind: 'opencode' } } as never);
             expect(refused).toMatchObject({ ok: false, code: 'plan-account-unavailable' });
             expect(herdr.tabs).toHaveLength(1);
+            const omitted = await dispatch({ type: 'session.start', requestId: 'omitted-out', params: { cwd: join(dir, 'repo'), planAccount: only.record.id } } as never);
+            expect(omitted).toMatchObject({ ok: false });
+            writeFileSync(authFile, '{"openai":{}}');
+            const wrongKind = await dispatch({ type: 'session.start', requestId: 'omitted-in', params: { cwd: join(dir, 'repo'), planAccount: only.record.id } } as never);
+            expect(wrongKind).toMatchObject({ ok: false, code: 'plan-kind-mismatch' });
+            expect(herdr.tabs).toHaveLength(1);
         } finally {
             for (const [key, value] of Object.entries(saved)) {
                 if (value === undefined) delete process.env[key];

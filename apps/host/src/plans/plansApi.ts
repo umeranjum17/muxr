@@ -165,8 +165,8 @@ export async function resolvePlanLaunch(env: NodeJS.ProcessEnv, chosen: string, 
     // and an OpenCode account can only ever start an OpenCode agent.
     const kinds = record.provider === 'opencode' ? ['opencode']
         : kind === 'pi' ? [...kit.kinds(record.provider), kind] : kit.kinds(record.provider);
-    if (kind !== undefined && kind !== 'shell' && !kinds.includes(kind)) {
-        throw Object.assign(new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${kind} one.`), { code: 'plan-kind-mismatch' });
+    if (kind !== 'shell' && (record.provider === 'opencode' || kind !== undefined) && !kinds.includes(kind ?? '')) {
+        throw Object.assign(new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${kind ?? 'default'} one.`), { code: 'plan-kind-mismatch' });
     }
     let account: PlanAccount;
     if (record.provider === 'opencode') account = opencodeAccountRow(record, env);
