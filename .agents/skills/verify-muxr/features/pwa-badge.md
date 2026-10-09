@@ -45,11 +45,10 @@ run is touched.
 3. Before the app boots, add a CDP `Page.addScriptToEvaluateOnNewDocument`
    wrapper that records every `navigator.setAppBadge`/`clearAppBadge` call into
    `window.__badgeCalls`.
-4. Seed the browser secure store (`muxr-secure` IndexedDB, AES-GCM wrapped) with
-   the grant (`muxr.grant.<machineId>` + `muxr.grants.index`), the connection
-   settings (`muxr.connection.v1`), and the credentials (`auth_credentials`),
-   then reload. This is the state a real browser pairing leaves behind, so the
-   app restores the connection and syncs the fake herd.
+4. Pair the lab browser so the grant is stored through
+   `pairing/infrastructure/webSecureStore.ts` (CLAUDE.md browser-lab rule); the
+   lab hook for doing this over plain http is follow-up
+   `pock-verify-browser-lab-pair1`.
 5. Read `window.__badgeCalls` while the agents churn. The count runs
    `0 -> 1 -> 2 -> 1 -> 0`, with `setAppBadge(2)` at the blocked peak and a
    trailing `clearAppBadge()` when nothing waits.
@@ -61,9 +60,8 @@ run is touched.
   calls themselves are recorded in any window; the headless desktop taskbar
   shows no badge, so the recorded calls are the proof.
 - The app accepts a browser pairing offer only as `https://…/pair#byokit-link:…`;
-  a plain-http lab origin is rejected by the pairing UI. Seeding the secure
-  store (step 4) is the documented lab path around that.
-- `muxr-secure` is origin-scoped: seed it on the relay origin the PWA is served
-  from, or the app reads an empty store.
+  a plain-http lab origin is rejected by the pairing UI.
+- `muxr-secure` is origin-scoped: store the grant on the relay origin the PWA is
+  served from, or the app reads an empty store.
 - Native is untouched: this feature is only the web badge; the native
   `shouldSetBadge` handler stays the source of truth there.
