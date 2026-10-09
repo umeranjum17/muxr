@@ -267,7 +267,8 @@ describe('a plan-account move', () => {
             const moved = await moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude' });
             expect(moved.sessionId).toBe(sessionId);
             const paneEnv = herdr.panes.find((pane) => pane.pane_id === 'p3')?.env as Record<string, string> | undefined;
-            expect(paneEnv).toMatchObject({ DISPLAY: ':42', WAYLAND_DISPLAY: 'wayland-lab' });
+            expect(paneEnv).toMatchObject({ DISPLAY: ':42' });
+            expect(paneEnv).not.toHaveProperty('WAYLAND_DISPLAY');
             expect(paneEnv?.MUXR_AGENT_CAPABILITIES).toContain("that desktop's browser");
             expect(paneEnv?.MUXR_AGENT_CAPABILITIES).not.toContain('own screen');
             expect(paneEnv).not.toHaveProperty('AGENT_BROWSER_ARGS');
