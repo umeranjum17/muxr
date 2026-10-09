@@ -3,7 +3,8 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import type { HerdrTreePane, HerdrTreeWorkspace, PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
-import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRecord, accountName, type PlanPreparation } from './planAccounts.js';
+import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRecord, type PlanPreparation } from './planAccounts.js';
+import { opencodeAccountRows } from './plansApi.js';
 import { addOpencodeAccount, opencodeLaunchEnv, opencodeSignedIn, removeOpencodeAccount } from './opencodeAccounts.js';
 import { loadPlanAccounts, PLAN_LABELS, plansDir, type PlanProvider } from './planStore.js';
 
@@ -166,7 +167,7 @@ export async function cancelPlanSignIn(env: NodeJS.ProcessEnv, accountId: string
 export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: string): Promise<{ account: PlanAccount; failure?: string }> {
     const record = resolvePlanRecord(env, accountId);
     if (record.provider === 'opencode') {
-        const account: PlanAccount = { id: record.id, provider: 'opencode', name: accountName(record, env, undefined), signedIn: opencodeSignedIn(record) };
+        const account = opencodeAccountRows(env).find((row) => row.id === record.id)!;
         return { account, ...(!account.signedIn && signInFailed(accountId)
             ? { failure: `${PLAN_LABELS.opencode} sign-in ended without signing in. Its tab shows why.` } : {}) };
     }

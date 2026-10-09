@@ -12,7 +12,7 @@ import { DeviceLink, hostId, type DeviceGrant } from '@byokit/link';
 import { generateKeyPair } from '@trymuxr/crypto';
 import { startRelay } from '@muxr/relay';
 import { preparePlanSignIn } from '../../plans/planSignIn.js';
-import { planLaunchEnv } from '../../plans/plansApi.js';
+import { listPlans, planLaunchEnv } from '../../plans/plansApi.js';
 import { createRequestDispatcher } from '../../requests/application/createRequestDispatcher.js';
 import { createAgentWatchStores } from '../application/watchStores.js';
 import { startHost } from '../../host.js';
@@ -856,6 +856,7 @@ describe('OpenCode account isolation', () => {
             writeFileSync(authFile, '{"openai":{}}');
             const started = await dispatch({ type: 'session.start', requestId: 'solo', params: { cwd: join(dir, 'repo'), kind: 'opencode' } } as never);
             expect(started).toMatchObject({ ok: true });
+            expect((await listPlans(env)).providers.find((entry) => entry.provider === 'opencode')?.accounts).toHaveLength(1);
             expect((herdr.tabs[0] as { env?: Record<string, string> }).env?.HOME).toBe(only.record.folder);
             rmSync(authFile);
             const refused = await dispatch({ type: 'session.start', requestId: 'signed-out', params: { cwd: join(dir, 'repo'), kind: 'opencode' } } as never);

@@ -87,18 +87,28 @@ async function providerRooms(provider: PlanProvider, env: NodeJS.ProcessEnv, dep
 
 type ProviderRooms = Array<{ account: PlanAccount & { provider: PlanProvider; roomLeftPercent?: number; roomLabel?: string }; room: Room }>;
 
-/** OpenCode rows: the host owns these accounts. Sign-in state is the tool's
- *  own auth store inside each private root; usage and billing stay unknown. */
-function opencodeRows(env: NodeJS.ProcessEnv): ProviderRooms {
+/** OpenCode rows in stored order: an unnamed row takes the first default name no earlier row uses. */
+export function opencodeAccountRows(env: NodeJS.ProcessEnv): PlanAccount[] {
     const taken: string[] = [];
     return providerRecords('opencode', env).map((record) => {
-        const account = { ...opencodeAccountRow(record, env, taken), provider: 'opencode' as const };
+        const account = opencodeAccountRow(record, env, taken);
         taken.push(account.name);
-        return { account, room: { left: 'unknown' } };
+        return account;
     });
 }
 
-export function opencodeAccountRow(record: PlanAccountRecord, env: NodeJS.ProcessEnv, taken: readonly string[] = []): PlanAccount {
+/** OpenCode rows: the host owns these accounts. Sign-in state is the tool's
+ *  own auth store inside each private root; usage and billing stay unknown. */
+function opencodeRows(env: NodeJS.ProcessEnv): ProviderRooms {
+    return opencodeAccountRows(env).map((account) => ({ account: { ...account, provider: 'opencode' as const }, room: { left: 'unknown' } }));
+}
+
+/** Accounts a provider needs before its choice is listed or Auto picks: one OpenCode account already is one. */
+function minimumRooms(provider: string): number {
+    return provider === 'opencode' ? 1 : 2;
+}
+
+function opencodeAccountRow(record: PlanAccountRecord, env: NodeJS.ProcessEnv, taken: readonly string[] = []): PlanAccount {
     // No email to suggest from, so earlier OpenCode rows' names keep later ones from duplicating.
     return { id: record.id, provider: 'opencode', name: record.name.trim() || accountNameFrom(undefined, 'opencode', taken), signedIn: opencodeSignedIn(record) };
 }
@@ -121,7 +131,7 @@ export async function listPlans(env: NodeJS.ProcessEnv = process.env, deps: Plan
     const managed = await kit.list();
     const reads = await Promise.all(PLAN_PROVIDERS.map(async (provider): Promise<PlanProviderAccounts | undefined> => {
         const rooms = provider === 'opencode' ? opencodeRows(env) : await providerRooms(provider, env, deps, managed);
-        if (rooms.length < 2) return undefined;
+        if (rooms.length < minimumRooms(provider)) return undefined;
         const pick = selection(rooms, 'auto');
         return { provider, label: PLAN_LABELS[provider], accounts: rooms.map((read) => read.account),
             auto: pick.ok ? { accountId: pick.account.id, reason: pick.reason } : { reason: pick.reason } };
@@ -146,7 +156,7 @@ export async function resolvePlanLaunch(env: NodeJS.ProcessEnv, chosen: string, 
         let reads: ProviderRooms;
         if (kind === 'opencode') reads = opencodeRows(env);
         else reads = await providerRooms(kind === 'codex' ? 'codex' : 'claude', env, deps, await kit.list());
-        if (reads.length < (kind === 'opencode' ? 1 : 2)) return undefined;
+        if (reads.length < minimumRooms(kind)) return undefined;
         const pick = selection(reads, chosen);
         if (!pick.ok) return undefined;
         record = resolvePlanRecord(env, pick.account.id);

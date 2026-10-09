@@ -572,6 +572,7 @@ exit 0
     const statusA = await planAccountStatus(env, a.record.id);
     expect(statusA.account.signedIn).toBe(true);
     expect((await planAccountStatus(env, b.record.id)).account.signedIn).toBe(false);
+    expect((await planAccountStatus(env, b.record.id)).account.name).toBe('OpenCode 2');
     const bAuth = join(b.record.folder, '.local', 'share', 'opencode', 'auth.json');
     expect(existsSync(bAuth)).toBe(false);
     expect(readFileSync(join(computerOwn, 'auth.json'), 'utf8')).toContain('NEVER_ADOPTED');
