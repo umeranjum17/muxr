@@ -949,8 +949,8 @@ export async function createHerdrSessionSource(
     /** Agent-dropped artifacts in the pane's durable Shared Artifacts history. */
     const artifactsDir = options.artifactsDir ?? join(homedir(), '.muxr', 'attachments', 'pane');
     const artifacts = new ArtifactWatcher(artifactsDir, (paneId, entries, total = entries.length, truncated = false) => {
-        // Keep the extracted attachments plugin compatible while the product
-        // timeline replaces it. The session event itself is metadata-only.
+        // Released phones re-read on plugins.invalidated; an empty id list
+        // tells them to clear. The session event itself is metadata-only.
         const frame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
         for (const listener of machineListeners) listener(frame);
         const session = currentSessionByPane(paneId);

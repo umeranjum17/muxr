@@ -9,7 +9,7 @@ export interface FileNavigationMetadataItem {
 }
 
 /** The item shape file navigation reads: a title, optional metadata chips,
- *  and a navigate action. Plugin list items satisfy it structurally. */
+ *  and a navigate action. Changes rows built with `kernel.navigate` satisfy it. */
 export interface FileNavigationSourceItem {
     id?: string;
     title: string;
