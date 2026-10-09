@@ -6,6 +6,7 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { defaultPlanFolder, muxrHome, plansDir, loadPlanAccounts, type PlanAccountRecord } from './planStore.js';
+import { opencodeLaunchEnv } from './opencodeAccounts.js';
 import type { PlanAccount } from '@trymuxr/contract';
 import { accountNameFrom } from '@trymuxr/contract';
 import { claudeIdentity, codexIdentity, type DefaultLoginDeps, type PlanIdentity } from './planIdentity.js';
@@ -101,7 +102,11 @@ export function resolvePlanRecord(env: NodeJS.ProcessEnv, accountId: string): Pl
         throw Object.assign(new Error('Unknown account. List accounts again and pick one shown there.'), { code: 'unknown-plan-account' });
     }
     if (!record.found) {
-        try { planAccounts(env).launchEnv(accountId); } catch (error) { return planError(error); }
+        // Managed Claude/Codex folders validate through the kit; an OpenCode root through its own descriptor.
+        if (record.provider === 'opencode') opencodeLaunchEnv(env, record);
+        else {
+            try { planAccounts(env).launchEnv(accountId); } catch (error) { return planError(error); }
+        }
     }
     return record;
 }

@@ -7,7 +7,7 @@
 import { accountNameFrom, type PlanAccount, type PlanProviderAccounts } from '@trymuxr/contract';
 
 export type { PlanAccount, PlanProviderAccounts };
-export type PlanProvider = 'claude' | 'codex';
+export type PlanProvider = 'claude' | 'codex' | 'opencode';
 
 export interface PlansList {
     providers: PlanProviderAccounts[];
@@ -19,13 +19,14 @@ export interface PlansList {
 export const AUTO = 'auto';
 
 /** The provider as the person knows its plans: a Codex sign-in is a ChatGPT account. */
-const PROVIDER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'ChatGPT' };
+const PROVIDER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'ChatGPT', opencode: 'OpenCode' };
 export const providerName = (provider: string): string => PROVIDER_NAMES[provider] ?? provider;
 
 /** Which provider's accounts an agent kind runs on. Pi only on a Claude model. */
 export function providerForAgent(kind: string): PlanProvider | null {
     if (kind === 'claude' || kind === 'pi') return 'claude';
     if (kind === 'codex') return 'codex';
+    if (kind === 'opencode') return 'opencode';
     return null;
 }
 

@@ -4,7 +4,9 @@ import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import type { HerdrTreePane, HerdrTreeWorkspace, PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
 import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRecord, type PlanPreparation } from './planAccounts.js';
-import { loadPlanAccounts, PLAN_LABELS, plansDir } from './planStore.js';
+import { opencodeAccountRows } from './plansApi.js';
+import { addOpencodeAccount, opencodeLaunchEnv, opencodeSignedIn, removeOpencodeAccount } from './opencodeAccounts.js';
+import { loadPlanAccounts, PLAN_LABELS, plansDir, type PlanProvider } from './planStore.js';
 
 // A completed attempt releases its kit: a later re-sign-in must not inherit add's cancel ownership.
 const attempts = new Map<string, { kit: ReturnType<typeof planAccounts>; adoptedId?: string }>();
@@ -12,6 +14,8 @@ const signInTabs = new Map<string, string>();
 const signInOperations = new Map<string, Promise<unknown>>();
 /** Each attempt's private script; it records how the login ended, which the kit's own marker only says on success. */
 const signInScripts = new Map<string, string>();
+/** OpenCode accounts this process created and never signed in: cancelling one removes it with its empty root. */
+const freshOpencode = new Set<string>();
 
 const quote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
 
@@ -51,8 +55,32 @@ function signInFailed(accountId: string): boolean {
 }
 
 export async function preparePlanSignIn(env: NodeJS.ProcessEnv, provider: string, accountId?: string, prepare?: PlanPreparation) {
+    if (provider === 'opencode') {
+        // muxr owns OpenCode accounts outright: one private HOME+XDG root per
+        // id, no kit, no integration hooks. The same descriptor that starts
+        // agents opens this tab, so the sign-in lands in that account's root.
+        let record = accountId === undefined ? undefined : resolvePlanRecord(env, accountId);
+        if (record !== undefined && record.provider !== 'opencode') {
+            throw Object.assign(new Error('That account belongs to another provider.'), { code: 'plan-kind-mismatch' });
+        }
+        if (record === undefined) {
+            record = addOpencodeAccount(env);
+            freshOpencode.add(record.id);
+        } else freshOpencode.delete(record.id);
+        const descriptor = opencodeLaunchEnv(env, record);
+        return {
+            record,
+            launch: {
+                kind: 'shell',
+                label: `Sign in · ${PLAN_LABELS.opencode}`,
+                signIn: ' sh "$MUXR_PLAN_SIGNIN"',
+                planEnv: { ...descriptor.set, ...signInScript(env, record.id, 'opencode auth login') },
+                planUnset: descriptor.unset,
+            },
+        };
+    }
     if (provider !== 'claude' && provider !== 'codex') {
-        throw Object.assign(new Error('Only Claude and ChatGPT accounts can be added.'), { code: 'plan-provider-unsupported' });
+        throw Object.assign(new Error('Only Claude, ChatGPT and OpenCode accounts can be added.'), { code: 'plan-provider-unsupported' });
     }
     const prior = accountId === undefined ? undefined : attempts.get(accountId);
     const kit = prior?.kit ?? planAccounts(env, prepare);
@@ -122,6 +150,14 @@ export function finishPlanSignIn(accountId: string): void {
 }
 
 export async function cancelPlanSignIn(env: NodeJS.ProcessEnv, accountId: string): Promise<{ removed: boolean }> {
+    if (freshOpencode.delete(accountId)) {
+        const record = loadPlanAccounts(env).find((entry) => entry.id === accountId);
+        if (record !== undefined && !opencodeSignedIn(record)) {
+            removeOpencodeAccount(env, accountId);
+            return { removed: true };
+        }
+    }
+    if (loadPlanAccounts(env).some((entry) => entry.id === accountId && entry.provider === 'opencode')) return { removed: false };
     try { return await (attempts.get(accountId)?.kit ?? planAccounts(env)).cancel(accountId); }
     catch (error) { return planError(error); }
     finally { attempts.delete(accountId); }
@@ -130,6 +166,11 @@ export async function cancelPlanSignIn(env: NodeJS.ProcessEnv, accountId: string
 /** The account as its tool reports it now. `failure` says why a tracked sign-in ended without signing in. */
 export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: string): Promise<{ account: PlanAccount; failure?: string }> {
     const record = resolvePlanRecord(env, accountId);
+    if (record.provider === 'opencode') {
+        const account = opencodeAccountRows(env).find((row) => row.id === record.id)!;
+        return { account, ...(!account.signedIn && signInFailed(accountId)
+            ? { failure: `${PLAN_LABELS.opencode} sign-in ended without signing in. Its tab shows why.` } : {}) };
+    }
     let account: PlanAccount;
     if (record.found) account = await defaultAccount(record, env, {});
     else {
@@ -174,7 +215,10 @@ export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>
     const signingIn = new Set(signInTabs.values());
     const accountOn = (pane: HerdrTreePane): string | undefined => {
         const kind = pane.agentKind;
-        const provider = kind === 'claude' || kind === 'pi' ? 'claude' : kind === 'codex' ? 'codex' : undefined;
+        let provider: PlanProvider | undefined;
+        if (kind === 'claude' || kind === 'pi') provider = 'claude';
+        else if (kind === 'codex') provider = 'codex';
+        else if (kind === 'opencode') provider = 'opencode';
         const entry = listed.find((candidate) => candidate.provider === provider);
         if (entry === undefined || signingIn.has(pane.paneId)) return undefined;
         const id = recorded.get(pane.paneId);

@@ -61,9 +61,8 @@ const GESTURES: readonly [gesture: string, effect: string][] = [
     ['Drag on the whole desktop', 'Move the pointer'],
 ];
 
-/** An agent's browser takes touch like a phone's own browser; an emulator like a phone. */
+/** A device preview takes touch like a phone: an emulator and a simulator alike. */
 const PREVIEW_GESTURES: Record<PreviewKind, readonly [gesture: string, effect: string][]> = {
-    browser: [['Tap', 'Click'], ['Double-tap', 'Double-click'], ['Hold', 'Right-click'], ['Drag', 'Scroll'], ['Pinch', 'Zoom']],
     android: [['Tap', 'Tap'], ['Drag', 'Swipe'], ['Hold', 'Long press'], ['Pinch', 'Zoom']],
     ios: [['Tap', 'Tap'], ['Drag', 'Swipe'], ['Hold', 'Long press'], ['Pinch', 'Zoom']],
 };
@@ -71,16 +70,10 @@ const PREVIEW_GESTURES: Record<PreviewKind, readonly [gesture: string, effect: s
 type Icon = React.ComponentProps<typeof Ionicons>['name'];
 
 /**
- * The toolbar's keys, sent as key presses so they work in any browser, and
- * in a windowed emulator through its own shortcuts (a headless one maps the
- * same chords to device keys on the host).
+ * The toolbar's keys, sent as key presses and mapped by the host to device
+ * keys (a headless emulator included).
  */
 const PREVIEW_KEYS: Record<PreviewKind, readonly { label: string; icon: Icon; name?: string; character?: string; modifiers: string[] }[]> = {
-    browser: [
-        { label: 'Back', icon: 'chevron-back', name: 'ArrowLeft', modifiers: ['Alt'] },
-        { label: 'Forward', icon: 'chevron-forward', name: 'ArrowRight', modifiers: ['Alt'] },
-        { label: 'Reload', icon: 'refresh', name: 'F5', modifiers: [] },
-    ],
     android: [
         { label: 'Back', icon: 'caret-back-outline', name: 'Backspace', modifiers: ['Control'] },
         { label: 'Home', icon: 'ellipse-outline', character: 'h', modifiers: ['Control'] },
@@ -114,9 +107,9 @@ export interface DesktopSurfaceProps {
     /** The conversation's mark, drawn before the title the way its own header draws it. */
     leading?: React.ReactNode;
     /**
-     * Show the session's preview — the browser, emulator, or claimed simulator its agent is
+     * Show the session's preview — the emulator or claimed simulator its agent is
      * showing — instead of this computer's desktop. `closed` once the agent's
-     * window is gone; the title is the page's, or the device or simulator name.
+     * device is gone; the title is the device or simulator name.
      */
     target?: { sessionId: string; kind: PreviewKind; title?: string; closed?: boolean; viewOnly?: boolean };
 }
@@ -169,10 +162,11 @@ export function DesktopSurface(props: DesktopSurfaceProps) {
 function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked }: DesktopSurfaceProps & { docked: boolean }) {
     const { theme } = useUnistyles();
     const preview = target !== undefined;
-    const kind: PreviewKind = target?.kind ?? 'browser';
+    // Only read on the preview path, where the target always names its kind.
+    const kind: PreviewKind = target?.kind ?? 'android';
     const closed = target?.closed === true;
     const targetSession = target?.sessionId;
-    // A phone paired to watch sees an agent's browser but never drives it.
+    // A phone paired to watch sees an agent's device preview but never drives it.
     const viewOnly = target?.viewOnly === true;
     const viewOnlyRef = React.useRef(viewOnly);
     viewOnlyRef.current = viewOnly;
@@ -254,7 +248,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     // the picture back, but not the control: fingers that were unlocking the
     // phone must not land on the desktop.
     const [armed, setArmed] = React.useState(false);
-    // An agent's browser opens to watch: only a tap on it hands over control.
+    // A device preview opens to watch: only a tap on it hands over control.
     const armWhenLive = React.useRef(request.fresh && !preview);
     const arm = React.useCallback(() => {
         if (viewOnlyRef.current) return;
@@ -307,7 +301,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     React.useEffect(() => setKeyboardOpen(keyboard.isVisible), [keyboard.isVisible]);
 
     React.useEffect(() => {
-        // Nobody watches an agent's browser from the background: its stream
+        // Nobody watches a device preview from the background: its stream
         // stops there and opens again, still only watching, on the way back.
         let paused = false;
         const subscription = AppState.addEventListener('change', (state) => {
@@ -511,7 +505,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     // rather than for as long as the desktop is up.
     const explained = React.useRef(false);
     React.useEffect(() => {
-        // An agent's browser says what a tap does on its own pill, and keeps its clipboard in the menu.
+        // A device preview says what a tap does on its own pill, and keeps its clipboard in the menu.
         if (!live || explained.current || preview) return;
         explained.current = true;
         if (!openedBefore) {
@@ -542,7 +536,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
         : null;
     const described = describeDesktopOverlay(snapshot, openedBefore, consentSecondsLeft);
     const copy = previewCopy[kind];
-    // An agent's browser the app put back on its own waits for Watch, like the desktop.
+    // A device preview the app put back on its own waits for Watch, like the desktop.
     const previewStatus = !preview ? null
         : !started && !closed ? { title: copy.name, detail: target?.title, spinner: false, action: { label: 'Watch', exit: false } }
         : resuming && !closed ? { title: copy.opening, spinner: true }
@@ -582,15 +576,6 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     // Docked in a light app, the letterbox is a quiet grey so the page's own colours read true.
     const stageColor = docked && !theme.dark ? '#F5F5F5' : '#000';
     const panelColor = docked ? theme.colors.surface : '#000';
-    const canFullScreen = Platform.OS === 'android' || (web && typeof document !== 'undefined' && document.fullscreenEnabled === true);
-    const toggleFullScreen = () => {
-        if (!web) {
-            toggleLandscape();
-            return;
-        }
-        if (document.fullscreenElement) void document.exitFullscreen();
-        else void document.documentElement.requestFullscreen();
-    };
 
     // The key row rides on the keyboard and fades in as it rises; the
     // controls rise over it by the same measure, so the keyboard, the row,
@@ -684,7 +669,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
 
     return (
         <Animated.View ref={rootRef} onLayout={measureFrame} style={[styles.screen, { backgroundColor: panelColor }, from !== undefined && styles.clipped, growStyle]}>
-            {/* An agent's browser: what it is, the page it is on, whether it
+            {/* A device preview: what it is, the device it is on, whether it
                 is live, and the less-used actions. Docked, it closes in place. */}
             {headerShown && preview && <View style={[styles.header, docked && [styles.dockedHeader, { backgroundColor: panelColor, borderColor: theme.colors.divider }]]}>
                 {!docked && <Pressable onPress={leave} accessibilityRole="button" accessibilityLabel="Back to the conversation" hitSlop={12} style={headerMark}>
@@ -748,7 +733,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                     keyboardClearance={clearance}
                     // The top is paid by the container, and a preview's bottom by its toolbar margin.
                     insets={{ left: docked ? 0 : insets.left, right: insets.right, bottom: preview ? 0 : insets.bottom }}
-                    gestures={!preview ? 'desktop' : kind === 'browser' ? 'browser' : 'device'}
+                    gestures={!preview ? 'desktop' : 'device'}
                 />
 
                 {/* Reconnecting keeps the last frame, dimmed, and says so above it. */}
@@ -869,8 +854,8 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                     </Animated.View>
                 )}
 
-                {/* The agent's browser keeps its toolbar in view: the keys that
-                    move it, the keyboard, and full screen. Dim until it is live. */}
+                {/* A device preview keeps its toolbar in view: the device keys
+                    and the keyboard. Dim until it is live. */}
                 {preview && !(viewOnly && !live) && previewStatus?.action?.exit !== true && (
                     <Animated.View pointerEvents="box-none" style={[styles.toolbar, { height: TOOLBAR + bottomInset, paddingBottom: bottomInset, backgroundColor: panelColor }, docked && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider }, controlsMotion]}>
                         {shownNotice !== null && (
@@ -894,11 +879,6 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                         {!viewOnly && kind !== 'ios' && (
                             <Pressable onPress={toggleKeyboard} disabled={!live} accessibilityRole="button" accessibilityLabel={keyboardOpen ? 'Hide keyboard' : 'Keyboard'} accessibilityState={{ selected: keyboardOpen }} style={({ pressed }) => [disc(pressed, keyboardOpen), !live && styles.disabled]}>
                                 <MaterialCommunityIcons name={keyboardOpen ? 'keyboard-close-outline' : 'keyboard-outline'} size={20} color={theme.colors.text} />
-                            </Pressable>
-                        )}
-                        {kind === 'browser' && canFullScreen && (
-                            <Pressable onPress={toggleFullScreen} disabled={!live} accessibilityRole="button" accessibilityLabel="Full screen" accessibilityState={{ selected: landscape }} style={({ pressed }) => [disc(pressed, landscape), !live && styles.disabled]}>
-                                <Ionicons name="expand-outline" size={17} color={theme.colors.text} />
                             </Pressable>
                         )}
                     </Animated.View>

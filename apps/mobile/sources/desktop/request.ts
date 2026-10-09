@@ -25,12 +25,12 @@ const origins = new Map<string, DesktopOrigin>();
 
 /**
  * The computer's desktop, or (`preview`) the session's own screen: the
- * browser, emulator, or claimed simulator its agent is showing. A tap on one never opens the other.
+ * emulator or claimed simulator its agent is showing. A tap on one never opens the other.
  */
 const requestKey = (machineId: string, sessionId: string, preview: boolean) => JSON.stringify([machineId, sessionId, preview]);
 
 /**
- * The person tapped the desktop action, or Watch on an agent's browser.
+ * The person tapped the desktop action, or Watch on a device preview.
  * The presence chip (PreviewChip, P1.4) passes its measured rect as `from`.
  */
 export function requestDesktop(machineId: string, sessionId: string, preview = false, from?: DesktopOrigin): void {
@@ -56,6 +56,6 @@ export function claimDesktopRequest(machineId: string, sessionId: string, previe
     return { allowed: tapped.has(key), fresh };
 }
 
-/** A wide web window docks the agent's browser beside the conversation instead of over it. */
+/** A wide web window docks a device preview beside the conversation instead of over it. */
 export const PREVIEW_DOCK = { minWindowWidth: 900, width: 600 } as const;
 export const previewDocks = (web: boolean, windowWidth: number): boolean => web && windowWidth >= PREVIEW_DOCK.minWindowWidth;

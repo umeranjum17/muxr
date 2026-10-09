@@ -84,6 +84,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Watch and drive an iOS Simulator from the phone](./ios-simulator-preview.md) —
   `muxr preview claim` on a macOS host, live stream, tap/swipe/Home, clean
   helper shutdown.
+- [See only device preview chips, never a Browser one](./device-preview-not-browser.md) —
+  native release app over a guarded lab: device chips still work, the retired
+  Browser presence/URL stays unavailable, and Computer reads `Computer` from
+  shell and agent entry.
 - [See pinned spaces on the phone's Spaces list](./spaces-pinned.md) —
   native app on an emulator over a private stack: pin, themes, tablet width,
   plus guarded two-computer pin isolation and legacy migration.
