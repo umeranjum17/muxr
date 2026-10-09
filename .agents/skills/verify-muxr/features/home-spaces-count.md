@@ -44,5 +44,8 @@ Preconditions:
   `byokit-link:1:…` is refused as "Native pairing codes are for phones".
 - The browser store is IndexedDB, not localStorage: a fresh origin (port) is
   the clean way to a one-computer header for a before/after pair.
+- On the phone at font 1.3 the first-run welcome pushes the pairing toggle
+  below the fold; pair with the `muxr://pair#<code>` deep link and a flow that
+  taps `Wait` past a System UI ANR and scrolls to the exact `^Pair$` button.
 - `expo export` writes a hashed bundle under `apps/mobile/dist`; rebuild and
   reload with a cache-busting query, or the old bundle is served.
