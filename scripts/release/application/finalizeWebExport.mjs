@@ -9,12 +9,15 @@
  * the export as part of `web:export`, so every consumer of dist/ -- the
  * self-host deploy, the demo, the diagnostics -- receives the same shell.
  *
- * Idempotent: a re-run replaces its own block and Expo's favicon link, leaving
- * one icon link for the runtime attention switcher to update. Fails closed:
+ * The index.html step is idempotent: a re-run replaces its own block and Expo's
+ * favicon link, leaving one icon link for the runtime attention switcher to
+ * update. The sw.js step consumes its version token, so a re-run needs a fresh
+ * export (web:export always runs one). Fails closed:
  * an index.html without the shape it expects (one <head>, one viewport meta) aborts the
  * export rather than shipping a shell that would install without a manifest.
  * Adds no scripts, so the CSP (script-src 'self') is untouched.
  */
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +38,20 @@ const START = '<!-- muxr:install-meta -->';
 const END = '<!-- /muxr:install-meta -->';
 export const VIEWPORT = '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, interactive-widget=resizes-content" />';
 
+// The worker carries this token and the export replaces it with the shell hash.
+export const SHELL_VERSION_TOKEN = '__MUXR_SHELL_VERSION__';
+
+export function shellVersion(html, worker) {
+    return createHash('sha256').update(html).update('\n').update(worker).digest('hex').slice(0, 16);
+}
+
+export function finalizeServiceWorker(source, version) {
+    if (!source.includes(SHELL_VERSION_TOKEN)) {
+        throw new Error('sw.js carries no shell version token; refusing to ship it');
+    }
+    return source.replaceAll(SHELL_VERSION_TOKEN, version);
+}
+
 export function finalizeWebExport(html) {
     if ((html.match(/<head[\s>]/g) ?? []).length !== 1 || !html.includes('</head>')) {
         throw new Error('index.html has no single <head>; refusing to finalize an unexpected shell');
@@ -51,6 +68,10 @@ export function finalizeWebExport(html) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const finalized = finalizeWebExport(readFileSync(indexPath, 'utf8'));
+    const workerPath = join(dirname(indexPath), 'sw.js');
+    const workerSource = readFileSync(workerPath, 'utf8');
+    const version = shellVersion(finalized, workerSource);
     writeFileSync(indexPath, finalized);
-    process.stdout.write(`finalizeWebExport: install metadata written to ${indexPath}\n`);
+    writeFileSync(workerPath, finalizeServiceWorker(workerSource, version));
+    process.stdout.write(`finalizeWebExport: install metadata and shell version ${version} written\n`);
 }
