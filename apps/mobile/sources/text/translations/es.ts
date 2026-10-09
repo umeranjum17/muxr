@@ -309,6 +309,7 @@ export const es: TranslationStructure = {
     liveTerminals: {
         // Live terminals strip on the home screen
         title: 'En vivo',
+        previewEmpty: 'Aún no hay nada que mostrar. Este agente no ha impreso nada.',
     },
 
     recentActivity: {
