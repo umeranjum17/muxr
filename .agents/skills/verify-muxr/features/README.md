@@ -86,6 +86,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Read plan limits on the Home card](./home-quota-row.md) —
   native app and PWA over a fake-Herdr stack with a stand-in Codex: window
   first, whole-item wrap, no ellipsis, at 270dp and font 1.3/2.0, both themes.
+- [Read a space's agent count whole on Home](./home-spaces-count.md) —
+  native app and PWA over a fake-Herdr stack: the count stays whole while the
+  path chip ellipsizes, at 270 and 393 wide and font 1.3/2.0, both themes.
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.
