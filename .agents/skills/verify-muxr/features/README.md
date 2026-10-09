@@ -66,7 +66,7 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 - [Show the needs-you count on the installed PWA's app icon](./pwa-badge.md) —
   standalone-window PWA over the owned relay serving `dist`: the Badging API
-  call sequence `0 -> 2 -> 0` while fake agents churn, and a silent no-op where
+  call sequence `0 -> 1 -> 2 -> 1 -> 0` while fake agents churn, and a silent no-op where
   the API is missing.
 
 - [Share a file into a pane's Shared Artifacts](./shared-artifact.md) —
