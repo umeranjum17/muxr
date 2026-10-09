@@ -29,6 +29,7 @@ import { StatusBarProvider } from '@/components/StatusBarProvider';
 import { initConsoleLogging, setConsoleOutputEnabled } from '@/utils/consoleLogging';
 import { storage, useLocalSetting } from '@/catalog/store';
 import { registerWebServiceWorker, storeWebPushNotificationLevel } from '@/utils/pushNotifications';
+import { startWebInstallCapture } from '@/utils/webInstall';
 import { useUnistyles } from 'react-native-unistyles';
 import { AsyncLock } from '@/utils/lock';
 import { watchAgentLifecycle } from '@/herd';
@@ -130,6 +131,10 @@ SplashScreen.preventAutoHideAsync();
 
 // Remote logging to local log server (configured via Dev > Log Server setting)
 initConsoleLogging()
+
+// The browser offers its install prompt once and never repeats it; hold it at
+// app start so opening Settings later still finds it. No-op off web.
+startWebInstallCapture()
 
 // Component to apply horizontal safe area padding
 /** Voice report when a watched agent stops; owns no feature behaviour. */

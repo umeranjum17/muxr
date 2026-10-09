@@ -288,6 +288,19 @@ export const ca: TranslationStructure = {
         status: ({ status }: { status: string }) => `Estat: ${status}`,
     },
 
+    webInstall: {
+        // Install row shown in a browser tab, next to the versions card
+        groupTitle: 'Instal·la l’app',
+        rowTitle: 'Instal·la el muxr',
+        browserSubtitle: 'Afegeix una app a pantalla completa a la pantalla d’inici.',
+        iosSubtitle: 'Afegeix-la a la pantalla d’inici per fer-la servir a pantalla completa i rebre avisos.',
+        guideTitle: 'Afegeix el muxr a la pantalla d’inici',
+        guideLead: 'El Safari instal·la les apps web des del menú Comparteix.',
+        guideSteps: '1. Toca el botó Comparteix a la barra.\n2. Toca «Afegeix a la pantalla d’inici».\n3. Toca «Afegeix».',
+        guideBenefit: 'A la pantalla d’inici, el muxr et pot avisar quan un agent et necessita.',
+        guideClose: 'Tanca',
+    },
+
     optionSheet: {
         // Model/mode picker bottom sheet
         all: 'totes',

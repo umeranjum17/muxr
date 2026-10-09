@@ -302,6 +302,19 @@ export const en = {
         status: ({ status }: { status: string }) => `Status: ${status}`,
     },
 
+    webInstall: {
+        // Install row shown in a browser tab, next to the versions card
+        groupTitle: 'Install app',
+        rowTitle: 'Install muxr',
+        browserSubtitle: 'Adds a full-screen app to your home screen.',
+        iosSubtitle: 'Add it to your Home Screen for a full-screen app and alerts.',
+        guideTitle: 'Add muxr to your Home Screen',
+        guideLead: 'Safari installs web apps through its Share menu.',
+        guideSteps: '1. Tap the Share button in the toolbar.\n2. Tap “Add to Home Screen”.\n3. Tap “Add”.',
+        guideBenefit: 'On your Home Screen, muxr can notify you when an agent needs you.',
+        guideClose: 'Close',
+    },
+
     optionSheet: {
         // Model/mode picker bottom sheet
         all: 'all',

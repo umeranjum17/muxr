@@ -287,6 +287,19 @@ export const it: TranslationStructure = {
         status: ({ status }: { status: string }) => `Stato: ${status}`,
     },
 
+    webInstall: {
+        // Install row shown in a browser tab, next to the versions card
+        groupTitle: 'Installa l’app',
+        rowTitle: 'Installa muxr',
+        browserSubtitle: 'Aggiunge un’app a schermo intero alla schermata Home.',
+        iosSubtitle: 'Aggiungila alla schermata Home per usarla a schermo intero e ricevere avvisi.',
+        guideTitle: 'Aggiungi muxr alla schermata Home',
+        guideLead: 'Safari installa le app web dal menu Condividi.',
+        guideSteps: '1. Tocca il pulsante Condividi nella barra.\n2. Tocca «Aggiungi alla schermata Home».\n3. Tocca «Aggiungi».',
+        guideBenefit: 'Nella schermata Home, muxr può avvisarti quando un agente ha bisogno di te.',
+        guideClose: 'Chiudi',
+    },
+
     optionSheet: {
         // Model/mode picker bottom sheet
         all: 'tutti',
