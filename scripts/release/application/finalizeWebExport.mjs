@@ -9,8 +9,10 @@
  * the export as part of `web:export`, so every consumer of dist/ -- the
  * self-host deploy, the demo, the diagnostics -- receives the same shell.
  *
- * Idempotent: a re-run replaces its own block and Expo's favicon link, leaving
- * one icon link for the runtime attention switcher to update. Fails closed:
+ * The index.html step is idempotent: a re-run replaces its own block and Expo's
+ * favicon link, leaving one icon link for the runtime attention switcher to
+ * update. The sw.js step consumes its version token, so a re-run needs a fresh
+ * export (web:export always runs one). Fails closed:
  * an index.html without the shape it expects (one <head>, one viewport meta) aborts the
  * export rather than shipping a shell that would install without a manifest.
  * Adds no scripts, so the CSP (script-src 'self') is untouched.
@@ -66,9 +68,10 @@ export function finalizeWebExport(html) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const finalized = finalizeWebExport(readFileSync(indexPath, 'utf8'));
-    writeFileSync(indexPath, finalized);
     const workerPath = join(dirname(indexPath), 'sw.js');
     const version = shellVersion(finalized);
-    writeFileSync(workerPath, finalizeServiceWorker(readFileSync(workerPath, 'utf8'), version));
+    const worker = finalizeServiceWorker(readFileSync(workerPath, 'utf8'), version);
+    writeFileSync(indexPath, finalized);
+    writeFileSync(workerPath, worker);
     process.stdout.write(`finalizeWebExport: install metadata and shell version ${version} written\n`);
 }
