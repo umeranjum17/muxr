@@ -106,7 +106,7 @@ export function ScreenLimits({ limits, title, asOf }: { limits: unknown; title?:
     // following the chart empty-state precedent (no card).
     if (payload.verdict === 'unknown' && payload.windows.length === 0) {
         const line = payload.message ?? '';
-        // An absent provider is represented by the screen's empty node; do not
+        // An absent provider is covered by the screen's own empty state; do not
         // leave a lone "Right now" heading behind when there is no limit copy.
         if (line === '') return null;
         return (
