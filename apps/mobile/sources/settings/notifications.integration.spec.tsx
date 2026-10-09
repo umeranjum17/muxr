@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({ level: 'all' as 'off' | 'important' | 'all', m
 vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { addEventListener: () => ({ remove() {} }) }, Linking: {} }));
 vi.mock('expo-application', () => ({ applicationId: null }));
 vi.mock('expo-notifications', () => ({}));
+vi.mock('@/settings/WebInstallSupport', () => ({ openWebInstallGuide: vi.fn() }));
 vi.mock('@/catalog/store', () => ({
     storage: { getState: () => ({ localSettings: { lifecycleNotificationLevel: state.level } }) },
     useLocalSettingMutable: () => [

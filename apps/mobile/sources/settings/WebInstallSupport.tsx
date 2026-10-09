@@ -23,19 +23,10 @@ function useWebInstallState(): WebInstallState {
 export function WebInstallSupport() {
     const { theme } = useUnistyles();
     const state = useWebInstallState();
-    const [busy, setBusy] = React.useState(false);
     if (state !== 'ready' && state !== 'ios-guide') return null;
-    const install = async () => {
-        if (state === 'ios-guide') {
-            Modal.show({ component: WebInstallGuideSheet, align: 'bottom' });
-            return;
-        }
-        setBusy(true);
-        try {
-            await promptWebInstall();
-        } finally {
-            setBusy(false);
-        }
+    const install = () => {
+        if (state === 'ios-guide') openWebInstallGuide();
+        else void promptWebInstall();
     };
     return (
         <ItemGroup title={t('webInstall.groupTitle')}>
@@ -43,12 +34,15 @@ export function WebInstallSupport() {
                 title={t('webInstall.rowTitle')}
                 subtitle={state === 'ios-guide' ? t('webInstall.iosSubtitle') : t('webInstall.browserSubtitle')}
                 subtitleLines={0}
-                loading={busy}
                 icon={<Ionicons name="download-outline" size={24} color={theme.colors.header.tint} />}
-                onPress={() => void install()}
+                onPress={install}
             />
         </ItemGroup>
     );
+}
+
+export function openWebInstallGuide(): void {
+    Modal.show({ component: WebInstallGuideSheet, align: 'bottom' });
 }
 
 /** The iOS-only walk through Safari's Share menu, in plain words. */

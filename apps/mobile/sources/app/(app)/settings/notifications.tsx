@@ -11,6 +11,8 @@ import { Switch } from '@/components/Switch';
 import { storage, useLocalSettingMutable } from '@/catalog/store';
 import { Modal } from '@/modal';
 import { browserNotificationSummary } from '@/settings';
+import { openWebInstallGuide } from '@/settings/WebInstallSupport';
+import { getWebInstallState } from '@/utils/webInstall';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { registerNativePushNotifications, updateNativePushNotificationLevel } from '@/utils/nativePushNotifications';
 import {
@@ -61,6 +63,7 @@ export default function NotificationSettingsScreen() {
     const [chipState, setChipState] = React.useState<StatusState>('unsupported');
     const liveSupported = Platform.OS === 'ios' ? supportsLiveActivities() : chipState !== 'unsupported';
     const [liveOn, setLiveOn] = React.useState(() => canPostLiveActivities());
+    const homeScreenFirst = web && browser === 'unsupported' && getWebInstallState() === 'ios-guide';
 
     // Permission, browser subscription and Live Updates are owned by the
     // system, so read them again whenever the person comes back from there.
@@ -170,10 +173,11 @@ export default function NotificationSettingsScreen() {
                     : 'Sound follows your browser and system settings.'}>
                     <Item
                         title="Browser notifications"
-                        subtitle={browser === 'subscribed' ? 'On' : browserNotificationSummary(browser, level)}
+                        subtitle={homeScreenFirst ? 'Needs muxr on your Home Screen first' : browser === 'subscribed' ? 'On' : browserNotificationSummary(browser, level)}
+                        subtitleLines={homeScreenFirst ? 2 : undefined}
                         showChevron={false}
                         loading={browserBusy}
-                        rightElement={browserBusy ? undefined : (
+                        rightElement={browserBusy || homeScreenFirst ? undefined : (
                             <Switch
                                 accessibilityLabel="Browser notifications"
                                 value={browser === 'subscribed'}
@@ -182,6 +186,9 @@ export default function NotificationSettingsScreen() {
                             />
                         )}
                     />
+                    {homeScreenFirst && (
+                        <Item title="Add muxr to your Home Screen" subtitle="Step by step, in Safari" onPress={openWebInstallGuide} />
+                    )}
                 </ItemGroup>
             ) : (
                 <ItemGroup footer={`Sound, vibration and banners are set in ${SYSTEM}.`}>
