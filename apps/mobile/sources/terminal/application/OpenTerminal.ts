@@ -4,9 +4,11 @@
  * Open a byokit link stream to attach the pane. Frames are herdr's own NDJSON protocol --
  * base64 ANSI in, keystrokes out -- and are never parsed here.
  *
- * Reconnect: a dropped link stream re-attaches with backoff, for as long as the
- * pane is open, and reports closed only when the host says the stream ended.
- * The pane is never left dead behind a transient relay or host reconnect: the
+ * Reconnect: a dropped link stream, including one the host ends, re-attaches with
+ * backoff for as long as the pane is open. The pane closes only when the person
+ * has to act: another device took it, the device was removed or must pair again,
+ * the machine's pairing was lost, or the host kept answering that the agent is
+ * gone for 30 s. The pane is never left dead behind a transient relay or host reconnect: the
  * last frame stays on screen while the retry runs, and a machine transport that
  * comes back retries at once instead of waiting out the backoff.
  *
