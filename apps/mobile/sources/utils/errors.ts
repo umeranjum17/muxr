@@ -15,7 +15,7 @@ export type HumanError = { title: string; message: string; details?: string };
 // timeout). When a later slice brings a new caller, it brings its row with
 // it - dormant strings rot and hide what is live.
 const HUMAN_ERRORS: Array<[RegExp, HumanError]> = [
-    [/timed out|no reply from machine|timeout/i, { title: 'No answer', message: "Your computer didn't answer. Check the connection, then try again." }],
+    [/timed out|no reply from machine|timeout|answer in time/i, { title: 'No answer', message: "Your computer didn't answer. Check the connection, then try again." }],
     [/grant expired/i, { title: 'Access expired', message: "This browser's access expired. Pair again to continue." }],
     [/revoked/i, { title: 'Access removed', message: 'This device was removed from the machine. Pair again to continue.' }],
 ];

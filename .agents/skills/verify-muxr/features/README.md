@@ -95,6 +95,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Keep a terminal pane alive across a reconnect](./terminal-reconnect.md) —
   native app over a private stack: relay and host restarts under an
   open pane, last frame kept, recovery with no tap, plain words.
+- [Stay connected to a busy computer](./busy-computer.md) —
+  homeLoad at 300 panes / 150 agents, then a frozen lab host on an emulator:
+  busy card through the offline grace, explanation only after it.
 - [Select a terminal's text on iOS](./terminal-select-text-ios.md) —
   Select Text viewer: Select All, one-tap Copy and a read-only edit menu on
   iPhone and iPad simulators.

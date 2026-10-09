@@ -144,7 +144,7 @@ export function BusyConnectingCard({ since }: { since: number }) {
     const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
     return (
         <View style={[styles.card, cardStyle(theme)]}>
-            <Text style={styles.title}>Your computer is very busy - still connecting</Text>
+            <Text style={styles.title}>Your computer is very busy. Still connecting.</Text>
             <Text accessibilityLiveRegion="polite" style={styles.body}>
                 Connecting for {elapsed}. muxr keeps trying, and your terminals will appear when the computer catches up.
             </Text>

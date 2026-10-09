@@ -185,6 +185,18 @@ phone reads; the regression flow test proves the fixed boundary, not a post-fix
 memory ceiling or the cause of the prior 23.9 GiB cgroup peak. No post-fix
 host soak is claimed here.
 
+## Home on a busy host
+
+`node perf/homeLoad.mjs --minutes 5 --phones 2 --panes 300 --agents 150 --out report.json`
+runs the same private stack with simulated phones doing what Home does: a
+`herdr.tree` poll every 5 s, five Live tiles reading their pane every 3 s, one
+controlled terminal, and a fresh dial (open + `machine.hello`) every 20 s. It
+reports per-request p50/p95/failures, dial times, link offline transitions,
+and host/relay CPU and RSS. Before the herd-tree lookup stopped rescanning every agent per route, 300 panes /
+150 agents held the host near a full core and every dial and most requests
+missed the phone's 20 s budget, which is the "computer not available" the app
+showed. Run it after `yarn build`; it is a development signal, not acceptance.
+
 ## Side-by-side physical phone probe
 
 For a shared phone whose `com.trymuxr.app` install must not be touched, build a

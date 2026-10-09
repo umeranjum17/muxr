@@ -571,9 +571,11 @@ export const HomeDock = React.memo(({
     const currentProject = resolveDockOption(projectOptions, [selectedPath, '~']);
     const worktreeSelectionKey = selectedWorktreeKey(sessionType, worktreeKey);
     const [existingWorktrees, setExistingWorktrees] = React.useState<DockOption[]>([]);
+    const [worktreeProbeError, setWorktreeProbeError] = React.useState<string | null>(null);
 
     React.useEffect(() => {
         const path = resolveAbsolutePath(selectedPath ?? '~', selectedMachine?.metadata?.homeDir);
+        setWorktreeProbeError(null);
         if (!activeMachineId || !selectedMachine || !isMachineOnline(selectedMachine) || !path) {
             setExistingWorktrees([]);
             return;
@@ -583,6 +585,10 @@ export const HomeDock = React.memo(({
         listWorktreeOptions(activeMachineId, path).then((worktreeOptions) => {
             if (cancelled) return;
             setExistingWorktrees(worktreeOptions);
+        }, (error: unknown) => {
+            if (cancelled) return;
+            setExistingWorktrees([]);
+            setWorktreeProbeError(error instanceof Error ? error.message : String(error));
         });
         return () => {
             cancelled = true;
@@ -1180,6 +1186,7 @@ export const HomeDock = React.memo(({
                             setWorktreeKey(next.worktreeKey);
                         }}
                         onClose={() => setOpenSheet(null)}
+                        footer={worktreeProbeError === null ? undefined : <Text style={[styles.optionDescription, { paddingHorizontal: 18 }]}>{worktreeProbeError}</Text>}
                     />
                 </View>
             </RNModal>
