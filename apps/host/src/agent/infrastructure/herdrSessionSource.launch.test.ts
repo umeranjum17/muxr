@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import type { HostFrame, HerdrTreeWorkspace } from '@trymuxr/contract';
@@ -12,7 +12,8 @@ import { DeviceLink, hostId, type DeviceGrant } from '@byokit/link';
 import { generateKeyPair } from '@trymuxr/crypto';
 import { startRelay } from '@muxr/relay';
 import { preparePlanSignIn } from '../../plans/planSignIn.js';
-import { planLaunchEnv, resolvePlanLaunch } from '../../plans/plansApi.js';
+import { planLaunchEnv } from '../../plans/plansApi.js';
+import { createRequestDispatcher } from '../../requests/application/createRequestDispatcher.js';
 import { createAgentWatchStores } from '../application/watchStores.js';
 import { startHost } from '../../host.js';
 import { LinkEndpoint, type MachineCryptoState } from '../../machine/index.js';
@@ -825,10 +826,11 @@ describe('OpenCode account isolation', () => {
         }
     }, 20_000);
 
-    it('starts a lone OpenCode account in its own root when no account is picked', async () => {
+    it('starts a lone OpenCode account through session.start in its own root, and refuses once it is signed out', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-solo-'));
         const bin = join(dir, 'bin');
         mkdirSync(bin);
+        mkdirSync(join(dir, 'repo'));
         writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
         chmodSync(join(bin, 'opencode'), 0o755);
         const env: NodeJS.ProcessEnv = {
@@ -837,14 +839,35 @@ describe('OpenCode account isolation', () => {
             MUXR_HOME: join(dir, 'muxr'),
             PATH: `${bin}:${process.env.PATH ?? ''}`,
         };
+        const saved = { HOME: process.env.HOME, MUXR_HOME: process.env.MUXR_HOME, PATH: process.env.PATH };
+        Object.assign(process.env, env);
+        const herdr = fakeHerdr(dir, join(dir, 'repo'));
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
         try {
             const only = await preparePlanSignIn(env, 'opencode');
-            mkdirSync(join(only.record.folder, '.local', 'share', 'opencode'), { recursive: true });
-            writeFileSync(join(only.record.folder, '.local', 'share', 'opencode', 'auth.json'), '{"openai":{}}');
-            const picked = await resolvePlanLaunch(env, 'auto', 'opencode');
-            expect(picked?.id).toBe(only.record.id);
-            expect(planLaunchEnv(env, picked!).set.HOME).toBe(only.record.folder);
+            const authFile = join(only.record.folder, '.local', 'share', 'opencode', 'auth.json');
+            mkdirSync(dirname(authFile), { recursive: true });
+            writeFileSync(authFile, '{"openai":{}}');
+            const started = await dispatch({ type: 'session.start', requestId: 'solo', params: { cwd: join(dir, 'repo'), kind: 'opencode' } } as never);
+            expect(started).toMatchObject({ ok: true });
+            expect((herdr.tabs[0] as { env?: Record<string, string> }).env?.HOME).toBe(only.record.folder);
+            rmSync(authFile);
+            const refused = await dispatch({ type: 'session.start', requestId: 'signed-out', params: { cwd: join(dir, 'repo'), kind: 'opencode' } } as never);
+            expect(refused).toMatchObject({ ok: false, code: 'plan-account-unavailable' });
+            expect(herdr.tabs).toHaveLength(1);
         } finally {
+            for (const [key, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[key];
+                else process.env[key] = value;
+            }
+            await source.dispose();
+            herdr.close();
             rmSync(dir, { recursive: true, force: true });
         }
     }, 20_000);
