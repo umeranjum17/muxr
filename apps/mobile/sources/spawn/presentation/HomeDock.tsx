@@ -1186,7 +1186,7 @@ export const HomeDock = React.memo(({
                             setWorktreeKey(next.worktreeKey);
                         }}
                         onClose={() => setOpenSheet(null)}
-                        footer={worktreeProbeError === null ? undefined : <Text style={styles.optionDescription}>{worktreeProbeError}</Text>}
+                        footer={worktreeProbeError === null ? undefined : <Text style={[styles.optionDescription, { paddingHorizontal: 18 }]}>{worktreeProbeError}</Text>}
                     />
                 </View>
             </RNModal>
