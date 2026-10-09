@@ -750,5 +750,6 @@ describe('panes share the host desktop selection', () => {
         const missing = join(tmpdir(), 'muxr-no-desktop-socket-that-does-not-exist');
         expect(hostDesktopForPanes({ XDG_RUNTIME_DIR: missing }, missing)).toEqual({ screen: false });
         expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11' }, missing)).toEqual({ screen: false });
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11', DISPLAY: ':0' }, missing)).toEqual({ screen: true, x11Display: ':0' });
     });
 });
