@@ -1,6 +1,6 @@
 # Scan a pairing QR from the terminal
 
-`muxr pair` prints a centered QR when its complete quiet zone fits the terminal, then the instructions and the unwrapped pairing string, which the terminal may soft-wrap but never splits. The host mints both the full v1 offer and the compact offer; the QR and the string are always the same offer: the full v1 where both fit (only it resumes through the kit's pendingGrant when the phone dies before approval), otherwise the compact offer at the full quiet zone, then at a two-module quiet zone. Where no QR fits (80x24), the full string prints followed by one line, `Open the QR page: <url>`, that opens a local page on this computer carrying the same token as a scannable QR. Plain output prints the full string with no QR.
+`muxr pair` prints a centered QR when one fits the terminal with its quiet zone, then the instructions and the unwrapped pairing string, which the terminal may soft-wrap but never splits. The host mints both the full v1 offer and the compact offer; the QR and the string are always the same offer: the full v1 where both fit (only it resumes through the kit's pendingGrant when the phone dies before approval), otherwise the compact offer at the full quiet zone, then at a two-module quiet zone. Where no QR fits (80x24), the full string prints followed by one line, `Open the QR page: <url>`, that opens a local page on this computer carrying the same token as a scannable QR. Plain output prints the full string with no QR.
 
 ## Sub-features
 
@@ -111,6 +111,6 @@ service: retain that limitation rather than touching the owner's service.
 ## Gotchas
 
 - Terminal attachment can resize a tmux window. Keep proof sessions detached or use manual window sizing, and record the actual `stty size`.
-- BYOKit's half-block renderer trims trailing spaces. muxr restores the matrix width, including its four-module quiet zone; do not infer width from the longest trimmed line.
+- BYOKit's half-block renderer trims trailing spaces. muxr restores the matrix width, including its quiet zone (four modules, or two where only the compact offer fits); do not infer width from the longest trimmed line.
 - Text printed below the QR must leave its rows free: a wrapped token or instruction that pushes past the bottom scrolls the offer's top off the screen.
 - Offers expire and are private: keep captures in private evidence storage, never commit them. Cancel the offer after capture; this proof does not approve or pair a device.
