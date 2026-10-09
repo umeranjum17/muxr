@@ -1,5 +1,5 @@
 // Pairs a native app to a private stack and cuts its link on demand. See terminal-reconnect.md.
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, readlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setAndroidSerial } from './perf/lib/deviceTarget.mjs';
@@ -37,43 +37,37 @@ try {
     const pairing = await stack.mintPairing();
     scope.cleanups.push(() => pairing.release());
     await adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', `'muxr://pair#${pairing.code}'`, 'com.trymuxr.app');
-    mark(`paired link opened; relay port ${stack.relayPort}; tap Pair, then enter: open | relay | net <seconds> | quit`);
-    let relayPid = stack.pids.relay;
+    mark(`paired link opened; relay port ${stack.relayPort}; tap Pair, then enter: open | relay [down s] | host [down s] | net <seconds> | quit`);
+    const pids = { ...stack.pids };
+    // Kill a service by its exact PID, keep it down for a while if asked, and start the same command line again, with
+    // the same environment and working directory, as a service restart would.
+    const restart = async (name, downSeconds = '0') => {
+        const pid = pids[name];
+        const argv = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean);
+        const env = Object.fromEntries(readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').filter(Boolean)
+            .map((entry) => [entry.slice(0, entry.indexOf('=')), entry.slice(entry.indexOf('=') + 1)]));
+        const cwd = readlinkSync(`/proc/${pid}/cwd`);
+        mark(`${name} restart: stopping pid ${pid}`);
+        process.kill(pid, 'SIGTERM');
+        while (existsSync(`/proc/${pid}`)) await sleep(200);
+        await sleep(Number(downSeconds) * 1_000);
+        // The relay's port is pinned so the phone's tunnel still reaches it.
+        if (name === 'relay') env.MUXR_RELAY_PORT = String(stack.relayPort);
+        const child = scope.spawn(argv[0], argv.slice(1), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+        child.stdout.on('data', keep(name));
+        child.stderr.on('data', keep(name));
+        if (name === 'relay') {
+            const port = await waitForRelay(child);
+            if (port !== stack.relayPort) throw new Error(`relay came back on ${port}, not ${stack.relayPort}`);
+        }
+        pids[name] = child.pid;
+        mark(`${name} restart: pid ${child.pid} started`);
+    };
     const commands = {
         open: () => adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW',
             '-d', `'muxr:///session/${encodeURIComponent(paneRoute)}'`, 'com.trymuxr.app'),
-        // Kill the relay by its exact PID and start it again on the same port and
-        // data dir, as a service restart would.
-        relay: async () => {
-            mark(`relay restart: stopping pid ${relayPid}`);
-            process.kill(relayPid, 'SIGTERM');
-            await sleep(3_000);
-            const env = { ...process.env };
-            for (const key of Object.keys(env)) if (key.startsWith('MUXR_') || key === 'HERDR_SESSION') delete env[key];
-            const relay = scope.spawn(process.execPath, ['apps/relay/dist/main.js'], {
-                stdio: ['ignore', 'pipe', 'pipe'],
-                env: {
-                    ...env,
-                    HOME: join(stack.root, 'home'),
-                    XDG_CONFIG_HOME: join(stack.root, 'home', '.config'),
-                    MUXR_HOME: join(stack.root, 'muxr'),
-                    MUXR_NO_TUI: '1',
-                    MUXR_NO_SERVICE_COMMANDS: '1',
-                    MUXR_RELAY_PORT: String(stack.relayPort),
-                    MUXR_RELAY_HOST: '127.0.0.1',
-                    MUXR_RELAY_DATA_DIR: join(stack.root, 'muxr', 'relay'),
-                    MUXR_RELAY_LOCAL_AUTHORITY: '1',
-                    MUXR_RELAY_MDNS: '0',
-                    MUXR_HOST_HTTP_URL: `http://127.0.0.1:${stack.hostHttpPort}`,
-                },
-            });
-            relay.stdout.on('data', keep('relay'));
-            relay.stderr.on('data', keep('relay'));
-            const port = await waitForRelay(relay);
-            if (port !== stack.relayPort) throw new Error(`relay came back on ${port}, not ${stack.relayPort}`);
-            relayPid = relay.pid;
-            mark(`relay restart: pid ${relayPid} listening on ${port}`);
-        },
+        relay: (seconds) => restart('relay', seconds),
+        host: (seconds) => restart('host', seconds),
         // The phone loses its route to the relay, then gets it back.
         net: async (seconds = '20') => {
             mark(`network drop: removing tunnel for ${seconds}s`);
@@ -100,7 +94,7 @@ try {
     for await (const line of input) {
         const [name, ...args] = line.trim().split(/\s+/);
         if (name === 'quit') break;
-        if (!(name in commands)) { console.error('commands: open | relay | net <seconds> | quit'); continue; }
+        if (!(name in commands)) { console.error('commands: open | relay [down s] | host [down s] | net <seconds> | quit'); continue; }
         await commands[name](...args).catch((error) => mark(`${name} failed: ${error.message}`));
     }
 } catch (error) {

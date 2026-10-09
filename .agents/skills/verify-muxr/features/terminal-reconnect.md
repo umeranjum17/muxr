@@ -8,6 +8,7 @@ by itself once the link is back. No tap, and no internal words such as
 ## Sub-features
 
 - `terminal-relay-restart` the relay restarts under an open pane; the pane resubscribes when the computer answers again.
+- `terminal-host-restart` the computer's muxr service restarts under an open pane; same recovery.
 - `terminal-network-drop` the phone's route to the relay goes away for a while and comes back; same recovery.
 - `terminal-last-frame` the pane's last output stays visible for the whole outage.
 - `terminal-plain-words` only what the person must act on ends the pane, in plain words: `Open on another device · Tap to use it here`, `This pane was closed on the computer`, or the machine's own pairing/update message.
@@ -31,8 +32,10 @@ Preconditions:
 2. Enter `open`: the fake's shell pane opens. Type something recognisable into it
    (`echo Umer reconnect check`) so the last frame is easy to see.
 3. Start `adb -s $SERIAL shell screenrecord --time-limit 120 /sdcard/reconnect.mp4`.
-4. Enter `relay`: the lab kills its relay by PID and starts it again on the same
-   port. Then `net 20`: it removes the phone's `adb reverse` tunnel for 20 s and restores it.
+4. Enter `relay 15`, then `host 15`: the lab kills that service by PID, keeps it down
+   15 s, and starts the same command line again (the relay on the same port). Without
+   the seconds the pane is usually back before a screenshot lands. `net 20` removes
+   the phone's `adb reverse` tunnel for 20 s and restores it.
 5. Watch without touching the phone: the chip under the terminal reads
    `Reconnecting…` over the unchanged last frame, then the pane is live again;
    type into it to prove input flows.
