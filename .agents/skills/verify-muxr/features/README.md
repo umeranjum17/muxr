@@ -56,6 +56,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
 
+- [Reload the installed PWA with no network](./pwa-offline.md) —
+  standalone-window PWA over the owned relay serving `dist`: boot-registered
+  worker, versioned shell, offline reload, self-recovery, and a build update.
+
 - [Share a file into a pane's Shared Artifacts](./shared-artifact.md) —
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
   versioned page shares and their refusals, and the retention view of the
@@ -79,6 +83,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Read the computer name in the Home header](./home-header-name.md) —
   native app over a named fake-Herdr stack: one line with an ellipsis, at
   270dp and font scale 2.0, light and dark.
+- [Read plan limits on the Home card](./home-quota-row.md) —
+  native app and PWA over a fake-Herdr stack with a stand-in Codex: window
+  first, whole-item wrap, no ellipsis, at 270dp and font 1.3/2.0, both themes.
 - [Read a space's agent count whole on Home](./home-spaces-count.md) —
   native app and PWA over a fake-Herdr stack: the count stays whole while the
   path chip ellipsizes, at 270 and 393 wide and font 1.3/2.0, both themes.
@@ -95,6 +102,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Keep a terminal pane alive across a reconnect](./terminal-reconnect.md) —
   native app over a private stack: relay and host restarts under an
   open pane, last frame kept, recovery with no tap, plain words.
+- [Stay connected to a busy computer](./busy-computer.md) —
+  homeLoad at 300 panes / 150 agents, then a frozen lab host on an emulator:
+  busy card through the offline grace, explanation only after it.
 - [Select a terminal's text on iOS](./terminal-select-text-ios.md) —
   Select Text viewer: Select All, one-tap Copy and a read-only edit menu on
   iPhone and iPad simulators.

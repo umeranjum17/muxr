@@ -28,7 +28,7 @@ import { StatusBarProvider } from '@/components/StatusBarProvider';
 // import * as SystemUI from 'expo-system-ui';
 import { initConsoleLogging, setConsoleOutputEnabled } from '@/utils/consoleLogging';
 import { storage, useLocalSetting } from '@/catalog/store';
-import { storeWebPushNotificationLevel } from '@/utils/pushNotifications';
+import { registerWebServiceWorker, storeWebPushNotificationLevel } from '@/utils/pushNotifications';
 import { useUnistyles } from 'react-native-unistyles';
 import { AsyncLock } from '@/utils/lock';
 import { watchAgentLifecycle } from '@/herd';
@@ -291,7 +291,10 @@ export default function RootLayout() {
         return () => subscription.remove();
     }, []);
     React.useEffect(() => {
-        if (Platform.OS === 'web') void storeWebPushNotificationLevel(storage.getState().localSettings.lifecycleNotificationLevel);
+        if (Platform.OS === 'web') {
+            registerWebServiceWorker();
+            void storeWebPushNotificationLevel(storage.getState().localSettings.lifecycleNotificationLevel);
+        }
         (async () => {
             let credentials: AuthCredentials | null = null;
             try {

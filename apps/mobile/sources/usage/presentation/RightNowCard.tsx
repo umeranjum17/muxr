@@ -179,8 +179,8 @@ function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: 
                         <AgentGlyph name={plan.provider.glyph ?? plan.provider.id} size={MARK} />
                         {plan.figures.map((figure, index) => (
                             <View key={figure.name} style={{ flexDirection: 'row', alignItems: 'baseline', maxWidth: '100%' }}>
-                                <Text style={{ fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: figureColor(theme, figure.cells[0]!) }}>{`${figure.cells[0]!.left}%`}</Text>
-                                <Text style={{ marginLeft: namesVisible ? 4 : 0.5, flexShrink: 1, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{`${namesVisible ? figure.name : tags[index]}${figure.cells.length > 1 ? `×${figure.cells.length}` : ''}`}</Text>
+                                <Text style={{ marginRight: 4, flexShrink: namesVisible ? 1 : 0, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{`${namesVisible ? figure.name : tags[index]}${figure.cells.length > 1 ? `×${figure.cells.length}` : ''}`}</Text>
+                                <Text style={{ flexShrink: 0, fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: figureColor(theme, figure.cells[0]!) }}>{`${figure.cells[0]!.left}%`}</Text>
                             </View>
                         ))}
                     </View>
@@ -191,7 +191,7 @@ function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: 
 }
 
 function figureTags(figures: LimitFigure[]): string[] {
-    const names = figures.map(({ name }) => name.replace(/\s*·\s*Limit$/i, ''));
+    const names = figures.map(({ name }) => name.replace(/\s*·\s*Limit$/i, '').replace(/^(Month|Week)ly$/i, '$1'));
     const bound = (name: string) => name.length <= 6 ? name : `${name.slice(0, 5)}…`;
     const base = names.map(bound);
     const tags = base.map((tag, index) => {
