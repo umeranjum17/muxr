@@ -11,7 +11,7 @@ import { Modal } from '@/modal';
 import { providerEntry, providerName, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, usePlans, usePlansStore } from '../application/plansStore';
 import { planFailure, removeAccount, renameAccount } from '../application/plansApi';
-import { useAccountFlows, useFlows } from './AccountFlows';
+import { Notice, useAccountFlows, useFlows } from './AccountFlows';
 import { Pill } from './accountParts';
 
 const PROVIDERS: { id: string; title: string }[] = [
@@ -71,6 +71,7 @@ export function AccountsSettingsScreen() {
 
     return (
         <ItemList>
+            <Notice inline />
             <Text style={styles.lede}>
                 Only shown when you have more than one account for a provider. With one account, muxr works exactly as before.
             </Text>

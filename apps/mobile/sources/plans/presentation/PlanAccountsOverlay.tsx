@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { View } from 'react-native';
+import { usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScopedTheme, StyleSheet } from 'react-native-unistyles';
 import { AddAccountSheet, NameAccountSheet, Notice, SignInBanner } from './AccountFlows';
@@ -12,6 +13,10 @@ import { MoveSheet } from './MoveAccount';
  *  the dark theme, because a session screen is dark whatever the app theme. */
 export function PlanAccountsOverlay() {
     const insets = useSafeAreaInsets();
+    const pathname = usePathname();
+    // Accounts draws the notice in its own layout flow, so it pushes the list
+    // down instead of floating over the first row; every other screen floats it.
+    const floats = pathname !== '/settings/accounts';
     return (
         <>
             <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
@@ -19,7 +24,7 @@ export function PlanAccountsOverlay() {
                     {/* Above the terminal's key row and composer: the sign-in still needs both. */}
                     <SignInBanner bottom={insets.bottom + 116} />
                 </ScopedTheme>
-                <Notice top={insets.top + 56} />
+                {floats && <Notice top={insets.top + 56} />}
             </View>
             <AddAccountSheet />
             <NameAccountSheet />

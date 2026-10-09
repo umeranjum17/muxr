@@ -6,7 +6,8 @@ const act = TestRenderer.act;
 import type { PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
 
 // Two Claude accounts, both unnamed on the computer, so the host names them
-// "Umer" and "Umer 2" — the list and the "Added" notice have to agree on that.
+// "Umer" and "Umer 2" — the list resolves the collision, and the "Added" notice
+// names only the account that was just added.
 const request = vi.hoisted(() => vi.fn());
 const connection = vi.hoisted(() => ({ machineId: 'computer-a', relayUrl: 'ws://lab', token: 'fake' }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => connection }));
@@ -24,7 +25,7 @@ vi.mock('react-native-mmkv', () => ({
     },
 }));
 vi.mock('react-native', () => ({
-    Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', TextInput: 'TextInput', View: 'View',
+    Pressable: 'Pressable', Text: 'Text', TextInput: 'TextInput', View: 'View',
     useWindowDimensions: () => ({ width: 270, height: 594 }),
 }));
 const theme = vi.hoisted(() => ({ colors: {
@@ -76,7 +77,7 @@ const textOf = (children: unknown): string => {
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('the notice after naming an added account', () => {
-    it('names the provider\'s accounts exactly as the list below it does', async () => {
+    it('names only the account that was added, never the whole roster', async () => {
         // The list the person is looking at, then what the host answers once
         // the new account has taken the name "Umer" the first one held by default.
         let renamed = false;
@@ -96,11 +97,11 @@ describe('the notice after naming an added account', () => {
         await act(async () => { byLabel(screen, 'Save').props.onPress(); });
 
         const notice = useFlows.getState().notice!;
+        // The added account keeps the name typed; the host renames the *other*
+        // one, and the notice never repeats that other name.
         expect(notice.title).toBe('Added Umer');
-        const shown = notice.detail.replace('Claude accounts: ', '').split(', ');
-        const listed = usePlansStore.getState().list!.providers[0].accounts.map((one: PlanAccount) => one.name).sort();
-        expect(shown).toEqual(listed);
-        expect(shown).toEqual(['Umer', 'Umer 2']);
+        expect(notice.detail).toBe('umer.work@example.com');
+        expect(notice.detail).not.toContain('Umer 2');
     });
 
     it('prefills a free name from the refreshed list and previews the resolved names', async () => {
