@@ -238,7 +238,7 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
         latest = offer;
         const code = offerCode(offer, intent);
         const shown = code ?? (richTerminal() ? compactOffer(offer, intent) : undefined) ?? { text: offer.text, expires: offer.expires };
-        if (page === undefined && richTerminal() && intent.kind === 'native' && code === undefined) page = await startPairingPage();
+        if (page === undefined && richTerminal() && code === undefined) page = await startPairingPage();
         page?.update(shown);
         if (richTerminal() && !altScreen) {
             process.stdout.write(ALT_SCREEN_ON);
