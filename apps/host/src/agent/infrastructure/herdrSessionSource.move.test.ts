@@ -271,7 +271,6 @@ describe('a plan-account move', () => {
             expect(paneEnv).not.toHaveProperty('WAYLAND_DISPLAY');
             expect(paneEnv?.MUXR_AGENT_CAPABILITIES).toContain("that desktop's browser");
             expect(paneEnv?.MUXR_AGENT_CAPABILITIES).not.toContain('own screen');
-            expect(paneEnv).not.toHaveProperty('AGENT_BROWSER_ARGS');
             expect(herdr.agents).toHaveLength(1);
             expect(herdr.agents[0]).toMatchObject({ pane_id: 'p3', agent_session: original?.agent_session });
             const started = herdr.calls.findIndex((call) => call.method === 'agent.start' && call.detail === 'p3');

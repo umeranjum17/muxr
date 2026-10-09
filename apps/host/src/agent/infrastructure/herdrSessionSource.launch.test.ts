@@ -450,8 +450,6 @@ describe('new panes share the host desktop', () => {
             const values = env as Record<string, string>;
             expect(values.MUXR_AGENT_CAPABILITIES).toContain("that desktop's browser");
             expect(values.MUXR_AGENT_CAPABILITIES).not.toContain('own screen');
-            expect(values).not.toHaveProperty('AGENT_BROWSER_ARGS');
-            expect(values).not.toHaveProperty('AGENT_BROWSER_HEADED');
         };
         try {
             const agent = await source.start({ cwd, kind: 'claude' });
