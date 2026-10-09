@@ -79,6 +79,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Read the computer name in the Home header](./home-header-name.md) —
   native app over a named fake-Herdr stack: one line with an ellipsis, at
   270dp and font scale 2.0, light and dark.
+- [Read a space's agent count whole on Home](./home-spaces-count.md) —
+  native app and PWA over a fake-Herdr stack: the count stays whole while the
+  path chip ellipsizes, at 270 and 393 wide and font 1.3/2.0, both themes.
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.
