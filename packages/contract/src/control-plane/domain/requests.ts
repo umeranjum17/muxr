@@ -288,7 +288,7 @@ export interface RequestMap extends PeerRequestMap {
              */
             awaitConsent?: boolean;
             /**
-             * Watch that session's preview (the browser, emulator, or claimed simulator its agent
+             * Watch that session's preview (the emulator or claimed simulator its agent
              * is using) instead of this computer's desktop. The client names a
              * session, never a display: the host resolves it and refuses an
              * unknown or screen-less one with `permission-denied`. Absent means

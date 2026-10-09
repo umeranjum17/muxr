@@ -66,7 +66,7 @@ The mandatory app kernel owns pairing, E2EE, transport, normalized reconnecting
 state, terminal rendering, and native OS bridges. Realtime voice, usage and
 machine health, dictation, the terminal key row, the workspace tree, and Panes are
 product code. The phone no longer has a separate in-conversation Browser surface:
-a muxr-launched pane's own browser, emulator, or claimed simulator appears as a live chip while it
+a muxr-launched pane's own emulator or claimed simulator appears as a live chip while it
 is there, and on a machine with a desktop session, agents can also open pages
 in its desktop browser for the user to finish through Computer.
 
