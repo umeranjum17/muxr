@@ -44,7 +44,7 @@ export interface TerminalChannel {
     onData: (listener: (base64: string) => void) => () => void;
     /** Locally predicted echo (dimmed). Display-only: never host output. */
     onPredictedData: (listener: (base64: string) => void) => () => void;
-    onClose: (listener: (reason?: string) => void) => () => void;
+    onClose: (listener: (reason: string) => void) => () => void;
     /**
      * Where herdr's viewport sits in this pane, as herdr reports it. Nothing
      * else can be trusted for that: a scroll the phone sent may have moved
@@ -143,7 +143,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const dataListeners = new Set<(base64: string) => void>();
     const pendingData: string[] = [];
     const predictedDataListeners = new Set<(base64: string) => void>();
-    const closeListeners = new Set<(reason?: string) => void>();
+    const closeListeners = new Set<(reason: string) => void>();
     const stateListeners = new Set<(state: TerminalChannelState) => void>();
     const bottomListeners = new Set<(state: TerminalBottomState) => void>();
     let bottomRequestId: string | undefined;
@@ -692,7 +692,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         },
         onClose: (listener) => {
             closeListeners.add(listener);
-            if (closedByHost) listener(lastCloseReason);
+            if (closedByHost && lastCloseReason !== undefined) listener(lastCloseReason);
             return () => closeListeners.delete(listener);
         },
         bottom: () => {
