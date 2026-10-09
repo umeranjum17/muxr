@@ -61,15 +61,15 @@ export interface SessionInfo extends SessionRef, AgentInfo {
 }
 
 /**
- * The live thing an agent put on its pane: a browser window, or an
- * Android emulator — measured from the desktop or the process tree, so it is
- * the same answer whatever tool opened it — or an iOS simulator the pane
- * claimed (`muxr preview claim`), since a simulator belongs to no pane's
- * process tree. A client must tolerate a kind it does not know.
+ * The live device an agent put on its pane: an Android emulator — measured
+ * from the process tree, so it is the same answer whatever tool opened it —
+ * or an iOS simulator the pane claimed (`muxr preview claim`), since a
+ * simulator belongs to no pane's process tree. A client must tolerate a kind
+ * it does not know.
  */
 export interface PreviewPresence {
-    kind: 'browser' | 'android' | 'ios';
-    /** Page title, the AVD name, or the simulator's name. Client-facing, never an id. */
+    kind: 'android' | 'ios';
+    /** The AVD name or the simulator's name. Client-facing, never an id. */
     title?: string;
     /** Epoch ms the presence was first seen, so a client can order arrivals. */
     since: number;

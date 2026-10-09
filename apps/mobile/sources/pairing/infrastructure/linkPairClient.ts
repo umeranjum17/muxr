@@ -12,7 +12,7 @@ import {
     unb64url,
     type DeviceGrant as LinkDeviceGrant,
 } from '@byokit/link';
-import { PairingNeedsNewCode } from '../domain/pairingString';
+import { isCompactOfferText, linkOfferExpired, PairingNeedsNewCode, readOffer } from '../domain/pairingString';
 
 /**
  * The byokit pairing protocol, behind one port: application code asks this
@@ -52,6 +52,7 @@ export function pairingFailure(cause: unknown): string {
 }
 
 const NOT_FINISHED = "This pairing didn't finish on your computer. Run `muxr pair` there and scan the new code.";
+/** byokit keys are base64url; the machine answer keeps the same bytes as plain base64. */
 /** The computer revoked this key mid-request: it rolled the pairing back. */
 const rolledBack = (cause: unknown): boolean => cause instanceof LinkError && cause.code === 'removed';
 const lost = (cause: unknown): boolean => cause instanceof LinkError && (cause.code === 'unreachable' || cause.code === 'timeout');
@@ -89,11 +90,7 @@ export function isBrowserLinkOffer(scanned: string): boolean {
 
 /** The machine display name for consent, parsed for display only; the pairing itself re-validates. */
 export function linkOfferName(scanned: string): string | undefined {
-    try {
-        return parseOffer(scanned, 0).name;
-    } catch {
-        return undefined;
-    }
+    return readOffer(scanned)?.name;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -142,16 +139,21 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
     let wordsShown = false;
     try {
         if (options.mode === 'claim') {
-            if (parseOffer(pending.scanned, 0).expires < Date.now()) throw new LinkError('expired');
+            if (linkOfferExpired(pending.scanned)) throw new LinkError('expired');
             // A fresh scan claims the single-use ticket; a resumed phone was
             // already approved, so it reconnects by its key alone — the ticket
-            // burned on the first connection.
+            // burned on the first connection. The kit's pairWithOffer reads
+            // both the full v1 offer and the compact offer.
             claim = await pairWithOffer(pending.scanned, {
                 name: pending.name,
                 key,
                 onWords: (words) => { wordsShown = true; options.onWords?.(words); },
                 ...(resolve === undefined ? {} : { resolve }),
             });
+        } else if (isCompactOfferText(pending.scanned)) {
+            // The compact form carries no host key and the kit's pendingGrant
+            // resume is v1-only: a phone killed before approval rescans.
+            throw new PairingNeedsNewCode(NOT_FINISHED);
         } else {
             // By key alone, past the code's expiry and with no grace for a key
             // the computer does not know: either it approved this key, or the

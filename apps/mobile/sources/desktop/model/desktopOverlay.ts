@@ -96,7 +96,7 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
     };
 }
 
-export type PreviewKind = 'browser' | 'android' | 'ios';
+export type PreviewKind = 'android' | 'ios';
 
 export interface PreviewOverlay {
     title: string;
@@ -109,7 +109,7 @@ export interface PreviewOverlay {
 const TAKEN = new Set(['replaced by a new session', 'another device opened this computer']);
 
 /**
- * What the live view of an agent's browser, emulator, or simulator says while it is not
+ * What the live view of an agent's emulator or simulator says while it is not
  * showing it, or null while the picture is up (live or reconnecting, which
  * keep the last frame). A target the host no longer has is "closed": the
  * agent finished with it, and the only way on is back.
