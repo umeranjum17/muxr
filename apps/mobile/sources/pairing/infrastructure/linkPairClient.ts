@@ -9,6 +9,7 @@ import {
     keyPairFrom,
     pairWithOffer,
     parseOffer,
+    parseV1Offer,
     unb64url,
     type DeviceGrant as LinkDeviceGrant,
 } from '@byokit/link';
@@ -157,8 +158,9 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         } else {
             // By key alone, past the code's expiry and with no grace for a key
             // the computer does not know: either it approved this key, or the
-            // pairing it belonged to is over.
-            const offer = parseOffer(pending.scanned, 0);
+            // pairing it belonged to is over. Only a version 1 offer carries a host key,
+            // so resuming by key is a version 1 path.
+            const offer = parseV1Offer(pending.scanned, 0);
             claim = { v: 1, secretKey: pending.secretKey, host: offer.host, hostName: offer.name, urls: offer.urls,
                 device: { id: '', name: pending.name, role: offer.role ?? 'view' } };
         }
