@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
 import Animated, { FadeInDown, FadeInUp, FadeOutDown, FadeOutUp, ReduceMotion } from 'react-native-reanimated';
@@ -423,8 +423,17 @@ const LANDED_MS = 4_000;
  *  nor hides one. */
 export function Notice({ top }: { top: number }) {
     const { theme } = useUnistyles();
+    const { height } = useWindowDimensions();
     const notice = useFlows((state) => state.notice);
     if (notice === null) return null;
+    // At the largest text sizes a long account name turns the confirmation into
+    // a card taller than the screen and the account list under it disappears.
+    // Cap the card to a slice of the screen and let the whole message scroll, so
+    // every word stays readable and the list below stays visible and reachable.
+    // The cap follows the screen, so a tablet shows the whole card and a small
+    // phone keeps most of the list; ordinary sizes never reach it, so the card
+    // looks exactly as before.
+    const maxHeight = height * 0.4;
     return (
         <Animated.View
             entering={FadeInUp.duration(180).reduceMotion(ReduceMotion.System)}
@@ -434,10 +443,15 @@ export function Notice({ top }: { top: number }) {
             accessibilityLiveRegion="polite"
         >
             <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
-            <Pressable style={parts.rowCopy} onPress={() => useFlows.setState({ notice: null })} accessibilityRole="button" accessibilityLabel={`${notice.title}. ${notice.detail}`}>
-                <Text style={styles.bannerTitle}>{notice.title}</Text>
-                <Text style={parts.facts} numberOfLines={2}>{notice.detail}</Text>
-            </Pressable>
+            <ScrollView
+                style={[parts.rowCopy, { maxHeight }]}
+                showsVerticalScrollIndicator={false}
+            >
+                <Pressable onPress={() => useFlows.setState({ notice: null })} accessibilityRole="button" accessibilityLabel={`${notice.title}. ${notice.detail}`}>
+                    <Text style={styles.bannerTitle}>{notice.title}</Text>
+                    <Text style={parts.facts}>{notice.detail}</Text>
+                </Pressable>
+            </ScrollView>
         </Animated.View>
     );
 }

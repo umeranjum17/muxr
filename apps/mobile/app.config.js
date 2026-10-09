@@ -255,6 +255,11 @@ export default {
                     android: {
                         image: "./sources/assets/images/splash-android-light.png",
                         backgroundColor: "#F5F5F5",
+                        // The splash image is cropped tight to the wordmark, so
+                        // this is the mark's on-screen width in dp (~29% of a
+                        // 411dp phone); the plugin letterboxes it in a 288dp
+                        // window-background canvas.
+                        imageWidth: 120,
                         dark: {
                             image: "./sources/assets/images/splash-android-dark.png",
                             backgroundColor: "#000000",

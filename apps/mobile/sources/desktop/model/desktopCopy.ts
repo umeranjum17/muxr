@@ -42,17 +42,8 @@ export const desktopCopy = {
     textUsePaste: 'Use Paste from Phone.',
 } as const;
 
-/** The agent's own browser, emulator, or simulator, watched live: one wording per kind. */
+/** The agent's own emulator or simulator, watched live: one wording per kind. */
 export const previewCopy = {
-    browser: {
-        name: 'Browser',
-        opening: "Opening your agent's browser…",
-        closedTitle: 'The browser closed',
-        unreachableTitle: "Can't show the browser from here",
-        failedTitle: "Couldn't open the browser",
-        viewOnlyBody: 'This phone was paired to watch. It can see the browser but not use it.',
-        stage: "Live view of your agent's browser",
-    },
     android: {
         name: 'Android emulator',
         opening: 'Opening the emulator…',
@@ -88,9 +79,7 @@ export const previewCopy = {
     closedLabel: 'Closed',
 } as const;
 
-/** The icon for a preview's kind; an unknown kind reads as a browser. */
+/** The icon for a preview's kind. */
 export function previewIcon(kind: string) {
-    if (kind === 'android') return 'logo-android' as const;
-    if (kind === 'ios') return 'logo-apple' as const;
-    return 'globe-outline' as const;
+    return kind === 'ios' ? 'logo-apple' as const : 'logo-android' as const;
 }

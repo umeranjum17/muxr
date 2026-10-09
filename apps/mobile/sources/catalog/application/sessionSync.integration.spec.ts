@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as React from 'react';
 import TestRenderer from 'react-test-renderer';
-import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent, SessionEvent } from '@trymuxr/contract';
+import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent, SessionEvent, SessionInfo } from '@trymuxr/contract';
 import type { Session } from '../domain/sessionTypes';
 import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
@@ -1109,11 +1109,18 @@ describe('session sync flow', () => {
         expect(next[0]!.agentStatus).toBe('blocked');
         expect(next[1]).toBe(cards[1]);
 
-        // An agent's browser rides the same frames: it arrives, and the first
-        // frame without it takes it away rather than the merge keeping it.
-        const shown = applyHostInfoToAgent(before.a!, sessionInfoToSession({ ...info('a'), preview: { kind: 'browser', title: 'Pricing', since: 1 } }));
-        expect(shown.metadata?.preview?.title).toBe('Pricing');
+        // An agent's device preview rides the same frames: it arrives, and the
+        // first frame without it takes it away rather than the merge keeping it.
+        const shown = applyHostInfoToAgent(before.a!, sessionInfoToSession({ ...info('a'), preview: { kind: 'android', title: 'Pixel 8', since: 1 } }));
+        expect(shown.metadata?.preview?.title).toBe('Pixel 8');
         expect(applyHostInfoToAgent(shown, sessionInfoToSession(info('a'))).metadata?.preview).toBeUndefined();
+
+        // A retired 'browser' presence — what an older host or a stored deep
+        // link still carries — is never admitted: nothing shows and no Browser
+        // target is manufactured to open instead of the Computer desktop.
+        const retired = { kind: 'browser', title: 'Pricing', since: 1 } as unknown as SessionInfo['preview'];
+        const stale = applyHostInfoToAgent(before.a!, sessionInfoToSession({ ...info('a'), preview: retired }));
+        expect(stale.metadata?.preview).toBeUndefined();
 
         vi.useRealTimers();
     });

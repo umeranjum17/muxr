@@ -1130,10 +1130,17 @@
     "@byokit/seal" "0.2.0"
     ws "8.21.3"
 
-"@byokit/link@0.7.0":
-  version "0.7.0"
-  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.7.0.tgz#37b35c77bf6a515e1b17b1f41aa5f1a16339228b"
-  integrity sha512-Rw/kiNDmn1pSWSw10aWR9bAOglppI7FlGmvkfbPTX35pFmvjPFzq3iunIq4lmVQRmOvVAGosXv5nAHWEq8/kug==
+"@byokit/link@0.7.0", "@byokit/link@0.7.1":
+  version "0.7.1"
+  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.7.1.tgz#e64bd1225646943de48ba593d90d22504a87d76b"
+  integrity sha512-crY4p8h1fzRJ/8X5Nu/J3hzpks+kYQZtCrSjZyLHU+VrjeohksfX5qG/mf6yiVKT5wfBkVYlM1qNHpFEYQckxw==
+  dependencies:
+    "@byokit/pair" "0.8.0"
+
+"@byokit/pair@0.8.0":
+  version "0.8.0"
+  resolved "https://registry.yarnpkg.com/@byokit/pair/-/pair-0.8.0.tgz#ee6b07e92e26dad601e2d8750eea590f0c785c03"
+  integrity sha512-BFmlwcPSokb9xymuUQxXuKrrk3AinETw9bN4PqQQM0q1URW5V8mUJhqYuKPBm/09UhkfBSpr/9koLzbZ2NfN8g==
   dependencies:
     "@noble/ciphers" "2.4.0"
     b4a "1.9.0"
