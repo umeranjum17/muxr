@@ -217,6 +217,7 @@ export default function ConnectionSettingsScreen() {
     // a connection failure -- a network failure only: a dead grant needs
     // Pair again, not a restart.
     const [restartCopied, setRestartCopied] = React.useState(false);
+    const [showDetails, setShowDetails] = React.useState(false);
     const offerRestart = latestFailure !== undefined && socketError === null && !latestFailureIsDeadGrant();
     React.useEffect(() => { if (!offerRestart) setRestartCopied(false); }, [offerRestart]);
 
@@ -542,8 +543,10 @@ export default function ConnectionSettingsScreen() {
             ? ' The saved LAN address may have changed.' : '';
         const canRetryNearby = Platform.OS !== 'web' && !['disabled', 'unavailable'].includes(nearbyPhase);
         const transportPrivacy = initial.ssh !== undefined && sshSupported
-            ? 'Direct SSH tunnel · end-to-end encrypted agent data'
-            : `${initial.relayUrl.startsWith('wss://') ? 'TLS (WSS)' : 'WS without TLS'} transport · end-to-end encrypted agent data`;
+            ? 'Goes through your SSH connection. Agent data is end-to-end encrypted.'
+            : initial.relayUrl.startsWith('wss://')
+                ? 'The connection is encrypted, and agent data is end-to-end encrypted on top of that.'
+                : 'The connection itself is not encrypted, but agent data is still end-to-end encrypted.';
         const currentGrant = grant?.machineId === initial.machineId ? grant : getCachedHostedGrant(initial.machineId);
         const browserGrant = Platform.OS === 'web' ? currentGrant : undefined;
         const browserExpiresAt = browserGrant?.expiresAt;
@@ -604,8 +607,8 @@ export default function ConnectionSettingsScreen() {
                         <Text style={styles.hint}>Otherwise, restart muxr from the terminal where you started it. Copying never runs anything on the computer.</Text>
                     </>}
                     <Item title={routeTitle} subtitle={`${route} · ${routeDetail}`} subtitleLines={0} />
-                    <Item title="Transport & privacy" subtitle={transportPrivacy} subtitleLines={0} />
-                    <Item title="Relay" subtitle={initial.relayUrl} subtitleLines={0} />
+                    <Item title="Privacy" subtitle={transportPrivacy} subtitleLines={0} />
+                    <Item title="Technical details" subtitle={showDetails ? `Relay address: ${initial.relayUrl}` : 'Show the relay address'} subtitleLines={0} onPress={() => setShowDetails((open) => !open)} />
                     <Item title="Trust on this device" subtitle={trust} subtitleLines={0} />
                     <Item title="Paired phones & browsers" subtitle={pairedCountText} subtitleLines={0} />
                     {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserAccess} subtitleLines={0} />}

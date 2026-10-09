@@ -14,6 +14,11 @@ showed on the computer (for example `Works only on this Wi-Fi` or
   route, in plain words.
 - `route-unknown` a host that reports no mode falls back to a label inferred
   from the relay address, with a sentence saying so.
+- `privacy-plain` the `Privacy` row says in plain words whether the
+  connection itself is encrypted (`wss://`, `ws://` or SSH), never protocol
+  names like WS or TLS.
+- `relay-details` the raw relay address is hidden behind `Technical details`
+  (`Show the relay address`); tapping the row shows `Relay address: <url>`.
 
 ## How to get to it (user POV)
 
@@ -42,6 +47,10 @@ Preconditions:
   (`wm size 1080x2376`, `wm density 640`) font 1.0, and font 1.3. For a
   before/after pair, capture the base commit's wording first. The route line
   must wrap, never clip.
+- **Privacy and details.** On the same screen, scroll to `Privacy` and
+  `Technical details`; capture closed, then tap `Technical details` and
+  capture again. A fake-stack lab (`perf/lib/fakeStack.mjs`, `mintPairing()`)
+  with a release APK from `perf/buildPrApk.mjs` gives the `ws://` case.
 
 ## Gotchas
 

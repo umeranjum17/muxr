@@ -635,7 +635,7 @@ describe('the Home card read path', () => {
         pressRefresh(card);
         await tick(1_000);
         expect(screenText(card)).not.toContain('plugins.rightNow.refreshFailed');
-        expect(screenText(card)).toContain('0% 5h');
+        expect(screenText(card)).toContain('5h 0%');
 
         await tick(30_000);
         expect(forcedReads()).toHaveLength(3);
@@ -1020,9 +1020,9 @@ describe('the usage screen read path', () => {
             .map((node: any) => [node.props.children, node.props.style?.color])
             .filter(([text]: any) => typeof text === 'string' && !text.startsWith('plugins.rightNow.memory'));
         expect(figures()).toEqual([
-            ['36%', '#fff'], ['7d', '#999'],
-            ['60%', '#fff'], ['5h×2', '#999'], ['89%', '#fff'], ['7d', '#999'],
-            ['93%', '#fff'], ['5h', '#999'], ['0%', '#f55'], ['7d', '#999'], ['8%', '#fa0'], ['Month…', '#999'],
+            ['7d', '#999'], ['36%', '#fff'],
+            ['5h×2', '#999'], ['60%', '#fff'], ['7d', '#999'], ['89%', '#fff'],
+            ['5h', '#999'], ['93%', '#fff'], ['7d', '#999'], ['0%', '#f55'], ['Month', '#999'], ['8%', '#fa0'],
         ]);
         // Read aloud in the same order, naming every limit, and a coloured
         // figure says why and when it comes back, which its colour cannot.
@@ -1054,11 +1054,11 @@ describe('the usage screen read path', () => {
         const codexTags = codexText().filter((text) => !text.endsWith('%'));
         expect(codexTags).toContain('gpt-4');
         expect(codexTags).toContain('gpt-5');
-        expect(screenText(card)).toContain('Month…');
+        expect(screenText(card)).toContain('Month');
         expect(new Set(codexTags).size).toBe(codexTags.length);
         expect(codexTags.every((tag) => tag.length <= 6)).toBe(true);
-        const namedShares = () => Object.fromEntries(codexText().filter((_, index) => index % 2 === 1)
-            .map((tag, index) => [tag, codexText()[index * 2]]));
+        const namedShares = () => Object.fromEntries(codexText().filter((_, index) => index % 2 === 0)
+            .map((tag, index) => [tag, codexText()[index * 2 + 1]]));
         expect(namedShares()).toMatchObject({ turbo: '48%', vision: '29%', Spark: '35%', Mini: '24%' });
         TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 2, figures: withNow(undefined, {
             ...namedNow,
