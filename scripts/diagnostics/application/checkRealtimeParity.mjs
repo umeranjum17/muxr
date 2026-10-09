@@ -79,6 +79,7 @@ const relayPort = await waitForRelay(spawnChild('relay', [join(root, 'apps', 're
 const relayUrl = `ws://127.0.0.1:${relayPort}`;
 const machine = machineIdentity(undefined);
 const owner = JSON.parse(readFileSync(join(dataDir, 'relay', 'mint-secret'), 'utf8'));
+mkdirSync(env.MUXR_HOME, { recursive: true });
 writeFileSync(join(env.MUXR_HOME, 'selfhost.json'), `${JSON.stringify({ version: 1, machine,
     relayPort, relayUrl, relayLocation: 'local', relayRole: 'single-machine', connectionMode: 'lan',
     webEnabled: false, mintSecret: owner })}\n`, { mode: 0o600 });
