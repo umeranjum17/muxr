@@ -370,9 +370,9 @@ describe('link session sync flow', () => {
         expect(harness.socketError).not.toContain('Pair again:');
 
         // The relay answering again while the host is still down replaces the
-        // earlier "can't reach" card at the next grace, not only on reconnect.
+        // earlier "can't reach" card at the next recheck, not only on reconnect.
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
-        await vi.advanceTimersByTimeAsync(30_000);
+        await vi.advanceTimersByTimeAsync(10_000);
         await vi.waitFor(() => expect(harness.socketError).toContain('is not connected'));
         expect(harness.socketError).not.toContain('same private network');
 

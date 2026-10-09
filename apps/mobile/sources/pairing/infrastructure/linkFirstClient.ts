@@ -108,6 +108,9 @@ export function relayWithoutHostMessage(computer: string): string {
 /** How long a link may stay offline, redialing, before the phone asks the relay why. */
 const OFFLINE_GRACE_MS = 30_000;
 
+/** How often the relay is asked again while the link stays offline. */
+const OFFLINE_RECHECK_MS = 10_000;
+
 /** One byokit link, including its terminal, desktop, voice and push streams. */
 export class LinkFirstClient implements SessionClient {
     private link: DeviceLink | undefined;
@@ -493,17 +496,18 @@ export class LinkFirstClient implements SessionClient {
     }
 
     /** A link that stays offline gets its relay checked after a grace, and again
-     *  each grace while it stays offline, so the card follows the relay coming
-     *  or going. A busy host misses a heartbeat or a dial deadline and comes back
-     *  on the kit's next redial, so the first offline stays "connecting". */
-    private watchOffline(): void {
+     *  every recheck interval while it stays offline, so the card follows the
+     *  relay coming or going. A busy host misses a heartbeat or a dial deadline
+     *  and comes back on the kit's next redial, so the first offline stays
+     *  "connecting". */
+    private watchOffline(delayMs = OFFLINE_GRACE_MS): void {
         if (this.offlineCheck !== undefined || this.closed) return;
         this.offlineCheck = setTimeout(() => {
             this.offlineCheck = undefined;
             void this.checkHealth().then(() => {
-                if (!this.closed && !this.online && this.link?.status === 'offline') this.watchOffline();
+                if (!this.closed && !this.online && this.link?.status === 'offline') this.watchOffline(OFFLINE_RECHECK_MS);
             });
-        }, OFFLINE_GRACE_MS);
+        }, delayMs);
     }
 
     private stopWatchingOffline(): void {
