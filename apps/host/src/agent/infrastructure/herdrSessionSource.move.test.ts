@@ -75,6 +75,13 @@ function fakeHerdr(dir: string, cwd: string) {
                         reply = { id, result: { pane: { pane_id } } };
                         break;
                     }
+                    case 'pane.get': {
+                        const pane = panes.find((row) => row.pane_id === p.pane_id);
+                        reply = pane === undefined
+                            ? { id, error: { code: 'not_found', message: 'pane not found' } }
+                            : { id, result: { pane } };
+                        break;
+                    }
                     case 'pane.send_text': {
                         sendTexts.push({ pane_id: p.pane_id, text: p.text, live: agents.some((agent) => agent.pane_id === p.pane_id) });
                         const pane = panes.find((row) => row.pane_id === p.pane_id);
