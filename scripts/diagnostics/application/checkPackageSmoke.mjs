@@ -105,7 +105,7 @@ function assertCompactSkillOutput(output) {
 function assertUnifiedSkillOutput(output, { liveHerdr = true } = {}) {
     assert.match(output, /^---\nname: muxr\ndescription: /);
     assert.match(output, /## Task router/);
-    const references = ['agent-browser-preview.md', 'collaboration.md', 'herdr.md', 'onboarding.md', 'plugins.md'];
+    const references = ['agent-browser-preview.md', 'artifact-pages.md', 'collaboration.md', 'herdr.md', 'onboarding.md'];
     let previous = -1;
     for (const name of references) {
         const index = output.indexOf(`<!-- muxr-skill-reference: references/${name} -->`);
@@ -117,7 +117,6 @@ function assertUnifiedSkillOutput(output, { liveHerdr = true } = {}) {
         '# Herdr orchestration',
         '# Cross-machine agent collaboration',
         '# Agent browser preview',
-        '# muxr plugins: author, install, debug, override',
     ]) assert.match(output, new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
     assert.doesNotMatch(output, /browser-takeover|# Browser work the user can see and take over/);
     assert.match(output, /installed binary is the only command\s+contract/);
@@ -403,7 +402,7 @@ try {
     run('tar', ['--create', `--file=${snapshotArchive}`, `--directory=${root}`, '--null', `--files-from=${listFile}`]);
     run('tar', ['--extract', `--file=${snapshotArchive}`, `--directory=${snapshot}`]);
     for (const output of ['apps/host/dist', 'apps/relay/dist', 'packages/crypto/dist', 'packages/contract/dist',
-        'scripts/setup/domain/dist', 'scripts/plugin/domain/dist', 'apps/mobile/dist']) {
+        'scripts/setup/domain/dist', 'apps/mobile/dist']) {
         if (existsSync(join(root, output))) cpSync(join(root, output), join(snapshot, output), { recursive: true });
     }
     // Equivalent emitted ESM uses double-quoted imports. Packaging must resolve
@@ -424,11 +423,6 @@ try {
         cwd: snapshot,
         env: process.env,
     });
-    // The lifecycle flow resolves only one thing from its working directory:
-    // the packed plugin runtime. Run this repository's script against the
-    // snapshot just built here, rather than from a repository root that has no
-    // dist-npm on a clean checkout.
-    run(process.execPath, [join(root, 'scripts', 'diagnostics', 'application', 'packageLifecycleSmoke.mjs')], { cwd: snapshot });
     const packed = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', tarDir], { cwd: join(snapshot, 'dist-npm') }).stdout);
     const packedInfo = Array.isArray(packed) ? packed[0] : Object.values(packed)[0];
     const tarball = join(tarDir, packedInfo.filename);
@@ -441,8 +435,7 @@ try {
     assert.ok(listing.includes('package/release/application/updateCli.mjs'), 'interactive CLI updater missing from npm artifact');
     assert.ok(listing.includes('package/setup/application/inspectSetup.mjs'), 'setup inspect use case missing from npm artifact');
     assert.ok(listing.includes('package/setup/application/pairDevice.mjs'), 'pair-device use case missing from npm artifact');
-    assert.ok(listing.includes('package/plugin/application/checkPlugin.mjs'), 'plugin check use case missing from npm artifact');
-    assert.ok(listing.includes('package/plugin/application/installPlugin.mjs'), 'plugin install use case missing from npm artifact');
+    assert.ok(!listing.some((file) => file === 'package/plugin/' || file.startsWith('package/plugin/')), 'retired plugin CLI still shipped in npm artifact');
     assert.ok(listing.includes('package/setup/application/promptPeerAgent.mjs'), 'peer CLI client missing from npm artifact');
     assert.ok(listing.includes('package/diagnostics/application/dumpDiagnostics.mjs'), 'host diagnostics CLI missing from npm artifact');
     assert.ok(listing.includes('package/preview/client.mjs'), 'preview status client missing from npm artifact');
@@ -457,7 +450,6 @@ try {
     assert.ok(listing.includes('package/voice/codex.mjs'), 'Codex Voice module missing from npm artifact');
     assert.ok(listing.includes('package/skills/muxr/SKILL.md'), 'muxr skill missing from npm artifact');
     assert.deepEqual(listing.filter((file) => /^package\/skills\/.*\/SKILL\.md$/.test(file)), ['package/skills/muxr/SKILL.md'], 'npm artifact must ship exactly one public skill');
-    assert.ok(listing.includes('package/skills/muxr/references/plugins.md'), 'muxr skill references missing from npm artifact');
     assert.ok(listing.includes('package/skills/muxr/references/agent-browser-preview.md'), 'agent browser preview reference missing from npm artifact');
     assert.ok(!listing.includes('package/skills/muxr/references/browser-takeover.md'), 'deprecated browser takeover reference shipped in npm artifact');
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
@@ -674,33 +666,6 @@ try {
         assert.doesNotMatch(smallUi, /\x1b\[\?1049h|\x1b\[[0-9]+A/, 'small local setup used fullscreen or cursor redraw');
         assert.match(smallUi, /1\. LAN[\s\S]*Choose 1-1/, 'small local setup did not use the append-only selector');
     }
-    const docsOutput = run(cli, ['plugin', 'docs'], { cwd: installDir }).stdout;
-    assert.match(docsOutput, new RegExp(`Plugin guide: ${join(installedPackage, 'PLUGINS.md').replaceAll('\\', '\\\\')}`));
-    assert.match(docsOutput, new RegExp(`Agent skill: ${join(installedPackage, 'skills', 'muxr', 'SKILL.md').replaceAll('\\', '\\\\')}`));
-    assert.match(docsOutput, new RegExp(`Plugin reference: ${join(installedPackage, 'skills', 'muxr', 'references', 'plugins.md').replaceAll('\\', '\\\\')}`));
-    assert.match(run(cli, ['help', 'plugin', 'create'], { cwd: installDir }).stdout, /minimal three-file/);
-    assert.match(run(cli, ['plugin', '--help'], { cwd: installDir }).stdout, /plugin docs/);
-    assert.notEqual(run(cli, ['plugin', 'docs', 'extra'], { cwd: installDir, allowFailure: true }).status, 0);
-    const createdPlugin = join(scratch, 'created-plugin');
-    run(cli, ['plugin', 'create', createdPlugin], { cwd: installDir });
-    assert.deepEqual(readdirSync(createdPlugin).sort(), ['README.md', 'herdr-plugin.toml', 'muxr-ui.json']);
-    assert.match(run(cli, ['plugin', 'check', createdPlugin], { cwd: installDir }).stdout, /muxr UI manifest/);
-    const createdId = readFileSync(join(createdPlugin, 'herdr-plugin.toml'), 'utf8').match(/^id = "([^"]+)"/m)?.[1];
-    const secondCreatedPlugin = join(scratch, 'other-parent', 'created-plugin');
-    run(cli, ['plugin', 'create', secondCreatedPlugin], { cwd: installDir });
-    const secondCreatedId = readFileSync(join(secondCreatedPlugin, 'herdr-plugin.toml'), 'utf8').match(/^id = "([^"]+)"/m)?.[1];
-    assert.match(createdId ?? '', /^local\.created-plugin-[a-f0-9]{8}$/);
-    assert.match(secondCreatedId ?? '', /^local\.created-plugin-[a-f0-9]{8}$/);
-    assert.notEqual(secondCreatedId, createdId, 'same-basename plugins received the same global id');
-    // A destination inside the npm package is refused, so an install cannot be
-    // edited or survive an update.
-    const packageDestination = join(installedPackage, 'must-not-survive');
-    assert.notEqual(run(cli, ['plugin', 'create', packageDestination], { cwd: installDir, allowFailure: true }).status, 0);
-    assert.equal(existsSync(packageDestination), false);
-    const packageAlias = join(scratch, 'package-alias');
-    symlinkSync(installedPackage, packageAlias, 'dir');
-    assert.notEqual(run(cli, ['plugin', 'create', join(packageAlias, 'alias-create')], { cwd: installDir, allowFailure: true }).status, 0);
-    assert.equal(existsSync(join(installedPackage, 'alias-create')), false);
     // Realtime voice is product code in the packaged artifact: the runtime ships
     // beside host.js and the host resolves it from there.
     const providerHome = join(scratch, 'provider-home');

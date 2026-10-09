@@ -349,6 +349,10 @@ export function hidHomeButton(down: boolean): Buffer {
 
 const COMPANION_START_TIMEOUT_MS = 15_000;
 
+function childAlive(child: ChildProcess): boolean {
+    return child.exitCode === null && child.signalCode === null;
+}
+
 /** One companion per mirrored simulator, and the HID request it keeps open. */
 class CompanionHid {
     private session: ClientHttp2Session | undefined;
@@ -359,6 +363,14 @@ class CompanionHid {
         private readonly socket: string,
         private readonly onDiagnostic?: (line: string) => void,
     ) {}
+
+    get process(): ChildProcess {
+        return this.companion;
+    }
+
+    get alive(): boolean {
+        return childAlive(this.companion);
+    }
 
     static async start(dir: string, udid: string, workDir: string, onDiagnostic?: (line: string) => void, onSpawn?: (child: ChildProcess) => void): Promise<CompanionHid> {
         const socket = join(workDir, 'hid.sock');
@@ -375,7 +387,7 @@ class CompanionHid {
         companion.stderr?.on('data', (chunk: Buffer) => onDiagnostic?.(`idb companion: ${chunk.toString().trim().slice(0, 200)}`));
         const deadline = Date.now() + COMPANION_START_TIMEOUT_MS;
         while (!existsSync(socket)) {
-            if (spawnError !== undefined || companion.exitCode !== null || Date.now() > deadline) {
+            if (spawnError !== undefined || !childAlive(companion) || Date.now() > deadline) {
                 companion.kill('SIGKILL');
                 throw new EngineRefused('desktop-unavailable', 'the simulator input service did not start');
             }
@@ -384,8 +396,9 @@ class CompanionHid {
         return new CompanionHid(companion, socket, onDiagnostic);
     }
 
-    /** Writes one event, reopening the stream if the companion ended the last one. */
-    send(frame: Buffer): void {
+    /** Writes one event, reopening the stream if the companion ended the last one. False when the companion itself is gone. */
+    send(frame: Buffer): boolean {
+        if (!this.alive) return false;
         if (this.stream === undefined || this.stream.closed || this.stream.destroyed) {
             if (this.session === undefined || this.session.closed || this.session.destroyed) {
                 this.session = http2Connect('http://localhost', { createConnection: () => netConnect(this.socket) });
@@ -400,13 +413,26 @@ class CompanionHid {
             this.stream.on('error', (error) => this.onDiagnostic?.(`idb hid stream: ${error.message}`));
             this.stream.resume();
         }
-        this.stream.write(frame);
+        try {
+            this.stream.write(frame);
+        } catch {
+            return false;
+        }
+        return true;
     }
 
     close(): void {
-        this.stream?.end();
-        this.session?.close();
-        if (this.companion.exitCode === null) this.companion.kill('SIGTERM');
+        try {
+            this.stream?.end();
+        } catch {
+            // Already torn down with its companion.
+        }
+        try {
+            this.session?.close();
+        } catch {
+            // Already torn down with its companion.
+        }
+        if (this.alive) this.companion.kill('SIGTERM');
     }
 }
 
@@ -433,9 +459,11 @@ const KEY_FRAME_EVERY = 5;
 const VIDEO_SCALE = 0.5;
 const VIDEO_START_TIMEOUT_MS = 15_000;
 const CLOSE_EXIT_WAIT_MS = 2_000;
+const MAX_HELPER_RESTARTS = 3;
+const HELPER_HEALTHY_MS = 30_000;
 
 const waitForExit = (child: ChildProcess, timeoutMs: number): Promise<boolean> => {
-    if (child.exitCode !== null) return Promise.resolve(true);
+    if (!childAlive(child)) return Promise.resolve(true);
     return new Promise((resolve) => {
         const timer = setTimeout(() => {
             child.removeListener('exit', onExit);
@@ -450,19 +478,25 @@ const waitForExit = (child: ChildProcess, timeoutMs: number): Promise<boolean> =
 };
 
 interface LiveSimulator {
-    engine: EncodedEngine;
-    session: EncodedEngineSession;
+    engine: EncodedEngine | undefined;
+    session: EncodedEngineSession | undefined;
     width: number;
     height: number;
     scale: number;
-    video: ChildProcess;
-    hid: CompanionHid;
+    video: ChildProcess | undefined;
+    videoBornAt: number;
+    hid: CompanionHid | undefined;
     splitter: AnnexBAccessUnits;
+    opening: Array<{ keyframe: boolean; unit: Buffer }>;
+    draining: boolean;
     workDir: string;
     inflight: number;
     fingerDown: boolean;
     lastX: number;
     lastY: number;
+    videoFailures: number;
+    hidFailures: number;
+    hidBornAt: number;
     closed: boolean;
 }
 
@@ -552,7 +586,9 @@ export class IosMirrors implements DeviceMirrors {
         request: { permissions: DesktopPermission[]; maxFps?: number; loopbackTcp?: boolean },
     ): Promise<{ session: EncodedEngineSession; width: number; height: number }> {
         const existing = this.mirrors.get(udid);
-        if (existing !== undefined && !existing.closed) return { session: existing.session, width: existing.width, height: existing.height };
+        if (existing !== undefined && !existing.closed && existing.session !== undefined) {
+            return { session: existing.session, width: existing.width, height: existing.height };
+        }
         const inflight = this.opening.get(udid);
         if (inflight !== undefined) return inflight;
         this.helpers.reopen(udid);
@@ -561,6 +597,55 @@ export class IosMirrors implements DeviceMirrors {
         });
         this.opening.set(udid, opening);
         return opening;
+    }
+
+    /** Spawn sim-video and wait for its first SPS. */
+    private async spawnVideo(mirror: LiveSimulator, udid: string, dir: string): Promise<{ width: number; height: number }> {
+        const video = spawn(join(dir, 'sim-video'), [
+            'stream', '--set', DEVICE_SET, '--udid', udid,
+            '--encoding', 'h264', '--transport', 'annex-b', '--scale', String(VIDEO_SCALE),
+            '--avg-bitrate', String(MIRROR_BIT_RATE), '--key-frame-rate', String(KEY_FRAME_EVERY), '-',
+        ], { stdio: ['pipe', 'pipe', 'pipe'] });
+        video.stderr?.on('data', (chunk: Buffer) => this.options.onDiagnostic?.(`sim-video: ${chunk.toString().trim().slice(0, 200)}`));
+        video.stdin?.on('error', () => undefined);
+        const splitter = mirror.splitter;
+        let spawnError: unknown;
+        video.once('error', (error) => {
+            spawnError = error;
+            splitter.stop();
+        });
+        this.helpers.register(udid, video);
+        video.once('exit', (code, signal) => {
+            splitter.stop();
+            this.onVideoExit(mirror, udid, video, code, signal);
+        });
+        let headerBytes = Buffer.alloc(0);
+        let size: { width: number; height: number } | undefined;
+        video.stdout?.on('data', (chunk: Buffer) => {
+            if (mirror.closed || this.helpers.isClosed(udid) || mirror.splitter !== splitter || !childAlive(video) || video.killed || spawnError !== undefined) return;
+            if (size === undefined) {
+                if (headerBytes.length < 1024 * 1024) headerBytes = Buffer.concat([headerBytes, chunk]);
+                size = spsSize(headerBytes);
+            }
+            splitter.push(chunk);
+        });
+        const deadline = Date.now() + VIDEO_START_TIMEOUT_MS;
+        while (size === undefined && childAlive(video) && spawnError === undefined && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        if (this.helpers.isClosed(udid) || !childAlive(video)) {
+            splitter.stop();
+            video.kill('SIGKILL');
+            throw new EngineRefused('desktop-unavailable', 'the simulator video service did not start');
+        }
+        if (spawnError !== undefined || size === undefined) {
+            splitter.stop();
+            video.kill('SIGKILL');
+            throw new EngineRefused('desktop-unavailable', 'the simulator video service did not start');
+        }
+        mirror.video = video;
+        mirror.videoBornAt = Date.now();
+        return size;
     }
 
     private async start(
@@ -574,51 +659,53 @@ export class IosMirrors implements DeviceMirrors {
         const scale = VIDEO_SCALE * await screenScale(this.options.deviceTypeFor?.(udid)).catch(() => 3);
         if (this.helpers.isClosed(udid)) throw new EngineRefused('desktop-unavailable', 'the preview closed during open');
         const workDir = mkdtempSync(join(homedir(), 'Library', 'Caches', 'muxr', '.sim-'));
-        const video = spawn(join(dir, 'sim-video'), [
-            'stream', '--set', DEVICE_SET, '--udid', udid,
-            '--encoding', 'h264', '--transport', 'annex-b', '--scale', String(VIDEO_SCALE),
-            '--avg-bitrate', String(MIRROR_BIT_RATE), '--key-frame-rate', String(KEY_FRAME_EVERY), '-',
-        ], { stdio: ['pipe', 'pipe', 'pipe'] });
-        video.stderr?.on('data', (chunk: Buffer) => this.options.onDiagnostic?.(`sim-video: ${chunk.toString().trim().slice(0, 200)}`));
-        video.stdin?.on('error', () => undefined);
-        let spawnError: unknown;
-        video.once('error', (error) => {
-            spawnError = error;
-        });
-        this.helpers.register(udid, video);
-        let hid: CompanionHid | undefined;
+        const mirror: LiveSimulator = {
+            engine: undefined,
+            session: undefined,
+            width: 0,
+            height: 0,
+            scale,
+            video: undefined,
+            videoBornAt: 0,
+            hid: undefined,
+            splitter: new AnnexBAccessUnits((keyframe, unit) => this.feedUnitFor(mirror, keyframe, unit)),
+            opening: [],
+            draining: true,
+            workDir,
+            inflight: 0,
+            fingerDown: false,
+            lastX: 0,
+            lastY: 0,
+            videoFailures: 0,
+            hidFailures: 0,
+            hidBornAt: 0,
+            closed: false,
+        };
+        this.helpers.settle(udid);
         const fail = (message: string): never => {
             this.options.onDiagnostic?.(`open failed: ${message}`);
-            video.kill('SIGKILL');
-            hid?.close();
+            mirror.closed = true;
+            mirror.video?.kill('SIGKILL');
+            mirror.hid?.close();
             rmSync(workDir, { recursive: true, force: true });
             throw new EngineRefused('desktop-unavailable', message);
         };
-        // Units buffer until the engine exists; the first SPS sizes the open.
-        const opening: Array<{ keyframe: boolean; unit: Buffer }> = [];
-        let target: ((keyframe: boolean, unit: Buffer) => void) | null = null;
-        const splitter = new AnnexBAccessUnits((keyframe, unit) => {
-            if (target !== null) target(keyframe, unit);
-            else if (opening.length < 90 || keyframe) opening.push({ keyframe, unit });
-        });
-        let size: { width: number; height: number } | undefined;
-        let headerBytes = Buffer.alloc(0);
-        video.stdout?.on('data', (chunk: Buffer) => {
-            if (size === undefined) {
-                if (headerBytes.length < 1024 * 1024) headerBytes = Buffer.concat([headerBytes, chunk]);
-                size = spsSize(headerBytes);
-            }
-            splitter.push(chunk);
-        });
-        const deadline = Date.now() + VIDEO_START_TIMEOUT_MS;
-        while (size === undefined && video.exitCode === null && spawnError === undefined && Date.now() < deadline) {
-            await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-        if (spawnError !== undefined) fail('the simulator video service did not start');
-        if (this.helpers.isClosed(udid)) fail('the preview closed during open');
-        if (size === undefined) fail('the simulator sent no video');
+        let size: { width: number; height: number };
         try {
-            hid = await CompanionHid.start(dir, udid, workDir, this.options.onDiagnostic, (child) => this.helpers.register(udid, child));
+            size = await this.spawnVideo(mirror, udid, dir);
+        } catch (error) {
+            fail(error instanceof Error ? error.message : 'the simulator video service did not start');
+        }
+        if (this.helpers.isClosed(udid) || mirror.closed) fail('the preview closed during open');
+        try {
+            const hid = await CompanionHid.start(dir, udid, workDir, this.options.onDiagnostic, (child) => this.helpers.register(udid, child));
+            if (this.helpers.isClosed(udid) || mirror.closed || !hid.alive) {
+                hid.close();
+                fail('the preview closed during open');
+            }
+            mirror.hid = hid;
+            mirror.hidBornAt = Date.now();
+            hid.process.once('exit', (code, signal) => this.onHidExit(mirror, udid, hid.process, code, signal));
         } catch (error) {
             fail(error instanceof Error ? error.message : 'the simulator input service did not start');
         }
@@ -627,67 +714,137 @@ export class IosMirrors implements DeviceMirrors {
             ...(this.options.enginePath === undefined ? {} : { enginePath: this.options.enginePath }),
             ...(this.options.onDiagnostic === undefined ? {} : { onDiagnostic: this.options.onDiagnostic }),
         });
-        const { width, height } = size!;
         let session: EncodedEngineSession;
         try {
-            session = await engine.open(width, height, request.permissions, {
+            session = await engine.open(size!.width, size!.height, request.permissions, {
                 ...(request.maxFps === undefined ? {} : { maxFps: request.maxFps }),
                 ...(request.loopbackTcp === true ? { loopbackTcp: true } : {}),
             });
         } catch (error) {
             fail(error instanceof Error ? error.message : 'the live view did not start');
         }
-        if (this.helpers.isClosed(udid)) {
+        if (this.helpers.isClosed(udid) || mirror.closed || mirror.video === undefined || !childAlive(mirror.video) || mirror.hid?.alive !== true) {
             await engine.close().catch(() => undefined);
             await engine.stop().catch(() => undefined);
             fail('the preview closed during open');
         }
-        const mirror: LiveSimulator = {
-            engine,
-            session: session!,
-            width,
-            height,
-            scale,
-            video,
-            hid: hid!,
-            splitter,
-            workDir,
-            inflight: 0,
-            fingerDown: false,
-            lastX: width / 2,
-            lastY: height / 2,
-            closed: false,
-        };
+        const live = session!;
+        mirror.engine = engine;
+        mirror.session = live;
+        mirror.width = size!.width;
+        mirror.height = size!.height;
+        mirror.lastX = size!.width / 2;
+        mirror.lastY = size!.height / 2;
         this.mirrors.set(udid, mirror);
-        this.helpers.settle(udid);
         engine.onLive((event) => {
-            if (mirror.closed) return;
+            if (mirror.closed || mirror.engine !== engine) return;
             if (event.kind === 'keyframeRequest') {
-                if (video.exitCode === null) video.stdin?.write('{"method":"force_keyframe"}\n');
+                if (mirror.video !== undefined && childAlive(mirror.video)) mirror.video.stdin?.write('{"method":"force_keyframe"}\n');
                 return;
             }
             this.applyInput(mirror, event.input);
         });
-        for (const unit of opening.splice(0)) {
-            if (mirror.closed) break;
-            await engine.feed(unit.keyframe, unit.unit).catch(() => undefined);
-        }
-        target = (keyframe, unit) => {
-            if (mirror.inflight >= MAX_INFLIGHT_FEEDS) return;
-            mirror.inflight += 1;
-            engine.feed(keyframe, unit).catch(() => undefined).finally(() => {
-                mirror.inflight -= 1;
-            });
-        };
-        video.once('exit', () => void this.close(udid).catch(() => undefined));
-        return { session: session!, width, height };
+        const burst = mirror.opening.splice(0).map((unit) => engine.feed(unit.keyframe, unit.unit).catch(() => undefined));
+        mirror.draining = false;
+        await Promise.all(burst);
+        if (mirror.closed) throw new EngineRefused('desktop-unavailable', 'the preview closed during open');
+        return { session: live, width: size!.width, height: size!.height };
     }
 
-    /** Engine pixels → simulator points: touch down/move/up and the Home button. */
+    private feedUnitFor(mirror: LiveSimulator, keyframe: boolean, unit: Buffer): void {
+        if (mirror.closed) return;
+        if (mirror.engine === undefined || mirror.session === undefined || mirror.draining) {
+            if (keyframe) mirror.opening = [];
+            if (mirror.opening.length < 90) mirror.opening.push({ keyframe, unit });
+            return;
+        }
+        if (mirror.inflight >= MAX_INFLIGHT_FEEDS) return;
+        mirror.inflight += 1;
+        mirror.engine.feed(keyframe, unit).catch(() => undefined).finally(() => {
+            mirror.inflight -= 1;
+        });
+    }
+
+    private onVideoExit(mirror: LiveSimulator, udid: string, child: ChildProcess | undefined, code: number | null, signal: NodeJS.Signals | null): void {
+        if (this.mirrors.get(udid) !== mirror || mirror.closed) return;
+        if (child !== undefined && mirror.video !== child) return;
+        if (child !== undefined && Date.now() - mirror.videoBornAt > HELPER_HEALTHY_MS) mirror.videoFailures = 0;
+        mirror.videoFailures += 1;
+        if (mirror.videoFailures > MAX_HELPER_RESTARTS) {
+            this.options.onDiagnostic?.(`sim-video keeps failing — closing the preview`);
+            void this.close(udid).catch(() => undefined);
+            return;
+        }
+        const reason = child === undefined
+            ? 'sim-video restart failed'
+            : `sim-video exited (code ${code ?? '?'}, signal ${signal ?? '?'})`;
+        this.options.onDiagnostic?.(`${reason} — restarting (${mirror.videoFailures}/${MAX_HELPER_RESTARTS})`);
+        void this.reviveVideo(mirror, udid).catch(() => undefined);
+    }
+
+    private async reviveVideo(mirror: LiveSimulator, udid: string): Promise<void> {
+        if (this.mirrors.get(udid) !== mirror || mirror.closed) return;
+        mirror.splitter.stop();
+        mirror.splitter = new AnnexBAccessUnits((keyframe, unit) => this.feedUnitFor(mirror, keyframe, unit));
+        const dir = await idbDistribution().catch(() => undefined);
+        if (dir === undefined || this.mirrors.get(udid) !== mirror || mirror.closed) return;
+        try {
+            await this.spawnVideo(mirror, udid, dir);
+        } catch {
+            this.onVideoExit(mirror, udid, undefined, null, null);
+            return;
+        }
+        if (this.mirrors.get(udid) !== mirror || mirror.closed) return;
+        this.options.onDiagnostic?.('sim-video streaming again');
+        if (mirror.video !== undefined && childAlive(mirror.video)) mirror.video.stdin?.write('{"method":"force_keyframe"}\n');
+    }
+
+    private onHidExit(mirror: LiveSimulator, udid: string, child: ChildProcess | undefined, code: number | null, signal: NodeJS.Signals | null): void {
+        if (this.mirrors.get(udid) !== mirror || mirror.closed) return;
+        if (child !== undefined && mirror.hid?.process !== child) return;
+        if (child !== undefined && Date.now() - mirror.hidBornAt > HELPER_HEALTHY_MS) mirror.hidFailures = 0;
+        mirror.hidFailures += 1;
+        if (mirror.hidFailures > MAX_HELPER_RESTARTS) {
+            this.options.onDiagnostic?.('idb companion keeps failing — closing the preview');
+            void this.close(udid).catch(() => undefined);
+            return;
+        }
+        const reason = child === undefined
+            ? 'idb companion restart failed'
+            : `idb companion exited (code ${code ?? '?'}, signal ${signal ?? '?'})`;
+        this.options.onDiagnostic?.(`${reason} — restarting (${mirror.hidFailures}/${MAX_HELPER_RESTARTS})`);
+        void this.reviveHid(mirror, udid).catch(() => undefined);
+    }
+
+    private async reviveHid(mirror: LiveSimulator, udid: string): Promise<void> {
+        mirror.hid?.close();
+        mirror.fingerDown = false;
+        const dir = await idbDistribution().catch(() => undefined);
+        if (this.mirrors.get(udid) !== mirror || mirror.closed) return;
+        try {
+            if (dir === undefined) throw new EngineRefused('desktop-unavailable', 'the idb companion is not installed');
+            rmSync(join(mirror.workDir, 'hid.sock'), { force: true });
+            const hid = await CompanionHid.start(dir, udid, mirror.workDir, this.options.onDiagnostic, (child) => this.helpers.register(udid, child));
+            if (this.mirrors.get(udid) !== mirror || mirror.closed || !hid.alive) {
+                hid.close();
+                if (!mirror.closed) this.onHidExit(mirror, udid, undefined, null, null);
+                return;
+            }
+            mirror.hid = hid;
+            mirror.hidBornAt = Date.now();
+            hid.process.once('exit', (code, signal) => this.onHidExit(mirror, udid, hid.process, code, signal));
+            this.options.onDiagnostic?.('idb companion accepting input again');
+        } catch {
+            this.onHidExit(mirror, udid, undefined, null, null);
+        }
+    }
+
+    /** Engine pixels → simulator points. */
     applyInput(mirror: LiveSimulator, input: EncodedInput): void {
         if (mirror.closed) return;
+        const hid = mirror.hid;
         const touch = (down: boolean): void => {
-            mirror.hid.send(hidTouch(down, mirror.lastX / mirror.scale, mirror.lastY / mirror.scale));
+            hid?.send(hidTouch(down, mirror.lastX / mirror.scale, mirror.lastY / mirror.scale));
         };
         switch (input.kind) {
             case 'pointer': {
@@ -715,7 +872,7 @@ export class IosMirrors implements DeviceMirrors {
             case 'key': {
                 // The toolbar's Home (Ctrl+H, as on Android); other keys wait for a keyboard slice.
                 const control = (input.modifiers ?? []).some((modifier) => modifier.toLowerCase() === 'control');
-                if (control && input.character === 'h') mirror.hid.send(hidHomeButton(input.down));
+                if (control && input.character === 'h') hid?.send(hidHomeButton(input.down));
                 return;
             }
             default:
@@ -730,19 +887,20 @@ export class IosMirrors implements DeviceMirrors {
 
     async close(udid: string): Promise<void> {
         const inflight = this.opening.get(udid);
-        if (inflight !== undefined) void inflight.catch(() => undefined);
         const mirror = this.mirrors.get(udid);
         if (mirror !== undefined) {
             this.mirrors.delete(udid);
             mirror.closed = true;
         }
-        await this.helpers.close(udid, (pid, phase) => this.options.onDiagnostic?.(`close: helper ${pid ?? '?'} did not exit (${phase})`));
+        const helpersClosed = this.helpers.close(udid, (pid, phase) => this.options.onDiagnostic?.(`close: helper ${pid ?? '?'} did not exit (${phase})`));
+        if (inflight !== undefined) await inflight.catch(() => undefined);
+        await helpersClosed;
         if (mirror === undefined) return;
         mirror.splitter.stop();
-        mirror.hid.close();
+        mirror.hid?.close();
         rmSync(mirror.workDir, { recursive: true, force: true });
-        await mirror.engine.close().catch(() => undefined);
-        await mirror.engine.stop().catch(() => undefined);
+        await mirror.engine?.close().catch(() => undefined);
+        await mirror.engine?.stop().catch(() => undefined);
     }
 
     async closeAll(): Promise<void> {

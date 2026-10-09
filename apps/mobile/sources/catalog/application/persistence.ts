@@ -125,27 +125,63 @@ export function saveLocalSettings(settings: LocalSettings) {
     mmkv.set('local-settings', JSON.stringify(settings));
 }
 
-const SPACES_PINS_KEY = 'spaces-pins-v1';
+const OLD_SPACES_PINS_KEY = 'spaces-pins-v1';
+const SPACES_PINS_KEY = 'spaces-pins-v2';
 
-/**
- * Workspace ids pinned to the top of Spaces, a per-device view preference.
- * Keyed by the Herdr workspace id, the only stable identity the phone is
- * told; absent workspaces are ignored until they appear again.
- */
-export function loadSpacePins(): string[] {
+/** Like Spaces layouts: paired machine id -> Herdr workspace ids. */
+function spacePinsByMachine(): Record<string, string[]> {
     const raw = mmkv.getString(SPACES_PINS_KEY);
-    if (!raw) return [];
-    try {
-        const parsed: unknown = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
-    } catch {
-        mmkv.delete(SPACES_PINS_KEY);
-        return [];
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error('Invalid saved space pins');
     }
+    return Object.fromEntries(Object.entries(parsed).map(([machineId, pins]) => [machineId, ids(pins)]));
 }
 
-export function saveSpacePins(pins: string[]) {
+export function loadSpacePins(machineId: string): string[] {
+    return spacePinsByMachine()[machineId] ?? [];
+}
+
+export function saveSpacePins(machineId: string, pins: string[], workspaceId: string) {
+    if (!machineId) throw new Error('Pair a computer before pinning a space');
+    const legacy = legacySpacePins();
+    mmkv.set(SPACES_PINS_KEY, JSON.stringify({ ...spacePinsByMachine(), [machineId]: pins }));
+    if (legacy === undefined) return;
+    const remaining = legacy.filter((id) => id !== workspaceId);
+    if (remaining.length === 0) mmkv.delete(OLD_SPACES_PINS_KEY);
+    else mmkv.set(OLD_SPACES_PINS_KEY, JSON.stringify(remaining));
+}
+
+function legacySpacePins(): string[] | undefined {
+    const raw = mmkv.getString(OLD_SPACES_PINS_KEY);
+    if (raw === undefined) return;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.some((id) => typeof id !== 'string')) {
+        throw new Error('Invalid saved legacy space pins');
+    }
+    if (parsed.length === 0) {
+        mmkv.delete(OLD_SPACES_PINS_KEY);
+        return;
+    }
+    return parsed as string[];
+}
+
+export function hasLegacySpacePins(): boolean {
+    return legacySpacePins() !== undefined;
+}
+
+export function migrateSpacePins(machineId: string, workspaces: readonly HerdrTreeWorkspace[]): void {
+    const legacy = legacySpacePins();
+    if (legacy === undefined || !machineId) return;
+    const matched = legacy.filter((id) => workspaces.some((ws) => ws.workspaceId === id));
+    if (matched.length === 0) return;
+    const pins = spacePinsByMachine();
+    pins[machineId] = [...new Set([...(pins[machineId] ?? []), ...matched])];
     mmkv.set(SPACES_PINS_KEY, JSON.stringify(pins));
+    const remaining = legacy.filter((id) => !matched.includes(id));
+    if (remaining.length === 0) mmkv.delete(OLD_SPACES_PINS_KEY);
+    else mmkv.set(OLD_SPACES_PINS_KEY, JSON.stringify(remaining));
 }
 
 const SPACES_LAYOUT_KEY = 'spaces-layout-v1';

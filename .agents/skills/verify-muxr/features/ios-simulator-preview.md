@@ -16,6 +16,11 @@ swipes and the Home key drive it through one long-lived idb HID session.
   SpringBoard.
 - `ios-shutdown` SIGTERM to the host takes `sim-video`, `idb_companion` and
   `desklink-host` down with it (no PPID-1 leftovers).
+- `ios-crash` killing either helper by its exact PID mid-stream restarts it
+  without replacing the engine session: video recovers for `sim-video`, and
+  touch and Home recover for `idb_companion` (captures plus restart logs).
+- `ios-teardown` closing the last viewer takes `sim-video`, `idb_companion`
+  and the mirror's `desklink-host` down with it (no helper PIDs remain).
 
 ## How to get to it (user POV)
 
@@ -63,11 +68,37 @@ Preconditions:
   pop the agent screen.
 - **Shutdown.** Note the helper PIDs (`ps -o pid,ppid,command` children of
   the host), `kill -TERM <exact host pid>`, and show they are all gone.
+- **Crash.** With the preview Live, note the exact `sim-video` PID that is a
+  child of the host and `kill -KILL` only that PID. The host log must show
+  `sim-video exited (…) — restarting (1/3)` and then `sim-video streaming
+  again` under a new PID; the viewer returns to Live on its own (allow ~90 s
+  on a loaded Mac). Capture the viewer plus `simctl io <udid> screenshot`
+  before and after. Repeat with the exact `idb_companion` child PID: expect
+  `idb companion exited (…) — restarting (1/3)` followed by `idb companion
+  accepting input again`, then drive a tap, swipe and Home through the viewer
+  without closing the preview. Exercise repeated failures separately for
+  each helper: its restart budget must be spent before the preview closes;
+  restarting one helper must not reset the other's failure streak.
+- **Startup cancellation.** Close the preview or stop the private host while
+  it is opening. Check no dead session is published and no helper remains;
+  reopen and check the new preview is not disrupted by the old helpers.
+- **Teardown.** Close the preview on the viewer (Back, never kill the app —
+  killing it wedges the engine until the host restarts) and show no
+  `sim-video`, `idb_companion` or mirror `desklink-host` child of the host
+  remains. Never stop processes by name or pattern; use only exact PIDs this
+  run started.
 - **Failure path.** `preview claim not-a-udid` exits `1` with the usage line;
   outside a pane it names the missing `HERDR_PANE_ID`.
 
 ## Gotchas
 
+- Helper recovery is bounded by independent video and HID failure streaks;
+  only a successfully started helper's healthy runtime resets its streak.
+  The thresholds are owned by `MAX_HELPER_RESTARTS` and `HELPER_HEALTHY_MS`
+  in `apps/host/src/desktop/application/iosSimulators.ts`.
+- Rotation of the streamed simulator does not reopen the engine at a new
+  size in this slice; it is deferred to `mx-ios-sim-rotation1`. Viewer
+  orientation changes below are a different operation.
 - `HERDR_SOCKET_PATH` defaults to the owner's real Herdr: export the private
   socket for the host, or it will list (and attach to) the owner's panes.
 - Set `MUXR_RELAY_MDNS=0` and bind the relay to the tailnet IP, so the viewer
@@ -93,5 +124,15 @@ Preconditions:
   viewer from the same runner, by coordinates relative to the live view
   element, and take screenshots with `simctl io` (`axe screenshot` can
   return a stale frame).
-- `scripts/release/pack.mjs` refuses on a stale web export but still rebuilds
+- `scripts/release/application/pack.mjs` refuses on a stale web export but still rebuilds
   `dist-npm/host.js`; for a lab redeploy copying that one file is enough.
+- A lab host under a disposable HOME must still reach CoreSimulator's device
+  set: symlink the real `~/Library/Developer` into the disposable home, or
+  `sim-video` finds no simulator.
+- Keep `MUXR_DATA_DIR` under `MUXR_HOME` (the installed shape), so the state
+  root is `MUXR_HOME` and `preview claim` writes where the watcher reads.
+- Use a private lab `herdr` compatible with the host's `@byokit/herdr` kit
+  (`apps/host/package.json`) and satisfying `min_herdr_version` in
+  `resources/control/herdr-plugin.toml`; put it first on the lab PATH.
+- `simctl io screenshot` can return a stale frame; the accessibility tree and
+  the host log are the primary proof, captures supporting.

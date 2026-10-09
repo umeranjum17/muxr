@@ -69,7 +69,8 @@ user-visible behavior, then exactly four H2 sections in this order:
   `muxr preview claim` on a macOS host, live stream, tap/swipe/Home, clean
   helper shutdown.
 - [See pinned spaces on the phone's Spaces list](./spaces-pinned.md) —
-  native app on an emulator over a fake-Herdr stack: pin, themes, tablet width.
+  native app on an emulator over a private stack: pin, themes, tablet width,
+  plus guarded two-computer pin isolation and legacy migration.
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.
