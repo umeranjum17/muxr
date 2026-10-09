@@ -171,7 +171,7 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
                     const outcome = await Promise.race([done.promise, aborted(controller.signal), sleep(Math.min(1000, Math.max(offerExpires(offer) - Date.now(), 0)))]);
                     if (outcome !== undefined) { completed = outcome; await sleep(250); return; }
                     if (controller.signal.aborted) return;
-                    if (offerExpires(offer) <= Date.now() || burned) {
+                    if (approve === undefined && (offerExpires(offer) <= Date.now() || burned)) {
                         burned = false;
                         offer = endpoint.offerPairing(session, relayUrl, offerOptions);
                         send({ offer });
@@ -367,27 +367,27 @@ function wrappedRows(line) {
     return Math.max(1, Math.ceil([...line].length / terminalColumns()));
 }
 
-/** Draw the offer from the top of the screen: the QR whole, then the text lines in priority order while the rows left over hold them. */
+/** The QR and the pairing string are one offer: the full v1 where its QR and string both fit, else the compact offer at the full quiet zone, else at a two-module zone. Undefined when no QR fits, the string then prints alone. */
+function offerCode(offer, compact) {
+    const compactExpires = offer.compactExpires ?? offer.expires;
+    const candidates = [{ text: offer.text, expires: offer.expires, border: 4 }];
+    if (compact !== undefined) candidates.push({ text: compact, expires: compactExpires, border: 4 }, { text: compact, expires: compactExpires, border: 2 });
+    return candidates.find((code) => qrFits(code.text, wrappedRows(code.text), code.border));
+}
+
+/** Draw the offer from the top: the QR whole, then the pairing string, then the text lines in priority order while the rows left over hold them. */
 function drawOffer(offer, intent) {
     const compact = intent.kind === 'native' && typeof offer.compactText === 'string' ? offer.compactText : undefined;
-    // Show the full v1 offer wherever its QR fits: only it resumes through
-    // the kit's pendingGrant when the phone dies before approval. Where it
-    // cannot fit, the compact offer pairs the same way through one code entry.
-    const code = qrFits(offer.text, 1) ? offer.text : compact !== undefined && qrFits(compact, 1) ? compact : undefined;
-    const token = code ?? offer.text;
-    const expires = code !== undefined && code === compact ? offer.compactExpires ?? offer.expires : offer.expires;
+    const code = offerCode(offer, compact);
+    const token = code?.text ?? offer.text;
+    const expires = code?.expires ?? offer.expires;
     const title = intent.kind === 'browser'
         ? `Pair a ${intent.authority === 'observe' ? 'view-only' : 'control'} browser for ${intent.grantDurationLabel()}. Keep the code private.`
         : 'Pair your phone. Keep the code private.';
     const label = intent.kind === 'browser'
         ? 'Open the browser pairing link below (one token):'
         : 'Other ways: copy the pairing string below (one token):';
-    const hint = 'Make this window wider or taller to also see the code to type.';
-    const oneLine = !richTerminal() || wrappedRows(token) === 1;
-    let left = richTerminal() ? terminalRows() - (code === undefined ? 0 : qrRows(code)) : Infinity;
-    const hintRows = oneLine ? 0 : wrappedRows(hint);
-    const hintShown = hintRows <= left;
-    if (hintShown) left -= hintRows;
+    let left = richTerminal() ? terminalRows() - (code === undefined ? 0 : qrRows(code.text, code.border)) : Infinity;
     const lines = [];
     const take = (block) => {
         const rows = block.reduce((sum, line) => sum + wrappedRows(line), 0);
@@ -396,10 +396,11 @@ function drawOffer(offer, intent) {
         left -= rows;
         return true;
     };
-    const titled = take([title]);
-    if (!oneLine && hintShown) lines.push(hint);
-    titled
-        && (oneLine ? take([label, token]) : true)
+    if (!take([label, token])) {
+        lines.push(token);
+        left -= wrappedRows(token);
+    }
+    take([title])
         && take([`Expires at ${new Date(expires).toLocaleTimeString()}; refreshes automatically.`])
         && take(['Compare the two words, then approve on this computer.'])
         && take(['Waiting for the device to finish pairing…']);
@@ -408,7 +409,7 @@ function drawOffer(offer, intent) {
         return;
     }
     process.stdout.write('\x1b[H\x1b[2J');
-    if (code !== undefined) process.stdout.write(`${terminalQrText(code)}\n`);
+    if (code !== undefined) process.stdout.write(`${terminalQrText(code.text, code.border)}\n`);
     process.stdout.write(lines.join('\n'));
 }
 

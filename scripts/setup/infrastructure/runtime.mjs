@@ -41,28 +41,28 @@ export const error = (text) => process.stderr.write(`${text}\n`);
 export function richTerminal() {
     return process.stdout.isTTY && process.env.TERM !== 'dumb' && process.env.NO_COLOR === undefined && process.env.MUXR_NO_TUI !== '1';
 }
-// Half-block text rows from the kit (quiet border of 4). The kit trims trailing
-// spaces, so printTerminalQr pads back to the full matrix width: a ragged right
-// edge would eat the quiet zone the phone's scanner needs.
-function qrLines(value) {
-    return qrText(value, { border: 4 }).split('\n');
+// Half-block text rows from the kit (quiet border of 4 unless asked otherwise).
+// The kit trims trailing spaces, so printTerminalQr pads back to the full matrix
+// width: a ragged right edge would eat the quiet zone the phone's scanner needs.
+function qrLines(value, border = 4) {
+    return qrText(value, { border }).split('\n');
 }
 /** Terminal width and height; a zero or missing size means the terminal did not report one, so nothing is limited by it. */
 export const terminalColumns = () => (process.stdout.columns > 0 ? process.stdout.columns : Infinity);
 export const terminalRows = () => (process.stdout.rows > 0 ? process.stdout.rows : Infinity);
-export function qrRows(value) {
-    return qrLines(value).length;
+export function qrRows(value, border = 4) {
+    return qrLines(value, border).length;
 }
 /** Whether the QR fits whole, with `otherRows` terminal rows kept for text printed beside it (above it, or the cursor row its newline leaves below). */
-export function qrFits(value, otherRows = 0) {
+export function qrFits(value, otherRows = 0, border = 4) {
     if (!richTerminal()) return false;
-    const lines = qrLines(value);
+    const lines = qrLines(value, border);
     const width = lines.length * 2 - 1;
     return width <= terminalColumns() && otherRows + lines.length <= terminalRows();
 }
 /** The QR as centered half-block rows, without a trailing newline. */
-export function terminalQrText(value) {
-    const lines = qrLines(value);
+export function terminalQrText(value, border = 4) {
+    const lines = qrLines(value, border);
     // QR sides are always odd, and each text row covers two module rows, so
     // the side is lines*2-1; padding is a no-op if the kit ever stops trimming.
     const width = lines.length * 2 - 1;

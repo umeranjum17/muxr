@@ -1,17 +1,17 @@
 # Scan a pairing QR from the terminal
 
-`muxr pair` prints a centered QR when its complete quiet zone fits the terminal, then the instructions and the unwrapped pairing string when that string fits one line. The host mints both the full v1 offer and the compact offer; the terminal shows the full QR wherever it fits (only it resumes through the kit's pendingGrant when the phone dies before approval) and the compact QR where it cannot (80x24, 91x37). Plain output retains the exact string; on small rich terminals the token is hidden and a line asks for a wider or taller window.
+`muxr pair` prints a centered QR when its complete quiet zone fits the terminal, then the instructions and the unwrapped pairing string, which the terminal may soft-wrap but never splits. The host mints both the full v1 offer and the compact offer; the QR and the string are always the same offer: the full v1 where both fit (only it resumes through the kit's pendingGrant when the phone dies before approval), otherwise the compact offer at the full quiet zone, and at 80x24 the compact offer at a two-module quiet zone. Plain output prints the full string with no QR.
 
 ## Sub-features
 
 - Native pairing offers use the running host's private pairing socket and existing BYOKit link.
-- The printed token is the offer the QR carries: the full string where the full QR fits, the compact string where only it fits. Either scans and pairs; a phone killed before approving a compact offer rescans. The token prints only when it fits one terminal line; otherwise the offer asks for a wider or taller window.
+- The printed token is the offer the QR carries: the full string where the full QR fits, the compact string where only it fits. Either scans and pairs; a phone killed before approving a compact offer rescans. The string always prints.
 - Interactive offers draw on the terminal's alternate screen from the top and redraw there on each refresh and resize, so expired codes never reach scrollback. The QR comes first and stays whole; the recommended route leads, and the text lines below it are kept in priority order only while the rows left over hold them. Plain output remains append-only.
 - Setup leads with one recommended network route; alternatives are behind Other ways. A first run is four steps; a repeat run is six.
 - After verified pairing, a computer without `WAYLAND_DISPLAY` or `DISPLAY` skips screen-sharing approval with one plain line and exits 0.
 - Caught screen-sharing failures preserve the real reason and say pairing is done only after verified pairing. Fatal CLI exceptions/rejections print one plain line and exit 1; `MUXR_DEBUG=1` enables their stack.
 - A QR needs its matrix width and half-block row count. The offer view prints the QR first and the text after it, with no trailing newline, so the text takes only the rows left over; `printTerminalQr` (setup) keeps one cursor row below.
-- When the token does not fit on one line, the offer shows one line asking for a wider or taller window where rows allow, and that line takes its row before the title, so at 80x24 the QR and that line are all that show. The QR is still whole. Setup's `printTerminalQr` prints an omission reason instead.
+- Row priority in the offer view: QR, then the "Other ways" label with the string, then title, expiry, compare and waiting lines while the rows hold them. The QR and string are reserved first, so the string never drops. Setup's `printTerminalQr` prints an omission reason instead.
 - At the approval prompt, Enter re-asks without rejecting the device; `y` approves and `n` declines.
 - A non-TTY `muxr pair` (AI agent or script) never approves: it prints exactly one line — `Pairing needs you at this computer's terminal: run `muxr pair` yourself` — and exits 2. The person must run `muxr pair` at the terminal.
 

@@ -548,7 +548,7 @@ describe('native pairing over the byokit link', () => {
         let computerWords = '';
         let phoneWords = '';
         // A 120x30 terminal fits the compact QR and its one-line token but not
-        // the full v1 QR (39 rows), so the pairing string on screen is the
+        // the full v1 QR (37 rows), so the pairing string on screen is the
         // compact offer. Placed after every test that counts the enrolled-device
         // record, but before the link-drop test below: that one stops the relay
         // this phone must dial.
