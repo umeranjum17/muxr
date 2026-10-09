@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
@@ -53,8 +53,11 @@ export function WebInstallSupport() {
 
 /** The iOS-only walk through Safari's Share menu, in plain words. */
 export function WebInstallGuideSheet({ onClose }: { onClose?: () => void }) {
+    // A percentage maxHeight resolves against this sheet's own content height
+    // and clamps the scroll body, so bound it from the real viewport instead.
+    const { height } = useWindowDimensions();
     return (
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { maxHeight: Math.round(height * 0.85) }]}>
             <View style={styles.handleRow}>
                 <View style={styles.handle} />
             </View>
@@ -68,15 +71,15 @@ export function WebInstallGuideSheet({ onClose }: { onClose?: () => void }) {
                     <Ionicons name="notifications-outline" size={18} color="#007AFF" />
                     <Text style={styles.benefitText}>{t('webInstall.guideBenefit')}</Text>
                 </View>
-                <Pressable
-                    onPress={onClose}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('webInstall.guideClose')}
-                    style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
-                >
-                    <Text style={styles.closeText}>{t('webInstall.guideClose')}</Text>
-                </Pressable>
             </ScrollView>
+            <Pressable
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel={t('webInstall.guideClose')}
+                style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
+            >
+                <Text style={styles.closeText}>{t('webInstall.guideClose')}</Text>
+            </Pressable>
         </View>
     );
 }
@@ -86,8 +89,6 @@ const styles = StyleSheet.create((theme) => ({
         width: '100%',
         maxWidth: 560,
         alignSelf: 'center',
-        // Tall content scrolls inside instead of pushing past a short screen.
-        maxHeight: '82%',
         backgroundColor: theme.colors.groupped.background,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
@@ -104,7 +105,7 @@ const styles = StyleSheet.create((theme) => ({
         ...Typography.default('semiBold'),
     },
     body: { flexGrow: 0, flexShrink: 1 },
-    bodyContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24, gap: 14 },
+    bodyContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16, gap: 14 },
     lead: { fontSize: 15, lineHeight: 22, color: theme.colors.text, ...Typography.default() },
     steps: { backgroundColor: theme.colors.surfaceHigh, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
     stepsText: { fontSize: 15, lineHeight: 26, color: theme.colors.text, ...Typography.default() },
@@ -119,6 +120,6 @@ const styles = StyleSheet.create((theme) => ({
     },
     benefitText: { flex: 1, minWidth: 0, fontSize: 14, lineHeight: 20, color: theme.colors.textSecondary, ...Typography.default() },
     pressed: { opacity: 0.6 },
-    closeButton: { alignItems: 'center', borderRadius: 12, paddingVertical: 12 },
+    closeButton: { alignItems: 'center', borderRadius: 12, marginHorizontal: 20, marginBottom: 20, paddingVertical: 12 },
     closeText: { fontSize: 16, color: theme.colors.textLink, ...Typography.default('semiBold') },
 }));
