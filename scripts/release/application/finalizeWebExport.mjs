@@ -53,6 +53,11 @@ export const VIEWPORT = '<meta name="viewport" content="width=device-width, init
 // (app.config.js light #F2F2F7); dark matches the native dark splash (#000000).
 export const SPLASH_LIGHT_BACKGROUND = '#F2F2F7';
 export const SPLASH_DARK_BACKGROUND = '#000000';
+// Match the native launch splash's on-screen proportion: the Android splash
+// image is a 1024px square whose wordmark is 299px (light) / 306px (dark) wide,
+// shown width-limited, so the mark is ~29% of the screen width. A px cap keeps
+// it sensible on wide screens, where the native image stops growing.
+export const SPLASH_MARK_WIDTH = 'min(29vw,240px)';
 const SPLASH_STYLE_START = '<!-- muxr:web-splash-style -->';
 const SPLASH_STYLE_END = '<!-- /muxr:web-splash-style -->';
 const SPLASH_MARK_START = '<!-- muxr:web-splash-mark -->';
@@ -105,7 +110,7 @@ const SPLASH_STYLE = [
     '<style id="muxr-splash-style">',
     `html,body{background:${SPLASH_LIGHT_BACKGROUND}}`,
     `#muxr-splash{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:${SPLASH_LIGHT_BACKGROUND};color:#111111}`,
-    '#muxr-splash svg{width:min(64vw,240px);height:auto;display:block}',
+    `#muxr-splash svg{width:${SPLASH_MARK_WIDTH};height:auto;display:block}`,
     // The app owns #root; the moment React mounts any child the splash is gone,
     // with no script and nothing to leave covering an error or offline screen.
     '#root:not(:empty)+#muxr-splash{display:none}',
