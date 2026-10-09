@@ -17,6 +17,9 @@ import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 
+// A cut-off or wrong-case offer still reaches review, which says why it cannot pair.
+const carriesPairingOffer = (raw: string) => looksLikeLinkOffer(raw) || /byokit-link:/i.test(raw) || raw.includes('pair=');
+
 type PairState =
     | { phase: 'confirm'; url: string; machineName: string; linkOffer?: boolean }
     | { phase: 'working'; url: string; machineName: string; linkOffer?: boolean }
@@ -111,16 +114,14 @@ export default function PairScreen() {
     }, []);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const switching = getCachedConnectionSettings().machineId !== '';
-    const routePairUrl = typeof routeParams.offer === 'string' && looksLikeLinkOffer(routeParams.offer)
+    const routePairUrl = typeof routeParams.offer === 'string' && carriesPairingOffer(routeParams.offer)
         ? routeParams.offer : undefined;
 
     React.useEffect(() => {
         let cancelled = false;
         const receive = (raw: string | null) => {
             if (cancelled || !raw) return false;
-            // Both offer shapes ride here: the full `byokit-link:1:` offer and
-            // the uppercase compact offer.
-            if (!looksLikeLinkOffer(raw) && !raw.includes('pair=')) return false;
+            if (!carriesPairingOffer(raw)) return false;
             reviewPairing(raw);
             return true;
         };
