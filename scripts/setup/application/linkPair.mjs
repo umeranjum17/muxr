@@ -236,13 +236,15 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     };
     const showOffer = async (offer) => {
         latest = offer;
-        if (page === undefined && process.stdout.isTTY && intent.kind === 'native' && offerCode(offer, intent) === undefined) page = await startPairingPage();
-        page?.update(offer);
+        const code = offerCode(offer, intent);
+        const shown = code ?? (richTerminal() ? compactOffer(offer, intent) : undefined) ?? { text: offer.text, expires: offer.expires };
+        if (page === undefined && richTerminal() && intent.kind === 'native' && code === undefined) page = await startPairingPage();
+        page?.update(shown);
         if (richTerminal() && !altScreen) {
             process.stdout.write(ALT_SCREEN_ON);
             altScreen = true;
         }
-        drawOffer(offer, intent, page?.url);
+        drawOffer(shown, code, intent, page?.url);
     };
     // Events run one at a time in arrival order, so a page start cannot draw an offer after the approval has left the alternate screen.
     const enqueue = (task) => { queue = queue.then(task).catch(settle.reject); };
@@ -398,11 +400,9 @@ function offerCode(offer, intent) {
 }
 
 /** Draw the offer from the top: the QR whole, then the pairing string, then the text lines in priority order while the rows left over hold them. Where no QR fits the string is the compact token, followed by one line opening the local QR page, which carries the same token. */
-function drawOffer(offer, intent, pageUrl) {
-    const code = offerCode(offer, intent);
-    const printed = code ?? (richTerminal() ? compactOffer(offer, intent) : undefined) ?? { text: offer.text, expires: offer.expires };
-    const token = printed.text;
-    const expires = printed.expires;
+function drawOffer(shown, code, intent, pageUrl) {
+    const token = shown.text;
+    const expires = shown.expires;
     const title = intent.kind === 'browser'
         ? `Pair a ${intent.authority === 'observe' ? 'view-only' : 'control'} browser for ${intent.grantDurationLabel()}. Keep the code private.`
         : 'Pair your phone. Keep the code private.';
