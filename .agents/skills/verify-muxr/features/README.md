@@ -74,6 +74,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [See pinned spaces on the phone's Spaces list](./spaces-pinned.md) —
   native app on an emulator over a private stack: pin, themes, tablet width,
   plus guarded two-computer pin isolation and legacy migration.
+- [Read the computer name in the Home header](./home-header-name.md) —
+  native app over a named fake-Herdr stack: one line with an ellipsis, at
+  270dp and font scale 2.0, light and dark.
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.
