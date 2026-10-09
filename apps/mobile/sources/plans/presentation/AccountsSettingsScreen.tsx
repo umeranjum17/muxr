@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Text } from 'react-native';
+import { Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
@@ -70,72 +70,80 @@ export function AccountsSettingsScreen() {
     };
 
     return (
-        <ItemList>
+        <View style={styles.screen}>
+            {/* The notice sits above the scrolling list, so it pushes the rows
+                down instead of covering the first one and is always readable. */}
             <Notice inline />
-            <Text style={styles.lede}>
-                Only shown when you have more than one account for a provider. With one account, muxr works exactly as before.
-            </Text>
-            {list === null && (
-                <ItemGroup>
-                    <Item title="This computer can't list accounts yet" subtitle="Update muxr on the computer to use more than one account." subtitleLines={2} />
-                </ItemGroup>
-            )}
-            {list !== null && PROVIDERS.map((provider) => {
-                // Below two accounts the host lists none: the computer's own sign-in stays as it is.
-                const accounts = providerEntry(list, provider.id)?.accounts ?? [];
-                return (
-                    <ItemGroup key={provider.id} title={provider.title}>
-                        {accounts.map((account) => (
+            <ItemList>
+                <Text style={styles.lede}>
+                    Only shown when you have more than one account for a provider. With one account, muxr works exactly as before.
+                </Text>
+                {list === null && (
+                    <ItemGroup>
+                        <Item title="This computer can't list accounts yet" subtitle="Update muxr on the computer to use more than one account." subtitleLines={2} />
+                    </ItemGroup>
+                )}
+                {list !== null && PROVIDERS.map((provider) => {
+                    // Below two accounts the host lists none: the computer's own sign-in stays as it is.
+                    const accounts = providerEntry(list, provider.id)?.accounts ?? [];
+                    return (
+                        <ItemGroup key={provider.id} title={provider.title}>
+                            {accounts.map((account) => (
+                                <Item
+                                    key={account.id}
+                                    selected={account.id === landed}
+                                    style={account.id === landed ? { backgroundColor: theme.colors.surfacePressed } : undefined}
+                                    title={account.name}
+                                    subtitle={subtitle(account)}
+                                    subtitleLines={1}
+                                    meta={facts(account)}
+                                    metaLines={0}
+                                    icon={<Ionicons
+                                        name={account.signedIn ? 'person-circle-outline' : 'alert-circle-outline'}
+                                        size={28}
+                                        color={account.signedIn ? theme.colors.text : theme.colors.textSecondary}
+                                    />}
+                                    // Signed out, the row signs in; its other actions sit behind a long press.
+                                    rightElement={account.signedIn ? undefined : <Pill label="Sign in" link />}
+                                    showChevron={account.signedIn}
+                                    onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
+                                    onLongPress={() => actions(account)}
+                                    accessibilityLabel={[account.name, subtitle(account), facts(account)].filter(Boolean).join(', ')}
+                                />
+                            ))}
                             <Item
-                                key={account.id}
-                                selected={account.id === landed}
-                                style={account.id === landed ? { backgroundColor: theme.colors.surfacePressed } : undefined}
-                                title={account.name}
-                                subtitle={subtitle(account)}
-                                subtitleLines={1}
-                                meta={facts(account)}
-                                metaLines={0}
-                                icon={<Ionicons
-                                    name={account.signedIn ? 'person-circle-outline' : 'alert-circle-outline'}
-                                    size={28}
-                                    color={account.signedIn ? theme.colors.text : theme.colors.textSecondary}
-                                />}
-                                // Signed out, the row signs in; its other actions sit behind a long press.
-                                rightElement={account.signedIn ? undefined : <Pill label="Sign in" link />}
-                                showChevron={account.signedIn}
-                                onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
-                                onLongPress={() => actions(account)}
-                                accessibilityLabel={[account.name, subtitle(account), facts(account)].filter(Boolean).join(', ')}
+                                title={`Add a ${providerName(provider.id)} account`}
+                                subtitle={accounts.length === 0 ? 'Next to the one already signed in on this computer' : undefined}
+                                subtitleLines={2}
+                                titleStyle={{ color: theme.colors.textLink }}
+                                icon={<Ionicons name="add" size={26} color={theme.colors.textLink} />}
+                                showChevron={false}
+                                onPress={() => flows.add(provider.id)}
                             />
-                        ))}
+                        </ItemGroup>
+                    );
+                })}
+                {list !== null && (
+                    <ItemGroup title="When you start an agent">
                         <Item
-                            title={`Add a ${providerName(provider.id)} account`}
-                            subtitle={accounts.length === 0 ? 'Next to the one already signed in on this computer' : undefined}
+                            title="Auto picks the most room left"
+                            subtitle="Off: the account you picked last"
                             subtitleLines={2}
-                            titleStyle={{ color: theme.colors.textLink }}
-                            icon={<Ionicons name="add" size={26} color={theme.colors.textLink} />}
+                            rightElement={<Switch value={autoOn} onValueChange={setAutoOn} />}
                             showChevron={false}
-                            onPress={() => flows.add(provider.id)}
                         />
                     </ItemGroup>
-                );
-            })}
-            {list !== null && (
-                <ItemGroup title="When you start an agent">
-                    <Item
-                        title="Auto picks the most room left"
-                        subtitle="Off: the account you picked last"
-                        subtitleLines={2}
-                        rightElement={<Switch value={autoOn} onValueChange={setAutoOn} />}
-                        showChevron={false}
-                    />
-                </ItemGroup>
-            )}
-        </ItemList>
+                )}
+            </ItemList>
+        </View>
     );
 }
 
 const styles = StyleSheet.create((theme) => ({
+    screen: {
+        flex: 1,
+        backgroundColor: theme.colors.groupped.background,
+    },
     lede: {
         fontSize: 13,
         lineHeight: 18,
