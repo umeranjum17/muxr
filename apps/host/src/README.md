@@ -31,7 +31,7 @@ Use cases: [USE_CASES.md](./USE_CASES.md).
 
 **Peer start surface** (`peer/domain`): a peer cannot start with parent/worktree/kinds/createCwd/planAccount, and cwd must sit inside approved roots. Prompt/start/watch require a mutation receipt.
 
-**Plan Account** (`plans/`): credential and identity invariants live in [`planStore.ts`](plans/planStore.ts); the wire contract lives in [`RequestMap`](../../../packages/contract/src/control-plane/domain/requests.ts). User-facing account selection, sign-in and moving are documented in the [README](../../../README.md#switch-between-subscription-accounts).
+**Plan Account** (`plans/`): credential and identity invariants live in [`planStore.ts`](plans/planStore.ts), and OpenCode's private-root rules in [`opencodeAccounts.ts`](plans/opencodeAccounts.ts); the wire contract lives in [`RequestMap`](../../../packages/contract/src/control-plane/domain/requests.ts). User-facing account selection, sign-in and moving are documented in the [README](../../../README.md#switch-between-subscription-accounts).
 
 ## Layers
 
