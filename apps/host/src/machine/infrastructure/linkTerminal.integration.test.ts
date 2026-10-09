@@ -445,6 +445,25 @@ setInterval(() => {}, 1000);
 
         expect(linkAttachMs).toBeLessThan(5_000);
 
+        crypto.devices.splice(0);
+        const revoked = await link.stream('terminal', {
+            requestId: 'lt-revoked',
+            sessionId: 's1',
+            channel: 'tm_test_2',
+            cols: 20,
+            rows: 5,
+            takeover: true,
+        });
+        const refusal = await once(new Promise<string>((resolve, reject) => {
+            let received = '';
+            revoked.onData = (chunk) => {
+                received += Buffer.from(chunk).toString('utf8');
+                if (received.includes('\n')) resolve(received.split('\n')[0]!);
+            };
+            revoked.onEnd = (error) => reject(new Error(`revoked stream ended: ${error ?? 'clean'}`));
+        }), 5_000, 'revoked attach refusal');
+        expect(JSON.parse(refusal)).toMatchObject({ type: 'result', requestId: 'lt-revoked', ok: false, code: 'device-revoked' });
+
         link.stop();
     });
 });

@@ -9,7 +9,7 @@ import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { cropRaw, pixelsMoved, parseUiNodes } from './lib/gestureMetrics.mjs';
 import { harnessIdentity, patchedDependencies, sha256, sourceIdentity } from './lib/provenance.mjs';
 import { PNG } from 'pngjs';
-import { usageHome, usagePlugins } from './fixtures/usageHome.mjs';
+import { usageHome } from './fixtures/usageHome.mjs';
 
 const scope = new CommandScope();
 useCommandScope(scope);
@@ -703,7 +703,7 @@ async function main() {
     check(report.installedApkSha256 === report.apk.apkSha256, 'Installed APK bytes differ from tested artifact');
     save('package.txt', await adb('shell', 'dumpsys', 'package', pkg));
     await adb('logcat', '-c');
-    stack = await startFakeStack({ ...load, sourceRoot: hostRoot, setupHome: usageHome, setupPlugins: usagePlugins(hostRoot) });
+    stack = await startFakeStack({ ...load, sourceRoot: hostRoot, setupHome: usageHome });
     report.fixtures = { usage: 'Synthetic SQLite aggregates + ccusage CLI output; the host\'s own usage collector reads the fixture env; no real auth/quota calls' };
     const lines = ['export function fixture() {', ...Array.from({ length: 250 }, (_, i) => `// PR gate document line ${i + 1}: deterministic readable content with a long tail for panning END_${i + 1}`), '}'];
     lines[2] = `// CJK_START ${'漢字'.repeat(40)} CJK_END`;

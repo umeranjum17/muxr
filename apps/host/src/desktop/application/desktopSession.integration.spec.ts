@@ -2,11 +2,20 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DesktopSessions } from '../infrastructure/desktopSessions.js';
-import { PreviewDesktops, PreviewPresenceTracker } from './previewPresence.js';
-import { PreviewLeaseTracker, type PreviewLeaseSnapshot } from './previewLease.js';
+import { DesktopSessions, hostDesktopForPanes, type DesktopEngineOptions } from '../infrastructure/desktopSessions.js';
+
+afterEach(() => vi.unstubAllEnvs());
+
+const HOST_SCREEN_ENV = ['DISPLAY', 'WAYLAND_DISPLAY', 'XDG_SESSION_TYPE', 'XDG_RUNTIME_DIR', 'XAUTHORITY', 'MUXR_DESKTOP_SOURCE', 'MUXR_DESKTOP_X11_DISPLAY', 'PATH'];
+
+/** The host's own environment is the only one the desktop reads: stub it for this case, unset keys cleared. */
+function hostDesktop(options: DesktopEngineOptions, environment: NodeJS.ProcessEnv, x11SocketDirectory?: string): DesktopSessions {
+    const cleared = Object.fromEntries(HOST_SCREEN_ENV.map((name) => [name, '']));
+    for (const [name, value] of Object.entries({ ...cleared, ...environment })) vi.stubEnv(name, value ?? '');
+    return new DesktopSessions(options, x11SocketDirectory);
+}
 
 /**
  * The whole host-side desktop path, against a stub engine.
@@ -86,7 +95,7 @@ function stubEngine(): { path: string; log: string; sent: () => string[] } {
 const PORTAL_HOST: NodeJS.ProcessEnv = { WAYLAND_DISPLAY: 'wayland-0' };
 
 function sessionsFor(stub: { path: string; log: string }): DesktopSessions {
-    return new DesktopSessions({
+    return hostDesktop({
         enginePath: process.execPath,
         engineArguments: [stub.path, stub.log],
     }, PORTAL_HOST);
@@ -160,7 +169,7 @@ describe('desktop sessions, host side', () => {
         return out({ id: request.id, error: { code: 'source', message: 'capture did not start within 10s' } });
       }
 `));
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [script, log], stateRoot: directory }, PORTAL_HOST);
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [script, log], stateRoot: directory }, PORTAL_HOST);
         try {
             const opened = await desktop.open({ permissions: ['view'], awaitConsent: true });
             expect(opened.source.kind).toBe('monitor');
@@ -202,7 +211,7 @@ describe('desktop sessions, host side', () => {
         const diagnostics: string[] = [];
         const hosts: DesktopSessions[] = [];
         const restart = (environment: NodeJS.ProcessEnv = PORTAL_HOST) => {
-            const desktop = new DesktopSessions({
+            const desktop = hostDesktop({
                 enginePath: process.execPath,
                 engineArguments: [scriptPath, log, grantPath],
                 stateRoot: directory,
@@ -286,7 +295,7 @@ describe('desktop sessions, host side', () => {
       return;
     }
     case 'unused':`));
-        const desktop = new DesktopSessions({
+        const desktop = hostDesktop({
             enginePath: process.execPath,
             engineArguments: [scriptPath, log],
             stateRoot: directory,
@@ -339,7 +348,7 @@ describe('desktop sessions, host side', () => {
             scriptPath,
             STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'),
         );
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, join(directory, 'received.jsonl')] }, PORTAL_HOST);
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [scriptPath, join(directory, 'received.jsonl')] }, PORTAL_HOST);
         writeFileSync(join(directory, 'received.jsonl'), '');
 
         const capabilities = await desktop.capabilities();
@@ -363,7 +372,7 @@ describe('desktop sessions, host side', () => {
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         const opened = await desktop.open({ permissions: ['view'] });
         // The engine dies right after it answers. The session record must survive
@@ -390,7 +399,7 @@ describe('desktop sessions, host side', () => {
             );
             for (const environment of [{ MUXR_DESKTOP_SOURCE: 'x11' }, { DISPLAY: ':77', XDG_RUNTIME_DIR: runtime }] as NodeJS.ProcessEnv[]) {
                 writeFileSync(log, '');
-                const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, environment);
+                const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, environment);
                 hosts.push(desktop);
                 expect(await desktop.capabilities()).toMatchObject({ available: true, input: true });
                 const opened = await desktop.open({ permissions: ['view', 'control'] });
@@ -404,7 +413,7 @@ describe('desktop sessions, host side', () => {
 
             writeFileSync(join(runtime, 'wayland-1'), '');
             const environment = { DISPLAY: ':0', XDG_RUNTIME_DIR: runtime };
-            const stale = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, environment);
+            const stale = hostDesktop({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, environment);
             hosts.push(stale);
             expect(await stale.capabilities()).toMatchObject({ available: true, input: true });
             await stale.open({ permissions: ['view', 'control'] });
@@ -415,7 +424,7 @@ describe('desktop sessions, host side', () => {
                 socket.once('error', reject);
                 socket.listen(join(runtime, 'wayland-2'), resolve);
             });
-            const wayland = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, environment);
+            const wayland = hostDesktop({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, environment);
             hosts.push(wayland);
             expect(await wayland.capabilities()).toMatchObject({ available: true, input: false });
             await wayland.open({ permissions: ['view'] });
@@ -445,22 +454,22 @@ describe('desktop sessions, host side', () => {
                 socket.listen(join(directory, 'X0'), resolve);
             });
             hostUid.mockReturnValue(uid + 1);
-            const foreign = new DesktopSessions(options, { XDG_RUNTIME_DIR: directory }, directory);
+            const foreign = hostDesktop(options, { XDG_RUNTIME_DIR: directory }, directory);
             hosts.push(foreign);
             expect(await foreign.capabilities()).toMatchObject({ available: true, input: false });
             // Another account's display is not this host's screen, and there is nothing else to show.
             await expect(foreign.open({ permissions: ['view'] })).rejects.toMatchObject({ code: 'no-screen' });
 
-            const explicit = new DesktopSessions(options, { DISPLAY: ':88' }, directory);
+            const explicit = hostDesktop(options, { DISPLAY: ':88' }, directory);
             hosts.push(explicit);
             expect(await explicit.capabilities()).toMatchObject({ available: true, input: true });
             await explicit.open({ permissions: ['view', 'control'] });
-            const configured = new DesktopSessions(options, { MUXR_DESKTOP_SOURCE: 'x11', MUXR_DESKTOP_X11_DISPLAY: ':99' }, directory);
+            const configured = hostDesktop(options, { MUXR_DESKTOP_SOURCE: 'x11', MUXR_DESKTOP_X11_DISPLAY: ':99' }, directory);
             hosts.push(configured);
             await configured.open({ permissions: ['view'] });
 
             hostUid.mockReturnValue(uid);
-            const owned = new DesktopSessions(options, { XDG_RUNTIME_DIR: directory }, directory);
+            const owned = hostDesktop(options, { XDG_RUNTIME_DIR: directory }, directory);
             hosts.push(owned);
             expect(await owned.capabilities()).toMatchObject({ available: true, input: true });
             await owned.open({ permissions: ['view', 'control'] });
@@ -484,7 +493,7 @@ describe('desktop sessions, host side', () => {
         const log = join(directory, 'received.jsonl');
         writeFileSync(script, STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'));
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [script, log] }, { XDG_RUNTIME_DIR: directory }, directory);
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [script, log] }, { XDG_RUNTIME_DIR: directory }, directory);
         try {
             expect(await desktop.capabilities()).toMatchObject({ input: false, clipboard: true });
             await expect(desktop.open({ permissions: ['view'] })).rejects.toMatchObject({ code: 'no-screen' });
@@ -536,11 +545,11 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
         const opened = () => readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> })
             .filter((request) => request.method === 'session.open').map((request) => request.params.source);
         try {
-            const bare = new DesktopSessions({ enginePath: process.execPath, engineArguments: [script, log] }, server, sockets);
+            const bare = hostDesktop({ enginePath: process.execPath, engineArguments: [script, log] }, server, sockets);
             await expect(bare.open({ permissions: ['view', 'control'] })).rejects.toMatchObject({ code: 'no-screen' });
             expect(opened()).toEqual([]);
 
-            const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [script, log] }, { ...server, PATH: `${bin}:${server.PATH}` }, sockets);
+            const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [script, log] }, { ...server, PATH: `${bin}:${server.PATH}` }, sockets);
             await desktop.open({ permissions: ['view', 'control'] });
             await desktop.closeAll();
             // Killed outright, as a reboot or a crash would: the next open starts it again.
@@ -573,7 +582,7 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         const opened = await desktop.open({ permissions: ['view'] });
         await new Promise((resolve) => setTimeout(resolve, 80));
@@ -592,7 +601,7 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
         const scriptPath = join(directory, 'engine.cjs');
         const log = join(directory, 'received.jsonl');
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         const failed = await desktop.capabilities();
         expect(failed).toMatchObject({ available: false });
@@ -642,7 +651,7 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         // The phone opens once and is abandoned before it polls, so the engine's
         // lease revokes that session into the shared notification queue.
@@ -713,200 +722,6 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
         }
     }, 20_000);
 
-    it('opens a session target on its own screen, and refuses what has none', async () => {
-        const computer = stubEngine();
-        const pane = stubEngine();
-        const desktop = sessionsFor(computer);
-        const seenEnvironments: NodeJS.ProcessEnv[] = [];
-        // One screened pane, one known session without a screen: the client
-        // names a session, never a display, and the host resolves it.
-        const preview = new PreviewDesktops({
-            screens: {
-                screenFor: (paneId) => paneId === 'pane-1'
-                    ? { display: ':121', env: { XAUTHORITY: '/tmp/preview-test-cookie' } }
-                    : undefined,
-                onWindows: () => () => undefined,
-            },
-            listSessions: async () => [
-                { id: 'sess-1', paneId: 'pane-1' },
-                { id: 'sess-2', paneId: 'pane-9' },
-            ],
-            makeDesktop: (environment) => {
-                seenEnvironments.push(environment);
-                return new DesktopSessions({ enginePath: process.execPath, engineArguments: [pane.path, pane.log] }, environment);
-            },
-        });
-        const owner = { connectionId: 'c1', deviceId: 'phone-1', isConnected: () => true };
-        try {
-            // The probe answers about the pane's own screen, not the whole
-            // desktop: the pane is X11, so input without a clipboard, though
-            // the same engine offers the computer's Wayland desktop both.
-            expect(await preview.capabilitiesFor('sess-1')).toMatchObject({ available: true, input: true, clipboard: false });
-            const target = await preview.openTarget('sess-1', { permissions: ['view'] }, owner);
-            expect(target.desktopId.startsWith('pv')).toBe(true);
-            expect(preview.owns(target.desktopId)).toBe(true);
-            // The pane's engine is told exactly its own screen.
-            expect(seenEnvironments).toEqual([{
-                MUXR_DESKTOP_SOURCE: 'x11',
-                MUXR_DESKTOP_X11_DISPLAY: ':121',
-                XAUTHORITY: '/tmp/preview-test-cookie',
-            }]);
-            const opens = pane.sent().map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> })
-                .filter((request) => request.method === 'session.open');
-            expect(opens).toHaveLength(1);
-            expect(opens[0]?.params.source).toEqual({ kind: 'x11', display: ':121' });
-            // Signaling after the open routes back to the owning instance.
-            await new Promise((resolve) => setTimeout(resolve, 60));
-            const polled = await preview.poll(target.desktopId, 0);
-            expect(polled.events.map((event) => event.kind)).toEqual(['offer', 'candidate']);
-            await preview.answer(target.desktopId, 'v=0 answer');
-            await preview.candidate(target.desktopId, 'candidate:2', '0', 0);
-
-            // Computer opens exactly as before: no target display leaks in.
-            const computerSession = await desktop.open({ permissions: ['view'] }, owner);
-            expect(preview.owns(computerSession.desktopId)).toBe(false);
-            const computerOpens = computer.sent().map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> })
-                .filter((request) => request.method === 'session.open');
-            expect(computerOpens).toHaveLength(1);
-            expect(computerOpens[0]?.params.source).toBeUndefined();
-            // A Computer handle never routes through the targets, and a
-            // target handle never routes through the Computer.
-            await expect(preview.answer(computerSession.desktopId, 'v=0 answer')).rejects.toMatchObject({ code: 'session' });
-            await expect(desktop.poll(target.desktopId, 0)).rejects.toMatchObject({ code: 'session' });
-
-            // Unknown or unscreened sessions are refused, never shown the desktop.
-            await expect(preview.openTarget('sess-9', { permissions: ['view'] }, owner)).rejects.toMatchObject({ code: 'permission-denied' });
-            await expect(preview.openTarget('sess-2', { permissions: ['view'] }, owner)).rejects.toMatchObject({ code: 'permission-denied' });
-            await expect(preview.capabilitiesFor('sess-2')).rejects.toMatchObject({ code: 'permission-denied' });
-
-            // Revoke ends both: the Computer session and the target session.
-            await desktop.revokeDevice('phone-1');
-            await preview.revokeDevice('phone-1');
-            const closes = (stub: { sent: () => string[] }) => stub.sent()
-                .map((line) => JSON.parse(line) as { method: string })
-                .filter((request) => request.method === 'session.close');
-            expect(closes(computer)).toHaveLength(1);
-            expect(closes(pane)).toHaveLength(1);
-            await expect(desktop.poll(computerSession.desktopId, 0)).rejects.toMatchObject({ code: 'session' });
-            await expect(preview.poll(target.desktopId, 0)).rejects.toMatchObject({ code: 'session' });
-        } finally {
-            await preview.closeAll();
-            await desktop.closeAll();
-        }
-    }, 20_000);
-
-    it('marks the pane human while a control-scoped target is live, and clears it after', async () => {
-        const pane = stubEngine();
-        const saved: PreviewLeaseSnapshot[] = [];
-        const lease = new PreviewLeaseTracker({ idleMs: 60, persist: (snapshot) => saved.push(snapshot) });
-        // The same target plumbing as the open above, plus the lease: the
-        // phone drives through target opens, and the agent reads the pane.
-        const preview = new PreviewDesktops({
-            screens: {
-                screenFor: (paneId) => paneId === 'pane-1'
-                    ? { display: ':121', env: {} }
-                    : undefined,
-                onWindows: () => () => undefined,
-            },
-            listSessions: async () => [{ id: 'sess-1', paneId: 'pane-1' }],
-            makeDesktop: (environment) => new DesktopSessions({ enginePath: process.execPath, engineArguments: [pane.path, pane.log] }, environment),
-            lease,
-        });
-        const owner = { connectionId: 'c1', deviceId: 'phone-1', isConnected: () => true };
-        const lastSaved = () => saved[saved.length - 1]?.panes['pane-1'];
-        try {
-            // Watching alone stays silent for the agent.
-            const watcher = await preview.openTarget('sess-1', { permissions: ['view'] }, owner);
-            expect(lease.controllerFor('pane-1')).toBeUndefined();
-            expect(lastSaved()).toBeUndefined();
-
-            // The first control message marks the pane, durably for the CLI.
-            const driver = await preview.openTarget('sess-1', { permissions: ['view', 'control'] }, owner);
-            expect(lease.controllerFor('pane-1')).toBe('human');
-            expect(lastSaved()).toMatchObject({ controller: 'human' });
-            expect(lastSaved()?.expiresAt).toBeGreaterThan(Date.now());
-
-            // Closing the view-only session is not hand-back: the claim stays.
-            await preview.close(watcher.desktopId);
-            expect(lease.controllerFor('pane-1')).toBe('human');
-
-            // A routed message is the human still there; silence past the
-            // idle window clears the pane without any close arriving.
-            await preview.poll(driver.desktopId, 0);
-            await new Promise((resolve) => setTimeout(resolve, 120));
-            expect(lease.controllerFor('pane-1')).toBeUndefined();
-            expect(lastSaved()).toBeUndefined();
-
-            // Hand-back (closing the controlling session) clears at once, so
-            // the agent resumes without waiting out the idle window.
-            const second = await preview.openTarget('sess-1', { permissions: ['view', 'control'] }, owner);
-            expect(lease.controllerFor('pane-1')).toBe('human');
-            await preview.close(second.desktopId);
-            expect(lease.controllerFor('pane-1')).toBeUndefined();
-            expect(lastSaved()).toBeUndefined();
-
-            // Revocation clears at once too: a distrusted phone holds nothing.
-            const third = await preview.openTarget('sess-1', { permissions: ['view', 'control'] }, owner);
-            expect(lease.controllerFor('pane-1')).toBe('human');
-            await preview.revokeDevice('phone-1');
-            expect(lease.controllerFor('pane-1')).toBeUndefined();
-            expect(lastSaved()).toBeUndefined();
-            await preview.close(third.desktopId);
-        } finally {
-            await preview.closeAll();
-        }
-    }, 20_000);
-
-    it('announces a mapped window only once it stays, and drops it after it closes', async () => {
-        const tracker = new PreviewPresenceTracker({ announceAfterMs: 20, withdrawAfterMs: 30 });
-        const changed: string[] = [];
-        tracker.onChange((paneId) => changed.push(paneId));
-        const chrome = [{ title: 'Pricing — Acme Store - Google Chrome', class: ['google-chrome', 'Google-chrome'], width: 1280, height: 800 }];
-        try {
-            expect(tracker.handleWindows('pane-1', [])).toBe(false);
-            // Mapped but too new: no chip yet.
-            expect(tracker.handleWindows('pane-1', chrome)).toBe(false);
-            expect(tracker.previewFor('pane-1')).toBeUndefined();
-            // The announce timer fires on its own: the change arrives as an event.
-            await new Promise((resolve) => setTimeout(resolve, 30));
-            expect(tracker.handleWindows('pane-1', chrome)).toBe(false);
-            expect(tracker.previewFor('pane-1')).toMatchObject({ kind: 'browser', title: 'Pricing — Acme Store' });
-            expect(changed).toEqual(['pane-1']);
-            // A restart inside the grace period never flickers the chip.
-            expect(tracker.handleWindows('pane-1', [])).toBe(false);
-            expect(tracker.handleWindows('pane-1', chrome)).toBe(false);
-            expect(tracker.previewFor('pane-1')).toBeDefined();
-            // Really closed: the chip goes once the grace period passes.
-            expect(tracker.handleWindows('pane-1', [])).toBe(false);
-            await new Promise((resolve) => setTimeout(resolve, 45));
-            expect(tracker.previewFor('pane-1')).toBeUndefined();
-            expect(changed).toEqual(['pane-1', 'pane-1']);
-            // A browser leaves, an emulator maps within the grace period and
-            // quits before its own announce: the browser chip must go with the
-            // last window out, never stick on screen forever.
-            expect(tracker.handleWindows('pane-1', chrome)).toBe(false);
-            await new Promise((resolve) => setTimeout(resolve, 30));
-            expect(tracker.previewFor('pane-1')).toMatchObject({ kind: 'browser' });
-            expect(tracker.handleWindows('pane-1', [])).toBe(false);
-            const emulator = [{ title: 'Android Emulator - Medium_Phone:5554', class: ['Emulator'], width: 400, height: 800 }];
-            expect(tracker.handleWindows('pane-1', emulator)).toBe(false);
-            expect(tracker.handleWindows('pane-1', [])).toBe(false);
-            await new Promise((resolve) => setTimeout(resolve, 45));
-            expect(tracker.previewFor('pane-1')).toBeUndefined();
-            // Too small to show, and tools that are not browsers, stay quiet.
-            expect(tracker.handleWindows('pane-2', [{ title: 'x', class: ['Google-chrome'], width: 100, height: 100 }])).toBe(false);
-            expect(tracker.handleWindows('pane-2', [{ title: 'term', class: ['Alacritty'], width: 800, height: 600 }])).toBe(false);
-            expect(tracker.previewFor('pane-2')).toBeUndefined();
-            // An emulator reports its AVD name, never an id.
-            expect(tracker.handleWindows('pane-3', [{ title: 'Android Emulator - Medium_Phone:5554', class: ['Emulator'], width: 400, height: 800 }])).toBe(false);
-            await new Promise((resolve) => setTimeout(resolve, 30));
-            expect(tracker.handleWindows('pane-3', [{ title: 'Android Emulator - Medium_Phone:5554', class: ['Emulator'], width: 400, height: 800 }])).toBe(false);
-            expect(tracker.previewFor('pane-3')).toMatchObject({ kind: 'android', title: 'Medium Phone' });
-        } finally {
-            tracker.stop();
-        }
-    }, 20_000);
-
     it('tears down an engine that refuses the handshake instead of leaving it running', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
         const scriptPath = join(directory, 'engine.cjs');
@@ -919,7 +734,7 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         expect(await desktop.capabilities()).toMatchObject({ available: false });
 
@@ -927,4 +742,19 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
         expect(sent.map((request) => request.method)).toContain('shutdown');
         await desktop.closeAll();
     }, 20_000);
+});
+
+describe('panes share the host desktop selection', () => {
+    // Env-only by construction: no X socket can influence the pane predicate, so the socket case is not tested here.
+    it('gives panes the X display the host selected, and no screen on a host with none', () => {
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11', MUXR_DESKTOP_X11_DISPLAY: ':99' })).toEqual({ screen: true, x11Display: ':99' });
+        expect(hostDesktopForPanes({})).toEqual({ screen: false });
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11' })).toEqual({ screen: false });
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11', DISPLAY: ':0' })).toEqual({ screen: true, x11Display: ':0' });
+        expect(hostDesktopForPanes({ WAYLAND_DISPLAY: 'wayland-0' })).toEqual({ screen: true });
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'portal', DISPLAY: ':1', WAYLAND_DISPLAY: 'wayland-0' })).toEqual({ screen: true });
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'portal', DISPLAY: ':1' })).toEqual({ screen: false });
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_X11_DISPLAY: ':99', DISPLAY: ':0' })).toEqual({ screen: true, x11Display: ':0' });
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11', WAYLAND_DISPLAY: 'wayland-0' })).toEqual({ screen: false });
+    });
 });

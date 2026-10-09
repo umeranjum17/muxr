@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { createConnection, createServer } from 'node:net';
-import { chmodSync, existsSync, lstatSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, renameSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { hostId } from '@byokit/link';
@@ -201,7 +201,11 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
             }
         })();
     });
-    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, () => { server.off('error', reject); chmodSync(socketPath, 0o600); resolve(); }); });
+    // Bind under a private name and rename once it is owner-only: listen()
+    // creates the socket file at the umask mode, and pairOnRunningHost refuses
+    // any pair.sock that is not 0600, so the final path must never appear wide open.
+    const bindPath = `${socketPath}.${process.pid}`;
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(bindPath, () => { server.off('error', reject); chmodSync(bindPath, 0o600); renameSync(bindPath, socketPath); resolve(); }); });
     return { close: async () => {
         for (const socket of sockets) socket.destroy();
         await new Promise((resolve) => server.close(resolve));

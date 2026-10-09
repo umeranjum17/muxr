@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@trymuxr/contract';
 import { deviceTableCanMutate, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher, viewOnlyRequestAllowed } from './requests/index.js';
-import { AndroidEmulatorWatcher, DesktopSessions, IosSimulatorWatcher, PreviewDesktops, PreviewLeaseTracker, PreviewPresenceTracker, filePreviewLeaseSink, PREVIEW_LEASE_FILENAME, withPreview, type PaneScreens } from './desktop/index.js';
+import { AndroidEmulatorWatcher, DesktopSessions, IosSimulatorWatcher, PreviewLeaseTracker, filePreviewLeaseSink, PREVIEW_LEASE_FILENAME, withPreview } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -44,12 +44,6 @@ export interface HostOptions {
     desktopEnginePath?: string;
     /** Existing host state root for local desktop portal grants. */
     stateRoot?: string;
-    /**
-     * The private screens agent panes run on. The session source is built
-     * before this host is (it needs them to allocate a pane's screen), so it is
-     * handed to both and the host owns the teardown.
-     */
-    paneScreens?: PaneScreens;
 }
 
 export interface Host {
@@ -98,8 +92,6 @@ export function startHost(options: HostOptions): Host {
         onDiagnostic: (line: string) => process.stderr.write(`desktop engine: ${line}\n`),
     };
     const desktop = new DesktopSessions(desktopEngineOptions);
-    const previewPresence = new PreviewPresenceTracker();
-    const previewForPane = (paneId: string) => previewPresence.previewFor(paneId);
     // The human lease: which panes a phone is driving right now. It persists
     // to one file under the state root so `muxr preview status` can read it
     // through the naming loopback; without a state root it stays in memory.
@@ -111,14 +103,6 @@ export function startHost(options: HostOptions): Host {
         ...(options.stateRoot === undefined ? {} : {
             persist: filePreviewLeaseSink(join(options.stateRoot, PREVIEW_LEASE_FILENAME), previewLeaseError),
         }),
-    });
-    // One engine wrapper per pane, created only when a phone watches that
-    // pane's screen; an idle one with no sessions is reaped after 10 s.
-    const previewDesktops = new PreviewDesktops({
-        screens: options.paneScreens,
-        listSessions: () => source.list(),
-        makeDesktop: (environment) => new DesktopSessions(desktopEngineOptions, environment),
-        lease: previewLease,
     });
     // Headless emulators, watched over adb: discovery announces presence and
     // a phone tap starts the scrcpy mirror lazily. No watcher means no chip.
@@ -137,8 +121,6 @@ export function startHost(options: HostOptions): Host {
     });
     if (options.stateRoot !== undefined) iosWatcher.start();
     const devicePreviewFor = (paneId: string) => androidWatcher.previewFor(paneId) ?? iosWatcher.previewFor(paneId);
-    // A device chip wins over a screen chip; a pane never shows both.
-    const combinedPreviewFor = (paneId: string) => devicePreviewFor(paneId) ?? previewForPane(paneId);
     const dispatcher = createRequestDispatcher({
         source,
         domain,
@@ -152,8 +134,6 @@ export function startHost(options: HostOptions): Host {
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
         desktop,
-        previewDesktops,
-        previewForPane,
         deviceTargets: [androidWatcher.targets, iosWatcher.targets],
         devicePreviewForPane: devicePreviewFor,
         isDesktopConnectionActive: (id: string) => activeDesktopConnections.has(id),
@@ -193,7 +173,7 @@ export function startHost(options: HostOptions): Host {
             if (!peerMayList) return undefined;
             dispatcher.refreshAgentCatalog();
             const listed = await listAgents(source, {});
-            return listed.ok ? { type: 'session.list', sessions: withPreview(listed.data, combinedPreviewFor) } : undefined;
+            return listed.ok ? { type: 'session.list', sessions: withPreview(listed.data, devicePreviewFor) } : undefined;
         }
 
         let response;
@@ -214,9 +194,9 @@ export function startHost(options: HostOptions): Host {
 
     function deliverSessionEvent(sessionId: string, body: SessionEventBody): void {
         // Herdr's own session frames know nothing of presence; stamp the same
-        // device-or-screen preview as lists, including cumulative replay.
+        // device preview as lists, including cumulative replay.
         const carried = body.type === 'session.created' || body.type === 'session.updated'
-            ? { ...body, session: withPreview([body.session], combinedPreviewFor)[0] ?? body.session }
+            ? { ...body, session: withPreview([body.session], devicePreviewFor)[0] ?? body.session }
             : body;
         const event: SessionEvent = { ...carried, seq: nextSeq(sessionId) };
         broadcast({ type: 'session.event', sessionId, event });
@@ -240,7 +220,7 @@ export function startHost(options: HostOptions): Host {
     // not unread activity.
     const pushPresence = (paneId: string): void => {
         void source.list().then((sessions) => {
-            const preview = combinedPreviewFor(paneId);
+            const preview = devicePreviewFor(paneId);
             for (const session of sessions) {
                 if (session.paneId !== paneId) continue;
                 const event: SessionEvent = {
@@ -252,17 +232,10 @@ export function startHost(options: HostOptions): Host {
             }
         }).catch(() => undefined);
     };
-    // Announce and withdraw timers fire outside any keeper event, so the push
-    // subscribes to announced changes rather than one call's return value.
-    const unsubscribePresence = previewPresence.onChange(pushPresence);
     const unsubscribeAndroid = androidWatcher.onChange(pushPresence);
     const unsubscribeIos = iosWatcher.onChange(pushPresence);
-    const unsubscribePreview = options.paneScreens?.onWindows((paneId, windows) => {
-        previewPresence.handleWindows(paneId, windows);
-    });
-
     return {
-        canView: (frame) => frame.type === 'client.hello' || viewOnlyRequestAllowed(frame as ClientRequest, source),
+        canView: (frame) => frame.type === 'client.hello' || viewOnlyRequestAllowed(frame as ClientRequest),
         answer: async (frame, authenticatedSenderId, connectionId) => {
             const response = await answerFrame(frame, authenticatedSenderId, connectionId);
             if (frame.type === 'machine.hello' && response?.type === 'result' && response.ok) {
@@ -281,14 +254,12 @@ export function startHost(options: HostOptions): Host {
         setLinkDeviceConnection: (deviceId, active) => {
             if (active) dispatcher.refreshAgentCatalog();
             desktop.setLinkDeviceConnected(deviceId, active);
-            previewDesktops.setLinkDeviceConnected(deviceId, active);
             androidWatcher.targets.setLinkDeviceConnected(deviceId, active);
             iosWatcher.targets.setLinkDeviceConnected(deviceId, active);
         },
         closeDeviceDesktopSessions: async (deviceId, removed) => {
             await desktop.revokeDevice(deviceId, removed);
             // A removed device loses every target session too.
-            await previewDesktops.revokeDevice(deviceId);
             await androidWatcher.targets.revokeDevice(deviceId);
             await iosWatcher.targets.revokeDevice(deviceId);
         },
@@ -297,19 +268,15 @@ export function startHost(options: HostOptions): Host {
         close: async () => {
             unsubscribe();
             unsubscribeMachine?.();
-            unsubscribePreview?.();
-            unsubscribePresence();
             unsubscribeAndroid();
             unsubscribeIos();
-            previewPresence.stop();
             androidWatcher.stop();
             iosWatcher.stop();
-            await previewDesktops.closeAll();
+            previewLease.stop();
             await androidWatcher.targets.closeAll();
             await iosWatcher.targets.closeAll();
             await desktop.closeAll();
             desktop.stopVirtualDisplay();
-            options.paneScreens?.stop();
             await source.dispose();
         },
     };

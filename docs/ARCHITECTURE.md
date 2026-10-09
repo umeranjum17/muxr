@@ -1,8 +1,8 @@
 # Architecture
 
 Herdr owns agents and backend plugins, the host translates, the relay routes
-bytes, and the app draws the terminal. The app is a native extension shell:
-host-installed packages contribute approved native surfaces without downloaded code.
+bytes, and the app draws the terminal. The app owns no product truth and runs no
+downloaded code.
 
 ```
   PHONE / WEB               RELAY                   YOUR MACHINE
@@ -57,41 +57,21 @@ holds the frames it was fed.
 
 ## Extension architecture
 
-muxr follows Pi's lean-shell idea without downloading executable mobile code.
-A package installed through Herdr may be backend-only, UI-only, or combined:
-
-```text
-extension package
-├── herdr-plugin.toml   optional actions, panes, startup, and event hooks
-├── muxr-ui.json        optional native mobile contributions
-├── backend files       optional host execution
-└── README.md           authority, data, compatibility, removal
-
-Herdr executes the declared backend hooks.
-muxr snapshots and renders the approved declarative UI.
-```
+muxr has no phone-side extension runtime. Herdr actions (Applications) are the
+only extension surface the host launches. The `muxr-ui.json` runtime is retired:
+the `plugin.*` requests are deprecated stubs that answer empty or "plugins are no
+longer supported", so old phone apps keep working.
 
 The mandatory app kernel owns pairing, E2EE, transport, normalized reconnecting
-state, terminal rendering, native OS bridges, and the plugin runtime. The phone
-talks `plugin.list` / `plugin.manifest` / `plugin.call` / `plugin.invoke`. Protocol
-v1 ships settings sections, session toolbar actions, approved host RPC, generic
-native slots, declarative terminal keys/navigation/settings/data cards, shortcuts,
-and a central primitive registry. The phone is a dumb translator of `muxr-ui.json`:
-it mounts slots and draws widgets. Realtime voice, usage and machine health,
-dictation, the terminal key row, the workspace tree, and Panes are product code,
-not plugins. The phone no longer has a separate in-conversation Browser surface:
-a muxr-launched pane's own browser, emulator, or claimed simulator appears as a live chip while it
+state, terminal rendering, and native OS bridges. Realtime voice, usage and
+machine health, dictation, the terminal key row, the workspace tree, and Panes are
+product code. The phone no longer has a separate in-conversation Browser surface:
+a muxr-launched pane's own emulator or claimed simulator appears as a live chip while it
 is there, and on a machine with a desktop session, agents can also open pages
-in its desktop browser for the user to finish through Computer. Plugins do not expose a preview action.
-Navigation destinations open `/plugin`.
+in its desktop browser for the user to finish through Computer.
 
-The app registers widgets (`item-list`, `collection`, `icon-button`, …), not
-plugin ids, and plugins compose only those widgets. No path permits downloaded
-React.
-
-The normative protocol, trust chain, failure cases, rollback, and extraction
-boundary are in [decision 0005](decisions/0005-pi-like-extension-runtime.md).
-The approachable author guide is [Build a muxr plugin](PLUGINS.md).
+The normative record of the retired design is
+[decision 0005](decisions/0005-pi-like-extension-runtime.md).
 
 ## Ownership boundaries
 
@@ -101,13 +81,11 @@ exist.
 
 **The host owns**: the translation (herdr socket ⇄ app contract), stable session
 ids (herdr pane ids change on cross-workspace moves), the attention/inbox
-derivation, plugin RPC execution, attachment files on disk, push triggers, the
-preview presence it measures from a pane's own screen or its pane-owned
-headless emulator (adb discovery) or a pane-claimed iOS Simulator (vendored idb,
-macOS), and the on-demand desktop
-engine processes it starts and stops — the computer's screen for one authorized
-viewer, or a pane's screen for an agent preview. It manages no agent processes
-and keeps no lifecycle ledger — a closed pane simply disappears from the app.
+derivation, attachment files on disk, push triggers, the preview presence it
+measures from a pane-owned headless emulator (adb discovery) or a pane-claimed
+iOS Simulator (vendored idb, macOS), and the on-demand desktop engine processes
+it starts and stops — the computer's screen for one authorized viewer. It manages
+no agent processes and keeps no lifecycle ledger — a closed pane simply disappears from the app.
 
 **The relay core owns**: blind `@byokit/relay` link routing, push registration,
 shared-relay machine enrollment and readiness/web serving. The host owns pairing
@@ -209,11 +187,10 @@ Beyond the session basics, the host exposes herdr's topology to the app:
   started together.
 - `SessionInfo` carries `workspaceId`/`tabId`/`workspaceLabel`, `terminalTitle`
   (OSC title breadcrumb), worktree provenance, and `preview` when the agent is
-  showing a watchable browser or emulator on its pane's own screen, or a
-  simulator the pane claimed. The host stamps `session.created` and
-  `session.updated` events, including cumulative reconnect replay, with the same
-  device-or-screen preview as session lists; a device preview takes precedence
-  over the pane's screen, so lifecycle updates do not clear its chip.
+  showing a headless emulator or a simulator the pane claimed. The host stamps
+  `session.created` and `session.updated` events, including cumulative reconnect
+  replay, with the same device preview as session lists, so lifecycle updates do
+  not clear its chip.
 
 ## Shared Artifacts and changes
 
@@ -254,12 +231,10 @@ purpose, because nothing on the other side can be told to change:
   `attachments` field for product-contract compatibility.
   It stays out of `SESSION_EVENT_TYPES`: a canonical client never waits for it.
   Delete it with the request aliases above.
-- `~/.muxr/attachments/pane/` and the plugin vocabulary (`muxr.attachments`,
-  plugin action `type: "attachment"`) remain contracts with installed tooling
-  and approved plugin manifests. See [CONTEXT.md](../CONTEXT.md).
+- `~/.muxr/attachments/pane/` remains a contract with installed tooling. See
+  [CONTEXT.md](../CONTEXT.md).
 
-The extracted attachments plugin retains its product request aliases. The
-changes surface separately runs host-owned git requests in the session cwd.
+The changes surface separately runs host-owned git requests in the session cwd.
 
 Retention bounds that history. The host sweeps once a day and removes only
 files that entered a pane *after* retention was installed on that machine, so

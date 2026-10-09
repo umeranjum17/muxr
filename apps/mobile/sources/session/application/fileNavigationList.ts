@@ -1,15 +1,15 @@
-import type { PluginAction, PluginScreenTone } from '@trymuxr/contract';
+import type { ScreenTone } from '@trymuxr/contract';
 import { registerPluginInvalidationHandler } from '@/catalog/sync';
 import { shellQuote } from '@/utils/shellQuote';
 
 export interface FileNavigationMetadataItem {
     label?: string;
     value: string;
-    tone?: PluginScreenTone;
+    tone?: ScreenTone;
 }
 
 /** The item shape file navigation reads: a title, optional metadata chips,
- *  and a navigate action. Plugin list items satisfy it structurally. */
+ *  and a navigate action. Changes rows built with `kernel.navigate` satisfy it. */
 export interface FileNavigationSourceItem {
     id?: string;
     title: string;
@@ -17,7 +17,7 @@ export interface FileNavigationSourceItem {
     group?: string;
     icon?: string;
     metadata: FileNavigationMetadataItem[];
-    action?: PluginAction;
+    action?: { type: 'kernel.navigate'; target: 'file'; path: string };
 }
 
 export interface FileNavigationEntry {

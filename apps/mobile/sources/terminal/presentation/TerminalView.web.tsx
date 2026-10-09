@@ -316,7 +316,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     }
                 });
                 opened.onState((state) => onStatus?.(state));
-                opened.onClose((reason) => onStatus?.(reason ?? 'closed'));
+                opened.onClose((reason) => onStatus?.(reason));
                 term.onData((data) => opened.sendText(data));
                 // Opened ahead at another size, Herdr's screen is the old one's
                 // until this resize brings its full frame back.

@@ -28,10 +28,6 @@
             "types": "./dist/peer/index.d.ts",
             "default": "./dist/peer/index.js"
         },
-        "./plugins": {
-            "types": "./dist/plugins/index.d.ts",
-            "default": "./dist/plugins/index.js"
-        },
         "./realtime": {
             "types": "./dist/realtime/index.d.ts",
             "default": "./dist/realtime/index.js"

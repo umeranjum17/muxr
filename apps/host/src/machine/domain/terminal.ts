@@ -43,6 +43,8 @@ const ATTACH_FAILURE_CODES: Record<string, true> = {
     'socket-error': true,
     'device-revoked': true,
     'agent-not-ready': true,
+    // The pane is gone from Herdr's own snapshot, unlike a transient outage.
+    'agent-unavailable': true,
     unavailable: true,
 };
 

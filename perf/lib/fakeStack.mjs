@@ -45,7 +45,6 @@ async function spawnFakeHerdr(dir, options) {
         ['--agents', options.agents],
         ['--title-churn-hz', options.titleChurnHz],
         ['--terminal-bytes-per-second', options.terminalBytesPerSecond],
-        ['--plugins-root', options.pluginsRoot],
     ]) {
         if (value !== undefined) args.push(flag, String(value));
     }
@@ -203,8 +202,7 @@ async function startStack(options, live) {
     // event loop with the harness, and one blocking call here - a Maestro run,
     // an adb dump - freezes every Herdr answer, which the phone sees as a
     // 15-second stall and reports as "reconnecting".
-    const pluginsRoot = options.setupPlugins?.({ root, home, env: fixtureEnv }) ?? options.pluginsRoot;
-    const fake = live ? { ...live, close() {} } : await spawnFakeHerdr(join(root, 'herdr'), { ...options, pluginsRoot });
+    const fake = live ? { ...live, close() {} } : await spawnFakeHerdr(join(root, 'herdr'), options);
     if (fake.onExit !== undefined) {
         const entry = { name: 'herdr', pid: fake.pid, exitCode: null, signal: null, deliberateCleanup: false };
         health.push(entry);

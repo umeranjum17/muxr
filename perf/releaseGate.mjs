@@ -36,7 +36,6 @@ import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, SCENARIO_VER
 import { tourEverySession } from './lib/deviceTour.mjs';
 import { herdChromeConnected, pairPhone } from './lib/pairPhone.mjs';
 import { readPhoneTrail } from './lib/phoneTrail.mjs';
-import { usagePlugins } from './fixtures/usageHome.mjs';
 import {
     appPid,
     avdName,
@@ -1449,7 +1448,6 @@ try {
     // phase measures a herd screen it never left.
     stack = await startFakeStack({
         ...LOAD,
-        setupPlugins: usagePlugins(process.cwd()),
     });
 } catch (cause) {
     fail(`could not start the stack: ${cause instanceof Error ? cause.message : String(cause)}`);

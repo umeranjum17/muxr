@@ -8,8 +8,6 @@
 import type {
     ApplicationLauncher,
     HerdrRenameTarget,
-    PluginManifestV1,
-    PluginSummary,
     HerdrTreeWorkspace,
     LayoutSnapshot,
     PromptAttachment,
@@ -122,8 +120,6 @@ export interface SessionSource {
     open(options: SessionOpenOptions): Promise<SessionSnapshot>;
     /** Refresh herdr's cached snapshot after an out-of-band CLI mutation. */
     refreshHerdr(): Promise<void>;
-    /** Reconcile the authoritative plugin catalog after an out-of-band mutation. */
-    refreshPlugins?(): Promise<void>;
     /** The whole herd: workspaces -> tabs -> panes with live agent state. `connected` is herdr event-socket liveness. */
     herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }>;
     /** Third-party Applications: enabled plugins' global launcher actions, read from the live Herdr registry. */
@@ -140,14 +136,6 @@ export interface SessionSource {
     }>;
     /** Open a kit terminal session on a pane; the kit owns the binary and env. */
     herdrTerminal(paneId: string, opts: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession;
-    /** Immutable native UI plugin catalog and snapshots. */
-    pluginList(deviceId: string): Promise<PluginSummary[]>;
-    pluginManifest(options: { pluginId: string; manifestHash: string }): Promise<PluginManifestV1>;
-    pluginApprove(options: { deviceId: string; pluginId: string; manifestHash: string; approved: boolean }): Promise<void>;
-    pluginInvoke(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; sessionId: string; idempotencyKey: string }): Promise<void>;
-    pluginCall(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; input?: unknown; idempotencyKey?: string }): Promise<unknown>;
-    /** Declared RPC mode for a catalog contribution, so read-only devices can be allowed through read paths only. */
-    pluginRpcMode?(options: { pluginId: string; manifestHash: string; contributionId: string }): 'read' | 'write' | undefined;
     /**
      * Attach one product-owned realtime voice stream over its pre-opened
      * duplex transport. It uses muxr's own adapter runtime: no catalog entry,

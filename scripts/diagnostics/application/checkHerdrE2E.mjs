@@ -14,24 +14,6 @@ const piAgent = isolatePiAgentDir();
 const root = mkdtempSync(join(tmpdir(), 'muxr-link-herdr-'));
 const workdir = join(root, 'cwd');
 mkdirSync(workdir);
-const pluginId = `local.action-e2e-${process.pid}`;
-const pluginRoot = join(root, 'action-plugin');
-mkdirSync(pluginRoot);
-writeFileSync(join(pluginRoot, 'herdr-plugin.toml'), `id = "${pluginId}"
-name = "Action failure e2e"
-version = "0.1.0"
-min_herdr_version = "0.9.1"
-platforms = ["linux", "macos"]
-
-[[actions]]
-id = "fail"
-title = "Fail safely"
-contexts = ["pane"]
-command = ["sh", "-c", "echo '/tmp/private-action w9ZZ:p9' >&2; exit 7"]
-`);
-writeFileSync(join(pluginRoot, 'muxr-ui.json'), `${JSON.stringify({ schemaVersion: 1, pluginId,
-    contributions: [{ slot: 'session.toolbar', id: 'fail', type: 'button', label: 'Fail safely',
-        action: { type: 'plugin.invoke', actionId: 'fail' } }] })}\n`);
 const events = [];
 let lab;
 let terminal;
@@ -49,7 +31,7 @@ async function until(check, label, timeout = 30_000) {
 try {
     lab = await linkHerdrLab(root, 'herdr-e2e', (frame) => {
         if (frame?.type === 'session.event') events.push({ sessionId: frame.sessionId, event: frame.event });
-    }, (herdr) => herdr(['plugin', 'link', pluginRoot, '--enabled']));
+    });
     const request = (type, params) => requestLab(lab.link, type, params);
     const herdrJson = (args) => JSON.parse(lab.herdr(args));
     const discovered = await request('session.list');
@@ -77,18 +59,6 @@ try {
     await until(async () => (await request('session.status', { sessionId: id }))?.promptable === true,
         'current generation promptable', 60_000);
     process.stdout.write('ok: agent generation started and promptable\n');
-
-    const plugins = await request('plugin.list');
-    const action = plugins.find((plugin) => plugin.pluginId === pluginId);
-    if (typeof action?.manifestHash !== 'string') throw new Error('Herdr action fixture not discovered');
-    await request('plugin.approve', { pluginId, manifestHash: action.manifestHash, approved: true });
-    let bounded;
-    try {
-        await request('plugin.invoke', { pluginId, manifestHash: action.manifestHash,
-            contributionId: 'fail', sessionId: id, idempotencyKey: `action-e2e-${Date.now().toString(36)}` });
-    } catch (error) { bounded = error.message; }
-    if (bounded !== 'plugin action failed') throw new Error(`action error was not bounded: ${bounded}`);
-    process.stdout.write('ok: action failure bounded\n');
 
     let shellPaneId = shellPane?.paneId;
     if (typeof shellPaneId !== 'string') {
@@ -166,7 +136,6 @@ try {
     terminal?.end();
     if (lab !== undefined) {
         for (const workspace of workspaces) { try { lab.herdr(['workspace', 'close', workspace]); } catch {} }
-        try { lab.herdr(['plugin', 'unlink', pluginId]); } catch {}
         await lab.stop();
     }
     rmSync(root, { recursive: true, force: true });

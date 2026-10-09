@@ -147,6 +147,8 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         gap: 3,
         maxWidth: '100%',
+        flexShrink: 1,
+        minWidth: 0,
     },
     headerSearch: {
         width: '100%',
@@ -255,11 +257,11 @@ const HeaderTitle = React.memo(({ large = false, linkDown = false }: { large?: b
                     onPress={() => { void openMachinePicker(); }}
                     style={styles.machineTitleButton}
                 >
-                    <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={2}>{title}</Text>
-                    <Ionicons name="chevron-down" size={13} color={theme.colors.header.tint} />
+                    <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
+                    <Ionicons name="chevron-down" size={13} color={theme.colors.header.tint} style={{ flexShrink: 0 }} />
                 </Pressable>
             ) : (
-                <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={2}>{title}</Text>
+                <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
             )}
             {connectionStatus.text && <HomeHeaderStatus {...connectionStatus} large={large} />}
             <OptionSheet

@@ -10,13 +10,18 @@ vi.mock('@/catalog/store', async () => {
 });
 
 import { openTerminal, type TerminalBottomState } from './OpenTerminal';
+import { storage } from '@/catalog/store';
 
 /** The phone-side pane really uses only link streams across attach, input and reconnect. */
 describe('terminal link cutover', () => {
-    it('recovers a cold-start refusal, paints, writes and reattaches without opening a relay socket', { timeout: 10_000 }, async () => {
+    it('recovers a cold-start refusal, paints, writes and reattaches without opening a relay socket', { timeout: 30_000 }, async () => {
         const socket = vi.fn(() => { throw new Error('old relay socket opened'); });
         vi.stubGlobal('WebSocket', socket);
+        // The host's next attach answers; each refusal applies to one attach.
+        const refusals: Array<{ error: string; code: string }> = [];
         const streams: Array<{ line: (value: string) => void; end: () => void; write: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = [];
+        let goneNow = false;
+        const gone = { error: 'That agent is no longer available. Refresh and try again.', code: 'agent-unavailable' };
         mocks.openTerminalLink.mockImplementation((args: { requestId: string }) => {
             let line!: (value: string) => void;
             let end!: () => void;
@@ -27,7 +32,12 @@ describe('terminal link cutover', () => {
                 onEnd: (listener: () => void) => { end = listener; return () => undefined; },
             };
             streams.push({ line: (value) => line(value), end: () => end(), write: transport.write, close: transport.close });
+            const refused = refusals.shift() ?? (goneNow ? gone : undefined);
             setTimeout(() => {
+                if (refused !== undefined) {
+                    line(JSON.stringify({ type: 'result', requestId: args.requestId, ok: false, ...refused }));
+                    return;
+                }
                 line(JSON.stringify({ type: 'result', requestId: args.requestId, ok: true, data: { paneId: 'pane' } }));
                 line(JSON.stringify({ type: 'terminal.frame', bytes: 'aGk=' }));
             }, 0);
@@ -45,7 +55,8 @@ describe('terminal link cutover', () => {
         await vi.waitFor(() => expect(painted).toEqual(['aGk=']), { timeout: 4000 });
         expect(states.at(-1)).toBe('live');
         expect(mocks.openTerminalLink.mock.calls[0]![0].takeover).toBe(true);
-        expect(mocks.openTerminalLink.mock.calls[1]![0].takeover).toBe(false);
+        // The retry is still the person's open, so it still takes the pane over.
+        expect(mocks.openTerminalLink.mock.calls[1]![0].takeover).toBe(true);
         channel.sendText('hello');
         await vi.waitFor(() => expect(streams[0]!.write).toHaveBeenCalledWith(JSON.stringify({ type: 'terminal.input', text: 'hello' })));
         channel.scroll(30, { column: 10, row: 6 });
@@ -90,13 +101,81 @@ describe('terminal link cutover', () => {
         streams[1]!.end();
         await vi.waitFor(() => expect(streams).toHaveLength(3), { timeout: 4000 });
         await vi.waitFor(() => expect(painted).toEqual(['aGk=', 'aGk=', 'aGk=']));
-        // A plan-account move replaces the pane under the same route.
-        streams[2]!.line(JSON.stringify({ type: 'terminal.closed', reason: 'terminal attach ended: terminal term_1 not found' }));
-        await vi.waitFor(() => expect(streams).toHaveLength(4), { timeout: 4000 });
+        // A relay/host reconnect: the machine transport drops and returns while
+        // the pane is reconnecting. It resubscribes at once instead of waiting
+        // out the retry backoff, and the last frame stays on screen throughout.
+        storage.setState({ socketStatus: 'disconnected' });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(painted).toEqual(['aGk=', 'aGk=', 'aGk=']);
+        storage.setState({ socketStatus: 'connected' });
+        await vi.waitFor(() => expect(streams).toHaveLength(4), { timeout: 1000 });
         await vi.waitFor(() => expect(painted).toHaveLength(4));
         expect(states.at(-1)).toBe('live');
+        // A plan-account move replaces the pane under the same route.
+        streams[3]!.line(JSON.stringify({ type: 'terminal.closed', reason: 'terminal attach ended: terminal term_1 not found' }));
+        await vi.waitFor(() => expect(streams).toHaveLength(5), { timeout: 4000 });
+        await vi.waitFor(() => expect(painted).toHaveLength(5));
+        expect(states.at(-1)).toBe('live');
+        // Herdr restarts under a painted pane: its stream exits, and the next
+        // attach meets Herdr still coming back. Both are waited out, no tap.
+        refusals.push({ error: 'Herdr is temporarily unavailable. Try again when it responds.', code: 'unavailable' });
+        streams[4]!.line(JSON.stringify({ type: 'terminal.closed', reason: 'herdr stream exited (signal)' }));
+        await vi.waitFor(() => expect(streams).toHaveLength(7), { timeout: 8000 });
+        await vi.waitFor(() => expect(painted).toHaveLength(6));
+        expect(states.at(-1)).toBe('live');
+        // Another device taking the pane is the one close that waits for the person.
+        const closes: Array<string | undefined> = [];
+        channel.onClose((reason) => closes.push(reason));
+        streams[6]!.line(JSON.stringify({ type: 'terminal.closed', reason: 'control moved to another device' }));
+        await vi.waitFor(() => expect(closes).toEqual(['Open on another device · Tap to use it here']));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        expect(streams).toHaveLength(7);
+        // Taking it back is the tap. While the host keeps answering that the pane
+        // is gone, retries go on for 30 s; only then does the pane say so.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        goneNow = true;
+        const attachesBefore = streams.length;
+        channel.reconnect(true);
+        await vi.advanceTimersByTimeAsync(25_000);
+        expect(closes.at(-1)).toBe('Open on another device · Tap to use it here');
+        expect(streams.length).toBeGreaterThan(attachesBefore + 2);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(closes.at(-1)).toBe('This pane was closed on the computer');
+        expect(mocks.openTerminalLink.mock.calls.at(-1)![0].takeover).toBe(false);
+        vi.useRealTimers();
+        goneNow = false;
         expect(socket).not.toHaveBeenCalled();
         channel.close();
         vi.unstubAllGlobals();
+    });
+
+    it('backs off between re-attaches of a pane that paints and keeps closing', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        const attachTimes: number[] = [];
+        mocks.openTerminalLink.mockImplementation((args: { requestId: string }) => {
+            attachTimes.push(Date.now());
+            let line!: (value: string) => void;
+            const transport = {
+                write: vi.fn(async (_value: string) => undefined),
+                close: vi.fn(),
+                onLine: (listener: (value: string) => void) => { line = listener; return () => undefined; },
+                onEnd: () => () => undefined,
+            };
+            setTimeout(() => {
+                line(JSON.stringify({ type: 'result', requestId: args.requestId, ok: true, data: { paneId: 'pane' } }));
+                line(JSON.stringify({ type: 'terminal.frame', bytes: 'aGk=' }));
+                line(JSON.stringify({ type: 'terminal.closed', reason: 'herdr stream exited (signal)' }));
+            }, 0);
+            return Promise.resolve(transport);
+        });
+        const opened = openTerminal({ agentRoute: 'session', size: { cols: 80, rows: 24 } });
+        await vi.advanceTimersByTimeAsync(20_000);
+        const channel = await opened;
+        const gaps = attachTimes.slice(1).map((time, index) => time - attachTimes[index]!);
+        expect(gaps.length).toBeGreaterThanOrEqual(3);
+        expect(gaps[1]!).toBeGreaterThan(gaps[0]!);
+        expect(gaps[2]!).toBeGreaterThan(gaps[1]!);
+        channel.close();
+        vi.useRealTimers();
     });
 });

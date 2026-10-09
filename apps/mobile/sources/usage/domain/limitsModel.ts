@@ -1,4 +1,5 @@
-import { MAX_CHART_LABEL_BYTES, MAX_CHART_SERIES, capUtf8Bytes, sanitizeDisplayText } from '@trymuxr/contract';
+import { capUtf8Bytes, sanitizeDisplayText } from '@trymuxr/contract';
+import { MAX_CHART_LABEL_BYTES, MAX_CHART_SERIES } from './screenModel';
 import type { UsageLimitsPayload, UsageLimitsVerdict, UsageLimitsWindow } from '@trymuxr/contract';
 
 /** The limits vocabulary is the contract's own usage vocabulary; the parsers

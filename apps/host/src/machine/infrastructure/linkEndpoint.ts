@@ -268,8 +268,8 @@ export class LinkEndpoint {
             confirm: (request) => endpoint?.pairing?.confirm(request) ?? false,
             allow: (req, grant) => {
                 if (req.op === 'pair.complete' || req.op === 'pair.verified') return endpoint?.pairing !== undefined && grant.kind === endpoint.pairing.kind;
-                if (!trusted(grant, options.currentCrypto())) return false;
                 if (req.op === 'terminal') return options.terminals !== undefined;
+                if (!trusted(grant, options.currentCrypto())) return false;
                 if (req.op === 'voice') return grant.role === 'control' && options.voiceStreams !== undefined;
                 if (req.op === 'desktop') return true;
                 const frame = parseClientFrame(req.args);
@@ -635,7 +635,6 @@ async function streamVoice(stream: LinkStream, req: LinkRequest, grant: Grant, o
 async function streamTerminal(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
     const params = parseLinkTerminalAttach(req.args);
     if (params === undefined) throw new PublicLinkError('terminal: malformed attach');
-    if (!trusted(grant, options.currentCrypto())) throw new PublicLinkError('terminal: device is no longer trusted');
     const deviceId = muxrDeviceIdOf(grant)!;
     // An observing device renders the pane without touching it, the same way
     // the relay dispatcher rewrites its terminal.attach.
@@ -648,6 +647,7 @@ async function streamTerminal(stream: LinkStream, req: LinkRequest, grant: Grant
         const assertAuthorized = (): void => {
             if (!trusted(grant, options.currentCrypto())) throw Object.assign(new Error('terminal: device is no longer trusted'), { code: 'device-revoked' });
         };
+        assertAuthorized();
         const { paneId } = await options.terminals!.attach({ ...params, deviceId, socket, assertAuthorized,
             ...(mode === undefined ? {} : { mode }) });
         assertAuthorized();

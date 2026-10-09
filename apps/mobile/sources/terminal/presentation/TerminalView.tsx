@@ -288,7 +288,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         writePumpRef.current?.push({ bytes: base64 });
                     });
                     channel.onState((state) => onStatus?.(state));
-                    channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
+                    channel.onClose((reason) => onStatus?.(reason));
                     onChannel?.(channel);
                     // The keyboard can resize Ghostty while hosted attach is
                     // still waiting. Its debounce then has no channel to call;

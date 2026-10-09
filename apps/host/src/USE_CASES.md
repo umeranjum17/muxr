@@ -18,14 +18,13 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 | List Agents | `agent/application/listAgents.ts` | Agent | `session.list`, `client.hello` |
 | Check installed agents and default sign-in | `requests/application/agentCatalog.ts` | Herdr installed kinds, Plan Identity | `herdr.agentKinds` (cached; `refresh` checks again), phone connect |
 | Report a Lifecycle Event | `agent/application/reportAgentOutcome.ts` | Lifecycle rollup | Herdr session source |
-| Run a plugin action | `agent/application/runPluginAction.ts` | Device Grant (view-only reads) | `plugin.*` |
 | Open / close a terminal | `agent/application/openTerminal.ts` | Device Grant observe/control | Relay `terminal.attach` / `terminal.detach`; link stream through `machine/infrastructure/linkEndpoint.ts` |
 | List this Machine | `machine/application/listMachines.ts` | Machine | `machines.list` |
 | Serve paired phones over the link | `machine/infrastructure/linkEndpoint.ts` (`@byokit/link` + `@byokit/relay`) | Device records in `selfhost.json`; link grants are rebuilt from them | `/link/v1/<host id>` through the self-host relay |
 | Grant peer authority | `peer/application/grantPeerAuthority.ts` | Device Grant, peer limit | `peer.authorize` |
 | Revoke peer authority | `peer/application/revokePeerAuthority.ts` | Device Grant | `peer.revoke` |
 | Admit an inbound peer request | `peer/application/admitPeerRequest.ts` | Peer start surface, mutation receipt | PeerRuntime inbound |
-| Watch an agent's screen | `desktop/application/previewPresence.ts` | Pane screen presence (measured from mapped windows, never tool-claimed) | `session.list` preview stamp, `desktop.open`/`desktop.capabilities` with `target` |
+| Watch an agent's preview | `desktop/application/androidEmulators.ts` | Device presence per pane, measured from the pane's emulator process tree or a claimed simulator (never tool-claimed) | `session.list` preview stamp, `desktop.open`/`desktop.capabilities` with `target` |
 
 Not in this process: StartDictation, StartRealtimeConversation, InterruptPlayback — those live on the phone. Voice selection, keys, readiness, and report wording are product use cases in `voice/`, called directly by the dispatcher; only the realtime stream itself is a `SessionSource` method.
 
