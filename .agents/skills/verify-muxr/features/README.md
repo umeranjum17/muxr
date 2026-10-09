@@ -89,6 +89,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Read the connection route on the phone](./connection-route.md) —
   Settings > Connection names the route as `muxr setup` does: dev client on
   an emulator over a real lab host, themes and 270dp/font 1.3.
+- [Keep a terminal pane alive across a reconnect](./terminal-reconnect.md) —
+  native app over a private stack: relay and host restarts under an
+  open pane, last frame kept, recovery with no tap, plain words.
 - [Select a terminal's text on iOS](./terminal-select-text-ios.md) —
   Select Text viewer: Select All, one-tap Copy and a read-only edit menu on
   iPhone and iPad simulators.
