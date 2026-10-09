@@ -747,9 +747,9 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
 describe('panes share the host desktop selection', () => {
     it('gives panes the X display the host selected, and no screen on a host with none', () => {
         expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11', MUXR_DESKTOP_X11_DISPLAY: ':99' })).toEqual({ screen: true, x11Display: ':99' });
-        const missing = join(tmpdir(), 'muxr-no-desktop-socket-that-does-not-exist');
-        expect(hostDesktopForPanes({ XDG_RUNTIME_DIR: missing }, missing)).toEqual({ screen: false });
-        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11' }, missing)).toEqual({ screen: false });
-        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11', DISPLAY: ':0' }, missing)).toEqual({ screen: true, x11Display: ':0' });
+        expect(hostDesktopForPanes({})).toEqual({ screen: false });
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11' })).toEqual({ screen: false });
+        expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11', DISPLAY: ':0' })).toEqual({ screen: true, x11Display: ':0' });
+        expect(hostDesktopForPanes({ WAYLAND_DISPLAY: 'wayland-0' })).toEqual({ screen: true });
     });
 });

@@ -65,17 +65,14 @@ function screenless(env: NodeJS.ProcessEnv, x11SocketDirectory: string): boolean
 }
 
 /**
- * The desktop a pane on this host should use: whether there is a screen at
- * all, and the X display DesktopSessions opens when it is one. Same selection
- * as Computer's, so a pane is told to run headed exactly when Computer can show it.
+ * The desktop a pane on this host should use, from the host's explicit
+ * configuration only. An X socket is not consulted: Computer's own virtual
+ * screen lives on one, and panes never share it.
  */
-export function hostDesktopForPanes(env: NodeJS.ProcessEnv, x11SocketDirectory = X11_SOCKET_DIRECTORY): { screen: boolean; x11Display?: string | undefined } {
-    const source = configuredSource(env, x11SocketDirectory);
-    if (source?.kind === 'x11') {
-        const display = source.display ?? (env.DISPLAY?.trim() || undefined);
-        return display === undefined ? { screen: false } : { screen: true, x11Display: display };
-    }
-    return screenless(env, x11SocketDirectory) ? { screen: false } : { screen: true };
+export function hostDesktopForPanes(env: NodeJS.ProcessEnv): { screen: boolean; x11Display?: string | undefined } {
+    const x11Display = env.MUXR_DESKTOP_X11_DISPLAY?.trim() || env.DISPLAY?.trim() || undefined;
+    if (x11Display !== undefined) return { screen: true, x11Display };
+    return env.WAYLAND_DISPLAY?.trim() ? { screen: true } : { screen: false };
 }
 
 function firstXDisplay(directory: string): string | undefined {
