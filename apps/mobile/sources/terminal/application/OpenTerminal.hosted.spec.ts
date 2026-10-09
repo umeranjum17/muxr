@@ -14,11 +14,11 @@ import { storage } from '@/catalog/store';
 
 /** The phone-side pane really uses only link streams across attach, input and reconnect. */
 describe('terminal link cutover', () => {
-    it('recovers a cold-start refusal, paints, writes and reattaches without opening a relay socket', { timeout: 20_000 }, async () => {
+    it('recovers a cold-start refusal, paints, writes and reattaches without opening a relay socket', { timeout: 30_000 }, async () => {
         const socket = vi.fn(() => { throw new Error('old relay socket opened'); });
         vi.stubGlobal('WebSocket', socket);
-        // The host's next attach answer; a refusal applies to one attach only.
-        let refusal: { error: string; code: string } | undefined;
+        // The host's next attach answers; each refusal applies to one attach.
+        const refusals: Array<{ error: string; code: string }> = [];
         const streams: Array<{ line: (value: string) => void; end: () => void; write: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = [];
         mocks.openTerminalLink.mockImplementation((args: { requestId: string }) => {
             let line!: (value: string) => void;
@@ -30,8 +30,7 @@ describe('terminal link cutover', () => {
                 onEnd: (listener: () => void) => { end = listener; return () => undefined; },
             };
             streams.push({ line: (value) => line(value), end: () => end(), write: transport.write, close: transport.close });
-            const refused = refusal;
-            refusal = undefined;
+            const refused = refusals.shift();
             setTimeout(() => {
                 if (refused !== undefined) {
                     line(JSON.stringify({ type: 'result', requestId: args.requestId, ok: false, ...refused }));
@@ -54,7 +53,8 @@ describe('terminal link cutover', () => {
         await vi.waitFor(() => expect(painted).toEqual(['aGk=']), { timeout: 4000 });
         expect(states.at(-1)).toBe('live');
         expect(mocks.openTerminalLink.mock.calls[0]![0].takeover).toBe(true);
-        expect(mocks.openTerminalLink.mock.calls[1]![0].takeover).toBe(false);
+        // The retry is still the person's open, so it still takes the pane over.
+        expect(mocks.openTerminalLink.mock.calls[1]![0].takeover).toBe(true);
         channel.sendText('hello');
         await vi.waitFor(() => expect(streams[0]!.write).toHaveBeenCalledWith(JSON.stringify({ type: 'terminal.input', text: 'hello' })));
         channel.scroll(30, { column: 10, row: 6 });
@@ -119,7 +119,7 @@ describe('terminal link cutover', () => {
         expect(states.at(-1)).toBe('live');
         // Herdr restarts under a painted pane: its stream exits, and the next
         // attach meets Herdr still coming back. Both are waited out, no tap.
-        refusal = { error: 'Herdr is temporarily unavailable. Try again when it responds.', code: 'unavailable' };
+        refusals.push({ error: 'Herdr is temporarily unavailable. Try again when it responds.', code: 'unavailable' });
         streams[4]!.line(JSON.stringify({ type: 'terminal.closed', reason: 'herdr stream exited (signal)' }));
         await vi.waitFor(() => expect(streams).toHaveLength(7), { timeout: 8000 });
         await vi.waitFor(() => expect(painted).toHaveLength(6));
@@ -131,6 +131,14 @@ describe('terminal link cutover', () => {
         await vi.waitFor(() => expect(closes).toEqual(['Open on another device · Tap to use it here']));
         await new Promise((resolve) => setTimeout(resolve, 2000));
         expect(streams).toHaveLength(7);
+        // Taking it back is the tap. If the pane was closed on the computer
+        // meanwhile, the host keeps answering so, and the pane says it in words.
+        const gone = { error: 'That agent is no longer available. Refresh and try again.', code: 'agent-unavailable' };
+        refusals.push(gone, gone, gone);
+        channel.reconnect(true);
+        await vi.waitFor(() => expect(closes.at(-1)).toBe('This pane was closed on the computer'), { timeout: 8000 });
+        expect(streams).toHaveLength(10);
+        expect(mocks.openTerminalLink.mock.calls[8]![0].takeover).toBe(true);
         expect(socket).not.toHaveBeenCalled();
         channel.close();
         vi.unstubAllGlobals();

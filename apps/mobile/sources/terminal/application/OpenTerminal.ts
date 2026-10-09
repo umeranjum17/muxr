@@ -90,6 +90,9 @@ const RETRY_MAX_MS = 10_000;
 class PaneRefusedError extends Error {}
 
 const TAKEN_OVER = 'Open on another device · Tap to use it here';
+// ponytail: a plan move can miss the route for a moment, so a pane reads as
+// closed on the computer only after this many answers in a row (~9 s).
+const GONE_AFTER = 3;
 const FINAL_ATTACH_REFUSALS: Record<string, string> = {
     takeover: TAKEN_OVER,
     'device-revoked': 'This device was removed from the computer · Pair again',
@@ -169,6 +172,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let attachInFlight: Promise<void> | undefined;
     let attachRequested = false;
     let takeoverRequested = false;
+    let goneAnswers = 0;
 
     // The link is what this channel knows first-hand: attaching, or frames
     // flowing. There is no terminal heartbeat, so the only evidence that an
@@ -207,10 +211,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         if (stopWatchingHost !== undefined) return;
         hostUnconfirmed = storage.getState().socketStatus !== 'connected' && storage.getState().socketStatus !== 'connecting';
         stopWatchingHost = storage.subscribe((current, previous) => {
-            // 'error' is a client that only pairing or an update can bring back:
-            // say so, in the machine's words, instead of retrying behind 'Reconnecting…'.
-            if (current.socketStatus === 'error' && current.socketError && current.socketError !== previous.socketError) {
-                surfaceHostRefusal(current.socketError);
+            const lost = machineLost();
+            if (lost !== undefined) {
+                surfaceHostRefusal(lost);
                 return;
             }
             if (current.socketStatus === previous.socketStatus) return;
@@ -222,6 +225,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 publishState();
             }
         });
+    }
+    /** A machine client that only pairing or an update can bring back, in its
+     *  own words: the pane says so instead of retrying behind 'Reconnecting…'. */
+    function machineLost(): string | undefined {
+        const { socketStatus, socketError } = storage.getState();
+        return socketStatus === 'error' && socketError ? socketError : undefined;
     }
     function unwatchHost(): void {
         stopWatchingHost?.();
@@ -266,6 +275,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     };
     function scheduleRetry(): void {
         if (closedByUser || retryTimer !== undefined) return;
+        const lost = machineLost();
+        if (lost !== undefined) {
+            surfaceHostRefusal(lost);
+            return;
+        }
         attempts += 1;
         emitState('reconnecting');
         // Drop queued input: keystrokes buffered across a long disconnect are
@@ -274,7 +288,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         queuedInput = undefined;
         retryTimer = setTimeout(() => {
             retryTimer = undefined;
-            requestAttach(false);
+            // Opening a pane takes it over; until it has painted, a retry is still that open.
+            requestAttach(!painted);
         }, Math.min(RETRY_BASE_MS * attempts, RETRY_MAX_MS));
     }
 
@@ -359,7 +374,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             retryTimer = undefined;
         }
         emitState('reconnecting');
-        requestAttach(false);
+        requestAttach(!painted);
     }
 
     // The pane's stream open IS the attach; the first host frame acknowledges it.
@@ -436,6 +451,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     firstFrameOfStream = true;
                     if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
                     painted = true;
+                    goneAnswers = 0;
                     if (retryTimer !== undefined) {
                         clearTimeout(retryTimer);
                         retryTimer = undefined;
@@ -532,8 +548,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             beforeAck.length = 0;
             recordTerminalChannel('attach', { ok: false, error: ack.error ?? ack.code ?? 'link attach failed' });
             retireLink(transport);
-            const refusal = ack.streamLost || ack.code === undefined ? undefined : FINAL_ATTACH_REFUSALS[ack.code];
-            if (refusal !== undefined) throw new PaneRefusedError(refusal);
+            goneAnswers = ack.code === 'agent-unavailable' ? goneAnswers + 1 : 0;
+            let refusal = ack.streamLost || ack.code === undefined ? undefined : FINAL_ATTACH_REFUSALS[ack.code];
+            if (goneAnswers >= GONE_AFTER) refusal = 'This pane was closed on the computer';
+            // A tap queued meanwhile (Tap to use it here) gets its own attempt.
+            if (refusal !== undefined && !attachRequested) throw new PaneRefusedError(refusal);
             if (!closedByUser && !attachRequested) scheduleRetry();
             return;
         }

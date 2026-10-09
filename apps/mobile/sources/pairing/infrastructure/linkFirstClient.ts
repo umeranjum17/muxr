@@ -202,16 +202,17 @@ export class LinkFirstClient implements SessionClient {
 
     /** Opens a terminal or voice stream over the link. */
     private async openByteStream(name: 'terminal' | 'voice' | 'plugin', args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
-        if (!this.online || this.link === undefined || this.closed) return undefined;
+        const link = this.link;
+        if (!this.online || link === undefined || this.closed) return undefined;
         let stream: Awaited<ReturnType<DeviceLink['stream']>>;
         try {
-            stream = await this.link.stream(name, args);
+            stream = await link.stream(name, args);
         } catch (cause) {
             // A refusal that pairing or an update must fix ends the client here,
-            // the same as a request would, so its words reach the person; a
-            // dropped socket stays a plain retry for the caller.
-            this.mapLinkFailure('terminal.attach', cause);
-            return undefined;
+            // the same as a request would, so its words reach the person. A link
+            // this client already stopped has nothing left to report.
+            if (!this.closed && this.link === link) this.mapLinkFailure('terminal.attach', cause);
+            throw cause;
         }
         let ended = false;
         let endError: string | undefined;
