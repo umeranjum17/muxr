@@ -5,7 +5,7 @@ Binding this device to a machine and the permission that follows.
 ## Language
 
 **Pairing String**:
-The URL a person pastes or scans to bind this device to a machine. Distinct from account login.
+The offer a person pastes or scans to bind this device to a machine: the full link or the compact form. Distinct from account login.
 _Avoid_: claim, ticket, QR payload
 
 **Hosted Grant**:
