@@ -51,8 +51,10 @@ function isStandalone(): boolean {
 export function getWebInstallState(): WebInstallState {
     if (Platform.OS !== 'web') return 'native';
     if (installedByEvent || isStandalone()) return 'installed';
-    if (deferredPrompt !== null) return 'ready';
+    // iOS has no prompt API at all, so Add to Home Screen is always the path
+    // there — even if a stray installability event ever reached the page.
     if (isIosSafari()) return 'ios-guide';
+    if (deferredPrompt !== null) return 'ready';
     return 'unavailable';
 }
 
