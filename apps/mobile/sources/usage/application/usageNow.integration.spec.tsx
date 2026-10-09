@@ -1139,8 +1139,8 @@ describe('the usage screen read path', () => {
     it('shows the same remaining share and time-left tick on the Usage limit meter', async () => {
         let renderer: any;
         TestRenderer.act(() => {
-            renderer = TestRenderer.create(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
-                limits: { verdict: 'low', windows: [{ label: 'Rolling', window: '5h', used: 92, elapsed: 0.3 }] },
+            renderer = TestRenderer.create(<ScreenLimits limits={{
+                verdict: 'low', windows: [{ label: 'Rolling', window: '5h', used: 92, elapsed: 0.3 }],
             }} />);
         });
         mounted.push(renderer!);
@@ -1294,7 +1294,7 @@ describe('the usage screen read path', () => {
         await tick();
         expect(request).toHaveBeenCalledTimes(1);
         expect(request).toHaveBeenCalledWith('usage.report', { refresh: false }, expect.any(Number));
-        expect(screen.root.findAllByType(ScreenLimits)[0].props.data.limits.windows[0].used).toBe(20);
+        expect(screen.root.findAllByType(ScreenLimits)[0].props.limits.windows[0].used).toBe(20);
         expect(screenText(screen)).toContain('99');
 
         let releaseOlder: (value: UsageReport) => void = () => undefined;
@@ -1315,7 +1315,7 @@ describe('the usage screen read path', () => {
         await tick();
         expect(request).toHaveBeenCalledTimes(3);
         expect(request.mock.calls.slice(1).every((call) => call[1].refresh === false)).toBe(true);
-        expect(screen.root.findAllByType(ScreenLimits)[0].props.data.limits.windows[0].used).toBe(10);
+        expect(screen.root.findAllByType(ScreenLimits)[0].props.limits.windows[0].used).toBe(10);
         expect(screenText(screen)).toContain('111');
         expect(screenText(screen)).not.toContain('88');
     });
@@ -1394,7 +1394,7 @@ describe('the usage screen read path', () => {
         noteAsked('', claimed - 1_000);
         rememberShown('', { status: 'figures', at: claimed, figures: withReport(undefined, held) });
         const screen = renderScreen();
-        const windows = () => screen.root.findAllByType(ScreenLimits)[0].props.data.limits.windows.length;
+        const windows = () => screen.root.findAllByType(ScreenLimits)[0].props.limits.windows.length;
         expect(windows()).toBe(2);
 
         // The card's own read lands for the same tab: it names one window, and
@@ -1410,7 +1410,7 @@ describe('the usage screen read path', () => {
             { limits: { verdict: 'unknown', windows: [], message: 'Plan limits unavailable' } },
         ) }); });
         expect(windows()).toBe(0);
-        expect(screen.root.findAllByType(ScreenLimits)[0].props.data.limits.message).toBe('Plan limits unavailable');
+        expect(screen.root.findAllByType(ScreenLimits)[0].props.limits.message).toBe('Plan limits unavailable');
         const emptied = shownUsage('');
         expect(emptied?.status === 'figures' ? emptied.figures.cardWindow : undefined).toBeUndefined();
     });
@@ -1621,15 +1621,13 @@ describe('the usage screen read path', () => {
         // elapsed and reset -- no new field, no new palette.
         let renderer: any;
         TestRenderer.act(() => {
-            renderer = TestRenderer.create(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
-                limits: {
-                    verdict: 'go',
-                    windows: [
-                        { label: 'Session', window: '5h', used: 60, elapsed: 0.7, pace: 'on pace', resetsIn: '2h' },
-                        { label: 'Weekly', window: '7d', used: 92, elapsed: 0.58, pace: 'ahead', resetsIn: '2d 23h' },
-                        { label: 'Rolling', window: '5h', used: 90, elapsed: 0.5, pace: 'ahead', resetsIn: '2h' },
-                    ],
-                },
+            renderer = TestRenderer.create(<ScreenLimits limits={{
+                verdict: 'go',
+                windows: [
+                    { label: 'Session', window: '5h', used: 60, elapsed: 0.7, pace: 'on pace', resetsIn: '2h' },
+                    { label: 'Weekly', window: '7d', used: 92, elapsed: 0.58, pace: 'ahead', resetsIn: '2d 23h' },
+                    { label: 'Rolling', window: '5h', used: 90, elapsed: 0.5, pace: 'ahead', resetsIn: '2h' },
+                ],
             }} />);
         });
         mounted.push(renderer!);
@@ -1679,14 +1677,12 @@ describe('the usage screen read path', () => {
         // Warm alone steps a green host verdict up only to the warm level: the
         // verdict cannot stay "Go ahead" while a figure says it runs out first.
         TestRenderer.act(() => {
-            renderer.update(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
-                limits: {
-                    verdict: 'go',
-                    windows: [
-                        { label: 'Session', window: '5h', used: 60, elapsed: 0.7, pace: 'on pace', resetsIn: '2h' },
-                        { label: 'Weekly', window: '7d', used: 46, elapsed: 0.4, pace: 'on pace', resetsIn: '4d 2h' },
-                    ],
-                },
+            renderer.update(<ScreenLimits limits={{
+                verdict: 'go',
+                windows: [
+                    { label: 'Session', window: '5h', used: 60, elapsed: 0.7, pace: 'on pace', resetsIn: '2h' },
+                    { label: 'Weekly', window: '7d', used: 46, elapsed: 0.4, pace: 'on pace', resetsIn: '4d 2h' },
+                ],
             }} />);
         });
         const warmWords = renderer.root.findAllByType('Text').map((node: any) => node.props.children);
@@ -1705,14 +1701,12 @@ describe('the usage screen read path', () => {
         // just a mystery. And a window the host itself capped keeps the host's
         // own word -- the projection must not talk over a decision already made.
         TestRenderer.act(() => {
-            renderer.update(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
-                limits: {
-                    verdict: 'unknown',
-                    windows: [
-                        { label: 'Session', window: '5h', used: 90, elapsed: 0.5, resetsIn: '2h' },
-                        { label: 'Capped', window: '5h', used: 50, elapsed: 0.5, pace: 'limited', resetsIn: '2h' },
-                    ],
-                },
+            renderer.update(<ScreenLimits limits={{
+                verdict: 'unknown',
+                windows: [
+                    { label: 'Session', window: '5h', used: 90, elapsed: 0.5, resetsIn: '2h' },
+                    { label: 'Capped', window: '5h', used: 50, elapsed: 0.5, pace: 'limited', resetsIn: '2h' },
+                ],
             }} />);
         });
         const pacelessWords = renderer.root.findAllByType('Text').map((node: any) => node.props.children);
@@ -1750,7 +1744,7 @@ describe('the usage screen read path', () => {
         expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
 
         const card = () => screen.root.findAllByType(ScreenLimits)[0];
-        expect(card().props.data.limits.verdict).toBe('unknown');
+        expect(card().props.limits.verdict).toBe('unknown');
         expect(card().props.asOf).toContain('plugins.limits.asOf(');
         expect(card().parent.props.style.opacity).toBe(0.55);
         expect(screenText(screen)).not.toContain('time.justNow');
@@ -1774,7 +1768,7 @@ describe('the usage screen read path', () => {
             capturedAt: new Date().toISOString(),
         }) });
         await tick();
-        expect(card().props.data.limits.verdict).toBe('go');
+        expect(card().props.limits.verdict).toBe('go');
         expect(card().props.asOf).toBeUndefined();
         expect(card().parent.props.style.opacity).toBe(0.55);
 
@@ -1784,7 +1778,7 @@ describe('the usage screen read path', () => {
         await tick(11_000);
         TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
         await tick();
-        expect(card().props.data.limits.verdict).toBe('go');
+        expect(card().props.limits.verdict).toBe('go');
         expect(card().props.asOf).toBeUndefined();
         expect(card().parent.props.style.opacity).toBe(1);
     });
