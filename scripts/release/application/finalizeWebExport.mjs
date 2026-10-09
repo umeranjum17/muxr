@@ -16,7 +16,7 @@
  * Adds no scripts, so the CSP (script-src 'self') is untouched.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,22 +36,18 @@ const START = '<!-- muxr:install-meta -->';
 const END = '<!-- /muxr:install-meta -->';
 export const VIEWPORT = '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, interactive-widget=resizes-content" />';
 
-// The worker reads this token and the export replaces it with the shell hash.
-// The token is distinct from the value so a re-run (already finalized) is a
-// no-op and an unexpected worker missing both fails closed.
+// The worker carries this token and the export replaces it with the shell hash.
 export const SHELL_VERSION_TOKEN = '__MUXR_SHELL_VERSION__';
-const FINALIZED_VERSION = /const SHELL_VERSION = '[0-9a-f]{16}'/;
 
 export function shellVersion(html) {
     return createHash('sha256').update(html).digest('hex').slice(0, 16);
 }
 
 export function finalizeServiceWorker(source, version) {
-    if (source.includes(SHELL_VERSION_TOKEN)) {
-        return source.replaceAll(SHELL_VERSION_TOKEN, version);
+    if (!source.includes(SHELL_VERSION_TOKEN)) {
+        throw new Error('sw.js carries no shell version token; refusing to ship it');
     }
-    if (FINALIZED_VERSION.test(source)) return source;
-    throw new Error('sw.js carries neither the shell version token nor a finalized version; refusing to ship it');
+    return source.replaceAll(SHELL_VERSION_TOKEN, version);
 }
 
 export function finalizeWebExport(html) {
@@ -72,12 +68,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const finalized = finalizeWebExport(readFileSync(indexPath, 'utf8'));
     writeFileSync(indexPath, finalized);
     const workerPath = join(dirname(indexPath), 'sw.js');
-    if (existsSync(workerPath)) {
-        const version = shellVersion(finalized);
-        const worker = finalizeServiceWorker(readFileSync(workerPath, 'utf8'), version);
-        writeFileSync(workerPath, worker);
-        process.stdout.write(`finalizeWebExport: install metadata and shell version ${version} written\n`);
-    } else {
-        process.stdout.write(`finalizeWebExport: install metadata written to ${indexPath} (no sw.js to version)\n`);
-    }
+    const version = shellVersion(finalized);
+    writeFileSync(workerPath, finalizeServiceWorker(readFileSync(workerPath, 'utf8'), version));
+    process.stdout.write(`finalizeWebExport: install metadata and shell version ${version} written\n`);
 }

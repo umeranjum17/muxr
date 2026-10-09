@@ -54,10 +54,7 @@ export function registerWebServiceWorker(): void {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
     void (async () => {
         try {
-            const registration = await navigator.serviceWorker.register(SW_PATH);
-            // register() already runs the update algorithm; this forces the
-            // byte check on a first-visit install too, and never fails boot.
-            await registration.update().catch(() => undefined);
+            await navigator.serviceWorker.register(SW_PATH);
         } catch (error) {
             console.warn('[push] service worker registration failed', error);
         }

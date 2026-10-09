@@ -59,12 +59,9 @@ async function precacheShell(cache) {
     const html = await response.clone().text();
     await cache.put(SHELL_URL, response);
     await Promise.all(referencedShellAssets(html).map(async (assetUrl) => {
-        try {
-            const asset = await fetch(assetUrl, { cache: 'no-store' });
-            if (asset && asset.ok) await cache.put(assetUrl, asset);
-        } catch {
-            // One missing asset must not abort the whole shell install.
-        }
+        const asset = await fetch(assetUrl, { cache: 'no-store' });
+        if (!asset || !asset.ok) throw new Error(`muxr shell asset fetch failed: ${assetUrl}`);
+        await cache.put(assetUrl, asset);
     }));
 }
 
@@ -82,16 +79,19 @@ function referencedShellAssets(html) {
 
 async function navigationResponse(request) {
     const cache = await caches.open(SHELL_CACHE);
+    let response;
     try {
-        // The online document is served as-is; the versioned cache is owned by
-        // install/activate alone, so a build staged by the host can never leave
-        // a cached index.html pointing at assets this cache does not hold.
-        return await fetch(request);
+        response = await fetch(request);
     } catch (error) {
         const cached = await cache.match(SHELL_URL);
         if (cached) return cached;
         throw error;
     }
+    // The online document is served as-is; the versioned cache is owned by
+    // install/activate alone, so a build staged by the host can never leave
+    // a cached index.html pointing at assets this cache does not hold.
+    if (response.status < 500) return response;
+    return (await cache.match(SHELL_URL)) ?? response;
 }
 
 async function shellAsset(request) {
