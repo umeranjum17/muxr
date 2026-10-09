@@ -2,7 +2,7 @@
 
 **Every coding agent, on your phone.** [Website](https://trymuxr.com) · [GitHub](https://github.com/umeranjum17/muxr) · [Quickstart](https://trymuxr.com/docs/quickstart) · [Android APK](https://trymuxr.com/downloads/stable/android) · [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN)
 
-The `@trymuxr/cli` package installs the complete self-hosted CLI, relay, host bridge, plugin runtime, and web client.
+The `@trymuxr/cli` package installs the complete self-hosted CLI, relay, host bridge, and web client.
 
 ## Quickstart
 
@@ -73,21 +73,5 @@ muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-b
 ```
 
 Enrollment is one-use and five minutes. The VPS retains owner authority; the agent machine generates keys locally and stores only its scoped credential.
-
-## Build a plugin
-
-Plugins use the same public contract, including bounded app-rendered code and diff views with syntax highlighting—never plugin HTML. The full authoring guide ships as `PLUGINS.md`.
-
-```bash
-muxr plugin docs
-muxr plugin create <name>
-muxr plugin check <path>
-muxr plugin dev <path> [--web]
-muxr plugin call <path> <contribution-id> [--input '<json>']
-muxr plugin list
-muxr plugin install <local-path|owner/repo[/subdir][@ref]|npm:<name>@<version>>
-muxr plugin update <same-spec>
-muxr plugin remove <plugin-id>
-```
 
 Apache-2.0. Dependency notices and resolved license inventory are included in `NOTICE`, `LICENSES/`, and `THIRD_PARTY_LICENSES.json`.

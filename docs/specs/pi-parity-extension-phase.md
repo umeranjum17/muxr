@@ -186,7 +186,7 @@ Likely files:
 
 ## Revisions
 
-- 2026-09-22: `muxr plugin clone` and the bundled add-on packages are retired; every product surface, including realtime voice, is product code (see `../PLUGINS.md`). Earlier milestone entries record the authoring phase as it shipped.
+- 2026-09-22: `muxr plugin clone` and the bundled add-on packages are retired; every product surface, including realtime voice, is product code. Earlier milestone entries record the authoring phase as it shipped.
 - 2026-08-20: Reopened authoring DX after a fresh-agent npm gauntlet. Add `muxr plugin docs`, safe bundled-plugin cloning with rewritten local identity, detailed subcommand help, a packaged/managed authoring skill, truthful validator wording, and isolated install/clone/update survival proof.
 - 2026-08-14: Added exact attachment/file-review anti-hang caps and corrected machine-frame dispatch, all-cache invalidation, complete-manifest hashing, npm provenance/transactionality/archive limits, pre-enable authority confirmation, full RPC response bounds, write idempotency, action context, Herdr 0.8 polling fallback, frame limits, and aggregate patch bounds.
 - 2026-08-14: Milestone 3 uses a bounded authoritative `plugin.list` poll and the additive encrypted `extensions.invalidated` machine frame; no watcher or lifecycle subscription is required.

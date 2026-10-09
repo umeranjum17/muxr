@@ -315,23 +315,36 @@ describe('link session sync flow', () => {
         const health = vi.fn();
         vi.stubGlobal('fetch', health);
         const dial = async () => {
+            vi.useRealTimers();
             await syncReconnect();
             await vi.waitFor(() => expect(harness.socketStatus).toBe('connected'));
             return harness.clients.at(-1)!;
+        };
+        // A busy host drops the link for a while; the phone keeps saying
+        // "connecting" through the grace and only then asks the relay why.
+        const offline = async () => {
+            const client = await dial();
+            const asked = health.mock.calls.length;
+            vi.useFakeTimers();
+            client.fire('offline');
+            await vi.advanceTimersByTimeAsync(29_000);
+            expect(harness.socketError).toBeNull();
+            expect(health).toHaveBeenCalledTimes(asked);
+            await vi.advanceTimersByTimeAsync(1_000);
         };
 
         // A version skew on a merely offline link is a host coming back, not a
         // permanent incompatibility: the phone keeps retrying instead of
         // landing on the Update-needed card.
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
-        (await dial()).fire('offline');
+        await offline();
         await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach your computer"));
         expect(harness.socketError).toContain('is not connected');
         expect(harness.socketError).not.toContain('Update needed');
         expect(harness.socketStatus).not.toBe('error');
 
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.1.9', linkProtocol: 1 }) });
-        (await dial()).fire('offline');
+        await offline();
         await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach your computer"));
         expect(harness.socketError).toContain('is not connected');
         expect(harness.socketError).not.toContain('Update needed');
@@ -347,25 +360,32 @@ describe('link session sync flow', () => {
         await vi.waitFor(() => expect(harness.socketError).toContain('Update muxr on the computer'));
 
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, onlineMachines: 1 }) });
-        (await dial()).fire('offline');
+        await offline();
         await vi.waitFor(() => expect(harness.socketError).toContain('older muxr connection protocol'));
 
         health.mockRejectedValueOnce(new Error('network unreachable'));
-        (await dial()).fire('offline');
+        await offline();
         await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach your computer"));
         expect(harness.socketError).toContain('same private network');
         expect(harness.socketError).not.toContain('Pair again:');
 
+        // The relay answering again while the host is still down replaces the
+        // earlier "can't reach" card at the next recheck, not only on reconnect.
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
+        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.waitFor(() => expect(harness.socketError).toContain('is not connected'));
+        expect(harness.socketError).not.toContain('same private network');
+
         // A named computer on LAN asks about Wi-Fi; on Tailscale about Tailscale.
         harness.grant = { machineId: 'machine-a', machineName: 'Umer', relayUrl: 'ws://192.168.1.20:8792', source: 'selfhost' } as never;
         health.mockRejectedValueOnce(new Error('network unreachable'));
-        (await dial()).fire('offline');
+        await offline();
         await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach Umer"));
         expect(harness.socketError).toContain('same Wi-Fi');
 
         harness.grant = { machineId: 'machine-a', machineName: 'Umer', relayUrl: 'wss://machine.tailnet.ts.net', source: 'selfhost' } as never;
         health.mockRejectedValueOnce(new Error('network unreachable'));
-        (await dial()).fire('offline');
+        await offline();
         await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach Umer"));
         expect(harness.socketError).toContain('Tailscale');
 

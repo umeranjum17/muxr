@@ -71,8 +71,12 @@ export const TerminalPreview = React.memo((props: {
     React.useEffect(() => {
         let alive = true;
         let timer: ReturnType<typeof setInterval> | undefined;
+        // A busy host answers slower than the poll; stacking reads behind it only adds to its queue.
+        let reading = false;
 
         const read = (): void => {
+            if (reading) return;
+            reading = true;
             const order = beginPaneSnapshotRead();
             // 'visible' is a passive read: herdr never moves the application
             // viewport for it, so polling cannot disturb a live agent.
@@ -90,6 +94,9 @@ export const TerminalPreview = React.memo((props: {
                     if (!alive) return;
                     setPhase((held) => (held === 'ready' ? 'ready' : 'failed'));
                     onStateRef.current?.({ kind: 'failed' });
+                })
+                .finally(() => {
+                    reading = false;
                 });
         };
 
