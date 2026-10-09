@@ -311,6 +311,7 @@ export const zhHans: TranslationStructure = {
     liveTerminals: {
         // Live terminals strip on the home screen
         title: '直播中',
+        previewEmpty: '暂无可显示的内容。此代理尚未输出任何内容。',
     },
 
     recentActivity: {
