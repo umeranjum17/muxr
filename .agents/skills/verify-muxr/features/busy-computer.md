@@ -20,7 +20,7 @@ Preconditions: follow ../SKILL.md isolation. Use `perf/lib/fakeStack.mjs` (real 
 
 1. Load without the phone: `node perf/homeLoad.mjs --minutes 5 --phones 2 --panes 300 --agents 150 --out report.json`. Expect zero failed `herdr.tree`/`pane.read`, dial open p95 well under the 20 s budget, and `linkOffline` 0. On the pre-fix host the same run failed nearly every request and every dial.
 2. Start a fakeStack at 300 panes / 150 agents with `titleChurnHz: 0.2`, `adb reverse` its relay port, and pair the app by typing a minted code.
-3. Freeze the lab host by its exact PID (`kill -STOP <hostPid>`), then cold-start the app (`am force-stop`, then `am start`), which is what a phone coming back to a busy computer pays. Capture at about 10, 25 and 40 s. Expect the "Your computer is very busy - still connecting" card, never "Computer unreachable". Resume (`kill -CONT`) at about 40 s and capture Home connected with the herd listed.
+3. Freeze the lab host by its exact PID (`kill -STOP <hostPid>`), then cold-start the app (`am force-stop`, then `am start`), which is what a phone coming back to a busy computer pays. Capture at about 10, 25 and 40 s. Expect the "Your computer is very busy. Still connecting." card, never "Computer unreachable". Resume (`kill -CONT`) at about 40 s and capture Home connected with the herd listed.
 4. Repeat with a 100 s freeze. After the dial gives up (about 20 s) plus the 30 s grace, expect "Computer unreachable" with the relay-up "not connected" explanation. Resume, and expect it to clear by itself when the link reopens.
 5. Save the screenshots and homeLoad reports outside the repo. Stop only the PIDs you started.
 
