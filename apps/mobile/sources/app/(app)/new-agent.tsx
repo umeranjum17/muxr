@@ -369,7 +369,7 @@ export default function NewAgentScreen() {
                     </Pressable>
                 </View>
                 <View style={styles.content}>
-                    <Text style={styles.emptyHint}>This browser has view-only access. Run “muxr pair --browser” on the computer to pair a control browser that can start agents, create worktrees, and type into terminals.</Text>
+                    <Text style={styles.emptyHint}>This browser has view-only access. Run muxr pair --browser on the computer to pair a control browser that can start agents, create worktrees, and type into terminals.</Text>
                 </View>
             </View>
         );

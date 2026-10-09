@@ -243,7 +243,7 @@ export const HerdView = React.memo(({
                         {Platform.OS === 'web' ? (
                             <>
                                 <ActionButton title="Paste browser pairing link" icon="clipboard-outline" onPress={() => router.push('/pair')} />
-                                <Text style={styles.routeHint}>Browsers pair by string: paste the link shown by `muxr pair --browser` on that computer.</Text>
+                                <Text style={styles.routeHint}>Browsers pair by string: paste the link shown by muxr pair --browser on that computer.</Text>
                             </>
                         ) : (
                             <>
