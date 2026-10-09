@@ -80,7 +80,7 @@ Start / prompt / watch / focus are host and mobile adapters over this domain (`s
 
 ## Display
 
-**Owns**: bounded and sanitized display text, locale resolution, and screen tones.
+**Owns**: bounded and sanitized display text, and screen tones.
 
 Shared host and phone helpers preserve UTF-8 code points and strip unsafe display controls.
 
