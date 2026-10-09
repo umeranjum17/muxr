@@ -70,7 +70,10 @@ function screenless(env: NodeJS.ProcessEnv, x11SocketDirectory: string): boolean
  * screen lives on one, and panes never share it.
  */
 export function hostDesktopForPanes(env: NodeJS.ProcessEnv): { screen: boolean; x11Display?: string | undefined } {
-    const x11Display = env.MUXR_DESKTOP_X11_DISPLAY?.trim() || env.DISPLAY?.trim() || undefined;
+    const kind = env.MUXR_DESKTOP_SOURCE?.trim();
+    const x11Display = kind !== undefined && kind !== '' && kind !== 'x11'
+        ? undefined
+        : env.MUXR_DESKTOP_X11_DISPLAY?.trim() || env.DISPLAY?.trim() || undefined;
     if (x11Display !== undefined) return { screen: true, x11Display };
     return env.WAYLAND_DISPLAY?.trim() ? { screen: true } : { screen: false };
 }
