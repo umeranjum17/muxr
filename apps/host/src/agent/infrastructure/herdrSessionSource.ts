@@ -539,8 +539,6 @@ export function resolveClosePaneId(options: {
 }
 
 export function isRetryableCloseFailure(error: unknown): boolean {
-    const name = error instanceof Error ? error.name : '';
-    if (name === 'PluginCallDeadlineError' || name === 'PluginCallQueueTimeoutError') return true;
     const message = error instanceof Error ? error.message : String(error);
     return /busy, retry|timed out|EACCES|ECONNREFUSED|ECONNRESET|ENOENT|ETIMEDOUT|server_not_running|connection closed|client closed|not running|EPIPE|connect E/i.test(message);
 }
