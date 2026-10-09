@@ -420,7 +420,7 @@ describe('native pairing over the byokit link', () => {
             expect(hostHas(deviceId)).toBe(false);
             const retry = runPhonePairing(qr.offer);
             await expect(retry).rejects.toBeInstanceOf(PairingNeedsNewCode);
-            await expect(retry).rejects.toThrow("This pairing didn't finish on your computer. Run `muxr pair` there and scan the new code.");
+            await expect(retry).rejects.toThrow("This pairing didn't finish on your computer. Run muxr pair there and scan the new code.");
             expect((await loadHostedGrant(machineId))?.deviceId).toBe(kept?.deviceId);
             expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
         } finally {

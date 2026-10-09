@@ -51,7 +51,7 @@ export function pairingFailure(cause: unknown): string {
         ? LINK_WORDS[cause.code] : cause instanceof Error ? cause.message : String(cause);
 }
 
-const NOT_FINISHED = "This pairing didn't finish on your computer. Run `muxr pair` there and scan the new code.";
+const NOT_FINISHED = "This pairing didn't finish on your computer. Run muxr pair there and scan the new code.";
 /** byokit keys are base64url; the machine answer keeps the same bytes as plain base64. */
 /** The computer revoked this key mid-request: it rolled the pairing back. */
 const rolledBack = (cause: unknown): boolean => cause instanceof LinkError && cause.code === 'removed';
@@ -166,7 +166,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         // The computer only grants a device whose link is still open when it
         // approves, and the code is single-use: neither can be retried.
         if (wordsShown && lost(cause)) {
-            throw new PairingNeedsNewCode('The pairing link closed after the two words, before approval completed. Run `muxr pair` again and approve the fresh code before it expires.');
+            throw new PairingNeedsNewCode('The pairing link closed after the two words, before approval completed. Run muxr pair again and approve the fresh code before it expires.');
         }
         if (cause instanceof LinkError && (cause.code === 'expired' || cause.code === 'declined')) throw new PairingNeedsNewCode(LINK_WORDS[cause.code]);
         throw cause instanceof Error ? cause : new Error('pairing failed');

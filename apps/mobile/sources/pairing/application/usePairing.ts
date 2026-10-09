@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { consentWords, pairingView } from '@byokit/ui-core/link';
+import { pairingView } from '@byokit/ui-core/link';
 import { pairingDeviceKind, pairingDeviceNoun } from '../infrastructure/pairingPlatform';
 import { useRouter } from 'expo-router';
 import { CameraView } from 'expo-camera';
@@ -27,19 +27,25 @@ export function useHostedPairing() {
 }
 
 /**
- * Describe the offer's authority before its one-time code is claimed.
- * Encryption alone does not explain terminal control or the browser grant's
- * duration; those access bounds belong in the consent too.
+ * Describe the offer's authority before its one-time code is claimed, as the
+ * two or three plain lines the consent card shows: what this device may do,
+ * how long it lasts, and the safety check on the computer. An unreadable role
+ * is stated as full control, because consent must never understate authority.
  */
-export function pairLinkConsent(scanned: string, machineName: string): string {
+export function pairLinkConsent(scanned: string, machineName: string): string[] {
     const device = pairingDeviceKind();
+    const noun = pairingDeviceNoun();
     const role = linkOfferRole(scanned);
-    if (role === undefined) {
-        return `This ${pairingDeviceNoun()} will receive the access shown on the pairing screen. Only continue if you just ran ${device === 'browser' ? 'muxr pair --browser' : 'muxr'} on that computer.`;
-    }
-    let detail = pairLinkDetail(device, role);
-    if (device === 'browser') detail = `Machine keys stay end-to-end encrypted in this browser for ${hostedPairingDuration(scanned)}. ${detail}`;
-    return nameDevice(consentWords({ hostName: machineName, role, device, detail }));
+    const can = role === 'view'
+        ? `This ${noun} can see ${machineName}, but can't change anything.`
+        : `This ${noun} can see and change things on ${machineName}.`;
+    const lasts = device === 'browser'
+        ? `It lasts ${hostedPairingDuration(scanned)}, then stops on its own.`
+        : `It lasts until you remove it on ${machineName}.`;
+    const ran = device === 'browser'
+        ? `Only continue if you just ran ${role === 'view' ? 'muxr pair --browser-view' : 'muxr pair --browser'} on that computer.`
+        : 'Only continue if you just ran muxr on that computer.';
+    return [can, lasts, ran];
 }
 
 export { pairingDeviceNoun };
@@ -53,7 +59,7 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
 } = {}): Promise<boolean> {
     const device = pairingDeviceKind();
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
-    const confirmation = pairLinkConsent(scanned, machineName);
+    const confirmation = pairLinkConsent(scanned, machineName).join('\n');
     const approved = await (options.confirm ?? ((title, words) => Modal.confirm(title, words, { confirmText: 'Pair' })))(
         `Pair with ${machineName}?`,
         confirmation,
@@ -102,17 +108,6 @@ function nameDevice(text: string): string {
 function pairedView(machineName: string, device: 'phone' | 'browser'): PairingProgress {
     const view = pairingView({ phase: 'paired', hostName: machineName, device });
     return { ...view, title: nameDevice(view.title) };
-}
-
-function pairLinkDetail(device: 'phone' | 'browser', role: 'control' | 'view'): string {
-    if (role === 'view') {
-        return device === 'browser'
-            ? 'Only continue if you just ran muxr pair --browser-view on that computer.'
-            : 'Only continue if you just ran muxr on that computer.';
-    }
-    return device === 'browser'
-        ? 'It receives the access shown on the pairing screen. Only continue if you just ran muxr pair --browser on that computer.'
-        : 'It can also read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr. Only continue if you just ran muxr on that computer.';
 }
 
 /*

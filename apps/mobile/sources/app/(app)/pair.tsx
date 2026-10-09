@@ -274,7 +274,14 @@ export default function PairScreen() {
                     </>
                 ) : state?.phase === 'confirm' ? (
                     <>
-                        <Text style={styles.grantText}>{pairLinkConsent(state.url, state.machineName)}</Text>
+                        <View style={styles.grantList}>
+                            {pairLinkConsent(state.url, state.machineName).map((line, index) => (
+                                <View key={index} style={styles.grantRow}>
+                                    <Text style={styles.grantBullet}>•</Text>
+                                    <Text style={styles.grantText}>{line}</Text>
+                                </View>
+                            ))}
+                        </View>
                         {switching && (
                             <View style={styles.securityRow}>
                                 <Ionicons name="swap-horizontal-outline" size={16} color={styles.securityText.color} />
@@ -359,7 +366,7 @@ export default function PairScreen() {
                             onSubmitEditing={connectManual}
                         />
                         <Text style={styles.routeHint}>{browser
-                            ? 'Shown by muxr pair --browser on that computer.'
+                            ? 'Copy the browser pairing link from your computer.'
                             : sshRoute
                                 ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
                                 : "If you can't point this phone at that screen — copy the string from its terminal."}</Text>
@@ -496,13 +503,20 @@ const styles = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.surfaceHighest,
         color: theme.colors.textSecondary,
     },
+    grantList: {
+        gap: 8,
+        alignSelf: 'stretch',
+    },
+    grantRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 10,
+    },
     grantBullet: {
         width: 18,
         lineHeight: 20,
         textAlign: 'center',
-    },
-    grantDot: {
-        color: theme.colors.text,
+        color: theme.colors.textSecondary,
     },
     grantText: {
         ...Typography.default(),
