@@ -19,7 +19,6 @@ import {
     type SessionStatus,
 } from './herd/index.js';
 import { interpretWorktreeLanding, landNeedsConsent, landSucceeded } from './worktree/index.js';
-import { parsePluginId, parsePluginManifest, pluginIsCompatible } from './plugins/index.js';
 
 function assert(condition: boolean, message: string): asserts condition {
     if (!condition) throw new Error(message);
@@ -181,9 +180,6 @@ function demo(): void {
     assert(interpretWorktreeLanding({ status: 'already-landed', branch: 'feat', into: 'main' }).kind === 'succeeded', 'already-landed is a succeeded landing');
     assert(interpretWorktreeLanding({ status: 'blocked-dirty-base', files: ['a.ts'] }).kind === 'needs-consent', 'dirty base needs consent');
     assert(landSucceeded({ status: 'already-landed', branch: 'feat', into: 'main' }) && landNeedsConsent({ status: 'blocked-dirty-base', files: ['a.ts'] }), 'worktree landing states are decisions');
-    assert(parsePluginId('example.muxr-ui').ok && !parsePluginId('bad id').ok, 'plugin identity rejects display-like names');
-    assert(parsePluginManifest({ source: { schemaVersion: 1, pluginId: 'example.muxr-ui', contributions: [] } }).ok, 'parse plugin manifest admits a current graph');
-    assert(pluginIsCompatible({ schemaVersion: 1, pluginId: 'example.muxr-ui', contributions: [] }), 'current manifests are compatible');
     process.stdout.write(`PASS: contract selfCheck (${events.length} event types, plugin frames, peer allowlist)\n`);
 }
 

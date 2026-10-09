@@ -2,16 +2,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** Usage and machine health are host product code, so the fake stack needs no
- *  status plugin fixture: the host's typed usage.report answers from this
- *  module's environment fixture alone. Files and prompt attachments are host
- *  product code too, so no add-on checkout is linked anymore. */
-export const usagePlugins = () => ({ root }) => {
-    const dir = join(root, 'fixture-plugins');
-    mkdirSync(dir, { recursive: true });
-    return dir;
-};
-
 // Real provider databases, consumed by the real host collector. Only the external
 // ccusage CLI is stubbed; there is deliberately no mocked usage response.
 export function usageHome(home) {

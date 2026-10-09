@@ -1,4 +1,5 @@
-import { MAX_CHART_LABEL_BYTES, MAX_CHART_SERIES, capUtf8Bytes, sanitizeDisplayText, type PluginScreenTone } from '@trymuxr/contract';
+import { capUtf8Bytes, sanitizeDisplayText, type ScreenTone } from '@trymuxr/contract';
+import { MAX_CHART_LABEL_BYTES, MAX_CHART_SERIES } from './screenModel';
 
 export interface PluginChartItem {
     label: string;
@@ -6,10 +7,10 @@ export interface PluginChartItem {
     valueLabel?: string;
     /** Second, quieter figure after the value: a reset time next to a percentage. */
     detail?: string;
-    tone?: PluginScreenTone;
+    tone?: ScreenTone;
 }
 
-const TONES = new Set<PluginScreenTone>(['primary', 'secondary', 'positive', 'warning', 'danger']);
+const TONES = new Set<ScreenTone>(['primary', 'secondary', 'positive', 'warning', 'danger']);
 
 /** Bound untrusted RPC chart data before it reaches the app-owned renderer. */
 export function asChartSeries(value: unknown): PluginChartItem[] {
@@ -27,8 +28,8 @@ export function asChartSeries(value: unknown): PluginChartItem[] {
         const detail = typeof raw.detail === 'string'
             ? capUtf8Bytes(sanitizeDisplayText(raw.detail).trim(), MAX_CHART_LABEL_BYTES)
             : undefined;
-        const tone = typeof raw.tone === 'string' && TONES.has(raw.tone as PluginScreenTone)
-            ? raw.tone as PluginScreenTone
+        const tone = typeof raw.tone === 'string' && TONES.has(raw.tone as ScreenTone)
+            ? raw.tone as ScreenTone
             : undefined;
         return [{
             label,

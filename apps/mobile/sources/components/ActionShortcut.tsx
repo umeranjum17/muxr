@@ -3,11 +3,11 @@ import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import type { PluginScreenTone } from '@trymuxr/contract';
+import type { ScreenTone } from '@trymuxr/contract';
 import { toneColor } from '@/usage/domain/usageTone';
 
 /** Trailing values the row's action carries; labels stay in accessibility text. */
-type ActionMetadata = { label?: string; value: string; tone?: PluginScreenTone };
+type ActionMetadata = { label?: string; value: string; tone?: ScreenTone };
 
 /** Names the terminal's own commands use for their glyphs; rows show the label. */
 export type PanelGlyphName = 'keyboard' | 'minus' | 'plus' | 'reset' | 'close' | 'branch' | 'folder' | 'tools';

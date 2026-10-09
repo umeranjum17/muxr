@@ -1,6 +1,10 @@
 import type { MachineInfo, SessionEvent, SessionInfo } from '../../herd/index.js';
 import type { ClientRequest, RequestResponse } from './requests.js';
-import { isValidPluginId } from '../../plugins/index.js';
+const PLUGIN_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+function isValidPluginId(value: unknown): value is string {
+    return typeof value === 'string' && PLUGIN_ID.test(value);
+}
 
 // --- machine host -> client -------------------------------------------------
 

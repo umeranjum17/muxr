@@ -36,7 +36,7 @@ packages/
     herd/{index.ts,domain/}
     control-plane/{index.ts,domain/,application/,infrastructure/}
     peer/{index.ts,domain/,application/}
-    plugins/{index.ts,domain/,application/,infrastructure/}
+    display/{index.ts,domain/}
     realtime/{index.ts,domain/,application/}
     worktree/{index.ts,domain/,application/}
   crypto/src/
@@ -78,16 +78,11 @@ Start / prompt / watch / focus are host and mobile adapters over this domain (`s
 - Start requires signed directories. Directories without start are rejected.
 - Peer Mutations expire; a window past the hard TTL plus clock skew is invalid (`admitPeerMutation`).
 
-## Plugins
+## Display
 
-**Owns**: Plugin Identity, manifest graph, public plugin context, compatibility.
+**Owns**: bounded and sanitized display text, and screen tones.
 
-**Invariants**:
-- Plugin Identity authorizes link/invoke/invalidation. Display names never do.
-- Unknown slots are skipped; known slots with invalid fields throw.
-- Localized text and dynamic screens declare a minimum UI version.
-
-`parsePluginManifest` is the named use case; throwing `parseManifest` remains the catalog adapter.
+Shared host and phone helpers preserve UTF-8 code points and strip unsafe display controls.
 
 ## Realtime
 

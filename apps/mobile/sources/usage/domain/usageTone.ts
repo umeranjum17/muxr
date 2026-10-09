@@ -1,4 +1,4 @@
-import type { PluginScreenTone } from '@trymuxr/contract';
+import type { ScreenTone } from '@trymuxr/contract';
 import type { Theme } from '@/theme';
 
 /**
@@ -6,7 +6,7 @@ import type { Theme } from '@/theme';
  * drifted far enough that `warning` was amber on a declarative screen and blue
  * in the sheet rendering the same plugin's data.
  */
-export function toneColor(theme: Theme, tone: PluginScreenTone | undefined): string {
+export function toneColor(theme: Theme, tone: ScreenTone | undefined): string {
     switch (tone) {
         case 'positive': return theme.colors.status.done;
         case 'warning': return theme.colors.box.warning.text;

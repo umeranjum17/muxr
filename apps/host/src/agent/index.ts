@@ -43,7 +43,6 @@ export { stopAgent } from './application/stopAgent.js';
 export { answerAgent } from './application/answerAgent.js';
 export { listAgents } from './application/listAgents.js';
 export { reportAgentOutcome } from './application/reportAgentOutcome.js';
-export { runPluginAction } from './application/runPluginAction.js';
 export { openTerminal, closeTerminal } from './application/openTerminal.js';
 export { agentToolPath, createHerdrSessionSource, type CreateHerdrSessionSourceOptions } from './infrastructure/herdrSessionSource.js';
 export { labHerdrSocket } from './infrastructure/herdrKitClient.js';

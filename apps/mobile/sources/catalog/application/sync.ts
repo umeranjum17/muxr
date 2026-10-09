@@ -2,8 +2,6 @@ import type { AuthCredentials } from '@/account/session';
 import { hostedTransportReady } from '@/pairing/grant';
 import {
     lifecycleNotificationAllowed,
-    MAX_RPC_PER_DEVICE,
-    MAX_RPC_PER_PLUGIN,
     type AgentLifecycle,
     type AttentionEntry,
     type HerdrTreeWorkspace,
@@ -112,44 +110,7 @@ function waitUntilClientOpen(client: SessionClient, timeoutMs: number): Promise<
     });
 }
 
-/**
- * FIFO client admission for plugin RPCs. The host deliberately rejects callers
- * above its per-device ceiling; queueing here makes every plugin surface share
- * that budget instead of racing and permanently dropping reads/events.
- */
-class PluginExecutionGate {
-    private active = 0;
-    private readonly activeByPlugin = new Map<string, number>();
-    private readonly queue: Array<{ pluginId: string; resolve: () => void }> = [];
-
-    async run<T>(pluginId: string, operation: () => Promise<T>): Promise<T> {
-        await new Promise<void>((resolve) => {
-            this.queue.push({ pluginId, resolve });
-            this.drain();
-        });
-        try { return await operation(); }
-        finally {
-            this.active -= 1;
-            const next = (this.activeByPlugin.get(pluginId) ?? 1) - 1;
-            if (next === 0) this.activeByPlugin.delete(pluginId);
-            else this.activeByPlugin.set(pluginId, next);
-            this.drain();
-        }
-    }
-
-    private drain(): void {
-        while (this.active < MAX_RPC_PER_DEVICE && this.queue.length > 0) {
-            const head = this.queue[0]!;
-            if ((this.activeByPlugin.get(head.pluginId) ?? 0) >= MAX_RPC_PER_PLUGIN) return;
-            this.queue.shift();
-            this.active += 1;
-            this.activeByPlugin.set(head.pluginId, (this.activeByPlugin.get(head.pluginId) ?? 0) + 1);
-            head.resolve();
-        }
-    }
-}
-
-const pluginExecutionGate = new PluginExecutionGate();
+const MAX_PANE_READS = 3;
 
 class ConcurrencyGate {
     private active = 0;
@@ -157,7 +118,7 @@ class ConcurrencyGate {
 
     async run<T>(operation: () => Promise<T>): Promise<T> {
         await new Promise<void>((resolve) => {
-            if (this.active < MAX_RPC_PER_DEVICE) { this.active += 1; resolve(); }
+            if (this.active < MAX_PANE_READS) { this.active += 1; resolve(); }
             else this.queue.push(resolve);
         });
         try { return await operation(); }
@@ -855,14 +816,9 @@ class MuxrSync {
                 await waitUntilClientOpen(client, 10_000);
             }
             const request = () => client.request(type, params, timeoutMs);
-            const data = type === 'plugin.call' || type === 'plugin.invoke'
-                ? await pluginExecutionGate.run(
-                    (params as import('@trymuxr/contract').RequestParams<'plugin.call'> | import('@trymuxr/contract').RequestParams<'plugin.invoke'>).pluginId,
-                    request,
-                ) as import('@trymuxr/contract').RequestResult<T>
-                : type === 'pane.read'
-                    ? await paneReadGate.run(request)
-                    : await request();
+            const data = type === 'pane.read'
+                ? await paneReadGate.run(request)
+                : await request();
             recordTrackedRpc(type, { ok: true }, Date.now() - started);
             if (type === 'session.open') {
                 const snapshot = data as import('@trymuxr/contract').RequestResult<'session.open'>;

@@ -12,7 +12,7 @@ import { acquirePhoneKeeper } from './lib/phoneKeeper.mjs';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { pairPhone } from './lib/pairPhone.mjs';
 import { command, IosControls } from './lib/iosSignals.mjs';
-import { bundledPlusAddons, filesProductDriver, filesProductFlags } from './lib/addons.mjs';
+import { filesProductDriver, filesProductFlags } from './lib/addons.mjs';
 import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, scenarioDescriptor, scenarioSummary } from './lib/scenario.mjs';
 
 const args = process.argv.slice(2);
@@ -155,7 +155,7 @@ async function main() {
         releaseLock = acquireOwnerLock(lockPath, { pid: process.pid, descriptor: descriptorPath, platform, device: udid });
         lockOwner = releaseLock.owner;
     }
-    stack = await startFakeStack({ ...LOAD, sourceRoot: process.cwd(), transport: platform === 'ios' ? 'loopback' : undefined, setupPlugins: bundledPlusAddons(process.cwd()) });
+    stack = await startFakeStack({ ...LOAD, sourceRoot: process.cwd(), transport: platform === 'ios' ? 'loopback' : undefined });
     if (stack.fixturePanes?.text === undefined) throw new Error('the herd published no text fixture pane');
     const fixture = await prepareFixture();
     let paired;
