@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { HerdrTreePane, HerdrTreeWorkspace, PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
 import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRecord, accountName, type PlanPreparation } from './planAccounts.js';
 import { addOpencodeAccount, opencodeLaunchEnv, opencodeSignedIn, removeOpencodeAccount } from './opencodeAccounts.js';
-import { loadPlanAccounts, PLAN_LABELS, plansDir } from './planStore.js';
+import { loadPlanAccounts, PLAN_LABELS, plansDir, type PlanProvider } from './planStore.js';
 
 // A completed attempt releases its kit: a later re-sign-in must not inherit add's cancel ownership.
 const attempts = new Map<string, { kit: ReturnType<typeof planAccounts>; adoptedId?: string }>();
@@ -211,7 +211,10 @@ export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>
     const signingIn = new Set(signInTabs.values());
     const accountOn = (pane: HerdrTreePane): string | undefined => {
         const kind = pane.agentKind;
-        const provider = kind === 'claude' || kind === 'pi' ? 'claude' : kind === 'codex' ? 'codex' : kind === 'opencode' ? 'opencode' : undefined;
+        let provider: PlanProvider | undefined;
+        if (kind === 'claude' || kind === 'pi') provider = 'claude';
+        else if (kind === 'codex') provider = 'codex';
+        else if (kind === 'opencode') provider = 'opencode';
         const entry = listed.find((candidate) => candidate.provider === provider);
         if (entry === undefined || signingIn.has(pane.paneId)) return undefined;
         const id = recorded.get(pane.paneId);

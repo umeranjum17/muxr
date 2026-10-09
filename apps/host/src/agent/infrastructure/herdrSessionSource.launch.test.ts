@@ -106,7 +106,9 @@ function fakeHerdr(dir: string, cwd: string) {
         // checkPaneEnv's probe: echo <marker>="$NAME" (or ${NAME+x}), answered from the pane's env.
         const probe = /^echo ([A-Za-z0-9_]+)="\$\{?([A-Za-z_][A-Za-z0-9_]*)(\+x)?\}?"?$/.exec(text.trim());
         if (probe !== null) {
-            const value = probe[3] !== undefined ? (paneEnv[probe[2]!] === undefined ? '' : 'x') : (paneEnv[probe[2]!] ?? '');
+            let value: string;
+            if (probe[3] !== undefined) value = paneEnv[probe[2]!] === undefined ? '' : 'x';
+            else value = paneEnv[probe[2]!] ?? '';
             state.paneText += `${probe[1]}=${value}\n`;
         }
         return {};

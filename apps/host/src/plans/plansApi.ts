@@ -143,9 +143,9 @@ export async function resolvePlanLaunch(env: NodeJS.ProcessEnv, chosen: string, 
         if (kind !== 'claude' && kind !== 'codex' && kind !== 'pi' && kind !== 'opencode') {
             throw Object.assign(new Error('Choose a provider agent for Auto.'), { code: 'plan-kind-mismatch' });
         }
-        const reads = await (kind === 'opencode'
-            ? opencodeRows(env)
-            : providerRooms(kind === 'codex' ? 'codex' : 'claude', env, deps, await kit.list()));
+        let reads: ProviderRooms;
+        if (kind === 'opencode') reads = opencodeRows(env);
+        else reads = await providerRooms(kind === 'codex' ? 'codex' : 'claude', env, deps, await kit.list());
         if (reads.length < 2) return undefined;
         const pick = selection(reads, chosen);
         if (!pick.ok) return undefined;
