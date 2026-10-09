@@ -108,7 +108,6 @@ type NonPeerRequestType = Exclude<RequestType, PeerRequestType>;
 const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'session.list', 'session.open', 'session.status',
     'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest',
-    'plugin.approve', 'plugin.invoke', 'plugin.call',
     'applications.list',
     'artifact.list', 'artifact.fetch', 'artifact.read', 'unread.catalog',
     // The pre-rename spellings are the same read-only calls.
