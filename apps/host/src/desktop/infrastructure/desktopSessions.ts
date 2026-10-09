@@ -10,6 +10,11 @@ import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSessi
 import { PortalGrant } from './portalGrant.js';
 import { VirtualDisplay } from './virtualDisplay.js';
 
+function explicitDesktopSource(env: NodeJS.ProcessEnv): string | undefined {
+    const kind = env.MUXR_DESKTOP_SOURCE?.trim();
+    return kind === undefined || kind === '' ? undefined : kind;
+}
+
 /**
  * Which desktop this host offers.
  *
@@ -18,11 +23,6 @@ import { VirtualDisplay } from './virtualDisplay.js';
  * DISPLAY or an X socket owned by its uid. Only the host selects the source;
  * a client cannot ask to reach another desktop.
  */
-function explicitDesktopSource(env: NodeJS.ProcessEnv): string | undefined {
-    const kind = env.MUXR_DESKTOP_SOURCE?.trim();
-    return kind === undefined || kind === '' ? undefined : kind;
-}
-
 function configuredSource(env: NodeJS.ProcessEnv, x11SocketDirectory: string): SourceRequest | undefined {
     const kind = explicitDesktopSource(env);
     if (kind === 'x11') {
