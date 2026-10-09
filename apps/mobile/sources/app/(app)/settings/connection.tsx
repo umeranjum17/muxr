@@ -97,22 +97,22 @@ const stylesheet = StyleSheet.create((theme) => ({
 }));
 
 const routeNames: Record<string, string> = {
-    tailscale: 'Tailscale Serve',
-    'tailscale-direct': 'Direct Tailscale',
-    private: 'Private network',
-    lan: 'Same Wi-Fi',
-    cloudflare: 'Temporary Cloudflare tunnel',
-    external: 'Your own server',
+    tailscale: 'Use muxr away from home (Tailscale)',
+    'tailscale-direct': 'Use muxr away from home — phone only (Tailscale)',
+    private: 'Use muxr away from home (private network)',
+    lan: 'Works only on this Wi-Fi',
+    cloudflare: 'Use muxr away from home (temporary link)',
+    external: 'Use muxr away from home (your own server)',
     remote: 'Shared remote relay',
 };
 
 const routeDetails: Record<string, string> = {
-    tailscale: 'For reaching this computer from anywhere: private HTTPS through Tailscale Serve; the phone joins the same tailnet.',
-    'tailscale-direct': 'For reaching this computer from anywhere without Serve: direct tailnet address; the phone joins the same tailnet. Native app only.',
-    private: 'For machines already on one private overlay network: the phone joins the same private network. Native app only.',
-    lan: 'For phone and computer sharing one trusted Wi-Fi: stops working away from it. Native app only.',
-    cloudflare: 'For a quick public route without your own server: public HTTPS through a temporary tunnel; its URL can change after restart.',
-    external: 'For an existing relay you already run: a WSS relay or reverse proxy managed by the host owner.',
+    tailscale: 'Your phone reaches this computer from anywhere. Both need the free Tailscale app, signed in to the same account.',
+    'tailscale-direct': 'Needs the Tailscale app on both, signed in to the same account. Phone app only, no browser.',
+    private: 'Your phone must also join the private network connected to this computer.',
+    lan: 'Your phone must stay on this same Wi-Fi, and stops working when you leave home. Nothing to install.',
+    cloudflare: 'No app to install, but the link changes when this computer restarts.',
+    external: 'Uses an existing secure (wss://) server you manage.',
     remote: 'For a computer joining a relay managed elsewhere: this machine dials out to it.',
 };
 
