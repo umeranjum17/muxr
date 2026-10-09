@@ -13,7 +13,7 @@ import { generateKeyPair } from '@trymuxr/crypto';
 import { startRelay } from '@muxr/relay';
 import { preparePlanSignIn } from '../../plans/planSignIn.js';
 import { listPlans, planLaunchEnv } from '../../plans/plansApi.js';
-import { createRequestDispatcher } from '../../requests/application/createRequestDispatcher.js';
+import { createRequestDispatcher } from '../../requests/index.js';
 import { createAgentWatchStores } from '../application/watchStores.js';
 import { startHost } from '../../host.js';
 import { LinkEndpoint, type MachineCryptoState } from '../../machine/index.js';
