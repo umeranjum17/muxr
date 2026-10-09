@@ -18,6 +18,7 @@ import {
 import type { NewSessionAgentType } from './persistence';
 import { storage } from './storage';
 import { sync } from './sync';
+import { humanError } from '@/utils/errors';
 
 export type { SessionAgentModesPatch };
 
@@ -257,8 +258,14 @@ export async function machineBash(
     cwd: string,
 ): Promise<{ success: boolean; stdout: string; stderr: string; exitCode: number }> {
     // machineId is ignored: requests already route to the connected machine.
-    const result = await sync.request('machine.shell', { command, cwd });
-    return { ...result, success: result.exitCode === 0 };
+    // A link failure (a busy computer that didn't answer in time) is exit code -1,
+    // the result every caller already handles, never a rejection a probe forgets.
+    try {
+        const result = await sync.request('machine.shell', { command, cwd });
+        return { ...result, success: result.exitCode === 0 };
+    } catch (error) {
+        return { success: false, stdout: '', stderr: humanError(error).message, exitCode: -1 };
+    }
 }
 
 export async function refreshUntilSessionVisible(sessionId: string): Promise<void> {

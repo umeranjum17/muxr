@@ -275,8 +275,7 @@ Maps:
    herd `index.ts`, `selfCheck.ts`, and `apps/host/src/fakeSessionSource.ts`
    together — the self-checks assert full coverage and fail otherwise. Requests
    likewise: one `RequestMap` entry + one dispatcher handler, or both sides stop
-   compiling. Plugin primitive changes ripple through `PRIMITIVE_SPECS`,
-   `primitiveRegistry.tsx`, `MUXR_UI_VERSION`, and `docs/PLUGINS.md`. A new package
+   compiling. A new package
    operation gets one `application/` module and a `USE_CASES.md` row so the map
    stays navigable.
 5. **No LLM tokens in data paths.** Host features are plumbing: git, fs.watch,

@@ -42,6 +42,25 @@ export function storeWebPushNotificationLevel(level: LifecycleNotificationLevel)
     return levelWrite.then(() => true, () => false);
 }
 
+/**
+ * Register the worker at boot so every install has an offline app shell, not
+ * only the ones that finished the push-subscribe flow. Idempotent with that
+ * flow (`register` on the same URL returns the live registration and refreshes
+ * it when the served worker changed). Skipped in development: the dev server
+ * serves unversioned bundles a shell cache would pin across reloads.
+ */
+export function registerWebServiceWorker(): void {
+    if (Platform.OS !== 'web' || __DEV__) return;
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    void (async () => {
+        try {
+            await navigator.serviceWorker.register(SW_PATH);
+        } catch (error) {
+            console.warn('[push] service worker registration failed', error);
+        }
+    })();
+}
+
 function isWebPushSupported(): boolean {
     return Platform.OS === 'web'
         && typeof navigator !== 'undefined'

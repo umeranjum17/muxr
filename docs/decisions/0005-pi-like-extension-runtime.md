@@ -1,6 +1,6 @@
 # 0005: Pi-like muxr extension runtime
 
-- Status: tested
+- Status: superseded by [0007](0007-herdr-is-the-plugin-system.md) — the muxr-ui runtime this record designed was retired (slices 3a–3d); this record stays as the normative history of the retired design
 - Tier: T3
 - Date: 2026-08-13
 
@@ -203,7 +203,7 @@ Native contributions name a **primitive** (`item-list`, `collection`, `icon-butt
 
 ## Amendment 2026-08-15 (slots are the UI)
 
-`muxr-ui.json` is the whole phone UI for a plugin: slot + primitive + parameters (`source`, `capability`, `title`). The phone translates that document. Heavy plugin work is a host RPC. Primitives are slot-agnostic and may repeat in one slot. For the current manifest contract and legacy stream handling, see [the extension guide](../PLUGINS.md); realtime voice is owned by [Voice setup](../VOICE-SETUP.md). `session.changes` / `session.attachments` events and the host ChangeTracker are gone.
+`muxr-ui.json` is the whole phone UI for a plugin: slot + primitive + parameters (`source`, `capability`, `title`). The phone translates that document. Heavy plugin work is a host RPC. Primitives are slot-agnostic and may repeat in one slot. Realtime voice is owned by [Voice setup](../VOICE-SETUP.md). `session.changes` / `session.attachments` events and the host ChangeTracker are gone.
 
 ## Amendment 2026-09-20 (Shared Artifacts)
 

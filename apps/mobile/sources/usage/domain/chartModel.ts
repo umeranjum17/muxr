@@ -10,6 +10,10 @@ export interface PluginChartItem {
     tone?: ScreenTone;
 }
 
+/** bar ranks categories, column reads a series over time left to right,
+ *  gauge carries one value against its ceiling, ring splits a whole. */
+export type ChartVariant = 'bar' | 'column' | 'gauge' | 'ring';
+
 const TONES = new Set<ScreenTone>(['primary', 'secondary', 'positive', 'warning', 'danger']);
 
 /** Bound untrusted RPC chart data before it reaches the app-owned renderer. */

@@ -142,7 +142,7 @@ _Avoid_: token, pairing, device grant
 The exclusive claim among the realtime call, dictation, and VAD standby.
 _Avoid_: audio focus, recorder lock
 
-## Setup and plugins
+## Setup
 
 **Bundled Plugin**:
 A Herdr add-on a previous muxr release shipped and linked during setup. Current releases ship none — every product surface, including realtime voice, is product code — and setup retracts the retired registrations.

@@ -131,9 +131,10 @@ describe('link retry across a version-skewed relay', () => {
         try {
             // The computer is unreachable; only the relay answers, and its
             // release skews from the app's. Tapping Retry must not strand the
-            // phone on a permanent Update-needed card.
+            // phone on a permanent Update-needed card. The explanation waits out
+            // the offline grace a busy computer gets.
             client.connect();
-            await vi.waitFor(() => expect(errors.length).toBeGreaterThan(0), { timeout: 30_000 });
+            await vi.waitFor(() => expect(errors.length).toBeGreaterThan(0), { timeout: 45_000 });
             expect(states).not.toContain('stale');
             expect(errors.some((message) => message.startsWith('Update needed'))).toBe(false);
             // The computer comes back: the still-live link admits the host and
