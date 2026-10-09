@@ -160,4 +160,4 @@ report.finishedAt = new Date().toISOString();
 const { samples, dials, ...summary } = report;
 if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
 console.log(JSON.stringify(summary, null, 2));
-process.exit(0);
+process.exit(report.error ? 1 : 0);

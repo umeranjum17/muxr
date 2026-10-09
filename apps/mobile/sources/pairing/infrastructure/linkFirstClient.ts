@@ -492,16 +492,14 @@ export class LinkFirstClient implements SessionClient {
         }
     }
 
-    /** A link that stays offline gets its relay checked after a grace and then
-     *  periodically. A busy host misses a heartbeat or a dial deadline and comes
-     *  back on the kit's next redial, so the first offline stays "connecting". */
+    /** A link that stays offline gets its relay checked once after a grace. A
+     *  busy host misses a heartbeat or a dial deadline and comes back on the
+     *  kit's next redial, so the first offline stays "connecting". */
     private watchOffline(): void {
         if (this.offlineCheck !== undefined || this.closed) return;
         this.offlineCheck = setTimeout(() => {
             this.offlineCheck = undefined;
-            void this.checkHealth().then(() => {
-                if (!this.closed && !this.online && this.link?.status === 'offline') this.watchOffline();
-            });
+            void this.checkHealth();
         }, OFFLINE_GRACE_MS);
     }
 

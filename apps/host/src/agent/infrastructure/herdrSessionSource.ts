@@ -994,7 +994,7 @@ export async function createHerdrSessionSource(
         return historical === 'starting' || historical === 'failed' ? historical : 'unknown';
     }
 
-    function lifecycleForPane(paneId: string, session = currentSessionByPane(paneId)): AgentLifecycle {
+    function lifecycleForPane(paneId: string, session: CurrentSession | undefined): AgentLifecycle {
         if (session !== undefined) return lifecycleOf(session);
         const raw = agentsByPane.get(paneId)?.agent_status ?? panesById.get(paneId)?.agent_status;
         return raw === 'idle' || raw === 'working' || raw === 'blocked' || raw === 'done' || raw === 'failed'

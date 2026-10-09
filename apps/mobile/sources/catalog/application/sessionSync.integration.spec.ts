@@ -329,6 +329,13 @@ describe('session sync flow', () => {
         }
     });
 
+    it('shows the human copy when a busy computer misses the Dock worktree step', async () => {
+        request.mockRejectedValueOnce(new Error('request timed out'));
+        const { createWorktree } = await import('../../spawn/application/worktree');
+        const result = await createWorktree('machine', '/repo');
+        expect(result).toMatchObject({ success: false, error: "Your computer didn't answer. Check the connection, then try again." });
+    });
+
     it('quit-agent-keeps-shell while a reported launch failure stays on the retired route', async () => {
         const { sync: realSync } = await vi.importActual<typeof import('./sync')>('./sync');
         const tree = (sessionId: string, agentStatus: AgentLifecycle, promptable: boolean): HerdrTreeWorkspace[] => [{

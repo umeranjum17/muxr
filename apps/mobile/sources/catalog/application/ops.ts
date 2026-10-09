@@ -18,6 +18,7 @@ import {
 import type { NewSessionAgentType } from './persistence';
 import { storage } from './storage';
 import { sync } from './sync';
+import { humanError } from '@/utils/errors';
 
 export type { SessionAgentModesPatch };
 
@@ -263,7 +264,7 @@ export async function machineBash(
         const result = await sync.request('machine.shell', { command, cwd });
         return { ...result, success: result.exitCode === 0 };
     } catch (error) {
-        return { success: false, stdout: '', stderr: error instanceof Error ? error.message : String(error), exitCode: -1 };
+        return { success: false, stdout: '', stderr: humanError(error).message, exitCode: -1 };
     }
 }
 
