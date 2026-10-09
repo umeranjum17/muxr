@@ -60,7 +60,7 @@ async function precacheShell(cache) {
     await cache.put(SHELL_URL, response);
     await Promise.all(referencedShellAssets(html).map(async (assetUrl) => {
         const asset = await fetch(assetUrl, { cache: 'no-store' });
-        if (!asset || !asset.ok) throw new Error(`muxr shell asset fetch failed: ${assetUrl}`);
+        if (!isCacheableShellAsset(asset)) throw new Error(`muxr shell asset fetch failed: ${assetUrl}`);
         await cache.put(assetUrl, asset);
     }));
 }
@@ -94,13 +94,19 @@ async function navigationResponse(request) {
     return (await cache.match(SHELL_URL)) ?? response;
 }
 
+function isCacheableShellAsset(response) {
+    return Boolean(response)
+        && response.ok
+        && !(response.headers.get('content-type') || '').startsWith('text/html');
+}
+
 async function shellAsset(request) {
     const cache = await caches.open(SHELL_CACHE);
     const cached = await cache.match(request);
     if (cached) return cached;
     const response = await fetch(request);
-    if (response && response.ok && response.type === 'basic') {
-        await cache.put(request, response.clone());
+    if (response.type === 'basic' && isCacheableShellAsset(response)) {
+        cache.put(request, response.clone()).catch(() => undefined);
     }
     return response;
 }
