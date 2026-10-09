@@ -321,14 +321,11 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     });
 });
 
-describe('plugin device authority', () => {
-    it('binds approvals and calls to the authenticated sender and blocks browser mutation', async () => {
+describe('session device authority', () => {
+    it('does not acknowledge attention when a view-only device opens a session', async () => {
         const calls: unknown[] = [];
         const source = {
             async open(options: unknown) { calls.push(options); return { info: { id: 'session-1' } }; },
-            async pluginApprove(options: unknown) { calls.push(options); },
-            async pluginCall(options: unknown) { calls.push(options); return { ok: true }; },
-            pluginRpcMode(options: { contributionId: string }) { return options.contributionId === 'rpc' ? 'read' as const : 'write' as const; },
         } as unknown as SessionSource;
         const { dispatch } = createRequestDispatcher({
             source,
@@ -337,23 +334,11 @@ describe('plugin device authority', () => {
             hostVersion: '0.0.0',
             canMutateDevice: (deviceId) => deviceId !== 'browser-1',
         });
-        const request = { type: 'plugin.approve', requestId: 'approve', params: { pluginId: 'example.ui', manifestHash: 'hash', approved: true } } as never;
-        expect(await dispatch(request, 'native-1')).toMatchObject({ ok: true });
-        expect(calls).toEqual([{ pluginId: 'example.ui', manifestHash: 'hash', approved: true, deviceId: 'native-1' }]);
-        expect(await dispatch(request, 'browser-1')).toMatchObject({ ok: false, error: expect.stringContaining('view-only') });
-        expect(calls).toHaveLength(1);
-        const call = { type: 'plugin.call', requestId: 'call', params: { pluginId: 'example.ui', manifestHash: 'hash', contributionId: 'rpc', input: { value: 1 } } } as never;
-        expect(await dispatch(call, 'native-1')).toMatchObject({ ok: true, data: { ok: true } });
-        expect(calls[1]).toMatchObject({ deviceId: 'native-1', contributionId: 'rpc' });
-        expect(await dispatch(call, 'browser-1')).toMatchObject({ ok: true, data: { ok: true } });
-        const writeCall = { type: 'plugin.call', requestId: 'call-2', params: { pluginId: 'example.ui', manifestHash: 'hash', contributionId: 'write-rpc' } } as never;
-        expect(await dispatch(writeCall, 'browser-1')).toMatchObject({ ok: false, error: expect.stringContaining('view-only') });
-
         const open = { type: 'session.open', requestId: 'open', params: { sessionId: 'session-1' } } as never;
         expect(await dispatch(open, 'browser-1')).toMatchObject({ ok: true });
-        expect(calls[3]).toEqual({ sessionId: 'session-1', acknowledgeAttention: false });
+        expect(calls[0]).toEqual({ sessionId: 'session-1', acknowledgeAttention: false });
         expect(await dispatch(open, 'native-1')).toMatchObject({ ok: true });
-        expect(calls[4]).toEqual({ sessionId: 'session-1' });
+        expect(calls[1]).toEqual({ sessionId: 'session-1' });
     });
 });
 

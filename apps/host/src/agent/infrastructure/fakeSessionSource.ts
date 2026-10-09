@@ -133,26 +133,6 @@ export function createFakeSessionSource(): SessionSource {
             return kinds.filter((kind) => kind === 'pi');
         },
 
-        async pluginList() {
-            return [];
-        },
-
-        async pluginManifest() {
-            throw new Error('fake source has no plugins');
-        },
-
-        async pluginApprove() {
-            throw new Error('fake source has no plugins');
-        },
-
-        async pluginInvoke() {
-            throw new Error('fake source has no plugins');
-        },
-
-        async pluginCall() {
-            throw new Error('fake source has no plugins');
-        },
-
         async voiceStream() {
             throw new Error('fake source has no voice runtime');
         },

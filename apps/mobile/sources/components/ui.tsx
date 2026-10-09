@@ -17,7 +17,7 @@ import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, w
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import type { Theme } from '@/theme';
-import type { PluginScreenTone } from '@trymuxr/contract';
+import type { ScreenTone } from '@trymuxr/contract';
 import { toneColor } from '@/usage/domain/usageTone';
 
 export const ui = {
@@ -94,7 +94,7 @@ export function Meter({ ratio, emphasis = 1, delay = 0, marker, style }: { ratio
  */
 export function Notice({ tone, text, style }: { tone: 'positive' | 'warning' | 'danger'; text: string; style?: StyleProp<ViewStyle> }) {
     const { theme } = useUnistyles();
-    const dot = toneColor(theme, tone as PluginScreenTone);
+    const dot = toneColor(theme, tone as ScreenTone);
     const divider = text.indexOf(' · ');
     return (
         <View style={[{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 }, style]}>

@@ -154,7 +154,6 @@ Tap the mic in the composer and speak. In the app, speech is transcribed on your
 - **Files, attachments, and changes** — inspect files on your computer, diffs, and agent outputs from your phone; download an agent's Shared Artifacts with progress and resume after a lost connection. On web, a download finished in the background offers **Save** when you return.
 - **Settings** — under Appearance, choose a theme, terminal text size, and terminal colors; the browser terminal also offers System or IBM Plex Mono. Gestures lists terminal actions and the swipe and zoom choices. Under Notifications, choose alerts for agents needing you or finishing; enable browser notifications in the web app or manage permission and sound in your phone's system settings.
 - **Desktop control** — see **Peek at your computer** above. Remote desktop works on Linux x64 hosts and macOS arm64; other Arm servers need the engine built from source. A Linux cloud server needs the virtual-display packages once. Android, iOS and web have desktop clients. [Remote desktop setup and limits](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server) · [Host engine](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/README.md)
-- **[Extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 
 Relay alerts on a sleeping native app show “Agent update”; the agent's name and its question appear once the app runs. Browser alerts can show them before you open the app. If an alert belongs to another computer, tapping it opens Settings so you can select that computer.
 
@@ -223,12 +222,6 @@ A successful refresh on the new-agent screen clears open agent details; tap a ca
   <img src="docs/agents/icons/agent-grid-light.svg#gh-light-mode-only" width="760" alt="Pi, OMP, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes Agent, Amp, Factory Droid, Devin, Cline, Kiro, Kilo Code, Qoder CLI, Antigravity, MastraCode, Maki, and Shell" />
   <img src="docs/agents/icons/agent-grid-dark.svg#gh-dark-mode-only" width="760" alt="Pi, OMP, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes Agent, Amp, Factory Droid, Devin, Cline, Kiro, Kilo Code, Qoder CLI, Antigravity, MastraCode, Maki, and Shell" />
 </p>
-
-## Extensions
-
-Add phone-native controls, screens, files, diffs, metrics, and shortcuts through the public extension API.
-
-[Extension guide →](https://trymuxr.com/docs/plugins)
 
 ## Development
 
