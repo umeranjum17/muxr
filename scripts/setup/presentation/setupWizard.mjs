@@ -364,7 +364,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         mode = await select('How will your phone reach this computer?', connectionPrompt, connectionInitial);
         if (mode === 'other') {
             note(vpnNote);
-            mode = await select('Other ways', connectionChoices.filter((choice) => choice !== recommended), -1);
+            mode = await select('Other ways', [recommended, ...connectionChoices.filter((choice) => choice !== recommended)], -1);
         }
 
     }

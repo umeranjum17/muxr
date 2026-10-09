@@ -218,9 +218,6 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     const info = lstatSync(socketPath);
     if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0) throw new Error('unsafe pairing socket');
     if (signal?.aborted) throw new Error('pairing cancelled');
-    // The local QR page is the offer's scannable fallback where no QR fits the terminal.
-    const page = process.stdout.isTTY && intent.kind === 'native' ? await startPairingPage() : undefined;
-    if (signal?.aborted) { await page?.close(); throw new Error('pairing cancelled'); }
     const socket = createConnection(socketPath);
     socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind: intent.kind, authority: intent.authority, personal: intent.personal },
         // A lab shell (HERDR_SESSION set) must never pair a host serving the live session.
@@ -228,48 +225,55 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     let input = '';
     let latest;
     let altScreen = false;
+    // The local QR page is the offer's scannable fallback, started only when an offer has no QR that fits.
+    let page;
+    let queue = Promise.resolve();
+    let settle;
+    const pairing = new Promise((resolve, reject) => { settle = { resolve, reject }; });
     const leaveAltScreen = () => {
         if (altScreen) process.stdout.write(ALT_SCREEN_OFF);
         altScreen = false;
     };
-    const onResize = () => { if (altScreen) drawOffer(latest, intent, page?.url); };
+    const showOffer = async (offer) => {
+        latest = offer;
+        if (page === undefined && process.stdout.isTTY && intent.kind === 'native' && offerCode(offer, intent) === undefined) page = await startPairingPage();
+        page?.update(offer);
+        if (richTerminal() && !altScreen) {
+            process.stdout.write(ALT_SCREEN_ON);
+            altScreen = true;
+        }
+        drawOffer(offer, intent, page?.url);
+    };
+    // Events run one at a time in arrival order, so a page start cannot draw an offer after the approval has left the alternate screen.
+    const enqueue = (task) => { queue = queue.then(task).catch(settle.reject); };
+    const receive = (event) => {
+        if (event.offer) return showOffer(event.offer);
+        if (event.approval) {
+            leaveAltScreen();
+            void Promise.resolve(approve(event.approval)).then((yes) => socket.write(`${JSON.stringify({ yes })}\n`), settle.reject);
+        } else if (event.error) settle.reject(new Error(event.error));
+        else if (event.result) settle.resolve(event.result);
+    };
+    const onResize = () => { if (altScreen) enqueue(() => showOffer(latest)); };
     const onInterrupt = () => process.exit(130);
     process.on('exit', leaveAltScreen);
     process.on('SIGINT', onInterrupt);
     process.stdout.on('resize', onResize);
     const cancel = () => socket.write('{"cancel":true}\n');
     signal?.addEventListener('abort', cancel, { once: true });
+    socket.on('error', settle.reject);
+    socket.on('close', () => settle.reject(new Error('running host stopped during pairing')));
+    socket.on('data', (chunk) => {
+        input += chunk.toString('utf8');
+        if (input.length > 4096) { socket.destroy(); return; }
+        const lines = input.split('\n');
+        input = lines.pop() ?? '';
+        for (const line of lines) enqueue(() => receive(JSON.parse(line)));
+    });
     try {
-        return await new Promise((resolve, reject) => {
-            socket.on('error', reject);
-            socket.on('close', () => reject(new Error('running host stopped during pairing')));
-            socket.on('data', (chunk) => {
-                input += chunk.toString('utf8');
-                if (input.length > 4096) { socket.destroy(); return; }
-                const lines = input.split('\n');
-                input = lines.pop() ?? '';
-                for (const line of lines) {
-                    try {
-                        const event = JSON.parse(line);
-                        if (event.offer) {
-                            latest = event.offer;
-                            page?.update(event.offer);
-                            if (richTerminal() && !altScreen) {
-                                process.stdout.write(ALT_SCREEN_ON);
-                                altScreen = true;
-                            }
-                            drawOffer(event.offer, intent, page?.url);
-                        } else if (event.approval) {
-                            leaveAltScreen();
-                            void Promise.resolve(approve(event.approval)).then((yes) => socket.write(`${JSON.stringify({ yes })}\n`), reject);
-                        }
-                        else if (event.error) reject(new Error(event.error));
-                        else if (event.result) resolve(event.result);
-                    } catch (error) { reject(error); }
-                }
-            });
-        });
+        return await pairing;
     } finally {
+        await queue;
         leaveAltScreen();
         process.off('exit', leaveAltScreen);
         process.off('SIGINT', onInterrupt);
@@ -379,20 +383,26 @@ function wrappedRows(line) {
     return Math.max(1, Math.ceil([...line].length / terminalColumns()));
 }
 
-/** The QR and the pairing string are one offer: the full v1 where its QR and string both fit, else the compact offer at the full quiet zone, else at a two-module zone. Undefined when no QR fits, the string then prints alone. */
-function offerCode(offer, compact) {
-    const compactExpires = offer.compactExpires ?? offer.expires;
+/** The compact offer's token and expiry, native offers only. */
+function compactOffer(offer, intent) {
+    if (intent.kind !== 'native' || typeof offer.compactText !== 'string') return undefined;
+    return { text: offer.compactText, expires: offer.compactExpires ?? offer.expires };
+}
+
+/** The QR and the pairing string are one offer: the full v1 where its QR and string both fit, else the compact offer at the full quiet zone, else at a two-module zone. Undefined when no QR fits. */
+function offerCode(offer, intent) {
+    const compact = compactOffer(offer, intent);
     const candidates = [{ text: offer.text, expires: offer.expires, border: 4 }];
-    if (compact !== undefined) candidates.push({ text: compact, expires: compactExpires, border: 4 }, { text: compact, expires: compactExpires, border: 2 });
+    if (compact !== undefined) candidates.push({ ...compact, border: 4 }, { ...compact, border: 2 });
     return candidates.find((code) => qrFits(code.text, wrappedRows(code.text), code.border));
 }
 
-/** Draw the offer from the top: the QR whole, then the pairing string, then the text lines in priority order while the rows left over hold them. Where no QR fits, the string is followed by one line opening the local QR page, which carries the same token. */
+/** Draw the offer from the top: the QR whole, then the pairing string, then the text lines in priority order while the rows left over hold them. Where no QR fits the string is the compact token, followed by one line opening the local QR page, which carries the same token. */
 function drawOffer(offer, intent, pageUrl) {
-    const compact = intent.kind === 'native' && typeof offer.compactText === 'string' ? offer.compactText : undefined;
-    const code = offerCode(offer, compact);
-    const token = code?.text ?? offer.text;
-    const expires = code?.expires ?? offer.expires;
+    const code = offerCode(offer, intent);
+    const printed = code ?? (richTerminal() ? compactOffer(offer, intent) : undefined) ?? { text: offer.text, expires: offer.expires };
+    const token = printed.text;
+    const expires = printed.expires;
     const title = intent.kind === 'browser'
         ? `Pair a ${intent.authority === 'observe' ? 'view-only' : 'control'} browser for ${intent.grantDurationLabel()}. Keep the code private.`
         : 'Pair your phone. Keep the code private.';

@@ -126,9 +126,9 @@ async function checkWizard() {
             assert.deepEqual(answers, [], 'Wizard skipped an expected prompt');
             return output;
         };
-        const recommended = (transcript, title) => {
+        const recommended = (transcript, title, count = 1) => {
             const lines = transcript.split('\n').filter((line) => line.includes('· Recommended'));
-            assert.equal(lines.length, 1, 'Route picker must emit exactly one recommendation');
+            assert.equal(lines.length, count, 'Route picker must emit exactly one recommendation per screen');
             assert.ok(lines[0].includes(title), `Expected ${title}: ${lines[0]}`);
         };
 
@@ -151,8 +151,8 @@ async function checkWizard() {
         }
         // Through Other ways the hidden routes are all reachable, and leaving
         // by the same route review mutates nothing.
-        const alternatives = await run(['2', '1', '1', '1']);
-        recommended(alternatives, 'Use muxr away from home (Tailscale)');
+        const alternatives = await run(['2', '2', '1', '1']);
+        recommended(alternatives, 'Use muxr away from home (Tailscale)', 2);
         for (const title of ['Use muxr away from home — phone only (Tailscale)', 'Use muxr away from home (private network)', 'Works only on this Wi-Fi', 'Use muxr away from home (temporary link)', 'Use muxr away from home (your own server)']) {
             assert.ok(alternatives.includes(title), `Missing route behind Other ways: ${title}`);
         }
