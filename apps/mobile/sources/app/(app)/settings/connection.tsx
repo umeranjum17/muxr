@@ -116,6 +116,19 @@ const routeDetails: Record<string, string> = {
     remote: 'For a computer joining a relay managed elsewhere: this machine dials out to it.',
 };
 
+/** The browser grant's end as a plain local time: a clock time when it ends
+ *  today, and a short date before the time when it ends on another day. */
+function grantExpiryText(expiresAt: number, now: number): string {
+    const end = new Date(expiresAt);
+    const today = new Date(now);
+    const time = end.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    const endsToday = end.getFullYear() === today.getFullYear()
+        && end.getMonth() === today.getMonth()
+        && end.getDate() === today.getDate();
+    if (endsToday) return time;
+    return `${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${time}`;
+}
+
 function Field(props: {
     label: string;
     value: string;
@@ -556,7 +569,7 @@ export default function ConnectionSettingsScreen() {
         const route = knownRoute ?? describeRoute(initial.relayUrl) ?? 'Unknown';
         const routeDetail = mode !== undefined && routeDetails[mode] !== undefined
             ? routeDetails[mode]
-            : 'The host has not reported its selected route; this label is inferred from the relay address.';
+            : 'The name shown comes from the computer’s connection address.';
         const pairedDeviceCount = status === 'connected' && hostRefresh === 'ready' ? machine?.metadata?.pairedDeviceCount : undefined;
         let pairedCountText: string;
         if (status !== 'connected') pairedCountText = 'Count unavailable while disconnected. Run muxr devices list on the computer.';
@@ -565,19 +578,26 @@ export default function ConnectionSettingsScreen() {
         else if (pairedDeviceCount === undefined) pairedCountText = 'This host has not reported a count. Run muxr devices list on the computer.';
         else pairedCountText = `${pairedDeviceCount} paired at last check`;
         const statusSubtitle = connectionStatusSubtitle({ status, socketError, latestFailure, hostRefresh, herdrRuntime });
-        let routeTitle = 'Route from relay address';
+        let routeTitle = 'Connection name';
         if (knownRoute !== undefined) routeTitle = status === 'connected' && hostRefresh === 'ready' ? 'Current route' : 'Last reported route';
-        let trust = 'No active device grant is available here. Pair again on the computer to restore access.';
+        let trust = Platform.OS === 'web'
+            ? 'This browser has no access now. Pair again on the computer.'
+            : 'This phone has no access now. Pair again on the computer.';
         if (currentGrant !== undefined && !(Platform.OS === 'web' && browserExpiresAt !== undefined && browserExpiresAt <= clock)) {
-            const role = Platform.OS === 'web' ? browserRole : currentGrant.authority === 'observe' ? 'View only' : 'Control';
-            trust = `${role} access is bound to this device. The host requires its credential; agent data stays end-to-end encrypted.`;
+            const device = Platform.OS === 'web' ? 'browser' : 'phone';
+            const canControl = Platform.OS === 'web' ? browserRole === 'Control' : currentGrant.authority !== 'observe';
+            trust = canControl
+                ? `This ${device} can control your computer.`
+                : `This ${device} can view your computer but not control it.`;
         } else if (grantRefresh === 'loading') trust = 'Checking the saved device grant…';
         else if (grantRefresh === 'failed') trust = 'Could not read this device’s grant. Reopen the screen or pair again on the computer.';
         let browserAccess = 'No active browser grant. Pair again on the computer.';
+        const browserAction = browserRole === 'Control' ? 'control' : 'view';
         if (browserGrant !== undefined && browserExpiresAt !== undefined && browserExpiresAt > clock) {
-            const minutes = Math.ceil((browserExpiresAt - clock) / 60_000);
-            browserAccess = `${browserRole} · expires in ${Math.floor(minutes / 60)}h ${minutes % 60}m · ${new Date(browserExpiresAt).toLocaleString()}`;
-        } else if (browserGrant !== undefined && browserExpiresAt === undefined) browserAccess = `${browserRole} · pair again every eight hours`;
+            browserAccess = `Browser can ${browserAction} until ${grantExpiryText(browserExpiresAt, clock)}`;
+        } else if (browserGrant !== undefined && browserExpiresAt !== undefined) {
+            browserAccess = 'Browser access expired. Pair again on the computer.';
+        } else if (browserGrant !== undefined) browserAccess = `Browser can ${browserAction}; pair again every eight hours`;
         else if (grantRefresh === 'loading') browserAccess = 'Checking the saved browser grant…';
         else if (grantRefresh === 'failed') browserAccess = 'Could not read the browser grant. Reopen the screen or pair again.';
         const changeRoute = async () => {
@@ -610,7 +630,7 @@ export default function ConnectionSettingsScreen() {
                     <Item title="Privacy" subtitle={transportPrivacy} subtitleLines={0} />
                     <Item title="Technical details" subtitle={showDetails ? `Relay address: ${initial.relayUrl}` : 'Show the relay address'} subtitleLines={0} onPress={() => setShowDetails((open) => !open)} />
                     <Item title="Trust on this device" subtitle={trust} subtitleLines={0} />
-                    <Item title="Paired phones & browsers" subtitle={pairedCountText} subtitleLines={0} />
+                    <Item title="Paired phones & browsers" subtitle={pairedCountText} subtitleLines={0} titleLines={0} />
                     {Platform.OS === 'web' && <Item title="Browser access" subtitle={browserAccess} subtitleLines={0} />}
                 </ItemGroup>
 
