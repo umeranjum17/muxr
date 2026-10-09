@@ -10,7 +10,9 @@ gives the other account when the new one takes a name already in use
 ## Sub-features
 
 - `accounts-add` Add a Claude account › Open Claude sign-in › name sheet › Save.
-- `accounts-added-notice` the notice's names equal the list's names.
+- `accounts-added-notice` the notice's names equal the list's names, and at the
+  largest text size the whole notice reads (detail wrapped or scrolled) while the
+  account list below stays visible.
 - `accounts-signin-states` in-progress banner, cancel, refusal, re-sign-in without the name step.
 - `accounts-remove` row › Remove › Remove resets to one account.
 
@@ -47,9 +49,17 @@ Preconditions:
   `xcrun simctl io <udid> recordVideo`, tap `Save`,
   and screenshot at leisure: the notice stays up until it is tapped (no timer).
   On builds before PR #680 it dismissed after 3.2 s, so capture within a second
-  there. Stop the recording with SIGINT after the list capture. `axe describe-ui`
+  there.   Stop the recording with SIGINT after the list capture. `axe describe-ui`
   reads both surfaces as text: the notice is one button labelled
   `Added Umer. Claude accounts: …`, each row `<name>, <email>, …`.
+- **Largest text size.** Repeat the add with the simulator at the largest
+  accessibility content size (`xcrun simctl ui <udid> content_size
+  accessibility-extra-extra-extra-large`, the AX5 slot) and a long account name
+  (e.g. `Umer Work Eastern Region Client Projects`) so the `Added …` title wraps
+  across lines. The notice must show its whole `Claude accounts: …` line — wrap it
+  or scroll the card, never ellipsize — and the account list must stay visible
+  below the notice, with its rows reachable. Reset the content size to `large`
+  afterwards.
 - **Sign-in states.** The lab prints its `lab home`. While `signin-hold` exists
   there the stand-in's sign-in stays open, so the tab shows the `Signing in …`
   banner with `Cancel`; removing it finishes the sign-in, and with `signin-fail`
