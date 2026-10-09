@@ -27,9 +27,11 @@ export function createWorld({
     agents = 4,
     cwd = '/tmp/fake-herdr',
     terminalBytesPerSecond = 4096,
+    emptyPanes = 0,
 } = {}) {
     const paneCount = Math.max(0, Number(panes) || 0);
     const agentCount = Math.min(paneCount, Math.max(0, Number(agents) || 0));
+    const emptyCount = Math.max(0, Number(emptyPanes) || 0);
     const workspace = {
         workspace_id: 'w1',
         label: cwd,
@@ -73,6 +75,9 @@ export function createWorld({
             workspace_id: 'w1',
             cwd,
             foreground_cwd: cwd,
+            // A pane whose screen carries nothing: it lets a lab stand in for a
+            // pane that has not printed yet, or whose output has ended.
+            ...(index < emptyCount ? { empty: true } : {}),
             ...(isAgent ? { agent_status: 'idle' } : {}),
             terminal_title: title,
             terminal_title_stripped: title,

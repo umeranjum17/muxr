@@ -11,8 +11,12 @@
 
 import * as React from 'react';
 import { AppState, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { sync } from '@/catalog/sync';
+import { withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
+import { t } from '@/text';
 import { beginPaneSnapshotRead, rememberPaneSnapshot } from '../application/paneSnapshots';
 
 // ponytail: fixed interval, no backoff. Make it adaptive if tile counts grow
@@ -50,7 +54,12 @@ export const TerminalPreview = React.memo((props: {
      *  terminal-dark: dimming the whole tile let a light page through it. */
     dimmed?: boolean;
 }) => {
+    const { theme } = useUnistyles();
     const [text, setText] = React.useState('');
+    // What the tile knows about its text: it starts not knowing, becomes ready
+    // or empty on the first answer, and a later failure keeps whatever it last
+    // held so a pane that goes quiet does not lose its frame.
+    const [phase, setPhase] = React.useState<TerminalPreviewState['kind']>('loading');
     const maxLines = props.maxLines ?? MAX_LINES;
     const nonEmpty = props.nonEmpty === true;
     const onStateRef = React.useRef(props.onState);
@@ -70,11 +79,14 @@ export const TerminalPreview = React.memo((props: {
                     if (!alive) return;
                     const next = tail(rememberPaneSnapshot(props.sessionId, result.text, order), maxLines, nonEmpty);
                     setText(next);
+                    setPhase(next === '' ? 'empty' : 'ready');
                     onStateRef.current?.(next === '' ? { kind: 'empty', at: Date.now() } : { kind: 'ready', at: Date.now() });
                 })
                 .catch(() => {
                     /* pane gone or host busy -- keep the last frame */
-                    if (alive) onStateRef.current?.({ kind: 'failed' });
+                    if (!alive) return;
+                    setPhase((held) => (held === 'ready' ? 'ready' : 'failed'));
+                    onStateRef.current?.({ kind: 'failed' });
                 });
         };
 
@@ -103,6 +115,27 @@ export const TerminalPreview = React.memo((props: {
             subscription.remove();
         };
     }, [props.live, props.paused, props.sessionId, maxLines, nonEmpty]);
+
+    // No frame to show: a black tile with nothing in it reads as broken, so an
+    // honest empty state stands in -- a calm surface, and once the read has
+    // answered, a plain line saying there is nothing yet and why. A tile that
+    // has never answered stays quiet until it knows.
+    if (text === '') {
+        const explained = phase === 'empty' || phase === 'failed';
+        return (
+            <View
+                style={{ flex: 1, backgroundColor: theme.colors.surfaceHigh, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, gap: 6 }}
+                pointerEvents="none"
+            >
+                <Ionicons name="terminal-outline" size={22} color={withAlpha(theme.colors.textSecondary, 0.5)} />
+                {explained && (
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 11, lineHeight: 15, textAlign: 'center' }}>
+                        {t('liveTerminals.previewEmpty')}
+                    </Text>
+                )}
+            </View>
+        );
+    }
 
     // A terminal's live edge is its bottom: the newest line, the question an
     // agent is waiting on, the prompt. Pinned there, a tile that holds fewer
