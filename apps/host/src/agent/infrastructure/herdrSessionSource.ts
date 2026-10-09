@@ -93,12 +93,14 @@ const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
-const BROWSER_GUIDANCE = ' Run browsers headed (not headless).';
+const HEADED_BROWSER = ' Run browsers headed (not headless).';
+const HEADLESS_BROWSER = ' Browser: this host has no desktop session, so run browsers headless; Computer cannot show them.';
 const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.";
 
 /**
- * Provider-neutral hint inherited by every pane muxr creates through Herdr.
- * Pages open on the host's normal desktop, viewed through Computer.
+ * Every new pane uses the host's desktop, even if Herdr started elsewhere.
+ * Pages open on that desktop, viewed through Computer; a screenless host has
+ * none, so its panes are told to run browsers headless.
  *
  * Test isolation pass-through: when the host itself runs with
  * PI_CODING_AGENT_DIR set (diagnostics that launch a real pi point it at a
@@ -107,19 +109,15 @@ const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pa
  * user's real ~/.pi/agent. Unset in production, so production panes behave
  * exactly as before.
  */
-export const MUXR_AGENT_ENV = {
-    MUXR_AGENT_CAPABILITIES: `${DESKTOP_BROWSER}${BROWSER_GUIDANCE}${ARTIFACT_GUIDANCE}`,
-} as const;
-
-/** Every new pane uses the host's desktop, even if Herdr started elsewhere. */
 function paneEnvironment(): Record<string, string> {
     const agentDir = process.env.PI_CODING_AGENT_DIR?.trim();
     const desktopEnv = Object.fromEntries(
         ['DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'XDG_SESSION_TYPE']
             .flatMap((name) => process.env[name] === undefined ? [] : [[name, process.env[name]!]]),
     );
+    const browser = desktopEnv.DISPLAY || desktopEnv.WAYLAND_DISPLAY ? `${DESKTOP_BROWSER}${HEADED_BROWSER}` : HEADLESS_BROWSER;
     return {
-        ...MUXR_AGENT_ENV,
+        MUXR_AGENT_CAPABILITIES: `${browser}${ARTIFACT_GUIDANCE}`,
         ...desktopEnv,
         ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),
     };
