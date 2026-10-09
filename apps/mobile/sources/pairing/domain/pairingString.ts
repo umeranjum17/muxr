@@ -65,6 +65,9 @@ export function decidePairingInput(value: string): PairingInputDecision {
 /** A pairing this code can no longer finish: the next step is a new code from the computer, not a retry. */
 export class PairingNeedsNewCode extends Error {}
 
+/** Where a pairing offer came from: the OS redelivering a link intent, or the person typing, pasting, or scanning it. */
+export type PairArrivalSource = 'intent' | 'user';
+
 /** Unwrap only the registered app schemes or an HTTPS /pair link; byokit validates the offer itself. Inner whitespace (terminal wrapping, retype gaps) is stripped: it can never be part of an offer. */
 export function linkOfferFromUrl(value: string): string | undefined {
     const input = value.replace(/\s+/g, '');
