@@ -745,6 +745,7 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
 });
 
 describe('panes share the host desktop selection', () => {
+    // Env-only by construction: no X socket can influence the pane predicate, so the socket case is not tested here.
     it('gives panes the X display the host selected, and no screen on a host with none', () => {
         expect(hostDesktopForPanes({ MUXR_DESKTOP_SOURCE: 'x11', MUXR_DESKTOP_X11_DISPLAY: ':99' })).toEqual({ screen: true, x11Display: ':99' });
         expect(hostDesktopForPanes({})).toEqual({ screen: false });

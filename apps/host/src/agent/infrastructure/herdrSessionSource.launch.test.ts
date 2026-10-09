@@ -445,7 +445,8 @@ describe('new panes share the host desktop', () => {
             hostHttpPort: 0,
         });
         const checkDesktop = (env: unknown) => {
-            expect(env).toMatchObject({ DISPLAY: ':42', WAYLAND_DISPLAY: 'wayland-lab' });
+            expect(env).toMatchObject({ DISPLAY: ':42' });
+            expect(env).not.toHaveProperty('WAYLAND_DISPLAY');
             const values = env as Record<string, string>;
             expect(values.MUXR_AGENT_CAPABILITIES).toContain("that desktop's browser");
             expect(values.MUXR_AGENT_CAPABILITIES).not.toContain('own screen');
