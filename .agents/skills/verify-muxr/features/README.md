@@ -60,6 +60,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   standalone-window PWA over the owned relay serving `dist`: boot-registered
   worker, versioned shell, offline reload, self-recovery, and a build update.
 
+- [See the themed splash on a cold PWA start](./pwa-splash.md) —
+  standalone-window PWA over a static `dist`: no-JS first paint, throttled cold
+  start in both themes at 393 and 270 px, offline hand-off, native comparison.
+
 - [Share a file into a pane's Shared Artifacts](./shared-artifact.md) —
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
   versioned page shares and their refusals, and the retention view of the
