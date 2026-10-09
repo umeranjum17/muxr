@@ -53,12 +53,11 @@ export const VIEWPORT = '<meta name="viewport" content="width=device-width, init
 // (app.config.js light #F2F2F7); dark matches the native dark splash (#000000).
 export const SPLASH_LIGHT_BACKGROUND = '#F2F2F7';
 export const SPLASH_DARK_BACKGROUND = '#000000';
-// Match the native launch splash the way the device actually draws it: on the
-// reference Android phone (1080px at 420dpi, 411dp) the native mark measured
-// 76px wide (7.0% of the screen, ~29dp). The imageWidth is 100dp and the
-// wordmark is ~29% of that, so the mark is a fixed ~29dp; the 288dp splash
-// canvas only clamps it on viewports narrower than that, hence the vw term.
-export const SPLASH_MARK_WIDTH = 'min(10.2vw,29px)';
+// Match the native launch splash's on-screen proportion: on Android the splash
+// art is cropped tight to the wordmark and imageWidth is 120dp, so the mark is
+// ~29% of a phone screen width. The mark is a fixed dp size, so the px cap
+// keeps it from growing without bound on wide screens.
+export const SPLASH_MARK_WIDTH = 'min(29vw,240px)';
 const SPLASH_STYLE_START = '<!-- muxr:web-splash-style -->';
 const SPLASH_STYLE_END = '<!-- /muxr:web-splash-style -->';
 const SPLASH_MARK_START = '<!-- muxr:web-splash-mark -->';
