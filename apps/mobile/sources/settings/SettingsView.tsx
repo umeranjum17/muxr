@@ -348,7 +348,7 @@ export const SettingsView = React.memo(function SettingsView({
                     onPress={() => { Modal.show({ component: HerdrInfoSheet, align: 'bottom' }); }}
                 />
             </ItemGroup>
-            <ItemGroup title="App and plugins">
+            <ItemGroup title="App">
                 <Item
                     title={t('usage.title')}
                     subtitle="Tokens, cost and plan limits for this computer"
