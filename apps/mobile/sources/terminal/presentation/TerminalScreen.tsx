@@ -151,8 +151,8 @@ const RAIL_FADE = 32;
  */
 const SCROLLED_AWAY = new Set<string>();
 /** What the terminal answers for the program unasked: focus, cursor, mode, colour and mouse reports. */
-/** The menu row that opens a pane's preview, per kind. */
-const WATCH_LABEL = { browser: 'preview.watchBrowser', android: 'preview.watchAndroid', ios: 'preview.watchIos' } as const;
+/** The menu row that opens a pane's device preview, per kind. */
+const WATCH_LABEL = { android: 'preview.watchAndroid', ios: 'preview.watchIos' } as const;
 const TERMINAL_REPLY = /^\u001b(?:\[[IO]$|\[[?>]?[\d;$]*[cRnty]$|\[\?[\d;]*u$|[\]P]|\[<|\[M)/;
 const DesktopSurface = React.lazy(async () => ({ default: (await import('@/desktop')).DesktopSurface }));
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
@@ -212,7 +212,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     }), [insets.bottom]);
     const session = useSession(props.id);
     const sessionError = useSessionError(props.id);
-    // The agent's browser stays on screen as it closes, so the view can say so.
+    // The agent's device preview stays on screen as it closes, so the view can say so.
     const livePreview = session?.metadata?.preview;
     const lastPreview = React.useRef(livePreview);
     if (livePreview !== undefined) lastPreview.current = livePreview;
@@ -463,7 +463,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         return () => clearTimeout(timer);
     }, [status]);
 
-    // An agent's browser or emulator the host can show.
+    // An agent's emulator or simulator the host can show.
     const preview = usePreviewGate(props.id, session?.metadata?.preview, {
         showable: desktopAvailable && !authorityLoading,
         live: shownStatus === 'live',

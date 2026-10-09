@@ -427,7 +427,7 @@ it('gives the phone its orientation back however Computer is left', async () => 
     }
 });
 
-it("watches an agent's browser, takes control only on a tap, and says when it closes", async () => {
+it("watches an agent's emulator, takes control only on a tap, and says when it closes", async () => {
     session.snapshot.status = 'live';
     inputEnabled = false;
     hostRequests.length = 0;
@@ -437,19 +437,19 @@ it("watches an agent's browser, takes control only on a tap, and says when it cl
     const has = (label: string) => root().findAllByProps({ accessibilityLabel: label }).length > 0;
     const press = async (label: string) => TestRenderer.act(async () => root().findAllByProps({ accessibilityLabel: label }).at(-1)!.props.onPress());
     const show = async (target: { closed?: boolean; title?: string }) => TestRenderer.act(async () => view.update(
-        <DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser', ...target }} />,
+        <DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android', ...target }} />,
     ));
 
-    // The desktop's tap never opens the agent's browser, and the other way round.
+    // The desktop's tap never opens the agent's emulator, and the other way round.
     requestDesktop('computer', 'P');
     session.connect.mockClear();
-    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser' }} />); });
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android' }} />); });
     expect(session.connect).not.toHaveBeenCalled();
     await TestRenderer.act(async () => view.unmount());
 
     // Watch: it opens that session's own screen, and watching sends nothing.
     requestDesktop('computer', 'P', true);
-    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser', title: 'Pricing' }} />); });
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android', title: 'Pricing' }} />); });
     expect(session.connect).toHaveBeenCalledTimes(1);
     expect(hostRequests).toContainEqual(['desktop.capabilities', { target: { sessionId: 'P' } }]);
     expect(inputEnabled).toBe(false);
@@ -459,20 +459,20 @@ it("watches an agent's browser, takes control only on a tap, and says when it cl
     // the same stream keeps running, nothing closes and nothing reopens.
     session.close.mockClear();
     screenWidth = 1080;
-    await TestRenderer.act(async () => view.update(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser', title: 'Pricing' }} />));
+    await TestRenderer.act(async () => view.update(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android', title: 'Pricing' }} />));
     expect(session.connect).toHaveBeenCalledTimes(1);
     expect(session.close).not.toHaveBeenCalled();
     screenWidth = 270;
-    await TestRenderer.act(async () => view.update(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser', title: 'Pricing' }} />));
+    await TestRenderer.act(async () => view.update(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android', title: 'Pricing' }} />));
     expect(session.connect).toHaveBeenCalledTimes(1);
     expect(session.close).not.toHaveBeenCalled();
 
-    // Back is a deliberate tap: it takes control as it sends Alt+Left.
+    // Back is a deliberate tap: it takes control as it sends Ctrl+Backspace.
     session.send.mockClear();
     await press('Back');
     expect(session.send.mock.calls.map(([message]) => message)).toEqual([
-        { kind: 'key', name: 'ArrowLeft', modifiers: ['Alt'], down: true },
-        { kind: 'key', name: 'ArrowLeft', modifiers: ['Alt'], down: false },
+        { kind: 'key', name: 'Backspace', modifiers: ['Control'], down: true },
+        { kind: 'key', name: 'Backspace', modifiers: ['Control'], down: false },
     ]);
     expect(has('Hand back')).toBe(true);
     await press('Hand back');
@@ -481,9 +481,9 @@ it("watches an agent's browser, takes control only on a tap, and says when it cl
 
     // The agent navigates: the header follows. Then its window goes away.
     await show({ title: 'Checkout' });
-    expect(has('Browser, Checkout, Live')).toBe(true);
+    expect(has('Android emulator, Checkout, Live')).toBe(true);
     await show({ closed: true, title: 'Checkout' });
-    expect(root().findAll((node) => node.children.includes('The browser closed')).length).toBeGreaterThan(0);
+    expect(root().findAll((node) => node.children.includes('The emulator closed')).length).toBeGreaterThan(0);
     expect(has('Tap to take control')).toBe(false);
 
     // The agent is back with another window: watching resumes on its own, still without control.
@@ -494,7 +494,7 @@ it("watches an agent's browser, takes control only on a tap, and says when it cl
     expect(inputEnabled).toBe(false);
     session.snapshot.status = 'live';
     await show({ title: 'Docs' });
-    expect(has('Browser, Docs, Live')).toBe(true);
+    expect(has('Android emulator, Docs, Live')).toBe(true);
     expect(has('Tap to take control')).toBe(true);
 
     await press('Back to the conversation');
@@ -502,7 +502,7 @@ it("watches an agent's browser, takes control only on a tap, and says when it cl
     await TestRenderer.act(async () => view.unmount());
 });
 
-it('lets a watch-paired phone see the browser but never drive it', async () => {
+it('lets a watch-paired phone see the emulator but never drive it', async () => {
     available = true;
     keyboardVisible = false;
     session.snapshot.status = 'live';
@@ -516,7 +516,7 @@ it('lets a watch-paired phone see the browser but never drive it', async () => {
     const has = (label: string) => root().findAllByProps({ accessibilityLabel: label }).length > 0;
 
     requestDesktop('computer', 'P', true);
-    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser', title: 'Pricing', viewOnly: true }} />); });
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android', title: 'Pricing', viewOnly: true }} />); });
     expect(session.connect).toHaveBeenCalledTimes(1);
     // The host is asked for this session's screen, and the phone gets no clipboard: it can see, not use.
     expect(hostRequests).toContainEqual(['desktop.capabilities', { target: { sessionId: 'P' } }]);
@@ -528,7 +528,7 @@ it('lets a watch-paired phone see the browser but never drive it', async () => {
     // The toolbar reads as out of service, and there is no keyboard to open.
     expect(root().findAllByProps({ accessibilityLabel: 'Back' }).at(-1)!.props.disabled).toBe(true);
     expect(has('Keyboard')).toBe(false);
-    await TestRenderer.act(async () => root().findAllByProps({ accessibilityLabel: 'Browser actions' }).at(-1)!.props.onPress());
+    await TestRenderer.act(async () => root().findAllByProps({ accessibilityLabel: 'Android emulator actions' }).at(-1)!.props.onPress());
     expect(has('Clipboard')).toBe(false);
     expect(has('Close')).toBe(true);
     await TestRenderer.act(async () => root().findAllByProps({ accessibilityLabel: 'Close menu' }).at(-1)!.props.onPress());

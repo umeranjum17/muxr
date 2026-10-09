@@ -31,7 +31,7 @@ vi.mock('@/text', async () => {
     return { t };
 });
 
-type Presence = { kind: 'browser' | 'android'; title?: string; since: number };
+type Presence = { kind: 'android' | 'ios'; title?: string; since: number };
 
 let live = true;
 let preview: Presence | undefined;
@@ -58,11 +58,11 @@ type Node = {
 
 it('keeps a stale chip honest when the link drops, and takes it away when the drop outlasts the reconnect', async () => {
     vi.useFakeTimers();
-    preview = { kind: 'browser', title: 'Pricing', since: 4_000 };
+    preview = { kind: 'android', title: 'Pixel 8', since: 4_000 };
     let view!: ReturnType<typeof TestRenderer.create>;
     const update = async () => TestRenderer.act(async () => { view.update(<Harness />); });
     const root = () => view.root as unknown as Node;
-    const chip = () => root().findByProps({ accessibilityLabel: 'Browser in use, Pricing. Watch live' });
+    const chip = () => root().findByProps({ accessibilityLabel: 'Android emulator in use, Pixel 8. Watch live' });
     const watchButton = () => root().findAllByProps({ accessibilityLabel: 'Watch' });
     const dot = () => chip().findAllByType('View');
     const ink = () => (typeof chip().props.style === 'function' ? (chip().props.style as PressedStyle)({ pressed: false }) : chip().props.style as { opacity: number });
@@ -76,7 +76,7 @@ it('keeps a stale chip honest when the link drops, and takes it away when the dr
     TestRenderer.act(() => { watchButton()[0]!.props.onPress!(); });
     expect(watched).toHaveBeenCalledTimes(1);
 
-    // The link drops while the host still reports the window: the chip keeps
+    // The link drops while the host still reports the device: the chip keeps
     // its place but dimmed, without the dot and deaf, and the tooltip goes
     // quiet instead of offering Watch against an unreachable host.
     live = false;
@@ -100,7 +100,7 @@ it('keeps a stale chip honest when the link drops, and takes it away when the dr
     await update();
     await TestRenderer.act(async () => { vi.advanceTimersByTime(PREVIEW_DROP_MS); });
     await TestRenderer.act(async () => { vi.advanceTimersByTime(300); });
-    expect(root().findAllByProps({ accessibilityLabel: 'Browser in use, Pricing. Watch live' })).toHaveLength(0);
+    expect(root().findAllByProps({ accessibilityLabel: 'Android emulator in use, Pixel 8. Watch live' })).toHaveLength(0);
 
     // The host vouching again brings the chip back.
     live = true;
