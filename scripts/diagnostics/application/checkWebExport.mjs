@@ -96,8 +96,7 @@ check('no model binaries in public/', publicModels.length === 0, publicModels.sl
 // CanvasKit is lazy (never root-awaited, loaded on first Canvas use), so it
 // is excluded by construction, and lazy chunks (mermaid languages, pdf
 // worker) load on demand. The 2.0 MiB compressed usable-screen target is
-// enforced directly: it was met once Metro's eager __common chunk stopped
-// carrying the diff/mermaid subtrees (shikiSlim.ts, mermaidBundle.ts).
+// not met yet: the ratchet below is pinned above it until the shell splits.
 const distIndex = join(mobile, 'dist', 'index.html');
 if (!existsSync(distIndex)) {
     process.stdout.write('..  dist export absent — skipping dist budget/origin checks (CI exports first)\n');

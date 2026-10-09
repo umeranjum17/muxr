@@ -8,7 +8,11 @@
 import { createBundledHighlighter, createSingletonShorthands, guessEmbeddedLanguages } from '@shikijs/core';
 import type { LanguageRegistration } from '@shikijs/core';
 import { createOnigurumaEngine } from '@shikijs/engine-oniguruma';
-import { bundledLanguages as lazyLanguages } from 'shiki/langs';
+import {
+    bundledLanguagesAlias as lazyAliases,
+    bundledLanguagesBase as lazyBases,
+    bundledLanguagesInfo as lazyInfo,
+} from 'shiki/langs';
 import { bundledThemes } from 'shiki/themes';
 import c from '@shikijs/langs/c';
 import cpp from '@shikijs/langs/cpp';
@@ -45,16 +49,18 @@ export * from '@shikijs/core';
 export { bundledThemes, bundledThemesInfo } from 'shiki/themes';
 export { createJavaScriptRegexEngine } from '@shikijs/engine-javascript';
 export { createOnigurumaEngine } from '@shikijs/engine-oniguruma';
-export { bundledLanguagesAlias, bundledLanguagesBase, bundledLanguagesInfo } from 'shiki/langs';
-
 const eager: Record<string, LanguageRegistration[]> = {
     c, cpp, css, diff, dockerfile, go, graphql, html, ini, java, javascript, json, jsonc, jsx, kotlin, make,
     markdown, php, python, ruby, rust, scss, shellscript, sql, swift, toml, tsx, typescript, xml, yaml,
 };
-const eagerLoaders = Object.fromEntries(
-    Object.entries(eager).map(([id, grammar]) => [id, () => Promise.resolve({ default: grammar })]),
-);
-export const bundledLanguages = { ...lazyLanguages, ...eagerLoaders };
+const eagerLoader = (grammar: LanguageRegistration[]) => () => Promise.resolve({ default: grammar });
+const eagerBases = Object.fromEntries(Object.entries(eager).map(([id, grammar]) => [id, eagerLoader(grammar)]));
+const eagerAliases = Object.fromEntries(Object.entries(eager).flatMap(([id, grammar]) =>
+    (grammar[grammar.length - 1]?.aliases ?? []).map((alias) => [alias, eagerLoader(grammar)])));
+export const bundledLanguagesBase = { ...lazyBases, ...eagerBases };
+export const bundledLanguagesAlias = { ...lazyAliases, ...eagerAliases };
+export const bundledLanguages = { ...bundledLanguagesBase, ...bundledLanguagesAlias };
+export const bundledLanguagesInfo = lazyInfo.map((info) => ({ ...info, import: bundledLanguagesBase[info.id] ?? info.import }));
 
 export const createHighlighter = createBundledHighlighter({
     langs: bundledLanguages,

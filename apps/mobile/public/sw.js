@@ -1,12 +1,13 @@
 importScripts('/pushNotice.bundle.js');
 
-// Offline app shell. The version below is rewritten to the export's hash of the
-// shell and this worker by finalizeWebExport, so a new web build or worker change
-// installs a new worker, precaches the new shell under a new cache name, and
-// deletes the old caches on activate. Only the static shell is ever cached: relay,
-// link and API traffic is not.
+// Offline app shell. The version and the chunk list below are rewritten by
+// finalizeWebExport: the version is the export's hash of the shell, this worker
+// and the chunk list, so a new web build or worker change installs a new worker,
+// precaches the new shell under a new cache name, and deletes the old caches on
+// activate. Only the static shell is ever cached: relay, link and API traffic is not.
 const SHELL_CACHE_PREFIX = 'muxr-shell-';
 const SHELL_VERSION = '__MUXR_SHELL_VERSION__';
+const SHELL_ASSETS = [/*__MUXR_SHELL_ASSETS__*/];
 const SHELL_CACHE = SHELL_CACHE_PREFIX + SHELL_VERSION;
 const SHELL_URL = '/index.html';
 const SHELL_ASSET_PREFIXES = ['/_expo/', '/assets/'];
@@ -56,7 +57,7 @@ async function precacheShell(cache) {
     if (!response || !response.ok) throw new Error('muxr shell fetch failed');
     const html = await response.clone().text();
     await cache.put(SHELL_URL, response);
-    await Promise.all(referencedShellAssets(html).map(async (assetUrl) => {
+    await Promise.all([...new Set([...referencedShellAssets(html), ...SHELL_ASSETS])].map(async (assetUrl) => {
         const asset = await fetch(assetUrl, { cache: 'no-store' });
         if (!isCacheableShellAsset(asset)) throw new Error(`muxr shell asset fetch failed: ${assetUrl}`);
         await cache.put(assetUrl, asset);

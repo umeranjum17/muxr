@@ -27,8 +27,8 @@
  * without a manifest or launch without a splash.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -63,18 +63,36 @@ const SPLASH_STYLE_END = '<!-- /muxr:web-splash-style -->';
 const SPLASH_MARK_START = '<!-- muxr:web-splash-mark -->';
 const SPLASH_MARK_END = '<!-- /muxr:web-splash-mark -->';
 
-// The worker carries this token and the export replaces it with the shell hash.
+// The worker carries these tokens: the export replaces them with the shell hash
+// and with every JS chunk it emitted, so lazy routes and grammars install offline too.
 export const SHELL_VERSION_TOKEN = '__MUXR_SHELL_VERSION__';
+export const SHELL_ASSETS_TOKEN = '/*__MUXR_SHELL_ASSETS__*/';
 
 export function shellVersion(html, worker) {
     return createHash('sha256').update(html).update('\n').update(worker).digest('hex').slice(0, 16);
 }
 
-export function finalizeServiceWorker(source, version) {
-    if (!source.includes(SHELL_VERSION_TOKEN)) {
-        throw new Error('sw.js carries no shell version token; refusing to ship it');
+export function shellAssets(distDir) {
+    const jsDir = join(distDir, '_expo', 'static', 'js');
+    const assets = readdirSync(jsDir, { recursive: true })
+        .filter((name) => name.endsWith('.js'))
+        .map((name) => `/_expo/static/js/${name.split(sep).join('/')}`)
+        .sort();
+    if (assets.length === 0) {
+        throw new Error(`no JS chunks under ${jsDir}; refusing to ship a worker that cannot install offline`);
     }
-    return source.replaceAll(SHELL_VERSION_TOKEN, version);
+    return assets;
+}
+
+export function finalizeServiceWorker(source, version, assets) {
+    for (const token of [SHELL_VERSION_TOKEN, SHELL_ASSETS_TOKEN]) {
+        if (!source.includes(token)) {
+            throw new Error(`sw.js carries no ${token}; refusing to ship it`);
+        }
+    }
+    return source
+        .replaceAll(SHELL_ASSETS_TOKEN, assets.map((asset) => JSON.stringify(asset)).join(', '))
+        .replaceAll(SHELL_VERSION_TOKEN, version);
 }
 
 /**
@@ -152,8 +170,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const finalized = finalizeWebExport(readFileSync(indexPath, 'utf8'), readFileSync(faviconPath, 'utf8'));
     const workerPath = join(dirname(indexPath), 'sw.js');
     const workerSource = readFileSync(workerPath, 'utf8');
-    const version = shellVersion(finalized, workerSource);
+    const assets = shellAssets(dirname(indexPath));
+    const version = shellVersion(finalized, `${workerSource}\n${assets.join('\n')}`);
     writeFileSync(indexPath, finalized);
-    writeFileSync(workerPath, finalizeServiceWorker(workerSource, version));
+    writeFileSync(workerPath, finalizeServiceWorker(workerSource, version, assets));
     process.stdout.write(`finalizeWebExport: install metadata, web splash, and shell version ${version} written\n`);
 }

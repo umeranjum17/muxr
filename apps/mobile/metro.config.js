@@ -40,7 +40,7 @@ const shikiSlimPath = path.resolve(__dirname, 'sources/components/diff/shikiSlim
 
 const baseResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (platform === 'web' && moduleName === 'shiki' && !String(context.originModulePath).includes('shikiSlim')) {
+  if (platform === 'web' && moduleName === 'shiki') {
     return { filePath: shikiSlimPath, type: 'sourceFile' };
   }
   if (moduleName === 'preact') {
