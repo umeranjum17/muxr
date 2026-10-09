@@ -281,9 +281,7 @@ export default function PairScreen() {
                                     <View style={styles.grantBody}>
                                         <Text style={styles.grantText}>{line.text}</Text>
                                         {line.command !== undefined && (
-                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.grantCommandScroll}>
-                                                <Text style={styles.grantCommand} numberOfLines={1} selectable>{line.command}</Text>
-                                            </ScrollView>
+                                            <Text style={styles.grantCommand} selectable>{line.command.replace(/-/g, '\u2011')}</Text>
                                         )}
                                     </View>
                                 </View>
@@ -529,10 +527,6 @@ const styles = StyleSheet.create((theme) => ({
         lineHeight: 20,
         textAlign: 'center',
         color: theme.colors.textSecondary,
-    },
-    grantCommandScroll: {
-        alignSelf: 'stretch',
-        maxWidth: '100%',
     },
     grantCommand: {
         ...Typography.mono(),
