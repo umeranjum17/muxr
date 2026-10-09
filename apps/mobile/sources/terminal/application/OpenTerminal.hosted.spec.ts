@@ -148,4 +148,34 @@ describe('terminal link cutover', () => {
         channel.close();
         vi.unstubAllGlobals();
     });
+
+    it('backs off between re-attaches of a pane that paints and keeps closing', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        const attachTimes: number[] = [];
+        mocks.openTerminalLink.mockImplementation((args: { requestId: string }) => {
+            attachTimes.push(Date.now());
+            let line!: (value: string) => void;
+            const transport = {
+                write: vi.fn(async (_value: string) => undefined),
+                close: vi.fn(),
+                onLine: (listener: (value: string) => void) => { line = listener; return () => undefined; },
+                onEnd: () => () => undefined,
+            };
+            setTimeout(() => {
+                line(JSON.stringify({ type: 'result', requestId: args.requestId, ok: true, data: { paneId: 'pane' } }));
+                line(JSON.stringify({ type: 'terminal.frame', bytes: 'aGk=' }));
+                line(JSON.stringify({ type: 'terminal.closed', reason: 'herdr stream exited (signal)' }));
+            }, 0);
+            return Promise.resolve(transport);
+        });
+        const opened = openTerminal({ agentRoute: 'session', size: { cols: 80, rows: 24 } });
+        await vi.advanceTimersByTimeAsync(20_000);
+        const channel = await opened;
+        const gaps = attachTimes.slice(1).map((time, index) => time - attachTimes[index]!);
+        expect(gaps.length).toBeGreaterThanOrEqual(3);
+        expect(gaps[1]!).toBeGreaterThan(gaps[0]!);
+        expect(gaps[2]!).toBeGreaterThan(gaps[1]!);
+        channel.close();
+        vi.useRealTimers();
+    });
 });

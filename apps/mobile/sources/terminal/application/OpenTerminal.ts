@@ -82,6 +82,7 @@ export type OpenTerminalCommand = {
 // when the user closes the pane or the host closes the stream.
 const RETRY_BASE_MS = 1_500;
 const RETRY_MAX_MS = 10_000;
+const STABLE_MS = 30_000;
 
 /** The host refused the pane for a reason only the person can change, so it
  *  surfaces in their words instead of looping behind 'reconnecting'. Every
@@ -170,6 +171,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     };
     let attempts = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let stableTimer: ReturnType<typeof setTimeout> | undefined;
+    const cancelStableTimer = (): void => {
+        if (stableTimer === undefined) return;
+        clearTimeout(stableTimer);
+        stableTimer = undefined;
+    };
     let attachInFlight: Promise<void> | undefined;
     let attachRequested = false;
     let takeoverRequested = false;
@@ -281,6 +288,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             surfaceHostRefusal(lost);
             return;
         }
+        cancelStableTimer();
         attempts += 1;
         emitState('reconnecting');
         // Drop queued input: keystrokes buffered across a long disconnect are
@@ -399,6 +407,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     };
 
     async function attachViaLink(takeover: boolean): Promise<void> {
+        cancelStableTimer();
         const requestId = nextRequestId('lt');
         const offer = sync.openTerminalLink({
             requestId,
@@ -459,7 +468,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                         clearTimeout(retryTimer);
                         retryTimer = undefined;
                     }
-                    attempts = 0;
+                    stableTimer = setTimeout(() => {
+                        stableTimer = undefined;
+                        attempts = 0;
+                    }, STABLE_MS);
                     emitState('live');
                     recordTerminalFirstFrame(Date.now() - started);
                 }
@@ -573,6 +585,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         finalizeCounts();
         attachRequested = false;
         takeoverRequested = false;
+        cancelStableTimer();
         if (retryTimer !== undefined) {
             clearTimeout(retryTimer);
             retryTimer = undefined;
