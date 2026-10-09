@@ -25,14 +25,24 @@ export function isCompactOfferText(value: string): boolean {
     return value.startsWith(COMPACT_TAG);
 }
 
-function validCompactOffer(value: string): boolean {
-    if (!isCompactOfferText(value)) return false;
+type OfferTerms = Pick<PairOffer, 'expires' | 'name' | 'role' | 'lifetime'>;
+
+/** The terms of either offer form, read without the expiry check (callers compare `expires`); undefined when the text is neither. */
+export function readOffer(scanned: string): OfferTerms | undefined {
     try {
-        decodeCompactOffer(value);
-        return true;
+        return parseOffer(scanned, 0);
     } catch {
-        return false;
+        // Not v1: the kit's compact reader decides.
     }
+    try {
+        return decodeCompactOffer(scanned, 0);
+    } catch {
+        return undefined;
+    }
+}
+
+function isLinkOffer(value: string): boolean {
+    return LINK_OFFER.test(value) || (isCompactOfferText(value) && readOffer(value) !== undefined);
 }
 
 export const LEGACY_PAIRING_CODE = 'This code came from muxr 0.2.0 or older. On the computer run `npm i -g @trymuxr/cli@latest`, then `muxr pair`.';
@@ -48,17 +58,8 @@ const WS_LEGACY_CODE = /^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=/i;
 
 /** True only when the input decodes as an offer whose time has passed; undecodable input never counts as expired. */
 export function linkOfferExpired(value: string): boolean {
-    const compact = value.replace(/\s+/g, '');
-    try {
-        return parseOffer(compact, 0).expires < Date.now();
-    } catch {
-        // A compact offer is not a v1 offer: ask the kit's compact reader.
-    }
-    try {
-        return decodeCompactOffer(compact, 0).expires < Date.now();
-    } catch {
-        return false;
-    }
+    const offer = readOffer(value.replace(/\s+/g, ''));
+    return offer !== undefined && offer.expires < Date.now();
 }
 
 export type PairingInputDecision
@@ -78,13 +79,8 @@ export function decidePairingInput(value: string): PairingInputDecision {
         // itself needs the inner offer, never the wrapper.
         const offer = linkOfferFromUrl(compact) ?? compact;
         if (linkOfferExpired(offer)) return { ok: false, message: EXPIRED_PAIRING_CODE, expired: true };
-        try {
-            parseOffer(offer);
-        } catch {
-            // Not v1: a compact offer validates through the kit's reader, and
-            // anything else carrying the link tag is cut off.
-            if (!validCompactOffer(offer)) return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
-        }
+        // Anything carrying the link tag that neither kit reader accepts is cut off.
+        if (readOffer(offer) === undefined) return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
         return { ok: true, offer };
     }
     if (WS_LEGACY_CODE.test(compact)) return { ok: false, message: LEGACY_PAIRING_CODE, expired: false };
@@ -98,14 +94,14 @@ export class PairingNeedsNewCode extends Error {}
 /** Unwrap only the registered app schemes or an HTTPS /pair link; byokit validates the offer itself. Inner whitespace (terminal wrapping, retype gaps) is stripped: it can never be part of an offer. */
 export function linkOfferFromUrl(value: string): string | undefined {
     const input = value.replace(/\s+/g, '');
-    if (LINK_OFFER.test(input) || validCompactOffer(input)) return input;
+    if (isLinkOffer(input)) return input;
     // expo-router hands a custom-scheme deep link to native-intent as a
     // path like `/pair#<offer>` (scheme stripped). Accept that form too.
     const hash = input.indexOf('#');
     if (hash >= 0) {
         const before = input.slice(0, hash);
         const offer = input.slice(hash + 1);
-        if ((before === 'pair' || before === '/pair') && (LINK_OFFER.test(offer) || validCompactOffer(offer))) return offer;
+        if ((before === 'pair' || before === '/pair') && isLinkOffer(offer)) return offer;
     }
     try {
         const url = new URL(input);
@@ -114,7 +110,7 @@ export function linkOfferFromUrl(value: string): string | undefined {
         const web = url.protocol === 'https:' && url.hostname !== '' && url.pathname === '/pair';
         if ((!app && !web) || url.username || url.password || url.search) return undefined;
         const offer = url.hash.slice(1);
-        return LINK_OFFER.test(offer) || validCompactOffer(offer) ? offer : undefined;
+        return isLinkOffer(offer) ? offer : undefined;
     } catch { return undefined; }
 }
 
@@ -263,10 +259,8 @@ export function prepareHostedPairingInput(value: string): string {
     return parsed.pairing.url;
 }
 
-function linkOfferDisplay(url: string): PairOffer | undefined {
-    if (!looksLikeLinkOffer(url)) return undefined;
-    try { return parseOffer(url, 0); }
-    catch { return undefined; }
+function linkOfferDisplay(url: string): OfferTerms | undefined {
+    return looksLikeLinkOffer(url) ? readOffer(url) : undefined;
 }
 
 function pairingAuthorityOf(url: string): PairingAuthority {

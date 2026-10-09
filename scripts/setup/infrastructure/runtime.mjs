@@ -47,33 +47,41 @@ export function richTerminal() {
 function qrLines(value) {
     return qrText(value, { border: 4 }).split('\n');
 }
-/** Whether the terminal can show this value's QR whole: its matrix width, and its rows plus one cursor row. */
-export function qrFits(value) {
+/** Terminal width and height; a zero or missing size means the terminal did not report one, so nothing is limited by it. */
+export const terminalColumns = () => (process.stdout.columns > 0 ? process.stdout.columns : Infinity);
+export const terminalRows = () => (process.stdout.rows > 0 ? process.stdout.rows : Infinity);
+export function qrRows(value) {
+    return qrLines(value).length;
+}
+/** Whether the QR fits whole, with `otherRows` terminal rows kept for text printed beside it (above it, or the cursor row its newline leaves below). */
+export function qrFits(value, otherRows = 0) {
     if (!richTerminal()) return false;
     const lines = qrLines(value);
     const width = lines.length * 2 - 1;
-    if (process.stdout.columns !== undefined && width > process.stdout.columns) return false;
-    return process.stdout.rows === undefined || lines.length + 1 <= process.stdout.rows;
+    return width <= terminalColumns() && otherRows + lines.length <= terminalRows();
+}
+/** The QR as centered half-block rows, without a trailing newline. */
+export function terminalQrText(value) {
+    const lines = qrLines(value);
+    // QR sides are always odd, and each text row covers two module rows, so
+    // the side is lines*2-1; padding is a no-op if the kit ever stops trimming.
+    const width = lines.length * 2 - 1;
+    // Centered in the terminal: a scannable code reads as the primary content
+    // of the screen, not a left-edge decoration.
+    const columns = terminalColumns();
+    const indent = Number.isFinite(columns) ? Math.max(0, Math.floor((columns - width) / 2)) : 0;
+    return lines.map((line) => `${' '.repeat(indent)}\x1b[47m\x1b[30m${line.padEnd(width)}\x1b[0m`).join('\n');
 }
 export async function printTerminalQr(value) {
     if (!richTerminal()) {
         print('QR omitted in append-only/plain output; use the exact pairing string above.');
         return;
     }
-    if (!qrFits(value)) {
+    if (!qrFits(value, 1)) {
         print(`QR omitted because this terminal is ${process.stdout.columns ?? 'too few'} columns × ${process.stdout.rows ?? 'too few'} rows; use the exact pairing string above.`);
         return;
     }
-    // QR sides are always odd, and each text row covers two module rows, so
-    // the side is lines*2-1; padding is a no-op if the kit ever stops trimming.
-    const lines = qrLines(value);
-    const width = lines.length * 2 - 1;
-    // Centered in the terminal: a scannable code reads as the primary content
-    // of the screen, not a left-edge decoration.
-    const indent = process.stdout.columns !== undefined
-        ? Math.max(0, Math.floor((process.stdout.columns - width) / 2))
-        : 0;
-    print(lines.map((line) => `${' '.repeat(indent)}\x1b[47m\x1b[30m${line.padEnd(width)}\x1b[0m`).join('\n'));
+    print(terminalQrText(value));
 }
 export function env(name) {
     return process.env[name]?.trim() || undefined;

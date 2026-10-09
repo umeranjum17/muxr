@@ -439,9 +439,13 @@ export class LinkEndpoint {
         // compact offer rescans. Browser links keep the full offer: the compact
         // form has no browser-link shape.
         if (intent.kind !== 'native') return offer;
-        const compact = this.host.compactOffer({ urls, role, kind: intent.kind,
-            ...(intent.lifetime === undefined ? {} : { lifetime: intent.lifetime }) });
-        return { ...offer, compactText: compact.text, compactExpires: compact.expires };
+        try {
+            const compact = this.host.compactOffer({ urls, role, kind: intent.kind,
+                ...(intent.lifetime === undefined ? {} : { lifetime: intent.lifetime }) });
+            return { ...offer, compactText: compact.text, compactExpires: compact.expires };
+        } catch {
+            return offer;
+        }
     }
 
     stopPairing(): void {
