@@ -1,14 +1,17 @@
 importScripts('/pushNotice.bundle.js');
 
-// Offline app shell. The version below is rewritten to the export's shell hash
-// by finalizeWebExport, so a new web build installs a new worker, precaches the
-// new shell under a new cache name, and deletes the old caches on activate.
-// Only the static shell is ever cached: relay, link and API traffic is not.
+// Offline app shell. The version below is rewritten to the export's hash of the
+// shell and this worker by finalizeWebExport, so a new web build or worker change
+// installs a new worker, precaches the new shell under a new cache name, and
+// deletes the old caches on activate. Only the static shell is ever cached: relay,
+// link and API traffic is not.
 const SHELL_CACHE_PREFIX = 'muxr-shell-';
 const SHELL_VERSION = '__MUXR_SHELL_VERSION__';
 const SHELL_CACHE = SHELL_CACHE_PREFIX + SHELL_VERSION;
 const SHELL_URL = '/index.html';
 const SHELL_ASSET_PREFIXES = ['/_expo/', '/assets/'];
+const RUNTIME_SHELL_PATHS = ['/canvaskit.wasm'];
+const NAVIGATION_TIMEOUT_MS = 4000;
 
 self.addEventListener('install', (event) => {
     event.waitUntil((async () => {
@@ -30,19 +33,14 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const request = event.request;
     if (request.method !== 'GET') return;
-    let url;
-    try {
-        url = new URL(request.url);
-    } catch {
-        return;
-    }
+    const url = new URL(request.url);
     // A different origin is relay, link or third-party traffic: never cached.
     if (url.origin !== self.location.origin) return;
     if (request.mode === 'navigate') {
         event.respondWith(navigationResponse(request));
         return;
     }
-    if (isShellAsset(url.pathname)) {
+    if (isShellAsset(url.pathname) || RUNTIME_SHELL_PATHS.includes(url.pathname)) {
         event.respondWith(shellAsset(request));
     }
 });
@@ -79,25 +77,30 @@ function referencedShellAssets(html) {
 
 async function navigationResponse(request) {
     const cache = await caches.open(SHELL_CACHE);
-    let response;
-    try {
-        response = await fetch(request);
-    } catch (error) {
+    const network = fetch(request).then((response) => ({ response }), (error) => ({ error }));
+    let timer;
+    const stalled = new Promise((resolve) => { timer = setTimeout(resolve, NAVIGATION_TIMEOUT_MS, null); });
+    const settled = await Promise.race([network, stalled]);
+    clearTimeout(timer);
+    if (settled === null) {
         const cached = await cache.match(SHELL_URL);
         if (cached) return cached;
-        throw error;
+    }
+    const outcome = settled ?? await network;
+    if ('error' in outcome) {
+        const cached = await cache.match(SHELL_URL);
+        if (cached) return cached;
+        throw outcome.error;
     }
     // The online document is served as-is; the versioned cache is owned by
     // install/activate alone, so a build staged by the host can never leave
     // a cached index.html pointing at assets this cache does not hold.
-    if (response.status < 500) return response;
-    return (await cache.match(SHELL_URL)) ?? response;
+    if (outcome.response.status < 500) return outcome.response;
+    return (await cache.match(SHELL_URL)) ?? outcome.response;
 }
 
 function isCacheableShellAsset(response) {
-    return Boolean(response)
-        && response.ok
-        && !(response.headers.get('content-type') || '').startsWith('text/html');
+    return response.ok && !(response.headers.get('content-type') || '').startsWith('text/html');
 }
 
 async function shellAsset(request) {
@@ -105,7 +108,7 @@ async function shellAsset(request) {
     const cached = await cache.match(request);
     if (cached) return cached;
     const response = await fetch(request);
-    if (response.type === 'basic' && isCacheableShellAsset(response)) {
+    if (isCacheableShellAsset(response)) {
         cache.put(request, response.clone()).catch(() => undefined);
     }
     return response;

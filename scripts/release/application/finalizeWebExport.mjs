@@ -41,8 +41,8 @@ export const VIEWPORT = '<meta name="viewport" content="width=device-width, init
 // The worker carries this token and the export replaces it with the shell hash.
 export const SHELL_VERSION_TOKEN = '__MUXR_SHELL_VERSION__';
 
-export function shellVersion(html) {
-    return createHash('sha256').update(html).digest('hex').slice(0, 16);
+export function shellVersion(html, worker) {
+    return createHash('sha256').update(html).update('\n').update(worker).digest('hex').slice(0, 16);
 }
 
 export function finalizeServiceWorker(source, version) {
@@ -69,9 +69,9 @@ export function finalizeWebExport(html) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const finalized = finalizeWebExport(readFileSync(indexPath, 'utf8'));
     const workerPath = join(dirname(indexPath), 'sw.js');
-    const version = shellVersion(finalized);
-    const worker = finalizeServiceWorker(readFileSync(workerPath, 'utf8'), version);
+    const workerSource = readFileSync(workerPath, 'utf8');
+    const version = shellVersion(finalized, workerSource);
     writeFileSync(indexPath, finalized);
-    writeFileSync(workerPath, worker);
+    writeFileSync(workerPath, finalizeServiceWorker(workerSource, version));
     process.stdout.write(`finalizeWebExport: install metadata and shell version ${version} written\n`);
 }
