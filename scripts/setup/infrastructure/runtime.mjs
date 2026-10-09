@@ -37,32 +37,37 @@ export const INTEGRATION_COMMANDS = {
 
 export const print = (text = '') => process.stdout.write(`${text}\n`);
 export const error = (text) => process.stderr.write(`${text}\n`);
-/** Half-block QR rows and matrix width for a value (quiet border of 4). */
-export function qrDimensions(value) {
-    const rows = qrText(value, { border: 4 }).split('\n').length;
-    return { rows, width: rows * 2 - 1 };
+/** Whether this terminal takes the in-place, full-screen-capable offer view (not plain or dumb output). */
+export function richTerminal() {
+    return process.stdout.isTTY && process.env.TERM !== 'dumb' && process.env.NO_COLOR === undefined && process.env.MUXR_NO_TUI !== '1';
 }
-export async function printTerminalQr(value, { reservedRows = 0 } = {}) {
-    if (!process.stdout.isTTY || process.env.TERM === 'dumb' || process.env.NO_COLOR !== undefined || process.env.MUXR_NO_TUI === '1') {
+// Half-block text rows from the kit (quiet border of 4). The kit trims trailing
+// spaces, so printTerminalQr pads back to the full matrix width: a ragged right
+// edge would eat the quiet zone the phone's scanner needs.
+function qrLines(value) {
+    return qrText(value, { border: 4 }).split('\n');
+}
+/** Whether the terminal can show this value's QR whole: its matrix width, and its rows plus one cursor row. */
+export function qrFits(value) {
+    if (!richTerminal()) return false;
+    const lines = qrLines(value);
+    const width = lines.length * 2 - 1;
+    if (process.stdout.columns !== undefined && width > process.stdout.columns) return false;
+    return process.stdout.rows === undefined || lines.length + 1 <= process.stdout.rows;
+}
+export async function printTerminalQr(value) {
+    if (!richTerminal()) {
         print('QR omitted in append-only/plain output; use the exact pairing string above.');
         return;
     }
-    // Half-block text rows from the kit (same QR, quiet border of 4 as before).
-    // The kit trims trailing spaces, so pad back to the full matrix width: a
-    // ragged right edge would eat the quiet zone the phone's scanner needs.
-    // QR sides are always odd, and each text row covers two module rows, so
-    // the side is lines*2-1; padding is a no-op if the kit ever stops trimming.
-    const qr = qrText(value, { border: 4 });
-    const lines = qr.split('\n');
-    const width = lines.length * 2 - 1;
-    const tooWide = process.stdout.columns !== undefined && width > process.stdout.columns;
-    // Callers print the pairing string and instructions first. Only the cursor
-    // row after the QR's final newline needs room alongside its quiet zone.
-    const tooTall = process.stdout.rows !== undefined && lines.length + reservedRows + 1 > process.stdout.rows;
-    if (tooWide || tooTall) {
+    if (!qrFits(value)) {
         print(`QR omitted because this terminal is ${process.stdout.columns ?? 'too few'} columns × ${process.stdout.rows ?? 'too few'} rows; use the exact pairing string above.`);
         return;
     }
+    // QR sides are always odd, and each text row covers two module rows, so
+    // the side is lines*2-1; padding is a no-op if the kit ever stops trimming.
+    const lines = qrLines(value);
+    const width = lines.length * 2 - 1;
     // Centered in the terminal: a scannable code reads as the primary content
     // of the screen, not a left-edge decoration.
     const indent = process.stdout.columns !== undefined

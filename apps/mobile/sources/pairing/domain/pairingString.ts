@@ -105,8 +105,7 @@ export function linkOfferFromUrl(value: string): string | undefined {
     if (hash >= 0) {
         const before = input.slice(0, hash);
         const offer = input.slice(hash + 1);
-        if ((before === 'pair' || before === '/pair' || before.endsWith('://pair') || before.endsWith('/pair'))
-            && (LINK_OFFER.test(offer) || validCompactOffer(offer))) return offer;
+        if ((before === 'pair' || before === '/pair') && (LINK_OFFER.test(offer) || validCompactOffer(offer))) return offer;
     }
     try {
         const url = new URL(input);

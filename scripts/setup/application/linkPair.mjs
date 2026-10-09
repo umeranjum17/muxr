@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { hostId } from '@byokit/link';
 import { linkUrl } from '@byokit/relay/device';
-import { askVisible, base64, print, printTerminalQr, qrDimensions } from '../infrastructure/runtime.mjs';
+import { askVisible, base64, print, printTerminalQr, qrFits, richTerminal } from '../infrastructure/runtime.mjs';
 import { pairingIntent } from '../domain/dist/index.js';
 import { readSelfhostState, selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
 import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
@@ -168,10 +168,10 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
                 let offer = endpoint.offerPairing(session, relayUrl, offerOptions);
                 send({ offer });
                 for (;;) {
-                    const outcome = await Promise.race([done.promise, aborted(controller.signal), sleep(Math.min(1000, Math.max(offer.expires - Date.now(), 0)))]);
+                    const outcome = await Promise.race([done.promise, aborted(controller.signal), sleep(Math.min(1000, Math.max(offerExpires(offer) - Date.now(), 0)))]);
                     if (outcome !== undefined) { completed = outcome; await sleep(250); return; }
                     if (controller.signal.aborted) return;
-                    if (offer.expires <= Date.now() || burned) {
+                    if (offerExpires(offer) <= Date.now() || burned) {
                         burned = false;
                         offer = endpoint.offerPairing(session, relayUrl, offerOptions);
                         send({ offer });
@@ -216,6 +216,7 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
         // A lab shell (HERDR_SESSION set) must never pair a host serving the live session.
         ...(process.env.HERDR_SESSION?.trim() ? { lab: true } : {}) })}\n`));
     let input = '';
+    let drawn = false;
     const cancel = () => socket.write('{"cancel":true}\n');
     signal?.addEventListener('abort', cancel, { once: true });
     try {
@@ -230,7 +231,7 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
                 for (const line of lines) {
                     try {
                         const event = JSON.parse(line);
-                        if (event.offer) showOffer(event.offer, intent);
+                        if (event.offer) { showOffer(event.offer, intent, drawn); drawn = true; }
                         else if (event.approval) void Promise.resolve(approve(event.approval)).then((yes) => socket.write(`${JSON.stringify({ yes })}\n`), reject);
                         else if (event.error) reject(new Error(event.error));
                         else if (event.result) resolve(event.result);
@@ -330,22 +331,17 @@ async function servePairing(state, req, device, claims, done, intent, admit) {
     };
 }
 
-/** Whether the terminal can show a scannable QR for this text: its matrix
- *  width and half-block row count plus one cursor row. Instructions and the
- *  pairing string print first and may scroll; the QR itself must stay whole. */
-function fitsQr(text) {
-    if (!process.stdout.isTTY || process.env.TERM === 'dumb' || process.env.NO_COLOR !== undefined || process.env.MUXR_NO_TUI === '1') return false;
-    const { rows, width } = qrDimensions(text);
-    if (process.stdout.columns !== undefined && width > process.stdout.columns) return false;
-    return process.stdout.rows === undefined || rows + 1 <= process.stdout.rows;
+/** The earliest moment either offer this host may show lapses: a refresh must land before the one on screen does. */
+function offerExpires(offer) {
+    return Math.min(offer.expires, offer.compactExpires ?? offer.expires);
 }
 
-function showOffer(offer, intent) {
+function showOffer(offer, intent, refresh) {
     const compact = intent.kind === 'native' && typeof offer.compactText === 'string' ? offer.compactText : undefined;
     // Show the full v1 offer wherever its QR fits: only it resumes through
     // the kit's pendingGrant when the phone dies before approval. Where it
     // cannot fit, the compact offer pairs the same way through one code entry.
-    const code = fitsQr(offer.text) ? offer.text : compact !== undefined && fitsQr(compact) ? compact : undefined;
+    const code = qrFits(offer.text) ? offer.text : compact !== undefined && qrFits(compact) ? compact : undefined;
     const token = code ?? offer.text;
     const lines = [
         intent.kind === 'browser'
@@ -362,10 +358,10 @@ function showOffer(offer, intent) {
         token,
         'Waiting for the device to finish pairing…',
     ];
-    const redraw = process.stdout.isTTY && process.env.TERM !== 'dumb' && process.env.MUXR_NO_TUI !== '1' && process.env.NO_COLOR === undefined;
-    // ED2 moves the old grid into tmux scrollback. Overwrite from Home and
-    // erase only the remainder instead, so expired offers leave no history.
-    if (redraw) process.stdout.write('\x1b[H');
+    const redraw = richTerminal();
+    // The first draw saves the cursor at the block's start, below the command;
+    // a refresh returns to that saved row and overwrites the block in place.
+    if (redraw) process.stdout.write(refresh ? '\x1b8' : '\x1b7');
     lines.forEach((line) => print(`${line}${redraw ? '\x1b[K' : ''}`));
     // The QR carries the same token printed above, so it needs no spare rows
     // for text already shown: printTerminalQr re-checks the fit itself.

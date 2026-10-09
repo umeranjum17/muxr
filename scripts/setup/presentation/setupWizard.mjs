@@ -335,7 +335,7 @@ async function serveRootFor(found, port) {
     return inspectTailscaleServeRoot(port, found.tailscale.dnsName, undefined, 8_000);
 }
 
-async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, totalSteps = 7 }) {
+async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, totalSteps = 7, asksIntegrations }) {
     const requestedPort = value(args, '--port');
     let envPort;
     try {
@@ -416,7 +416,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     // available when changing the connection later, and browser pairing
     // stays in the devices menu.
     const isFirstRun = current === undefined;
-    if (isFirstRun) return { mode, port, endpoint, web: false, pairing: 'phone' };
+    if (isFirstRun) return { mode, port, endpoint, web: false, pairing: 'phone', syncIntegrations: false };
     setupStep(3, totalSteps, 'Choose app access');
     let web = false;
     if (modeAllowsBrowserHosting(mode)) {
@@ -455,7 +455,14 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         ? 'The connection changed. Keep existing devices or pair another one?'
         : 'Pair a client?', pairingChoices);
     if (aborted(pairing)) return undefined;
-    return { mode, port, endpoint, web, pairing };
+    const syncIntegrations = asksIntegrations ? await select(found.agents.checked
+        ? 'Keep agent status up to date?'
+        : 'Agent status updates could not be checked. Try setting them up anyway?', [
+        { value: true, title: 'Set up agent status updates', description: 'Keep your phone up to date when coding agents start, work, or finish.' },
+        { value: false, title: 'Leave agent status updates unchanged', description: 'Keep the current status-update settings on this computer.' },
+    ]) : false;
+    if (aborted(syncIntegrations)) return undefined;
+    return { mode, port, endpoint, web, pairing, syncIntegrations };
 }
 
 async function recoverTailscaleServe({ plan, found }) {
@@ -565,9 +572,7 @@ export async function applyMachineSetup(args = []) {
     // answered to no effect. A failed availability check keeps the question:
     // sync may still succeed when the check itself is what broke.
     const asksIntegrations = !found.agents.checked || found.agents.available.length > 0;
-    let totalSteps = 6;
-    if (asksIntegrations) totalSteps = 7;
-    if (isFirstRun) totalSteps = 4;
+    const totalSteps = isFirstRun ? 4 : 6;
     setupStep(1, totalSteps, 'Check this computer');
     renderInspection(found);
     // A disconnected Tailscale installation is proposed as one reviewed route;
@@ -576,26 +581,15 @@ export async function applyMachineSetup(args = []) {
     const cancelSetup = () => cancelled();
 
     setupStep(2, totalSteps, 'Connect your phone');
-    let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, totalSteps });
+    let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, totalSteps, asksIntegrations: asksIntegrations && !isFirstRun });
     if (plan === undefined) return cancelSetup();
     if (plan === 1) return 1;
+    const { syncIntegrations } = plan;
     const desiredUrl = advertisedUrlForMode({ ...plan, found, current, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
     let existingConnections = 'none; pair a device after setup';
     if (current !== undefined && connectionChanged) existingConnections = 'phones on this Wi-Fi may verify the new address; others need fresh pairing';
     else if (current !== undefined) existingConnections = 'keep working; restart only if a reviewed runtime setting changed';
-
-    let syncIntegrations = false;
-    if (asksIntegrations && !isFirstRun) {
-        setupStep(5, totalSteps, 'Agent status updates');
-        syncIntegrations = await select(found.agents.checked
-            ? 'Keep agent status up to date?'
-            : 'Agent status updates could not be checked. Try setting them up anyway?', [
-            { value: true, title: 'Set up agent status updates', description: 'Keep your phone up to date when coding agents start, work, or finish.' },
-            { value: false, title: 'Leave agent status updates unchanged', description: 'Keep the current status-update settings on this computer.' },
-        ]);
-        if (aborted(syncIntegrations)) return cancelSetup();
-    }
 
     if (isFirstRun) {
         setupStep(3, totalSteps, 'Review setup');
@@ -612,7 +606,7 @@ export async function applyMachineSetup(args = []) {
             'No change is made until you choose Apply setup.',
         ]);
     } else {
-    setupStep(asksIntegrations ? 6 : 5, totalSteps, 'Review setup');
+    setupStep(5, totalSteps, 'Review setup');
     note([
         `Connection: ${connectionLabel(plan.mode, plan.endpoint, plan.port)}`,
         `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,

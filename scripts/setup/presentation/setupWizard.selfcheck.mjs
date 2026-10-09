@@ -216,8 +216,8 @@ async function checkWizard() {
         // The hidden status-updates question counts as declined.
         assert.deepEqual(calls.find(([name]) => name === 'prerequisites')[1], ['--no-integrations']);
 
-        // A provider installed means the question stays on a repeat run:
-        // seven steps, and the run answers it before cancelling at review.
+        // A provider installed means the question stays on a repeat run: it is
+        // asked inside the pairing step, so the run still has six steps.
         // (First runs always skip it and keep the phone default.)
         agentStatus = 'pi: current';
         currentSummary = {
@@ -227,7 +227,7 @@ async function checkWizard() {
         const providers = await run(['', 'wss://relay2.example', '2', '2', '1', '1']);
         assert.match(providers, /Keep agent status up to date\?/);
         assert.deepEqual([...providers.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
-            ['1', '2', '3', '4', '5', '6'].map((step) => [step, '7']));
+            ['1', '2', '3', '4', '5'].map((step) => [step, '6']));
         assert.deepEqual(calls, [], 'Cancellation mutated setup');
         agentStatus = 'pi: not installed';
         currentSummary = undefined;
