@@ -167,8 +167,10 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
                 const offerOptions = pairingOfferOptions(intent, state);
                 let offer = endpoint.offerPairing(session, relayUrl, offerOptions);
                 send({ offer });
+                const stopped = aborted(controller.signal);
                 for (;;) {
-                    const outcome = await Promise.race([done.promise, aborted(controller.signal), sleep(Math.min(1000, Math.max(offerExpires(offer) - Date.now(), 0)))]);
+                    const wake = approve === undefined ? Math.min(1000, Math.max(offerExpires(offer) - Date.now(), 0)) : 1000;
+                    const outcome = await Promise.race([done.promise, stopped, sleep(wake)]);
                     if (outcome !== undefined) { completed = outcome; await sleep(250); return; }
                     if (controller.signal.aborted) return;
                     if (approve === undefined && (offerExpires(offer) <= Date.now() || burned)) {
@@ -385,10 +387,11 @@ function drawOffer(offer, intent) {
         ? `Pair a ${intent.authority === 'observe' ? 'view-only' : 'control'} browser for ${intent.grantDurationLabel()}. Keep the code private.`
         : 'Pair your phone. Keep the code private.';
     const label = intent.kind === 'browser'
-        ? 'Open the browser pairing link below (one token):'
-        : 'Other ways: copy the pairing string below (one token):';
+        ? 'Open the browser pairing link above (one token):'
+        : 'Other ways: copy the pairing string above (one token):';
     let left = richTerminal() ? terminalRows() - (code === undefined ? 0 : qrRows(code.text, code.border)) : Infinity;
-    const lines = [];
+    const lines = [token];
+    left -= wrappedRows(token);
     const take = (block) => {
         const rows = block.reduce((sum, line) => sum + wrappedRows(line), 0);
         if (rows > left) return false;
@@ -396,14 +399,11 @@ function drawOffer(offer, intent) {
         left -= rows;
         return true;
     };
-    if (!take([label, token])) {
-        lines.push(token);
-        left -= wrappedRows(token);
-    }
     take([title])
         && take([`Expires at ${new Date(expires).toLocaleTimeString()}; refreshes automatically.`])
         && take(['Compare the two words, then approve on this computer.'])
-        && take(['Waiting for the device to finish pairing…']);
+        && take(['Waiting for the device to finish pairing…'])
+        && take([label]);
     if (!richTerminal()) {
         lines.forEach((line) => print(line));
         return;
