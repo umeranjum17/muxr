@@ -392,7 +392,7 @@ function drawOffer(offer, intent) {
         return true;
     };
     take([title])
-        && ((wrappedRows(token) === 1 && take([label, token])) || take(['Make this window wider or taller to also see the code to type.']))
+        && ((!richTerminal() || wrappedRows(token) === 1) && take([label, token]) || take(['Make this window wider or taller to also see the code to type.']))
         && take([`Expires at ${new Date(expires).toLocaleTimeString()}; refreshes automatically.`])
         && take(['Compare the two words, then approve on this computer.'])
         && take(['Waiting for the device to finish pairing…']);

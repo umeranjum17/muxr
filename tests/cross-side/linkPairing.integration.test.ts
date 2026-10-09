@@ -566,6 +566,24 @@ describe('native pairing over the byokit link', () => {
         expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
     }, 90_000);
 
+    it('prints the full pairing string in plain output on an 80-column terminal', async () => {
+        const previous = process.env.MUXR_NO_TUI;
+        process.env.MUXR_NO_TUI = '1';
+        try {
+            const { pairing, offer, abort } = await showPairingQr({ approve: async () => true }, { columns: 80, rows: 24 });
+            try {
+                expect(offer.startsWith('byokit-link:1:')).toBe(true);
+                expect(offer.length).toBeGreaterThan(200);
+            } finally {
+                await abort();
+                await pairing.catch(() => undefined);
+            }
+        } finally {
+            if (previous === undefined) delete process.env.MUXR_NO_TUI;
+            else process.env.MUXR_NO_TUI = previous;
+        }
+    }, 60_000);
+
     it('names a pairing-link drop after the confirmation words', async () => {
         const { pairing, offer, abort } = await showPairingQr({ approve: async () => {
             await stop(relay);
