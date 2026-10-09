@@ -7,7 +7,7 @@
  * same addresses always give the same names.
  */
 
-const PROVIDER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', pi: 'Pi' };
+const PROVIDER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', pi: 'Pi', opencode: 'OpenCode' };
 const MAX_NAME = 64;
 
 function title(segment: string): string {

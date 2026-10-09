@@ -3,9 +3,10 @@ import { resolveSelection, roomOf, roomWords, type Room } from '@byokit/accounts
 import type { CliAccount } from '@byokit/accounts/cli';
 import { launchEnv } from '@byokit/accounts/isolate';
 import { existsSync } from 'node:fs';
-import type { PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
+import { accountNameFrom, type PlanAccount, type PlanProviderAccounts } from '@trymuxr/contract';
 import { planAccountWindows } from '../usage/index.js';
 import { planAccounts, planError, fromCliAccount, defaultAccount, resolvePlanRecord } from './planAccounts.js';
+import { addOpencodeAccount, opencodeLaunchEnv, opencodeSignedIn, removeOpencodeAccount } from './opencodeAccounts.js';
 import {
     defaultPlanFolder, loadPlanAccounts, PLAN_LABELS, PLAN_PROVIDERS, savePlanAccounts,
     type PlanAccountRecord, type PlanProvider,
@@ -21,6 +22,9 @@ export interface PlansDeps extends DefaultLoginDeps {
 function providerRecords(provider: PlanProvider, env: NodeJS.ProcessEnv): PlanAccountRecord[] {
     const stored = loadPlanAccounts(env);
     const own = stored.filter((record) => record.provider === provider);
+    // OpenCode sign-ins found on the computer are never adopted: a new account
+    // honestly starts empty and signs in its own person.
+    if (provider === 'opencode') return own;
     const folder = defaultPlanFolder(provider, env);
     if (!existsSync(folder) || own.some((record) => record.folder === folder)) return own;
     const found: PlanAccountRecord = { id: `found-${provider}`, provider, name: '', folder, found: true };
@@ -32,6 +36,7 @@ export const AUTO_TERMS_NOTE = 'Auto may use either of a provider\'s accounts.';
 
 export function planLaunchEnv(env: NodeJS.ProcessEnv, record: PlanAccountRecord): { set: Record<string, string>; unset: string[] } {
     if (record.found) return { set: {}, unset: [] };
+    if (record.provider === 'opencode') return opencodeLaunchEnv(env, record);
     try { return planAccounts(env).launchEnv(record.id); } catch (error) { return planError(error); }
 }
 
@@ -80,6 +85,34 @@ async function providerRooms(provider: PlanProvider, env: NodeJS.ProcessEnv, dep
     return reads.filter((read): read is NonNullable<typeof read> => read !== undefined);
 }
 
+type ProviderRooms = Array<{ account: PlanAccount & { provider: PlanProvider; roomLeftPercent?: number; roomLabel?: string }; room: Room }>;
+
+/** OpenCode rows in stored order: an unnamed row takes the first default name no earlier row uses. */
+export function opencodeAccountRows(env: NodeJS.ProcessEnv): PlanAccount[] {
+    const taken: string[] = [];
+    return providerRecords('opencode', env).map((record) => {
+        const account = opencodeAccountRow(record, env, taken);
+        taken.push(account.name);
+        return account;
+    });
+}
+
+/** OpenCode rows: the host owns these accounts. Sign-in state is the tool's
+ *  own auth store inside each private root; usage and billing stay unknown. */
+function opencodeRows(env: NodeJS.ProcessEnv): ProviderRooms {
+    return opencodeAccountRows(env).map((account) => ({ account: { ...account, provider: 'opencode' as const }, room: { left: 'unknown' } }));
+}
+
+/** Accounts a provider needs before its choice is listed or Auto picks: one OpenCode account already is one. */
+function minimumRooms(provider: string): number {
+    return provider === 'opencode' ? 1 : 2;
+}
+
+function opencodeAccountRow(record: PlanAccountRecord, env: NodeJS.ProcessEnv, taken: readonly string[] = []): PlanAccount {
+    // No email to suggest from, so earlier OpenCode rows' names keep later ones from duplicating.
+    return { id: record.id, provider: 'opencode', name: record.name.trim() || accountNameFrom(undefined, 'opencode', taken), signedIn: opencodeSignedIn(record) };
+}
+
 function selection(reads: Awaited<ReturnType<typeof providerRooms>>, account: string) {
     // Human provider labels also keep the kit's explanations suitable for the existing wire.
     const candidates = reads.map(({ account: wire, room }) => ({
@@ -97,8 +130,8 @@ export async function listPlans(env: NodeJS.ProcessEnv = process.env, deps: Plan
     const kit = planAccounts(env);
     const managed = await kit.list();
     const reads = await Promise.all(PLAN_PROVIDERS.map(async (provider): Promise<PlanProviderAccounts | undefined> => {
-        const rooms = await providerRooms(provider, env, deps, managed);
-        if (rooms.length < 2) return undefined;
+        const rooms = provider === 'opencode' ? opencodeRows(env) : await providerRooms(provider, env, deps, managed);
+        if (rooms.length < minimumRooms(provider)) return undefined;
         const pick = selection(rooms, 'auto');
         return { provider, label: PLAN_LABELS[provider], accounts: rooms.map((read) => read.account),
             auto: pick.ok ? { accountId: pick.account.id, reason: pick.reason } : { reason: pick.reason } };
@@ -117,25 +150,32 @@ export async function resolvePlanLaunch(env: NodeJS.ProcessEnv, chosen: string, 
     let record: PlanAccountRecord;
     if (chosen === 'auto') {
         // Pi keeps its previous mapping onto the Claude accounts until the Pi account kind is a product decision.
-        if (kind !== 'claude' && kind !== 'codex' && kind !== 'pi') {
+        if (kind !== 'claude' && kind !== 'codex' && kind !== 'pi' && kind !== 'opencode') {
             throw Object.assign(new Error('Choose a provider agent for Auto.'), { code: 'plan-kind-mismatch' });
         }
-        const reads = await providerRooms(kind === 'codex' ? 'codex' : 'claude', env, deps, await kit.list());
-        if (reads.length < 2) return undefined;
+        let reads: ProviderRooms;
+        if (kind === 'opencode') reads = opencodeRows(env);
+        else reads = await providerRooms(kind === 'codex' ? 'codex' : 'claude', env, deps, await kit.list());
+        if (reads.length < minimumRooms(kind)) return undefined;
         const pick = selection(reads, chosen);
         if (!pick.ok) return undefined;
         record = resolvePlanRecord(env, pick.account.id);
     } else record = resolvePlanRecord(env, chosen);
-    // The kit owns which kinds an account sign-in can launch; Pi keeps its old mapping above.
-    const kinds = kind === 'pi' ? [...kit.kinds(record.provider), kind] : kit.kinds(record.provider);
-    if (kind !== undefined && kind !== 'shell' && !kinds.includes(kind)) {
-        throw Object.assign(new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${kind} one.`), { code: 'plan-kind-mismatch' });
+    // The kit owns which kinds an account sign-in can launch; Pi keeps its old mapping above,
+    // and an OpenCode account can only ever start an OpenCode agent.
+    const kinds = record.provider === 'opencode' ? ['opencode']
+        : kind === 'pi' ? [...kit.kinds(record.provider), kind] : kit.kinds(record.provider);
+    if (kind !== 'shell' && (record.provider === 'opencode' || kind !== undefined) && !kinds.includes(kind ?? '')) {
+        throw Object.assign(new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${kind ?? 'default'} one.`), { code: 'plan-kind-mismatch' });
     }
-    let status;
-    if (!record.found) {
+    let account: PlanAccount;
+    if (record.provider === 'opencode') account = opencodeAccountRow(record, env);
+    else if (record.found) account = await defaultAccount(record, env, deps);
+    else {
+        let status;
         try { status = await kit.status(record.id); } catch (error) { return planError(error); }
+        account = fromCliAccount(status!, record, env);
     }
-    const account = record.found ? await defaultAccount(record, env, deps) : fromCliAccount(status!, record, env);
     return account.signedIn ? record : undefined;
 }
 
@@ -145,6 +185,9 @@ export function resolvePlanEnv(env: NodeJS.ProcessEnv, accountId: string): Recor
 
 export async function renamePlanAccount(env: NodeJS.ProcessEnv, accountId: string, name: string, deps: PlansDeps = {}): Promise<{ account: PlanAccount }> {
     const record = resolvePlanRecord(env, accountId);
+    if (record.provider === 'opencode') {
+        return { account: await renameStoredAccount(env, record, name) };
+    }
     if (!record.found) {
         // Read the record again: the name just saved is the one to show.
         try {
@@ -152,16 +195,25 @@ export async function renamePlanAccount(env: NodeJS.ProcessEnv, accountId: strin
             return { account: renamed };
         } catch (error) { return planError(error); }
     }
+    return { account: await renameStoredAccount(env, record, name, deps) };
+}
+
+/** A name the person chose, saved on the stored record: the rows no kit owns
+ *  (the computer's own sign-in and every OpenCode account). */
+async function renameStoredAccount(env: NodeJS.ProcessEnv, record: PlanAccountRecord, name: string, deps: PlansDeps = {}): Promise<PlanAccount> {
     const clean = name.trim();
     if (clean === '' || clean.length > 64 || /[\x00-\x1f\x7f]/.test(clean)) {
         throw Object.assign(new Error('Give the account a name up to 64 characters.'), { code: 'invalid-plan-name' });
     }
-    record.name = clean;
-    savePlanAccounts(env, loadPlanAccounts(env).map((entry) => entry.id === accountId ? record : entry));
-    return { account: await defaultAccount(record, env, deps) };
+    const named = { ...record, name: clean };
+    savePlanAccounts(env, loadPlanAccounts(env).map((entry) => entry.id === record.id ? named : entry));
+    return named.provider === 'opencode' ? opencodeAccountRow(named, env) : defaultAccount(named, env, deps);
 }
 
 export async function removePlanAccount(env: NodeJS.ProcessEnv, accountId: string): Promise<{ deletedFolder: boolean }> {
+    if (loadPlanAccounts(env).some((entry) => entry.id === accountId && entry.provider === 'opencode')) {
+        return { deletedFolder: removeOpencodeAccount(env, accountId) };
+    }
     const record = resolvePlanRecord(env, accountId);
     if (record.found) {
         savePlanAccounts(env, loadPlanAccounts(env).filter((entry) => entry.id !== accountId));

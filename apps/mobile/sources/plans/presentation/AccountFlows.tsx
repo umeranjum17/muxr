@@ -16,8 +16,8 @@ import { planConnection, samePlanConnection, refreshPlans, usePlansStore, type P
 import { agentAccount, cancelSignIn, planFailure, renameAccount, signInState, startSignIn } from '../application/plansApi';
 import { GhostButton, Note, Pill, PrimaryButton, SheetLede, SheetTitle, Strong, styles as parts } from './accountParts';
 
-const TOOL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' };
-const AGENTS: Record<string, string> = { claude: 'Claude Code or Pi on a Claude model', codex: 'Codex' };
+const TOOL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
+const AGENTS: Record<string, string> = { claude: 'Claude Code or Pi on a Claude model', codex: 'Codex', opencode: 'OpenCode' };
 
 interface Pending { accountId: string; sessionId: string; provider: string; again: boolean; name?: string; cancelled?: boolean; failure?: string }
 

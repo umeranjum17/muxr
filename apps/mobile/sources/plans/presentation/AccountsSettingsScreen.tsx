@@ -8,7 +8,7 @@ import { ItemList } from '@/components/ItemList';
 import { Switch } from '@/components/Switch';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { providerEntry, providerName, type PlanAccount } from '../domain/planAccounts';
+import { providerName, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, usePlans, usePlansStore } from '../application/plansStore';
 import { planFailure, removeAccount, renameAccount } from '../application/plansApi';
 import { useAccountFlows, useFlows } from './AccountFlows';
@@ -17,6 +17,7 @@ import { Pill } from './accountParts';
 const PROVIDERS: { id: string; title: string }[] = [
     { id: 'claude', title: 'Claude' },
     { id: 'codex', title: 'ChatGPT (Codex)' },
+    { id: 'opencode', title: 'OpenCode' },
 ];
 
 /** Settings → Accounts: every sign-in muxr can start an agent on, by provider. */
@@ -72,7 +73,7 @@ export function AccountsSettingsScreen() {
     return (
         <ItemList>
             <Text style={styles.lede}>
-                Only shown when you have more than one account for a provider. With one account, muxr works exactly as before.
+                Claude and ChatGPT show once you have more than one account for them; OpenCode shows as soon as you add one. With one Claude or ChatGPT account, muxr works exactly as before.
             </Text>
             {list === null && (
                 <ItemGroup>
@@ -80,8 +81,7 @@ export function AccountsSettingsScreen() {
                 </ItemGroup>
             )}
             {list !== null && PROVIDERS.map((provider) => {
-                // Below two accounts the host lists none: the computer's own sign-in stays as it is.
-                const accounts = providerEntry(list, provider.id)?.accounts ?? [];
+                const accounts = list.providers.find((entry) => entry.provider === provider.id)?.accounts ?? [];
                 return (
                     <ItemGroup key={provider.id} title={provider.title}>
                         {accounts.map((account) => (
