@@ -40,6 +40,7 @@ import NotificationSettingsScreen from '../app/(app)/settings/notifications';
 import { refreshPushState, updateWebPushNotificationLevel } from '@/utils/pushNotifications';
 import { setActiveSessionClient } from '@/connection/sessionClientRef';
 import { openLifecycleNotice } from '@/utils/openLifecycleNotice';
+import { openWebInstallGuide } from '@/settings/WebInstallSupport';
 
 let rendered: ReturnType<typeof TestRenderer.create> | undefined;
 
@@ -211,4 +212,20 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
     await TestRenderer.act(async () => { await switchFor('Browser notifications').props.onValueChange(true); });
     expect(switchFor('Browser notifications').props.value).toBe(true);
     expect(await (await cache.match('/muxr-push-level'))?.text()).toBe('all');
+});
+
+it('sends an iOS Safari tab to the Home Screen guide instead of a dead push switch', async () => {
+    vi.stubGlobal('navigator', {
+        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        platform: 'iPhone',
+        maxTouchPoints: 5,
+    });
+    await TestRenderer.act(async () => { rendered = TestRenderer.create(React.createElement(NotificationSettingsScreen)); });
+    const rows = (type: string) => (rendered!.root as { findAllByType(type: string): { props: any }[] }).findAllByType(type);
+    const itemFor = (title: string) => rows('Item').find((item) => item.props.title === title)!;
+
+    expect(itemFor('Browser notifications').props.subtitle).toBe('Needs muxr on your Home Screen first');
+    expect(rows('Switch').some((item) => item.props.accessibilityLabel === 'Browser notifications')).toBe(false);
+    itemFor('Add muxr to your Home Screen').props.onPress();
+    expect(openWebInstallGuide).toHaveBeenCalledOnce();
 });

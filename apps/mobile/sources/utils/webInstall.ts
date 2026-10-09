@@ -3,24 +3,20 @@ import { Platform } from 'react-native';
 /**
  * What an install action can do right now, from real browser signals only.
  *
- * - `native`      a real installed app; the browser install flow never applies.
- * - `installed`   running as an installed web app (standalone display, or the
- *                 `appinstalled` event already fired this session).
  * - `ready`       Chromium offered its install prompt and we are holding it, so
  *                 the row can hand it back to the person on tap.
  * - `ios-guide`   iOS is showing the tab in Safari: there is no prompt API, so
  *                 Add to Home Screen is the only install path.
- * - `unavailable` a browser tab with no install path at all; show nothing.
+ * - `unavailable` installed, native, or a browser tab with no install path at
+ *                 all; show nothing.
  */
-export type WebInstallState = 'native' | 'installed' | 'ready' | 'ios-guide' | 'unavailable';
+export type WebInstallState = 'ready' | 'ios-guide' | 'unavailable';
 
 interface BeforeInstallPromptEvent extends Event {
     prompt(): Promise<void>;
-    userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
 let deferredPrompt: BeforeInstallPromptEvent | null = null;
-let installedByEvent = false;
 let started = false;
 const listeners = new Set<() => void>();
 
@@ -49,8 +45,7 @@ function isStandalone(): boolean {
 
 /** The single snapshot the install row renders from. */
 export function getWebInstallState(): WebInstallState {
-    if (Platform.OS !== 'web') return 'native';
-    if (installedByEvent || isStandalone()) return 'installed';
+    if (Platform.OS !== 'web' || isStandalone()) return 'unavailable';
     // iOS has no prompt API at all, so Add to Home Screen is always the path
     // there — even if a stray installability event ever reached the page.
     if (isIosSafari()) return 'ios-guide';
@@ -76,33 +71,25 @@ export function startWebInstallCapture(): void {
     window.addEventListener('beforeinstallprompt', (event) => {
         event.preventDefault();
         deferredPrompt = event as BeforeInstallPromptEvent;
-        installedByEvent = false;
         notify();
     });
     window.addEventListener('appinstalled', () => {
-        installedByEvent = true;
         deferredPrompt = null;
         notify();
     });
 }
 
-/** Hand the held prompt back to the person. Returns what they chose. */
-export async function promptWebInstall(): Promise<'accepted' | 'dismissed' | 'unavailable'> {
+/** Hand the held prompt back to the person. */
+export async function promptWebInstall(): Promise<void> {
     const event = deferredPrompt;
-    if (event === null) return 'unavailable';
+    if (event === null) return;
     // A prompt is one-shot: drop it before showing it so a second tap cannot
     // call prompt() twice, which Chrome rejects.
     deferredPrompt = null;
     notify();
     try {
         await event.prompt();
-        const choice = await event.userChoice;
-        if (choice.outcome === 'accepted') {
-            installedByEvent = true;
-            notify();
-        }
-        return choice.outcome;
     } catch {
-        return 'unavailable';
+        // The prompt is already dropped, so a rejected one has nothing to undo.
     }
 }

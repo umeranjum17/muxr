@@ -23,7 +23,7 @@ function useWebInstallState(): WebInstallState {
 export function WebInstallSupport() {
     const { theme } = useUnistyles();
     const state = useWebInstallState();
-    if (state !== 'ready' && state !== 'ios-guide') return null;
+    if (state === 'unavailable') return null;
     const install = () => {
         if (state === 'ios-guide') openWebInstallGuide();
         else void promptWebInstall();
