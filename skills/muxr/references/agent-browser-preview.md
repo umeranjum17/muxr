@@ -15,10 +15,10 @@ security, or privacy boundary requiring their action or approval.
    says whether it does), run the browser headed, using that normal desktop
    environment. Do not replace DISPLAY, clear WAYLAND_DISPLAY, or force X11
    browser arguments to create a private screen. If a Chrome fails with a
-   Wayland error, add --ozone-platform=x11. If no display is configured for agent
-   terminals on this computer, run the browser headless and tell the person
-   Computer cannot show it; to show a page on Computer, the host needs DISPLAY or
-   WAYLAND_DISPLAY set for muxr.
+   Wayland error, add --ozone-platform=x11. If agent terminals have no desktop
+   here that Computer can show, run the browser headless and tell the person
+   Computer cannot show it; a desktop for Computer has to be set up on this
+   computer first.
 2. When the browser is headed, tell the person where to look: "Open Computer to
    watch the page or finish signing in." Never paste ports, token-bearing URLs,
    or internal ids.
