@@ -1779,10 +1779,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 key={previewShown === undefined ? props.id : `${props.id}:preview`}
                                 sessionId={props.id}
                                 onExit={closeDesktop}
-                                // A shell pane names no conversation: the Computer view is titled
-                                // 'Computer', never the pane's generic shell label or the
-                                // computer's name.
-                                title={shell ? 'Computer' : contextTitle}
+                                // The Computer view is titled 'Computer' whether a shell
+                                // pane or an agent opened it, never the conversation's task
+                                // title or the computer's name; the agent stays as the mark,
+                                // and the conversation keeps its own naming on return.
+                                title="Computer"
                                 leading={<AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
                                 {...(previewShown === undefined ? {} : {
                                     target: { sessionId: props.id, kind: previewShown.kind, title: livePreview?.title ?? previewShown.title, closed: livePreview === undefined, viewOnly: !canControl },
