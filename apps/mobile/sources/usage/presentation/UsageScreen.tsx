@@ -7,7 +7,6 @@ import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import { Ionicons } from '@expo/vector-icons';
 import type { UsageLimitsWindow, UsageReport } from '@trymuxr/contract';
 import { RPC_CLIENT_TIMEOUT_MS } from '@trymuxr/contract';
-import type { ScreenChartNode, ScreenLimitsNode } from '../domain/screenModel';
 import { sync } from '@/catalog/sync';
 import { hapticsSelection } from '@/components/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,12 +20,6 @@ import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
 import { FRESH_MS, capturedBefore, clearReportFailure, collectionDue, knownProviders, lastForcedRead, lastKnownPlan, noteAsked, noteForcedRead, noteReportFailure, noteTabListAsked, releaseAsked, rememberShown, reportFailure, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
-
-/** The same primitives the declarative system renders, fed typed host data. */
-const LIMITS_NODE: ScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
-const LAST_KNOWN_NODE: ScreenLimitsNode = { type: 'limits', path: 'limits' };
-const MODEL_CHART_NODE: ScreenChartNode = { type: 'chart', variant: 'bar', path: 'modelSeries', emptyText: 'No measured activity today' };
-const WEEK_CHART_NODE: ScreenChartNode = { type: 'chart', variant: 'column', path: 'weekSeries', emptyText: 'No measured activity this week' };
 
 /** What a tab shows before anything has been asked for it. A mount asks, so
  *  this is a wait, not an absence. */
@@ -300,7 +293,7 @@ export function UsageScreen() {
                     <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
                 </Pressable>}
                 {display.status === 'unavailable' && lastKnown !== undefined && <View style={{ marginBottom: 8, opacity: 0.55 }}>
-                    <ScreenLimits node={LAST_KNOWN_NODE} data={{ limits: { verdict: 'unknown' as const, plan: lastKnown.plan, windows: lastKnown.windows } }} asOf={lastKnownAsOf} />
+                    <ScreenLimits limits={{ verdict: 'unknown' as const, plan: lastKnown.plan, windows: lastKnown.windows }} asOf={lastKnownAsOf} />
                 </View>}
                 {display.status === 'waiting' && <WaitingSkeleton />}
                 {display.status === 'figures' && (empty
@@ -311,7 +304,7 @@ export function UsageScreen() {
                     : <>
                         {report !== undefined && (activityUnread
                             ? <View style={{ opacity: failed || busy ? 0.55 : 1 }}>
-                                <ScreenLimits node={LIMITS_NODE} data={report} asOf={limitsAsOf} />
+                                <ScreenLimits limits={report.limits} title="Right now" asOf={limitsAsOf} />
                                 {failed
                                     ? <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${failureText ?? t('plugins.rightNow.refreshFailed')}. ${t('plugins.rightNow.refreshNow')}`} style={{ marginTop: 10, paddingVertical: 10 }}>
                                         <Notice tone="danger" text={failureText ?? t('plugins.rightNow.refreshFailed')} style={{ marginBottom: 0 }} />
@@ -322,12 +315,12 @@ export function UsageScreen() {
                             ? <View style={{ opacity: failed || busy ? 0.55 : 1 }}>
                                 {/* A tab speaks for its own plan only: a harness with none
                                     (Pi, OMP) shows its providers' limits on their routes. */}
-                                {(report.limits.windows.length > 0 || report.limits.message !== undefined) && <ScreenLimits node={LIMITS_NODE} data={report} asOf={limitsAsOf} />}
+                                {(report.limits.windows.length > 0 || report.limits.message !== undefined) && <ScreenLimits limits={report.limits} title="Right now" asOf={limitsAsOf} />}
                                 {failureText !== undefined && <Notice tone="danger" text={failureText} />}
                                 <ActivitySections key={report.provider} activity={report.activity} tab={tabLabel(report)} limits={insightLimits(report)} costNote={costNote(report)} planPriced={report.provider === 'zai'} />
                             </View>
                             : <View style={{ opacity: failed || busy ? 0.55 : 1 }}>
-                            <ScreenLimits node={LIMITS_NODE} data={report} asOf={limitsAsOf} />
+                            <ScreenLimits limits={report.limits} title="Right now" asOf={limitsAsOf} />
                             {failureText !== undefined && <Notice tone="danger" text={failureText} />}
                             <SectionLabel style={{ marginBottom: 10 }}>Today</SectionLabel>
                             <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 12, marginBottom: 14 }]}>
@@ -338,7 +331,7 @@ export function UsageScreen() {
                                 </View>
                             </View>
                             <SectionLabel style={{ marginBottom: 10 }}>Models today</SectionLabel>
-                            <ScreenChart node={MODEL_CHART_NODE} data={report} nested={false} />
+                            <ScreenChart items={report.modelSeries} variant="bar" emptyText="No measured activity today" nested={false} />
                             <SectionLabel style={{ marginBottom: 10 }}>Last 7 days</SectionLabel>
                             {/* The week's totals and its shape are one answer, so
                                 the columns sit in the same card as the figures. */}
@@ -347,7 +340,7 @@ export function UsageScreen() {
                                     <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Tokens" value={report.weekTokens} /></View>
                                     <View style={{ flexBasis: '48%', flexGrow: 1 }}><Metric label="Cost" value={report.weekCost} /></View>
                                 </View>
-                                <ScreenChart node={WEEK_CHART_NODE} data={report} nested />
+                                <ScreenChart items={report.weekSeries} variant="column" emptyText="No measured activity this week" nested />
                             </View>
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 14 }}>
                                 Local activity and estimated costs are separate from provider plan limits. Prompts and project details stay out.

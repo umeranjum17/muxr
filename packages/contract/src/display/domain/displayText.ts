@@ -2,8 +2,8 @@ export const MAX_DISPLAY_BYTES = 4 * 1024;
 
 /**
  * Trim a display string to `maxBytes` of UTF-8, never splitting a code point.
- * Used by the host to bound Herdr workspace tokens and by mobile `bindText`.
- * Pure JS so both sides can share it.
+ * Used by the host to bound Herdr workspace tokens and by the mobile usage
+ * parsers. Pure JS so both sides can share it.
  */
 export function capUtf8Bytes(text: string, maxBytes: number): string {
     if (maxBytes <= 0 || text.length === 0) return '';

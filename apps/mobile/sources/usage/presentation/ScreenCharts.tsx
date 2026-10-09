@@ -5,11 +5,9 @@ import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import Animated, { Easing, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import type { ScreenTone } from '@trymuxr/contract';
-import type { ScreenChartNode } from '../domain/screenModel';
 import type { Theme } from '@/theme';
 import { toneColor } from '../domain/usageTone';
-import { bindText, resolvePath } from '../domain/dataBinding';
-import { asChartSeries, type PluginChartItem } from '../domain/chartModel';
+import { asChartSeries, type ChartVariant, type PluginChartItem } from '../domain/chartModel';
 import { t } from '@/text';
 import { Typography } from '@/constants/Typography';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
@@ -37,7 +35,7 @@ function chartValue(item: PluginChartItem): string {
     return item.valueLabel ?? String(item.value);
 }
 
-function chartSummary(title: string | undefined, series: PluginChartItem[], variant: ScreenChartNode['variant'], total: number): string {
+function chartSummary(title: string | undefined, series: PluginChartItem[], variant: ChartVariant, total: number): string {
     const parts = series.map((item) => {
         const value = variant === 'ring'
             ? `${Math.round(item.value / total * 100)} percent`
@@ -119,7 +117,7 @@ function MeterRow({ item, ratio, emphasis, delay, hero }: { item: PluginChartIte
  * no information: an arc and a bar encode the same scalar, and a donut's legend
  * has to reprint every value anyway.
  */
-export function ScreenChart({ node, data, nested }: { node: ScreenChartNode; data: unknown; nested: boolean }) {
+export function ScreenChart({ items, variant, title, emptyText, nested }: { items: unknown; variant: ChartVariant; title?: string; emptyText?: string; nested: boolean }) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
     // The plugin declares what the number means; this decides what it can look
@@ -129,9 +127,8 @@ export function ScreenChart({ node, data, nested }: { node: ScreenChartNode; dat
     // area today; measure the card with onLayout if one ever renders in a
     // narrow column on a wide screen.
     const wide = useScreenContentWidth() >= 680;
-    const series = asChartSeries(resolvePath(data, node.path));
-    const title = node.title === undefined ? undefined : bindText(node.title, data);
-    const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(node.emptyText, data);
+    const series = asChartSeries(items);
+    const empty = emptyText ?? t('plugins.nothingToShow');
     // Empty says so in one quiet line. A full card drawn around "nothing yet"
     // spends the same space as real data. Inside a section the owning title
     // already carries the context, so an empty chart leaves no trace at all.
@@ -145,7 +142,7 @@ export function ScreenChart({ node, data, nested }: { node: ScreenChartNode; dat
         );
     }
     const total = series.reduce((sum, item) => sum + item.value, 0);
-    const summary = chartSummary(title, series, node.variant, total);
+    const summary = chartSummary(title, series, variant, total);
     const card: ViewStyle = nested
         ? { marginBottom: 4 }
         : { ...cardStyle(theme), marginBottom: 14, padding: 16 };
@@ -155,7 +152,7 @@ export function ScreenChart({ node, data, nested }: { node: ScreenChartNode; dat
 
     // One value against its ceiling. A two-slice donut says the same thing with
     // a second slice that carries no information of its own.
-    if (node.variant === 'gauge') {
+    if (variant === 'gauge') {
         const hero = series[0]!;
         const ratio = Math.max(0, Math.min(1, total === 0 ? 0 : hero.value / total));
         return (
@@ -184,7 +181,7 @@ export function ScreenChart({ node, data, nested }: { node: ScreenChartNode; dat
     }
 
     // Time reads left to right. Ranking a series of days destroys the shape.
-    if (node.variant === 'column') {
+    if (variant === 'column') {
         const peak = Math.max(...series.map((item) => item.value));
         const last = series.length - 1;
         const peakIndex = series.findIndex((item) => item.value === peak);
@@ -217,7 +214,7 @@ export function ScreenChart({ node, data, nested }: { node: ScreenChartNode; dat
         );
     }
 
-    if (node.variant === 'ring') {
+    if (variant === 'ring') {
         // First slice is the hero: its value/label sit in the donut center.
         const hero = series[0]!;
         const sliceColor = (item: PluginChartItem, index: number) => {
