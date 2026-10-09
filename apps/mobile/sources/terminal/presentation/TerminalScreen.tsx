@@ -1297,7 +1297,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // timeout or lost route reads unconfirmed until the host answers again.
             const statusText = shownStatus === 'live' ? 'connected'
                 : shownStatus === 'unconfirmed' ? 'Connection unconfirmed'
-                    : shownStatus;
+                    : shownStatus === 'reconnecting' ? 'Reconnecting…'
+                        : shownStatus;
             // What the pane is doing while it is not live, or the hint a gesture
             // left: one chip in the row under the terminal, never over output.
             const noticeChip = { flexShrink: 1, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, height: PANE_TABS_HEIGHT, marginLeft: 4, paddingHorizontal: 10, borderRadius: PANE_TABS_HEIGHT / 2, backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider };

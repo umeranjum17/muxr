@@ -306,7 +306,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     openedRef.current = false;
                     lastSizeRef.current = null;
                     const message = error instanceof Error ? error.message : String(error);
-                    onStatus?.(message.includes('explicit takeover required') ? 'Open on another device · Tap to use it here' : message);
+                    // Never show a wire term ("terminal:", "link", "grant"): the
+                    // one internal string that could still reach here becomes a
+                    // plain sentence the person can act on.
+                    onStatus?.(message.startsWith('terminal:') ? 'The terminal could not open. Tap to retry.' : message);
                 });
         },
         [focused, sessionId, onStatus, onChannel],

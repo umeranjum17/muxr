@@ -10,6 +10,7 @@ vi.mock('@/catalog/store', async () => {
 });
 
 import { openTerminal, type TerminalBottomState } from './OpenTerminal';
+import { storage } from '@/catalog/store';
 
 /** The phone-side pane really uses only link streams across attach, input and reconnect. */
 describe('terminal link cutover', () => {
@@ -90,10 +91,23 @@ describe('terminal link cutover', () => {
         streams[1]!.end();
         await vi.waitFor(() => expect(streams).toHaveLength(3), { timeout: 4000 });
         await vi.waitFor(() => expect(painted).toEqual(['aGk=', 'aGk=', 'aGk=']));
-        // A plan-account move replaces the pane under the same route.
-        streams[2]!.line(JSON.stringify({ type: 'terminal.closed', reason: 'terminal attach ended: terminal term_1 not found' }));
-        await vi.waitFor(() => expect(streams).toHaveLength(4), { timeout: 4000 });
+        // A relay/host reconnect: the machine transport drops and returns while
+        // the pane is reconnecting. It resubscribes at once instead of waiting
+        // out the retry backoff, and the last frame stays on screen throughout.
+        storage.setState({ socketStatus: 'disconnected' });
+        streams[2]!.end();
+        // The stream-end handler runs on a microtask; let it retire the wire
+        // before the transport comes back.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(painted).toEqual(['aGk=', 'aGk=', 'aGk=']);
+        storage.setState({ socketStatus: 'connected' });
+        await vi.waitFor(() => expect(streams).toHaveLength(4), { timeout: 1000 });
         await vi.waitFor(() => expect(painted).toHaveLength(4));
+        expect(states.at(-1)).toBe('live');
+        // A plan-account move replaces the pane under the same route.
+        streams[3]!.line(JSON.stringify({ type: 'terminal.closed', reason: 'terminal attach ended: terminal term_1 not found' }));
+        await vi.waitFor(() => expect(streams).toHaveLength(5), { timeout: 4000 });
+        await vi.waitFor(() => expect(painted).toHaveLength(5));
         expect(states.at(-1)).toBe('live');
         expect(socket).not.toHaveBeenCalled();
         channel.close();
