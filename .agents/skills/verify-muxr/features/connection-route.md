@@ -19,6 +19,18 @@ showed on the computer (for example `Works only on this Wi-Fi` or
   names like WS or TLS.
 - `relay-details` the raw relay address is hidden behind `Technical details`
   (`Show the relay address`); tapping the row shows `Relay address: <url>`.
+- `trust-plain` the `Trust on this device` row says who can act in one
+  plain sentence (`Only this phone can control your computer.` or
+  `This browser can control your computer.`, `… can view your computer but
+  not control it.` for view-only), `This phone has no access now. Pair
+  again on the computer.` with no grant; the end-to-end-encrypted meaning
+  lives only in the `Privacy` row.
+- `browser-access-plain` the web-only `Browser access` row shows the grant's
+  end as a plain local time with no seconds: `Browser can control until
+  10:19 PM` when it ends today, `… until Nov 8, 3:52 PM` on another day,
+  `Browser can view until …` for a view-only grant, `Browser access expired.
+  Pair again on the computer.` after it ends and `No active browser grant.
+  Pair again on the computer.` without one.
 
 ## How to get to it (user POV)
 
@@ -51,6 +63,15 @@ Preconditions:
   `Technical details`; capture closed, then tap `Technical details` and
   capture again. A fake-stack lab (`perf/lib/fakeStack.mjs`, `mintPairing()`)
   with a release APK from `perf/buildPrApk.mjs` gives the `ws://` case.
+- **Trust and browser rows.** `mintPairing()` with authority `control` gives
+  the control trust sentence; sending `{"intent":{"kind":"native",
+  "authority":"observe","personal":false}}` on the same `pair.sock` gives
+  the view-only one, and a stored grant whose `expiresAt` passed (rewind it
+  in the browser's storage, or wait) gives the expired wording. On web the
+  same pair.sock accepts `{"kind":"browser",…}` for the `Browser access`
+  row; check the time rendering with a grant that ends today and one that
+  ends on a later day. Capture each state; the clock time must have no
+  seconds and no countdown beside it.
 
 ## Gotchas
 
