@@ -4,7 +4,8 @@ import { storage, useSession, useSessionFileCache, useSessionsLoaded } from '@/c
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { resolveSessionFilePath } from '@/terminal';
-import { DocumentViewer, type DocumentModel } from '@/components/document/DocumentViewer';
+import type { DocumentModel } from '@/components/document/DocumentViewer';
+import { LazyDocumentViewer } from '@/components/code/lazyCodeSurfaces';
 import { currentFileNavigation, loadSessionDocument, openFileViewer, parentDirectory } from '@/session';
 import { isMissingFileError } from '@/utils/errors';
 import { MissingFileState } from '@/components/document/MissingFileState';
@@ -255,18 +256,20 @@ export default React.memo(function FileScreen() {
     };
 
     return (
-        <DocumentViewer
-            document={document}
-            loading={isLoading}
-            error={error}
-            onNavigate={(path) => {
-                if (sessionId === undefined) return;
-                router.replace(openFileViewer({
-                    sessionId,
-                    path,
-                    ...(navKey === undefined ? {} : { navigation: { key: navKey } }),
-                }) as never);
-            }}
-        />
+        <React.Suspense fallback={null}>
+            <LazyDocumentViewer
+                document={document}
+                loading={isLoading}
+                error={error}
+                onNavigate={(path) => {
+                    if (sessionId === undefined) return;
+                    router.replace(openFileViewer({
+                        sessionId,
+                        path,
+                        ...(navKey === undefined ? {} : { navigation: { key: navKey } }),
+                    }) as never);
+                }}
+            />
+        </React.Suspense>
     );
 });

@@ -134,34 +134,30 @@ if (!existsSync(distIndex)) {
         }
         initialGzip += gzipSync(readFileSync(file)).length;
     }
-    // Ratchet, not target: CI measured 3,213,904 B on the shared-artifacts
-    // export (the Shared Artifacts timeline route, pane-actions badge, and
-    // download flow added ~4 KiB over the composer-deck suite run beside it,
-    // past the old 3,210,000 B ceiling), so the ceiling carries ~0.5% headroom
-    // for cross-environment variance (the same export measures ~3.20 MB on a
-    // dev machine; exact-byte pins fail on noise: the __common chunk once
-    // missed by 13 bytes, and this ratchet once tripped by 178 bytes). The
-    // terminal control-grid redesign then measured 3,230,168 B in CI (its
-    // 168-byte trip over the old ceiling was the same noise the headroom
-    // exists for), so the ceiling re-ratchets with the same ~0.5% headroom.
-    // Spaces grouping and localized names measured 3,250,098 B in CI; keep
-    // the same ~0.5% headroom for this required initial-screen change. The
-    // byokit step-2 phone link migration then measured 3,323,941 B in CI: the
-    // required @byokit/link package pulls its Noise/sodium crypto
-    // (sodium-javascript) into the entry chunk alongside the relay client.
-    // The real 2.0 MiB usable-screen target is not reachable until the markdown
-    // lazy-split (mermaidBundle) lands and the eager __common chunk stops
-    // carrying the diff/mermaid subtrees.
-    const USABLE_GZIP_CEILING = 3341000;
-    check(`dist usable gzip ratchet (target 2.0 MiB once lazy-split lands)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
-    // The eager common chunk must stay a stub: anything shared between two
-    // lazy chunks lands here and loads before the first paint.
+    // Ratchet, not target. The terminal, the editor/diff surfaces and the
+    // syntax highlighter now load as lazy chunks: the session route lazy-loads
+    // TerminalRoute (and the terminal view's xterm addons inside it), the
+    // diff viewer resolves `shiki` to the slim static bundle (shikiSlim.ts),
+    // the two @pierre/diffs entry points sit behind one boundary
+    // (pierreBundle.ts), and every prism consumer sits behind one lazy chunk
+    // (codeSurfaces.tsx). None of it loads on the landing or pair routes. The
+    // measured initial transfer fell from 3,111,052 B to 2,652,278 B on this
+    // machine, so the ratchet re-pins with the usual ~0.5% headroom for
+    // cross-environment variance (exact-byte pins fail on noise: the __common
+    // chunk once missed by 13 bytes and this ratchet once tripped by 178). The
+    // remaining initial transfer is the shared application shell, whose split
+    // is the next slice; the real 2.0 MiB usable-screen target waits on it.
+    const USABLE_GZIP_CEILING = 2670000;
+    check(`dist usable gzip ratchet (target 2.0 MiB once the shell splits too)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
+    // The eager common chunk carries what Metro shares between two lazy
+    // chunks; anything here loads before the first paint. After the terminal,
+    // diff and highlighter moved behind their own lazy boundaries it holds the
+    // shared application shell, not those payloads.
     const commonRef = refs.find((ref) => ref.includes('__common'));
     const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
-    // Ratchet, not target: CI measured 1,108,090 B, so the ceiling carries
-    // ~1% headroom for the same cross-environment variance. The real 64 KiB
-    // stub target waits on the same lazy-split.
-    check('dist __common chunk ratchet (target 64 KiB once lazy-split lands)', commonGzip <= 1120000, `${commonGzip} bytes`);
+    // Ratchet, not target: CI measured 1,108,090 B before the route split, so
+    // the ceiling carries ~1% headroom for the same cross-environment variance.
+    check('dist __common chunk ratchet', commonGzip <= 1120000, `${commonGzip} bytes`);
     const distText = [distHtml, ...refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';

@@ -26,11 +26,9 @@ import { pagePalette } from '@/components/code/syntaxPalette';
 import { ui, withAlpha } from '@/components/ui';
 import { PathBreadcrumb } from '@/components/PathBreadcrumb';
 import { fileIcon } from './fileIcon';
+import { HOST_CODE_MAX_CHARS, HOST_CODE_MAX_LINES } from './codeLimits';
 
-export const PLUGIN_CODE_MAX_LINES = 600;
-export const PLUGIN_CODE_MAX_CHARS = 64 * 1024;
-export const HOST_CODE_MAX_LINES = 2000;
-export const HOST_CODE_MAX_CHARS = 256 * 1024;
+export { PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES, HOST_CODE_MAX_CHARS, HOST_CODE_MAX_LINES } from './codeLimits';
 
 /** Reanimated's list, so the fade opacity can follow scroll without a JS round trip. */
 const RIGHT_FADE = 28;

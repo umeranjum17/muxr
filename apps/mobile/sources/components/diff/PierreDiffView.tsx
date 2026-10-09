@@ -78,9 +78,9 @@ let pierreBundlePromise: Promise<PierreBundle> | null = null;
 function loadPierre(): Promise<PierreBundle> {
     if (!pierreBundlePromise) {
         pierreBundlePromise = (async () => {
-            // Side-effect import registers the <diffs-container> custom element.
-            const main = await import('@pierre/diffs');
-            const react = await import('@pierre/diffs/react');
+            // One boundary for both entry points; see pierreBundle.ts for why
+            // splitting them fed their shared shiki subtree to __common.
+            const { main, react } = await import('./pierreBundle');
             return { main, react };
         })();
     }

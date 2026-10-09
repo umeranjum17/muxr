@@ -32,7 +32,7 @@ import { recordAgentGate, recordTrackedRpc } from '@/catalog/diagnostics';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
 import { PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
 import type { HerdrTreeTab } from '@trymuxr/contract';
-import { TerminalView, type TerminalViewControls } from './TerminalView';
+import type { TerminalViewControls } from './TerminalView';
 import { AgentPager } from './AgentPager';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
@@ -155,6 +155,10 @@ const SCROLLED_AWAY = new Set<string>();
 const WATCH_LABEL = { android: 'preview.watchAndroid', ios: 'preview.watchIos' } as const;
 const TERMINAL_REPLY = /^\u001b(?:\[[IO]$|\[[?>]?[\d;$]*[cRnty]$|\[\?[\d;]*u$|[\]P]|\[<|\[M)/;
 const DesktopSurface = React.lazy(async () => ({ default: (await import('@/desktop')).DesktopSurface }));
+// The live terminal is the browser's single heaviest module (xterm + its
+// addons). It loads with the route that actually draws a terminal, never with
+// the landing or pair screens, which is why it is a lazy boundary here.
+const TerminalView = React.lazy(async () => ({ default: (await import('./TerminalView')).TerminalView }));
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
     return <>{children(theme)}</>;
@@ -1493,7 +1497,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             status={status}
                             onNothingThere={nothingToSwipeTo}
                             onSwitch={switchAgent}
-                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} />}
+                            terminal={(onFirstFrameWritten) => (
+                                <React.Suspense fallback={<View style={{ flex: 1, backgroundColor: theme.colors.terminal.background }} />}>
+                                    <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} />
+                                </React.Suspense>
+                            )}
                         >
                         {linkMenu !== null && terminalBox !== undefined && terminalLinkCardFits(terminalBox.height, linkActions.length) && (
                             <TerminalLinkMenu

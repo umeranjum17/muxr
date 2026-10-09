@@ -32,8 +32,17 @@ config.resolver.blockList = [
 const preactCjsPath = require.resolve('preact');
 const preactHooksCjsPath = require.resolve('preact/hooks');
 
+// The diff viewer's `shiki` is the slim static bundle on web: the stock entry
+// lazy-imports every grammar, and their shared subtrees end up in the eager
+// __common chunk (see shikiSlim.ts). Native never draws the web diff, so the
+// alias stays scoped to web and leaves the native bundle untouched.
+const shikiSlimPath = path.resolve(__dirname, 'sources/components/diff/shikiSlim.ts');
+
 const baseResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (platform === 'web' && moduleName === 'shiki' && !String(context.originModulePath).includes('shikiSlim')) {
+    return { filePath: shikiSlimPath, type: 'sourceFile' };
+  }
   if (moduleName === 'preact') {
     return { filePath: preactCjsPath, type: 'sourceFile' };
   }

@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Platform, ScrollView, View, Text } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MarkdownView } from '@/components/markdown/MarkdownView';
+import { LazyMarkdownView } from '@/components/code/lazyCodeSurfaces';
 import { ChangelogChange, ChangelogRelease, ChangelogVerification, currentRelease, getLegacyEntries, olderReleases, setLastViewedRelease } from '@/changelog';
 import { getAppVersion } from '@/utils/appVersion';
 import { Typography } from '@/constants/Typography';
@@ -129,7 +129,9 @@ export default function ChangelogScreen() {
                         {entry.summary ? <Text style={styles.summaryText}>{entry.summary}</Text> : null}
                         {entry.markdown ? (
                             <Card>
-                                <MarkdownView markdown={entry.markdown} />
+                                <React.Suspense fallback={null}>
+                                    <LazyMarkdownView markdown={entry.markdown} />
+                                </React.Suspense>
                             </Card>
                         ) : null}
                     </View>
