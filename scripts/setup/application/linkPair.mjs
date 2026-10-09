@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { hostId } from '@byokit/link';
 import { linkUrl } from '@byokit/relay/device';
 import { askVisible, base64, print, qrFits, qrRows, richTerminal, terminalColumns, terminalQrText, terminalRows } from '../infrastructure/runtime.mjs';
+import { startPairingPage } from '../infrastructure/pairingPage.mjs';
 import { pairingIntent } from '../domain/dist/index.js';
 import { readSelfhostState, selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
 import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
@@ -213,6 +214,9 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     const info = lstatSync(socketPath);
     if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0) throw new Error('unsafe pairing socket');
     if (signal?.aborted) throw new Error('pairing cancelled');
+    // The local QR page is the offer's scannable fallback where no QR fits the terminal.
+    const page = process.stdout.isTTY && intent.kind === 'native' ? await startPairingPage() : undefined;
+    if (signal?.aborted) { await page?.close(); throw new Error('pairing cancelled'); }
     const socket = createConnection(socketPath);
     socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind: intent.kind, authority: intent.authority, personal: intent.personal },
         // A lab shell (HERDR_SESSION set) must never pair a host serving the live session.
@@ -224,7 +228,7 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
         if (altScreen) process.stdout.write(ALT_SCREEN_OFF);
         altScreen = false;
     };
-    const onResize = () => { if (altScreen) drawOffer(latest, intent); };
+    const onResize = () => { if (altScreen) drawOffer(latest, intent, page?.url); };
     const onInterrupt = () => process.exit(130);
     process.on('exit', leaveAltScreen);
     process.on('SIGINT', onInterrupt);
@@ -245,11 +249,12 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
                         const event = JSON.parse(line);
                         if (event.offer) {
                             latest = event.offer;
+                            page?.update(event.offer);
                             if (richTerminal() && !altScreen) {
                                 process.stdout.write(ALT_SCREEN_ON);
                                 altScreen = true;
                             }
-                            drawOffer(event.offer, intent);
+                            drawOffer(event.offer, intent, page?.url);
                         } else if (event.approval) {
                             leaveAltScreen();
                             void Promise.resolve(approve(event.approval)).then((yes) => socket.write(`${JSON.stringify({ yes })}\n`), reject);
@@ -267,6 +272,7 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
         process.stdout.off('resize', onResize);
         signal?.removeEventListener('abort', cancel);
         socket.destroy();
+        await page?.close();
     }
 }
 
@@ -377,8 +383,8 @@ function offerCode(offer, compact) {
     return candidates.find((code) => qrFits(code.text, wrappedRows(code.text), code.border));
 }
 
-/** Draw the offer from the top: the QR whole, then the pairing string, then the text lines in priority order while the rows left over hold them. */
-function drawOffer(offer, intent) {
+/** Draw the offer from the top: the QR whole, then the pairing string, then the text lines in priority order while the rows left over hold them. Where no QR fits, the string is followed by one line opening the local QR page, which carries the same token. */
+function drawOffer(offer, intent, pageUrl) {
     const compact = intent.kind === 'native' && typeof offer.compactText === 'string' ? offer.compactText : undefined;
     const code = offerCode(offer, compact);
     const token = code?.text ?? offer.text;
@@ -389,9 +395,11 @@ function drawOffer(offer, intent) {
     const label = intent.kind === 'browser'
         ? 'Open the browser pairing link above (one token):'
         : 'Other ways: copy the pairing string above (one token):';
+    const pageLine = code === undefined && pageUrl !== undefined ? `Open the QR page: ${pageUrl}` : undefined;
     let left = richTerminal() ? terminalRows() - (code === undefined ? 0 : qrRows(code.text, code.border)) : Infinity;
     const lines = [token];
     left -= wrappedRows(token);
+    if (pageLine !== undefined) { lines.push(pageLine); left -= wrappedRows(pageLine); }
     const take = (block) => {
         const rows = block.reduce((sum, line) => sum + wrappedRows(line), 0);
         if (rows > left) return false;
