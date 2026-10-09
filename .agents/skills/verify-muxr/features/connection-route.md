@@ -20,7 +20,7 @@ showed on the computer (for example `Works only on this Wi-Fi` or
 - `relay-details` the raw relay address is hidden behind `Technical details`
   (`Show the relay address`); tapping the row shows `Relay address: <url>`.
 - `trust-plain` the `Trust on this device` row says who can act in one
-  plain sentence (`Only this phone can control your computer.` or
+  plain sentence (`This phone can control your computer.` or
   `This browser can control your computer.`, `… can view your computer but
   not control it.` for view-only), `This phone has no access now. Pair
   again on the computer.` with no grant; the end-to-end-encrypted meaning
