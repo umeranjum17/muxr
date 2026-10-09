@@ -102,6 +102,21 @@ const OPENS_EDITOR_LABEL = 'Opens the controls editor.';
 const CONNECT_DEADLINE_MS = 12_000;
 const CONNECT_STALLED = 'still connecting';
 
+/** What the chip under the terminal says: the channel's state or close reason
+ *  in the person's words. Wire words ("terminal:", "link", "stream") never show. */
+function plainTerminalStatus(status: string): string {
+    switch (status) {
+        case 'connecting': return 'Connecting…';
+        case 'reconnecting': return 'Reconnecting…';
+        case 'unconfirmed': return 'Connection unconfirmed';
+        case CONNECT_STALLED: return 'Still connecting · Tap to retry';
+        case 'closed':
+        case 'disconnected': return 'Disconnected · Tap to reconnect';
+        case 'terminal write failed': return 'Could not draw the screen · Tap to retry';
+    }
+    return /^terminal:|herdr stream/i.test(status) ? 'The terminal could not open · Tap to retry' : status;
+}
+
 /**
  * How long a pane must be unwell before it says so. A dropped link is noticed
  * within a couple of hundred milliseconds and most are back before anyone could
@@ -1168,8 +1183,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const tabPanes = currentTab?.panes ?? [];
             const paneIndex = tabPanes.findIndex((pane) => pane.sessionId === props.id);
             const paneTotal = tabPanes.length;
-            const showConnectingStatus = shownStatus !== 'live' && gestureHint === null && shownStatus === 'connecting';
-            const showRetryStatus = shownStatus !== 'live' && gestureHint === null && shownStatus !== 'connecting' && shownStatus !== 'unconfirmed';
+            // Connecting and reconnecting recover by themselves: a spinner, nothing to tap.
+            const showConnectingStatus = gestureHint === null && (shownStatus === 'connecting' || shownStatus === 'reconnecting');
+            const showRetryStatus = shownStatus !== 'live' && gestureHint === null && !showConnectingStatus && shownStatus !== 'unconfirmed';
             const showUnconfirmedStatus = shownStatus === 'unconfirmed' && gestureHint === null;
             const railInk = theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'];
             // Settings can put away the pane tabs at one pane and the key row
@@ -1295,10 +1311,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // Only what the channel can vouch for: 'live' means frames flow with
             // nothing known wrong, so it reads as connected, never as health; a known
             // timeout or lost route reads unconfirmed until the host answers again.
-            const statusText = shownStatus === 'live' ? 'connected'
-                : shownStatus === 'unconfirmed' ? 'Connection unconfirmed'
-                    : shownStatus === 'reconnecting' ? 'Reconnecting…'
-                        : shownStatus;
+            const statusText = shownStatus === 'live' ? 'connected' : plainTerminalStatus(shownStatus);
             // What the pane is doing while it is not live, or the hint a gesture
             // left: one chip in the row under the terminal, never over output.
             const noticeChip = { flexShrink: 1, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, height: PANE_TABS_HEIGHT, marginLeft: 4, paddingHorizontal: 10, borderRadius: PANE_TABS_HEIGHT / 2, backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider };
@@ -1306,7 +1319,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const terminalNotice = gestureHint !== null
                 ? <View pointerEvents="none" style={noticeChip}><Text numberOfLines={1} style={noticeText}>{gestureHint}</Text></View>
                 : showConnectingStatus
-                    ? <View pointerEvents="none" style={noticeChip}><ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} /><Text numberOfLines={1} style={noticeText}>{shownStatus}</Text></View>
+                    ? <View pointerEvents="none" style={noticeChip}><ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} /><Text numberOfLines={1} style={noticeText}>{statusText}</Text></View>
                     : showUnconfirmedStatus
                         ? <View pointerEvents="none" accessibilityLabel={statusText} style={noticeChip}><Text numberOfLines={1} style={noticeText}>{statusText}</Text></View>
                         : showRetryStatus

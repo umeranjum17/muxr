@@ -14,9 +14,11 @@ import { storage } from '@/catalog/store';
 
 /** The phone-side pane really uses only link streams across attach, input and reconnect. */
 describe('terminal link cutover', () => {
-    it('recovers a cold-start refusal, paints, writes and reattaches without opening a relay socket', { timeout: 10_000 }, async () => {
+    it('recovers a cold-start refusal, paints, writes and reattaches without opening a relay socket', { timeout: 20_000 }, async () => {
         const socket = vi.fn(() => { throw new Error('old relay socket opened'); });
         vi.stubGlobal('WebSocket', socket);
+        // The host's next attach answer; a refusal applies to one attach only.
+        let refusal: { error: string; code: string } | undefined;
         const streams: Array<{ line: (value: string) => void; end: () => void; write: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = [];
         mocks.openTerminalLink.mockImplementation((args: { requestId: string }) => {
             let line!: (value: string) => void;
@@ -28,7 +30,13 @@ describe('terminal link cutover', () => {
                 onEnd: (listener: () => void) => { end = listener; return () => undefined; },
             };
             streams.push({ line: (value) => line(value), end: () => end(), write: transport.write, close: transport.close });
+            const refused = refusal;
+            refusal = undefined;
             setTimeout(() => {
+                if (refused !== undefined) {
+                    line(JSON.stringify({ type: 'result', requestId: args.requestId, ok: false, ...refused }));
+                    return;
+                }
                 line(JSON.stringify({ type: 'result', requestId: args.requestId, ok: true, data: { paneId: 'pane' } }));
                 line(JSON.stringify({ type: 'terminal.frame', bytes: 'aGk=' }));
             }, 0);
@@ -109,6 +117,20 @@ describe('terminal link cutover', () => {
         await vi.waitFor(() => expect(streams).toHaveLength(5), { timeout: 4000 });
         await vi.waitFor(() => expect(painted).toHaveLength(5));
         expect(states.at(-1)).toBe('live');
+        // Herdr restarts under a painted pane: its stream exits, and the next
+        // attach meets Herdr still coming back. Both are waited out, no tap.
+        refusal = { error: 'Herdr is temporarily unavailable. Try again when it responds.', code: 'unavailable' };
+        streams[4]!.line(JSON.stringify({ type: 'terminal.closed', reason: 'herdr stream exited (signal)' }));
+        await vi.waitFor(() => expect(streams).toHaveLength(7), { timeout: 8000 });
+        await vi.waitFor(() => expect(painted).toHaveLength(6));
+        expect(states.at(-1)).toBe('live');
+        // Another device taking the pane is the one close that waits for the person.
+        const closes: Array<string | undefined> = [];
+        channel.onClose((reason) => closes.push(reason));
+        streams[6]!.line(JSON.stringify({ type: 'terminal.closed', reason: 'control moved to another device' }));
+        await vi.waitFor(() => expect(closes).toEqual(['Open on another device · Tap to use it here']));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        expect(streams).toHaveLength(7);
         expect(socket).not.toHaveBeenCalled();
         channel.close();
         vi.unstubAllGlobals();

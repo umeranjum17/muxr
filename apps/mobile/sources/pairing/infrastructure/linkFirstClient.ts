@@ -200,40 +200,19 @@ export class LinkFirstClient implements SessionClient {
         );
     }
 
-    /** Resolves true once the link has admitted the host again, false if the
-     *  link is permanently gone or the wait runs out. The pane must be able to
-     *  attach across a relay or host reconnect instead of being refused in the
-     *  handshake window right after `online`. */
-    private waitUntilOnline(timeoutMs: number): Promise<boolean> {
-        if (this.online) return Promise.resolve(true);
-        return new Promise<boolean>((resolve) => {
-            let settled = false;
-            const finish = (value: boolean): void => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(timer);
-                off();
-                resolve(value);
-            };
-            const off = this.onStateChange((state) => {
-                if (state === 'open') finish(true);
-                else if (state === 'closed' || state === 'stale') finish(false);
-            });
-            const timer = setTimeout(() => finish(this.online), timeoutMs);
-            if (this.online) finish(true);
-        });
-    }
-
     /** Opens a terminal or voice stream over the link. */
     private async openByteStream(name: 'terminal' | 'voice' | 'plugin', args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
-        if (this.closed || this.link === undefined) return undefined;
-        if (!this.online) {
-            // A reconnect drops `online` for one handshake round trip. Wait it
-            // out rather than refusing the pane stream the phone just asked for.
-            const online = await this.waitUntilOnline(this.options.requestTimeoutMs ?? 20_000);
-            if (!online || this.closed || this.link === undefined) return undefined;
+        if (!this.online || this.link === undefined || this.closed) return undefined;
+        let stream: Awaited<ReturnType<DeviceLink['stream']>>;
+        try {
+            stream = await this.link.stream(name, args);
+        } catch (cause) {
+            // A refusal that pairing or an update must fix ends the client here,
+            // the same as a request would, so its words reach the person; a
+            // dropped socket stays a plain retry for the caller.
+            this.mapLinkFailure('terminal.attach', cause);
+            return undefined;
         }
-        const stream = await this.link.stream(name, args);
         let ended = false;
         let endError: string | undefined;
         const lines = new Set<(line: string) => void>();
