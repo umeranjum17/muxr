@@ -1,8 +1,8 @@
 # Architecture
 
 Herdr owns agents and backend plugins, the host translates, the relay routes
-bytes, and the app draws the terminal. The app is a native extension shell:
-host-installed packages contribute approved native surfaces without downloaded code.
+bytes, and the app draws the terminal. The app owns no product truth and runs no
+downloaded code.
 
 ```
   PHONE / WEB               RELAY                   YOUR MACHINE
@@ -59,8 +59,8 @@ holds the frames it was fed.
 
 muxr has no phone-side extension runtime. Herdr actions (Applications) are the
 only extension surface the host launches. The `muxr-ui.json` runtime is retired:
-`plugin.list`, `plugin.manifest`, `plugin.approve`, `plugin.invoke` and
-`plugin.call` answer empty or "not supported", so old phone apps keep working.
+the `plugin.*` requests are deprecated stubs that answer empty or "plugins are no
+longer supported", so old phone apps keep working.
 
 The mandatory app kernel owns pairing, E2EE, transport, normalized reconnecting
 state, terminal rendering, and native OS bridges. Realtime voice, usage and
