@@ -134,20 +134,14 @@ if (!existsSync(distIndex)) {
         initialGzip += gzipSync(readFileSync(file)).length;
     }
     // Ratchet, not target. The terminal, the editor/diff surfaces and the
-    // syntax highlighter now load as lazy chunks: the web session route lazy-loads
-    // TerminalRoute (and the terminal view's xterm addons inside it), the
-    // diff viewer resolves `shiki` to the slim static bundle (shikiSlim.ts),
-    // the two @pierre/diffs entry points sit behind one boundary
-    // (pierreBundle.ts), and every prism consumer sits behind one lazy chunk
-    // (codeSurfaces.tsx). None of it loads on the landing or pair routes. Same
-    // web export method on both trees: the merge base measured 3,031,632 B of
-    // initial transfer and this head measures 2,849,246 B (-182,386 B). That is
-    // still above the 2.0 MiB usable-screen target (2,097,152 B); the ratchet
-    // pins the head measurement with ~0.5% headroom for cross-environment
-    // variance (exact-byte pins fail on noise). Closing the gap means splitting
-    // the shared application shell, which is the next slice.
+    // syntax highlighter load as lazy chunks, so none of them run on the landing
+    // or pair routes. Same web export method on both trees: the merge base
+    // measured 3,031,632 B of initial transfer and this head measures 2,683,296 B
+    // (-348,336 B). The 2,670,000 B target is not met yet, so this ceiling still
+    // holds the previous round's pin (2,863,500 B) and is not yet tightened to
+    // the head figure. Tighten it once the head is under 2,670,000 B.
     const USABLE_GZIP_CEILING = 2863500;
-    check(`dist usable gzip ratchet (target 2.0 MiB once the shell splits too)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
+    check(`dist usable gzip ratchet (target 2,670,000 B)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,
     // diff and highlighter moved behind their own lazy boundaries it holds the
@@ -155,8 +149,8 @@ if (!existsSync(distIndex)) {
     const commonRef = refs.find((ref) => ref.includes('__common'));
     const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
     // Ratchet, not target: the merge base's __common measured 1,106,153 B and
-    // this head's measures 984,678 B, so the ceiling carries ~0.5% headroom for
-    // the same cross-environment variance.
+    // this head measures 986,633 B. The ceiling is the previous round's pin
+    // (989,700 B), not re-pinned to this head.
     check('dist __common chunk ratchet', commonGzip <= 989700, `${commonGzip} bytes`);
     const distText = [distHtml, ...refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
@@ -176,6 +170,14 @@ if (!existsSync(distIndex)) {
     });
     check('dist initial payload has no marketing origin', !hasMarketingOrigin);
     check('dist initial payload carries no mermaid engine', !distText.includes('__esbuild_esm_mermaid_nm'));
+    // The live terminal and its xterm addons must stay in the lazy TerminalRoute
+    // chunk. The entry keeps only the small web wrapper, which has no body.
+    const initialJs = refs.filter((ref) => ref.endsWith('.js')).map((ref) => {
+        const file = join(mobile, 'dist', ref.replace(/^\//, ''));
+        return existsSync(file) ? readFileSync(file, 'utf8') : '';
+    }).join('\n');
+    check('dist initial JS carries no TerminalRoute or xterm payload',
+        !initialJs.includes('TerminalRoute=function({id:') && !initialJs.includes('xterm-scrollable-element') && !initialJs.includes('@xterm/addon-webgl'));
     // Expo hashes asset names, so inspect emitted model-sized binaries instead
     // of grepping JS metadata for a legitimate filename.
     const MIN_WHISPER_MODEL_BYTES = 50 * 1024 * 1024;

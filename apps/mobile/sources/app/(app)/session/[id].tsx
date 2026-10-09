@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useRoute } from "@react-navigation/native";
-import { TerminalRoute } from '@/terminal/presentation/TerminalRoute';
+import { TerminalRoute } from '@/terminal/presentation/TerminalRouteLoader';
 
 export default React.memo(() => {
     const route = useRoute();
