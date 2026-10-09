@@ -33,14 +33,15 @@ import {
 } from './scrcpy.js';
 
 /**
- * Android emulators via scrcpy, with or without a desktop window.
+ * Headless emulators via scrcpy (D2.2).
  *
- * This watches `/proc` for an emulator attributed to an agent pane,
+ * A `-no-window` emulator has no pixels on any screen, so the keeper can never
+ * see it. Instead this watches `/proc` for one attributed to an agent pane,
  * starts the vendored scrcpy-server on it, and carries its H.264 through the
  * engine's encoded source — the same WebRTC path as every other preview, with
  * the phone's touch and device keys translated back into scrcpy control
- * messages. A windowed emulator uses the same device mirror, not a private
- * Browser screen.
+ * messages. Screens stay the honest signal for everything with a window; this
+ * is only ever the headless-emulator road.
  */
 
 // ---------------------------------------------------------------------------
@@ -140,7 +141,10 @@ function consolePort(pid: string, procRoot: string): number | undefined {
     return undefined;
 }
 
-/** Every emulator on this machine, attributed to its pane. */
+/**
+ * Every `-no-window` emulator on this machine, attributed to its pane.
+ * Headed emulators are the keeper's business and never appear here.
+ */
 export function scanAndroidEmulators(procRoot = '/proc'): DiscoveredEmulator[] {
     let pids: string[];
     try {
@@ -153,6 +157,7 @@ export function scanAndroidEmulators(procRoot = '/proc'): DiscoveredEmulator[] {
         if (!/^\d+$/.test(pid)) continue;
         if (!QEMU_COMM.test(readFile(join(procRoot, pid, 'comm'))?.trim() ?? '')) continue;
         const argv = (readFile(join(procRoot, pid, 'cmdline')) ?? '').split('\0').join(' ');
+        if (!/-no-window/.test(argv)) continue;
         const paneId = owningPane(pid, procRoot);
         if (paneId === undefined) continue;
         const portFlag = /-port (\d+)/.exec(argv)?.[1];
