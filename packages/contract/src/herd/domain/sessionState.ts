@@ -61,7 +61,7 @@ export interface SessionInfo extends SessionRef, AgentInfo {
 }
 
 /**
- * The live thing an agent put on its pane's screen: a browser window, or an
+ * The live thing an agent put on its pane: a browser window, or an
  * Android emulator — measured from the desktop or the process tree, so it is
  * the same answer whatever tool opened it — or an iOS simulator the pane
  * claimed (`muxr preview claim`), since a simulator belongs to no pane's
