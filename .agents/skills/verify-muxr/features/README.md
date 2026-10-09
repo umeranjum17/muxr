@@ -64,6 +64,11 @@ user-visible behavior, then exactly four H2 sections in this order:
   standalone-window PWA over a static `dist`: no-JS first paint, throttled cold
   start in both themes at 393 and 270 px, offline hand-off, native comparison.
 
+- [Show the needs-you count on the installed PWA's app icon](./pwa-badge.md) —
+  standalone-window PWA over the owned relay serving `dist`: the Badging API
+  call sequence `0 -> 2 -> 0` while fake agents churn, and a silent no-op where
+  the API is missing.
+
 - [Share a file into a pane's Shared Artifacts](./shared-artifact.md) —
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
   versioned page shares and their refusals, and the retention view of the
