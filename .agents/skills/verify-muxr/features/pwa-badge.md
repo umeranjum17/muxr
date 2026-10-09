@@ -13,7 +13,7 @@ error. Native keeps its own `shouldSetBadge` path, untouched.
   store (online sessions whose `agentState.requests` is non-empty) and drives
   both the favicon and `applyAppBadge(count)`.
 - `applyAppBadge` is feature-detected: `count > 0` calls `setAppBadge(count)`,
-  `0` calls `clearAppBadge()`, and a missing `setAppBadge` returns without
+  `0` calls `clearAppBadge()`, and a missing badge method returns without
   throwing.
 - The badge is web-only; native never calls it.
 

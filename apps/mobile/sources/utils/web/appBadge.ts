@@ -9,10 +9,10 @@
 export function applyAppBadge(count: number): void {
     if (typeof navigator === 'undefined') return;
     const badge = navigator as Navigator & {
-        setAppBadge?: (contents?: number) => Promise<void>;
+        setAppBadge: (contents?: number) => Promise<void>;
         clearAppBadge: () => Promise<void>;
     };
-    if (typeof badge.setAppBadge !== 'function') return;
+    if (typeof badge.setAppBadge !== 'function' || typeof badge.clearAppBadge !== 'function') return;
     const result = count > 0 ? badge.setAppBadge(count) : badge.clearAppBadge();
     void Promise.resolve(result).catch(() => undefined);
 }
