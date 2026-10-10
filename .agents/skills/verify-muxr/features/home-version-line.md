@@ -33,9 +33,12 @@ Preconditions:
   install over each other, but `pm clear` between before and after keeps each
   pairing fresh. Pair from `mintPairing()`'s `muxr://pair#<code>` deep link.
 - Capture Home at 360dp and at the reference phone (`wm size 1080x2376`,
-  `wm density 640`, font scale 1.3) with the composer tapped open, each dark
-  and light, relaunching after every change. Capture the top of Home too, so
-  the proof shows the notice is absent from the top slot.
+  `wm density 640`, font scale 1.3) with the composer dock on screen, each
+  dark and light, relaunching after every change. Capture the top of Home too,
+  so the proof shows the notice is absent from the top slot. At 270dp/font
+  1.3, scroll from clear of the dock: a swipe that starts on the dock (the
+  bottom ~y>=1660 of the 1080x2376 frame) never reaches the SectionList, so
+  start above it or the foot is never reached.
 - PWA: `yarn web:export`, serve `apps/mobile/dist`, mint a `browser` offer
   off `<host data>/pair.sock`, pair through `/pair` (as `home-quota-row.md`),
   then capture at 393, 270, 1440 and 1920 wide, dark and light.
