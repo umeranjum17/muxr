@@ -17,6 +17,11 @@ export function statusNeedsYou(status: AgentLifecycle): status is 'blocked' | 'f
     return status === 'blocked' || status === 'failed';
 }
 
+/** The one rule for an agent: its status needs you, or it holds a pending request. */
+export function agentNeedsYou(status: AgentLifecycle, pendingRequest: boolean): boolean {
+    return pendingRequest || statusNeedsYou(status);
+}
+
 const VISIBLE_STATES = new Set<AgentLifecycle>(['blocked', 'done', 'failed']);
 const MAX_AGE_MS = 24 * 60 * 60_000;
 

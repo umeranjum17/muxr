@@ -3,7 +3,7 @@ import { type FlatList, Pressable, View, type LayoutChangeEvent, type NativeScro
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { Text } from '@/components/StyledText';
-import { storage, useHomeHerd, useLifecycleEvents, useSocketStatus } from '@/catalog/store';
+import { storage, useHomeHerd, useHomeNeedsYouIds, useLifecycleEvents, useSocketStatus } from '@/catalog/store';
 import { useDeviceAuthority } from '@/pairing';
 import { t } from '@/text';
 import { agentStatusColor } from '../application/sessionUtils';
@@ -21,7 +21,7 @@ import { useActivityAcknowledgements } from '../application/useActivityAcknowled
 import { agentLabels, agentWhoLine, herdrPaneForSession, isShellLabels, liveCardState } from '../domain/agentPresentation';
 import { showPaneActions } from '../application/renameInHerdr';
 import { needsYouActivityRows, unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
-import { needsYouSessionIds } from '../domain/herdTree';
+import { withNeedsYouStatus } from '../domain/herdTree';
 import type { LifecycleEvent } from '@trymuxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { SectionLabel } from '@/components/ui';
@@ -103,8 +103,6 @@ interface CardProps {
     paused: boolean;
     disconnected: boolean;
     unseenDone: boolean;
-    /** A pending request reads as Needs you whatever the pane's status says. */
-    needsYou: boolean;
     canRename: boolean;
     Badge?: React.ComponentType<LiveCardBadgeInfo>;
 }
@@ -113,15 +111,14 @@ function terminalIsLive(card: LiveTerminalOrderCard): boolean {
     return card.agentStatus === 'working' || card.agentStatus === 'starting' || card.agentStatus === 'blocked';
 }
 
-const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone, needsYou, canRename, Badge }: CardProps) => {
+const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone, canRename, Badge }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels(card);
-    const status = needsYou ? 'blocked' : card.agentStatus;
-    const dot = agentStatusColor(status, theme);
+    const dot = agentStatusColor(card.agentStatus, theme);
     const live = terminalIsLive(card);
     const shell = isShellLabels(labels);
-    const state = liveCardState(labels, status, card.id, events, now);
+    const state = liveCardState(labels, card.agentStatus, card.id, events, now);
     const planAccount = storage((state) => herdrPaneForSession(state.herdrWorkspaces, card.id)?.planAccount);
     // A badge tap lands on this pressable too: it opens the agent under the
     // badge's own sheet unless the badge marks its tap first.
@@ -200,7 +197,13 @@ export const LiveTerminalsRow = React.memo(({
         offset: cardInterval * index,
         index,
     }), [cardInterval]);
-    const panes = React.useMemo(() => herdPanes(sessions, workspaces), [sessions, workspaces]);
+    // The same agents the Spaces count and the badge count: a row leaves when
+    // its agent stops needing you, never because its card was glanced at.
+    const needsYou = useHomeNeedsYouIds();
+    const panes = React.useMemo(
+        () => herdPanes(sessions, withNeedsYouStatus(workspaces, needsYou)),
+        [needsYou, sessions, workspaces],
+    );
     const candidateCards = React.useMemo(
         () => selectLiveTerminalCards(sessions, panes),
         [panes, sessions],
@@ -260,9 +263,6 @@ export const LiveTerminalsRow = React.memo(({
         return unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles, wanted)
             .map((row) => ({ ...row, agentName: liveNames.get(row.sessionId) ?? row.agentName }));
     }, [lifecycleEvents, liveNames, liveTitles, ready, seenEventIds]);
-    // The same agents the Spaces count and the badge count: a row leaves when
-    // its agent stops needing you, never because its card was glanced at.
-    const needsYou = React.useMemo(() => needsYouSessionIds(workspaces, sessions), [sessions, workspaces]);
     const needsYouRows = React.useMemo(
         () => needsYouActivityRows(needsYou, panes, lifecycleEvents),
         [lifecycleEvents, needsYou, panes],
@@ -350,7 +350,6 @@ export const LiveTerminalsRow = React.memo(({
             paused={stale || Math.abs(index - firstVisible) > 2}
             disconnected={socketStatus !== 'connected' || stale}
             unseenDone={readySessionIds.has(card.id)}
-            needsYou={needsYou.has(card.id)}
             canRename={authority === 'control' && !authorityLoading && !stale}
             Badge={cardBadge}
         />

@@ -5,7 +5,7 @@
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import type { Session } from '@/catalog';
 import { t } from '@/text';
-import { statusNeedsYou } from './recentActivity';
+import { agentNeedsYou, statusNeedsYou } from './recentActivity';
 
 // A producer that drew its own tree into a flat list prefixes the label with
 // box-drawing glyphs, and may append an opaque correlator (` · p:<22 chars>`).
@@ -111,17 +111,39 @@ export function needsYouSessionIds(
     workspaces: readonly HerdrTreeWorkspace[],
     sessions: readonly (Pick<Session, 'id'> & Partial<Pick<Session, 'presence' | 'agentState'>>)[],
 ): Set<string> {
-    const needed = new Set<string>();
-    for (const ws of workspaces) for (const tab of ws.tabs) for (const pane of tab.panes) {
-        if (pane.sessionId !== undefined && statusNeedsYou(pane.agentStatus)) needed.add(pane.sessionId);
-    }
+    const pending = new Set<string>();
     for (const session of sessions) {
         const requests = session.agentState?.requests;
-        if (session.presence === 'online' && requests != null && Object.keys(requests).length > 0) {
-            needed.add(session.id);
-        }
+        if (session.presence === 'online' && requests != null && Object.keys(requests).length > 0) pending.add(session.id);
+    }
+    const needed = new Set<string>(pending);
+    for (const ws of workspaces) for (const tab of ws.tabs) for (const pane of tab.panes) {
+        if (pane.sessionId !== undefined && agentNeedsYou(pane.agentStatus, pending.has(pane.sessionId))) needed.add(pane.sessionId);
     }
     return needed;
+}
+
+/**
+ * The tree as every surface reads it: an agent that needs you shows as blocked
+ * (its pane and its workspace), so its row, card, count and order follow the
+ * same rule as the Needs you list.
+ */
+export function withNeedsYouStatus(
+    workspaces: readonly HerdrTreeWorkspace[],
+    needsYou: ReadonlySet<string>,
+): HerdrTreeWorkspace[] {
+    return workspaces.map((ws) => {
+        const tabs = ws.tabs.map((tab) => ({
+            ...tab,
+            panes: tab.panes.map((pane) => pane.sessionId !== undefined && needsYou.has(pane.sessionId) && !statusNeedsYou(pane.agentStatus)
+                ? { ...pane, agentStatus: 'blocked' as const }
+                : pane),
+        }));
+        const agentNeeds = tabs.some((tab) => tab.panes.some((pane) => pane.sessionId !== undefined && needsYou.has(pane.sessionId)));
+        return agentNeeds && !statusNeedsYou(ws.agentStatus)
+            ? { ...ws, tabs, agentStatus: 'blocked' as const }
+            : { ...ws, tabs };
+    });
 }
 
 

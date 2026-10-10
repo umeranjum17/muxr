@@ -18,7 +18,7 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { agentCounts, buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, moveSpace, workspaceCloseMessage, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
+import { agentCounts, buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, moveSpace, withNeedsYouStatus, workspaceCloseMessage, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
 import { agentLabels, agentStateLabel, agentWhoLine, agentWhoStateLine, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
@@ -415,7 +415,6 @@ export const AgentRow = React.memo(({
     selected,
     hasActions,
     unseenDone,
-    needsYou,
     subtitle: subtitleOverride,
     spaceLabel,
 }: {
@@ -428,8 +427,6 @@ export const AgentRow = React.memo(({
     /** Whether a long-press has anything to offer. */
     hasActions: boolean;
     unseenDone: boolean;
-    /** A pending request reads as Needs you whatever the pane's status says. */
-    needsYou: boolean;
     /** Replaces the identity line, e.g. a shell's working directory. */
     subtitle?: string;
     /** The card's own label: a task that only repeats it gives way to the agent's name. */
@@ -438,8 +435,7 @@ export const AgentRow = React.memo(({
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const navigateToSession = useNavigateToSession();
-    const status = needsYou ? 'blocked' : pane.agentStatus;
-    const dot = agentStatusColor(status, theme);
+    const dot = agentStatusColor(pane.agentStatus, theme);
     const paneLabels = agentLabels(pane);
     const labels = paneLabels.task !== undefined && paneLabels.task === spaceLabel?.trim()
         ? { ...paneLabels, title: paneLabels.agentName, task: undefined }
@@ -447,10 +443,10 @@ export const AgentRow = React.memo(({
     const sessionId = pane.sessionId;
     const shell = isShellLabels(labels);
     const title = labels.title;
-    const subtitle = subtitleOverride ?? (shell ? agentWhoLine(labels) : agentWhoStateLine(labels, agentStateLabel(status)));
+    const subtitle = subtitleOverride ?? (shell ? agentWhoLine(labels) : agentWhoStateLine(labels, agentStateLabel(pane.agentStatus)));
     // One weight rule: bright means "has something for you". A finished
     // outcome you have not opened stays loud; settled-and-seen goes quiet.
-    const quiet = (status === 'done' || status === 'idle') && !unseenDone;
+    const quiet = (pane.agentStatus === 'done' || pane.agentStatus === 'idle') && !unseenDone;
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -485,7 +481,7 @@ export const AgentRow = React.memo(({
  * A child's second line, in parts: who its one agent is and its state, else a
  * count, else what it is. Rendered with ' · ', spoken with ', '.
  */
-function childLine2Parts(child: HerdChildSpace, needsYou: boolean): string[] {
+function childLine2Parts(child: HerdChildSpace): string[] {
     const panes = child.workspace.tabs.flatMap((tab) => tab.panes);
     const agentPanes = panes.filter((pane) => pane.agentKind !== undefined);
     if (panes.length === 0) return [t('spacesTree.childEmpty')];
@@ -494,7 +490,7 @@ function childLine2Parts(child: HerdChildSpace, needsYou: boolean): string[] {
     const agent = agentPanes[0];
     if (agent === undefined) return [t('spacesTree.childEmpty')];
     // The row leads with the task or the workspace, so this line names the agent.
-    return [agentWhoLine(agentLabels(agent), true), agentStateLabel(needsYou ? 'blocked' : agent.agentStatus)];
+    return [agentWhoLine(agentLabels(agent), true), agentStateLabel(agent.agentStatus)];
 }
 
 /** A group-subheader status pill: colored dot + mono count, visual only (subheader label speaks it). */
@@ -653,7 +649,6 @@ const ChildRow = React.memo(({
     selectedSessionId,
     canClose,
     unseenDoneSessionIds,
-    needsYouIds,
 }: {
     child: HerdChildSpace;
     name: string;
@@ -664,7 +659,6 @@ const ChildRow = React.memo(({
     selectedSessionId?: string;
     canClose: boolean;
     unseenDoneSessionIds: ReadonlySet<string>;
-    needsYouIds: ReadonlySet<string>;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -682,7 +676,7 @@ const ChildRow = React.memo(({
     const label = task ?? name;
     const baseName = workspaceName(child.workspace);
     const suffix = name.startsWith(`${baseName} · `) ? name.slice(baseName.length) : undefined;
-    const parts = childLine2Parts(child, singleSessionId !== undefined && needsYouIds.has(singleSessionId));
+    const parts = childLine2Parts(child);
     const line2 = parts.join(' · ');
     const onPress = singleSessionId !== undefined
         ? () => (onNavigatePane ?? navigateToSession)(singleSessionId)
@@ -745,7 +739,6 @@ const ChildRow = React.memo(({
                             selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                             hasActions
                             unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
-                            needsYou={pane.sessionId !== undefined && needsYouIds.has(pane.sessionId)}
                         />
                     ))}
                 </View>
@@ -773,7 +766,6 @@ const WorkspaceCard = React.memo(({
     selectedSessionId,
     canClose,
     unseenDoneSessionIds,
-    needsYouIds,
 }: {
     workspace: HerdrTreeWorkspace;
     name: string;
@@ -795,7 +787,6 @@ const WorkspaceCard = React.memo(({
     selectedSessionId?: string;
     canClose: boolean;
     unseenDoneSessionIds: ReadonlySet<string>;
-    needsYouIds: ReadonlySet<string>;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -883,7 +874,6 @@ const WorkspaceCard = React.memo(({
                     selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                     hasActions
                     unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
-                    needsYou={pane.sessionId !== undefined && needsYouIds.has(pane.sessionId)}
                 />
             ))}
             {expanded && childSpaces.length > 0 && (
@@ -901,7 +891,6 @@ const WorkspaceCard = React.memo(({
                     selectedSessionId={selectedSessionId}
                     canClose={canClose}
                     unseenDoneSessionIds={unseenDoneSessionIds}
-                    needsYouIds={needsYouIds}
                 />
             ))}
         </View>
@@ -933,6 +922,7 @@ export const SpacesTree = React.memo(({
     const unseenDoneSessionIds = useUnseenDoneSessionIds();
     const needsYouIds = useHomeNeedsYouIds();
     const needsYou = needsYouIds.size;
+    const shownWorkspaces = React.useMemo(() => withNeedsYouStatus(workspaces, needsYouIds), [needsYouIds, workspaces]);
     const [choices, setChoices] = React.useState<ReadonlyMap<string, boolean>>(() => new Map());
     const expanded = React.useMemo(
         () => effectiveExpandedSpaces(defaultExpandedWorkspaceIds, choices),
@@ -958,13 +948,13 @@ export const SpacesTree = React.memo(({
     // Favourites lead in the order they were added; an agent not running now waits, unseen, for its return.
     const favouritePanes = React.useMemo(() => {
         if (searching || layout.favourites.length === 0) return [];
-        const byRoute = new Map(workspaces.flatMap((ws) => ws.tabs.flatMap((tab) => tab.panes))
+        const byRoute = new Map(shownWorkspaces.flatMap((ws) => ws.tabs.flatMap((tab) => tab.panes))
             .flatMap((pane) => favouriteAgentRoute(pane) === undefined ? [] : [[pane.sessionId!, pane] as const]));
         return layout.favourites.flatMap((route) => byRoute.get(route) ?? []);
-    }, [layout.favourites, searching, workspaces]);
+    }, [layout.favourites, searching, shownWorkspaces]);
     const previousRows = React.useRef(new Map<string, HerdSpaceRow>());
     const sections = React.useMemo(() => {
-        const rows = buildSpaceRows(workspaces, expanded, searchQuery, pinned, layout.order).map((row) => {
+        const rows = buildSpaceRows(shownWorkspaces, expanded, searchQuery, pinned, layout.order).map((row) => {
             const previous = previousRows.current.get(row.workspace.workspaceId);
             return previous !== undefined && deepEqual(previous, row) ? previous : row;
         });
@@ -978,7 +968,7 @@ export const SpacesTree = React.memo(({
             { key: 'pinned', title: t('spacesTree.pinned'), data: pinnedRows },
             { key: 'spaces', title: t('spacesTree.title'), data: rows.filter((row) => !pinned.has(row.workspace.workspaceId)) },
         ].filter((section) => section.data.length > 0);
-    }, [expanded, layout.order, pinned, searchQuery, workspaces]);
+    }, [expanded, layout.order, pinned, searchQuery, shownWorkspaces]);
     const names = React.useMemo(() => displayedWorkspaceNames(sections.flatMap((section) => section.data)), [sections]);
     const namesRef = React.useRef(names);
     namesRef.current = names;
@@ -1137,10 +1127,9 @@ export const SpacesTree = React.memo(({
                 selectedSessionId={selectedSessionId}
                 canClose={canClose}
                 unseenDoneSessionIds={unseenDoneSessionIds}
-                needsYouIds={needsYouIds}
             />
         </View>
-    ), [canClose, childNames, childActions, compact, paneActions, pinned, workspaceActions, names, needsYouIds, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
+    ), [canClose, childNames, childActions, compact, paneActions, pinned, workspaceActions, names, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
@@ -1165,7 +1154,7 @@ export const SpacesTree = React.memo(({
                 renderSectionHeader={({ section }) => (
                     <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
                         <SectionLabel>{section.title}</SectionLabel>
-                        {section.key === 'spaces' && !searching && <AgentCountSummary counts={{ ...agentCounts(workspaces), needsYou }} />}
+                        {section.key === 'spaces' && !searching && <AgentCountSummary counts={{ ...agentCounts(shownWorkspaces), needsYou }} />}
                     </View>
                 )}
                 stickySectionHeadersEnabled={false}
@@ -1187,7 +1176,6 @@ export const SpacesTree = React.memo(({
                                     selected={pane.sessionId === selectedSessionId}
                                     hasActions
                                     unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
-                                    needsYou={pane.sessionId !== undefined && needsYouIds.has(pane.sessionId)}
                                 />
                             ))}
                         </View>

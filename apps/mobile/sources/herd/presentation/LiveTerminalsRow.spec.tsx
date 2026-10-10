@@ -44,6 +44,7 @@ vi.mock('expo-router', () => ({ useRouter: () => ({ push: () => undefined, dismi
 vi.mock('@/catalog/store', () => ({
     storage: { getState: () => ({ herdrWorkspaces: [] }) },
     useHomeHerd: () => ({ sessions: [], workspaces: herd.workspaces, loaded: true, stale: false }),
+    useHomeNeedsYouIds: () => needsYouSessionIds(herd.workspaces, []),
     useLifecycleEvents: () => herd.events,
     useSocketStatus: () => ({ status: 'connected' }),
 }));
