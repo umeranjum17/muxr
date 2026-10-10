@@ -202,6 +202,13 @@ export const ca: TranslationStructure = {
         restoreWithSecretKeyInstead: 'O restaura amb la clau secreta',
     },
 
+    pairing: {
+        busy: 'Aparellant…',
+        connecting: "Connectant de manera segura amb el teu ordinador…",
+        compareWords: ({ name }: { name: string }) => `Comprova que ${name} mostra aquestes dues paraules i després prem y a l'ordinador.`,
+        paired: ({ name }: { name: string }) => `Aparellat amb ${name}.`,
+    },
+
     settings: {
         title: 'Configuració',
         github: 'GitHub',

@@ -99,7 +99,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   or refused code, and the paste-led page on a device that cannot scan.
 - [Read the pairing consent as short, plain bullets](./pairing-consent.md) —
   native release APK and PWA over a private stack: phone and browser control and
-  view-only consent, plain copy, at 360dp/270dp font 1.3 and 393/270 px, dark and light.
+  view-only consent, plain copy, the words step saying its instruction once, and
+  the spinner giving way to a check mark naming the computer, at 360dp/270dp font 1.3
+  and 393/270 px, dark and light.
 - [Land on the first-run browser pairing steps](./first-run-browser-steps.md) —
   unpaired installed PWA: matching step badges, Step 2's paste button and prompt
   with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the

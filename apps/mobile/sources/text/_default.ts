@@ -201,6 +201,14 @@ export const en = {
         restoreWithSecretKeyInstead: 'Restore with Secret Key Instead',
     },
 
+    pairing: {
+        // The words step after consent: compare the two words, then approve on the computer.
+        busy: 'Pairing…',
+        connecting: 'Connecting securely to your computer…',
+        compareWords: ({ name }: { name: string }) => `Check that ${name} shows these two words, then press y on the computer.`,
+        paired: ({ name }: { name: string }) => `Paired with ${name}.`,
+    },
+
     settings: {
         title: 'Settings',
         github: 'GitHub',

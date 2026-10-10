@@ -182,6 +182,13 @@ export const ru: TranslationStructure = {
         restoreWithSecretKeyInstead: 'Или восстановить секретным ключом',
     },
 
+    pairing: {
+        busy: 'Сопряжение…',
+        connecting: 'Безопасное подключение к вашему компьютеру…',
+        compareWords: ({ name }: { name: string }) => `Проверьте, что ${name} показывает эти два слова, затем нажмите y на компьютере.`,
+        paired: ({ name }: { name: string }) => `Сопряжено с ${name}.`,
+    },
+
     settings: {
         title: 'Настройки',
         github: 'GitHub',

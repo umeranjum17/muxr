@@ -202,6 +202,13 @@ export const pt: TranslationStructure = {
         restoreWithSecretKeyInstead: 'Ou restaurar com a chave secreta',
     },
 
+    pairing: {
+        busy: 'Emparelhando…',
+        connecting: 'Conectando com segurança ao seu computador…',
+        compareWords: ({ name }: { name: string }) => `Verifique se ${name} mostra estas duas palavras e depois pressione y no computador.`,
+        paired: ({ name }: { name: string }) => `Emparelhado com ${name}.`,
+    },
+
     settings: {
         title: 'Configurações',
         github: 'GitHub',
