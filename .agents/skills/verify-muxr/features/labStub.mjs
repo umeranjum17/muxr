@@ -25,7 +25,10 @@ const sse = (res) => { res.writeHead(200, { 'content-type': 'text/event-stream',
 
 const server = createServer(async (req, res) => {
     let raw = ''; for await (const c of req) raw += c;
-    let body = {}; try { body = JSON.parse(raw || '{}'); } catch {}
+    let body;
+    try { body = JSON.parse(raw || '{}'); } catch {
+        res.writeHead(400).end('not JSON'); return;
+    }
     const url = req.url ?? '';
     if (req.method === 'GET' && url.includes('/models')) {
         res.writeHead(200, { 'content-type': 'application/json' });
