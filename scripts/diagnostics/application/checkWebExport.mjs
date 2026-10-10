@@ -94,9 +94,9 @@ check('no model binaries in public/', publicModels.length === 0, publicModels.sl
 // 8. Dist properties (only when an export exists — CI exports first).
 // Usable load is the gzip of JS/CSS dist/index.html references directly:
 // CanvasKit is lazy (never root-awaited, loaded on first Canvas use), so it
-// is excluded by construction, and lazy chunks (mermaid languages, pdf
-// worker) load on demand. The 2.0 MiB compressed usable-screen target is
-// not met yet: the ratchet below is pinned above it until the shell splits.
+// is excluded by construction, and lazy chunks (mermaid diagrams, pdf
+// worker) load on demand. The 2.0 MiB compressed usable-screen target is met
+// at this head; the ratchet below pins the CI-measured figure.
 const distIndex = join(mobile, 'dist', 'index.html');
 if (!existsSync(distIndex)) {
     process.stdout.write('..  dist export absent — skipping dist budget/origin checks (CI exports first)\n');
@@ -134,26 +134,27 @@ if (!existsSync(distIndex)) {
         initialGzip += gzipSync(readFileSync(file)).length;
     }
     // Ratchet, not target. The 2.0 MiB (2,097,152 B) compressed usable-screen
-    // target is owned by follow-up pock-pwa-coldstart2 and is not met yet.
-    // This head's export, measured on CI, is 2,360,572 B of initial transfer;
-    // the pin is that figure x1.005 (2,372,375 B). The terminal, the editor/diff
-    // surfaces and
-    // the syntax highlighter load as lazy chunks, so none of them run on the
-    // landing or pair routes. The highlighter's grammar set is a single static
-    // slim list reached only through the diff viewer's lazy import, so no
-    // grammar is shared into the eager __common chunk (guarded below by the
-    // source.cpp marker).
-    const USABLE_GZIP_CEILING = 2372375;
+    // target is met at this head: the export, measured here, is 1,712,785 B of
+    // initial transfer, and the pin is that figure x1.005 (1,721,349 B).
+    // The terminal, editor/diff surfaces, syntax highlighter and the mermaid
+    // diagram engine all load off the landing and pair routes. The highlighter's
+    // grammar set is a single static slim list reached only through the diff
+    // viewer's lazy import, so no grammar is shared into the eager __common
+    // chunk. The mermaid engine is not bundled at all: it loads from the
+    // export's own /mermaid.min.js when a diagram renders, so none of its
+    // dependency tree (cytoscape, @mermaid-js/parser, d3, lodash) can be hoisted
+    // into an eager chunk (guarded below).
+    const USABLE_GZIP_CEILING = 1721349;
     check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,
-    // diff and highlighter moved behind their own lazy boundaries it holds the
-    // shared application shell, not those payloads.
+    // diff, highlighter and mermaid engine moved off the landing path it holds
+    // only a sliver of shared shell code.
     const commonRef = refs.find((ref) => ref.includes('__common'));
     const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
-    // Ratchet, not target: this head's export measured on CI is 652,730 B,
-    // pinned at that figure x1.005 (655,994 B).
-    check('dist __common chunk ratchet', commonGzip <= 655994, `${commonGzip} bytes`);
+    // Ratchet, not target: this head's export measured here is 3,456 B, pinned
+    // at that figure x1.005 (3,473 B).
+    check('dist __common chunk ratchet', commonGzip <= 3473, `${commonGzip} bytes`);
     const refTexts = refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
@@ -179,11 +180,22 @@ if (!existsSync(distIndex)) {
     check('dist initial JS/CSS carries no xterm payload',
         !initialAssets.includes('xterm-scrollable-element') && !initialAssets.includes('@xterm/addon-webgl'));
     check('dist initial JS carries no syntax grammar payload', !initialAssets.includes('source.cpp'));
+    // The mermaid engine must never be bundled. Mermaid's diagram modules load
+    // each other dynamically, so Metro hoists their shared core, cytoscape and
+    // the rest of the tree into the eager __common chunk that index.html loads
+    // before the first paint (it was ~640 KB gzip before this slice). Instead
+    // the standalone build ships as /mermaid.min.js and loads only when a
+    // diagram renders. Guard the whole JS output -- eager and lazy -- so a
+    // reintroduced bundler import fails the check rather than silently
+    // re-bloating the cold start.
+    const mermaidMarkers = ['cytoscape', 'flowchart-elk'];
     const lazyDir = join(mobile, 'dist', '_expo', 'static', 'js');
     const lazyText = existsSync(lazyDir)
         ? readdirSync(lazyDir, { recursive: true }).filter((name) => String(name).endsWith('.js'))
             .map((name) => readFileSync(join(lazyDir, String(name)), 'utf8')).join('\n')
         : '';
+    check('dist JS carries no bundled mermaid engine',
+        ![initialAssets, lazyText].some((text) => mermaidMarkers.some((marker) => text.includes(marker))));
     check('dist lazy chunks carry the xterm payload',
         lazyText.includes('xterm-scrollable-element') && lazyText.includes('@xterm/addon-webgl'));
     check('dist lazy chunks carry the grammar payload', lazyText.includes('source.cpp'));

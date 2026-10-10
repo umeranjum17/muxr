@@ -10,7 +10,7 @@ const SHELL_VERSION = '__MUXR_SHELL_VERSION__';
 const SHELL_CACHE = SHELL_CACHE_PREFIX + SHELL_VERSION;
 const SHELL_URL = '/index.html';
 const SHELL_ASSET_PREFIXES = ['/_expo/', '/assets/', '/shiki-langs/'];
-const RUNTIME_SHELL_PATHS = ['/canvaskit.wasm'];
+const RUNTIME_SHELL_PATHS = ['/canvaskit.wasm', '/mermaid.min.js'];
 const NAVIGATION_TIMEOUT_MS = 4000;
 
 self.addEventListener('install', (event) => {
