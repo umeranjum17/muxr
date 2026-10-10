@@ -627,6 +627,16 @@ export function useHomePendingIds(): ReadonlySet<string> {
     return React.useMemo(() => pendingRequestSessionIds(sessions), [sessions]);
 }
 
+/** The needs-you and pending sets from the host's live state, for surfaces outside Home. */
+export function useLiveAgentIds(): { needsYouIds: ReadonlySet<string>; pendingIds: ReadonlySet<string> } {
+    const { workspaces } = useHerdrTree();
+    const sessions = useSessions();
+    return React.useMemo(() => ({
+        needsYouIds: needsYouSessionIds(workspaces, sessions),
+        pendingIds: pendingRequestSessionIds(sessions),
+    }), [sessions, workspaces]);
+}
+
 export function useSessionError(id: string): string | undefined {
     return storage((state) => state.sessionErrors[id]);
 }

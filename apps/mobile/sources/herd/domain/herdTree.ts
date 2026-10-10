@@ -123,9 +123,14 @@ export function needsYouSessionIds(
     return needed;
 }
 
+/** Whether any agent pane in the workspace holds a pending request. */
+export function workspaceHoldsRequest(ws: HerdrTreeWorkspace, pending: ReadonlySet<string>): boolean {
+    return ws.tabs.some((tab) => tab.panes.some((pane) => pane.sessionId !== undefined && pending.has(pane.sessionId)));
+}
+
 /** A workspace needs you when its own status does or any agent pane in it holds a pending request. */
 export function workspaceNeedsYou(ws: HerdrTreeWorkspace, pending: ReadonlySet<string>): boolean {
-    return agentNeedsYou(ws.agentStatus, ws.tabs.some((tab) => tab.panes.some((pane) => pane.sessionId !== undefined && pending.has(pane.sessionId))));
+    return agentNeedsYou(ws.agentStatus, workspaceHoldsRequest(ws, pending));
 }
 
 

@@ -20,7 +20,7 @@ it stops needing you.
   number and the badge, even after the first Live card has been on screen for
   seconds; answering one agent drops the list, the card, the count and the
   badge together. A failure whose agent left the tree (could not start) is not
-  in that list: it sits in its own `Could not start` tier until opened.
+  in that list: it sits in its own `Failed` tier until opened.
 
 - The Spaces header's needs-you number equals the favicon state (`favicon.svg`
   vs `favicon-active.ico`) and the `navigator.setAppBadge`/`clearAppBadge` value.

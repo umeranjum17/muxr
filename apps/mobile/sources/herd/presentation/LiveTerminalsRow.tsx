@@ -20,7 +20,7 @@ import {
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
 import { agentLabels, agentWhoLine, herdrPaneForSession, isShellLabels, liveCardState } from '../domain/agentPresentation';
 import { showPaneActions } from '../application/renameInHerdr';
-import { agentNeedsYou, needsYouActivityRows, statusNeedsYou, unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
+import { agentNeedsYou, displayedAgentStatus, needsYouActivityRows, unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import type { LifecycleEvent } from '@trymuxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { SectionLabel } from '@/components/ui';
@@ -115,8 +115,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels(card);
     const needsYou = agentNeedsYou(card.agentStatus, card.pendingRequest);
-    // A pending request on a working pane reads as blocked; a failed pane keeps its own label.
-    const status = needsYou && !statusNeedsYou(card.agentStatus) ? 'blocked' : card.agentStatus;
+    const status = displayedAgentStatus(card.agentStatus, card.pendingRequest);
     const dot = agentStatusColor(status, theme);
     const live = terminalIsLive(card);
     const shell = isShellLabels(labels);
@@ -424,7 +423,7 @@ export const LiveTerminalsRow = React.memo(({
             />
             <RecentActivity
                 rows={departedRows}
-                heading="Could not start"
+                heading="Failed"
                 onSelect={selectActivity}
             />
         </View>

@@ -13,13 +13,13 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { Modal } from '@/modal';
-import { storage, useHomeNeedsYouIds, useHomePendingIds, useSpacePins, useSpacesLayout } from '@/catalog/store';
+import { storage, useSpacePins, useSpacesLayout } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { agentCounts, buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, moveSpace, workspaceCloseMessage, workspaceName, workspaceNeedsYou, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
-import { agentNeedsYou, statusNeedsYou } from '../domain/recentActivity';
+import { agentCounts, buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, moveSpace, workspaceCloseMessage, workspaceHoldsRequest, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
+import { displayedAgentStatus } from '../domain/recentActivity';
 import { agentLabels, agentStateLabel, agentWhoLine, agentWhoStateLine, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
@@ -378,6 +378,9 @@ const stylesheet = StyleSheet.create((theme) => ({
 
 interface SpacesTreeProps {
     workspaces: HerdrTreeWorkspace[];
+    /** Agents that need you on the caller's source: Home's snapshot-aware sets, or the live host's outside Home. */
+    needsYouIds: ReadonlySet<string>;
+    pendingIds: ReadonlySet<string>;
     defaultExpandedWorkspaceIds?: readonly string[];
     refresh: () => Promise<void>;
     density?: 'comfortable' | 'compact';
@@ -440,8 +443,7 @@ export const AgentRow = React.memo(({
     const styles = stylesheet;
     const navigateToSession = useNavigateToSession();
     const sessionId = pane.sessionId;
-    const needsYou = agentNeedsYou(pane.agentStatus, sessionId !== undefined && pending.has(sessionId));
-    const status = needsYou && !statusNeedsYou(pane.agentStatus) ? 'blocked' : pane.agentStatus;
+    const status = displayedAgentStatus(pane.agentStatus, sessionId !== undefined && pending.has(sessionId));
     const dot = agentStatusColor(status, theme);
     const paneLabels = agentLabels(pane);
     const labels = paneLabels.task !== undefined && paneLabels.task === spaceLabel?.trim()
@@ -673,8 +675,7 @@ const ChildRow = React.memo(({
     const navigateToSession = useNavigateToSession();
     const depth = Math.min(child.depth, MAX_DRAWN_DEPTH);
     const inset = childInset(depth);
-    const childNeedsYou = workspaceNeedsYou(child.workspace, pending);
-    const childStatus = childNeedsYou && !statusNeedsYou(child.workspace.agentStatus) ? 'blocked' : child.workspace.agentStatus;
+    const childStatus = displayedAgentStatus(child.workspace.agentStatus, workspaceHoldsRequest(child.workspace, pending));
     const dot = agentStatusColor(childStatus, theme);
     const panes = child.workspace.tabs.flatMap((tab) => tab.panes);
     const agentPanes = panes.filter((pane) => pane.agentKind !== undefined);
@@ -803,7 +804,7 @@ const WorkspaceCard = React.memo(({
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
-    const workspaceStatus = workspaceNeedsYou(workspace, pending) && !statusNeedsYou(workspace.agentStatus) ? 'blocked' : workspace.agentStatus;
+    const workspaceStatus = displayedAgentStatus(workspace.agentStatus, workspaceHoldsRequest(workspace, pending));
     const dot = agentStatusColor(workspaceStatus, theme);
     const baseName = workspaceName(workspace);
     const suffix = name.startsWith(`${baseName} · `) ? name.slice(baseName.length) : undefined;
@@ -915,6 +916,8 @@ const WorkspaceCard = React.memo(({
 
 export const SpacesTree = React.memo(({
     workspaces,
+    needsYouIds,
+    pendingIds,
     defaultExpandedWorkspaceIds = [],
     refresh,
     density = 'comfortable',
@@ -936,8 +939,8 @@ export const SpacesTree = React.memo(({
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canClose = authority === 'control' && !authorityLoading && !stale;
     const unseenDoneSessionIds = useUnseenDoneSessionIds();
-    const needsYou = useHomeNeedsYouIds().size;
-    const pending = useHomePendingIds();
+    const needsYou = needsYouIds.size;
+    const pending = pendingIds;
     const [choices, setChoices] = React.useState<ReadonlyMap<string, boolean>>(() => new Map());
     const expanded = React.useMemo(
         () => effectiveExpandedSpaces(defaultExpandedWorkspaceIds, choices),

@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { ShortcutHintBadge, useShortcutHints } from '@/components/ShortcutHints';
 import { useDeviceAuthority } from '@/pairing';
+import { useHomeNeedsYouIds, useHomePendingIds } from '@/catalog/store';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
 
 const stylesheet = StyleSheet.create((theme) => ({
@@ -97,6 +98,8 @@ export const SidebarView = React.memo(() => {
     const { visible: shortcutHintsVisible } = useShortcutHints();
     const pathname = usePathname();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const needsYouIds = useHomeNeedsYouIds();
+    const pendingIds = useHomePendingIds();
     const {
         workspaces,
         loaded,
@@ -144,6 +147,8 @@ export const SidebarView = React.memo(() => {
 
             <SpacesTree
                 workspaces={workspaces}
+                needsYouIds={needsYouIds}
+                pendingIds={pendingIds}
                 defaultExpandedWorkspaceIds={defaultExpandedWorkspaceIds}
                 refresh={refresh}
                 density="compact"

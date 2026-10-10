@@ -7,7 +7,7 @@
 import * as React from 'react';
 import { OptionSheet } from '@/components/OptionSheet';
 import { sync } from '@/catalog/sync';
-import { useHerdrTree } from '@/catalog/store';
+import { useHerdrTree, useLiveAgentIds } from '@/catalog/store';
 import { herdrTabForSession } from '../domain/agentPresentation';
 import { spaceExpansionDefaults } from '../domain/herdTree';
 import { useNavigateToSession } from '../application/useNavigateToSession';
@@ -15,6 +15,7 @@ import { SpacesTree } from './SpacesTree';
 
 export function WorkspaceTreeSheet(props: { visible: boolean; sessionId?: string; onClose: () => void }): React.JSX.Element {
     const { workspaces } = useHerdrTree();
+    const { needsYouIds, pendingIds } = useLiveAgentIds();
     const navigate = useNavigateToSession();
     // Opened from a session, its workspace; otherwise the desk's focused one.
     const current = props.sessionId === undefined
@@ -42,6 +43,8 @@ export function WorkspaceTreeSheet(props: { visible: boolean; sessionId?: string
             body={(
                 <SpacesTree
                     workspaces={workspaces}
+                    needsYouIds={needsYouIds}
+                    pendingIds={pendingIds}
                     defaultExpandedWorkspaceIds={current === undefined ? [] : spaceExpansionDefaults(workspaces, current.workspaceId)}
                     refresh={refresh}
                     density="compact"

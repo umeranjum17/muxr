@@ -24,7 +24,7 @@ import { setupEmptyState } from '@/commercialization';
 import { RoundButton } from '@/components/RoundButton';
 import { ActionButton } from '@/components/ActionButton';
 import { withAlpha } from '@/components/ui';
-import { useLocalSettingMutable, useSocketStatus } from '@/catalog/store';
+import { useHomeNeedsYouIds, useHomePendingIds, useLocalSettingMutable, useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
@@ -138,6 +138,8 @@ export const HerdView = React.memo(({
     const scanPairQr = usePairQrScanner((url) => void processPairLink(url));
     const socketStatus = useSocketStatus();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const needsYouIds = useHomeNeedsYouIds();
+    const pendingIds = useHomePendingIds();
     const canStart = socketStatus.status === 'connected' && !authorityLoading && authority === 'control';
     const [retrying, setRetrying] = React.useState(false);
     const [retryFailed, setRetryFailed] = React.useState(false);
@@ -339,6 +341,8 @@ export const HerdView = React.memo(({
             )}
             <SpacesTree
                 workspaces={workspaces}
+                needsYouIds={needsYouIds}
+                pendingIds={pendingIds}
                 defaultExpandedWorkspaceIds={defaultExpandedWorkspaceIds}
                 refresh={refresh}
                 stale={stale}

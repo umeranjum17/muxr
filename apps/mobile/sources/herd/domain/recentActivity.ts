@@ -23,6 +23,11 @@ export function agentNeedsYou(status: AgentLifecycle, pendingRequest = false): b
     return pendingRequest || statusNeedsYou(status);
 }
 
+/** The status a surface draws: an agent a pending request holds reads as blocked, unless its pane already says so. */
+export function displayedAgentStatus(status: AgentLifecycle, pendingRequest = false): AgentLifecycle {
+    return agentNeedsYou(status, pendingRequest) && !statusNeedsYou(status) ? 'blocked' : status;
+}
+
 /** Sessions an online agent is holding a request for: their agent needs you whatever its pane says. */
 export function pendingRequestSessionIds(
     sessions: readonly (Pick<Session, 'id'> & Partial<Pick<Session, 'presence' | 'agentState'>>)[],
