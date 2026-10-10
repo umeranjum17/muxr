@@ -531,7 +531,8 @@ export class TerminalManager {
                     let watchAt = Date.now() + WHEEL_FOLLOW_AFTER_MS;
                     while (active() && (wheelMeasuring || Math.abs(wheelRows) >= wheelStep()) && Date.now() < deadline) {
                         await new Promise((resolve) => setTimeout(resolve, SCROLL_STATE_SETTLE_MS));
-                        if (Date.now() < watchAt || wheelMeasuring || !active()) continue;
+                        // A program that has gone still is left to the wheel's own stop.
+                        if (Date.now() < watchAt || wheelMeasuring || Date.now() - paintedAt > SCROLL_STATE_SETTLE_MS || !active()) continue;
                         const following = await followsLiveOutput();
                         if (!active()) return;
                         if (following) { wheelRows = 0; result('complete'); return; }
