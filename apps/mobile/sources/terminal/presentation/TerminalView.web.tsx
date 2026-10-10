@@ -11,7 +11,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
-import '@xterm/xterm/css/xterm.css';
+import { XTERM_CSS } from './xtermStylesheet';
 import { claimTerminalAhead, rememberTerminalGrid } from '../application/terminalAhead';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import {
@@ -42,6 +42,14 @@ export interface TerminalViewProps {
     /** A printed link was reached for; the screen decides what to offer for it.
      *  Without a screen callback, taps open and holds copy. */
     onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
+}
+
+// Injected when this lazy chunk loads, before any terminal measures its grid.
+if (typeof document !== 'undefined' && document.getElementById('xterm-style') === null) {
+    const style = document.createElement('style');
+    style.id = 'xterm-style';
+    style.textContent = XTERM_CSS;
+    document.head.append(style);
 }
 
 function decodeBase64(value: string): Uint8Array {
