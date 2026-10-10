@@ -4,7 +4,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 
-import { CodeCore, PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES } from '@/components/code/CodeCore';
+import { CodeCore } from '@/components/code/lazyCodeSurfaces';
+import { PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES } from '@/components/code/codeLimits';
 import { MissingFileState } from '@/components/document/MissingFileState';
 import { isMissingFileError } from '@/utils/errors';
 import { filesList, filesRead, filesRepos } from '@/catalog/ops';

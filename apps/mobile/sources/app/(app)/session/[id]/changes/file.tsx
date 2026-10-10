@@ -3,7 +3,7 @@ import { ScrollView, View, Text } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 
-import { PatchSurface } from '@/components/diff/PatchSurface';
+import { PatchSurface } from '@/components/code/lazyCodeSurfaces';
 import { changesPatch } from '@/catalog/ops';
 
 type PatchResult = Awaited<ReturnType<typeof changesPatch>>;
@@ -55,7 +55,9 @@ export default function ChangesFileScreen() {
                 {error !== undefined && (
                     <Text style={[styles.note, { color: theme.colors.gitRemovedText }]} selectable>{error}</Text>
                 )}
-                {result !== undefined && result.patch !== '' && <PatchSurface patch={result.patch} />}
+                {result !== undefined && result.patch !== '' && (
+                    <PatchSurface patch={result.patch} />
+                )}
                 {result !== undefined && result.patch === '' && (
                     <View style={styles.empty}>
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>No difference in this comparison.</Text>

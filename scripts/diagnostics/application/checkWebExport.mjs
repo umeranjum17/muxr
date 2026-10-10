@@ -96,8 +96,7 @@ check('no model binaries in public/', publicModels.length === 0, publicModels.sl
 // CanvasKit is lazy (never root-awaited, loaded on first Canvas use), so it
 // is excluded by construction, and lazy chunks (mermaid languages, pdf
 // worker) load on demand. The 2.0 MiB compressed usable-screen target is
-// enforced directly: it was met once Metro's eager __common chunk stopped
-// carrying the diff/mermaid subtrees (shikiSlim.ts, mermaidBundle.ts).
+// not met yet: the ratchet below is pinned above it until the shell splits.
 const distIndex = join(mobile, 'dist', 'index.html');
 if (!existsSync(distIndex)) {
     process.stdout.write('..  dist export absent — skipping dist budget/origin checks (CI exports first)\n');
@@ -134,38 +133,32 @@ if (!existsSync(distIndex)) {
         }
         initialGzip += gzipSync(readFileSync(file)).length;
     }
-    // Ratchet, not target: CI measured 3,213,904 B on the shared-artifacts
-    // export (the Shared Artifacts timeline route, pane-actions badge, and
-    // download flow added ~4 KiB over the composer-deck suite run beside it,
-    // past the old 3,210,000 B ceiling), so the ceiling carries ~0.5% headroom
-    // for cross-environment variance (the same export measures ~3.20 MB on a
-    // dev machine; exact-byte pins fail on noise: the __common chunk once
-    // missed by 13 bytes, and this ratchet once tripped by 178 bytes). The
-    // terminal control-grid redesign then measured 3,230,168 B in CI (its
-    // 168-byte trip over the old ceiling was the same noise the headroom
-    // exists for), so the ceiling re-ratchets with the same ~0.5% headroom.
-    // Spaces grouping and localized names measured 3,250,098 B in CI; keep
-    // the same ~0.5% headroom for this required initial-screen change. The
-    // byokit step-2 phone link migration then measured 3,323,941 B in CI: the
-    // required @byokit/link package pulls its Noise/sodium crypto
-    // (sodium-javascript) into the entry chunk alongside the relay client.
-    // The real 2.0 MiB usable-screen target is not reachable until the markdown
-    // lazy-split (mermaidBundle) lands and the eager __common chunk stops
-    // carrying the diff/mermaid subtrees.
-    const USABLE_GZIP_CEILING = 3341000;
-    check(`dist usable gzip ratchet (target 2.0 MiB once lazy-split lands)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
-    // The eager common chunk must stay a stub: anything shared between two
-    // lazy chunks lands here and loads before the first paint.
+    // Ratchet, not target. The 2.0 MiB (2,097,152 B) compressed usable-screen
+    // target is owned by follow-up pock-pwa-coldstart2 and is not met yet.
+    // This head's export, measured on CI, is 2,360,572 B of initial transfer;
+    // the pin is that figure x1.005 (2,372,375 B). The terminal, the editor/diff
+    // surfaces and
+    // the syntax highlighter load as lazy chunks, so none of them run on the
+    // landing or pair routes. The highlighter's grammar set is a single static
+    // slim list reached only through the diff viewer's lazy import, so no
+    // grammar is shared into the eager __common chunk (guarded below by the
+    // source.cpp marker).
+    const USABLE_GZIP_CEILING = 2372375;
+    check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
+    // The eager common chunk carries what Metro shares between two lazy
+    // chunks; anything here loads before the first paint. After the terminal,
+    // diff and highlighter moved behind their own lazy boundaries it holds the
+    // shared application shell, not those payloads.
     const commonRef = refs.find((ref) => ref.includes('__common'));
     const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
-    // Ratchet, not target: CI measured 1,108,090 B, so the ceiling carries
-    // ~1% headroom for the same cross-environment variance. The real 64 KiB
-    // stub target waits on the same lazy-split.
-    check('dist __common chunk ratchet (target 64 KiB once lazy-split lands)', commonGzip <= 1120000, `${commonGzip} bytes`);
-    const distText = [distHtml, ...refs.map((ref) => {
+    // Ratchet, not target: this head's export measured on CI is 652,730 B,
+    // pinned at that figure x1.005 (655,994 B).
+    check('dist __common chunk ratchet', commonGzip <= 655994, `${commonGzip} bytes`);
+    const refTexts = refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
-    })].join('\n');
+    });
+    const distText = [distHtml, ...refTexts].join('\n');
     // Origin check via URL parsing (not a substring match): any URL in the
     // payload whose host is the marketing origin is a leak.
     const normalizedText = distText.replace(/\\\//g, '/');
@@ -180,6 +173,20 @@ if (!existsSync(distIndex)) {
     });
     check('dist initial payload has no marketing origin', !hasMarketingOrigin);
     check('dist initial payload carries no mermaid engine', !distText.includes('__esbuild_esm_mermaid_nm'));
+    // The live terminal and its xterm addons must stay in the lazy TerminalRoute
+    // chunk. The entry keeps only the small web wrapper, which has no body.
+    const initialAssets = refTexts.join('\n');
+    check('dist initial JS/CSS carries no xterm payload',
+        !initialAssets.includes('xterm-scrollable-element') && !initialAssets.includes('@xterm/addon-webgl'));
+    check('dist initial JS carries no syntax grammar payload', !initialAssets.includes('source.cpp'));
+    const lazyDir = join(mobile, 'dist', '_expo', 'static', 'js');
+    const lazyText = existsSync(lazyDir)
+        ? readdirSync(lazyDir, { recursive: true }).filter((name) => String(name).endsWith('.js'))
+            .map((name) => readFileSync(join(lazyDir, String(name)), 'utf8')).join('\n')
+        : '';
+    check('dist lazy chunks carry the xterm payload',
+        lazyText.includes('xterm-scrollable-element') && lazyText.includes('@xterm/addon-webgl'));
+    check('dist lazy chunks carry the grammar payload', lazyText.includes('source.cpp'));
     // Expo hashes asset names, so inspect emitted model-sized binaries instead
     // of grepping JS metadata for a legitimate filename.
     const MIN_WHISPER_MODEL_BYTES = 50 * 1024 * 1024;
