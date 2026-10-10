@@ -1,9 +1,7 @@
 import * as React from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { useMachine } from '@/catalog/store';
@@ -38,10 +36,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.box.warning.text, marginTop: 6 },
     cardText: { flex: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18 },
-    chevron: { marginTop: 2 },
 }));
 
-function NoticeSentence({ text, sub, chevron }: { text: string; sub?: string; chevron?: boolean }) {
+function NoticeSentence({ text, sub }: { text: string; sub?: string }) {
     const { theme } = useUnistyles();
     return (
         <>
@@ -50,7 +47,6 @@ function NoticeSentence({ text, sub, chevron }: { text: string; sub?: string; ch
                 {text}
                 {sub === undefined ? null : <Text style={{ color: theme.colors.textSecondary }}> · {sub}</Text>}
             </Text>
-            {chevron ? <Ionicons name="chevron-forward" size={14} color={withAlpha(theme.colors.textSecondary, 0.6)} style={stylesheet.chevron} /> : null}
         </>
     );
 }
@@ -60,6 +56,7 @@ function NoticeSentence({ text, sub, chevron }: { text: string; sub?: string; ch
  * line a tap to the only detailed version/support screen.
  */
 export function VersionNotice() {
+    const { theme } = useUnistyles();
     const router = useRouter();
     const machine = useMachine(getCachedConnectionSettings().machineId);
     if (!versionsMismatch(getAppVersion(), machine?.metadata?.muxrCliVersion)) return null;
@@ -68,7 +65,9 @@ export function VersionNotice() {
             accessibilityRole="button"
             accessibilityLabel={`${t('homeNotices.versions')}. ${t('homeNotices.reviewUpdates')}.`}
             onPress={() => router.push('/settings/connection')}
+            hitSlop={{ top: 8, bottom: 8 }}
             style={({ pressed }) => [stylesheet.line, pressed && Platform.select({ android: {}, default: { opacity: 0.75 } })]}
+            android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
         >
             <Text numberOfLines={2} style={stylesheet.text}>
                 {t('homeNotices.versions')}
