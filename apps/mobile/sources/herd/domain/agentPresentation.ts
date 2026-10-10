@@ -169,9 +169,19 @@ function agentKindSlug(kind?: string): string | undefined {
     return value.toLowerCase();
 }
 
-/** The agent's name beside a title that leads with its task; nothing when the title already is the name. */
+/**
+ * True when the name is only the kind's own fallback label, which an unnamed
+ * agent falls back to. The who-line already names the kind there, so the name
+ * must not say it a second time (`opencode`, never `opencode · OpenCode`).
+ */
+function nameRepeatsKind(labels: AgentLabels): boolean {
+    const kindName = agentKindLabel(labels.agentKind);
+    return kindName !== undefined && sameLabel(labels.agentName, kindName);
+}
+
+/** The agent's name beside a title that leads with its task; nothing when the title already is the name or the name only repeats the kind. */
 export function agentBesideName(labels: AgentLabels): string | undefined {
-    if (isShellLabels(labels) || labels.task === undefined || labels.agentName === UNNAMED_AGENT) return undefined;
+    if (isShellLabels(labels) || labels.task === undefined || labels.agentName === UNNAMED_AGENT || nameRepeatsKind(labels)) return undefined;
     return sameLabel(labels.agentName, labels.title) ? undefined : labels.agentName;
 }
 
@@ -181,7 +191,9 @@ export function agentBesideName(labels: AgentLabels): string | undefined {
  */
 export function agentWhoLine(labels: AgentLabels, withName = false): string {
     if (isShellLabels(labels)) return 'Shell';
-    const name = withName && labels.agentName !== UNNAMED_AGENT ? labels.agentName : agentBesideName(labels);
+    const name = withName && labels.agentName !== UNNAMED_AGENT && !nameRepeatsKind(labels)
+        ? labels.agentName
+        : agentBesideName(labels);
     return [agentKindSlug(labels.agentKind), name].filter((part) => part !== undefined).join(' · ');
 }
 

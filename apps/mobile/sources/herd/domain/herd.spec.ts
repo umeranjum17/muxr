@@ -96,6 +96,11 @@ describe('spoken herd flow', () => {
             const fresh = agentLabels({ ...base, agentKind: kind, agentName: id });
             expect([fresh.title, agentWhoLine(fresh), agentBesideName(fresh) ?? '']).toEqual([label, kind, '']);
         }
+        // An unnamed agent with a task names its kind once: `opencode`, never
+        // `opencode · OpenCode` (the kind's own label is its only name).
+        const unnamed = agentLabels({ ...base, agentKind: 'opencode', taskTitle: 'Fix the login redirect' });
+        expect([unnamed.title, agentWhoLine(unnamed), agentWhoLine(unnamed, true), agentBesideName(unnamed) ?? ''])
+            .toEqual(['Fix the login redirect', 'opencode', 'opencode', '']);
         // The id can also ride a pane label or window title; it still says nothing.
         expect(agentLabels({ ...base, agentKind: 'pi', agentName: 'pp_1', label: 'pp_2', terminalTitle: 'pph_3', taskTitle: 'pp_4' }).title)
             .toBe('Pi');

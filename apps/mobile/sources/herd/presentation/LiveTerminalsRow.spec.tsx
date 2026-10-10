@@ -128,3 +128,31 @@ it('lists every agent the needs-you count counts until it is answered', async ()
     expect(rowLabels(renderer, /Could not start/)).toEqual(['Deploy the preview']);
     renderer.unmount();
 });
+
+/*
+ * A Codex and a pi agent that have finished but have not published a real
+ * name yet arrive as lifecycle events whose agentName is Herdr's internal
+ * launch id (`pp_<hex>` / `pph_<hex>`). Their Ready · unseen rows once led
+ * with that id (seen on Android, FIRSTMATE HOME); they must name the agent the
+ * way Home names every other one — its kind and task, never the id.
+ */
+it('names a finished Codex and pi agent by kind, never a launch id', async () => {
+    const at = new Date().toISOString();
+    herd.workspaces = [];
+    herd.events = [
+        { eventId: 'codex-done', sessionId: 'codex-gone', agentName: 'pp_9c526c448bbeb98f', agentKind: 'codex', state: 'done', reasonCode: 'agent-done', at } as LifecycleEvent,
+        { eventId: 'pi-done', sessionId: 'pi-gone', agentName: 'pph_6ba0c0cdd02bca79', agentKind: 'pi', state: 'done', reasonCode: 'agent-done', at } as LifecycleEvent,
+    ];
+    let renderer!: ReturnType<typeof TestRenderer.create>;
+    await TestRenderer.act(async () => {
+        renderer = TestRenderer.create(<LiveTerminalsRow showZeroState={false} />);
+    });
+    // No panes are in the tree, so the only rows are the Ready · unseen tier.
+    const titles = (renderer.root as any)
+        .findAll((node: { type: unknown; props: { accessibilityLabel?: string } }) =>
+            node.type === 'Pressable' && typeof node.props.accessibilityLabel === 'string')
+        .map((node: { props: { accessibilityLabel: string } }) => node.props.accessibilityLabel.split('.')[0]);
+    expect(titles.sort()).toEqual(['Codex', 'Pi']);
+    expect(titles.join(' ')).not.toMatch(/pph?_/i);
+    renderer.unmount();
+});
