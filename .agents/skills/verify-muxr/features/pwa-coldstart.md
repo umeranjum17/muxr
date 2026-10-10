@@ -8,14 +8,20 @@ document/diff/CodeCore surfaces load behind one lazy chunk
 slim static bundle (`components/diff/shikiSlim.ts`) with both `@pierre/diffs`
 entry points behind one boundary (`components/diff/pierreBundle.ts`). Those
 chunks are requested only when a screen that draws a terminal, code or a diff
-opens.
+opens. The mermaid diagram engine is not bundled at all: `MermaidRenderer` loads
+the export's own `/mermaid.min.js` when a diagram renders
+(`components/markdown/loadMermaidWeb.ts`).
 
 ## Sub-features
 
 - The initial transfer (`dist/index.html`'s referenced JS/CSS) sits in the eager
   entry + `__common` chunk. `scripts/diagnostics/application/checkWebExport.mjs`
-  measures it as gzip and enforces the ratchet; the eager `__common` no longer
-  carries xterm, the diff surfaces or the shiki grammars.
+  measures it as gzip and enforces the ratchet; at this head it is 1,712,785 B,
+  at or under the 2.0 MiB (2,097,152 B) target.
+- The eager `__common` chunk no longer carries mermaid, its parser, cytoscape or
+  their shared d3/lodash tree. Before this slice those were hoisted there
+  (~640 KB gzip) because mermaid's diagram modules load each other dynamically,
+  so the engine now loads from `/mermaid.min.js` on demand instead.
 - `grep -c 'xterm'`/`'shiki'`/`'Oniguruma'`/`'PierreDiffView'` against the eager
   entry and `__common` chunks is `0`; they appear only in the lazy
   `TerminalRoute-*.js` (which holds the xterm `TerminalView` boundary),
@@ -37,7 +43,8 @@ an agent: the terminal appears (its chunk arrives then), and opening a file or
 change shows the highlighted surface. Nothing terminal/editor/highlighter
 related is transferred before the landing paints. A change to a language outside
 the slim set shows its grammar fetched from `/shiki-langs/<id>.json` when the
-diff opens, and highlights once it lands.
+diff opens, and highlights once it lands. A markdown block that is a mermaid
+diagram fetches `/mermaid.min.js` when it renders.
 
 ## Driving it with the private stack
 
@@ -49,14 +56,18 @@ needed to render the diff surface.
    `MUXR_WEB_EXPORT_DIR=<repo>/apps/mobile/dist MUXR_WEB_PORT=<free> node scripts/diagnostics/application/serveWebExport.mjs`.
    It serves files verbatim (no gzip), so browser transfer is raw.
 2. Initial transfer, offline: `node scripts/diagnostics/application/checkWebExport.mjs`
-   prints `dist usable gzip ratchet … — <n> bytes` and `dist __common chunk
-   ratchet — <n> bytes`; both must pass, plus `dist ships on-demand grammar
-   assets` and `dist initial payload never references a grammar asset`.
+   prints `dist usable gzip ratchet … — <n> bytes` (must be ≤ 2,097,152) and
+   `dist __common chunk ratchet — <n> bytes`; both must pass, plus `dist ships
+   on-demand grammar assets`, `dist initial payload never references a grammar
+   asset`, `dist JS carries no bundled mermaid engine` and `dist ships
+   mermaid.min.js for on-demand diagrams`.
 3. Chunk split: list `dist/_expo/static/js/web`, and confirm the eager entry
    (`index-*.js` referenced by `dist/index.html`) and `__common-*.js` contain no
-   `xterm`/`shiki`/`Oniguruma`/`PierreDiffView`, while lazy `TerminalRoute-*.js`
-   (it holds the xterm `TerminalView` boundary; no separate `TerminalView-*.js`
-   chunk is emitted), `codeSurfaces-*.js`, `pierreBundle-*.js` exist.
+   `xterm`/`shiki`/`Oniguruma`/`PierreDiffView`/`cytoscape`/`flowchart-elk`, while
+   lazy `TerminalRoute-*.js` (it holds the xterm `TerminalView` boundary; no
+   separate `TerminalView-*.js` chunk is emitted), `codeSurfaces-*.js`,
+   `pierreBundle-*.js` exist. No `*Diagram-*.js` or `mermaid-*.js` chunk is
+   emitted at all: the engine is the standalone `/mermaid.min.js` asset.
 4. Cold browser load: one origin per capture (or a fresh profile) for an empty
    cache, `chrome-devtools-axi emulate --network "Slow 4G"` (plus
    `--viewport 393x852x3,mobile,touch` and `--color-scheme dark|light`), open the
@@ -79,6 +90,21 @@ needed to render the diff surface.
    `/shiki-langs/vue.json` are fetched and the diff paints Vue and TypeScript
    highlighting at 393 px light and dark; render a TypeScript-only patch and
    confirm no `/shiki-langs/` request happens.
+8. Mermaid engine, with a markdown block: the app's only `MarkdownView` →
+   `MermaidRenderer` surface is the changelog's legacy markdown
+   (`app/(app)/changelog.tsx`), reached in-app via Settings → What's New. Its
+   bundled `changelog.json` has no mermaid fence, so add a temporary
+   `legacyEntries` entry whose `markdown` holds a ` ```mermaid ` fence (identical
+   data in the before/after exports; revert it). On the after export, opening
+   `/changelog` fetches `/mermaid.min.js` as a script
+   (`performance.getEntriesByType('resource')`, initiatorType `script`) and
+   `window.mermaid` becomes an object; the diagram SVG
+   (`aria-roledescription="flowchart-v2"`) paints at 393 px light and dark, and
+   no `/mermaid.min.js` request happens on the Home cold load. On the before
+   export no `/mermaid.min.js` request happens at all — the engine is app-bundled
+   (`mermaid-*.js` plus the eager `__common`) and `window.mermaid` stays
+   `undefined`. The artifact-preview runtime (`previewRuntime.mjs`) bundles its
+   own mermaid and does not exercise `loadMermaidWeb`.
 
 ## Gotchas
 
