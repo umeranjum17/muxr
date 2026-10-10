@@ -41,7 +41,7 @@ import { getRigActivityIndicators, getRigIdentity } from '../infrastructure/rig'
 import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/herd';
 import { agentLabels } from '@/herd/labels';
 import { agentRowAttention, mergeCatalogAgent } from '../domain/agent';
-import { dropOldestAbsent, herdrPaneForSession } from '@/herd';
+import { dropOldestAbsent, herdrPaneForSession, needsYouCount } from '@/herd';
 import { readAgentSession } from './readAgentSession';
 
 function resolveSessionOnlineState(session: { active: boolean; activeAt: number }): 'online' | number {
@@ -564,6 +564,11 @@ export function useSessions(): Session[] {
 
 export function useHerdrTree(): { workspaces: HerdrTreeWorkspace[]; loaded: boolean } {
     return storage(useShallow((state) => ({ workspaces: state.herdrWorkspaces, loaded: state.herdrTreeLoaded })));
+}
+
+/** The one "needs you" count: herd status plus uncovered pending requests. */
+export function useNeedsYouCount(): number {
+    return storage((state) => needsYouCount(state.herdrWorkspaces, Object.values(state.sessions)));
 }
 
 /** The Spaces pins, as a stable array reference. */

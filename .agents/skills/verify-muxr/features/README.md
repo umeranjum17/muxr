@@ -65,13 +65,19 @@ user-visible behavior, then exactly four H2 sections in this order:
   start in both themes at 393 and 270 px, offline hand-off, native comparison.
 - [Paint the installed PWA landing without the terminal payload](./pwa-coldstart.md) —
   static `dist`: the initial-transfer gzip ratchet, the eager entry/`__common`
-  carrying no xterm/shiki/diff, and the session route still loading its lazy
-  terminal chunks at runtime.
+  carrying no xterm/shiki/diff, the session route still loading its lazy
+  terminal chunks at runtime, and non-slim diff grammars fetching on demand from
+  `/shiki-langs/` only when a diff needs them.
 
 - [Install muxr to the home screen from a browser tab](./pwa-install.md) —
   exported web client in Chrome and emulated iOS Safari: prompt row, Add to
   Home Screen guide, hidden once installed or with no install path, at 393 and
   270 px, light and dark.
+
+- [Show one needs-you count on the app, the favicon and the PWA icon](./needs-you-count.md) —
+  private fake stack with a lab-only `lab.set_agent_status`: blocked, failed and
+  uncovered-request herds drive the Spaces header, the favicon dot and the
+  recorded app badge to the same number, light and dark at 393 and 270 px.
 
 - [Share a file into a pane's Shared Artifacts](./shared-artifact.md) —
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
