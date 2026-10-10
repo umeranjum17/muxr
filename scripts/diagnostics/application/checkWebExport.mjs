@@ -133,25 +133,26 @@ if (!existsSync(distIndex)) {
         }
         initialGzip += gzipSync(readFileSync(file)).length;
     }
-    // Ratchet, not target. The terminal, the editor/diff surfaces and the
-    // syntax highlighter load as lazy chunks, so none of them run on the landing
-    // or pair routes. Same web export method on both trees: the merge base
-    // measures 3,112,329 B of initial transfer and this head measures 2,651,814 B
-    // (-460,515 B), pinned with ~0.5% headroom. The highlighter's grammar set is
-    // a single static slim list reached only through the diff viewer's lazy
-    // import, so no grammar is shared into the eager __common chunk (guarded
-    // below by the source.cpp marker).
-    const USABLE_GZIP_CEILING = 2665073;
-    check(`dist usable gzip ratchet (target 2,670,000 B)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
+    // Ratchet, not target. The 2.0 MiB (2,097,152 B) compressed usable-screen
+    // target is owned by follow-up pock-pwa-coldstart2 and is not met yet. This
+    // head's fresh export measures 2,346,369 B of initial transfer, pinned with
+    // ~0.5% headroom (2,358,101 B). The terminal, the editor/diff surfaces and
+    // the syntax highlighter load as lazy chunks, so none of them run on the
+    // landing or pair routes. The highlighter's grammar set is a single static
+    // slim list reached only through the diff viewer's lazy import, so no
+    // grammar is shared into the eager __common chunk (guarded below by the
+    // source.cpp marker).
+    const USABLE_GZIP_CEILING = 2358101;
+    check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,
     // diff and highlighter moved behind their own lazy boundaries it holds the
     // shared application shell, not those payloads.
     const commonRef = refs.find((ref) => ref.includes('__common'));
     const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
-    // Ratchet, not target: the merge base's __common measures 1,112,979 B and
-    // this head measures 881,764 B (-231,215 B), pinned with ~0.5% headroom.
-    check('dist __common chunk ratchet', commonGzip <= 886173, `${commonGzip} bytes`);
+    // Ratchet, not target: this head's fresh export measures 650,327 B,
+    // pinned with ~0.5% headroom (653,579 B).
+    check('dist __common chunk ratchet', commonGzip <= 653579, `${commonGzip} bytes`);
     const refTexts = refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
