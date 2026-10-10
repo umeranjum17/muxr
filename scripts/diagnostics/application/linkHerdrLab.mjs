@@ -13,7 +13,10 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost) {
     execFileSync(helper, ['provision', session]);
     const status = JSON.parse(execFileSync(helper, ['run', session, 'status', '--json'], { encoding: 'utf8' }));
     const wrapper = join(root, 'herdr-lab.sh');
-    writeFileSync(wrapper, `#!/bin/sh\nexec ${JSON.stringify(helper)} run ${JSON.stringify(session)} "$@"\n`);
+    // The kit starts `herdr terminal` with a narrow env, so the wrapper carries the lab's own state dir itself.
+    const keep = ['FM_HERDR_LAB_STATE_DIR', 'TMPDIR'].filter((name) => process.env[name])
+        .map((name) => `export ${name}=${JSON.stringify(process.env[name])}\n`).join('');
+    writeFileSync(wrapper, `#!/bin/sh\n${keep}exec ${JSON.stringify(helper)} run ${JSON.stringify(session)} "$@"\n`);
     chmodSync(wrapper, 0o700);
     const home = join(root, 'muxr');
     mkdirSync(home, { recursive: true });
@@ -51,9 +54,11 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost) {
         const machine = machineIdentity(undefined);
         const owner = JSON.parse(readFileSync(join(relayDir, 'mint-secret'), 'utf8'));
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, machine, relayPort: port,
-            relayUrl: `ws://127.0.0.1:${port}`, relayLocation: 'local', relayRole: 'single-machine',
+            relayUrl: `ws://${process.env.MUXR_RELAY_HOST ?? '127.0.0.1'}:${port}`, relayLocation: 'local', relayRole: 'single-machine',
             connectionMode: 'lan', webEnabled: false, mintSecret: owner })}\n`, { mode: 0o600 });
-        const host = start(['apps/host/dist/main.js'], { MUXR_MODE: 'selfhost', MUXR_DATA_DIR: hostDir });
+        // A relay bound for a device elsewhere on the network is dialled at that address too.
+        const host = start(['apps/host/dist/main.js'], { MUXR_MODE: 'selfhost', MUXR_DATA_DIR: hostDir,
+            ...(process.env.MUXR_RELAY_HOST ? { MUXR_RELAY_URL: `ws://${process.env.MUXR_RELAY_HOST}:${port}/relay` } : {}) });
         const deadline = Date.now() + 25_000;
         while (!existsSync(join(hostDir, 'pair.sock'))) {
             if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host did not start: ${host.output()}`);
