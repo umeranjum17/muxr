@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { hapticsLight } from '@/components/haptics';
-import { AUTO, chosenAccount, providerForAgent, providerName } from '../domain/planAccounts';
+import { AUTO, addAccountLabel, chosenAccount, providerForAgent, providerName } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, refreshPlans, useProviderChoice, usePlansStore } from '../application/plansStore';
 import { acknowledgeAutoTerms } from '../application/plansApi';
 import { useAccountFlows } from './AccountFlows';
@@ -94,7 +94,7 @@ export function AccountSheet({ visible, agentKind, agentName, onClose, onLeave }
                 />
             ))}
             <Divider />
-            <FootAction icon="add" link label={`Add a ${providerName(provider)} account`} onPress={() => { onClose(); flows.add(provider); }} />
+            <FootAction icon="add" link label={addAccountLabel(provider)} onPress={() => { onClose(); flows.add(provider); }} />
             <FootAction icon="pencil-outline" label="Manage accounts" onPress={() => { onClose(); onLeave?.(); router.push('/settings/accounts' as never); }} />
         </View>
     );

@@ -14,11 +14,18 @@ first one.
   largest text size it wraps to the full name in the flow above the list, which
   stays fully visible below it.
 - `accounts-rows-distinct` at the largest text size, rows of one provider that
-  share a name and email stay tellable apart: the name wraps to two lines, the
-  email never breaks mid-word (native `ellipsizeMode` `tail` keeps the local
-  part before the `@`, `umer@exam…`; web shortens the local part and keeps the
-  whole domain, dropping to a second line broken before the `@` only when the
-  domain cannot fit), and the usage line (`40% left · max`) differs.
+  share a name and email stay tellable apart **from the first line**: such a row
+  leads with the fact that differs between them (how much room is left, and the
+  plan or where found only when those differ too), so the first line reads
+  `40% left` / `10% left` / `80% left`, never the shared `Umer Work …` prefix;
+  the shared name and email sit beneath and the email never breaks mid-word
+  (native `ellipsizeMode` `tail` keeps the local part before the `@`,
+  `umer@exam…`; web shortens the local part and keeps the whole domain, dropping
+  to a second line broken before the `@` only when the domain cannot fit). A row
+  whose name already differs keeps its name first. Shared facts (same plan) drop
+  to the line beneath the lead. When `@byokit/accounts` has no per-account
+  distinguishing field, the lead is usage/plan/where-found — no value is
+  invented.
 - `accounts-signin-states` in-progress banner, cancel, refusal, re-sign-in without the name step.
 - `accounts-remove` row › Remove › Remove resets to one account.
 
@@ -68,12 +75,15 @@ Preconditions:
   covered. Reset the content size to `large` afterwards.
 - **Distinct rows.** With the list seeded so several accounts share one name and
   one email (the Android/PWA lab fixture in `data/pock-accounts-rows-distinct1`
-  does), each row must still read apart at the largest text: the name wraps to
-  two lines, the email stays on one line without breaking mid-word (native
-  end ellipsis keeps the local part before the `@`; web keeps the whole domain,
-  wrapping before the `@` only when it cannot fit), and the `…% left · max`
-  line beneath differs, so no two rows truncate to one shared `Name …` / `email@…`
-  prefix.
+  does), each row must read apart **from its first line** at the largest text:
+  a shared-name row leads with the fact that differs (`40% left` / `10% left` /
+  `80% left`), so no two rows truncate to one shared `Name …` / `email@…` prefix;
+  the shared name and email sit beneath and the email never breaks mid-word
+  (native end ellipsis keeps the local part before the `@`; web keeps the whole
+  domain, wrapping before the `@` only when it cannot fit). A row whose name
+  already differs keeps its name first. The installed PWA is paired from the
+  plain-http lab origin through `window.__MUXR_LAB_PAIR__`, not by seeding
+  IndexedDB (see `lab-browser-pairing.md`).
 - **Sign-in states.** The lab prints its `lab home`. While `signin-hold` exists
   there the stand-in's sign-in stays open, so the tab shows the `Signing in …`
   banner with `Cancel`; removing it finishes the sign-in, and with `signin-fail`
