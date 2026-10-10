@@ -56,7 +56,7 @@ function NotAuthenticated() {
                 <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
             </View>
             <FirstRunConnection />
-            <HomeWebInstallInvite />
+            <HomeWebInstallInvite variant="firstRun" />
         </ScrollView>
     );
 }

@@ -21,6 +21,13 @@ const styles = StyleSheet.create((theme) => ({
         width: '92%', maxWidth: 800, alignSelf: 'center', marginTop: 12,
         padding: 16, gap: 10,
     },
+    // On the first-run screen the card sits beside FirstRunConnection's step
+    // cards, so it takes their container width (100% of the centered section,
+    // maxWidth 360) instead of Home's wide 92% card, and drops the Home-only
+    // top margin so it flows with the section gap.
+    cardFirstRun: {
+        width: '100%', maxWidth: 360, marginTop: 0,
+    },
     row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     title: { flex: 1, color: theme.colors.text, fontSize: 17, ...Typography.default('semiBold') },
     body: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, ...Typography.default() },
@@ -170,7 +177,7 @@ function useWebInstallInviteState(): WebInstallState {
  * no install path, or after the person dismisses it on this device (the
  * persisted flag), so nobody is invited to install something already there.
  */
-export function HomeWebInstallInvite() {
+export function HomeWebInstallInvite({ variant = 'home' }: { variant?: 'home' | 'firstRun' } = {}) {
     const { theme } = useUnistyles();
     const state = useWebInstallInviteState();
     const [dismissed, setDismissed] = useLocalSettingMutable('webInstallInviteDismissed');
@@ -179,7 +186,7 @@ export function HomeWebInstallInvite() {
     if (dismissed || (state !== 'ready' && state !== 'ios-guide')) return null;
     const ios = state === 'ios-guide';
     return (
-        <View style={[styles.card, cardStyle(theme)]}>
+        <View style={[styles.card, variant === 'firstRun' && styles.cardFirstRun, cardStyle(theme)]}>
             <View style={styles.row}>
                 <Ionicons name="download-outline" size={22} color={theme.colors.accent} />
                 <Text style={styles.title}>{t('webInstall.inviteTitle')}</Text>
