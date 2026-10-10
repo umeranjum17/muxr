@@ -4,3 +4,4 @@ export * from './NativeSettingsMenu';
 export * from './NativeSettingsMenu.types';
 export * from './notificationSummary';
 export * from './SettingsView';
+export { openWebInstallGuide } from './WebInstallSupport';
