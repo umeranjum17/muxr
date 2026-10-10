@@ -12,8 +12,10 @@ deletes the old caches).
 - The worker registers on every web load, not only after push subscribe.
 - Navigation is network-first; a failed or stalled (over 4 s) navigation falls
   back to the cached `/index.html`, and the shell's hashed `/_expo/` and
-  `/assets/` files plus `/canvaskit.wasm` are served cache-first so the app
-  boots offline.
+  `/assets/` files plus `/canvaskit.wasm` and `/mermaid.min.js` are served
+  cache-first so the app boots offline. The two runtime paths are not
+  precached at install; each is cached the first time it is fetched, so a
+  diagram only opens offline after it has been viewed online once.
 - A new web build changes `sw.js` (its `SHELL_VERSION` is set at export from
   a hash of `index.html` and the worker source), so
   the next online load installs the new worker, precaches the new shell under
@@ -75,7 +77,7 @@ offline session, not just the shell) pair it with the lab hook first — see
   it; if you rebuild without a real change the version is identical and no
   update is expected.
 - Never let the worker cache API, relay, link or `/health` responses: only the
-  navigation document, hashed `/_expo/` and `/assets/` files, and
-  `/canvaskit.wasm` are shell.
+  navigation document, hashed `/_expo/` and `/assets/` files, `/canvaskit.wasm`
+  and `/mermaid.min.js` are shell.
 - The muxr worker is not registered in development (`__DEV__`), or the dev
   server's unversioned bundles would be pinned; drive the production export.
