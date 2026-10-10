@@ -63,7 +63,7 @@ export function linkOfferExpired(value: string): boolean {
 }
 
 export type PairingInputDecision
-    = { ok: true; offer: string }
+    = { ok: true; offer: string; link: string }
     | { ok: false; message: string; expired: boolean };
 
 /**
@@ -71,17 +71,24 @@ export type PairingInputDecision
  * pair, otherwise the true reason in plain words. A wrapped or retyped
  * current code pairs once its whitespace is stripped; only the legacy relay
  * shape names an old version.
+ *
+ * `offer` is the inner token used to read the terms for display; `link` is the
+ * value the pairing transport accepts. They differ for an HTTPS browser link:
+ * web pairing accepts only the full `https://…/pair#…` wrapper, so it is kept
+ * whole. A native code, app-scheme link and compact code pair on `offer`.
  */
 export function decidePairingInput(value: string): PairingInputDecision {
     const compact = value.replace(/\s+/g, '');
-    // A deep link or pasted link wraps the offer in a URL; the pairing
-    // itself needs the inner offer, never the wrapper.
-    const offer = linkOfferFromUrl(compact);
-    if (offer !== undefined) {
+    // A deep link or pasted link wraps the offer in a URL; the terms are read
+    // from the inner offer, while `link` keeps the wrapper for the HTTPS
+    // browser form the web guard accepts.
+    const decided = pairingTermsFromInput(compact);
+    if (decided !== undefined) {
+        const { offer, link } = decided;
         if (linkOfferExpired(offer)) return { ok: false, message: EXPIRED_PAIRING_CODE, expired: true };
         // Anything carrying the link tag that neither kit reader accepts is cut off.
         if (readOffer(offer) === undefined) return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
-        return { ok: true, offer };
+        return { ok: true, offer, link };
     }
     if (WS_LEGACY_CODE.test(compact)) return { ok: false, message: LEGACY_PAIRING_CODE, expired: false };
     if (/byokit-link:/i.test(value)) return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
@@ -96,8 +103,17 @@ export type PairArrivalSource = 'intent' | 'user';
 
 /** Unwrap only the registered app schemes or an HTTPS /pair link; byokit validates the offer itself. Inner whitespace (terminal wrapping, retype gaps) is stripped: it can never be part of an offer. */
 export function linkOfferFromUrl(value: string): string | undefined {
+    return pairingTermsFromInput(value)?.offer;
+}
+
+/**
+ * The inner offer plus the value pairing should receive. An HTTPS browser link
+ * is a wrapper the web guard requires, so `link` keeps it whole; an app-scheme
+ * link or a bare code pairs on its inner `offer`, never the wrapper.
+ */
+function pairingTermsFromInput(value: string): { offer: string; link: string } | undefined {
     const input = value.replace(/\s+/g, '');
-    if (isLinkOffer(input)) return input;
+    if (isLinkOffer(input)) return { offer: input, link: input };
     try {
         const url = new URL(input);
         const app = ['muxr:', 'muxr-dev:', 'muxr-preview:'].includes(url.protocol)
@@ -105,7 +121,7 @@ export function linkOfferFromUrl(value: string): string | undefined {
         const web = url.protocol === 'https:' && url.hostname !== '' && url.pathname === '/pair';
         if ((!app && !web) || url.username || url.password || url.search) return undefined;
         const offer = url.hash.slice(1);
-        return isLinkOffer(offer) ? offer : undefined;
+        return isLinkOffer(offer) ? { offer, link: web ? input : offer } : undefined;
     } catch { return undefined; }
 }
 

@@ -13,7 +13,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { Modal } from '@/modal';
-import { storage, useSpacePins, useSpacesLayout } from '@/catalog/store';
+import { storage, useNeedsYouCount, useSpacePins, useSpacesLayout } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
@@ -920,6 +920,8 @@ export const SpacesTree = React.memo(({
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canClose = authority === 'control' && !authorityLoading && !stale;
     const unseenDoneSessionIds = useUnseenDoneSessionIds();
+    // The header summary's needs-you count must match the favicon and icon badge.
+    const needsYou = useNeedsYouCount();
     const [choices, setChoices] = React.useState<ReadonlyMap<string, boolean>>(() => new Map());
     const expanded = React.useMemo(
         () => effectiveExpandedSpaces(defaultExpandedWorkspaceIds, choices),
@@ -1151,7 +1153,7 @@ export const SpacesTree = React.memo(({
                 renderSectionHeader={({ section }) => (
                     <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
                         <SectionLabel>{section.title}</SectionLabel>
-                        {section.key === 'spaces' && !searching && <AgentCountSummary counts={agentCounts(workspaces)} />}
+                        {section.key === 'spaces' && !searching && <AgentCountSummary counts={{ ...agentCounts(workspaces), needsYou }} />}
                     </View>
                 )}
                 stickySectionHeadersEnabled={false}
