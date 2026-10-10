@@ -1621,7 +1621,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                             {singleLabels !== undefined
                                                 ? <AgentGlyph name={isShellLabels(singleLabels) ? 'shell' : singleLabels.agentKind ?? singleLabels.agentName} size={13} />
                                                 : <Ionicons name="grid-outline" size={13} color={theme.colors.textSecondary} />}
-                                            <Text numberOfLines={1} style={{ flexShrink: 1, color: active ? theme.colors.text : tone.color, fontSize: 11, fontWeight: '500' }}>
+                                            {/* The row keeps one height, so the largest text sizes would cut the label off. */}
+                                            <Text numberOfLines={1} maxFontSizeMultiplier={1.5} style={{ flexShrink: 1, color: active ? theme.colors.text : tone.color, fontSize: 11, fontWeight: '500' }}>
                                                 {label}
                                             </Text>
                                         </Pressable>
