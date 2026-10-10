@@ -44,7 +44,8 @@ export function openedOutsideSafari(): boolean {
     return iosBrowser() === 'other';
 }
 
-function isStandalone(): boolean {
+/** True when the page runs as an installed app (display-mode or iOS navigator.standalone). */
+export function isStandalone(): boolean {
     if (typeof navigator !== 'undefined' && (navigator as { standalone?: boolean }).standalone === true) return true;
     return typeof window !== 'undefined'
         && typeof window.matchMedia === 'function'
