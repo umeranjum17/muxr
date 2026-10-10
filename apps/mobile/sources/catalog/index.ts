@@ -17,7 +17,7 @@ export {
 } from './domain/agent';
 export { dropSessionEnvelope, usageHeartbeat } from './domain/sessionEnvelope';
 export { indexSessionsById } from './domain/sessionIdentity';
-export { resolveAgentCatalog, FALLBACK_AGENT_KINDS, AGENT_KINDS, type AgentCatalogOption, type AgentInstallState } from './domain/agentKinds';
+export { resolveAgentCatalog, FALLBACK_AGENT_KINDS, AGENT_KINDS, type AgentCatalogOption } from './domain/agentKinds';
 export { resolveControlHandoffDirection, resolveControlMode } from './domain/controlHandoff';
 export * from './application/storage';
 export * from './application/sync';

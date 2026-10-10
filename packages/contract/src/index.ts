@@ -42,7 +42,6 @@ export type {
     UnreadCatalog,
 } from './herd/index.js';
 export {
-    AGENT_INSTALL_STATES,
     AGENT_LIFECYCLES,
     ATTENTION_DONE_TTL_MS,
     ATTENTION_HARD_CAP_MS,

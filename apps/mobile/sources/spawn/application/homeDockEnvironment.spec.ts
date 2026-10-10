@@ -15,13 +15,18 @@ vi.mock('@/herd', () => ({ formatPathRelativeToHome: vi.fn() }));
 vi.mock('./worktree', () => ({ listWorktrees: vi.fn() }));
 vi.mock('@/catalog', async () => import('@/catalog/application/persistence'));
 
-import { agentInstallPhase, dockInstallPhase } from './homeDockEnvironment';
+import { agentInstallPhase, agentReadinessLabel, visibleDockAgents } from './homeDockEnvironment';
 
-it('shows an install phase only for an installed first-start installer', () => {
-    expect(agentInstallPhase({ kind: 'pi', availability: 'installed', installState: 'installs-on-first-start' })).toBe('Installing Pi');
+it('shows the install phase only for an installed first-start installer, and its at-rest readiness stays the sign-in state', () => {
+    const pi = { kind: 'pi', availability: 'installed', installState: 'installs-on-first-start', signedIn: 'yes' } as const;
+    expect(agentInstallPhase(pi)).toBe('Installing Pi');
+    expect(agentReadinessLabel(pi, true)).toBe('Installing Pi');
+    expect(agentReadinessLabel(pi)).toBe('Signed in');
+    expect(visibleDockAgents([pi])[0].installPhase).toBe('Installing Pi');
     expect(agentInstallPhase({ kind: 'claude', availability: 'installed', installState: 'installed' })).toBeUndefined();
-    expect(agentInstallPhase({ kind: 'grok', availability: 'unavailable', installState: 'installs-on-first-start' })).toBeUndefined();
     expect(agentInstallPhase(undefined)).toBeUndefined();
-    expect(dockInstallPhase({ name: 'Pi', installState: 'installs-on-first-start' })).toBe('Installing Pi');
-    expect(dockInstallPhase({ name: 'Pi' })).toBeUndefined();
+    const absent = { kind: 'grok', availability: 'unavailable', installState: 'installs-on-first-start', installHint: 'npm i -g grok' } as const;
+    expect(agentInstallPhase(absent)).toBeUndefined();
+    expect(agentReadinessLabel(absent, true)).toBe('npm i -g grok');
+    expect(visibleDockAgents([absent], true)[0].installPhase).toBeUndefined();
 });

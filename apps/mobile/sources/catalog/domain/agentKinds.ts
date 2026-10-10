@@ -1,3 +1,5 @@
+import type { AgentInstallState } from '@trymuxr/contract';
+
 /** Persistence keeps this superset so existing sessions remain readable offline.
  * Missing host kinds also use it for install guidance, never as proof of
  * installation; only the host's installed list makes a kind selectable. */
@@ -9,8 +11,6 @@ export const FALLBACK_AGENT_KINDS = [
 export const AGENT_KINDS = FALLBACK_AGENT_KINDS;
 
 export type AgentAvailability = 'installed' | 'unavailable' | 'unknown';
-/** The herdr kit's install probe: a real binary, a first-start auto-installer, or absent. */
-export type AgentInstallState = 'installed' | 'installs-on-first-start' | 'missing';
 export type AgentCatalogOption = {
     kind: string;
     availability: AgentAvailability;

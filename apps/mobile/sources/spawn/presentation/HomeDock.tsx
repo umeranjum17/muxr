@@ -40,7 +40,6 @@ import { AccountSheet } from '@/plans/ui';
 import {
     applyWorktreeSelection,
     currentDockAgent,
-    dockInstallPhase,
     listWorktreeOptions,
     projectDockOptions,
     resolveDockOption,
@@ -643,7 +642,7 @@ export const HomeDock = React.memo(({
     const canSubmit = !isSubmitting && hasPrompt && catalogReady;
     // The chosen agent's CLI installs on first start: say what the computer is
     // doing while the start request runs instead of an unnamed spinner.
-    const installPhase = isSubmitting ? dockInstallPhase(currentAgent) : undefined;
+    const installPhase = isSubmitting ? currentAgent.installPhase : undefined;
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     // On a short phone the keyboard would lift the pickers under the back
     // control and the status bar, so the dock is bounded between the two and

@@ -5,7 +5,7 @@
  */
 
 import type { Session } from '@/catalog';
-import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType, type AgentCatalogOption, type AgentInstallState } from '@/catalog';
+import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType, type AgentCatalogOption } from '@/catalog';
 import { formatPathRelativeToHome } from '@/herd';
 import { agentDisplayName } from '../domain/SpawnRequest';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
@@ -16,7 +16,7 @@ export interface DockOption {
     name: string;
     description?: string;
     agentKind?: string;
-    installState?: AgentInstallState;
+    installPhase?: string;
     disabled?: boolean;
 }
 
@@ -94,15 +94,14 @@ export function agentName(kind: string): string {
     return agentDisplayName(kind);
 }
 
+/** The kit's install probe says a kind installs on first start (its CLI is a Herdr-managed auto-installer, e.g. Pi through mise). */
+function installsOnFirstStart(option: AgentCatalogOption): boolean {
+    return option.availability === 'installed' && option.installState === 'installs-on-first-start';
+}
+
 export function agentReadinessLabel(option: AgentCatalogOption, launching = false): string {
     if (option.kind === 'shell') return 'Ready';
-    // The kit's install probe says which kinds install on first start (their CLI
-    // is a Herdr-managed auto-installer, e.g. Pi through mise). That kind is
-    // shown as its readiness at rest and as the "Installing <agent>" phase
-    // while it launches.
-    if (option.availability === 'installed' && option.installState === 'installs-on-first-start') {
-        return launching ? `Installing ${agentName(option.kind)}` : 'Installs on first start';
-    }
+    if (launching && installsOnFirstStart(option)) return `Installing ${agentName(option.kind)}`;
     if (option.availability !== 'installed') {
         return option.installHint ?? `Install ${agentName(option.kind)} on the computer`;
     }
@@ -113,17 +112,8 @@ export function agentReadinessLabel(option: AgentCatalogOption, launching = fals
 
 /** The Start control's phase while a first-start installer runs, or undefined to keep the normal control. */
 export function agentInstallPhase(option: AgentCatalogOption | undefined): string | undefined {
-    if (option === undefined || option.availability !== 'installed') return undefined;
-    return installPhaseLabel(agentName(option.kind), option.installState);
-}
-
-/** The same phase text for a Home dock agent row. */
-export function dockInstallPhase(option: Pick<DockOption, 'name' | 'installState'>): string | undefined {
-    return installPhaseLabel(option.name, option.installState);
-}
-
-function installPhaseLabel(name: string, state: AgentInstallState | undefined): string | undefined {
-    return state === 'installs-on-first-start' ? `Installing ${name}` : undefined;
+    if (option === undefined || !installsOnFirstStart(option)) return undefined;
+    return agentReadinessLabel(option, true);
 }
 
 export function defaultAgentKind(options: readonly AgentCatalogOption[], preferred?: string): string | null {
@@ -137,7 +127,7 @@ export function visibleDockAgents(options: readonly AgentCatalogOption[] | null,
         name: agentName(option.kind),
         description: [agentReadinessLabel(option), option.availability === 'installed' ? option.signInHint : undefined].filter(Boolean).join(' · '),
         agentKind: option.kind,
-        ...(option.availability === 'installed' && option.installState === 'installs-on-first-start' ? { installState: option.installState } : {}),
+        installPhase: agentInstallPhase(option),
         disabled: more,
     }));
     if (more) return agents;
