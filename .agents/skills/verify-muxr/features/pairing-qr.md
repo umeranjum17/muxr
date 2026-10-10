@@ -9,7 +9,7 @@
 - Interactive offers draw on the terminal's alternate screen from the top and redraw there on each refresh and resize, so expired codes never reach scrollback. The QR comes first and stays whole; the recommended route leads, and the text lines below it are kept in priority order only while the rows left over hold them. Plain output remains append-only.
 - Setup leads with one recommended network route; alternatives are behind Other ways. A first run is four steps; a repeat run is six.
 - After verified pairing, a computer without `WAYLAND_DISPLAY` or `DISPLAY` skips screen-sharing approval with one plain line and exits 0.
-- Caught screen-sharing failures preserve the real reason and say pairing is done only after verified pairing. Fatal CLI exceptions/rejections print one plain line and exit 1; `MUXR_DEBUG=1` enables their stack.
+- Caught screen-sharing failures preserve the real reason and say pairing is done only after verified pairing. A closed engine control pipe rejects as a catchable `EngineRefused` on `@desklink/host` 0.5.3+ and prints `Screen sharing could not start: <reason>. Pairing is done.`; on 0.5.0 the same pipe escapes to the CLI fatal boundary (`muxr stopped:`). Fatal CLI exceptions/rejections still print one plain line and exit 1; `MUXR_DEBUG=1` enables their stack.
 - A QR needs its matrix width and half-block row count. The offer view prints the QR first and the text after it, with no trailing newline, so the text takes only the rows left over; `printTerminalQr` (setup) keeps one cursor row below.
 - Row priority in the offer view: QR, then the string, then the QR-page line (only when no QR fits), then title, expiry, compare and waiting lines, then the "Other ways" label, each while the rows hold them. The QR and string are reserved first, so the string never drops. The QR-page line is one row at 80 columns and always printed.
 - The local QR page (`scripts/setup/infrastructure/pairingPage.mjs`) starts only when an interactive offer, native or browser, has no QR that fits the terminal, serves on loopback with a random path and a Host check, and refreshes with each offer. Its QR is shown only when the terminal cannot fit one, so the page line appears only where no QR fits (80x24 and smaller); 91x37 and 120x40 keep the in-place QR. Setup's `printTerminalQr` prints an omission reason instead.
@@ -93,22 +93,28 @@ only the owned relay port with `adb -s <owned-serial> reverse tcp:<port> tcp:<po
    command with `MUXR_PAIR_SOCKET_WAIT_MS=0`. Expect exit 1 and one line naming
    `muxr daemon start` and `muxr pair`; no Node stack. Restart only the lab host
    if more proof remains.
-3. For the CLI fatal boundary, import `scripts/cli.mjs` with argv `--version`,
-   then use the real published `EngineClient` and a real Node child with piped
-   stdio. End `child.stdin` and call `client.request('hello', {})` inside an
-   async try/catch. This forces the kit's unhandled Socket error, not a mocked
-   Promise rejection. Keep stdout identity separate from stderr: expect exit 1
-   and exactly one stderr line carrying `write after end`. Repeat with
-   `MUXR_DEBUG=1`: exit 1 with the diagnostic stack. Never patch the kit or resume
-   execution after a fatal event.
+3. For the engine control-pipe case, import `scripts/cli.mjs` with argv
+   `--version` (so the production fatal handlers are installed), then drive the
+   screen-sharing step `pairDevice` runs, `approveScreenSharing({ pairingDone:
+   true })`, with `DESKLINK_ENGINE` pointed at an engine stand-in that completes
+   the `hello` handshake, closes its own stdin read end (fd 0) while staying
+   alive, and answers nothing else. This forces the real control-stream `EPIPE`
+   on the stdin socket, not a mocked rejection; set `WAYLAND_DISPLAY` (or
+   `MUXR_DESKTOP_SOURCE=portal`) so the display guard does not skip the step.
+   On `@desklink/host` 0.5.3+ expect exit 0 and `Screen sharing could not start:
+   write EPIPE. Pairing is done.`; on 0.5.0 the same probe exits 1 with `muxr
+   stopped: write EPIPE.` at the fatal boundary, which is what the pin removed.
+   Never patch the kit or resume execution after a fatal event.
 4. Exercise a rejected Promise after the same CLI import: expect one plain
    stderr line and exit 1. Also run `env -u WAYLAND_DISPLAY -u DISPLAY node
    scripts/cli.mjs desktop setup`: the headless skip exits 0 even when approval
    was explicitly requested.
 
-The forced kit case proves fatal CLI containment, not recovery or successful
-pairing. A scoped lab cannot exercise installation of the real background
-service: retain that limitation rather than touching the owner's service.
+The control-pipe case proves the catchable Promise; the rejected-Promise case in
+step 4 proves the general fatal CLI boundary still contains a genuinely
+uncaught failure. A scoped lab cannot exercise installation of the real
+background service: retain that limitation rather than touching the owner's
+service.
 
 ## Gotchas
 
