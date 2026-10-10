@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, ScrollView, Text } from 'react-native';
+import { Platform, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
@@ -19,6 +19,23 @@ const PROVIDERS: { id: string; title: string }[] = [
     { id: 'codex', title: 'ChatGPT (Codex)' },
     { id: 'opencode', title: 'OpenCode' },
 ];
+
+/**
+ * Web-only: web ignores `ellipsizeMode`, so an over-long email would run off the
+ * row losing the domain. The local part takes the shrink (it ellipsizes to its
+ * start) and the whole domain stays put.
+ */
+function EmailSplit({ email }: { email: string }) {
+    const at = email.lastIndexOf('@');
+    const local = at > 0 ? email.slice(0, at) : email;
+    const domain = at > 0 ? email.slice(at) : '';
+    return (
+        <View style={styles.emailRow}>
+            <Text style={styles.emailLocal} numberOfLines={1} ellipsizeMode="tail">{local}</Text>
+            <Text style={styles.emailDomain} numberOfLines={1}>{domain}</Text>
+        </View>
+    );
+}
 
 /** Settings → Accounts: every sign-in muxr can start an agent on, by provider. */
 export function AccountsSettingsScreen() {
@@ -71,18 +88,14 @@ export function AccountsSettingsScreen() {
     // Accounts of one provider must stay tellable apart at the largest text size.
     // The name wraps to two lines; the email stays on a single line so it never
     // breaks mid-word. Native keeps both ends of a too-long email (ellipsizeMode
-    // "middle"); web ignores that mode, so there we shorten the local part and
-    // keep the domain, the part that tells two addresses apart. Accounts that
-    // still share a name and email are told apart by the usage line beneath. A
-    // no-break space keeps each "·" with the word before it.
-    const rowEmail = (email: string): string => {
-        if (Platform.OS !== 'web') return email;
-        const at = email.lastIndexOf('@');
-        if (at <= 0) return email;
-        const local = email.slice(0, at);
-        return local.length <= 6 ? email : `${local.slice(0, 3)}…${email.slice(at)}`;
-    };
-    const subtitle = (account: PlanAccount): string | undefined => (account.signedIn ? rowEmail(account.email) : 'Signed out');
+    // "middle"); web ignores that mode, so there we split the address: the local
+    // part shrinks and ellipsizes and the whole domain stays, the part that tells
+    // addresses apart. Accounts that still share a name and email are told apart
+    // by the usage line beneath.
+    const subtitle = (account: PlanAccount): string | React.ReactNode =>
+        account.signedIn && account.email
+            ? (Platform.OS === 'web' ? <EmailSplit email={account.email} /> : account.email)
+            : 'Signed out';
     const facts = (account: PlanAccount): string | undefined => {
         if (!account.signedIn) return undefined;
         const room = account.roomLeftPercent === undefined ? undefined : `${account.roomLeftPercent}% left`;
@@ -165,5 +178,27 @@ const styles = StyleSheet.create((theme) => ({
         paddingHorizontal: 20,
         paddingTop: 12,
         ...Typography.default(),
+    },
+    emailRow: {
+        flexDirection: 'row',
+        maxWidth: '100%',
+    },
+    emailLocal: {
+        flexShrink: 1,
+        minWidth: 0,
+        overflow: 'hidden',
+        ...Typography.default(),
+        fontSize: 14,
+        lineHeight: 20,
+        letterSpacing: 0.1,
+        color: theme.colors.textSecondary,
+    },
+    emailDomain: {
+        flexShrink: 0,
+        ...Typography.default(),
+        fontSize: 14,
+        lineHeight: 20,
+        letterSpacing: 0.1,
+        color: theme.colors.textSecondary,
     },
 }));
