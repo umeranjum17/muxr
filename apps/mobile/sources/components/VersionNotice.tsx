@@ -38,19 +38,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     cardText: { flex: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18 },
 }));
 
-function NoticeSentence({ text, sub }: { text: string; sub?: string }) {
-    const { theme } = useUnistyles();
-    return (
-        <>
-            <View style={stylesheet.dot} />
-            <Text numberOfLines={2} style={stylesheet.cardText}>
-                {text}
-                {sub === undefined ? null : <Text style={{ color: theme.colors.textSecondary }}> · {sub}</Text>}
-            </Text>
-        </>
-    );
-}
-
 /**
  * The app and the computer run different versions: one quiet line, the whole
  * line a tap to the only detailed version/support screen.
@@ -79,12 +66,14 @@ export function VersionNotice() {
 
 /** The runtime notice: no action, no chevron — the sentence is the whole card. */
 export function RuntimeNotice({ machineName }: { machineName?: string }) {
+    const { theme } = useUnistyles();
     return (
         <View style={stylesheet.card}>
-            <NoticeSentence
-                text={t('homeNotices.runtimeOffline', { name: machineName ?? 'Paired computer' })}
-                sub={t('homeNotices.runtimeStale')}
-            />
+            <View style={stylesheet.dot} />
+            <Text numberOfLines={2} style={stylesheet.cardText}>
+                {t('homeNotices.runtimeOffline', { name: machineName ?? 'Paired computer' })}
+                <Text style={{ color: theme.colors.textSecondary }}> · {t('homeNotices.runtimeStale')}</Text>
+            </Text>
         </View>
     );
 }
