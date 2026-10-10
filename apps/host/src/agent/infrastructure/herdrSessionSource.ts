@@ -2719,6 +2719,11 @@ export async function createHerdrSessionSource(
             };
         },
 
+        /** What a pane shows now, by pane id for the same reason as paneScroll. */
+        async paneVisibleText(paneId: string): Promise<string> {
+            return (await client.kit.read(paneId, { source: 'visible', ansi: false })).text;
+        },
+
         async agentWatch(watchOptions: {
             sessionId: string;
             until?: ('idle' | 'done' | 'blocked' | 'unknown')[];

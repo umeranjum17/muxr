@@ -162,6 +162,10 @@ export function createFakeSessionSource(): SessionSource {
             throw new Error('fake source has no panes');
         },
 
+        async paneVisibleText() {
+            throw new Error('fake source has no panes');
+        },
+
         async agentWatch() {
             throw new Error('fake source has no panes');
         },

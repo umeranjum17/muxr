@@ -150,6 +150,20 @@ const RAIL_FADE = 32;
  * outlives one: coming back to the pane, its answers still stand down.
  */
 const SCROLLED_AWAY = new Set<string>();
+/**
+ * Full-screen agents whose own way back to the newest output the phone can
+ * reach: Codex's 'Back to bottom' is esc on the key row. Claude Code's and pi's
+ * need Ctrl+End, which the key row cannot send, and OpenCode draws none, so
+ * those get muxr's Latest.
+ */
+const DRAWS_OWN_LATEST = new Set(['codex']);
+/**
+ * Full-screen agents whose Latest is a key of their own rather than muxr
+ * turning their wheel. OpenCode drops a wheel turned down while it is still
+ * writing a reply, or overshoots its end into blank rows; End takes it to the
+ * newest output and it follows from there.
+ */
+const LATEST_KEY: Partial<Record<string, string>> = { opencode: BUILTIN_KEY_CATALOG.end?.send };
 /** What the terminal answers for the program unasked: focus, cursor, mode, colour and mouse reports. */
 /** The menu row that opens a pane's device preview, per kind. */
 const WATCH_LABEL = { android: 'preview.watchAndroid', ios: 'preview.watchIos' } as const;
@@ -374,13 +388,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
     /**
-     * Latest is muxr's only on a pane whose scrollback Herdr owns. A program on
-     * the alternate screen (Claude Code and every other full-screen harness)
-     * scrolls itself and draws its own way back, so a second control there
-     * would sit beside the program's own; Herdr reports no scrollback for it.
+     * On a pane whose scrollback Herdr owns, Latest shows while Herdr reports
+     * the view back from the edge. A program on the alternate screen scrolls
+     * itself and Herdr reports no scrollback for it, so there Latest shows
+     * while the user has scrolled it back -- unless the program draws its own
+     * way back the phone can reach (DRAWS_OWN_LATEST), which a second control would sit beside.
      */
     const [catchingUp, setCatchingUp] = React.useState(false);
     const [showJump, setShowJump] = React.useState(false);
+    const [hostHasScrollback, setHostHasScrollback] = React.useState<boolean | undefined>(undefined);
     /**
      * The user scrolled a program's own screen back since last typing to it.
      * Herdr cannot say where that program's view sits, so this is no position,
@@ -403,6 +419,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         stopWatchingChannel.current = undefined;
         setCatchingUp(false);
         setShowJump(false);
+        setHostHasScrollback(undefined);
         const route = paneRoute.current;
         setScrolledAway(SCROLLED_AWAY.has(route));
         if (channel !== undefined) {
@@ -416,6 +433,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             });
             const stopScrollState = channel.onScrollState(({ offsetFromBottom, maxOffsetFromBottom }) => {
                 hostHasScrollback = maxOffsetFromBottom > 0;
+                setHostHasScrollback(hostHasScrollback);
                 setShowJump(hostHasScrollback && offsetFromBottom > 0);
                 if (hostHasScrollback && offsetFromBottom === 0) markScrolledAway(route, false);
             });
@@ -441,10 +459,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         channelRef.current = channel;
         setChannel(channel);
     }, [markScrolledAway]);
-    const jumpToBottom = React.useCallback(() => {
+    const jumpToBottom = React.useCallback((kind: string | undefined) => {
         const channel = channelRef.current;
         if (channel === undefined) return;
-        channel.bottom();
+        const key = LATEST_KEY[kind ?? ''];
+        if (key !== undefined) channel.sendText(key);
+        else channel.bottom();
     }, []);
     // The selected swipe stops follow Live order; the default skips old shells.
     // The pager settles before the route changes, so the switch itself is a
@@ -635,6 +655,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const panePromptable = currentPane?.promptable === true;
     const paneKind = currentPane?.agentKind;
     const paneLifecycle = currentPane?.agentStatus;
+    const latestShown = showJump || (hostHasScrollback === false && scrolledAway && !DRAWS_OWN_LATEST.has(paneKind ?? ''));
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (next) => setAppActive(next === 'active'));
         return () => subscription.remove();
@@ -1509,7 +1530,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         <PendingChoices
                             key={props.id}
                             sessionId={props.id}
-                            waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !showJump && !scrolledAway && !desktopVisible}
+                            waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !latestShown && !scrolledAway && !desktopVisible}
                             channel={channel}
                             onVisibilityChange={setChoicesVisible}
                         />
@@ -1635,13 +1656,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </>)}
                         </View>
                         {terminalNotice}
-                        {showJump && (
+                        {latestShown && (
                             <Animated.View
                                 entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)}
                                 exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
                             >
                                 <Pressable
-                                    onPress={jumpToBottom}
+                                    onPress={() => jumpToBottom(paneKind)}
                                     hitSlop={8}
                                     accessibilityRole="button"
                                     accessibilityLabel="Jump to latest output"
@@ -1661,7 +1682,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                     })}
                                 >
                                     <Ionicons name="arrow-down" size={13} color={theme.colors.text} />
-                                    <Text style={{ color: theme.colors.text, fontSize: 11, fontWeight: '600' }}>{catchingUp ? 'Still catching up' : 'Latest'}</Text>
+                                    {/* The row keeps one height, so the largest text sizes would cut the label off. */}
+                                    <Text maxFontSizeMultiplier={1.5} style={{ color: theme.colors.text, fontSize: 11, fontWeight: '600' }}>{catchingUp ? 'Still catching up' : 'Latest'}</Text>
                                 </Pressable>
                             </Animated.View>
                         )}

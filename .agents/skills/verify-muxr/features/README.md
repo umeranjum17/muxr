@@ -150,6 +150,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Keep a terminal pane alive across a reconnect](./terminal-reconnect.md) —
   native app over a private stack: relay and host restarts under an
   open pane, last frame kept, recovery with no tap, plain words.
+- [Scroll a pane and come back with Latest](./terminal-latest.md) —
+  native app over a real Herdr lab with long canned output: a finger drag moves
+  the pane about as far as the finger in every kind, and Latest reaches the
+  newest line, also while the agent is still printing and in a split width.
 - [Stay connected to a busy computer](./busy-computer.md) —
   homeLoad at 300 panes / 150 agents, then a frozen lab host on an emulator:
   busy card through the offline grace, explanation only after it.
