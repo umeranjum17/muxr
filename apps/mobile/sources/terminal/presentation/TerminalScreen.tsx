@@ -157,6 +157,13 @@ const SCROLLED_AWAY = new Set<string>();
  * those get muxr's Latest.
  */
 const DRAWS_OWN_LATEST = new Set(['codex']);
+/**
+ * Full-screen agents whose Latest is a key of their own rather than muxr
+ * turning their wheel. OpenCode drops a wheel turned down while it is still
+ * writing a reply, or overshoots its end into blank rows; End takes it to the
+ * newest output and it follows from there.
+ */
+const LATEST_KEY: Partial<Record<string, string>> = { opencode: BUILTIN_KEY_CATALOG.end?.send };
 /** What the terminal answers for the program unasked: focus, cursor, mode, colour and mouse reports. */
 /** The menu row that opens a pane's device preview, per kind. */
 const WATCH_LABEL = { android: 'preview.watchAndroid', ios: 'preview.watchIos' } as const;
@@ -452,10 +459,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         channelRef.current = channel;
         setChannel(channel);
     }, [markScrolledAway]);
-    const jumpToBottom = React.useCallback(() => {
+    const jumpToBottom = React.useCallback((kind: string | undefined) => {
         const channel = channelRef.current;
         if (channel === undefined) return;
-        channel.bottom();
+        const key = LATEST_KEY[kind ?? ''];
+        if (key !== undefined) channel.sendText(key);
+        else channel.bottom();
     }, []);
     // The selected swipe stops follow Live order; the default skips old shells.
     // The pager settles before the route changes, so the switch itself is a
@@ -1653,7 +1662,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
                             >
                                 <Pressable
-                                    onPress={jumpToBottom}
+                                    onPress={() => jumpToBottom(paneKind)}
                                     hitSlop={8}
                                     accessibilityRole="button"
                                     accessibilityLabel="Jump to latest output"

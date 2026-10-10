@@ -8,7 +8,8 @@ scroll themselves: muxr turns the drag into wheel reports sized to how far that
 program moves per report. Latest is muxr's pill under the terminal, except in
 Codex, whose own `Back to bottom` (esc on the key row) stays the only one.
 Claude Code's and pi's own hints need Ctrl+End, which the key row cannot send,
-so they get the pill beside the hint.
+so they get the pill beside the hint. OpenCode's pill sends its own End key
+instead of muxr turning its wheel.
 
 ## Sub-features
 
@@ -56,6 +57,10 @@ Preconditions:
 
 - Before the fix, OpenCode moved three rows for every row dragged, showed no
   Latest at all, and Latest from the host ended in `catching-up` while it printed.
+- While OpenCode is still writing a reply it ignores the wheel turned down, so a
+  drag toward the newest lines does nothing until it finishes, and a quick run of
+  turns overshoots its end into blank rows. Its End does neither. 400 lines can
+  finish before the tap lands, so check `latest-streaming` with `LINES=1200`.
 - Herdr reports no scrollback for a full-screen program, so the host reads the
   pane's visible text to learn its step per wheel report; a pane that cannot be
   read keeps one row a report.
