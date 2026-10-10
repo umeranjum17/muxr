@@ -363,8 +363,8 @@ export const ja: TranslationStructure = {
     },
 
     homeNotices: {
-        // Quiet notices at the top of Home
-        versions: 'アプリとホストのバージョンが異なります',
+        // Quiet notices on Home (the runtime notice leads; the version line sits at the foot)
+        versions: 'アプリとコンピューターのバージョンが異なります',
         reviewUpdates: 'アップデートを確認',
         runtimeOffline: ({ name }: { name: string }) => `${name} で herdr が応答していません`,
         runtimeStale: 'セッションが古い可能性があります',

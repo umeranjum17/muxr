@@ -97,7 +97,7 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
     return <>
         <ItemGroup title="Installed versions">
             <Item
-                title={mismatch ? 'App and host versions differ' : 'Check compatibility / align host'}
+                title={mismatch ? t('homeNotices.versions') : 'Check compatibility / align host'}
                 icon={mismatch ? <Ionicons name="warning-outline" size={24} color={theme.colors.box.warning.border} /> : undefined}
                 subtitle={statusSubtitle}
                 subtitleLines={0}
