@@ -329,8 +329,12 @@ async function startStack(options, live) {
             relayLog: () => relayLog.join(''),
             /** The attach and re-grid records a measuring phase reads back. */
             cellMetricsJsonl: `${fake.socketPath}.cell-metrics.jsonl`,
-            /** Consent only on the owner-only socket of this throwaway host. */
-            mintPairing: async () => {
+            /**
+             * Consent only on the owner-only socket of this throwaway host.
+             * `kind: 'browser'` mints the eight-hour browser link a web client
+             * pairs with (default: the two-minute native offer).
+             */
+            mintPairing: async ({ kind = 'native', authority = 'control' } = {}) => {
                 const path = join(hostDataDir, 'pair.sock');
                 for (let attempt = 0; attempt < 100 && !existsSync(path); attempt += 1) {
                     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -344,7 +348,7 @@ async function startStack(options, live) {
                     const fail = (error) => { clearTimeout(timeout); reject(error); };
                     socket.on('error', fail);
                     socket.on('close', () => fail(new Error('lab pairing socket closed')));
-                    socket.on('connect', () => socket.write('{"intent":{"kind":"native","authority":"control","personal":false}}\n'));
+                    socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind, authority, personal: false } })}\n`));
                     socket.on('data', (chunk) => {
                         pending += String(chunk);
                         for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {

@@ -11,6 +11,9 @@ import { AuthCredentials, TokenStorage } from '@/account';
 import { AuthProvider } from '@/account/ui';
 import { restoreHostedConnection } from '@/pairing/e2ee';
 import { resetWebSecureStore } from '@/pairing/secrets';
+// Lab-only browser pairing bridge; registers nothing unless a build-time flag
+// is set, so the production bundle drops it (see labBrowserPairing.ts).
+import '@/pairing/application/labBrowserPairing';
 import { RelayDiscoveryReconnect } from '@/pairing';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';

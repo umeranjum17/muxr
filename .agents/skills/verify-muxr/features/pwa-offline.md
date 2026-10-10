@@ -33,7 +33,10 @@ browser error page.
 Preconditions: follow `../SKILL.md` Launch so the stack is private; build the
 export first (`yarn build && yarn web:export:selfhost`). Serve that very
 `apps/mobile/dist` from the owned relay (`MUXR_WEB_ROOT=…/apps/mobile/dist`),
-so the app runs same-origin as it does in production.
+so the app runs same-origin as it does in production. A plain-http lab origin
+cannot pair through the pair screen, so if the proof needs a paired app (a real
+offline session, not just the shell) pair it with the lab hook first — see
+`lab-browser-pairing.md`.
 
 1. Start the owned relay serving the export and read its port from the child's
    own stdout line, exactly as the SKILL Launch does. Confirm
