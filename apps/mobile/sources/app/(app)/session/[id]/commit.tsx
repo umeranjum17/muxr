@@ -3,8 +3,8 @@ import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 
-import { NavigableDiff } from '@/components/diff/NavigableDiff';
-import { PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES } from '@/components/code/CodeCore';
+import { NavigableDiff } from '@/components/code/lazyCodeSurfaces';
+import { PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES } from '@/components/code/codeLimits';
 import { boundText } from '@/utils/boundedText';
 import { historyShow } from '@/catalog/ops';
 

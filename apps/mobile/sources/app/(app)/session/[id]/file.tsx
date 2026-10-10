@@ -4,7 +4,8 @@ import { storage, useSession, useSessionFileCache, useSessionsLoaded } from '@/c
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { resolveSessionFilePath } from '@/terminal';
-import { DocumentViewer, type DocumentModel } from '@/components/document/DocumentViewer';
+import type { DocumentModel } from '@/components/document/DocumentViewer';
+import { DocumentViewer } from '@/components/code/lazyCodeSurfaces';
 import { currentFileNavigation, loadSessionDocument, openFileViewer, parentDirectory } from '@/session';
 import { isMissingFileError } from '@/utils/errors';
 import { MissingFileState } from '@/components/document/MissingFileState';
