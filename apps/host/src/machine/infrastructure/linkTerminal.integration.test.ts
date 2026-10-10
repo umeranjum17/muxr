@@ -223,10 +223,13 @@ process.stdin.on('data', (chunk) => {
         buffer = buffer.slice(nl + 1);
         if (frame.type === 'terminal.release') process.exit(0);
         if (frame.type !== 'terminal.scroll') continue;
-        const next = frame.direction === 'up' ? Math.min(lines.length - 8, back + 3 * frame.lines) : Math.max(0, back - 3 * frame.lines);
-        moved += Math.abs(next - back);
-        back = next;
-        paint(false);
+        // Painted late, as on a busy host, while its own output keeps painting.
+        setTimeout(() => {
+            const next = frame.direction === 'up' ? Math.min(lines.length - 8, back + 3 * frame.lines) : Math.max(0, back - 3 * frame.lines);
+            moved += Math.abs(next - back);
+            back = next;
+            paint(false);
+        }, 300);
     }
 });
 `, { mode: 0o755 });
@@ -254,7 +257,10 @@ process.stdin.on('data', (chunk) => {
 
         // A 30-row drag moves the program 30 rows, not three times that.
         input(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 30, column: 10, row: 5 }));
-        await sleep(1_500);
+        for (let last = -1, deadline = Date.now() + 6_000; state().moved !== last && Date.now() < deadline;) {
+            last = state().moved;
+            await sleep(700);
+        }
         expect(state().moved).toBeGreaterThanOrEqual(27);
         expect(state().moved).toBeLessThanOrEqual(36);
 

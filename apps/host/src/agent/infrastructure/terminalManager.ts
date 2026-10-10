@@ -108,7 +108,7 @@ const WHEEL_STILL_MS = 500;
  * reading the screen either side, until two agree on the step.
  */
 const WHEEL_MEASURE_TRIES = 6;
-const WHEEL_MEASURE_PAINT_MS = 300;
+const WHEEL_MEASURE_PAINT_MS = 400;
 const WHEEL_MEASURE_SETTLE_MS = 60;
 const MAX_WHEEL_STEP = 12;
 /**
@@ -460,15 +460,17 @@ export class TerminalManager {
                 const before = await read(attachment.paneId);
                 if (finished || wheelRows === 0) return;
                 const up = wheelRows > 0;
+                const direction = up ? 1 : -1;
                 const sentAt = Date.now();
                 if (!sendWheel()) return;
-                while (paintedAt < sentAt && Date.now() - sentAt < WHEEL_MEASURE_PAINT_MS) {
-                    await new Promise((resolve) => setTimeout(resolve, 10));
-                }
-                await new Promise((resolve) => setTimeout(resolve, WHEEL_MEASURE_SETTLE_MS));
-                const shift = screenShift(before, await read(attachment.paneId));
-                const direction = up ? 1 : -1;
-                const step = shift === undefined ? undefined : shift * direction;
+                // Read until the report shows: a streaming program paints its own
+                // frames meanwhile, and a busy host paints the report late.
+                let step: number | undefined;
+                do {
+                    await new Promise((resolve) => setTimeout(resolve, WHEEL_MEASURE_SETTLE_MS));
+                    const shift = screenShift(before, await read(attachment.paneId));
+                    step = shift === undefined ? undefined : shift * direction;
+                } while (!(step !== undefined && step > 0) && !finished && Date.now() - sentAt < WHEEL_MEASURE_PAINT_MS);
                 // Output landing while a program follows its live edge skews one
                 // reading, never two the same way.
                 if (step !== undefined && step > 0 && step === wheelMeasured) {
