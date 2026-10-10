@@ -41,7 +41,7 @@ import { getRigActivityIndicators, getRigIdentity } from '../infrastructure/rig'
 import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/herd';
 import { agentLabels } from '@/herd/labels';
 import { agentRowAttention, mergeCatalogAgent } from '../domain/agent';
-import { dropOldestAbsent, herdrPaneForSession, needsYouSessionIds } from '@/herd';
+import { dropOldestAbsent, herdrPaneForSession, needsYouSessionIds, pendingRequestSessionIds } from '@/herd';
 import { readAgentSession } from './readAgentSession';
 
 function resolveSessionOnlineState(session: { active: boolean; activeAt: number }): 'online' | number {
@@ -619,6 +619,12 @@ export function useHomeHerd(): { workspaces: HerdrTreeWorkspace[]; sessions: (Se
 export function useHomeNeedsYouIds(): ReadonlySet<string> {
     const { workspaces, sessions } = useHomeHerd();
     return React.useMemo(() => needsYouSessionIds(workspaces, sessions), [sessions, workspaces]);
+}
+
+/** The agents an online session is holding a request for, on the same snapshot-aware source as Home. */
+export function useHomePendingIds(): ReadonlySet<string> {
+    const { sessions } = useHomeHerd();
+    return React.useMemo(() => pendingRequestSessionIds(sessions), [sessions]);
 }
 
 export function useSessionError(id: string): string | undefined {

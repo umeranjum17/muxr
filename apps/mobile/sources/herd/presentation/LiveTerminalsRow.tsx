@@ -20,8 +20,7 @@ import {
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
 import { agentLabels, agentWhoLine, herdrPaneForSession, isShellLabels, liveCardState } from '../domain/agentPresentation';
 import { showPaneActions } from '../application/renameInHerdr';
-import { needsYouActivityRows, unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
-import { withNeedsYouStatus } from '../domain/herdTree';
+import { agentNeedsYou, needsYouActivityRows, statusNeedsYou, unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import type { LifecycleEvent } from '@trymuxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { SectionLabel } from '@/components/ui';
@@ -115,10 +114,13 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels(card);
-    const dot = agentStatusColor(card.agentStatus, theme);
+    const needsYou = agentNeedsYou(card.agentStatus, card.pendingRequest);
+    // A pending request on a working pane reads as blocked; a failed pane keeps its own label.
+    const status = needsYou && !statusNeedsYou(card.agentStatus) ? 'blocked' : card.agentStatus;
+    const dot = agentStatusColor(status, theme);
     const live = terminalIsLive(card);
     const shell = isShellLabels(labels);
-    const state = liveCardState(labels, card.agentStatus, card.id, events, now);
+    const state = liveCardState(labels, status, card.id, events, now);
     const planAccount = storage((state) => herdrPaneForSession(state.herdrWorkspaces, card.id)?.planAccount);
     // A badge tap lands on this pressable too: it opens the agent under the
     // badge's own sheet unless the badge marks its tap first.
@@ -135,7 +137,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
             accessibilityLabel={state.accessibilityLabel}
             style={({ pressed }) => [
                 stylesheet.card,
-                liveTerminalBucket(card.agentStatus) === 'attention' && stylesheet.attentionCard,
+                liveTerminalBucket(card.agentStatus, card.pendingRequest) === 'attention' && stylesheet.attentionCard,
                 { width, height, opacity: pressed ? 0.8 : disconnected ? 0.55 : 1 },
             ]}
         >
@@ -159,7 +161,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
                     <Badge
                         sessionId={card.id}
                         agentKind={labels.agentKind}
-                        working={card.agentStatus === 'working'}
+                        working={!needsYou && card.agentStatus === 'working'}
                         notePress={() => { lastBadgePress.current = Date.now(); }}
                     />
                 )}
@@ -201,8 +203,8 @@ export const LiveTerminalsRow = React.memo(({
     // its agent stops needing you, never because its card was glanced at.
     const needsYou = useHomeNeedsYouIds();
     const panes = React.useMemo(
-        () => herdPanes(sessions, withNeedsYouStatus(workspaces, needsYou)),
-        [needsYou, sessions, workspaces],
+        () => herdPanes(sessions, workspaces),
+        [sessions, workspaces],
     );
     const candidateCards = React.useMemo(
         () => selectLiveTerminalCards(sessions, panes),
@@ -291,7 +293,7 @@ export const LiveTerminalsRow = React.memo(({
         [readyRows],
     );
 
-    const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.agentStatus) === 'attention');
+    const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.agentStatus, card.pendingRequest) === 'attention');
     const commitVisibleIndex = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const x = event.nativeEvent.contentOffset.x;
         scrollXRef.current = x;

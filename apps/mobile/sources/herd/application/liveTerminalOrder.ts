@@ -1,7 +1,7 @@
 import type { AgentInfo, AgentLifecycle } from '@trymuxr/contract';
 import type { HerdPane } from '../domain/herd';
 import { agentLabels, isShellLabels } from '../domain/agentPresentation';
-import { statusNeedsYou } from '../domain/recentActivity';
+import { agentNeedsYou } from '../domain/recentActivity';
 
 export const RECENTLY_DONE_SWIPE_MS = 2 * 60_000;
 
@@ -12,6 +12,7 @@ export interface LiveTerminalOrderCard extends AgentInfo {
     session?: { id: string; createdAt?: number };
     changedAt?: number;
     createdAt?: number;
+    pendingRequest?: boolean;
 }
 
 /** Tree panes are canonical; the session catalog only enriches their previews. Bare shells never make the strip: LIVE is agents only. */
@@ -33,12 +34,13 @@ export function selectLiveTerminalCards(
             promptable: pane.promptable,
             changedAt: pane.changedAt,
             createdAt: session?.createdAt,
+            ...(pane.pendingRequest === undefined ? {} : { pendingRequest: pane.pendingRequest }),
         };
     });
 }
 
-export function liveTerminalBucket(status: AgentLifecycle): LiveTerminalBucket {
-    if (statusNeedsYou(status)) return 'attention';
+export function liveTerminalBucket(status: AgentLifecycle, pendingRequest = false): LiveTerminalBucket {
+    if (agentNeedsYou(status, pendingRequest)) return 'attention';
     if (status === 'working' || status === 'starting') return 'working';
     if (status === 'done' || status === 'idle') return 'settled';
     return 'offline';
@@ -78,7 +80,7 @@ export const EMPTY_LIVE_TERMINAL_ARRANGEMENT: LiveTerminalArrangement = { cards:
 const BUCKET_RANK: Record<LiveTerminalBucket, number> = { attention: 0, working: 1, settled: 2, offline: 2 };
 
 function nextStanding(previous: LiveTerminalStanding | undefined, card: LiveTerminalOrderCard, seq: number, now: number): LiveTerminalStanding {
-    const bucket = liveTerminalBucket(card.agentStatus);
+    const bucket = liveTerminalBucket(card.agentStatus, card.pendingRequest);
     if (previous === undefined) return { bucket, enteredAt: now, seq };
     if (previous.bucket === bucket) {
         return previous.quietSince === undefined ? previous : { bucket, enteredAt: previous.enteredAt, seq: previous.seq };
@@ -111,7 +113,8 @@ function sameCard(left: LiveTerminalOrderCard, right: LiveTerminalOrderCard): bo
         && left.agentKind === right.agentKind
         && left.displayAgent === right.displayAgent
         && left.changedAt === right.changedAt
-        && left.createdAt === right.createdAt;
+        && left.createdAt === right.createdAt
+        && left.pendingRequest === right.pendingRequest;
 }
 
 /**

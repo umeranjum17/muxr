@@ -5,7 +5,7 @@
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import type { Session } from '@/catalog';
 import { t } from '@/text';
-import { agentNeedsYou, statusNeedsYou } from './recentActivity';
+import { agentNeedsYou, pendingRequestSessionIds } from './recentActivity';
 
 // A producer that drew its own tree into a flat list prefixes the label with
 // box-drawing glyphs, and may append an opaque correlator (` · p:<22 chars>`).
@@ -87,17 +87,21 @@ export function hasAgent(ws: HerdrTreeWorkspace): boolean {
 }
 
 /** Count unique Herdr agent routes, including descendants even when their cards are folded. */
-export function agentCounts(workspaces: readonly HerdrTreeWorkspace[]): { total: number; working: number; needsYou: number } {
+export function agentCounts(
+    workspaces: readonly HerdrTreeWorkspace[],
+    pending: ReadonlySet<string>,
+): { total: number; working: number; needsYou: number } {
     const agents = new Map<string, HerdrTreePane>();
     for (const ws of workspaces) for (const tab of ws.tabs) for (const pane of tab.panes) {
         if (pane.agentKind !== undefined && pane.sessionId !== undefined) agents.set(pane.sessionId, pane);
     }
-    const panes = [...agents.values()];
-    return {
-        total: panes.length,
-        working: panes.filter((pane) => pane.agentStatus === 'working' || pane.agentStatus === 'starting').length,
-        needsYou: panes.filter((pane) => statusNeedsYou(pane.agentStatus)).length,
-    };
+    let needsYou = 0;
+    let working = 0;
+    for (const [sessionId, pane] of agents) {
+        if (agentNeedsYou(pane.agentStatus, pending.has(sessionId))) needsYou += 1;
+        else if (pane.agentStatus === 'working' || pane.agentStatus === 'starting') working += 1;
+    }
+    return { total: agents.size, working, needsYou };
 }
 
 /**
@@ -111,11 +115,7 @@ export function needsYouSessionIds(
     workspaces: readonly HerdrTreeWorkspace[],
     sessions: readonly (Pick<Session, 'id'> & Partial<Pick<Session, 'presence' | 'agentState'>>)[],
 ): Set<string> {
-    const pending = new Set<string>();
-    for (const session of sessions) {
-        const requests = session.agentState?.requests;
-        if (session.presence === 'online' && requests != null && Object.keys(requests).length > 0) pending.add(session.id);
-    }
+    const pending = pendingRequestSessionIds(sessions);
     const needed = new Set<string>(pending);
     for (const ws of workspaces) for (const tab of ws.tabs) for (const pane of tab.panes) {
         if (pane.sessionId !== undefined && agentNeedsYou(pane.agentStatus, pending.has(pane.sessionId))) needed.add(pane.sessionId);
@@ -123,27 +123,9 @@ export function needsYouSessionIds(
     return needed;
 }
 
-/**
- * The tree as every surface reads it: an agent that needs you shows as blocked
- * (its pane and its workspace), so its row, card, count and order follow the
- * same rule as the Needs you list.
- */
-export function withNeedsYouStatus(
-    workspaces: readonly HerdrTreeWorkspace[],
-    needsYou: ReadonlySet<string>,
-): HerdrTreeWorkspace[] {
-    return workspaces.map((ws) => {
-        const tabs = ws.tabs.map((tab) => ({
-            ...tab,
-            panes: tab.panes.map((pane) => pane.sessionId !== undefined && needsYou.has(pane.sessionId) && !statusNeedsYou(pane.agentStatus)
-                ? { ...pane, agentStatus: 'blocked' as const }
-                : pane),
-        }));
-        const agentNeeds = tabs.some((tab) => tab.panes.some((pane) => pane.sessionId !== undefined && needsYou.has(pane.sessionId)));
-        return agentNeeds && !statusNeedsYou(ws.agentStatus)
-            ? { ...ws, tabs, agentStatus: 'blocked' as const }
-            : { ...ws, tabs };
-    });
+/** A workspace needs you when its own status does or any agent pane in it holds a pending request. */
+export function workspaceNeedsYou(ws: HerdrTreeWorkspace, pending: ReadonlySet<string>): boolean {
+    return agentNeedsYou(ws.agentStatus, ws.tabs.some((tab) => tab.panes.some((pane) => pane.sessionId !== undefined && pending.has(pane.sessionId))));
 }
 
 
@@ -236,10 +218,13 @@ export type HerdSpaceRow = {
 };
 
 /** Counts behind a group summary: needs you, working, done. */
-export function groupSummaryCounts(children: readonly HerdChildSpace[]): { needsYou: number; working: number; done: number } {
+export function groupSummaryCounts(
+    children: readonly HerdChildSpace[],
+    pending: ReadonlySet<string>,
+): { needsYou: number; working: number; done: number } {
     const counts = { needsYou: 0, working: 0, done: 0 };
     for (const { workspace } of children) {
-        if (statusNeedsYou(workspace.agentStatus)) counts.needsYou += 1;
+        if (workspaceNeedsYou(workspace, pending)) counts.needsYou += 1;
         else if (workspace.agentStatus === 'working') counts.working += 1;
         else if (workspace.agentStatus === 'done') counts.done += 1;
     }

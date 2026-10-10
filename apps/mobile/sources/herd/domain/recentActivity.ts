@@ -1,4 +1,5 @@
 import { lifecycleEventAgentName, type AgentLifecycle, type LifecycleEvent } from '@trymuxr/contract';
+import type { Session } from '@/catalog';
 import type { HerdPane } from './herd';
 
 export interface RecentActivityRow {
@@ -18,8 +19,20 @@ export function statusNeedsYou(status: AgentLifecycle): status is 'blocked' | 'f
 }
 
 /** The one rule for an agent: its status needs you, or it holds a pending request. */
-export function agentNeedsYou(status: AgentLifecycle, pendingRequest: boolean): boolean {
+export function agentNeedsYou(status: AgentLifecycle, pendingRequest = false): boolean {
     return pendingRequest || statusNeedsYou(status);
+}
+
+/** Sessions an online agent is holding a request for: their agent needs you whatever its pane says. */
+export function pendingRequestSessionIds(
+    sessions: readonly (Pick<Session, 'id'> & Partial<Pick<Session, 'presence' | 'agentState'>>)[],
+): Set<string> {
+    const pending = new Set<string>();
+    for (const session of sessions) {
+        const requests = session.agentState?.requests;
+        if (session.presence === 'online' && requests != null && Object.keys(requests).length > 0) pending.add(session.id);
+    }
+    return pending;
 }
 
 const VISIBLE_STATES = new Set<AgentLifecycle>(['blocked', 'done', 'failed']);
