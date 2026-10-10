@@ -90,11 +90,21 @@ needed to render the diff surface.
    `/shiki-langs/vue.json` are fetched and the diff paints Vue and TypeScript
    highlighting at 393 px light and dark; render a TypeScript-only patch and
    confirm no `/shiki-langs/` request happens.
-8. Mermaid engine, with a markdown block: open a session/file/markdown surface
-   containing a ` ```mermaid ` fenced block (a paired host, or the artifact
-   preview harness) and confirm from the browser network log that
-   `/mermaid.min.js` is fetched only then — never during the cold load — and the
-   diagram SVG paints at 393 px light and dark.
+8. Mermaid engine, with a markdown block: the app's only `MarkdownView` →
+   `MermaidRenderer` surface is the changelog's legacy markdown
+   (`app/(app)/changelog.tsx`), reached in-app via Settings → What's New. Its
+   bundled `changelog.json` has no mermaid fence, so add a temporary
+   `legacyEntries` entry whose `markdown` holds a ` ```mermaid ` fence (identical
+   data in the before/after exports; revert it). On the after export, opening
+   `/changelog` fetches `/mermaid.min.js` as a script
+   (`performance.getEntriesByType('resource')`, initiatorType `script`) and
+   `window.mermaid` becomes an object; the diagram SVG
+   (`aria-roledescription="flowchart-v2"`) paints at 393 px light and dark, and
+   no `/mermaid.min.js` request happens on the Home cold load. On the before
+   export no `/mermaid.min.js` request happens at all — the engine is app-bundled
+   (`mermaid-*.js` plus the eager `__common`) and `window.mermaid` stays
+   `undefined`. The artifact-preview runtime (`previewRuntime.mjs`) bundles its
+   own mermaid and does not exercise `loadMermaidWeb`.
 
 ## Gotchas
 
