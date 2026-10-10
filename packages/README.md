@@ -37,7 +37,10 @@ packages/
     control-plane/{index.ts,domain/,application/,infrastructure/}
     peer/{index.ts,domain/,application/}
     display/{index.ts,domain/}
+    plans/{index.ts,domain/}
     realtime/{index.ts,domain/,application/}
+    usage/{index.ts,domain/}
+    voice/{index.ts,domain/}
     worktree/{index.ts,domain/,application/}
   crypto/src/
     index.ts                         public barrel
@@ -91,6 +94,29 @@ Shared host and phone helpers preserve UTF-8 code points and strip unsafe displa
 **Invariants**:
 - Only a parsed public Agent Route and Agent Name cross the stream boundary (`boundRealtimePublicContext`).
 - Task titles are stripped of provider/name prefixes and secret-like text before crossing.
+
+## Plans
+
+**Owns**: Plan Account, the provider accounts a picker shows, and the name an added account is given before anyone renames it.
+
+**Invariants**:
+- A signed-out account is shown but never chosen.
+- A suggested account name comes from the account's own email alone and never repeats one already taken.
+
+## Usage
+
+**Owns**: usage limit windows and verdicts, and one view-model vocabulary for every provider.
+
+**Invariants**:
+- The host collects, normalizes and bounds every figure; the phone owns wording, units and tone.
+- No surface sees a provider's raw payload.
+
+## Voice
+
+**Owns**: the realtime voice provider catalog, its selection and readiness, and the spoken agent-stop report.
+
+**Invariants**:
+- The app sees only a provider entry, its readiness, and a native setup surface, never a plugin screen id.
 
 ## Worktree
 

@@ -44,7 +44,7 @@ muxr pair --browser            # pair an 8-hour control browser
 muxr pair --browser-view       # pair an 8-hour view-only browser
 muxr pair --browser-personal   # pair a 30-day control browser only you use
 muxr devices list
-muxr devices revoke <number>
+muxr devices revoke <number|name>
 ```
 
 muxr never installs skills or edits agent instruction files. Run `muxr --skill`
