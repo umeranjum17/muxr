@@ -293,6 +293,7 @@ export const ca: TranslationStructure = {
         groupTitle: 'Instal·la l’app',
         rowTitle: 'Instal·la el muxr',
         browserSubtitle: 'Afegeix una app a pantalla completa a la pantalla d’inici.',
+        browserMenuSubtitle: 'Obre el menú del navegador i tria Instal·la l’app.',
         iosSubtitle: 'Afegeix-la a la pantalla d’inici per fer-la servir a pantalla completa i rebre avisos.',
         guideTitle: 'Afegeix el muxr a la pantalla d’inici',
         guideLead: 'El Safari instal·la les apps web des del menú Comparteix.',

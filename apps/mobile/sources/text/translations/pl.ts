@@ -310,6 +310,7 @@ export const pl: TranslationStructure = {
         groupTitle: 'Zainstaluj aplikację',
         rowTitle: 'Zainstaluj muxr',
         browserSubtitle: 'Dodaje aplikację na pełnym ekranie do ekranu głównego.',
+        browserMenuSubtitle: 'Otwórz menu przeglądarki i wybierz Zainstaluj aplikację.',
         iosSubtitle: 'Dodaj ją do ekranu głównego, aby używać jej na pełnym ekranie i otrzymywać powiadomienia.',
         guideTitle: 'Dodaj muxr do ekranu głównego',
         guideLead: 'Safari instaluje aplikacje internetowe z menu Udostępnij.',

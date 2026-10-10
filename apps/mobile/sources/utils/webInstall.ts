@@ -7,16 +7,20 @@ import { Platform } from 'react-native';
  *                 the row can hand it back to the person on tap.
  * - `ios-guide`   an iOS tab in any browser: there is no prompt API, so Add to
  *                 Home Screen is the only install path, and only Safari has it.
+ * - `browser-menu` the person dismissed Chromium's prompt. The saved prompt
+ *                 cannot be shown again, so the row points at the browser menu.
  * - `unavailable` installed, native, or a browser tab with no install path at
  *                 all; show nothing.
  */
-export type WebInstallState = 'ready' | 'ios-guide' | 'unavailable';
+export type WebInstallState = 'ready' | 'ios-guide' | 'browser-menu' | 'unavailable';
 
 interface BeforeInstallPromptEvent extends Event {
     prompt(): Promise<void>;
+    readonly userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
 let deferredPrompt: BeforeInstallPromptEvent | null = null;
+let promptDismissed = false;
 let started = false;
 const listeners = new Set<() => void>();
 
@@ -31,8 +35,9 @@ function iosBrowser(): 'safari' | 'other' | null {
     const iPad = navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1;
     if (!(iPad || /iPhone|iPad|iPod/.test(ua))) return null;
     // Chrome, Firefox, Edge, Opera and Samsung on iOS all wear a WebKit UA.
-    // None of them can add a page to the Home Screen; only Safari can.
-    return /CriOS|FxiOS|EdgiOS|OPiOS|OPR\/|SamsungBrowser/.test(ua) ? 'other' : 'safari';
+    // None of them can add a page to the Home Screen; only Safari can. An
+    // in-app web view has no Safari token at all, so it is not Safari either.
+    return /Safari\//.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|OPR\/|SamsungBrowser/.test(ua) ? 'safari' : 'other';
 }
 
 /** True on an iOS tab that is not Safari, so the guide can say to open it there first. */
@@ -54,6 +59,7 @@ export function getWebInstallState(): WebInstallState {
     // there — even if a stray installability event ever reached the page.
     if (iosBrowser() !== null) return 'ios-guide';
     if (deferredPrompt !== null) return 'ready';
+    if (promptDismissed) return 'browser-menu';
     return 'unavailable';
 }
 
@@ -79,21 +85,27 @@ export function startWebInstallCapture(): void {
     });
     window.addEventListener('appinstalled', () => {
         deferredPrompt = null;
+        promptDismissed = false;
         notify();
     });
 }
 
-/** Hand the held prompt back to the person. */
+/**
+ * Hand the held prompt back to the person. The row stays until the outcome is
+ * known: an accepted install hides it, a dismissal swaps it for a browser-menu
+ * line, since the prompt is one-shot and Chrome will not re-issue it this load.
+ */
 export async function promptWebInstall(): Promise<void> {
     const event = deferredPrompt;
     if (event === null) return;
-    // A prompt is one-shot: drop it before showing it so a second tap cannot
-    // call prompt() twice, which Chrome rejects.
-    deferredPrompt = null;
-    notify();
+    let outcome: 'accepted' | 'dismissed' = 'dismissed';
     try {
         await event.prompt();
+        outcome = (await event.userChoice).outcome;
     } catch {
-        // The prompt is already dropped, so a rejected one has nothing to undo.
+        // A prompt that never showed leaves the browser menu as the only path.
     }
+    deferredPrompt = null;
+    promptDismissed = outcome === 'dismissed';
+    notify();
 }

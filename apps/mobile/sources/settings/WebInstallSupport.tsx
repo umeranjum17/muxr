@@ -24,18 +24,20 @@ export function WebInstallSupport() {
     const { theme } = useUnistyles();
     const state = useWebInstallState();
     if (state === 'unavailable') return null;
-    const install = () => {
-        if (state === 'ios-guide') openWebInstallGuide();
-        else void promptWebInstall();
-    };
+    const subtitle = state === 'ios-guide'
+        ? t('webInstall.iosSubtitle')
+        : state === 'ready' ? t('webInstall.browserSubtitle') : t('webInstall.browserMenuSubtitle');
+    const onPress = state === 'ios-guide'
+        ? openWebInstallGuide
+        : state === 'ready' ? () => void promptWebInstall() : undefined;
     return (
         <ItemGroup title={t('webInstall.groupTitle')}>
             <Item
                 title={t('webInstall.rowTitle')}
-                subtitle={state === 'ios-guide' ? t('webInstall.iosSubtitle') : t('webInstall.browserSubtitle')}
+                subtitle={subtitle}
                 subtitleLines={0}
                 icon={<Ionicons name="download-outline" size={24} color={theme.colors.header.tint} />}
-                onPress={install}
+                onPress={onPress}
             />
         </ItemGroup>
     );

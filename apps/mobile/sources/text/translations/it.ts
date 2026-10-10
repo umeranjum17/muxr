@@ -292,6 +292,7 @@ export const it: TranslationStructure = {
         groupTitle: 'Installa l’app',
         rowTitle: 'Installa muxr',
         browserSubtitle: 'Aggiunge un’app a schermo intero alla schermata Home.',
+        browserMenuSubtitle: 'Apri il menu del browser e scegli Installa app.',
         iosSubtitle: 'Aggiungila alla schermata Home per usarla a schermo intero e ricevere avvisi.',
         guideTitle: 'Aggiungi muxr alla schermata Home',
         guideLead: 'Safari installa le app web dal menu Condividi.',

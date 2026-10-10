@@ -294,6 +294,7 @@ export const zhHant: TranslationStructure = {
         groupTitle: '安裝應用程式',
         rowTitle: '安裝 muxr',
         browserSubtitle: '將全螢幕應用程式加入主畫面。',
+        browserMenuSubtitle: '開啟瀏覽器選單，選擇「安裝應用程式」。',
         iosSubtitle: '加入主畫面，即可全螢幕使用並接收通知。',
         guideTitle: '將 muxr 加入主畫面',
         guideLead: 'Safari 透過「分享」選單安裝網頁應用程式。',

@@ -295,6 +295,7 @@ export const ja: TranslationStructure = {
         groupTitle: 'アプリをインストール',
         rowTitle: 'muxr をインストール',
         browserSubtitle: '全画面のアプリをホーム画面に追加します。',
+        browserMenuSubtitle: 'ブラウザのメニューを開き、「アプリをインストール」を選びます。',
         iosSubtitle: 'ホーム画面に追加すると、全画面で使えて通知も受け取れます。',
         guideTitle: 'muxr をホーム画面に追加',
         guideLead: 'Safari では「共有」メニューからウェブアプリをインストールします。',

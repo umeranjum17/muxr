@@ -307,6 +307,7 @@ export const en = {
         groupTitle: 'Install app',
         rowTitle: 'Install muxr',
         browserSubtitle: 'Adds a full-screen app to your home screen.',
+        browserMenuSubtitle: 'Open your browser menu and choose Install app.',
         iosSubtitle: 'Add it to your Home Screen for a full-screen app and alerts.',
         guideTitle: 'Add muxr to your Home Screen',
         guideLead: 'Safari installs web apps through its Share menu.',

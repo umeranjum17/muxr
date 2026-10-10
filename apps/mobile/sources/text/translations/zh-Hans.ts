@@ -295,6 +295,7 @@ export const zhHans: TranslationStructure = {
         groupTitle: '安装应用',
         rowTitle: '安装 muxr',
         browserSubtitle: '将全屏应用添加到主屏幕。',
+        browserMenuSubtitle: '打开浏览器菜单，选择“安装应用”。',
         iosSubtitle: '添加到主屏幕，即可全屏使用并接收提醒。',
         guideTitle: '将 muxr 添加到主屏幕',
         guideLead: 'Safari 通过「分享」菜单安装网页应用。',
