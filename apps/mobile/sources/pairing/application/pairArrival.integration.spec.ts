@@ -12,7 +12,7 @@ const harness = vi.hoisted(() => ({
     params: {} as { offer?: string; source?: string },
     receive: undefined as ((event: { url: string }) => void) | undefined,
     router: { replace: vi.fn(), back: vi.fn() },
-    camera: { available: false, launches: 0, scanned: undefined as ((event: { data: string }) => void) | undefined },
+    camera: { available: false, fails: false, launches: 0, scanned: undefined as ((event: { data: string }) => void) | undefined },
 }));
 
 vi.mock('react-native', () => ({
@@ -54,7 +54,10 @@ vi.mock('expo-camera', () => ({
             harness.camera.scanned = scanned;
             return { remove: () => undefined };
         },
-        launchScanner: async () => { harness.camera.launches += 1; },
+        launchScanner: async () => {
+            harness.camera.launches += 1;
+            if (harness.camera.fails) throw new Error('scanner unsupported');
+        },
         dismissScanner: async () => undefined,
     },
     useCameraPermissions: () => [{ granted: true }, async () => ({ granted: true })],
@@ -280,7 +283,7 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     harness.secureValues.clear();
     harness.asyncValues.clear();
     Object.assign(harness, { authenticated: false, declined: false, claims: 0, initialUrl: null });
-    harness.camera.available = true;
+    Object.assign(harness.camera, { available: true, fails: false });
     const mod = await modules();
     type ScreenNode = { type: unknown; props: Record<string, unknown> };
     let screen!: ReturnType<typeof mod.renderer.create>;
@@ -333,10 +336,19 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     expect(labels()[0]).toBe('Scan a new code');
     await close();
 
-    // No camera scanner (a simulator): paste leads and the page says why.
+    // No camera scanner (a simulator), or one that failed to open (an older
+    // iPad): paste leads and the page says why.
+    const cantScan = () => nodes((node) => node.type === 'Text' && node.props.children === "This phone can't scan a QR, so paste the pairing string from muxr pair.");
     harness.camera.available = false;
     await open({});
     expect(labels()).not.toContain('Scan the QR');
-    expect(nodes((node) => node.type === 'Text' && node.props.children === "This phone can't scan a QR, so paste the pairing string from muxr pair.")).toHaveLength(1);
+    expect(cantScan()).toHaveLength(1);
+    await close();
+    harness.camera.available = true;
+    harness.camera.fails = true;
+    await open({});
+    await press('Scan the QR');
+    expect(labels()).not.toContain('Scan the QR');
+    expect(cantScan()).toHaveLength(1);
     await close();
 });

@@ -40,8 +40,8 @@ vi.mock('react-native-unistyles', () => ({
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: routerPush }) }));
 vi.mock('@/pairing', async () => {
-    const { pairingDeviceNoun, pairQrScannerAvailable, useHostedPairing, usePairQrScanner } = await import('@/pairing/application/usePairing');
-    return { pairingDeviceNoun, pairQrScannerAvailable, useHostedPairing, usePairQrScanner };
+    const { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner } = await import('@/pairing/application/usePairing');
+    return { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner };
 });
 vi.mock('expo-camera', () => ({
     CameraView: {

@@ -29,14 +29,28 @@ export function useHostedPairing() {
     }, [router]);
 }
 
-/**
- * True when Scan can open a camera here. expo-camera reports iOS 16+ as
- * available even on a simulator, where launching the scanner then throws, so a
- * simulator counts as no camera; web never scans.
+/*
+ * expo-camera reports iOS 16+ as able to scan whatever the hardware, and only
+ * launching finds out (a simulator, an A11 or older chip, an iPad app on a
+ * Mac). A failed launch is remembered for the session, so every pair entry
+ * then leads with paste instead of a Scan that cannot open.
  */
+let scannerFailed = false;
+const scannerListeners = new Set<() => void>();
+const subscribeScanner = (listener: () => void) => {
+    scannerListeners.add(listener);
+    return () => { scannerListeners.delete(listener); };
+};
+
+/** True when Scan can open a camera here; web never scans, a simulator has no camera. */
 export function pairQrScannerAvailable(): boolean {
-    if (Platform.OS === 'web' || !CameraView.isModernBarcodeScannerAvailable) return false;
+    if (scannerFailed || Platform.OS === 'web' || !CameraView.isModernBarcodeScannerAvailable) return false;
     return Platform.OS !== 'ios' || Device.isDevice;
+}
+
+/** pairQrScannerAvailable() that re-renders once a launch has shown the scanner cannot open. */
+export function usePairQrScannerAvailable(): boolean {
+    return React.useSyncExternalStore(subscribeScanner, pairQrScannerAvailable);
 }
 
 /**
@@ -187,6 +201,8 @@ export function usePairQrScanner(onScanned: (url: string) => void, enabled: bool
             await CameraView.launchScanner({ barcodeTypes: ['qr'] });
         } catch {
             if (pendingScan === stableHandler) pendingScan = null;
+            scannerFailed = true;
+            scannerListeners.forEach((listener) => listener());
             Modal.alert('Camera scanner unavailable', 'The system QR scanner could not open. Enter the pairing string instead, or try again on a device with a working camera scanner.');
         }
     }, [checkScannerPermissions, stableHandler]);

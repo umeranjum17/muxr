@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { pairingDeviceNoun, pairQrScannerAvailable, useHostedPairing, usePairQrScanner } from '@/pairing';
+import { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner } from '@/pairing';
 import { sshTunnelAvailable } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import * as Clipboard from 'expo-clipboard';
@@ -71,7 +71,7 @@ export function FirstRunConnection() {
     const [copied, setCopied] = React.useState(false);
     const browser = Platform.OS === 'web';
     const processPairLink = useHostedPairing();
-    const canScan = !browser && pairQrScannerAvailable();
+    const canScan = usePairQrScannerAvailable();
     const scanPairQr = usePairQrScanner(processPairLink, canScan);
     // Offer Direct SSH only when this native build includes the transport.
     const sshAvailable = !browser && sshTunnelAvailable();

@@ -10,7 +10,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
 import { decidePairingInput, linkPairMachineName, looksLikeLinkOffer, PairingNeedsNewCode } from '@/pairing/e2ee';
-import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, pairQrScannerAvailable, usePairQrScanner, resolvePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
+import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScannerAvailable, usePairQrScanner, resolvePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
@@ -124,7 +124,7 @@ export default function PairScreen() {
     }, [auth.isAuthenticated, router]);
     // Scan leads every native entry and error; a device with no camera
     // scanner leads with paste instead of a button that cannot open.
-    const canScan = !browser && pairQrScannerAvailable();
+    const canScan = usePairQrScannerAvailable();
     const scanPairQr = usePairQrScanner(reviewPairing, canScan);
     const switching = getCachedConnectionSettings().machineId !== '';
     const routePairUrl = typeof routeParams.offer === 'string' && carriesPairingOffer(routeParams.offer)
