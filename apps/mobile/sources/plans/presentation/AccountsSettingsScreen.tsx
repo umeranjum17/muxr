@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ScrollView, Text } from 'react-native';
+import { Platform, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
@@ -19,6 +19,37 @@ const PROVIDERS: { id: string; title: string }[] = [
     { id: 'codex', title: 'ChatGPT (Codex)' },
     { id: 'opencode', title: 'OpenCode' },
 ];
+
+/**
+ * Web-only: web ignores `ellipsizeMode`, so an over-long email would run off the
+ * row losing the domain. The address stays on one line while the whole domain
+ * fits next to a shortened local part (`umer.w…@example.com`). Only when the
+ * domain alone cannot fit does it drop to a second line, broken before the `@`,
+ * and each line ellipsizes its own end. The domain's own overflow (its real
+ * width against the row's) picks between the two; it never wraps mid-word.
+ */
+function EmailSplit({ email }: { email: string }) {
+    const at = email.lastIndexOf('@');
+    const local = at > 0 ? email.slice(0, at) : email;
+    const domain = at > 0 ? email.slice(at) : '';
+    const rowRef = React.useRef<View>(null);
+    const domainRef = React.useRef<Text>(null);
+    const [stacked, setStacked] = React.useState(false);
+    const measure = React.useCallback(() => {
+        const row = rowRef.current as unknown as HTMLElement | null;
+        const domainNode = domainRef.current as unknown as HTMLElement | null;
+        if (row === null || domainNode === null || typeof domainNode.scrollWidth !== 'number') return;
+        const next = domainNode.scrollWidth > row.clientWidth + 1;
+        setStacked((previous) => (previous === next ? previous : next));
+    }, []);
+    React.useEffect(() => { measure(); }, [measure, local, domain]);
+    return (
+        <View ref={rowRef} style={stacked ? styles.emailColumn : styles.emailRow} onLayout={measure}>
+            <Text style={styles.emailLocal} numberOfLines={1} ellipsizeMode="tail">{local}</Text>
+            <Text ref={domainRef} style={styles.emailDomain} numberOfLines={1} ellipsizeMode="tail">{domain}</Text>
+        </View>
+    );
+}
 
 /** Settings → Accounts: every sign-in muxr can start an agent on, by provider. */
 export function AccountsSettingsScreen() {
@@ -68,9 +99,17 @@ export function AccountsSettingsScreen() {
         { text: 'Cancel', style: 'cancel' },
     ]);
 
-    // At 270 dp the email keeps one ellipsized line; the usage gets its own line and wraps between whole
-    // words rather than cutting the plan name. A no-break space keeps each "·" with the word before it.
-    const subtitle = (account: PlanAccount): string | undefined => (account.signedIn ? account.email : 'Signed out');
+    // Accounts of one provider must stay tellable apart at the largest text size.
+    // The name wraps to two lines; the email stays on a single line so it never
+    // breaks mid-word and keeps the part that tells addresses apart: the local
+    // part before the @ (native end ellipsis, "umer@exam…"). Web ignores
+    // ellipsizeMode, so there we split the address: the local part shrinks and
+    // ellipsizes and the whole domain stays. Accounts that still share a name
+    // and email are told apart by the usage line beneath.
+    const subtitle = (account: PlanAccount): string | React.ReactNode =>
+        account.signedIn && account.email
+            ? (Platform.OS === 'web' ? <EmailSplit email={account.email} /> : account.email)
+            : 'Signed out';
     const facts = (account: PlanAccount): string | undefined => {
         if (!account.signedIn) return undefined;
         const room = account.roomLeftPercent === undefined ? undefined : `${account.roomLeftPercent}% left`;
@@ -99,8 +138,10 @@ export function AccountsSettingsScreen() {
                                 selected={account.id === landed}
                                 style={account.id === landed ? { backgroundColor: theme.colors.surfacePressed } : undefined}
                                 title={account.name}
+                                titleLines={2}
                                 subtitle={subtitle(account)}
                                 subtitleLines={1}
+                                subtitleEllipsizeMode={Platform.OS === 'web' ? undefined : 'tail'}
                                 meta={facts(account)}
                                 metaLines={0}
                                 icon={<Ionicons
@@ -113,7 +154,7 @@ export function AccountsSettingsScreen() {
                                 showChevron={account.signedIn}
                                 onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
                                 onLongPress={() => actions(account)}
-                                accessibilityLabel={[account.name, subtitle(account), facts(account)].filter(Boolean).join(', ')}
+                                accessibilityLabel={[account.name, account.signedIn ? account.email : 'Signed out', facts(account)].filter(Boolean).join(', ')}
                             />
                         ))}
                         <Item
@@ -151,5 +192,33 @@ const styles = StyleSheet.create((theme) => ({
         paddingHorizontal: 20,
         paddingTop: 12,
         ...Typography.default(),
+    },
+    emailRow: {
+        flexDirection: 'row',
+        maxWidth: '100%',
+    },
+    emailColumn: {
+        flexDirection: 'column',
+        maxWidth: '100%',
+    },
+    emailLocal: {
+        flexShrink: 1,
+        minWidth: 0,
+        overflow: 'hidden',
+        ...Typography.default(),
+        fontSize: 14,
+        lineHeight: 20,
+        letterSpacing: 0.1,
+        color: theme.colors.textSecondary,
+    },
+    emailDomain: {
+        flexShrink: 0,
+        maxWidth: '100%',
+        overflow: 'hidden',
+        ...Typography.default(),
+        fontSize: 14,
+        lineHeight: 20,
+        letterSpacing: 0.1,
+        color: theme.colors.textSecondary,
     },
 }));

@@ -13,6 +13,12 @@ first one.
 - `accounts-added-notice` the notice names only the added account, and at the
   largest text size it wraps to the full name in the flow above the list, which
   stays fully visible below it.
+- `accounts-rows-distinct` at the largest text size, rows of one provider that
+  share a name and email stay tellable apart: the name wraps to two lines, the
+  email never breaks mid-word (native `ellipsizeMode` `tail` keeps the local
+  part before the `@`, `umer@exam…`; web shortens the local part and keeps the
+  whole domain, dropping to a second line broken before the `@` only when the
+  domain cannot fit), and the usage line (`40% left · max`) differs.
 - `accounts-signin-states` in-progress banner, cancel, refusal, re-sign-in without the name step.
 - `accounts-remove` row › Remove › Remove resets to one account.
 
@@ -60,6 +66,14 @@ Preconditions:
   must show the whole name and the added account's email — wrap, never clip or
   ellipsize — and the first account row must stay fully visible below it, not
   covered. Reset the content size to `large` afterwards.
+- **Distinct rows.** With the list seeded so several accounts share one name and
+  one email (the Android/PWA lab fixture in `data/pock-accounts-rows-distinct1`
+  does), each row must still read apart at the largest text: the name wraps to
+  two lines, the email stays on one line without breaking mid-word (native
+  end ellipsis keeps the local part before the `@`; web keeps the whole domain,
+  wrapping before the `@` only when it cannot fit), and the `…% left · max`
+  line beneath differs, so no two rows truncate to one shared `Name …` / `email@…`
+  prefix.
 - **Sign-in states.** The lab prints its `lab home`. While `signin-hold` exists
   there the stand-in's sign-in stays open, so the tab shows the `Signing in …`
   banner with `Cancel`; removing it finishes the sign-in, and with `signin-fail`

@@ -19,8 +19,10 @@ import { Meter } from '@/components/ui';
 
 export interface ItemProps {
     title: string | React.ReactNode;
-    subtitle?: string;
+    /** A string is wrapped in one (or more) lines; a node is rendered as-is. */
+    subtitle?: string | React.ReactNode;
     subtitleLines?: number; // set 0 or undefined for auto/multiline
+    subtitleEllipsizeMode?: 'head' | 'middle' | 'tail' | 'clip'; // e.g. 'middle' keeps both ends of a single-line value
     titleLines?: number; // set 0 to wrap; default one line when a subtitle is present
     /** Facts line beneath the prose subtitle. */
     meta?: string;
@@ -137,6 +139,7 @@ export const Item = React.memo<ItemProps>((props) => {
         titleLines,
         subtitle,
         subtitleLines,
+        subtitleEllipsizeMode,
         meta,
         metaLines,
         detail,
@@ -174,7 +177,7 @@ export const Item = React.memo<ItemProps>((props) => {
         } else {
             // If copy is true, try to figure out what to copy
             // Priority: detail > subtitle > title
-            textToCopy = detail || subtitle || (typeof title === 'string' ? title : '');
+            textToCopy = detail || (typeof subtitle === 'string' ? subtitle : '') || (typeof title === 'string' ? title : '');
         }
         
         try {
@@ -221,20 +224,21 @@ export const Item = React.memo<ItemProps>((props) => {
                     >
                         {title}
                     </Text>
-                    {subtitle && (() => {
+                    {subtitle && (typeof subtitle === 'string' ? (() => {
                         // Allow multiline when requested or when content contains line breaks
                         const effectiveLines = subtitleLines !== undefined
                             ? (subtitleLines <= 0 ? undefined : subtitleLines)
-                            : (typeof subtitle === 'string' && subtitle.indexOf('\n') !== -1 ? undefined : 1);
+                            : (subtitle.indexOf('\n') !== -1 ? undefined : 1);
                         return (
                             <Text
                                 style={[styles.subtitle, subtitleStyle]}
                                 numberOfLines={effectiveLines}
+                                ellipsizeMode={subtitleEllipsizeMode}
                             >
                                 {subtitle}
                             </Text>
                         );
-                    })()}
+                    })() : subtitle)}
                     {meta && <Text style={styles.meta} numberOfLines={metaLines === 0 ? undefined : (metaLines ?? 1)}>{meta}</Text>}
                     {progress !== undefined && subtitle !== undefined && (
                         <Meter ratio={progress} style={{ marginTop: 6 }} />
