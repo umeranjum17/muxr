@@ -67,6 +67,17 @@ vi.mock('@/conversation/session', () => ({
     stopRealtimeSession: () => undefined,
 }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn(), confirm: async () => true } }));
+vi.mock('@/text', () => ({
+    t: (key: string, params?: { name?: string }) => {
+        const copy: Record<string, string> = {
+            'pairing.busy': 'Pairing…',
+            'pairing.connecting': 'Connecting securely to your computer…',
+            'pairing.compareWords': `Check that ${params?.name} shows these two words, then press y on the computer.`,
+            'pairing.paired': `Paired with ${params?.name}.`,
+        };
+        return copy[key] ?? key;
+    },
+}));
 vi.mock('../infrastructure/linkPairClient', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../infrastructure/linkPairClient')>();
     return {

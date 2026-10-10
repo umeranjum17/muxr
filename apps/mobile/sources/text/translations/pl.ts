@@ -213,6 +213,13 @@ export const pl: TranslationStructure = {
         restoreWithSecretKeyInstead: 'Lub przywróć kluczem tajnym',
     },
 
+    pairing: {
+        busy: 'Parowanie…',
+        connecting: 'Bezpieczne łączenie z twoim komputerem…',
+        compareWords: ({ name }: { name: string }) => `Sprawdź, czy ${name} pokazuje te dwa słowa, a następnie naciśnij y na komputerze.`,
+        paired: ({ name }: { name: string }) => `Sparowano z ${name}.`,
+    },
+
     settings: {
         title: 'Ustawienia',
         github: 'GitHub',
