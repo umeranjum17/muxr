@@ -100,12 +100,15 @@ it('lists every agent the needs-you count counts until it is answered', async ()
     herd.events = [
         { eventId: 'claude-blocked', sessionId: 'claude', agentName: 'claude-1', state: 'blocked', reasonCode: 'agent-blocked', at } as LifecycleEvent,
         { eventId: 'pi-blocked', sessionId: 'pi', agentName: 'pi-1', state: 'blocked', reasonCode: 'agent-blocked', at } as LifecycleEvent,
+        // An agent that could not start: it has left the tree, so it is no Needs you row.
+        { eventId: 'gone-failed', sessionId: 'gone', agentName: 'pi-2', taskTitle: 'Deploy the preview', state: 'failed', reasonCode: 'start-launch-failed', at } as LifecycleEvent,
     ];
     herd.workspaces = tree('blocked');
-    const needsYouRows = (renderer: ReturnType<typeof TestRenderer.create>) => (renderer.root as any)
+    const rowLabels = (renderer: ReturnType<typeof TestRenderer.create>, tier: RegExp) => (renderer.root as any)
         .findAll((node: { type: unknown; props: { accessibilityLabel?: string } }) =>
-            node.type === 'Pressable' && /Needs you/.test(node.props.accessibilityLabel ?? ''))
+            node.type === 'Pressable' && tier.test(node.props.accessibilityLabel ?? ''))
         .map((node: { props: { accessibilityLabel: string } }) => node.props.accessibilityLabel.split('.')[0]);
+    const needsYouRows = (renderer: ReturnType<typeof TestRenderer.create>) => rowLabels(renderer, /Needs you/);
 
     let renderer!: ReturnType<typeof TestRenderer.create>;
     await TestRenderer.act(async () => {
@@ -113,6 +116,7 @@ it('lists every agent the needs-you count counts until it is answered', async ()
     });
     expect(needsYouRows(renderer).sort()).toEqual(['Fix the login redirect', 'Write the release notes']);
     expect(needsYouRows(renderer)).toHaveLength(needsYouSessionIds(herd.workspaces, []).size);
+    expect(rowLabels(renderer, /Could not start/)).toEqual(['Deploy the preview']);
 
     herd.workspaces = tree('working');
     await TestRenderer.act(async () => {
@@ -121,5 +125,6 @@ it('lists every agent the needs-you count counts until it is answered', async ()
     });
     expect(needsYouRows(renderer)).toEqual(['Write the release notes']);
     expect(needsYouRows(renderer)).toHaveLength(needsYouSessionIds(herd.workspaces, []).size);
+    expect(rowLabels(renderer, /Could not start/)).toEqual(['Deploy the preview']);
     renderer.unmount();
 });

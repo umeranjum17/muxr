@@ -57,13 +57,18 @@ export function lifecycleStateSince(
     return Number.isFinite(at) ? at : undefined;
 }
 
-/** Unseen meaningful transitions only; latest event wins when one agent changed repeatedly. */
+/**
+ * Unseen meaningful transitions only; latest event wins when one agent changed
+ * repeatedly. `wanted` filters after that latest-wins pick and before the limit,
+ * so rows a caller never shows cannot use up its slots.
+ */
 export function unseenActivityRows(
     events: readonly LifecycleEvent[],
     seenEventIds: ReadonlySet<string>,
     now = Date.now(),
     limit = 8,
     liveTitles?: ReadonlyMap<string, string>,
+    wanted: (row: RecentActivityRow) => boolean = () => true,
 ): RecentActivityRow[] {
     const latestRoutes = new Set<string>();
     const rows: RecentActivityRow[] = [];
@@ -73,7 +78,7 @@ export function unseenActivityRows(
         if (seenEventIds.has(event.eventId)) continue;
         const at = Date.parse(event.at);
         if (!Number.isFinite(at) || now - at > MAX_AGE_MS) continue;
-        rows.push({
+        const row: RecentActivityRow = {
             eventId: event.eventId,
             sessionId: event.sessionId,
             taskTitle: resolveActivityTaskTitle(event, liveTitles?.get(event.sessionId)),
@@ -82,7 +87,9 @@ export function unseenActivityRows(
             status: event.state as RecentActivityRow['status'],
             reasonCode: event.reasonCode,
             at,
-        });
+        };
+        if (!wanted(row)) continue;
+        rows.push(row);
         if (rows.length === limit) break;
     }
     return rows;
@@ -91,15 +98,12 @@ export function unseenActivityRows(
 /**
  * The Needs you tier: one row per agent that needs you now (needsYouSessionIds),
  * newest first. A row leaves only when its agent stops needing you, never
- * because it was seen, so the tier, the Spaces count and the badge agree. A
- * failure whose agent has left the tree (it could not start) has no status
- * left to read, so it stays an unseen notice from `unseen` until opened.
+ * because it was seen, so the tier, the Spaces count and the badge agree.
  */
 export function needsYouActivityRows(
     needsYou: ReadonlySet<string>,
     panes: readonly Pick<HerdPane, 'id' | 'agentName' | 'taskTitle' | 'agentKind' | 'agentStatus' | 'changedAt'>[],
     events: readonly LifecycleEvent[],
-    unseen: readonly RecentActivityRow[],
     now = Date.now(),
 ): RecentActivityRow[] {
     const panesById = new Map(panes.map((pane) => [pane.id, pane]));
@@ -125,8 +129,7 @@ export function needsYouActivityRows(
             at: Number.isFinite(at) ? at : pane?.changedAt ?? now,
         };
     });
-    const departed = unseen.filter((row) => row.status === 'failed' && !panesById.has(row.sessionId) && !needsYou.has(row.sessionId));
-    return [...current, ...departed].sort((left, right) => right.at - left.at);
+    return current.sort((left, right) => right.at - left.at);
 }
 
 export function recentActivityStatus(row: RecentActivityRow): string {
@@ -150,7 +153,6 @@ export function unseenDoneSessionIds(
 ): ReadonlySet<string> {
     // ponytail: same 8-row ceiling as the tier; an agent beyond the 8 newest
     // unseen outcomes stays unhighlighted. Raise both together if that bites.
-    return new Set(unseenActivityRows(events, seenEventIds, now, 8)
-        .filter((row) => row.status === 'done')
+    return new Set(unseenActivityRows(events, seenEventIds, now, 8, undefined, (row) => row.status === 'done')
         .map((row) => row.sessionId));
 }

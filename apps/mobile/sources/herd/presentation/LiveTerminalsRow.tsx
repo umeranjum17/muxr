@@ -248,26 +248,38 @@ export const LiveTerminalsRow = React.memo(({
         return () => clearInterval(timer);
     }, []);
     // An event keeps the name the agent had then; a rename since should read here too.
-    const activityRows = React.useMemo(() => {
+    const liveNames = React.useMemo(
+        () => new Map(panes.flatMap((pane) => pane.agentName ? [[pane.id, pane.agentName] as const] : [])),
+        [panes],
+    );
+    const unseenRows = React.useCallback((wanted: (row: RecentActivityRow) => boolean) => {
         if (!ready) return [];
-        const liveNames = new Map(panes.flatMap((pane) => pane.agentName ? [[pane.id, pane.agentName] as const] : []));
-        return unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles)
+        return unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles, wanted)
             .map((row) => ({ ...row, agentName: liveNames.get(row.sessionId) ?? row.agentName }));
-    }, [lifecycleEvents, liveTitles, panes, ready, seenEventIds]);
+    }, [lifecycleEvents, liveNames, liveTitles, ready, seenEventIds]);
     // The same agents the Spaces count and the badge count: a row leaves when
     // its agent stops needing you, never because its card was glanced at.
     const needsYou = React.useMemo(() => needsYouSessionIds(workspaces, sessions), [sessions, workspaces]);
-    // Until the tree loads every agent looks gone, so no failure reads as departed yet.
     const needsYouRows = React.useMemo(
-        () => needsYouActivityRows(needsYou, panes, lifecycleEvents, loaded ? activityRows : []),
-        [activityRows, lifecycleEvents, loaded, needsYou, panes],
+        () => needsYouActivityRows(needsYou, panes, lifecycleEvents),
+        [lifecycleEvents, needsYou, panes],
+    );
+    // A failure whose agent has left the tree (could not start) has no status
+    // left to read, so it stays an unseen notice until opened. Until the tree
+    // loads every agent looks gone, so no failure reads as departed yet.
+    const paneIds = React.useMemo(() => new Set(panes.map((pane) => pane.id)), [panes]);
+    const departedRows = React.useMemo(
+        () => loaded
+            ? unseenRows((row) => row.status === 'failed' && !paneIds.has(row.sessionId) && !needsYou.has(row.sessionId))
+            : [],
+        [loaded, needsYou, paneIds, unseenRows],
     );
     // Done is an outcome, not activity: it gets its own READY · UNSEEN tier and
     // clears when the agent is opened (TerminalRoute acks), never by the card
     // scrolling past on Home.
     const readyRows = React.useMemo(
-        () => activityRows.filter((row) => row.status === 'done'),
-        [activityRows],
+        () => unseenRows((row) => row.status === 'done'),
+        [unseenRows],
     );
     // The card highlight set IS the tier, so a card and the tier can never
     // disagree about which finished outcomes are still unopened.
@@ -342,7 +354,7 @@ export const LiveTerminalsRow = React.memo(({
 
     // With nothing to show and no zero state wanted, there is no section: a
     // lone heading over nothing is the orphan this prop exists to avoid.
-    if (cards.length === 0 && !showZeroState && needsYouRows.length === 0 && readyRows.length === 0) return null;
+    if (cards.length === 0 && !showZeroState && needsYouRows.length === 0 && readyRows.length === 0 && departedRows.length === 0) return null;
 
     return (
         <View style={stylesheet.strip} onLayout={handleLayout}>
@@ -404,6 +416,11 @@ export const LiveTerminalsRow = React.memo(({
                 rows={readyRows}
                 heading="Ready · unseen"
                 onSelect={openReady}
+            />
+            <RecentActivity
+                rows={departedRows}
+                heading="Could not start"
+                onSelect={selectActivity}
             />
         </View>
     );
