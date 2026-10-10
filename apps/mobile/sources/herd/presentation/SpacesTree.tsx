@@ -13,7 +13,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { Modal } from '@/modal';
-import { storage, useNeedsYouCount, useSpacePins, useSpacesLayout } from '@/catalog/store';
+import { storage, useHomeNeedsYouIds, useSpacePins, useSpacesLayout } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
@@ -415,6 +415,7 @@ export const AgentRow = React.memo(({
     selected,
     hasActions,
     unseenDone,
+    needsYou,
     subtitle: subtitleOverride,
     spaceLabel,
 }: {
@@ -427,6 +428,8 @@ export const AgentRow = React.memo(({
     /** Whether a long-press has anything to offer. */
     hasActions: boolean;
     unseenDone: boolean;
+    /** A pending request reads as Needs you whatever the pane's status says. */
+    needsYou: boolean;
     /** Replaces the identity line, e.g. a shell's working directory. */
     subtitle?: string;
     /** The card's own label: a task that only repeats it gives way to the agent's name. */
@@ -435,7 +438,8 @@ export const AgentRow = React.memo(({
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const navigateToSession = useNavigateToSession();
-    const dot = agentStatusColor(pane.agentStatus, theme);
+    const status = needsYou ? 'blocked' : pane.agentStatus;
+    const dot = agentStatusColor(status, theme);
     const paneLabels = agentLabels(pane);
     const labels = paneLabels.task !== undefined && paneLabels.task === spaceLabel?.trim()
         ? { ...paneLabels, title: paneLabels.agentName, task: undefined }
@@ -443,10 +447,10 @@ export const AgentRow = React.memo(({
     const sessionId = pane.sessionId;
     const shell = isShellLabels(labels);
     const title = labels.title;
-    const subtitle = subtitleOverride ?? (shell ? agentWhoLine(labels) : agentWhoStateLine(labels, agentStateLabel(pane.agentStatus)));
+    const subtitle = subtitleOverride ?? (shell ? agentWhoLine(labels) : agentWhoStateLine(labels, agentStateLabel(status)));
     // One weight rule: bright means "has something for you". A finished
     // outcome you have not opened stays loud; settled-and-seen goes quiet.
-    const quiet = (pane.agentStatus === 'done' || pane.agentStatus === 'idle') && !unseenDone;
+    const quiet = (status === 'done' || status === 'idle') && !unseenDone;
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -481,7 +485,7 @@ export const AgentRow = React.memo(({
  * A child's second line, in parts: who its one agent is and its state, else a
  * count, else what it is. Rendered with ' · ', spoken with ', '.
  */
-function childLine2Parts(child: HerdChildSpace): string[] {
+function childLine2Parts(child: HerdChildSpace, needsYou: boolean): string[] {
     const panes = child.workspace.tabs.flatMap((tab) => tab.panes);
     const agentPanes = panes.filter((pane) => pane.agentKind !== undefined);
     if (panes.length === 0) return [t('spacesTree.childEmpty')];
@@ -490,7 +494,7 @@ function childLine2Parts(child: HerdChildSpace): string[] {
     const agent = agentPanes[0];
     if (agent === undefined) return [t('spacesTree.childEmpty')];
     // The row leads with the task or the workspace, so this line names the agent.
-    return [agentWhoLine(agentLabels(agent), true), agentStateLabel(agent.agentStatus)];
+    return [agentWhoLine(agentLabels(agent), true), agentStateLabel(needsYou ? 'blocked' : agent.agentStatus)];
 }
 
 /** A group-subheader status pill: colored dot + mono count, visual only (subheader label speaks it). */
@@ -649,6 +653,7 @@ const ChildRow = React.memo(({
     selectedSessionId,
     canClose,
     unseenDoneSessionIds,
+    needsYouIds,
 }: {
     child: HerdChildSpace;
     name: string;
@@ -659,6 +664,7 @@ const ChildRow = React.memo(({
     selectedSessionId?: string;
     canClose: boolean;
     unseenDoneSessionIds: ReadonlySet<string>;
+    needsYouIds: ReadonlySet<string>;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -676,7 +682,7 @@ const ChildRow = React.memo(({
     const label = task ?? name;
     const baseName = workspaceName(child.workspace);
     const suffix = name.startsWith(`${baseName} · `) ? name.slice(baseName.length) : undefined;
-    const parts = childLine2Parts(child);
+    const parts = childLine2Parts(child, singleSessionId !== undefined && needsYouIds.has(singleSessionId));
     const line2 = parts.join(' · ');
     const onPress = singleSessionId !== undefined
         ? () => (onNavigatePane ?? navigateToSession)(singleSessionId)
@@ -739,6 +745,7 @@ const ChildRow = React.memo(({
                             selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                             hasActions
                             unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
+                            needsYou={pane.sessionId !== undefined && needsYouIds.has(pane.sessionId)}
                         />
                     ))}
                 </View>
@@ -766,6 +773,7 @@ const WorkspaceCard = React.memo(({
     selectedSessionId,
     canClose,
     unseenDoneSessionIds,
+    needsYouIds,
 }: {
     workspace: HerdrTreeWorkspace;
     name: string;
@@ -787,6 +795,7 @@ const WorkspaceCard = React.memo(({
     selectedSessionId?: string;
     canClose: boolean;
     unseenDoneSessionIds: ReadonlySet<string>;
+    needsYouIds: ReadonlySet<string>;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -874,6 +883,7 @@ const WorkspaceCard = React.memo(({
                     selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                     hasActions
                     unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
+                    needsYou={pane.sessionId !== undefined && needsYouIds.has(pane.sessionId)}
                 />
             ))}
             {expanded && childSpaces.length > 0 && (
@@ -891,6 +901,7 @@ const WorkspaceCard = React.memo(({
                     selectedSessionId={selectedSessionId}
                     canClose={canClose}
                     unseenDoneSessionIds={unseenDoneSessionIds}
+                    needsYouIds={needsYouIds}
                 />
             ))}
         </View>
@@ -920,8 +931,8 @@ export const SpacesTree = React.memo(({
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canClose = authority === 'control' && !authorityLoading && !stale;
     const unseenDoneSessionIds = useUnseenDoneSessionIds();
-    // The header summary's needs-you count must match the favicon and icon badge.
-    const needsYou = useNeedsYouCount();
+    const needsYouIds = useHomeNeedsYouIds();
+    const needsYou = needsYouIds.size;
     const [choices, setChoices] = React.useState<ReadonlyMap<string, boolean>>(() => new Map());
     const expanded = React.useMemo(
         () => effectiveExpandedSpaces(defaultExpandedWorkspaceIds, choices),
@@ -1126,9 +1137,10 @@ export const SpacesTree = React.memo(({
                 selectedSessionId={selectedSessionId}
                 canClose={canClose}
                 unseenDoneSessionIds={unseenDoneSessionIds}
+                needsYouIds={needsYouIds}
             />
         </View>
-    ), [canClose, childNames, childActions, compact, paneActions, pinned, workspaceActions, names, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
+    ), [canClose, childNames, childActions, compact, paneActions, pinned, workspaceActions, names, needsYouIds, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
@@ -1175,6 +1187,7 @@ export const SpacesTree = React.memo(({
                                     selected={pane.sessionId === selectedSessionId}
                                     hasActions
                                     unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
+                                    needsYou={pane.sessionId !== undefined && needsYouIds.has(pane.sessionId)}
                                 />
                             ))}
                         </View>

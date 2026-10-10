@@ -103,6 +103,8 @@ interface CardProps {
     paused: boolean;
     disconnected: boolean;
     unseenDone: boolean;
+    /** A pending request reads as Needs you whatever the pane's status says. */
+    needsYou: boolean;
     canRename: boolean;
     Badge?: React.ComponentType<LiveCardBadgeInfo>;
 }
@@ -111,14 +113,15 @@ function terminalIsLive(card: LiveTerminalOrderCard): boolean {
     return card.agentStatus === 'working' || card.agentStatus === 'starting' || card.agentStatus === 'blocked';
 }
 
-const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone, canRename, Badge }: CardProps) => {
+const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone, needsYou, canRename, Badge }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels(card);
-    const dot = agentStatusColor(card.agentStatus, theme);
+    const status = needsYou ? 'blocked' : card.agentStatus;
+    const dot = agentStatusColor(status, theme);
     const live = terminalIsLive(card);
     const shell = isShellLabels(labels);
-    const state = liveCardState(labels, card.agentStatus, card.id, events, now);
+    const state = liveCardState(labels, status, card.id, events, now);
     const planAccount = storage((state) => herdrPaneForSession(state.herdrWorkspaces, card.id)?.planAccount);
     // A badge tap lands on this pressable too: it opens the agent under the
     // badge's own sheet unless the badge marks its tap first.
@@ -347,6 +350,7 @@ export const LiveTerminalsRow = React.memo(({
             paused={stale || Math.abs(index - firstVisible) > 2}
             disconnected={socketStatus !== 'connected' || stale}
             unseenDone={readySessionIds.has(card.id)}
+            needsYou={needsYou.has(card.id)}
             canRename={authority === 'control' && !authorityLoading && !stale}
             Badge={cardBadge}
         />

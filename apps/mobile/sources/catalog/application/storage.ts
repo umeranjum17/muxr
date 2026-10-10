@@ -615,6 +615,12 @@ export function useHomeHerd(): { workspaces: HerdrTreeWorkspace[]; sessions: (Se
     return { ...tree, sessions };
 }
 
+/** The agents Home's Needs you list shows: the same herd Home draws, snapshot included. */
+export function useHomeNeedsYouIds(): ReadonlySet<string> {
+    const { workspaces, sessions } = useHomeHerd();
+    return React.useMemo(() => needsYouSessionIds(workspaces, sessions), [sessions, workspaces]);
+}
+
 export function useSessionError(id: string): string | undefined {
     return storage((state) => state.sessionErrors[id]);
 }

@@ -120,8 +120,7 @@ it('lists every agent the needs-you count counts until it is answered', async ()
 
     herd.workspaces = tree('working');
     await TestRenderer.act(async () => {
-        // The store would re-render Home here; the mocked hooks need a fresh mount.
-        renderer.update(<LiveTerminalsRow key="answered" />);
+        renderer.update(<LiveTerminalsRow showZeroState={false} />);
     });
     expect(needsYouRows(renderer)).toEqual(['Write the release notes']);
     expect(needsYouRows(renderer)).toHaveLength(needsYouSessionIds(herd.workspaces, []).size);
