@@ -37,7 +37,7 @@ import type { StoredHostedGrant } from '../../apps/mobile/sources/pairing/applic
 import { LinkFirstClient } from '../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
 import { claimLinkPairing } from '../../apps/mobile/sources/pairing/infrastructure/linkPairClient.js';
 import { SESSION_EVENT_TYPES, type SessionEvent } from '@trymuxr/contract';
-import { parsePairingString } from '../../apps/mobile/sources/pairing/domain/pairingString.js';
+import { decidePairingInput, parsePairingString } from '../../apps/mobile/sources/pairing/domain/pairingString.js';
 
 const home = mkdtempSync(join(tmpdir(), 'muxr-link-pairing-'));
 process.env.MUXR_HOME = home;
@@ -345,7 +345,13 @@ describe('native pairing over the byokit link', () => {
             });
             expect(offer).toMatch(/^https:\/\/[^#]+\/pair#byokit-link:1:/);
             expect(parsePairingString(offer)).toMatchObject({ ok: true, pairing: { authority: 'observe', displayName: 'Desk' } });
-            const stored = await runPhonePairing(offer, { onWords: (words) => { browserWords = words; } });
+            // The app's own pair screen decides the input, then pairs the value
+            // it hands the transport: `link`, not the unwrapped `offer` — the
+            // browser wrapper is what `assertSupportedOffer` accepts on web.
+            const decided = decidePairingInput(offer);
+            expect(decided.ok).toBe(true);
+            if (!decided.ok) return;
+            const stored = await runPhonePairing(decided.link, { onWords: (words) => { browserWords = words; } });
             await pairing;
             expect(browserWords).toBe(computerWords);
             expect(stored.authority).toBe('observe');

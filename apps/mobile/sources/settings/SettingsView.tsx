@@ -248,7 +248,7 @@ export const SettingsView = React.memo(function SettingsView({
                 <Item
                     title="Connection"
                     subtitle={versionMismatch
-                        ? 'App and host versions differ — review updates'
+                        ? `${t('homeNotices.versions')} — ${t('homeNotices.reviewUpdates')}`
                         : 'Health, installed versions and diagnostics for this device and computer'}
                     subtitleLines={0}
                     detail={versionMismatch ? 'Mismatch' : socketStatusText}
