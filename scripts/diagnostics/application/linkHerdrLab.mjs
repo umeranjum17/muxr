@@ -22,10 +22,14 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost) {
     mkdirSync(home, { recursive: true });
     const relayDir = join(root, 'relay');
     const hostDir = join(root, 'host');
-    const env = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1',
+    // A home of its own: on the real one the lab host read the person's agent accounts for plan usage.
+    const labHome = join(root, 'home');
+    mkdirSync(labHome, { recursive: true });
+    const env = { ...process.env, HOME: labHome, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1',
         HERDR_BIN: wrapper, HERDR_BIN_PATH: wrapper, HERDR_SOCKET_PATH: status.server.socket,
         HERDR_SESSION: session };
-    for (const key of ['MUXR_RELAY_URL', 'MUXR_RELAY_TOKEN', 'MUXR_MACHINE_ID', 'MUXR_RELAY_AUTH']) delete env[key];
+    for (const key of ['MUXR_RELAY_URL', 'MUXR_RELAY_TOKEN', 'MUXR_MACHINE_ID', 'MUXR_RELAY_AUTH', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME',
+        'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME']) delete env[key];
     const children = [];
     const start = (args, extra = {}) => {
         const child = spawn(process.execPath, args, { env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
