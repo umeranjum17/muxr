@@ -234,6 +234,16 @@ if (!existsSync(distIndex)) {
     const canvaskitDist = join(mobile, 'dist', 'canvaskit.wasm');
     const canvaskitBytes = existsSync(canvaskitDist) ? statSync(canvaskitDist).size : 0;
     check('dist ships a full canvaskit.wasm', canvaskitBytes > 1024 * 1024, `${canvaskitBytes} bytes`);
+    // The cold landing and pair screen draw no Skia, so CanvasKit (8 MB) must
+    // not be requested before a screen that draws with Skia opens. Its only
+    // load site is the on-demand loader (components/skiaWeb.tsx), called by the
+    // usage charts; the web entry must never call it at startup. The loader is a
+    // dynamic import, so its chunk id is legitimately present in the eager JS
+    // for on-demand use — an eager call site is indistinguishable from a lazy
+    // one at the byte level — so this guard reads the entry source it came from.
+    const webEntrySource = read(join(mobile, 'sources', 'app', '_layout.tsx'));
+    check('web entry never loads CanvasKit at startup',
+        !webEntrySource.includes('react-native-skia/lib/module/web') && !webEntrySource.includes('LoadSkiaWeb'));
     // The browser QR scanner's decoder WASM ships as a hashed same-origin
     // export asset and loads only when scanning starts (never a CDN, never
     // the entry payload).
