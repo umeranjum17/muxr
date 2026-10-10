@@ -60,6 +60,15 @@ user-visible behavior, then exactly four H2 sections in this order:
   standalone-window PWA over the owned relay serving `dist`: boot-registered
   worker, versioned shell, offline reload, self-recovery, and a build update.
 
+- [Pair a lab PWA from a plain-http origin](./lab-browser-pairing.md) —
+  lab-only `__MUXR_LAB_PAIR__` hook that stores the Hosted Grant through
+  `webSecureStore`; the one supported path around the HTTPS-only pair screen,
+  absent from production exports, used by the PWA features below.
+
+- [Show the needs-you count on the installed PWA's app icon](./pwa-badge.md) —
+  a paired lab PWA over a fake herd: recorded `setAppBadge`/`clearAppBadge`
+  calls for `0 → 1 → 2 → 1 → 0`, at 393 px light and dark.
+
 - [See the themed splash on a cold PWA start](./pwa-splash.md) —
   standalone-window PWA over a static `dist`: no-JS first paint, throttled cold
   start in both themes at 393 and 270 px, offline hand-off, native comparison.
