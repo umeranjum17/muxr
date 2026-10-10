@@ -35,8 +35,8 @@ non-default session.
 - Serve the lab-flag export, open the installed-PWA window at 393 px, and pair it
   with `window.__MUXR_LAB_PAIR__(<browser link>)`; reload.
 - Assert the row text: `document.body.innerText` under `Ready · unseen` reads the
-  kind/task (e.g. `opencode · OpenCode`, `Pi`) and matches no
-  `/pph?_[0-9a-f]+/`.
+  kind/task (an unnamed agent reads its kind once, e.g. `opencode`; a named one
+  reads `kind · name`) and matches no `/pph?_[0-9a-f]+/`.
 - Capture Home at 393 px light and dark.
 
 ## Gotchas
@@ -48,3 +48,6 @@ non-default session.
   already-sanitized label/terminalTitle/taskTitle or an id becomes the task.
 - Never assert on a Herdr internal id anywhere; a row must name the agent the way
   the rest of the app does.
+- An unnamed agent's only name is its kind's fallback label, so the who-line
+  names the kind once (`opencode`, never `opencode · OpenCode`); asserting the
+  repeated form would be wrong.
