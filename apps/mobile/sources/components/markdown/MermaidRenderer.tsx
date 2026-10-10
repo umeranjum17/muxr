@@ -4,6 +4,7 @@ import { WebView } from 'react-native-webview';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
+import { loadMermaidWeb } from './loadMermaidWeb';
 
 // Tall diagrams scroll inside a capped container instead of taking over the chat
 const MAX_DIAGRAM_HEIGHT = 600;
@@ -34,8 +35,7 @@ export const MermaidRenderer = React.memo((props: {
 
             const renderMermaid = async () => {
                 try {
-                    const mermaidModule: any = await import('mermaid');
-                    const mermaid = mermaidModule.default || mermaidModule;
+                    const mermaid = await loadMermaidWeb();
 
                     if (mermaid.initialize) {
                         mermaid.initialize({
