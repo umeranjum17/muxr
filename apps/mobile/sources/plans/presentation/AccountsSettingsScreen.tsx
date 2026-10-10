@@ -68,8 +68,11 @@ export function AccountsSettingsScreen() {
         { text: 'Cancel', style: 'cancel' },
     ]);
 
-    // At 270 dp the email keeps one ellipsized line; the usage gets its own line and wraps between whole
-    // words rather than cutting the plan name. A no-break space keeps each "·" with the word before it.
+    // Accounts of one provider must stay tellable apart at the largest text size:
+    // the name wraps to two lines and the email wraps in full, rather than both
+    // truncating to one shared prefix. The usage line beneath differs between
+    // accounts that share a name and email. A no-break space keeps each "·"
+    // with the word before it.
     const subtitle = (account: PlanAccount): string | undefined => (account.signedIn ? account.email : 'Signed out');
     const facts = (account: PlanAccount): string | undefined => {
         if (!account.signedIn) return undefined;
@@ -99,8 +102,9 @@ export function AccountsSettingsScreen() {
                                 selected={account.id === landed}
                                 style={account.id === landed ? { backgroundColor: theme.colors.surfacePressed } : undefined}
                                 title={account.name}
+                                titleLines={2}
                                 subtitle={subtitle(account)}
-                                subtitleLines={1}
+                                subtitleLines={0}
                                 meta={facts(account)}
                                 metaLines={0}
                                 icon={<Ionicons
