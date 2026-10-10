@@ -199,15 +199,17 @@ setInterval(() => {}, 1000);
         const screenFile = join(dir, 'screen.txt');
         const stateFile = join(dir, 'state.json');
         writeFileSync(bin, `#!/usr/bin/env node
-import { writeFileSync } from 'node:fs';
+import { renameSync, writeFileSync } from 'node:fs';
+// Whole files only: the host and the test read them while this paints.
+const save = (path, text) => { writeFileSync(path + '.tmp', text); renameSync(path + '.tmp', path); };
 const lines = Array.from({ length: 200 }, (_, i) => 'line ' + (i + 1));
 let back = 0;
 let moved = 0;
 const paint = (full) => {
     const end = lines.length - back;
     const body = lines.slice(end - 8, end);
-    writeFileSync(${JSON.stringify(screenFile)}, ['OPENCODE', ...body, 'ask anything'].join('\\n'));
-    writeFileSync(${JSON.stringify(stateFile)}, JSON.stringify({ back, moved }));
+    save(${JSON.stringify(screenFile)}, ['OPENCODE', ...body, 'ask anything'].join('\\n'));
+    save(${JSON.stringify(stateFile)}, JSON.stringify({ back, moved }));
     process.stdout.write(JSON.stringify({ type: 'terminal.frame', full, bytes: Buffer.from(body.at(-1)).toString('base64') }) + '\\n');
 };
 paint(true);
