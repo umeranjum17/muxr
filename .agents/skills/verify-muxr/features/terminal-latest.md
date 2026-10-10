@@ -2,17 +2,19 @@
 
 A finger drag moves a pane's output with the finger, in every kind of pane, and
 Latest brings it back to the newest output, also while the agent is still
-printing. Inline agents (Codex, pi) and the shell scroll in Herdr's own
-scrollback. Full-screen agents (OpenCode, Claude Code) scroll themselves: muxr
-turns the drag into wheel reports sized to how far that program moves per
-report. Latest is muxr's pill under the terminal everywhere except Claude Code,
-which draws its own `Jump to bottom`.
+printing. A shell (and an agent printing inline) scrolls in Herdr's own
+scrollback. Full-screen agents (OpenCode, Claude Code, and current Codex and pi)
+scroll themselves: muxr turns the drag into wheel reports sized to how far that
+program moves per report. Latest is muxr's pill under the terminal, except in
+Claude Code and Codex, whose own way back (`Jump to bottom`, `Back to bottom` on
+esc) stays the only one. pi's own needs Ctrl+End, which the key row cannot send,
+so pi gets the pill beside its hint.
 
 ## Sub-features
 
 - `latest-drag` a slow drag back moves the text about as far as the finger, not two or three times further.
 - `latest-fling` a fling keeps going back; nothing jumps or stutters.
-- `latest-pill` once scrolled back, the pill reads `Latest` (accessibility label `Jump to latest output`); none in Claude Code, which shows its own `Jump to bottom`.
+- `latest-pill` once scrolled back, the pill reads `Latest` (accessibility label `Jump to latest output`); none in Claude Code or Codex, which show their own.
 - `latest-reach` tapping it lands on the newest line, and the pill goes away.
 - `latest-streaming` the same while the agent is still printing: the pane lands on the live edge and keeps following new lines; the pill does not stay on `Still catching up`.
 - `latest-split` all of the above with the app in half of a split screen (iPad Split View, Android split screen).

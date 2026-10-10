@@ -33,8 +33,11 @@ const stubUrl = await new Promise((resolve) => stub.stdout.on('data', (chunk) =>
 }));
 
 // The host's owner socket offers one native pairing and approves the device that takes it.
+// A new offer drops the last one, which may have run out before the device took it.
+let offering;
 const mintNativePairing = (path) => new Promise((resolve, reject) => {
-    const socket = createConnection(path);
+    offering?.destroy();
+    const socket = offering = createConnection(path);
     let pending = '';
     socket.on('error', reject);
     socket.on('connect', () => socket.write('{"intent":{"kind":"native","authority":"control","personal":false}}\n'));
