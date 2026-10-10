@@ -152,11 +152,11 @@ const RAIL_FADE = 32;
 const SCROLLED_AWAY = new Set<string>();
 /**
  * Full-screen agents whose own way back to the newest output the phone can
- * reach: Claude Code's 'Jump to bottom' and Codex's 'Back to bottom' (esc on the
- * key row). pi's needs Ctrl+End, which the key row cannot send, and OpenCode
- * draws none, so both get muxr's Latest.
+ * reach: Codex's 'Back to bottom' is esc on the key row. Claude Code's and pi's
+ * need Ctrl+End, which the key row cannot send, and OpenCode draws none, so
+ * those get muxr's Latest.
  */
-const DRAWS_OWN_LATEST = new Set(['claude', 'codex']);
+const DRAWS_OWN_LATEST = new Set(['codex']);
 /** What the terminal answers for the program unasked: focus, cursor, mode, colour and mouse reports. */
 /** The menu row that opens a pane's device preview, per kind. */
 const WATCH_LABEL = { android: 'preview.watchAndroid', ios: 'preview.watchIos' } as const;
@@ -385,7 +385,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
      * the view back from the edge. A program on the alternate screen scrolls
      * itself and Herdr reports no scrollback for it, so there Latest shows
      * while the user has scrolled it back -- unless the program draws its own
-     * way back (DRAWS_OWN_LATEST), which a second control would sit beside.
+     * way back the phone can reach (DRAWS_OWN_LATEST), which a second control would sit beside.
      */
     const [catchingUp, setCatchingUp] = React.useState(false);
     const [showJump, setShowJump] = React.useState(false);

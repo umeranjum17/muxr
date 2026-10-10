@@ -35,23 +35,25 @@ const stubUrl = await new Promise((resolve) => stub.stdout.on('data', (chunk) =>
 // The host's owner socket offers one native pairing and approves the device that takes it.
 // A new offer drops the last one, which may have run out before the device took it.
 let offering;
-const mintNativePairing = (path) => new Promise((resolve, reject) => {
-    offering?.destroy();
-    const socket = offering = createConnection(path);
-    let pending = '';
-    socket.on('error', reject);
-    socket.on('connect', () => socket.write('{"intent":{"kind":"native","authority":"control","personal":false}}\n'));
-    socket.on('data', (chunk) => {
-        pending += String(chunk);
-        for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
-            const event = JSON.parse(pending.slice(0, end));
-            pending = pending.slice(end + 1);
-            if (event.offer) resolve({ code: event.offer.text });
-            if (event.approval) { socket.write('{"yes":true}\n'); mark('device paired'); }
-            if (event.error) reject(new Error(event.error));
-        }
+const mintNativePairing = async (path) => {
+    if (offering && !offering.destroyed) { offering.destroy(); await sleep(500); }
+    return new Promise((resolve, reject) => {
+        const socket = offering = createConnection(path);
+        let pending = '';
+        socket.on('error', reject);
+        socket.on('connect', () => socket.write('{"intent":{"kind":"native","authority":"control","personal":false}}\n'));
+        socket.on('data', (chunk) => {
+            pending += String(chunk);
+            for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
+                const event = JSON.parse(pending.slice(0, end));
+                pending = pending.slice(end + 1);
+                if (event.offer) resolve({ code: event.offer.text });
+                if (event.approval) { socket.write('{"yes":true}\n'); mark('device paired'); }
+                if (event.error) reject(new Error(event.error));
+            }
+        });
     });
-});
+};
 
 const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'latest-'));
 const workdir = join(root, 'work');

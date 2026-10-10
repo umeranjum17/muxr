@@ -6,15 +6,15 @@ printing. A shell (and an agent printing inline) scrolls in Herdr's own
 scrollback. Full-screen agents (OpenCode, Claude Code, and current Codex and pi)
 scroll themselves: muxr turns the drag into wheel reports sized to how far that
 program moves per report. Latest is muxr's pill under the terminal, except in
-Claude Code and Codex, whose own way back (`Jump to bottom`, `Back to bottom` on
-esc) stays the only one. pi's own needs Ctrl+End, which the key row cannot send,
-so pi gets the pill beside its hint.
+Codex, whose own `Back to bottom` (esc on the key row) stays the only one.
+Claude Code's and pi's own hints need Ctrl+End, which the key row cannot send,
+so they get the pill beside the hint.
 
 ## Sub-features
 
 - `latest-drag` a slow drag back moves the text about as far as the finger, not two or three times further.
 - `latest-fling` a fling keeps going back; nothing jumps or stutters.
-- `latest-pill` once scrolled back, the pill reads `Latest` (accessibility label `Jump to latest output`); none in Claude Code or Codex, which show their own.
+- `latest-pill` once scrolled back, the pill reads `Latest` (accessibility label `Jump to latest output`); none in Codex, whose `Back to bottom` is esc on the key row.
 - `latest-reach` tapping it lands on the newest line, and the pill goes away.
 - `latest-streaming` the same while the agent is still printing: the pane lands on the live edge and keeps following new lines; the pill does not stay on `Still catching up`.
 - `latest-split` all of the above with the app in half of a split screen (iPad Split View, Android split screen).
@@ -62,3 +62,8 @@ Preconditions:
 - On iOS, a `muxr://` link opened by the system goes to whichever muxr app
   claims the scheme; launch the payload against the exact bundle id instead.
 - The lab never prints the pairing offer to its logs; keep it that way.
+- iPad Split View cannot be set up by XCUITest: picking the second app opens it
+  full screen. Cover split width with Android split screen instead; the step per
+  wheel report is measured from the pane's text, so it does not depend on width.
+- Start an emulator on its own console port and check nothing else owns the
+  next one: another lane's emulator on it answers your `adb -s` serial.
