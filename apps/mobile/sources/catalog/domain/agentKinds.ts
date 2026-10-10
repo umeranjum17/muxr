@@ -1,3 +1,5 @@
+import type { AgentInstallState } from '@trymuxr/contract';
+
 /** Persistence keeps this superset so existing sessions remain readable offline.
  * Missing host kinds also use it for install guidance, never as proof of
  * installation; only the host's installed list makes a kind selectable. */
@@ -12,6 +14,7 @@ export type AgentAvailability = 'installed' | 'unavailable' | 'unknown';
 export type AgentCatalogOption = {
     kind: string;
     availability: AgentAvailability;
+    installState?: AgentInstallState;
     signedIn?: 'yes' | 'no' | 'unknown';
     installHint?: string;
     signInHint?: string;
@@ -20,7 +23,7 @@ export type AgentCatalogOption = {
 export function resolveAgentCatalog(result: {
     kinds?: string[];
     installed?: string[];
-    readiness?: Record<string, { signedIn: 'yes' | 'no' | 'unknown'; installHint?: string; signInHint?: string }>;
+    readiness?: Record<string, { signedIn: 'yes' | 'no' | 'unknown'; installState?: AgentInstallState; installHint?: string; signInHint?: string }>;
 }): { options: AgentCatalogOption[]; authoritative: boolean } {
     const kinds = [...new Set((result.kinds ?? []).filter((kind) => /^[a-z][a-z0-9_-]{0,31}$/.test(kind)))].slice(0, 64);
     const authoritative = Array.isArray(result.installed);

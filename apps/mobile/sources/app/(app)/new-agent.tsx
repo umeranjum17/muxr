@@ -35,6 +35,7 @@ import {
 import { resolveAgentCatalog, type AgentCatalogOption, type NewSessionAgentType } from '@/catalog';
 import { useDeviceAuthority } from '@/pairing';
 import {
+    agentInstallPhase,
     agentName,
     agentReadinessLabel,
     defaultAgentKind,
@@ -317,6 +318,11 @@ export default function NewAgentScreen() {
         : catalog.filter((option) => option.availability === 'installed');
     const directory = cwd.trim();
     const ready = directory !== '' && kinds.length > 0;
+    // A single agent whose CLI installs on first start (the kit's probe) says
+    // so on the Start control while the computer installs it.
+    const installPhase = busy && kinds.length === 1
+        ? agentInstallPhase(catalog.find((option) => option.kind === kinds[0]))
+        : undefined;
 
     const start = React.useCallback(async () => {
         if (kinds.length === 0) {
@@ -540,7 +546,9 @@ export default function NewAgentScreen() {
                     style={[styles.startButton, !ready && styles.startButtonDisabled]}
                 >
                     {busy ? (
-                        <ActivityIndicator color={theme.colors.button.primary.tint} />
+                        installPhase === undefined
+                            ? <ActivityIndicator color={theme.colors.button.primary.tint} />
+                            : <Text style={styles.startButtonText}>{installPhase}…</Text>
                     ) : (
                         <Text style={[styles.startButtonText, !ready && styles.startButtonTextDisabled]}>
                             {startButtonLabel(kinds, directory)}

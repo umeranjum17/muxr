@@ -27,6 +27,7 @@ export type LayoutSnapshot =
       };
 
 import type {
+    AgentInstallState,
     LifecycleNotificationLevel,
     MachineInfo,
     SessionSnapshot,
@@ -388,6 +389,8 @@ export interface RequestMap extends PeerRequestMap {
             installed?: string[];
             readiness?: Record<string, {
                 signedIn: 'yes' | 'no' | 'unknown';
+                /** The kit's install probe: a real binary, a first-start auto-installer, or absent. */
+                installState?: AgentInstallState;
                 installHint?: string;
                 signInHint?: string;
             }>;
