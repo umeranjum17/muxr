@@ -144,6 +144,7 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
     try {
         result = await claimLinkPairing(current, { ...options,
             onClaimed: () => persist({ ...current, claimed: true }),
+            onPending: (grant) => persist({ ...current, host: grant.host }),
             onProven: (answer) => persist({ ...current, answer }),
         });
     } catch (cause) {
