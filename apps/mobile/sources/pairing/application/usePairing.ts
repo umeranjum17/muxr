@@ -22,7 +22,7 @@ export function useHostedPairing() {
             Modal.alert(decided.expired ? 'Pairing code expired' : 'Pairing code not usable', decided.message);
             return;
         }
-        router.push({ pathname: '/pair', params: { offer: decided.offer } });
+        router.push({ pathname: '/pair', params: { offer: decided.link } });
     }, [router]);
 }
 

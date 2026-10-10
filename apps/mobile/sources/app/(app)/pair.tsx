@@ -113,10 +113,12 @@ export default function PairScreen() {
                 setState({ phase: 'error', message: decided.message });
                 return;
             }
-            const offer = decided.offer;
-            setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
-            void linkPairMachineName(offer).then((name) => {
-                if (name !== undefined) setState((current) => current?.url === offer ? { ...current, machineName: name } : current);
+            // `link` is what pairing accepts: the HTTPS wrapper for a browser
+            // link (the web guard requires it), the inner offer otherwise.
+            const link = decided.link;
+            setState({ phase: 'confirm', url: link, machineName: 'your computer', linkOffer: true });
+            void linkPairMachineName(link).then((name) => {
+                if (name !== undefined) setState((current) => current?.url === link ? { ...current, machineName: name } : current);
             }).catch(() => undefined);
         }).catch(() => undefined);
     }, [auth.isAuthenticated, router]);
@@ -155,10 +157,9 @@ export default function PairScreen() {
         // Link offers pair over the running machine; Direct SSH uses its own route.
         const decided = decidePairingInput(url);
         if (!decided.ok) throw new PairingNeedsNewCode(decided.message);
-        const offer = decided.offer;
         const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput);
         if (tunnel !== undefined && !tunnel.ok) throw new Error(tunnel.message);
-        const paired = await pairLinkOffer(offer, auth, {
+        const paired = await pairLinkOffer(decided.link, auth, {
             tunnelPort: tunnel?.ok ? tunnel.localPort : undefined,
             confirm: async () => true,
             onProgress: setProgress,
