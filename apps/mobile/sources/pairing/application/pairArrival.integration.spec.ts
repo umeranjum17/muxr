@@ -12,7 +12,7 @@ const harness = vi.hoisted(() => ({
     params: {} as { offer?: string; source?: string },
     receive: undefined as ((event: { url: string }) => void) | undefined,
     router: { replace: vi.fn(), back: vi.fn() },
-    camera: { available: false, fails: false, launches: 0, scanned: undefined as ((event: { data: string }) => void) | undefined },
+    camera: { available: false, fails: undefined as string | undefined, launches: 0, scanned: undefined as ((event: { data: string }) => void) | undefined },
 }));
 
 vi.mock('react-native', () => ({
@@ -56,7 +56,7 @@ vi.mock('expo-camera', () => ({
         },
         launchScanner: async () => {
             harness.camera.launches += 1;
-            if (harness.camera.fails) throw new Error('scanner unsupported');
+            if (harness.camera.fails) throw Object.assign(new Error('scanner rejected'), { code: harness.camera.fails });
         },
         dismissScanner: async () => undefined,
     },
@@ -283,7 +283,7 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     harness.secureValues.clear();
     harness.asyncValues.clear();
     Object.assign(harness, { authenticated: false, declined: false, claims: 0, initialUrl: null });
-    Object.assign(harness.camera, { available: true, fails: false });
+    Object.assign(harness.camera, { available: true, fails: undefined });
     const mod = await modules();
     type ScreenNode = { type: unknown; props: Record<string, unknown> };
     let screen!: ReturnType<typeof mod.renderer.create>;
@@ -345,8 +345,12 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     expect(cantScan()).toHaveLength(1);
     await close();
     harness.camera.available = true;
-    harness.camera.fails = true;
     await open({});
+    // Backing out of the scanner is not a failure: Scan still leads.
+    harness.camera.fails = 'ERR_BARCODE_SCANNING_CANCELLED';
+    await press('Scan the QR');
+    expect(labels()[0]).toBe('Scan the QR');
+    harness.camera.fails = 'ERR_CAMERA_SCANNER_UNAVAILABLE';
     await press('Scan the QR');
     expect(labels()).not.toContain('Scan the QR');
     expect(cantScan()).toHaveLength(1);

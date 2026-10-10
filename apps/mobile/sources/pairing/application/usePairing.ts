@@ -199,10 +199,15 @@ export function usePairQrScanner(onScanned: (url: string) => void, enabled: bool
         pendingScan = stableHandler;
         try {
             await CameraView.launchScanner({ barcodeTypes: ['qr'] });
-        } catch {
+        } catch (error) {
             if (pendingScan === stableHandler) pendingScan = null;
-            scannerFailed = true;
-            scannerListeners.forEach((listener) => listener());
+            // Android rejects when the person backs out of the scanner: not a failure.
+            const code = (error as { code?: string } | null)?.code;
+            if (code === 'ERR_BARCODE_SCANNING_CANCELLED') return;
+            if (code !== 'ERR_BARCODE_SCANNING_FAILED') {
+                scannerFailed = true;
+                scannerListeners.forEach((listener) => listener());
+            }
             Modal.alert('Camera scanner unavailable', 'The system QR scanner could not open. Enter the pairing string instead, or try again on a device with a working camera scanner.');
         }
     }, [checkScannerPermissions, stableHandler]);
