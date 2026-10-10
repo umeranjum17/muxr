@@ -363,7 +363,7 @@ export const zhHans: TranslationStructure = {
     },
 
     homeNotices: {
-        // Quiet notices at the top of Home
+        // Quiet notices on Home (the runtime notice leads; the version line sits at the foot)
         versions: '应用和电脑的版本不一致',
         reviewUpdates: '查看更新',
         runtimeOffline: ({ name }: { name: string }) => `herdr 在 ${name} 上没有响应`,

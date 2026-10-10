@@ -379,7 +379,7 @@ export const en = {
     },
 
     homeNotices: {
-        // Quiet notices at the top of Home
+        // Quiet notices on Home (the runtime notice leads; the version line sits at the foot)
         versions: 'App and computer versions differ',
         reviewUpdates: 'Review updates',
         runtimeOffline: ({ name }: { name: string }) => `herdr isn't answering on ${name}`,

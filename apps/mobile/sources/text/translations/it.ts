@@ -360,7 +360,7 @@ export const it: TranslationStructure = {
     },
 
     homeNotices: {
-        // Quiet notices at the top of Home
+        // Quiet notices on Home (the runtime notice leads; the version line sits at the foot)
         versions: 'Le versioni dell\'app e del computer differiscono',
         reviewUpdates: 'Controlla gli aggiornamenti',
         runtimeOffline: ({ name }: { name: string }) => `herdr non risponde su ${name}`,
