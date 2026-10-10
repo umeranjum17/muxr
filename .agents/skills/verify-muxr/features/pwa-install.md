@@ -15,6 +15,9 @@ install path), so nobody is invited to install something already installed.
 - iOS Safari (including iPadOS): row titled `Install muxr`, subtitle
   `Add it to your Home Screen for a full-screen app and alerts.`, opening a
   bottom sheet with the Share → Add to Home Screen steps and the push benefit.
+- After the person dismisses Chromium's prompt, the row keeps its place with
+  the line `Open your browser menu and choose Install app.` (no tap action); the
+  saved prompt cannot be shown twice.
 - Hidden on native (`Platform.OS !== 'web'`), when standalone/`appinstalled`,
   and in a browser that offers no install path (a manifest that is not
   installable).
@@ -71,5 +74,8 @@ host. Build and serve the export:
 - A `maxHeight: '82%'` on a sheet resolves against its own content height in
   the web modal and clips the scroll body; bound it from the window height
   instead and keep the close action out of the scroll area.
-- Native is unchanged by construction: `getWebInstallState()` returns `native`
-  off web, so no install row ever paints on a phone or tablet build.
+- Native is unchanged by construction: `getWebInstallState()` returns
+  `unavailable` off web, so no install row ever paints on a phone or tablet build.
+- An iOS Safari tab without the Home Screen app also gets the Settings
+  Notifications row `Needs muxr on your Home Screen first` instead of a push
+  switch; assert it there too.
