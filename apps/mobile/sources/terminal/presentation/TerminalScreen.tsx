@@ -1682,7 +1682,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                     })}
                                 >
                                     <Ionicons name="arrow-down" size={13} color={theme.colors.text} />
-                                    <Text style={{ color: theme.colors.text, fontSize: 11, fontWeight: '600' }}>{catchingUp ? 'Still catching up' : 'Latest'}</Text>
+                                    {/* The row keeps one height, so the largest text sizes would cut the label off. */}
+                                    <Text maxFontSizeMultiplier={1.5} style={{ color: theme.colors.text, fontSize: 11, fontWeight: '600' }}>{catchingUp ? 'Still catching up' : 'Latest'}</Text>
                                 </Pressable>
                             </Animated.View>
                         )}
