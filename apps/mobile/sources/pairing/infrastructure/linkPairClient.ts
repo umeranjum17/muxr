@@ -9,11 +9,10 @@ import {
     keyPairFrom,
     pairWithOffer,
     parseOffer,
-    parseV1Offer,
     unb64url,
     type DeviceGrant as LinkDeviceGrant,
 } from '@byokit/link';
-import { isCompactOfferText, linkOfferExpired, PairingNeedsNewCode, readOffer } from '../domain/pairingString';
+import { linkOfferExpired, PairingNeedsNewCode, readOffer } from '../domain/pairingString';
 
 /**
  * The byokit pairing protocol, behind one port: application code asks this
@@ -27,6 +26,8 @@ export interface LinkPairPending {
     name: string;
     /** base64url; persisted by the caller before the first connection. */
     secretKey: string;
+    /** base64url; the host key the code handshake authenticated, persisted before the host can approve this device so a resume pins the same computer (v1 and compact). */
+    host?: string;
     /** The machine details, persisted once this key proved itself and before `pair.verified` is sent. */
     answer?: LinkPairAnswer;
 }
@@ -128,7 +129,7 @@ function openLink(grant: LinkDeviceGrant, timeoutMs: number, route?: (url: strin
  * machine's real link. The proof only settles once the machine's link served
  * this key, so the caller learns the pairing truly reached the computer.
  */
-export async function claimLinkPairing(pending: LinkPairPending, options: { mode: 'claim' | 'resume'; onWords?: (words: string) => void; tunnelPort?: number; onClaimed?: () => Promise<void>; onProven?: (answer: LinkPairAnswer) => Promise<void> }): Promise<LinkPairAnswer & { key: ReturnType<typeof keyPairFrom> }> {
+export async function claimLinkPairing(pending: LinkPairPending, options: { mode: 'claim' | 'resume'; onWords?: (words: string) => void; tunnelPort?: number; onClaimed?: () => Promise<void>; onPending?: (grant: LinkDeviceGrant) => Promise<void>; onProven?: (answer: LinkPairAnswer) => Promise<void> }): Promise<LinkPairAnswer & { key: ReturnType<typeof keyPairFrom> }> {
     const resolve = options.tunnelPort === undefined ? undefined : (url: string) => {
         const target = new URL(url);
         target.protocol = 'ws:';
@@ -144,25 +145,52 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
             // A fresh scan claims the single-use ticket; a resumed phone was
             // already approved, so it reconnects by its key alone — the ticket
             // burned on the first connection. The kit's pairWithOffer reads
-            // both the full v1 offer and the compact offer.
+            // both the full v1 offer and the compact offer; onPending hands us
+            // the host key (the code handshake authenticated it) before the
+            // host can approve, so a kill here still leaves a pinned pending
+            // grant to resume from.
             claim = await pairWithOffer(pending.scanned, {
                 name: pending.name,
                 key,
                 onWords: (words) => { wordsShown = true; options.onWords?.(words); },
+                ...(options.onPending === undefined ? {} : { onPending: (grant) => options.onPending!(grant) }),
                 ...(resolve === undefined ? {} : { resolve }),
             });
-        } else if (isCompactOfferText(pending.scanned)) {
-            // The compact form carries no host key and the kit's pendingGrant
-            // resume is v1-only: a phone killed before approval rescans.
-            throw new PairingNeedsNewCode(NOT_FINISHED);
         } else {
-            // By key alone, past the code's expiry and with no grace for a key
-            // the computer does not know: either it approved this key, or the
-            // pairing it belonged to is over. Only a version 1 offer carries a host key,
-            // so resuming by key is a version 1 path.
-            const offer = parseV1Offer(pending.scanned, 0);
-            claim = { v: 1, secretKey: pending.secretKey, host: offer.host, hostName: offer.name, urls: offer.urls,
-                device: { id: '', name: pending.name, role: offer.role ?? 'view' } };
+            // By key alone, past the code's expiry: either the computer
+            // approved this key, or the pairing it belonged to is over. The
+            // offer is read without its expiry check, because a phone killed
+            // before approval must still resume after the code has run out;
+            // the stored host key pins the computer either way — for a compact
+            // offer that is its only source — so a resume refuses a different
+            // computer.
+            const offer = parseOffer(pending.scanned, 0);
+            const fromOffer = 'host' in offer ? offer.host : undefined;
+            let host = fromOffer;
+            if (pending.host !== undefined) {
+                let given: Uint8Array;
+                try { given = unb64url(pending.host); }
+                catch { throw new LinkError('wrong-host'); }
+                if (given.length !== 32 || (fromOffer !== undefined && fromOffer !== b64url(given))) throw new LinkError('wrong-host');
+                host = b64url(given);
+            }
+            if (host === undefined) throw new Error(NOT_FINISHED);
+            const rebuilt: LinkDeviceGrant = {
+                v: 1,
+                secretKey: pending.secretKey,
+                pendingUntil: offer.expires + 300_000,
+                host,
+                hostName: offer.name,
+                urls: offer.urls,
+                device: { id: '', name: pending.name, role: offer.role ?? 'view' },
+            };
+            // A pending grant stays open through the person's decision window so
+            // a phone killed before approval waits for its yes. Once the
+            // computer has answered, the decision is past: a `not-paired` now
+            // means the pairing was rolled back, so drop the pending marker and
+            // detect the removal at once.
+            if (pending.answer === undefined) claim = rebuilt;
+            else { const { pendingUntil: _decisionOpen, ...answered } = rebuilt; claim = answered; }
         }
     } catch (cause) {
         // The computer only grants a device whose link is still open when it
