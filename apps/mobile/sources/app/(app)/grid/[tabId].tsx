@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { sync } from '@/catalog/sync';
-import { useHerdrTree } from '@/catalog/store';
+import { useHerdrTree, useLiveAgentIds } from '@/catalog/store';
 import { tabLabel, useNavigateToSession } from '@/herd';
 import { PaneMap } from '@/herd/ui';
 
@@ -21,6 +21,7 @@ export default React.memo(() => {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
     const { workspaces, loaded } = useHerdrTree();
+    const { pendingIds } = useLiveAgentIds();
     const navigate = useNavigateToSession();
     React.useEffect(() => { void sync.refreshHerdTree().catch(() => undefined); }, [tabId]);
     const owner = workspaces.find((workspace) => workspace.tabs.some((tab) => tab.tabId === tabId));
@@ -45,7 +46,7 @@ export default React.memo(() => {
             <ScrollView contentContainerStyle={{ padding: 16 }}>
                 {tab === undefined || tab.panes.length === 0
                     ? <Text style={{ color: theme.colors.textSecondary, textAlign: 'center', paddingVertical: 32 }}>{loaded ? 'No panes in this tab' : 'Loading panes…'}</Text>
-                    : <PaneMap tab={tab} canClose={false} onOpen={(pane) => { if (pane.sessionId !== undefined) navigate(pane.sessionId); }} onClose={() => undefined} />}
+                    : <PaneMap tab={tab} pendingRequestIds={pendingIds} canClose={false} onOpen={(pane) => { if (pane.sessionId !== undefined) navigate(pane.sessionId); }} onClose={() => undefined} />}
             </ScrollView>
         </View>
     );
