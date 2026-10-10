@@ -249,10 +249,10 @@ export const HerdView = React.memo(({
                         ) : (
                             <>
                                 {canScan && <>
-                                    <ActionButton title="Scan the QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
+                                    <ActionButton title="Scan the QR" icon="qr-code-outline" wrap onPress={() => void scanPairQr()} />
                                     <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
                                 </>}
-                                <ActionButton title="Enter pairing string" variant={canScan ? 'secondary' : 'primary'} icon="keypad-outline" onPress={() => router.push('/pair')} />
+                                <ActionButton title="Enter pairing string" variant={canScan ? 'secondary' : 'primary'} icon="keypad-outline" wrap onPress={() => router.push('/pair')} />
                                 <Text style={styles.routeHint}>{canScan ? 'For a computer you are not standing at.' : `This ${pairingDeviceNoun()} can't scan a QR, so paste the pairing string from muxr pair.`}</Text>
                             </>
                         )}

@@ -41,4 +41,8 @@ Preconditions:
 
 - expo-camera's `isModernBarcodeScannerAvailable` is true on any iOS 16+, including a simulator and pre-A12 hardware; only `launchScanner` finds out, by throwing. The app treats a simulator as no camera and remembers a failed launch for the session.
 - Android's Google code scanner needs no camera permission; iOS asks on the first tap.
-- A native offer expires in about two minutes; re-mint before each capture of a valid code.
+- A native offer expires in about two minutes; re-mint before each capture of a valid code. Pasting or linking a code that has not run out yet goes to consent, not the expired error: check `expires` in the decoded offer first.
+- Backing out of the Android scanner rejects with `ERR_BARCODE_SCANNING_CANCELLED`; that must leave the page alone (no alert, Scan still leads). On iPad the scanner is a popover, and tapping outside it closes it the same way.
+- The lab's offers name only `ws://127.0.0.1:<relay>`, so a device off this machine (the Mac lab's iPad) reaches consent and then "Can't reach your computer": that is the `scan-retry` state, not a bug. Android reaches it through `adb reverse`.
+- A camera lying face down sees black: the scanner opens but cannot read anything. Use the emulator's image camera or a device pointed at a screen for the real scan.
+- On iPad, a "Pairing string" field already holding a code keeps it after **Enter another code**; typing appends. Open an expired code with a bundle-targeted launch link instead (`devicectl device process launch --payload-url … <QA bundle id>`), never a bare `muxr://` open.

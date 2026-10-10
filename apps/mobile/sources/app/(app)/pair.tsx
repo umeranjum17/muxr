@@ -323,8 +323,8 @@ export default function PairScreen() {
                     <>
                         <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
                         <ActionButton title="Try again" icon="refresh-outline" onPress={confirm} />
-                        {canScan && <ActionButton title="Scan a new code" variant="secondary" icon="qr-code-outline" onPress={() => void scanPairQr()} />}
-                        <ActionButton title="Enter another code" variant="secondary" icon="keypad-outline" onPress={() => setState(undefined)} />
+                        {canScan && <ActionButton title="Scan a new code" variant="secondary" icon="qr-code-outline" wrap onPress={() => void scanPairQr()} />}
+                        <ActionButton title="Enter another code" variant="secondary" icon="keypad-outline" wrap onPress={() => setState(undefined)} />
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
                 ) : (
@@ -373,7 +373,7 @@ export default function PairScreen() {
                         )}
                         {canScan && !sshRoute && (
                             <>
-                                <ActionButton title={state?.phase === 'error' ? 'Scan a new code' : 'Scan the QR'} icon="qr-code-outline" onPress={() => void scanPairQr()} />
+                                <ActionButton title={state?.phase === 'error' ? 'Scan a new code' : 'Scan the QR'} icon="qr-code-outline" wrap onPress={() => void scanPairQr()} />
                                 <Text style={styles.routeHint}>{state?.phase === 'error'
                                     ? 'On your computer, run muxr pair for a new code.'
                                     : `Run muxr pair on your computer, then point this ${pairingDeviceNoun()} at the QR it shows.`}</Text>
