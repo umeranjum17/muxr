@@ -7,9 +7,10 @@
 import { createConnection } from 'node:net';
 import { startFakeStack } from './perf/lib/fakeStack.mjs';
 
-// No status churn: the lab drives the two agents' status itself so a proof can
-// hold the exact needs-you count it wants.
-const stack = await startFakeStack({ transport: 'loopback', panes: 2, agents: 2, titleChurnHz: 0 });
+// No status churn: the lab drives the agents' status itself so a proof can
+// hold the exact needs-you count it wants. LAB_AGENTS raises the herd above two.
+const agents = Number(process.env.LAB_AGENTS ?? 2);
+const stack = await startFakeStack({ transport: 'loopback', panes: agents, agents, titleChurnHz: 0 });
 let pairing;
 const stop = (code = 0) => { pairing?.release(); stack.stop(); process.exit(code); };
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => stop());
@@ -58,6 +59,18 @@ const drive = async () => {
     console.log('drive: done');
 };
 process.on('SIGUSR2', () => void drive().catch((error) => console.error(error)));
+
+// A stdin line `<agent number> <status>` ("1 blocked", "3 idle") sets one
+// agent's lifecycle, for a proof that needs its own order and holds.
+process.stdin.setEncoding('utf8').on('data', (chunk) => {
+    for (const line of chunk.split('\n').map((text) => text.trim()).filter(Boolean)) {
+        const [index, status] = line.split(/\s+/);
+        const pane = stack.world.agents[Number(index) - 1]?.pane_id;
+        if (pane === undefined || status === undefined) { console.error(`set: no agent ${index}`); continue; }
+        void rpc('lab.set_agent_status', { pane_id: pane, agent_status: status })
+            .then(() => console.log(`set: ${pane} ${status}`), (error) => console.error(error));
+    }
+});
 
 console.log(`lab ready: relay port ${stack.relayPort}, agent panes ${stack.world.agents.map((a) => a.pane_id).join(',')}, pid ${process.pid}`);
 try {

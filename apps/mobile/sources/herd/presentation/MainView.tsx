@@ -527,7 +527,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
                     {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} />}
                     <HomeWebInstallInvite />
                     {!splitRecovering && !splitBusy
-                        ? <LiveTerminalsRow showZeroState={!splitEmpty} visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} cardBadge={liveCardBadge} /> : null}
+                        ? <LiveTerminalsRow showZeroState={!splitEmpty} cardBadge={liveCardBadge} /> : null}
                     {splitEmpty ? <HomeEmptyState />
                         : homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitRecovering && socketStatus.status === 'connected'
                             ? <HomeDiscoveryRows /> : null}

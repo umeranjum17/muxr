@@ -60,7 +60,10 @@ const workspaces: HerdrTreeWorkspace[] = [{
     tabs: [{ tabId: 't', focused: true, agentStatus: 'idle', panes: [pane('a', 'left'), pane('b', 'right')] }],
 }];
 
-vi.mock('@/catalog/store', () => ({ useHerdrTree: () => ({ workspaces, loaded: true }) }));
+vi.mock('@/catalog/store', () => ({
+    useHerdrTree: () => ({ workspaces, loaded: true }),
+    useLiveAgentIds: () => ({ needsYouIds: new Set<string>(), pendingIds: new Set<string>() }),
+}));
 
 async function renderSheet() {
     request.mockImplementation(async (type: string) => type === 'herdr.layout'

@@ -5,6 +5,7 @@ import { agentCounts, buildSpaceRows, defaultExpandedSpaces, displayedWorkspaceN
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@trymuxr/contract';
 import { agentKindLabel, agentLabels, agentWhoLine, isShellLabels } from './agentPresentation';
 import { paneMapTiles } from './paneMap';
+import { agentNeedsYou } from './recentActivity';
 
 const pane = (id: string, agentKind?: string, extra: Partial<ContractPane> = {}): ContractPane => ({ paneId: id, tabId: 't1', agentStatus: 'idle', promptable: false, focused: false, agentKind, ...extra });
 const ws = (id: string, label: string | undefined, tabs: HerdrTreeTab[]): ContractWorkspace => ({ workspaceId: id, label, focused: false, agentStatus: 'idle', tabs });
@@ -36,9 +37,16 @@ describe('visible herd tree flow', () => {
         ])]);
         const rows = buildSpaceRows([root, child, elsewhere], new Set(), '');
         expect(rows[0]).toMatchObject({ expanded: false, agentCount: 2, children: [{}] });
-        expect(agentCounts([root, child])).toEqual({ total: 5, working: 2, needsYou: 2 });
-        expect(agentCounts([child])).toEqual({ total: 3, working: 1, needsYou: 1 });
-        expect(agentCounts([root, child, elsewhere])).toEqual({ total: 6, working: 2, needsYou: 2 });
+        const none = new Set<string>();
+        expect(agentCounts([root, child], none)).toEqual({ total: 5, working: 2, needsYou: 2 });
+        expect(agentCounts([child], none)).toEqual({ total: 3, working: 1, needsYou: 1 });
+        expect(agentCounts([root, child, elsewhere], none)).toEqual({ total: 6, working: 2, needsYou: 2 });
+    });
+    it('makes an agent need you when blocked or failed, or when it holds a pending request', () => {
+        expect(agentNeedsYou('blocked', false)).toBe(true);
+        expect(agentNeedsYou('failed', false)).toBe(true);
+        expect(agentNeedsYou('working', true)).toBe(true);
+        expect(agentNeedsYou('idle', false)).toBe(false);
     });
     it('expands, collapses, and filters workspace cards without losing shell panes', () => {
         const workspaces = [ws('w1', 'repo-a', [tab('7', 'review', [agent, shell])])];

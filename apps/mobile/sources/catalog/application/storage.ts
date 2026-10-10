@@ -41,7 +41,7 @@ import { getRigActivityIndicators, getRigIdentity } from '../infrastructure/rig'
 import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/herd';
 import { agentLabels } from '@/herd/labels';
 import { agentRowAttention, mergeCatalogAgent } from '../domain/agent';
-import { dropOldestAbsent, herdrPaneForSession, needsYouCount } from '@/herd';
+import { dropOldestAbsent, herdrPaneForSession, needsYouSessionIds, pendingRequestSessionIds } from '@/herd';
 import { readAgentSession } from './readAgentSession';
 
 function resolveSessionOnlineState(session: { active: boolean; activeAt: number }): 'online' | number {
@@ -568,7 +568,7 @@ export function useHerdrTree(): { workspaces: HerdrTreeWorkspace[]; loaded: bool
 
 /** The one "needs you" count: herd status plus uncovered pending requests. */
 export function useNeedsYouCount(): number {
-    return storage((state) => needsYouCount(state.herdrWorkspaces, Object.values(state.sessions)));
+    return storage((state) => needsYouSessionIds(state.herdrWorkspaces, Object.values(state.sessions)).size);
 }
 
 /** The Spaces pins, as a stable array reference. */
@@ -613,6 +613,28 @@ export function useHomeHerd(): { workspaces: HerdrTreeWorkspace[]; sessions: (Se
     const tree = useHomeTree();
     const sessions = storage(useShallow((state) => Object.values(homeShowsSnapshot(state) ? state.homeSnapshot!.sessions : state.sessions)));
     return { ...tree, sessions };
+}
+
+/** The agents Home's Needs you list shows: the same herd Home draws, snapshot included. */
+export function useHomeNeedsYouIds(): ReadonlySet<string> {
+    const { workspaces, sessions } = useHomeHerd();
+    return React.useMemo(() => needsYouSessionIds(workspaces, sessions), [sessions, workspaces]);
+}
+
+/** The agents an online session is holding a request for, on the same snapshot-aware source as Home. */
+export function useHomePendingIds(): ReadonlySet<string> {
+    const { sessions } = useHomeHerd();
+    return React.useMemo(() => pendingRequestSessionIds(sessions), [sessions]);
+}
+
+/** The needs-you and pending sets from the host's live state, for surfaces outside Home. */
+export function useLiveAgentIds(): { needsYouIds: ReadonlySet<string>; pendingIds: ReadonlySet<string> } {
+    const { workspaces } = useHerdrTree();
+    const sessions = useSessions();
+    return React.useMemo(() => ({
+        needsYouIds: needsYouSessionIds(workspaces, sessions),
+        pendingIds: pendingRequestSessionIds(sessions),
+    }), [sessions, workspaces]);
 }
 
 export function useSessionError(id: string): string | undefined {

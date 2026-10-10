@@ -69,6 +69,7 @@ async function renderMap(props?: Partial<React.ComponentProps<typeof PaneMap>>) 
             <PaneMap
                 tab={tab()}
                 currentPaneId="a"
+                pendingRequestIds={new Set<string>()}
                 canClose={false}
                 onOpen={(target) => { opened.push(target); }}
                 onClose={() => undefined}
@@ -142,7 +143,7 @@ it('stacks full width when the layout no longer matches, keeping every pane tapp
     let renderer!: ReturnType<typeof TestRenderer.create>;
     await TestRenderer.act(async () => {
         renderer = TestRenderer.create(
-            <PaneMap tab={tab()} canClose={false} onOpen={(target) => { opened.push(target); }} onClose={() => undefined} />,
+            <PaneMap tab={tab()} pendingRequestIds={new Set<string>()} canClose={false} onOpen={(target) => { opened.push(target); }} onClose={() => undefined} />,
         );
     });
     const measurer = (renderer.root as any).find((node: { type: unknown; props?: any }) => typeof node.props?.onLayout === 'function');
