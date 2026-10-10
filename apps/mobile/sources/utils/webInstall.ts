@@ -21,7 +21,6 @@ interface BeforeInstallPromptEvent extends Event {
 
 let deferredPrompt: BeforeInstallPromptEvent | null = null;
 let promptDismissed = false;
-let started = false;
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -73,11 +72,10 @@ export function subscribeWebInstall(listener: () => void): () => void {
  * Hold the browser's install prompt from app start. Chromium fires
  * `beforeinstallprompt` once and never hands it back, so it must be caught
  * before Settings could open; the row then returns the held prompt on tap.
- * Idempotent, and a no-op on native and where the event never exists.
+ * A no-op on native and where the event never exists.
  */
 export function startWebInstallCapture(): void {
-    if (started || Platform.OS !== 'web' || typeof window === 'undefined') return;
-    started = true;
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
     window.addEventListener('beforeinstallprompt', (event) => {
         event.preventDefault();
         deferredPrompt = event as BeforeInstallPromptEvent;
