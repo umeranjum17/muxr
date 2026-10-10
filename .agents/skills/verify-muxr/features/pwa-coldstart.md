@@ -18,11 +18,10 @@ opens.
   carries xterm, the diff surfaces or the shiki grammars.
 - `grep -c 'xterm'`/`'shiki'`/`'Oniguruma'`/`'PierreDiffView'` against the eager
   entry and `__common` chunks is `0`; they appear only in the lazy
-  `TerminalView-*.js`, `TerminalRoute-*.js`, `codeSurfaces-*.js` and
-  `pierreBundle-*.js` chunks.
-- Opening a session route still loads `TerminalRoute-*.js` and
-  `TerminalView-*.js` and renders the not-paired/session state — never a blank
-  screen.
+  `TerminalRoute-*.js` (which holds the xterm `TerminalView` boundary),
+  `codeSurfaces-*.js` and `pierreBundle-*.js` chunks.
+- Opening a session route still loads `TerminalRoute-*.js` and renders the
+  not-paired/session state — never a blank screen.
 
 ## How to get to it (user POV)
 
@@ -58,8 +57,7 @@ needed to render the diff surface.
    window launch Chromium with `--app=<url>` and assert
    `matchMedia('(display-mode: standalone)').matches === true`.
 5. Route chunks: open `/session/<any-id>` and assert the `TerminalRoute-*.js`
-   and `TerminalView-*.js` requests happened and the screen shows the
-   not-paired state, not a blank body.
+   request happened and the screen shows the not-paired state, not a blank body.
 6. Diff surface: with a paired host, open a commit/change and assert the
    `codeSurfaces-*.js` and `pierreBundle-*.js` requests happened and the diff
    renders highlighted.
