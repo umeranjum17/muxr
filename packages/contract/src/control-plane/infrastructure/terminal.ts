@@ -14,9 +14,11 @@
  *
  * Bottom completion reads the actual Herdr viewport between bounded downward
  * steps. Where a program owns scrolling, the host instead targets the grid's
- * center with paced wheel reports and infers completion from repaint quiescence;
- * it cannot confirm that program's transcript offset. The operation has a
- * deadline and reports catching-up if completion cannot be established.
+ * center with wheel reports sized to how far that program moves per report --
+ * learned from its visible text -- and infers completion from repaint
+ * quiescence or from the screen moving up on its own as the program follows new
+ * output; it cannot confirm that program's transcript offset. The operation has
+ * a deadline and reports catching-up if completion cannot be established.
  * Clients discard preceding gesture travel before requesting bottom. New input,
  * scrolling, resize or detach cancels host completion. The client also clears
  * pending status on repaint or transport retirement and ignores replies for
