@@ -4,8 +4,8 @@
  * grammar) as common code and ship it in the eager __common chunk; one
  * boundary keeps it in this lazy chunk.
  *
- * Head export, same method as checkWebExport.mjs pins: initial 2,346,369 B,
- * __common 650,327 B.
+ * Head export measured on CI, same method as checkWebExport.mjs pins: initial
+ * 2,360,572 B, __common 652,730 B.
  */
 import * as main from '@pierre/diffs';
 import * as react from '@pierre/diffs/react';
