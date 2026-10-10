@@ -288,6 +288,22 @@ export const es: TranslationStructure = {
         status: ({ status }: { status: string }) => `Estado: ${status}`,
     },
 
+    webInstall: {
+        // Install row shown in a browser tab, next to the versions card
+        groupTitle: 'Instalar la app',
+        rowTitle: 'Instalar muxr',
+        browserSubtitle: 'Añade una app a pantalla completa a tu pantalla de inicio.',
+        browserMenuSubtitle: 'Abre el menú del navegador y elige Instalar app.',
+        iosSubtitle: 'Añádela a tu pantalla de inicio para usarla a pantalla completa y recibir avisos.',
+        guideTitle: 'Añade muxr a tu pantalla de inicio',
+        guideLead: 'Safari instala apps web desde su menú Compartir.',
+        guideSteps: '1. Toca el botón Compartir en la barra.\n2. Toca «Añadir a pantalla de inicio».\n3. Toca «Añadir».',
+        guideBenefit: 'En tu pantalla de inicio, muxr puede avisarte cuando un agente te necesita.',
+        guideOpenInSafari: 'Abre muxr en Safari primero. Solo Safari puede añadirlo a la pantalla de inicio.',
+        pushNeedsHomeScreen: 'Primero necesitas muxr en la pantalla de inicio',
+        guideClose: 'Cerrar',
+    },
+
     optionSheet: {
         // Model/mode picker bottom sheet
         all: 'todas',

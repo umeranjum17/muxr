@@ -64,6 +64,11 @@ user-visible behavior, then exactly four H2 sections in this order:
   standalone-window PWA over a static `dist`: no-JS first paint, throttled cold
   start in both themes at 393 and 270 px, offline hand-off, native comparison.
 
+- [Install muxr to the home screen from a browser tab](./pwa-install.md) —
+  exported web client in Chrome and emulated iOS Safari: prompt row, Add to
+  Home Screen guide, hidden once installed or with no install path, at 393 and
+  270 px, light and dark.
+
 - [Share a file into a pane's Shared Artifacts](./shared-artifact.md) —
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
   versioned page shares and their refusals, and the retention view of the
