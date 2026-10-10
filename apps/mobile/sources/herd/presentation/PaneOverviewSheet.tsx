@@ -18,10 +18,11 @@ import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { sync } from '@/catalog/sync';
-import { useHerdrTree } from '@/catalog/store';
+import { useHerdrTree, useLiveAgentIds } from '@/catalog/store';
 import { useDeviceAuthority } from '@/pairing';
 import { getCachedConnectionSettings } from '@/connection';
 import { agentLabels, herdrTabForSession, tabLabel } from '../domain/agentPresentation';
+import { displayedAgentStatus } from '../domain/recentActivity';
 import { agentStatusColor } from '../application/sessionUtils';
 import { rememberPaneSelection, useNavigateToSession } from '../application/useNavigateToSession';
 import { showPaneActions, showTabActions } from '../application/renameInHerdr';
@@ -37,6 +38,7 @@ function errorMessage(cause: unknown): string {
 export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; onClose: () => void; onOpenSpaces: () => void }): React.JSX.Element {
     const { theme } = useUnistyles();
     const { workspaces, loaded } = useHerdrTree();
+    const { pendingIds } = useLiveAgentIds();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canMutate = authority === 'control' && !authorityLoading;
     const navigate = useNavigateToSession();
@@ -156,7 +158,8 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                     {tabs.map((entry, index) => {
                         const active = entry.tabId === tab?.tabId;
                         const here = entry.tabId === located?.tab.tabId;
-                        const tone = agentStatusColor(entry.agentStatus, theme);
+                        const status = displayedAgentStatus(entry.agentStatus, entry.panes.some((pane) => pane.sessionId !== undefined && pendingIds.has(pane.sessionId)));
+                        const tone = agentStatusColor(status, theme);
                         const label = tabLabel(entry, index);
                         const count = entry.panes.length === 1 ? '1 pane' : `${entry.panes.length} panes`;
                         return (
@@ -169,7 +172,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                                 accessibilityLabel={`${label}, ${count}${here ? ', this tab' : ''}`}
                                 style={({ pressed }) => ({ minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, borderRadius: 18, backgroundColor: active ? theme.colors.surfaceSelected : 'transparent', borderWidth: 1, borderColor: active ? theme.colors.surfaceSelected : theme.colors.divider, opacity: pressed ? 0.6 : 1 })}
                             >
-                                {(entry.agentStatus === 'blocked' || entry.agentStatus === 'working') && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: tone.color }} />}
+                                {(status === 'blocked' || status === 'working') &&<View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: tone.color }} />}
                                 <Text numberOfLines={1} style={{ ...Typography.default(active ? 'semiBold' : 'regular'), maxWidth: 160, fontSize: 13, color: active ? theme.colors.text : theme.colors.textSecondary }}>{label}</Text>
                                 <Text style={{ ...Typography.default(), fontSize: 12, color: theme.colors.textSecondary }}>{entry.panes.length}</Text>
                             </Pressable>
@@ -230,6 +233,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                                 tab={tab}
                                 currentPaneId={target?.paneId}
                                 pendingPaneIds={pending}
+                                pendingRequestIds={pendingIds}
                                 canClose={canMutate}
                                 onOpen={openPane}
                                 onClose={closePane}

@@ -15,14 +15,14 @@ import { Ionicons } from '@expo/vector-icons';
 import type { ApplicationLauncher, HerdrTreePane, HerdrTreeTab, HerdrTreeWorkspace } from '@trymuxr/contract';
 import type { ModelMode } from '@/components/OptionSheet';
 import { sync } from '@/catalog/sync';
-import { useHerdrTree } from '@/catalog/store';
+import { useHerdrTree, useLiveAgentIds } from '@/catalog/store';
 import { useDeviceAuthority } from '@/pairing';
 import { getCachedConnectionSettings } from '@/connection';
 import { Modal } from '@/modal';
 import { Text } from '@/components/StyledText';
 import { SectionLabel } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
-import { agentLabels, isShellLabels, tabLabel, workspaceName } from '@/herd';
+import { HERD_STATUS_LABELS, agentLabels, agentNeedsYou, displayedAgentStatus, isShellLabels, tabLabel, workspaceName } from '@/herd';
 import { rememberPaneSelection, showPaneActions, showTabActions, useNavigateToSession, useUnseenDoneSessionIds } from '@/herd';
 import { AgentPickerSheet, AgentRow, WorkspaceTreeSheet, paneTaskLine, shellPath } from '@/herd/ui';
 
@@ -86,10 +86,11 @@ function anchorOf(panes: readonly HerdrTreePane[]): string | undefined {
     return (panes.find((pane) => pane.focused && pane.sessionId !== undefined) ?? panes.find((pane) => pane.sessionId !== undefined))?.sessionId;
 }
 
-function subtitleOf(pane: HerdrTreePane): string | undefined {
+function subtitleOf(pane: HerdrTreePane, pending: ReadonlySet<string>): string | undefined {
     const labels = agentLabels(pane);
     if (isShellLabels(labels)) return shellPath(pane.cwd);
-    return pane.agentStatus === 'blocked' ? ['Needs you', paneTaskLine(pane)].filter(Boolean).join(' · ') : undefined;
+    const pendingRequest = pane.sessionId !== undefined && pending.has(pane.sessionId);
+    return agentNeedsYou(pane.agentStatus, pendingRequest) ? [HERD_STATUS_LABELS[displayedAgentStatus(pane.agentStatus, pendingRequest)], paneTaskLine(pane)].filter(Boolean).join(' · ') : undefined;
 }
 
 /** Plugin launchers, when any are installed: small, below the tree. */
@@ -153,6 +154,7 @@ const TabCard = React.memo(function TabCard(props: {
 }): React.JSX.Element {
     const { theme } = useUnistyles();
     const { tab } = props;
+    const { pendingIds } = useLiveAgentIds();
     const label = tabLabel(tab, props.index);
     const count = tab.panes.length === 1 ? '1 pane' : `${tab.panes.length} panes`;
     const canSplit = props.canControl && anchorOf(tab.panes) !== undefined;
@@ -191,7 +193,8 @@ const TabCard = React.memo(function TabCard(props: {
                     selected={false}
                     hasActions={props.canControl}
                     unseenDone={pane.sessionId !== undefined && props.unseenDone.has(pane.sessionId)}
-                    subtitle={subtitleOf(pane)}
+                    pending={pendingIds}
+                    subtitle={subtitleOf(pane, pendingIds)}
                 />
             ))}
         </View>

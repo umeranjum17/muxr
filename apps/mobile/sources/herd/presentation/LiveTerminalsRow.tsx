@@ -1,10 +1,9 @@
 import * as React from 'react';
-import { AppState, type FlatList, Pressable, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { type FlatList, Pressable, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useIsFocused } from '@react-navigation/native';
 import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { Text } from '@/components/StyledText';
-import { storage, useHomeHerd, useLifecycleEvents, useSocketStatus } from '@/catalog/store';
+import { storage, useHomeHerd, useHomeNeedsYouIds, useLifecycleEvents, useSocketStatus } from '@/catalog/store';
 import { useDeviceAuthority } from '@/pairing';
 import { t } from '@/text';
 import { agentStatusColor } from '../application/sessionUtils';
@@ -16,14 +15,13 @@ import {
     sharedLiveTerminalOrderSettlesAt,
     subscribeLiveTerminalOrder,
     selectLiveTerminalCards,
-    visibleActivityEventIds,
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
 import { agentLabels, agentWhoLine, herdrPaneForSession, isShellLabels, liveCardState } from '../domain/agentPresentation';
 import { showPaneActions } from '../application/renameInHerdr';
-import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
-import type { LifecycleEvent } from '@trymuxr/contract';
+import { agentNeedsYou, displayedAgentStatus, needsYouActivityRows, unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
+import type { AgentLifecycle, LifecycleEvent } from '@trymuxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { SectionLabel } from '@/components/ui';
 import { TerminalPreview } from '@/terminal/ui';
@@ -108,18 +106,20 @@ interface CardProps {
     Badge?: React.ComponentType<LiveCardBadgeInfo>;
 }
 
-function terminalIsLive(card: LiveTerminalOrderCard): boolean {
-    return card.agentStatus === 'working' || card.agentStatus === 'starting' || card.agentStatus === 'blocked';
+function terminalIsLive(status: AgentLifecycle): boolean {
+    return status === 'working' || status === 'starting' || status === 'blocked';
 }
 
 const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone, canRename, Badge }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels(card);
-    const dot = agentStatusColor(card.agentStatus, theme);
-    const live = terminalIsLive(card);
+    const needsYou = agentNeedsYou(card.agentStatus, card.pendingRequest);
+    const status = displayedAgentStatus(card.agentStatus, card.pendingRequest);
+    const dot = agentStatusColor(status, theme);
+    const live = terminalIsLive(status);
     const shell = isShellLabels(labels);
-    const state = liveCardState(labels, card.agentStatus, card.id, events, now);
+    const state = liveCardState(labels, status, card.id, events, now);
     const planAccount = storage((state) => herdrPaneForSession(state.herdrWorkspaces, card.id)?.planAccount);
     // A badge tap lands on this pressable too: it opens the agent under the
     // badge's own sheet unless the badge marks its tap first.
@@ -136,7 +136,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
             accessibilityLabel={state.accessibilityLabel}
             style={({ pressed }) => [
                 stylesheet.card,
-                liveTerminalBucket(card.agentStatus) === 'attention' && stylesheet.attentionCard,
+                liveTerminalBucket(card.agentStatus, card.pendingRequest) === 'attention' && stylesheet.attentionCard,
                 { width, height, opacity: pressed ? 0.8 : disconnected ? 0.55 : 1 },
             ]}
         >
@@ -160,7 +160,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
                     <Badge
                         sessionId={card.id}
                         agentKind={labels.agentKind}
-                        working={card.agentStatus === 'working'}
+                        working={!needsYou && card.agentStatus === 'working'}
                         notePress={() => { lastBadgePress.current = Date.now(); }}
                     />
                 )}
@@ -171,29 +171,21 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
 
 export const LiveTerminalsRow = React.memo(({
     showZeroState = true,
-    visibilityTop,
-    visibilityBottomInset = 0,
     cardBadge,
 }: {
     showZeroState?: boolean;
-    visibilityTop?: number;
-    visibilityBottomInset?: number;
     /** A per-card line under the agent's name (the empty-room badge on Home). */
     cardBadge?: React.ComponentType<LiveCardBadgeInfo>;
 }) => {
     useUnistyles();
     const navigateToSession = useNavigateToSession();
-    const screenFocused = useIsFocused();
-    const { height: windowHeight } = useWindowDimensions();
-    const { sessions, workspaces, stale } = useHomeHerd();
+    const { sessions, workspaces, loaded, stale } = useHomeHerd();
     const lifecycleEvents = useLifecycleEvents();
     const { status: socketStatus } = useSocketStatus();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const { ready, seenEventIds, markSeen } = useActivityAcknowledgements();
     const scrollRef = React.useRef<FlatList<LiveTerminalOrderCard>>(null);
-    const stripListRef = React.useRef<View>(null);
     const scrollXRef = React.useRef(0);
-    const [foreground, setForeground] = React.useState(AppState.currentState === 'active');
     const [stripWidth, setStripWidth] = React.useState(0);
     const [firstVisible, setFirstVisible] = React.useState(0);
     const handleLayout = React.useCallback((event: LayoutChangeEvent) => setStripWidth(event.nativeEvent.layout.width), []);
@@ -206,7 +198,13 @@ export const LiveTerminalsRow = React.memo(({
         offset: cardInterval * index,
         index,
     }), [cardInterval]);
-    const panes = React.useMemo(() => herdPanes(sessions, workspaces), [sessions, workspaces]);
+    // The same agents the Spaces count and the badge count: a row leaves when
+    // its agent stops needing you, never because its card was glanced at.
+    const needsYou = useHomeNeedsYouIds();
+    const panes = React.useMemo(
+        () => herdPanes(sessions, workspaces),
+        [sessions, workspaces],
+    );
     const candidateCards = React.useMemo(
         () => selectLiveTerminalCards(sessions, panes),
         [panes, sessions],
@@ -257,22 +255,35 @@ export const LiveTerminalsRow = React.memo(({
         return () => clearInterval(timer);
     }, []);
     // An event keeps the name the agent had then; a rename since should read here too.
-    const activityRows = React.useMemo(() => {
+    const liveNames = React.useMemo(
+        () => new Map(panes.flatMap((pane) => pane.agentName ? [[pane.id, pane.agentName] as const] : [])),
+        [panes],
+    );
+    const unseenRows = React.useCallback((wanted: (row: RecentActivityRow) => boolean) => {
         if (!ready) return [];
-        const liveNames = new Map(panes.flatMap((pane) => pane.agentName ? [[pane.id, pane.agentName] as const] : []));
-        return unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles)
+        return unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles, wanted)
             .map((row) => ({ ...row, agentName: liveNames.get(row.sessionId) ?? row.agentName }));
-    }, [lifecycleEvents, liveTitles, panes, ready, seenEventIds]);
+    }, [lifecycleEvents, liveNames, liveTitles, ready, seenEventIds]);
+    const needsYouRows = React.useMemo(
+        () => needsYouActivityRows(needsYou, panes, lifecycleEvents),
+        [lifecycleEvents, needsYou, panes],
+    );
+    // A failure whose agent has left the tree (could not start) has no status
+    // left to read, so it stays an unseen notice until opened. Until the tree
+    // loads every agent looks gone, so no failure reads as departed yet.
+    const paneIds = React.useMemo(() => new Set(panes.map((pane) => pane.id)), [panes]);
+    const departedRows = React.useMemo(
+        () => loaded
+            ? unseenRows((row) => row.status === 'failed' && !paneIds.has(row.sessionId) && !needsYou.has(row.sessionId))
+            : [],
+        [loaded, needsYou, paneIds, unseenRows],
+    );
     // Done is an outcome, not activity: it gets its own READY · UNSEEN tier and
     // clears when the agent is opened (TerminalRoute acks), never by the card
-    // scrolling past on Home. Needs-you/failed keep the glance-clears rule.
-    const needsYouRows = React.useMemo(
-        () => activityRows.filter((row) => row.status !== 'done'),
-        [activityRows],
-    );
+    // scrolling past on Home.
     const readyRows = React.useMemo(
-        () => activityRows.filter((row) => row.status === 'done'),
-        [activityRows],
+        () => unseenRows((row) => row.status === 'done'),
+        [unseenRows],
     );
     // The card highlight set IS the tier, so a card and the tier can never
     // disagree about which finished outcomes are still unopened.
@@ -281,12 +292,7 @@ export const LiveTerminalsRow = React.memo(({
         [readyRows],
     );
 
-    React.useEffect(() => {
-        setForeground(AppState.currentState === 'active');
-        const subscription = AppState.addEventListener('change', (state) => setForeground(state === 'active'));
-        return () => subscription.remove();
-    }, []);
-    const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.agentStatus) === 'attention');
+    const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.agentStatus, card.pendingRequest) === 'attention');
     const commitVisibleIndex = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const x = event.nativeEvent.contentOffset.x;
         scrollXRef.current = x;
@@ -324,43 +330,15 @@ export const LiveTerminalsRow = React.memo(({
         scrollRef.current?.scrollToOffset({ offset: index * cardInterval, animated: true });
     }, [cardInterval]);
     const selectActivity = React.useCallback((row: RecentActivityRow) => {
-        markSeen([row.eventId]);
+        // Only a departed agent's failure is a notice that opening it reads.
+        if (!needsYou.has(row.sessionId)) markSeen([row.eventId]);
         if (!scrollToCard(row.sessionId)) navigateToSession(row.sessionId);
-    }, [markSeen, navigateToSession, scrollToCard]);
+    }, [markSeen, navigateToSession, needsYou, scrollToCard]);
     // Opening the tier row goes straight to the agent; the ack happens on open
     // in TerminalRoute, so every open path clears the tier the same way.
     const openReady = React.useCallback((row: RecentActivityRow) => {
         navigateToSession(row.sessionId);
     }, [navigateToSession]);
-
-    React.useEffect(() => {
-        if (visibilityTop === undefined || !screenFocused || !foreground) return;
-        if (stripWidth <= 0 || needsYouRows.length === 0 || cards.length === 0) return;
-        let cancelled = false;
-        const timer = setTimeout(() => {
-            stripListRef.current?.measureInWindow((_x: number, stripTop: number, _width: number, stripHeight: number) => {
-                if (cancelled || AppState.currentState !== 'active') return;
-                const eventIds = visibleActivityEventIds(needsYouRows, cards, {
-                    focused: screenFocused,
-                    foreground,
-                    viewportTop: visibilityTop,
-                    viewportBottom: windowHeight - visibilityBottomInset,
-                    stripTop,
-                    stripHeight,
-                    scrollX: scrollXRef.current,
-                    stripWidth,
-                    cardWidth,
-                    cardGap: CARD_GAP,
-                    gutter: STRIP_GUTTER,
-                });
-                markSeen(eventIds);
-            });
-        }, 1000);
-        return () => {
-            cancelled = true;
-            clearTimeout(timer);
-        };
-    }, [cardWidth, cards, firstVisible, foreground, markSeen, needsYouRows, screenFocused, stripWidth, visibilityBottomInset, visibilityTop, windowHeight]);
 
     const renderCard = ({ item: card, index }: { item: LiveTerminalOrderCard; index: number }) => (
         <LiveTerminalCard
@@ -380,7 +358,7 @@ export const LiveTerminalsRow = React.memo(({
 
     // With nothing to show and no zero state wanted, there is no section: a
     // lone heading over nothing is the orphan this prop exists to avoid.
-    if (cards.length === 0 && !showZeroState && needsYouRows.length === 0 && readyRows.length === 0) return null;
+    if (cards.length === 0 && !showZeroState && needsYouRows.length === 0 && readyRows.length === 0 && departedRows.length === 0) return null;
 
     return (
         <View style={stylesheet.strip} onLayout={handleLayout}>
@@ -403,7 +381,7 @@ export const LiveTerminalsRow = React.memo(({
                     <Text style={stylesheet.zeroLine}>{t('homeNotices.liveEmpty')}</Text>
                 ) : null
             ) : (
-                <View ref={stripListRef} collapsable={false} style={{ marginTop: 4 }}>
+                <View style={{ marginTop: 4 }}>
                 <Animated.FlatList
                     ref={scrollRef}
                     data={cards}
@@ -442,6 +420,11 @@ export const LiveTerminalsRow = React.memo(({
                 rows={readyRows}
                 heading="Ready · unseen"
                 onSelect={openReady}
+            />
+            <RecentActivity
+                rows={departedRows}
+                heading="Failed"
+                onSelect={selectActivity}
             />
         </View>
     );

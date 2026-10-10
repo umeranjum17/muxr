@@ -85,8 +85,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 - [Show one needs-you count on the app, the favicon and the PWA icon](./needs-you-count.md) —
   private fake stack with a lab-only `lab.set_agent_status`: blocked, failed and
-  uncovered-request herds drive the Spaces header, the favicon dot and the
-  recorded app badge to the same number, light and dark at 393 and 270 px.
+  uncovered-request herds drive the Needs you list, the Spaces header, the
+  favicon dot and the recorded app badge to the same number, light and dark at
+  393 and 270 px.
 
 - [Share a file into a pane's Shared Artifacts](./shared-artifact.md) —
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,

@@ -5,6 +5,7 @@
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import type { Session } from '@/catalog';
 import { t } from '@/text';
+import { agentNeedsYou, pendingRequestSessionIds } from './recentActivity';
 
 // A producer that drew its own tree into a flat list prefixes the label with
 // box-drawing glyphs, and may append an opaque correlator (` · p:<22 chars>`).
@@ -86,42 +87,50 @@ export function hasAgent(ws: HerdrTreeWorkspace): boolean {
 }
 
 /** Count unique Herdr agent routes, including descendants even when their cards are folded. */
-export function agentCounts(workspaces: readonly HerdrTreeWorkspace[]): { total: number; working: number; needsYou: number } {
+export function agentCounts(
+    workspaces: readonly HerdrTreeWorkspace[],
+    pending: ReadonlySet<string>,
+): { total: number; working: number; needsYou: number } {
     const agents = new Map<string, HerdrTreePane>();
     for (const ws of workspaces) for (const tab of ws.tabs) for (const pane of tab.panes) {
         if (pane.agentKind !== undefined && pane.sessionId !== undefined) agents.set(pane.sessionId, pane);
     }
-    const panes = [...agents.values()];
-    return {
-        total: panes.length,
-        working: panes.filter((pane) => pane.agentStatus === 'working' || pane.agentStatus === 'starting').length,
-        needsYou: panes.filter((pane) => pane.agentStatus === 'blocked' || pane.agentStatus === 'failed').length,
-    };
+    let needsYou = 0;
+    let working = 0;
+    for (const [sessionId, pane] of agents) {
+        if (agentNeedsYou(pane.agentStatus, pending.has(sessionId))) needsYou += 1;
+        else if (pane.agentStatus === 'working' || pane.agentStatus === 'starting') working += 1;
+    }
+    return { total: agents.size, working, needsYou };
 }
 
 /**
- * The one "needs you" count every surface reads: an Agent whose Herdr pane is
- * blocked or failed, plus any online session holding a pending request that a
+ * The agents that need you now, which every surface reads: the Needs you list,
+ * the Spaces count, the favicon dot and the icon badge. An Agent whose Herdr
+ * pane needs you, plus any online session holding a pending request that a
  * pane has not already covered. Keyed by Agent Route, so one agent never
- * counts twice; the in-app summary, the favicon dot and the icon badge agree.
+ * counts twice. Current status only: having seen an agent never removes it.
  */
-export function needsYouCount(
+export function needsYouSessionIds(
     workspaces: readonly HerdrTreeWorkspace[],
-    sessions: readonly Session[],
-): number {
-    const needed = new Set<string>();
+    sessions: readonly (Pick<Session, 'id'> & Partial<Pick<Session, 'presence' | 'agentState'>>)[],
+): Set<string> {
+    const pending = pendingRequestSessionIds(sessions);
+    const needed = new Set<string>(pending);
     for (const ws of workspaces) for (const tab of ws.tabs) for (const pane of tab.panes) {
-        if (pane.sessionId !== undefined && (pane.agentStatus === 'blocked' || pane.agentStatus === 'failed')) {
-            needed.add(pane.sessionId);
-        }
+        if (pane.sessionId !== undefined && agentNeedsYou(pane.agentStatus, pending.has(pane.sessionId))) needed.add(pane.sessionId);
     }
-    for (const session of sessions) {
-        const requests = session.agentState?.requests;
-        if (session.presence === 'online' && requests != null && Object.keys(requests).length > 0) {
-            needed.add(session.id);
-        }
-    }
-    return needed.size;
+    return needed;
+}
+
+/** Whether any agent pane in the workspace holds a pending request. */
+export function workspaceHoldsRequest(ws: HerdrTreeWorkspace, pending: ReadonlySet<string>): boolean {
+    return ws.tabs.some((tab) => tab.panes.some((pane) => pane.sessionId !== undefined && pending.has(pane.sessionId)));
+}
+
+/** A workspace needs you when its own status does or any agent pane in it holds a pending request. */
+export function workspaceNeedsYou(ws: HerdrTreeWorkspace, pending: ReadonlySet<string>): boolean {
+    return agentNeedsYou(ws.agentStatus, workspaceHoldsRequest(ws, pending));
 }
 
 
@@ -214,10 +223,13 @@ export type HerdSpaceRow = {
 };
 
 /** Counts behind a group summary: needs you, working, done. */
-export function groupSummaryCounts(children: readonly HerdChildSpace[]): { needsYou: number; working: number; done: number } {
+export function groupSummaryCounts(
+    children: readonly HerdChildSpace[],
+    pending: ReadonlySet<string>,
+): { needsYou: number; working: number; done: number } {
     const counts = { needsYou: 0, working: 0, done: 0 };
     for (const { workspace } of children) {
-        if (workspace.agentStatus === 'blocked') counts.needsYou += 1;
+        if (workspaceNeedsYou(workspace, pending)) counts.needsYou += 1;
         else if (workspace.agentStatus === 'working') counts.working += 1;
         else if (workspace.agentStatus === 'done') counts.done += 1;
     }

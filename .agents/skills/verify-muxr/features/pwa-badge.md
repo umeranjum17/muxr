@@ -47,7 +47,7 @@ run is touched.
 2. Drive the count through one exact cycle: send the lab `SIGUSR2`; it blocks the
    first agent, then the second, then idles the first, then the second, through
    the fake Herdr's `lab.set_agent_status`, holding count 2 for 30 s. A `blocked`
-   pane counts as needs-you (`needsYouCount`). Wait the full drive (~41 s) and
+   pane counts as needs-you (`needsYouSessionIds`). Wait the full drive (~41 s) and
    read `window.__badgeCalls`.
 3. Assert the recorded sequence is the count running `0 → 1 → 2 → 1 → 0`: the
    calls are `setAppBadge(1)`, `setAppBadge(2)`, `setAppBadge(1)`,

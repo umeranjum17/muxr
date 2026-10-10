@@ -24,6 +24,8 @@ HTTPS-only link shape; both `pwa-badge.md` and `pwa-offline.md` pair this way.
   CDP IndexedDB write.
 - `lab-stack` `browserPairLab.mjs` starts a loopback fake-Herdr stack (real
   relay, host and E2EE) and mints a fresh browser link on each `SIGUSR1`.
+  `LAB_AGENTS=<n>` sets the herd size (default 2), and a stdin line
+  `<agent number> <status>` sets that agent's Herdr lifecycle.
 - `lab-absent` a production export carries no `__MUXR_LAB_PAIR__`,
   `lab.invalid`, or `labBrowserPairing` bytes.
 
