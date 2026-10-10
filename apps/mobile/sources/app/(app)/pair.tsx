@@ -381,7 +381,8 @@ export default function PairScreen() {
                             onSubmitEditing={connectManual}
                         />
                         <Text style={styles.routeHint}>{browser
-                            ? 'Browsers pair by link, not QR. Copy the link muxr pair --browser shows on your computer.'
+                            // No-break joiners keep the command whole on a narrow screen.
+                            ? 'Browsers pair by link, not QR. Copy the link muxr\u00A0pair\u00A0-\u2060-\u2060browser shows on your computer.'
                             : sshRoute
                                 ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
                                 : canScan
