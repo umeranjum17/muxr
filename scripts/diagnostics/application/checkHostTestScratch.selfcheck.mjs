@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cleanTestScratch, processGroup, processStart, scratchEntries, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
+import { cleanTestScratch, processGroup, processStart, removeTestScratch, scratchEntries, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
 
 const base = mkdtempSync(join(process.cwd(), '.scratch-check-'));
 let orphan;
@@ -84,5 +84,5 @@ try {
     if (orphan) {
         try { process.kill(orphan, 'SIGKILL'); } catch {}
     }
-    rmSync(base, { recursive: true, force: true });
+    removeTestScratch(base);
 }

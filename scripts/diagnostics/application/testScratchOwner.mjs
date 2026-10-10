@@ -5,6 +5,15 @@ import { basename, join } from 'node:path';
 
 export const scratchBase = () => process.platform === 'darwin' ? '/tmp' : tmpdir();
 
+/**
+ * A node compile cache inside the scratch can flush a file between the recursive
+ * readdir and the rmdir, which surfaces as ENOTEMPTY and would otherwise fail the
+ * check whose scratch it is. Retry the removal instead of throwing.
+ */
+export function removeTestScratch(path) {
+    rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
+
 export function processStart(pid) {
     try {
         if (process.platform === 'darwin') return execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], { encoding: 'utf8' }).trim() || undefined;
@@ -54,7 +63,7 @@ export function scratchEntries(root) {
 export function cleanTestScratch(root) {
     for (const name of scratchEntries(root)) {
         if (/^(?:muxr-|desklink-|v-|x-|attention-|node-compile-cache$)/.test(name)) {
-            rmSync(join(root, name), { recursive: true, force: true });
+            removeTestScratch(join(root, name));
         }
     }
 }
@@ -63,6 +72,6 @@ export function testScratchOwner(base) {
     for (const name of readdirSync(base)) {
         if (!/^muxr-host-test-[1-9]\d*-.+$/.test(name)) continue;
         const path = join(base, name);
-        if (scratchUnused(path)) rmSync(path, { recursive: true, force: true });
+        if (scratchUnused(path)) removeTestScratch(path);
     }
 }
