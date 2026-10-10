@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Text } from 'react-native';
+import { ScrollView, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
@@ -11,7 +11,7 @@ import { Modal } from '@/modal';
 import { providerName, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, usePlans, usePlansStore } from '../application/plansStore';
 import { planFailure, removeAccount, renameAccount } from '../application/plansApi';
-import { useAccountFlows, useFlows } from './AccountFlows';
+import { Notice, useAccountFlows, useFlows } from './AccountFlows';
 import { Pill } from './accountParts';
 
 const PROVIDERS: { id: string; title: string }[] = [
@@ -29,6 +29,14 @@ export function AccountsSettingsScreen() {
     const autoOn = usePlansStore((state) => state.autoOn);
     const setAutoOn = usePlansStore((state) => state.setAutoOn);
     const landed = useFlows((state) => state.landed);
+    const notice = useFlows((state) => state.notice);
+    const listRef = React.useRef<ScrollView>(null);
+    // The notice is the first row of the list. After adding an account the list
+    // is scrolled down to the "Add" row, so bring the notice into view; it then
+    // pushes every account row below it, and the list scrolls to reach them.
+    React.useEffect(() => {
+        if (notice !== null) listRef.current?.scrollTo({ y: 0, animated: false });
+    }, [notice]);
 
     const rename = async (account: PlanAccount) => {
         const name = await Modal.prompt('Rename account', account.email, {
@@ -71,7 +79,8 @@ export function AccountsSettingsScreen() {
     };
 
     return (
-        <ItemList>
+        <ItemList ref={listRef}>
+            <Notice inline />
             <Text style={styles.lede}>
                 Claude and ChatGPT show once you have more than one account for them; OpenCode shows as soon as you add one. With one Claude or ChatGPT account, muxr works exactly as before.
             </Text>

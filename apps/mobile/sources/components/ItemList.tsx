@@ -34,7 +34,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     },
 }));
 
-export const ItemList = React.memo<ItemListProps>((props) => {
+export const ItemList = React.memo(React.forwardRef<ScrollView, ItemListProps>((props, ref) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     
@@ -53,6 +53,7 @@ export const ItemList = React.memo<ItemListProps>((props) => {
 
     return (
         <ScrollView 
+            ref={ref}
             style={[
                 styles.container,
                 { backgroundColor },
@@ -72,7 +73,8 @@ export const ItemList = React.memo<ItemListProps>((props) => {
             <View style={styles.wideContent}>{children}</View>
         </ScrollView>
     );
-});
+}));
+ItemList.displayName = 'ItemList';
 
 export const ItemListStatic = React.memo<Omit<ItemListProps, keyof ScrollViewProps> & {
     children: React.ReactNode;

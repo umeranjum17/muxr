@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Pressable, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
 import Animated, { FadeInDown, FadeInUp, FadeOutDown, FadeOutUp, ReduceMotion } from 'react-native-reanimated';
@@ -348,12 +348,13 @@ export function NameAccountSheet() {
             await renameAccount(account.id, trimmed, connection);
             if (!samePlanConnection(connection)) return;
             close();
-            // The names the list below shows, read from the host's own list after
-            // the save: the name just typed can collide, and the host gives the
-            // other account its own name for it.
+            // The notice names only the account just added: the host's own name
+            // for it (the name just typed can collide, and the host gives the
+            // *other* account its own name for that) and its email. Listing every
+            // account made a wall of text at the largest text sizes.
             const saved = providerEntry(usePlansStore.getState().list, account.provider);
-            const names = (saved?.accounts.map((one) => one.name) ?? [trimmed]).sort();
-            showNotice(`Added ${trimmed}`, `${providerName(account.provider)} accounts: ${names.join(', ')}`);
+            const added = saved?.accounts.find((one) => one.id === account.id);
+            showNotice(`Added ${added?.name ?? trimmed}`, added?.email ?? `${providerName(account.provider)} account`);
         } catch (error) {
             if (!samePlanConnection(connection)) return;
             setSaving(false);
@@ -420,38 +421,27 @@ const LANDED_MS = 4_000;
  *  is up repaints it rather than leaving it in the palette it arrived with, and
  *  it stays up until a tap or the next notice. It carries its own surface and
  *  lets touches past its own corners, so it neither fights the screen under it
- *  nor hides one. */
-export function Notice({ top }: { top: number }) {
+ *  nor hides one. `inline` puts it in the screen's own layout flow, so on the
+ *  Accounts list it pushes the rows down instead of floating over the first
+ *  one; everywhere else it floats under the header. It wraps to the full
+ *  message at any text size, never clipping the account name. */
+export function Notice({ top, inline = false }: { top?: number; inline?: boolean }) {
     const { theme } = useUnistyles();
-    const { height } = useWindowDimensions();
     const notice = useFlows((state) => state.notice);
     if (notice === null) return null;
-    // At the largest text sizes a long account name turns the confirmation into
-    // a card taller than the screen and the account list under it disappears.
-    // Cap the card to a slice of the screen and let the whole message scroll, so
-    // every word stays readable and the list below stays visible and reachable.
-    // The cap follows the screen, so a tablet shows the whole card and a small
-    // phone keeps most of the list; ordinary sizes never reach it, so the card
-    // looks exactly as before.
-    const maxHeight = height * 0.4;
     return (
         <Animated.View
             entering={FadeInUp.duration(180).reduceMotion(ReduceMotion.System)}
             exiting={FadeOutUp.duration(160).reduceMotion(ReduceMotion.System)}
-            style={[styles.banner, { top }]}
+            style={inline ? [styles.banner, styles.bannerInline] : [styles.banner, styles.bannerOverlay, { top }]}
             pointerEvents="box-none"
             accessibilityLiveRegion="polite"
         >
             <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
-            <ScrollView
-                style={[parts.rowCopy, { maxHeight }]}
-                showsVerticalScrollIndicator={false}
-            >
-                <Pressable onPress={() => useFlows.setState({ notice: null })} accessibilityRole="button" accessibilityLabel={`${notice.title}. ${notice.detail}`}>
-                    <Text style={styles.bannerTitle}>{notice.title}</Text>
-                    <Text style={parts.facts}>{notice.detail}</Text>
-                </Pressable>
-            </ScrollView>
+            <Pressable style={parts.rowCopy} onPress={() => useFlows.setState({ notice: null })} accessibilityRole="button" accessibilityLabel={`${notice.title}. ${notice.detail}`}>
+                <Text style={styles.bannerTitle}>{notice.title}</Text>
+                <Text style={parts.facts}>{notice.detail}</Text>
+            </Pressable>
         </Animated.View>
     );
 }
@@ -484,9 +474,6 @@ const styles = StyleSheet.create((theme) => ({
         ...Typography.default(),
     },
     banner: {
-        position: 'absolute',
-        left: 16,
-        right: 16,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
@@ -501,6 +488,15 @@ const styles = StyleSheet.create((theme) => ({
         shadowRadius: 15,
         shadowOffset: { width: 0, height: 8 },
         elevation: 10,
+    },
+    bannerOverlay: {
+        position: 'absolute',
+        left: 16,
+        right: 16,
+    },
+    bannerInline: {
+        marginHorizontal: 16,
+        marginTop: 8,
     },
     opening: {
         fontSize: 13,
