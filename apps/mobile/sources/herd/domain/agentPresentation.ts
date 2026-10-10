@@ -1,4 +1,4 @@
-import { agentTask, type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@trymuxr/contract';
+import { agentTask, parseAgentName, type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@trymuxr/contract';
 import { compactAge } from '../../utils/compactAge';
 import { lifecycleStateSince } from './recentActivity';
 
@@ -99,6 +99,20 @@ export function agentKindLabel(kind?: string): string | undefined {
 const UNNAMED_AGENT = 'Unnamed agent';
 
 /**
+ * Herdr's internal launch id (`pp_<hex>`, `pph_<hex>`). It rides lifecycle
+ * events as `agentName` on a host that has not published a real name yet, so
+ * it must never reach a label; `parseAgentName` rejects it at the boundary.
+ */
+const INTERNAL_LAUNCH_ID = /^pph?_/i;
+
+/** A pane label or window title that only carries the launch id says nothing. */
+function publicSource(value: string | null | undefined): string | undefined {
+    const candidate = value?.trim();
+    if (candidate === undefined || candidate === '' || INTERNAL_LAUNCH_ID.test(candidate)) return undefined;
+    return value ?? undefined;
+}
+
+/**
  * One-to-one live Herdr DTO presentation. Only absent-value placeholders are local.
  *
  * An agent leads with what it is working on (`agentTask`: its pane label, its
@@ -109,23 +123,30 @@ const UNNAMED_AGENT = 'Unnamed agent';
  * leads with its pane label, else its window title (`user@host:path`).
  */
 export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'terminalTitle' | 'cwd'>>): AgentLabels {
-    const named = pane?.agentName?.trim();
+    const rawName = pane?.agentName?.trim();
+    // `parseAgentName` rejects the internal launch id (and control chars), so a
+    // host that leaked `pp_*` as the name leaves this agent unnamed and the
+    // kind's own label stands in — never the id.
+    const named = rawName !== undefined && parseAgentName(rawName).ok ? rawName : undefined;
     const kind = pane?.agentKind?.trim();
     const hasAgent = named !== undefined && named !== '' || kind !== undefined && kind !== '';
+    const label = publicSource(pane?.label);
+    const terminalTitle = publicSource(pane?.terminalTitle);
+    const taskTitle = publicSource(pane?.taskTitle);
     // Herdr publishes the kind long before it ever publishes a name: a started
     // agent arrives as `agentKind` with no `agentName` (the host withholds its
     // internal launch id), so the kind's own label stands in for the name.
     // Never the terminal title: at startup it only holds a spinner or folder.
     const agentName = named || (kind === undefined || kind === '' ? 'Shell' : agentKindLabel(kind) ?? UNNAMED_AGENT);
     const task = hasAgent ? agentTask({
-        label: pane?.label,
-        terminalTitle: pane?.terminalTitle,
-        title: pane?.taskTitle,
+        label,
+        terminalTitle,
+        title: taskTitle,
         agentName: named,
         agentKind: kind,
         cwd: pane?.cwd,
     }) : undefined;
-    const shellTitle = pane?.label?.trim() || pane?.terminalTitle?.trim() || pane?.taskTitle?.trim()
+    const shellTitle = label?.trim() || terminalTitle?.trim() || taskTitle?.trim()
         || pane?.cwd?.replace(/\/+$/, '').split('/').pop() || 'Shell';
     return {
         title: hasAgent ? task ?? (named || agentName) : shellTitle,

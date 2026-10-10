@@ -90,6 +90,15 @@ describe('spoken herd flow', () => {
         // A plain shell keeps what the shell says about itself.
         const shell = agentLabels({ ...base, agentStatus: 'unknown', terminalTitle: 'u@host:~/pockit' });
         expect([shell.title, agentWhoLine(shell)]).toEqual(['u@host:~/pockit', 'Shell']);
+        // A Codex and a pi agent that have not published a name yet: Herdr ships
+        // its internal launch id as `agentName`, and it must never be the label.
+        for (const [kind, label, id] of [['codex', 'Codex', `pp_${'9c526c448bbeb98f'}`], ['pi', 'Pi', `pph_${'6ba0c0cdd02bca79'}`]] as const) {
+            const fresh = agentLabels({ ...base, agentKind: kind, agentName: id });
+            expect([fresh.title, agentWhoLine(fresh), agentBesideName(fresh) ?? '']).toEqual([label, kind, '']);
+        }
+        // The id can also ride a pane label or window title; it still says nothing.
+        expect(agentLabels({ ...base, agentKind: 'pi', agentName: 'pp_1', label: 'pp_2', terminalTitle: 'pph_3', taskTitle: 'pp_4' }).title)
+            .toBe('Pi');
     });
 });
 
