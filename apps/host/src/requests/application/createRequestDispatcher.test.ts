@@ -7,7 +7,7 @@ import { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure } from '@trymuxr/cont
 import { createRequestDispatcher } from './createRequestDispatcher.js';
 import { agentToolPath, createFakeSessionSource, type SessionSource } from '../../agent/index.js';
 import { hostPlatformLabel } from '../../machine/index.js';
-import { HerdrKit } from '@byokit/herdr';
+import { HerdrKit, agentInstallState } from '@byokit/herdr';
 import { AgentCatalog } from './agentCatalog.js';
 import { DevicePreviewTargets } from '../../desktop/index.js';
 
@@ -261,6 +261,11 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         const source = {
             async agentKinds() { return ['pi', 'claude', 'codex', 'grok', 'gemini']; },
             async installedAgentKinds(kinds: string[]) { return kit.installedAgentKinds(kinds, { path: agentToolPath(env) }); },
+            async agentInstallStates(kinds: string[]) {
+                const states: Record<string, 'installed' | 'installs-on-first-start' | 'missing'> = {};
+                for (const kind of kinds) states[kind] = agentInstallState(kind, { path: agentToolPath(env) }).state;
+                return states;
+            },
         } as unknown as SessionSource;
         const { dispatch, refreshAgentCatalog } = createRequestDispatcher({
             source,

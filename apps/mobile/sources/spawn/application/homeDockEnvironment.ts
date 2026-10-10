@@ -16,6 +16,7 @@ export interface DockOption {
     name: string;
     description?: string;
     agentKind?: string;
+    installPhase?: string;
     disabled?: boolean;
 }
 
@@ -93,15 +94,26 @@ export function agentName(kind: string): string {
     return agentDisplayName(kind);
 }
 
-export function agentReadinessLabel(option: AgentCatalogOption): string {
+/** The kit's install probe says a kind installs on first start (its CLI is a Herdr-managed auto-installer, e.g. Pi through mise). */
+function installsOnFirstStart(option: AgentCatalogOption): boolean {
+    return option.availability === 'installed' && option.installState === 'installs-on-first-start';
+}
+
+export function agentReadinessLabel(option: AgentCatalogOption, launching = false): string {
     if (option.kind === 'shell') return 'Ready';
+    if (launching && installsOnFirstStart(option)) return `Installing ${agentName(option.kind)}`;
     if (option.availability !== 'installed') {
-        if (option.kind === 'pi') return 'Installs on first start';
         return option.installHint ?? `Install ${agentName(option.kind)} on the computer`;
     }
     if (option.signedIn === 'yes') return 'Signed in';
     if (option.signedIn === 'no') return 'Needs sign-in';
     return 'Sign-in not checked';
+}
+
+/** The Start control's phase while a first-start installer runs, or undefined to keep the normal control. */
+export function agentInstallPhase(option: AgentCatalogOption | undefined): string | undefined {
+    if (option === undefined || !installsOnFirstStart(option)) return undefined;
+    return agentReadinessLabel(option, true);
 }
 
 export function defaultAgentKind(options: readonly AgentCatalogOption[], preferred?: string): string | null {
@@ -115,6 +127,7 @@ export function visibleDockAgents(options: readonly AgentCatalogOption[] | null,
         name: agentName(option.kind),
         description: [agentReadinessLabel(option), option.availability === 'installed' ? option.signInHint : undefined].filter(Boolean).join(' · '),
         agentKind: option.kind,
+        installPhase: agentInstallPhase(option),
         disabled: more,
     }));
     if (more) return agents;

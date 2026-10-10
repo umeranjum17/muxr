@@ -7,6 +7,7 @@
 
 import type {
     ApplicationLauncher,
+    AgentInstallState,
     HerdrRenameTarget,
     HerdrTreeWorkspace,
     LayoutSnapshot,
@@ -130,6 +131,8 @@ export interface SessionSource {
     agentKinds(): Promise<string[]>;
     /** Kinds whose canonical executable is launchable in the host PATH. */
     installedAgentKinds(kinds: readonly string[]): Promise<string[]>;
+    /** Per-kind install state from the herdr kit: real binary, first-start auto-installer, or absent. */
+    agentInstallStates(kinds: readonly string[]): Promise<Record<string, AgentInstallState>>;
     /** Full herdr power without a shell: each argument stays one argument. Never rejects. */
     herdrCli(args: string[], timeoutMs?: number, env?: Record<string, string>): Promise<{
         stdout: string; stderr: string; exitCode: number | null; timedOut: boolean;

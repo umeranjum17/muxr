@@ -18,6 +18,7 @@ import type {
     AgentLifecycle,
     ApplicationLauncher,
     CloseResult,
+    AgentInstallState,
     HerdrRenameTarget,
     PluginsInvalidatedFrame,
     HerdrTreeWorkspace,
@@ -51,6 +52,7 @@ import type {
 } from '../application/sessionSource.js';
 import { KitHerdrClient, type HerdrCaller } from './herdrKitClient.js';
 import type { AgentStatus } from '@byokit/herdr';
+import { agentInstallState } from '@byokit/herdr';
 import {
     AgentRouteStore,
     herdrAgentSessionKey,
@@ -2451,6 +2453,16 @@ export async function createHerdrSessionSource(
             const commands = kinds.flatMap((kind) => COMMAND_ALIASES[kind] ?? [kind]);
             const installed = new Set(client.kit.installedAgentKinds(commands, { path: AGENT_TOOL_PATH }));
             return kinds.filter((kind) => (COMMAND_ALIASES[kind] ?? [kind]).some((command) => installed.has(command)));
+        },
+
+        /** Per-kind install state from the kit's probe: a real binary, a
+         * first-start auto-installer (a Herdr-managed shim), or absent. */
+        async agentInstallStates(kinds: readonly string[]): Promise<Record<string, AgentInstallState>> {
+            const states: Record<string, AgentInstallState> = {};
+            for (const kind of kinds) {
+                states[kind] = agentInstallState(kind, { path: AGENT_TOOL_PATH, aliases: COMMAND_ALIASES }).state;
+            }
+            return states;
         },
 
         /** Open a kit terminal session on a pane; the kit owns the binary and env. */

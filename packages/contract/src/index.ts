@@ -5,6 +5,7 @@ export type {
     AttentionCatalog,
     AttentionEntry,
     AttentionReason,
+    AgentInstallState,
     AgentLifecycle,
     AgentInfo,
     LifecycleCatalog,
