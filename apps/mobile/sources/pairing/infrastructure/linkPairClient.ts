@@ -9,7 +9,6 @@ import {
     keyPairFrom,
     pairWithOffer,
     parseOffer,
-    pendingGrant,
     unb64url,
     type DeviceGrant as LinkDeviceGrant,
 } from '@byokit/link';
@@ -160,14 +159,31 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         } else {
             // By key alone, past the code's expiry: either the computer
             // approved this key, or the pairing it belonged to is over. The
-            // kit rebuilds the claim for either offer form and pins the stored
-            // host key — for a compact offer that is the only source of it —
-            // so a resume refuses a different computer.
-            const rebuilt = pendingGrant(pending.scanned, {
-                name: pending.name,
-                key,
-                ...(pending.host === undefined ? {} : { host: pending.host }),
-            });
+            // offer is read without its expiry check, because a phone killed
+            // before approval must still resume after the code has run out;
+            // the stored host key pins the computer either way — for a compact
+            // offer that is its only source — so a resume refuses a different
+            // computer.
+            const offer = parseOffer(pending.scanned, 0);
+            const fromOffer = 'host' in offer ? offer.host : undefined;
+            let host = fromOffer;
+            if (pending.host !== undefined) {
+                let given: Uint8Array;
+                try { given = unb64url(pending.host); }
+                catch { throw new LinkError('wrong-host'); }
+                if (given.length !== 32 || (fromOffer !== undefined && fromOffer !== b64url(given))) throw new LinkError('wrong-host');
+                host = b64url(given);
+            }
+            if (host === undefined) throw new Error(NOT_FINISHED);
+            const rebuilt: LinkDeviceGrant = {
+                v: 1,
+                secretKey: pending.secretKey,
+                pendingUntil: offer.expires + 300_000,
+                host,
+                hostName: offer.name,
+                urls: offer.urls,
+                device: { id: '', name: pending.name, role: offer.role ?? 'view' },
+            };
             // A pending grant stays open through the person's decision window so
             // a phone killed before approval waits for its yes. Once the
             // computer has answered, the decision is past: a `not-paired` now
