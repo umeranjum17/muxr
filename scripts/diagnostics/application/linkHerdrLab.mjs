@@ -8,7 +8,7 @@ import { waitForRelay } from './waitForRelay.mjs';
 const helper = process.env.HERDR_LAB_HELPER || '/home/umer/firstmate/bin/fm-herdr-lab.sh';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function linkHerdrLab(root, label, onEvent, beforeHost) {
+export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {}) {
     const session = execFileSync(helper, ['name', label], { encoding: 'utf8' }).trim();
     execFileSync(helper, ['provision', session]);
     const status = JSON.parse(execFileSync(helper, ['run', session, 'status', '--json'], { encoding: 'utf8' }));
@@ -30,6 +30,8 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost) {
         HERDR_SESSION: session };
     for (const key of ['MUXR_RELAY_URL', 'MUXR_RELAY_TOKEN', 'MUXR_MACHINE_ID', 'MUXR_RELAY_AUTH', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME',
         'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME']) delete env[key];
+    // Only what the caller hands over on purpose, such as a lab-only sign-in.
+    Object.assign(env, hostEnv);
     const children = [];
     const start = (args, extra = {}) => {
         const child = spawn(process.execPath, args, { env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -52,7 +54,7 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost) {
     };
     let link;
     try {
-        if (beforeHost !== undefined) beforeHost((args) => execFileSync(wrapper, args, { encoding: 'utf8' }));
+        if (beforeHost !== undefined) beforeHost((args) => execFileSync(wrapper, args, { encoding: 'utf8' }), session);
         const relay = start(['apps/relay/dist/main.js'], { MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: relayDir, MUXR_RELAY_MDNS: '0' });
         const port = await waitForRelay(relay);
         const machine = machineIdentity(undefined);

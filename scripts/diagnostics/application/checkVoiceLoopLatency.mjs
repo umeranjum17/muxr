@@ -30,7 +30,7 @@ if (!process.env.HERDR_LAB_HELPER) {
 const reps = Number(process.argv[2] ?? 10);
 const natural = Boolean(process.env.VOICE_LOOP_CODEX_HOME);
 const root = mkdtempSync(join(tmpdir(), 'voice-loop-'));
-process.env.CODEX_HOME = process.env.VOICE_LOOP_CODEX_HOME ?? join(root, 'no-codex-login');
+const codexHome = process.env.VOICE_LOOP_CODEX_HOME ?? join(root, 'no-codex-login');
 const agentScript = join(process.cwd(), 'scripts', 'diagnostics', 'fixtures', 'scripted-agent', 'pi');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -44,7 +44,7 @@ const lab = await linkHerdrLab(root, 'voice-loop', (event) => events.push({ at: 
     herdr(['pane', 'run', pane, `${agentScript} ${join(root, 'herdr-lab.sh')} 2`]);
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500);
     herdr(['agent', 'rename', JSON.parse(herdr(['agent', 'list'])).result.agents[0].name, 'golf']);
-});
+}, { CODEX_HOME: codexHome });
 
 const samples = {};
 const add = (name, ms) => (samples[name] ??= []).push(ms);

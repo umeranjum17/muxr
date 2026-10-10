@@ -1,7 +1,7 @@
 // Real agent panes printing long canned output, paired to a native app, for scroll and Latest checks.
 // See terminal-latest.md.
 import { spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -64,12 +64,10 @@ writeFileSync(join(workdir, 'opencode.json'), JSON.stringify({
 }));
 let lab;
 try {
-    lab = await linkHerdrLab(root, 'latest', undefined, () => {
+    lab = await linkHerdrLab(root, 'latest', undefined, (herdr, session) => {
         // The lab's panes run under its own HOME; each harness there is pointed at the fixture.
         const stateDir = process.env.FM_HERDR_LAB_STATE_DIR;
-        const pointer = readdirSync(stateDir).filter((file) => file.endsWith('.xdg-root')).map((file) => join(stateDir, file))
-            .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
-        const home = join(readFileSync(pointer, 'utf8').trim(), 'home');
+        const home = join(readFileSync(join(stateDir, `${session}.xdg-root`), 'utf8').trim(), 'home');
         const write = (path, text) => { mkdirSync(join(path, '..'), { recursive: true }); writeFileSync(path, text); };
         write(join(home, '.claude', 'settings.json'), JSON.stringify({ model: 'haiku', apiKeyHelper: 'echo lab-fixture-key',
             env: { ANTHROPIC_BASE_URL: stubUrl, DISABLE_TELEMETRY: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } }));
