@@ -17,7 +17,7 @@ import { Text } from '@/components/StyledText';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useDeviceAuthority, useHostedPairing, usePairQrScanner } from '@/pairing';
+import { pairingDeviceNoun, usePairQrScannerAvailable, useDeviceAuthority, useHostedPairing, usePairQrScanner } from '@/pairing';
 import { loadAppConfig } from '@/catalog';
 import { getCachedConnectionSettings } from '@/connection';
 import { setupEmptyState } from '@/commercialization';
@@ -135,7 +135,8 @@ export const HerdView = React.memo(({
         refreshStatus,
     } = useHerdTreeLive();
     const processPairLink = useHostedPairing();
-    const scanPairQr = usePairQrScanner((url) => void processPairLink(url));
+    const canScan = usePairQrScannerAvailable();
+    const scanPairQr = usePairQrScanner((url) => void processPairLink(url), canScan);
     const socketStatus = useSocketStatus();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const needsYouIds = useHomeNeedsYouIds();
@@ -249,10 +250,12 @@ export const HerdView = React.memo(({
                             </>
                         ) : (
                             <>
-                                <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
-                                <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
-                                <ActionButton title="Enter pairing string" variant="secondary" icon="keypad-outline" onPress={() => router.push('/pair')} />
-                                <Text style={styles.routeHint}>For a computer you are not standing at.</Text>
+                                {canScan && <>
+                                    <ActionButton title="Scan the QR" icon="qr-code-outline" wrap onPress={() => void scanPairQr()} />
+                                    <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
+                                </>}
+                                <ActionButton title="Enter pairing string" variant={canScan ? 'secondary' : 'primary'} icon="keypad-outline" wrap onPress={() => router.push('/pair')} />
+                                <Text style={styles.routeHint}>{canScan ? 'For a computer you are not standing at.' : `This ${pairingDeviceNoun()} can't scan a QR, so paste the pairing string from muxr pair.`}</Text>
                             </>
                         )}
                     </View>
