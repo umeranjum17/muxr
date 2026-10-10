@@ -1,6 +1,5 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
-import { pairingView } from '@byokit/ui-core/link';
 import * as Clipboard from 'expo-clipboard';
 import { ActivityIndicator, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
@@ -16,9 +15,13 @@ import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
+import { t } from '@/text';
 
 // A cut-off or wrong-case offer still reaches review, which says why it cannot pair.
 const carriesPairingOffer = (raw: string) => looksLikeLinkOffer(raw) || /byokit-link:/i.test(raw) || raw.includes('pair=');
+
+// The success state is real, not a flash: it holds long enough to read before Home replaces it.
+const PAIR_SUCCESS_HOLD_MS = 1200;
 
 type PairState =
     | { phase: 'confirm'; url: string; machineName: string; linkOffer?: boolean }
@@ -84,6 +87,10 @@ export default function PairScreen() {
     const [sshPassphrase, setSshPassphrase] = React.useState('');
     const [sshError, setSshError] = React.useState<string | undefined>(undefined);
     const [commandCopied, setCommandCopied] = React.useState(false);
+    // Hold the check mark on screen so the success is real, never a spinner that
+    // vanishes into Home. Cleared on unmount so leaving early cancels it.
+    const successTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    React.useEffect(() => () => { if (successTimer.current !== undefined) clearTimeout(successTimer.current); }, []);
     // The hero icon has no room once the keyboard takes half the screen: it
     // renders cut off under the header. Hide it while the keyboard is open
     // instead of showing a clipped badge.
@@ -172,7 +179,8 @@ export default function PairScreen() {
             const applied = await applySshAfterPairing(sshInput, { hostKey: tunnel.hostKey });
             if (!applied.ok) Modal.alert('Paired — SSH route not applied', applied.message);
         }
-        router.replace('/');
+        // Show the check mark for a beat, then Home; the timer is cleared on unmount.
+        successTimer.current = setTimeout(() => router.replace('/'), PAIR_SUCCESS_HOLD_MS);
     }, [auth, router]);
 
     const sshInput = React.useCallback((): { ok: true; input?: SshFieldInput } | { ok: false; error: string } => {
@@ -261,18 +269,27 @@ export default function PairScreen() {
 
             <View style={styles.card}>
                 {state?.phase === 'working' ? (
-                    <>
-                        <View style={styles.progressHead}>
-                            <ActivityIndicator color={styles.progressText.color} />
-                            <Text style={styles.progressText}>Pairing…</Text>
+                    progress?.phase === 'paired' ? (
+                        <View style={styles.successRow}>
+                            <Ionicons name="checkmark-circle" size={28} color={styles.successIcon.color} />
+                            <Text accessibilityLiveRegion="polite" style={styles.successText}>{t('pairing.paired', { name: state.machineName })}</Text>
                         </View>
-                        <Text accessibilityLiveRegion="polite" style={styles.stepText}>{progress?.title ?? 'Connecting securely to your computer…'}</Text>
-                        {progress?.words && <>
-                            <Text selectable style={styles.machineName}>{progress.words}</Text>
-                            <Text style={styles.stepText}>{pairingView({ phase: 'waiting', hostName: state.machineName, words: progress.words }).title}</Text>
-                            <Text style={styles.routeHint}>Check both words match, then press y on the computer.</Text>
-                        </>}
-                    </>
+                    ) : (
+                        <>
+                            <View style={styles.progressHead}>
+                                <ActivityIndicator color={styles.progressText.color} />
+                                <Text style={styles.progressText}>{t('pairing.busy')}</Text>
+                            </View>
+                            {progress?.words ? (
+                                <>
+                                    <Text accessibilityLiveRegion="polite" style={styles.stepText}>{t('pairing.compareWords', { name: state.machineName })}</Text>
+                                    <Text selectable style={styles.machineName}>{progress.words}</Text>
+                                </>
+                            ) : (
+                                <Text accessibilityLiveRegion="polite" style={styles.stepText}>{t('pairing.connecting')}</Text>
+                            )}
+                        </>
+                    )
                 ) : state?.phase === 'confirm' ? (
                     <>
                         <View style={styles.grantList}>
@@ -479,6 +496,23 @@ const styles = StyleSheet.create((theme) => ({
     progressText: {
         ...Typography.default('semiBold'),
         fontSize: 15,
+        color: theme.colors.text,
+    },
+    successRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 4,
+    },
+    successIcon: {
+        color: theme.colors.success,
+    },
+    successText: {
+        ...Typography.default('semiBold'),
+        flex: 1,
+        minWidth: 0,
+        fontSize: 17,
+        lineHeight: 23,
         color: theme.colors.text,
     },
     stepGroup: {

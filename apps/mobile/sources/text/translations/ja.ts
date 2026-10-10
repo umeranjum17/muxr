@@ -204,6 +204,13 @@ export const ja: TranslationStructure = {
         restoreWithSecretKeyInstead: 'シークレットキーで復元する',
     },
 
+    pairing: {
+        busy: 'ペアリング中…',
+        connecting: 'コンピューターに安全に接続しています…',
+        compareWords: ({ name }: { name: string }) => `${name} に同じ二つの単語が表示されていることを確認し、コンピューターで y を押してください。`,
+        paired: ({ name }: { name: string }) => `${name} とペアリングしました。`,
+    },
+
     settings: {
         title: '設定',
         github: 'GitHub',

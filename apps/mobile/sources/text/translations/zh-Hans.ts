@@ -204,6 +204,13 @@ export const zhHans: TranslationStructure = {
         restoreWithSecretKeyInstead: '或改用密钥恢复',
     },
 
+    pairing: {
+        busy: '配对中…',
+        connecting: '正在安全地连接到你的电脑…',
+        compareWords: ({ name }: { name: string }) => `确认 ${name} 显示同样的两个词，然后在电脑上按 y。`,
+        paired: ({ name }: { name: string }) => `已与 ${name} 配对。`,
+    },
+
     settings: {
         title: '设置',
         github: 'GitHub',
