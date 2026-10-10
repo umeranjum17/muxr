@@ -9,12 +9,15 @@ import {
 } from '@trymuxr/contract';
 import type { Session } from '@/catalog';
 import { agentLabels, HERD_STATUS_LABELS } from './agentPresentation';
+import { agentNeedsYou, pendingRequestSessionIds } from './recentActivity';
 
 export { HERD_STATUS_LABELS } from './agentPresentation';
 
 export interface HerdPane extends AgentInfo {
     id: string;
     changedAt?: number;
+    /** An online session is holding a request for this agent. */
+    pendingRequest?: boolean;
     doing: string;
 }
 
@@ -106,8 +109,12 @@ export function lifecycleNotificationCopy(event: LifecycleEvent): string {
 }
 
 /** The same tree panes Spaces renders, using the shared agent label vocabulary. */
-export function herdPanes(sessions: readonly { id: string; updatedAt: number; metadata: { lifecycleStateSince?: number } | null }[], workspaces: readonly HerdrTreeWorkspace[]): HerdPane[] {
+export function herdPanes(
+    sessions: readonly ({ id: string; updatedAt: number; metadata: { lifecycleStateSince?: number } | null } & Partial<Pick<Session, 'presence' | 'agentState'>>)[],
+    workspaces: readonly HerdrTreeWorkspace[],
+): HerdPane[] {
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+    const pending = pendingRequestSessionIds(sessions);
     const routes = new Set<string>();
     return workspaces
         .flatMap((workspace) => workspace.tabs)
@@ -127,6 +134,7 @@ export function herdPanes(sessions: readonly { id: string; updatedAt: number; me
                 ...(pane.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
                 agentStatus: pane.agentStatus,
                 promptable: pane.promptable,
+                ...(pending.has(pane.sessionId) ? { pendingRequest: true } : {}),
                 changedAt: session?.metadata?.lifecycleStateSince ?? session?.updatedAt,
                 doing: '',
             }];
@@ -154,12 +162,12 @@ export function herdNotificationState(
         return { mode: 'offline', count: 0, name: '', names: '', eventKey: 'offline' };
     }
 
-    const blocked = panes.filter((pane) => pane.agentStatus === 'blocked');
+    const needing = panes.filter((pane) => agentNeedsYou(pane.agentStatus, pane.pendingRequest));
     const working = panes.filter((pane) => pane.agentStatus === 'working' || pane.agentStatus === 'starting');
-    const active = blocked.length > 0 ? blocked : working;
+    const active = needing.length > 0 ? needing : working;
     const top = active[0];
     if (!top) return { mode: 'idle', count: 0, name: '', names: '', eventKey: 'idle' };
-    const mode = blocked.length > 0 ? 'attention' : 'working';
+    const mode = needing.length > 0 ? 'attention' : 'working';
     const names = active.map((pane) => pane.agentName ?? 'Unnamed agent').join(', ');
     const ids = active.map((pane) => encodeURIComponent(pane.id)).sort().join(',');
     return { mode, count: active.length, name: top.agentName ?? 'Unnamed agent', names, eventKey: `${mode}:${ids}` };

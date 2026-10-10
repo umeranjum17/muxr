@@ -13,12 +13,13 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { Modal } from '@/modal';
-import { storage, useNeedsYouCount, useSpacePins, useSpacesLayout } from '@/catalog/store';
+import { storage, useSpacePins, useSpacesLayout } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { agentCounts, buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, moveSpace, workspaceCloseMessage, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
+import { agentCounts, buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, moveSpace, workspaceCloseMessage, workspaceHoldsRequest, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
+import { displayedAgentStatus } from '../domain/recentActivity';
 import { agentLabels, agentStateLabel, agentWhoLine, agentWhoStateLine, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
@@ -377,6 +378,9 @@ const stylesheet = StyleSheet.create((theme) => ({
 
 interface SpacesTreeProps {
     workspaces: HerdrTreeWorkspace[];
+    /** Agents that need you on the caller's source: Home's snapshot-aware sets, or the live host's outside Home. */
+    needsYouIds: ReadonlySet<string>;
+    pendingIds: ReadonlySet<string>;
     defaultExpandedWorkspaceIds?: readonly string[];
     refresh: () => Promise<void>;
     density?: 'comfortable' | 'compact';
@@ -417,6 +421,7 @@ export const AgentRow = React.memo(({
     unseenDone,
     subtitle: subtitleOverride,
     spaceLabel,
+    pending,
 }: {
     pane: HerdrTreePane;
     first?: boolean;
@@ -431,22 +436,25 @@ export const AgentRow = React.memo(({
     subtitle?: string;
     /** The card's own label: a task that only repeats it gives way to the agent's name. */
     spaceLabel?: string;
+    /** Agent routes an online session holds a request for. */
+    pending: ReadonlySet<string>;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const navigateToSession = useNavigateToSession();
-    const dot = agentStatusColor(pane.agentStatus, theme);
+    const sessionId = pane.sessionId;
+    const status = displayedAgentStatus(pane.agentStatus, sessionId !== undefined && pending.has(sessionId));
+    const dot = agentStatusColor(status, theme);
     const paneLabels = agentLabels(pane);
     const labels = paneLabels.task !== undefined && paneLabels.task === spaceLabel?.trim()
         ? { ...paneLabels, title: paneLabels.agentName, task: undefined }
         : paneLabels;
-    const sessionId = pane.sessionId;
     const shell = isShellLabels(labels);
     const title = labels.title;
-    const subtitle = subtitleOverride ?? (shell ? agentWhoLine(labels) : agentWhoStateLine(labels, agentStateLabel(pane.agentStatus)));
+    const subtitle = subtitleOverride ?? (shell ? agentWhoLine(labels) : agentWhoStateLine(labels, agentStateLabel(status)));
     // One weight rule: bright means "has something for you". A finished
     // outcome you have not opened stays loud; settled-and-seen goes quiet.
-    const quiet = (pane.agentStatus === 'done' || pane.agentStatus === 'idle') && !unseenDone;
+    const quiet = (status === 'done' || status === 'idle') && !unseenDone;
 
     return (
         <View style={[styles.agentRow, compact && styles.agentRowCompact]}>
@@ -566,8 +574,8 @@ const RowStem = React.memo(({ depth }: { depth: number }) => (
 type SummaryEntry = { count: number; word: string; tone: 'error' | 'working' | 'done' };
 
 /** A family in words: "10 tasks" and up to two non-zero states, needs you first. */
-function familySummary(children: readonly HerdChildSpace[]): { noun: string; entries: SummaryEntry[]; spoken: string } {
-    const counts = groupSummaryCounts(children);
+function familySummary(children: readonly HerdChildSpace[], pending: ReadonlySet<string>): { noun: string; entries: SummaryEntry[]; spoken: string } {
+    const counts = groupSummaryCounts(children, pending);
     const entries = ([
         { count: counts.needsYou, word: t('spacesTree.needsYou'), tone: 'error' },
         { count: counts.working, word: t('spacesTree.working'), tone: 'working' },
@@ -582,12 +590,12 @@ function familySummary(children: readonly HerdChildSpace[]): { noun: string; ent
  * count does: two chips shrink to one (done already dropped by the slice
  * above) while the noun stays whole. Visual only: its container speaks it.
  */
-const FamilySummary = React.memo(({ groupChildren, compact }: { groupChildren: HerdChildSpace[]; compact: boolean }) => {
+const FamilySummary = React.memo(({ groupChildren, compact, pending }: { groupChildren: HerdChildSpace[]; compact: boolean; pending: ReadonlySet<string> }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const [slotWidth, setSlotWidth] = React.useState(0);
     const [fullWidth, setFullWidth] = React.useState(0);
-    const { noun, entries } = familySummary(groupChildren);
+    const { noun, entries } = familySummary(groupChildren, pending);
     const crowded = entries.length > 1 && slotWidth > 0 && fullWidth > slotWidth;
     const shown = crowded ? entries.slice(0, 1) : entries;
     const chips = (list: SummaryEntry[]) => list.map((entry) => (
@@ -628,14 +636,14 @@ const FamilySummary = React.memo(({ groupChildren, compact }: { groupChildren: H
  * it does not control it — the card header is the single disclosure.
  * Indented to the child glyph column so it reads as the rail's label.
  */
-const GroupSubheader = React.memo(({ groupChildren, compact }: { groupChildren: HerdChildSpace[]; compact: boolean }) => (
+const GroupSubheader = React.memo(({ groupChildren, compact, pending }: { groupChildren: HerdChildSpace[]; compact: boolean; pending: ReadonlySet<string> }) => (
     <View
         style={[stylesheet.groupRow, compact && stylesheet.groupRowCompact]}
         accessible
         accessibilityRole="text"
-        accessibilityLabel={familySummary(groupChildren).spoken}
+        accessibilityLabel={familySummary(groupChildren, pending).spoken}
     >
-        <FamilySummary groupChildren={groupChildren} compact={compact} />
+        <FamilySummary groupChildren={groupChildren} compact={compact} pending={pending} />
     </View>
 ));
 
@@ -649,6 +657,7 @@ const ChildRow = React.memo(({
     selectedSessionId,
     canClose,
     unseenDoneSessionIds,
+    pending,
 }: {
     child: HerdChildSpace;
     name: string;
@@ -659,18 +668,20 @@ const ChildRow = React.memo(({
     selectedSessionId?: string;
     canClose: boolean;
     unseenDoneSessionIds: ReadonlySet<string>;
+    pending: ReadonlySet<string>;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const navigateToSession = useNavigateToSession();
     const depth = Math.min(child.depth, MAX_DRAWN_DEPTH);
     const inset = childInset(depth);
-    const dot = agentStatusColor(child.workspace.agentStatus, theme);
+    const childStatus = displayedAgentStatus(child.workspace.agentStatus, workspaceHoldsRequest(child.workspace, pending));
+    const dot = agentStatusColor(childStatus, theme);
     const panes = child.workspace.tabs.flatMap((tab) => tab.panes);
     const agentPanes = panes.filter((pane) => pane.agentKind !== undefined);
     const singleAgent = agentPanes.length === 1 ? agentPanes[0] : undefined;
     const singleSessionId = singleAgent?.sessionId;
-    const counts = agentCounts([child.workspace]);
+    const counts = agentCounts([child.workspace], pending);
     // What its one agent is working on leads; the workspace label stands in without it.
     const task = singleAgent === undefined ? undefined : agentLabels(singleAgent).task;
     const label = task ?? name;
@@ -685,7 +696,7 @@ const ChildRow = React.memo(({
     const hasActions = canClose || (singleAgent !== undefined && favouriteAgentRoute(singleAgent) !== undefined);
     const interactive = onPress !== undefined || hasActions;
     // The agent row's weight rule: settled and seen goes quiet.
-    const quiet = (child.workspace.agentStatus === 'done' || child.workspace.agentStatus === 'idle')
+    const quiet = (childStatus === 'done' || childStatus === 'idle')
         && !panes.some((pane) => pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId));
     // The parent rows' mark: the lead agent's kind, else the shell.
     const leadLabels = agentPanes[0] === undefined ? undefined : agentLabels(agentPanes[0]);
@@ -739,6 +750,7 @@ const ChildRow = React.memo(({
                             selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                             hasActions
                             unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
+                            pending={pending}
                         />
                     ))}
                 </View>
@@ -766,6 +778,7 @@ const WorkspaceCard = React.memo(({
     selectedSessionId,
     canClose,
     unseenDoneSessionIds,
+    pending,
 }: {
     workspace: HerdrTreeWorkspace;
     name: string;
@@ -787,15 +800,17 @@ const WorkspaceCard = React.memo(({
     selectedSessionId?: string;
     canClose: boolean;
     unseenDoneSessionIds: ReadonlySet<string>;
+    pending: ReadonlySet<string>;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
-    const dot = agentStatusColor(workspace.agentStatus, theme);
+    const workspaceStatus = displayedAgentStatus(workspace.agentStatus, workspaceHoldsRequest(workspace, pending));
+    const dot = agentStatusColor(workspaceStatus, theme);
     const baseName = workspaceName(workspace);
     const suffix = name.startsWith(`${baseName} · `) ? name.slice(baseName.length) : undefined;
     const branch = workspace.worktree?.branch;
     const paneCount = workspace.tabs.reduce((count, tab) => count + tab.panes.length, 0);
-    const counts = agentCounts([workspace, ...childSpaces.map((child) => child.workspace)]);
+    const counts = agentCounts([workspace, ...childSpaces.map((child) => child.workspace)], pending);
     const countLabel = counts.total > 0
         ? t('spacesTree.childAgents', { count: counts.total })
         : paneCount > 0 ? t('spacesTree.shell') : undefined;
@@ -807,7 +822,7 @@ const WorkspaceCard = React.memo(({
     const headerLabel = [
         `${name} workspace`,
         countLabel,
-        folded ? familySummary(childSpaces).spoken : undefined,
+        folded ? familySummary(childSpaces, pending).spoken : undefined,
         pinned ? t('spacesTree.pinned') : undefined,
     ].filter((part) => part !== undefined).join(', ');
     // The header is the single disclosure control: its label speaks the verb
@@ -858,7 +873,7 @@ const WorkspaceCard = React.memo(({
                 </View>
                 {folded && (
                     <View style={[styles.cardHeaderLine, styles.cardHeaderSummary]}>
-                        <FamilySummary groupChildren={childSpaces} compact={compact} />
+                        <FamilySummary groupChildren={childSpaces} compact={compact} pending={pending} />
                     </View>
                 )}
             </Pressable>
@@ -874,10 +889,11 @@ const WorkspaceCard = React.memo(({
                     selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                     hasActions
                     unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
+                    pending={pending}
                 />
             ))}
             {expanded && childSpaces.length > 0 && (
-                <GroupSubheader groupChildren={childSpaces} compact={compact} />
+                <GroupSubheader groupChildren={childSpaces} compact={compact} pending={pending} />
             )}
             {expanded && childSpaces.map((child, index) => (
                 <ChildRow
@@ -891,6 +907,7 @@ const WorkspaceCard = React.memo(({
                     selectedSessionId={selectedSessionId}
                     canClose={canClose}
                     unseenDoneSessionIds={unseenDoneSessionIds}
+                    pending={pending}
                 />
             ))}
         </View>
@@ -899,6 +916,8 @@ const WorkspaceCard = React.memo(({
 
 export const SpacesTree = React.memo(({
     workspaces,
+    needsYouIds,
+    pendingIds,
     defaultExpandedWorkspaceIds = [],
     refresh,
     density = 'comfortable',
@@ -920,8 +939,8 @@ export const SpacesTree = React.memo(({
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canClose = authority === 'control' && !authorityLoading && !stale;
     const unseenDoneSessionIds = useUnseenDoneSessionIds();
-    // The header summary's needs-you count must match the favicon and icon badge.
-    const needsYou = useNeedsYouCount();
+    const needsYou = needsYouIds.size;
+    const pending = pendingIds;
     const [choices, setChoices] = React.useState<ReadonlyMap<string, boolean>>(() => new Map());
     const expanded = React.useMemo(
         () => effectiveExpandedSpaces(defaultExpandedWorkspaceIds, choices),
@@ -1126,9 +1145,10 @@ export const SpacesTree = React.memo(({
                 selectedSessionId={selectedSessionId}
                 canClose={canClose}
                 unseenDoneSessionIds={unseenDoneSessionIds}
+                pending={pending}
             />
         </View>
-    ), [canClose, childNames, childActions, compact, paneActions, pinned, workspaceActions, names, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
+    ), [canClose, childNames, childActions, compact, paneActions, pinned, workspaceActions, names, onNavigatePane, pending, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
@@ -1153,7 +1173,7 @@ export const SpacesTree = React.memo(({
                 renderSectionHeader={({ section }) => (
                     <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
                         <SectionLabel>{section.title}</SectionLabel>
-                        {section.key === 'spaces' && !searching && <AgentCountSummary counts={{ ...agentCounts(workspaces), needsYou }} />}
+                        {section.key === 'spaces' && !searching && <AgentCountSummary counts={{ ...agentCounts(workspaces, pending), needsYou }} />}
                     </View>
                 )}
                 stickySectionHeadersEnabled={false}
@@ -1175,6 +1195,7 @@ export const SpacesTree = React.memo(({
                                     selected={pane.sessionId === selectedSessionId}
                                     hasActions
                                     unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
+                                    pending={pending}
                                 />
                             ))}
                         </View>

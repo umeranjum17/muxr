@@ -1,16 +1,24 @@
 # Show one needs-you count on the app, the favicon and the PWA icon
 
-The Spaces header summary, the browser tab's favicon dot and the installed PWA's
-app icon badge all show the same "needs you" number, from one selector
-(`needsYouCount` in `apps/mobile/sources/herd/domain/herdTree.ts`, read through
-`useNeedsYouCount`). An Agent counts when its Herdr pane is `blocked` or
-`failed`, plus any online session holding a pending request no pane already
-covers, counted once per Agent Route. Previously the favicon/badge counted only
-online sessions with `agentState.requests`, so a `failed` pane with no request
-showed in the app but not on the icon, and a request the pane list missed showed
-on the icon but not in the app.
+The Home Needs you list, the Spaces header summary, the browser tab's favicon
+dot and the installed PWA's app icon badge all show the same agents, from one
+selector (`needsYouSessionIds` in `apps/mobile/sources/herd/domain/herdTree.ts`,
+counted through `useNeedsYouCount`, listed by `needsYouActivityRows`; the
+per-status rule is `statusNeedsYou`). An Agent counts when its Herdr pane is
+`blocked` or `failed`, plus any online session holding a pending request no pane
+already covers, counted once per Agent Route. Previously the favicon/badge counted
+only online sessions with `agentState.requests`, so a `failed` pane with no
+request showed in the app but not on the icon, and a request the pane list
+missed showed on the icon but not in the app. An agent leaves the Needs you list
+only when it stops needing you, never because its card was seen.
 
 ## Sub-features
+
+- The Needs you list has exactly as many rows as the Spaces header's needs-you
+  number and the badge, even after the first Live card has been on screen for
+  seconds; answering one agent drops the list, the card, the count and the
+  badge together. A failure whose agent left the tree (could not start) is not
+  in that list: it sits in its own `Failed` tier until opened.
 
 - The Spaces header's needs-you number equals the favicon state (`favicon.svg`
   vs `favicon-active.ico`) and the `navigator.setAppBadge`/`clearAppBadge` value.
@@ -28,6 +36,16 @@ number. No agent waiting: the header shows only the agent total and the favicon
 dot and badge are gone.
 
 ## Driving it with the private stack
+
+The list agreement uses the paired lab PWA of `lab-browser-pairing.md`: start
+`browserPairLab.mjs` with `LAB_AGENTS=3` and its stdin on a pipe, then write
+`1 blocked`, `2 blocked`, wait ~6 s (the first Live card fully on screen at
+393 px), write `3 blocked`, and read the Needs you section's rows, the Spaces
+header `aria-label` (`3 agents, 3 needs you`) and the recorded badge calls
+(`setAppBadge(3)`): three rows, three, three. Write `1 working` to answer one;
+all three drop to two together. Capture light and dark at 393 and 270 px.
+
+The favicon and request cases below use the private fake stack directly:
 
 Preconditions: `yarn build && yarn web:export:selfhost`; or no host at all for
 the pure favicon/badge origin. To hold an exact herd, use the private fake stack
