@@ -25,6 +25,15 @@ export interface ProcessGroupOptions {
     /** Aborting kills the group immediately. */
     signal?: AbortSignal;
     windowsHide?: boolean;
+    /**
+     * Launcher mode. A plugin action may deliberately start a helper (an app
+     * server) and then exit 0; reaping its group would kill that helper. When
+     * set, a clean exit (code 0, no signal) leaves the group running and settles
+     * as soon as the direct child exits, so a helper holding our stdio pipes
+     * does not turn a clean launch into a timeout. A timeout, an abort, or a
+     * non-zero exit still kills the group.
+     */
+    preserveGroupOnCleanExit?: boolean;
 }
 
 export interface ProcessGroupResult {
@@ -148,6 +157,14 @@ export function runInProcessGroup(
             exited = true;
             exitCode = code;
             exitSignal = signal;
+            if (options.preserveGroupOnCleanExit === true && code === 0 && signal === null) {
+                // A plugin action that exited cleanly may have started a helper
+                // on purpose: leave the group alone and settle now, because a
+                // helper holding our stdio pipes would hold 'close' open until
+                // the timeout. A non-clean exit still reaps the group below.
+                finish();
+                return;
+            }
             // The direct child exiting does not mean its group is empty: a
             // command that backgrounded a process leaves it in the group
             // holding our pipe. Reap the group the moment the shell is gone.

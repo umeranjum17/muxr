@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure } from '@trymuxr/contract';
 import { createRequestDispatcher } from './createRequestDispatcher.js';
+import { runInProcessGroup } from '../../platform/processGroup.js';
 import { agentToolPath, createFakeSessionSource, type SessionSource } from '../../agent/index.js';
 import { hostPlatformLabel } from '../../machine/index.js';
 import { HerdrKit, agentInstallState } from '@byokit/herdr';
@@ -1001,6 +1002,35 @@ describe('machine.shell process group', () => {
                 const pid = Number(readFileSync(pidFile, 'utf8').trim());
                 if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
             } catch { /* the fix already reaped it, or it never started */ }
+            rmSync(home, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it('keeps a helper the launcher intentionally backgrounded on a clean exit', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-shell-keep-'));
+        const pidFile = join(home, 'helper.pid');
+        try {
+            // A plugin action may start an app server and exit 0; that helper
+            // inherits our stdio pipes. Launcher mode must settle on the clean
+            // exit and leave the helper's group running rather than reap it.
+            writeFileSync(join(home, 'start.sh'), 'sleep 300 &\necho $! > helper.pid\necho started\n');
+            const started = Date.now();
+            const result = await runInProcessGroup('sh', ['./start.sh'], {
+                cwd: home,
+                timeoutMs: 15_000,
+                preserveGroupOnCleanExit: true,
+            });
+            expect(result.error).toBeNull();
+            expect(Date.now() - started).toBeLessThan(5_000);
+            const pid = Number(readFileSync(pidFile, 'utf8').trim());
+            expect(Number.isInteger(pid)).toBe(true);
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            expect(processAlive(pid)).toBe(true);
+        } finally {
+            try {
+                const pid = Number(readFileSync(pidFile, 'utf8').trim());
+                if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
+            } catch { /* the helper never started */ }
             rmSync(home, { recursive: true, force: true });
         }
     }, 30_000);
