@@ -94,6 +94,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   same timeline.
 - [Scan a pairing QR from the terminal](./pairing-qr.md) —
   `muxr pair` at normal/narrow widths and inside an isolated Herdr terminal.
+- [Lead every pair entry with Scan](./pair-scan-first.md) —
+  which action leads on each way into pairing, Scan a new code after an expired
+  or refused code, and the paste-led page on a device that cannot scan.
 - [Read the pairing consent as short, plain bullets](./pairing-consent.md) —
   native release APK and PWA over a private stack: phone and browser control and
   view-only consent, plain copy, at 360dp/270dp font 1.3 and 393/270 px, dark and light.
