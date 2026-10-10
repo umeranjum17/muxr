@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ScrollView, Text } from 'react-native';
+import { Platform, ScrollView, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
@@ -68,12 +68,21 @@ export function AccountsSettingsScreen() {
         { text: 'Cancel', style: 'cancel' },
     ]);
 
-    // Accounts of one provider must stay tellable apart at the largest text size:
-    // the name wraps to two lines and the email wraps in full, rather than both
-    // truncating to one shared prefix. The usage line beneath differs between
-    // accounts that share a name and email. A no-break space keeps each "·"
-    // with the word before it.
-    const subtitle = (account: PlanAccount): string | undefined => (account.signedIn ? account.email : 'Signed out');
+    // Accounts of one provider must stay tellable apart at the largest text size.
+    // The name wraps to two lines; the email stays on a single line so it never
+    // breaks mid-word. Native keeps both ends of a too-long email (ellipsizeMode
+    // "middle"); web ignores that mode, so there we shorten the local part and
+    // keep the domain, the part that tells two addresses apart. Accounts that
+    // still share a name and email are told apart by the usage line beneath. A
+    // no-break space keeps each "·" with the word before it.
+    const rowEmail = (email: string): string => {
+        if (Platform.OS !== 'web') return email;
+        const at = email.lastIndexOf('@');
+        if (at <= 0) return email;
+        const local = email.slice(0, at);
+        return local.length <= 6 ? email : `${local.slice(0, 3)}…${email.slice(at)}`;
+    };
+    const subtitle = (account: PlanAccount): string | undefined => (account.signedIn ? rowEmail(account.email) : 'Signed out');
     const facts = (account: PlanAccount): string | undefined => {
         if (!account.signedIn) return undefined;
         const room = account.roomLeftPercent === undefined ? undefined : `${account.roomLeftPercent}% left`;
@@ -104,7 +113,8 @@ export function AccountsSettingsScreen() {
                                 title={account.name}
                                 titleLines={2}
                                 subtitle={subtitle(account)}
-                                subtitleLines={0}
+                                subtitleLines={1}
+                                subtitleEllipsizeMode={Platform.OS === 'web' ? undefined : 'middle'}
                                 meta={facts(account)}
                                 metaLines={0}
                                 icon={<Ionicons
@@ -117,7 +127,7 @@ export function AccountsSettingsScreen() {
                                 showChevron={account.signedIn}
                                 onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
                                 onLongPress={() => actions(account)}
-                                accessibilityLabel={[account.name, subtitle(account), facts(account)].filter(Boolean).join(', ')}
+                                accessibilityLabel={[account.name, account.signedIn ? account.email : 'Signed out', facts(account)].filter(Boolean).join(', ')}
                             />
                         ))}
                         <Item
