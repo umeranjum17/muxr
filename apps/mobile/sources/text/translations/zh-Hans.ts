@@ -290,6 +290,22 @@ export const zhHans: TranslationStructure = {
         status: ({ status }: { status: string }) => `状态：${status}`,
     },
 
+    webInstall: {
+        // Install row shown in a browser tab, next to the versions card
+        groupTitle: '安装应用',
+        rowTitle: '安装 muxr',
+        browserSubtitle: '将全屏应用添加到主屏幕。',
+        browserMenuSubtitle: '打开浏览器菜单，选择“安装应用”。',
+        iosSubtitle: '添加到主屏幕，即可全屏使用并接收提醒。',
+        guideTitle: '将 muxr 添加到主屏幕',
+        guideLead: 'Safari 通过「分享」菜单安装网页应用。',
+        guideSteps: '1. 点按工具栏中的「分享」按钮。\n2. 点按「添加到主屏幕」。\n3. 点按「添加」。',
+        guideBenefit: '添加到主屏幕后，当代理需要你时，muxr 可以通知你。',
+        guideOpenInSafari: '请先在 Safari 中打开 muxr。只有 Safari 可以将它添加到主屏幕。',
+        pushNeedsHomeScreen: '需要先将 muxr 添加到主屏幕',
+        guideClose: '关闭',
+    },
+
     optionSheet: {
         // Model/mode picker bottom sheet
         all: '全部',

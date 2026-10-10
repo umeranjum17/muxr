@@ -14,6 +14,8 @@
 - Row priority in the offer view: QR, then the string, then the QR-page line (only when no QR fits), then title, expiry, compare and waiting lines, then the "Other ways" label, each while the rows hold them. The QR and string are reserved first, so the string never drops. The QR-page line is one row at 80 columns and always printed.
 - The local QR page (`scripts/setup/infrastructure/pairingPage.mjs`) starts only when an interactive offer, native or browser, has no QR that fits the terminal, serves on loopback with a random path and a Host check, and refreshes with each offer. Its QR is shown only when the terminal cannot fit one, so the page line appears only where no QR fits (80x24 and smaller); 91x37 and 120x40 keep the in-place QR. Setup's `printTerminalQr` prints an omission reason instead.
 - At the approval prompt, Enter re-asks without rejecting the device; `y` approves and `n` declines.
+- Check that a phone killed while the person at the computer still decides leaves no grant: `node scripts/cli.mjs devices list` should be unchanged after approving the dead phone, and a fresh `muxr pair` should still pair. The pinned key should be the one the code handshake proved, so only the device that handshake authenticated is granted.
+- Check that a phone app from the pre-bump release still pairs with the new host through the same offer. Not yet proven live.
 - A non-TTY `muxr pair` (AI agent or script) never approves: it prints exactly one line — `Pairing needs you at this computer's terminal: run `muxr pair` yourself` — and exits 2. The person must run `muxr pair` at the terminal.
 
 ## How to get to it (user POV)

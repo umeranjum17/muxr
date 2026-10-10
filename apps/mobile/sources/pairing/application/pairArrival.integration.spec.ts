@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { hostId, keyPairFrom, offerText, parseOffer, unb64url } from '@byokit/link';
+import { hostId, keyPairFrom, offerText, parseV1Offer, unb64url } from '@byokit/link';
 import { linkUrl } from '@byokit/relay/device';
 
 const harness = vi.hoisted(() => ({
@@ -78,7 +78,7 @@ vi.mock('../infrastructure/linkPairClient', async (importOriginal) => {
             harness.claims += 1;
             const { PairingNeedsNewCode } = await import('../domain/pairingString');
             if (harness.declined) throw new PairingNeedsNewCode('The computer declined this pairing.');
-            const parsed = parseOffer(pending.scanned);
+            const parsed = parseV1Offer(pending.scanned);
             const key = keyPairFrom(unb64url(pending.secretKey));
             const answer = {
                 machineId: `machine-${parsed.ticket}`,

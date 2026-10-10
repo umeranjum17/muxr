@@ -275,6 +275,22 @@ export const ru: TranslationStructure = {
         status: ({ status }: { status: string }) => `Статус: ${status}`,
     },
 
+    webInstall: {
+        // Install row shown in a browser tab, next to the versions card
+        groupTitle: 'Установить приложение',
+        rowTitle: 'Установить muxr',
+        browserSubtitle: 'Добавляет приложение на весь экран на главный экран.',
+        browserMenuSubtitle: 'Откройте меню браузера и выберите «Установить приложение».',
+        iosSubtitle: 'Добавьте на главный экран, чтобы использовать на весь экран и получать уведомления.',
+        guideTitle: 'Добавьте muxr на главный экран',
+        guideLead: 'Safari устанавливает веб-приложения через меню «Поделиться».',
+        guideSteps: '1. Нажмите кнопку «Поделиться» на панели.\n2. Нажмите «На главный экран».\n3. Нажмите «Добавить».',
+        guideBenefit: 'На главном экране muxr сможет сообщать вам, когда агенту нужна помощь.',
+        guideOpenInSafari: 'Сначала откройте muxr в Safari. Добавить на главный экран можно только из Safari.',
+        pushNeedsHomeScreen: 'Сначала добавьте muxr на главный экран',
+        guideClose: 'Закрыть',
+    },
+
     optionSheet: {
         // Model/mode picker bottom sheet
         all: 'все',

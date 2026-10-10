@@ -288,6 +288,22 @@ export const pt: TranslationStructure = {
         status: ({ status }: { status: string }) => `Status: ${status}`,
     },
 
+    webInstall: {
+        // Install row shown in a browser tab, next to the versions card
+        groupTitle: 'Instalar a aplicação',
+        rowTitle: 'Instalar o muxr',
+        browserSubtitle: 'Adiciona uma aplicação em ecrã inteiro ao ecrã inicial.',
+        browserMenuSubtitle: 'Abra o menu do navegador e escolha Instalar aplicação.',
+        iosSubtitle: 'Adiciona-o ao ecrã inicial para o usar em ecrã inteiro e receber alertas.',
+        guideTitle: 'Adicionar o muxr ao ecrã inicial',
+        guideLead: 'O Safari instala aplicações web através do menu Partilhar.',
+        guideSteps: '1. Toque no botão Partilhar na barra.\n2. Toque em «Adicionar ao ecrã inicial».\n3. Toque em «Adicionar».',
+        guideBenefit: 'No ecrã inicial, o muxr pode avisá-lo quando um agente precisar de si.',
+        guideOpenInSafari: 'Abra o muxr no Safari primeiro. Só o Safari pode adicioná-lo à tela inicial.',
+        pushNeedsHomeScreen: 'Primeiro precisa do muxr na tela inicial',
+        guideClose: 'Fechar',
+    },
+
     optionSheet: {
         // Model/mode picker bottom sheet
         all: 'todas',

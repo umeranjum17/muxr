@@ -16,6 +16,8 @@ import { knownHostVersion, versionsMismatch } from '@/utils/versionStatus';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { t } from '@/text';
 import { useHostUpdate } from './useHostUpdate';
+import { WebInstallSupport } from './WebInstallSupport';
+import { isStandalone } from '@/utils/webInstall';
 import { useDeviceAuthority } from '@/pairing';
 
 // Explanation prose drops below its action row at full card width (same tokens
@@ -37,9 +39,7 @@ const stylesheet = StyleSheet.create((theme) => ({
 // window proves nothing about installation.
 function detectInstallContext(): 'native' | 'standalone' | 'browser' {
     if (Platform.OS !== 'web') return 'native';
-    if (typeof navigator !== 'undefined' && (navigator as { standalone?: boolean }).standalone === true) return 'standalone';
-    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) return 'standalone';
-    return 'browser';
+    return isStandalone() ? 'standalone' : 'browser';
 }
 
 const installContextTitles: Record<ReturnType<typeof detectInstallContext>, string> = {
@@ -114,6 +114,7 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
             <Item title="Get mobile builds" subtitle="Choose the stable or nightly release you want to test" subtitleLines={0}
                 onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/releases')} />
         </ItemGroup>
+        <WebInstallSupport />
         <ItemGroup title="Troubleshooting" footer="Diagnostics contain durations, counts and status codes. Credentials, terminal content and private identifiers are excluded.">
             <Item title={details === undefined ? 'Show diagnostics' : 'Hide diagnostics'}
                 subtitle="Connection and terminal events, with app build details"

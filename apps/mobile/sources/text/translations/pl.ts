@@ -305,6 +305,22 @@ export const pl: TranslationStructure = {
         status: ({ status }: { status: string }) => `Status: ${status}`,
     },
 
+    webInstall: {
+        // Install row shown in a browser tab, next to the versions card
+        groupTitle: 'Zainstaluj aplikację',
+        rowTitle: 'Zainstaluj muxr',
+        browserSubtitle: 'Dodaje aplikację na pełnym ekranie do ekranu głównego.',
+        browserMenuSubtitle: 'Otwórz menu przeglądarki i wybierz Zainstaluj aplikację.',
+        iosSubtitle: 'Dodaj ją do ekranu głównego, aby używać jej na pełnym ekranie i otrzymywać powiadomienia.',
+        guideTitle: 'Dodaj muxr do ekranu głównego',
+        guideLead: 'Safari instaluje aplikacje internetowe z menu Udostępnij.',
+        guideSteps: '1. Dotknij przycisku Udostępnij na pasku.\n2. Dotknij „Dodaj do ekranu głównego”.\n3. Dotknij „Dodaj”.',
+        guideBenefit: 'Na ekranie głównym muxr może powiadamiać Cię, gdy agent potrzebuje pomocy.',
+        guideOpenInSafari: 'Najpierw otwórz muxr w Safari. Tylko Safari może dodać go na ekran początkowy.',
+        pushNeedsHomeScreen: 'Najpierw muxr musi być na ekranie początkowym',
+        guideClose: 'Zamknij',
+    },
+
     optionSheet: {
         // Model/mode picker bottom sheet
         all: 'wszystkie',

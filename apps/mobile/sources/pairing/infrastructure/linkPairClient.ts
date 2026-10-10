@@ -9,6 +9,7 @@ import {
     keyPairFrom,
     pairWithOffer,
     parseOffer,
+    parseV1Offer,
     unb64url,
     type DeviceGrant as LinkDeviceGrant,
 } from '@byokit/link';
@@ -51,7 +52,7 @@ export function pairingFailure(cause: unknown): string {
         ? LINK_WORDS[cause.code] : cause instanceof Error ? cause.message : String(cause);
 }
 
-const NOT_FINISHED = "This pairing didn't finish on your computer. Run `muxr pair` there and scan the new code.";
+const NOT_FINISHED = "This pairing didn't finish on your computer. Run muxr pair there and scan the new code.";
 /** byokit keys are base64url; the machine answer keeps the same bytes as plain base64. */
 /** The computer revoked this key mid-request: it rolled the pairing back. */
 const rolledBack = (cause: unknown): boolean => cause instanceof LinkError && cause.code === 'removed';
@@ -157,8 +158,9 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         } else {
             // By key alone, past the code's expiry and with no grace for a key
             // the computer does not know: either it approved this key, or the
-            // pairing it belonged to is over.
-            const offer = parseOffer(pending.scanned, 0);
+            // pairing it belonged to is over. Only a version 1 offer carries a host key,
+            // so resuming by key is a version 1 path.
+            const offer = parseV1Offer(pending.scanned, 0);
             claim = { v: 1, secretKey: pending.secretKey, host: offer.host, hostName: offer.name, urls: offer.urls,
                 device: { id: '', name: pending.name, role: offer.role ?? 'view' } };
         }
@@ -166,7 +168,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         // The computer only grants a device whose link is still open when it
         // approves, and the code is single-use: neither can be retried.
         if (wordsShown && lost(cause)) {
-            throw new PairingNeedsNewCode('The pairing link closed after the two words, before approval completed. Run `muxr pair` again and approve the fresh code before it expires.');
+            throw new PairingNeedsNewCode('The pairing link closed after the two words, before approval completed. Run muxr pair again and approve the fresh code before it expires.');
         }
         if (cause instanceof LinkError && (cause.code === 'expired' || cause.code === 'declined')) throw new PairingNeedsNewCode(LINK_WORDS[cause.code]);
         throw cause instanceof Error ? cause : new Error('pairing failed');

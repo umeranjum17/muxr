@@ -79,7 +79,7 @@ export function FirstRunConnection() {
         const pasted = await Modal.prompt(
             'Paste the pairing string',
             browser
-                ? 'Paste the link shown by muxr pair --browser for eight hours of control, muxr pair --browser-personal for 30 days on a browser only you use, or muxr pair --browser-view for view-only access.'
+                ? 'Paste the browser link shown by muxr pair --browser on your computer.'
                 : 'Paste the pairing string shown by muxr on the computer.',
             { placeholder: browser ? 'https://your-relay/pair#…' : 'Paste it here' },
         );
@@ -138,7 +138,7 @@ export function FirstRunConnection() {
                     <Text style={styles.routeHint}>Use this if you already SSH into that computer; no QR needed.</Text>
                 </>}
             </View>
-            <Text style={styles.footer}>End-to-end encrypted · machine keys never leave your devices</Text>
+            <Text style={styles.footer}>End-to-end encrypted</Text>
         </View>
     );
 }

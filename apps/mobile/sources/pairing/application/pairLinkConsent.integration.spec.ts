@@ -59,16 +59,17 @@ describe('pairLinkOffer consent', () => {
         expect(declined).toBe(false);
         expect(harness.confirms).toHaveLength(1);
         expect(harness.confirms[0]?.title).toBe('Pair with Desk?');
-        expect(harness.confirms[0]?.body).toContain('see and change things on it');
+        expect(harness.confirms[0]?.body).toContain('This iPhone can see and change things on Desk');
     });
 
     it('states view-only access for a --browser-view grant', async () => {
         harness.device = 'browser';
+        harness.noun = 'browser';
         const declined = await pairLinkOffer(linkOffer({ role: 'view', name: 'Desk' }), {} as never);
         expect(declined).toBe(false);
         expect(harness.confirms).toHaveLength(1);
         expect(harness.confirms[0]?.title).toBe('Pair with Desk?');
-        expect(harness.confirms[0]?.body).toContain('see it, but not change anything');
+        expect(harness.confirms[0]?.body).toContain("This browser can see Desk, but can't change anything");
         expect(harness.confirms[0]?.body).not.toContain('see and change');
         expect(harness.confirms[0]?.body).toContain('muxr pair --browser-view');
     });
@@ -77,16 +78,16 @@ describe('pairLinkOffer consent', () => {
         const declined = await pairLinkOffer(`muxr://pair#${linkOffer({ role: 'view', name: 'Desk' })}`, {} as never);
         expect(declined).toBe(false);
         expect(harness.confirms).toHaveLength(1);
-        expect(harness.confirms[0]?.body).toContain('see it, but not change anything');
+        expect(harness.confirms[0]?.body).toContain("This iPhone can see Desk, but can't change anything");
         expect(harness.confirms[0]?.body).not.toContain('see and change');
     });
 
-    it('falls back to the neutral access copy when the offer carries no role', async () => {
+    it('states full control when the offer carries no readable role', async () => {
         const declined = await pairLinkOffer(linkOffer({ name: 'Desk' }), {} as never);
         expect(declined).toBe(false);
         expect(harness.confirms).toHaveLength(1);
-        expect(harness.confirms[0]?.body).toContain('will receive the access shown on the pairing screen');
-        expect(harness.confirms[0]?.body).not.toContain('see and change');
+        expect(harness.confirms[0]?.body).toContain('This iPhone can see and change things on Desk');
+        expect(harness.confirms[0]?.body).toContain('Only continue if you just ran muxr on that computer');
     });
 });
 
@@ -101,7 +102,7 @@ it('pairs with one screen consent and inline progress without an alert over Home
         onProgress: (view) => progress.push(view),
     })).toBe(true);
     expect(consent).toHaveBeenCalledTimes(1);
-    expect(consent.mock.calls[0]?.[1]).toContain('This iPad will be able to see and change things on it');
+    expect(consent.mock.calls[0]?.[1]).toContain('This iPad can see and change things on Desk');
     expect(harness.confirms).toHaveLength(0);
     expect(progress).toEqual([
         expect.objectContaining({ phase: 'compare', words: 'spark castle' }),
