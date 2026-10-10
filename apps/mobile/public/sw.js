@@ -9,7 +9,7 @@ const SHELL_CACHE_PREFIX = 'muxr-shell-';
 const SHELL_VERSION = '__MUXR_SHELL_VERSION__';
 const SHELL_CACHE = SHELL_CACHE_PREFIX + SHELL_VERSION;
 const SHELL_URL = '/index.html';
-const SHELL_ASSET_PREFIXES = ['/_expo/', '/assets/'];
+const SHELL_ASSET_PREFIXES = ['/_expo/', '/assets/', '/shiki-langs/'];
 const RUNTIME_SHELL_PATHS = ['/canvaskit.wasm'];
 const NAVIGATION_TIMEOUT_MS = 4000;
 

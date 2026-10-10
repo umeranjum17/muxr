@@ -187,6 +187,11 @@ if (!existsSync(distIndex)) {
     check('dist lazy chunks carry the xterm payload',
         lazyText.includes('xterm-scrollable-element') && lazyText.includes('@xterm/addon-webgl'));
     check('dist lazy chunks carry the grammar payload', lazyText.includes('source.cpp'));
+    // Languages outside the slim set load as on-demand JSON assets, never from
+    // the eager payload. The landing HTML must not reference them.
+    check('dist ships on-demand grammar assets',
+        existsSync(join(mobile, 'dist', 'shiki-langs', 'index.json')) && existsSync(join(mobile, 'dist', 'shiki-langs', 'vue.json')));
+    check('dist initial payload never references a grammar asset', !distHtml.includes('/shiki-langs/'));
     // Expo hashes asset names, so inspect emitted model-sized binaries instead
     // of grepping JS metadata for a legitimate filename.
     const MIN_WHISPER_MODEL_BYTES = 50 * 1024 * 1024;

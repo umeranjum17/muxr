@@ -20,6 +20,12 @@ opens.
   entry and `__common` chunks is `0`; they appear only in the lazy
   `TerminalRoute-*.js` (which holds the xterm `TerminalView` boundary),
   `codeSurfaces-*.js` and `pierreBundle-*.js` chunks.
+- The 30-grammar slim set loads with the lazy diff chunk. Every other shiki
+  grammar (Vue, C#, Svelte, Lua, Dart, Elixir, Scala, Zig, ...) is fetched on
+  demand as one JSON file per language from `/shiki-langs/`, built by
+  `apps/mobile/scripts/buildShikiLangs.mjs`. A diff renders plain text until the
+  grammar resolves, then re-renders highlighted. A TypeScript-only diff fetches
+  no grammar asset at all.
 - Opening a session route still loads `TerminalRoute-*.js` and renders the
   not-paired/session state — never a blank screen.
 
@@ -29,7 +35,9 @@ Install the web client (or open the export in a standalone window) and
 cold-start it on a phone network. The landing paints, then the pair screen. Open
 an agent: the terminal appears (its chunk arrives then), and opening a file or
 change shows the highlighted surface. Nothing terminal/editor/highlighter
-related is transferred before the landing paints.
+related is transferred before the landing paints. A change to a language outside
+the slim set shows its grammar fetched from `/shiki-langs/<id>.json` when the
+diff opens, and highlights once it lands.
 
 ## Driving it with the private stack
 
@@ -42,7 +50,8 @@ needed to render the diff surface.
    It serves files verbatim (no gzip), so browser transfer is raw.
 2. Initial transfer, offline: `node scripts/diagnostics/application/checkWebExport.mjs`
    prints `dist usable gzip ratchet … — <n> bytes` and `dist __common chunk
-   ratchet — <n> bytes`; both must pass.
+   ratchet — <n> bytes`; both must pass, plus `dist ships on-demand grammar
+   assets` and `dist initial payload never references a grammar asset`.
 3. Chunk split: list `dist/_expo/static/js/web`, and confirm the eager entry
    (`index-*.js` referenced by `dist/index.html`) and `__common-*.js` contain no
    `xterm`/`shiki`/`Oniguruma`/`PierreDiffView`, while lazy `TerminalRoute-*.js`
@@ -61,6 +70,15 @@ needed to render the diff surface.
 6. Diff surface: with a paired host, open a commit/change and assert the
    `codeSurfaces-*.js` and `pierreBundle-*.js` requests happened and the diff
    renders highlighted.
+7. On-demand grammars, without a host: bundle the diff surface's `shiki` alias
+   and `@pierre/diffs/react` for the browser with the repo's `esbuild`
+   (`--alias shiki` -> `sources/components/diff/shikiSlim.ts`, mirroring the
+   Metro alias), serve the harness from `dist` so `/shiki-langs/` resolves, and
+   render a patch whose files are `App.vue` and `greet.ts`. Confirm from the
+   browser network log that `/shiki-langs/index.json` and
+   `/shiki-langs/vue.json` are fetched and the diff paints Vue and TypeScript
+   highlighting at 393 px light and dark; render a TypeScript-only patch and
+   confirm no `/shiki-langs/` request happens.
 
 ## Gotchas
 
@@ -70,8 +88,12 @@ needed to render the diff surface.
   `checkWebExport` gzip budget; compare before/after raw, and quote the gzip
   budget from the check, not the browser.
 - The commit / changes-file routes need a paired host to render; without one
-  they show the transport error and never fetch `codeSurfaces`, so verify the
-  shiki bundle standalone (bundle `shikiSlim.ts` and call `codeToHtml`) when no
-  host is available instead of claiming the diff rendered.
+  they show the transport error and never fetch `codeSurfaces`. When no host is
+  available, drive the diff surface standalone with step 7 instead of claiming
+  the app route rendered.
+- The on-demand grammar assets live in `dist/shiki-langs/` (built into
+  `public/shiki-langs/` before the export; gitignored like canvaskit). A stale
+  `public/shiki-langs/` after a `@shikijs/langs` bump re-serves old grammars:
+  re-run `npm run setup-shiki-langs` (it always regenerates).
 - `--app=` is the only way to get `display-mode: standalone`; a DevTools
   viewport emulation does not set it.
