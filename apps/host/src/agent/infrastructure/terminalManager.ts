@@ -292,9 +292,11 @@ export class TerminalManager {
         let wheelMeasuring = false;
         let wheelMeasureTries = 0;
         let wheelMeasured: number | undefined;
+        let wheelPainting = false;
         attachment.resetWheelMeasure = (): void => {
             wheelMeasureTries = 0;
             wheelMeasured = undefined;
+            delete attachment.wheelPaintMs;
         };
         let childExited = false;
         void session.exited.then(() => { childExited = true; });
@@ -427,7 +429,9 @@ export class TerminalManager {
         const turnWheel = (): void => {
             wheelTimer = undefined;
             if (finished || Math.abs(wheelRows) < wheelStep() || childExited || wheelMeasuring) return;
-            if (attachment.wheelStep === undefined && wheelMeasureTries < WHEEL_MEASURE_TRIES && this.options.readPaneText !== undefined) {
+            if (wheelPainting) {
+                wheelPainting = false;
+            } else if (attachment.wheelStep === undefined && wheelMeasureTries < WHEEL_MEASURE_TRIES && this.options.readPaneText !== undefined) {
                 void measureWheel();
                 return;
             }
@@ -462,9 +466,21 @@ export class TerminalManager {
         const measureWheel = async (): Promise<void> => {
             const read = this.options.readPaneText!;
             wheelMeasuring = true;
-            wheelMeasureTries++;
+            let counted = false;
+            const count = (): void => {
+                if (!counted) {
+                    counted = true;
+                    wheelMeasureTries++;
+                }
+            };
             try {
                 const before = await read(attachment.paneId);
+                await new Promise((resolve) => setTimeout(resolve, WHEEL_MEASURE_SETTLE_MS));
+                if (screenShift(before, await read(attachment.paneId)) !== undefined) {
+                    wheelPainting = true;
+                    return;
+                }
+                count();
                 if (finished || wheelRows === 0) return;
                 const up = wheelRows > 0;
                 const direction = up ? 1 : -1;
@@ -492,6 +508,7 @@ export class TerminalManager {
                 wheelMeasured = step;
             } catch {
                 // An unreadable screen leaves the step at a row a report.
+                count();
             } finally {
                 wheelMeasuring = false;
                 paintedAt = Date.now();
@@ -507,7 +524,7 @@ export class TerminalManager {
             wheelTimer = undefined;
             try {
                 // Reports still painting late would move the screen up like live output.
-                await new Promise((resolve) => setTimeout(resolve, WHEEL_FOLLOW_SETTLE_MS + (attachment.wheelPaintMs ?? 0)));
+                await new Promise((resolve) => setTimeout(resolve, WHEEL_FOLLOW_SETTLE_MS + (attachment.wheelPaintMs ?? WHEEL_MEASURE_PAINT_MS)));
                 const before = await read(attachment.paneId);
                 await new Promise((resolve) => setTimeout(resolve, WHEEL_FOLLOW_WATCH_MS));
                 const shift = screenShift(before, await read(attachment.paneId));
