@@ -467,7 +467,8 @@ export class TerminalManager {
                 }
                 await new Promise((resolve) => setTimeout(resolve, WHEEL_MEASURE_SETTLE_MS));
                 const shift = screenShift(before, await read(attachment.paneId));
-                const step = shift === undefined ? undefined : (up ? shift : -shift);
+                const direction = up ? 1 : -1;
+                const step = shift === undefined ? undefined : shift * direction;
                 // Output landing while a program follows its live edge skews one
                 // reading, never two the same way.
                 if (step !== undefined && step > 0 && step === wheelMeasured) {
