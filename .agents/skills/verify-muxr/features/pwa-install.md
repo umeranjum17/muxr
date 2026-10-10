@@ -21,6 +21,12 @@ install path), so nobody is invited to install something already installed.
 - Hidden on native (`Platform.OS !== 'web'`), when standalone/`appinstalled`,
   and in a browser that offers no install path (a manifest that is not
   installable).
+- A one-time invitation sits below the Right now strip on Home (and after the
+  first-run connection block before pairing), titled `Install muxr on this
+  device`: it hands back the same held prompt (Chromium) or opens the same
+  guide (iOS), with a `Not now` dismissal remembered on the device
+  (`webInstallInviteDismissed`). It obeys the same visibility rules as the
+  Settings row, so it never paints on native, installed, or non-installable.
 
 ## How to get to it (user POV)
 
@@ -59,6 +65,14 @@ host. Build and serve the export:
    Screen` subtitle. Tap the row and assert the guide sheet's `Add muxr to your
    Home Screen`, steps and `Close`. Capture the row and sheet at 393 and 270 px,
    light and dark.
+7. Home/first-run invitation: open the export in a browser tab that is not yet
+   installed and assert the `Install muxr on this device` card below the Right
+   now strip (Home) and below the first-run connection block (before pairing).
+   Tapping the action must drive the same flow as step 3 (Chromium) and step 6
+   (iOS). Tap `Not now`: the card disappears and stays gone after a reload.
+   Capture the invite, the opened flow, and the after-dismiss state at 393 and
+   270 px, light and dark, plus one short recording of tap-through-close and of
+   the dismissal.
 
 ## Gotchas
 
@@ -76,6 +90,9 @@ host. Build and serve the export:
   instead and keep the close action out of the scroll area.
 - Native is unchanged by construction: `getWebInstallState()` returns
   `unavailable` off web, so no install row ever paints on a phone or tablet build.
+- The Home invitation is dismissed for good once `webInstallInviteDismissed` is
+  set, so re-drive it from a fresh browser profile (or clear that local setting);
+  a browser-menu Chromium state (`ready` lost) also hides it, like the Settings row.
 - An iOS Safari tab without the Home Screen app also gets the Settings
   Notifications row `Needs muxr on your Home Screen first` instead of a push
   switch; assert it there too.
