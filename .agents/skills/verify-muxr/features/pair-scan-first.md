@@ -12,7 +12,7 @@ open.
 
 ## Sub-features
 
-- `scan-leads-entry` bare `/pair` (Home, recovery card, palette, PWA shortcut on native) and `/pair?source=settings` open with **Scan the QR** as the first, primary button; **Or paste the pairing string** and a secondary Connect sit below.
+- `scan-leads-entry` bare `/pair` (Home, recovery card, palette) and `/pair?source=settings` open with **Scan the QR** as the first, primary button; **Or paste the pairing string** and a secondary Connect sit below.
 - `scan-new-code` an expired launch link, an expired QR scanned on first run or Home, and a code the computer refused all land on the pair page with the error and **Scan a new code** first, under it "On your computer, run muxr pair for a new code."
 - `scan-retry` a retryable failure keeps **Try again** primary, then **Scan a new code**, **Enter another code**, and a quiet **Back**.
 - `scan-one-tap` the Scan press opens the scanner directly; a camera permission still loading is asked for in the same tap, and a refusal offers **Open Settings**.
