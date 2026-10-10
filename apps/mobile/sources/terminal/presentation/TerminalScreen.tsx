@@ -374,13 +374,16 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
     /**
-     * Latest is muxr's only on a pane whose scrollback Herdr owns. A program on
-     * the alternate screen (Claude Code and every other full-screen harness)
-     * scrolls itself and draws its own way back, so a second control there
-     * would sit beside the program's own; Herdr reports no scrollback for it.
+     * On a pane whose scrollback Herdr owns, Latest shows while Herdr reports
+     * the view back from the edge. A program on the alternate screen scrolls
+     * itself and Herdr reports no scrollback for it, so there Latest shows
+     * while the user has scrolled it back -- unless the program draws its own
+     * way back (Claude Code's 'Jump to bottom'), which a second control would
+     * sit beside.
      */
     const [catchingUp, setCatchingUp] = React.useState(false);
     const [showJump, setShowJump] = React.useState(false);
+    const [hostHasScrollback, setHostHasScrollback] = React.useState<boolean | undefined>(undefined);
     /**
      * The user scrolled a program's own screen back since last typing to it.
      * Herdr cannot say where that program's view sits, so this is no position,
@@ -403,6 +406,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         stopWatchingChannel.current = undefined;
         setCatchingUp(false);
         setShowJump(false);
+        setHostHasScrollback(undefined);
         const route = paneRoute.current;
         setScrolledAway(SCROLLED_AWAY.has(route));
         if (channel !== undefined) {
@@ -416,6 +420,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             });
             const stopScrollState = channel.onScrollState(({ offsetFromBottom, maxOffsetFromBottom }) => {
                 hostHasScrollback = maxOffsetFromBottom > 0;
+                setHostHasScrollback(hostHasScrollback);
                 setShowJump(hostHasScrollback && offsetFromBottom > 0);
                 if (hostHasScrollback && offsetFromBottom === 0) markScrolledAway(route, false);
             });
@@ -635,6 +640,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const panePromptable = currentPane?.promptable === true;
     const paneKind = currentPane?.agentKind;
     const paneLifecycle = currentPane?.agentStatus;
+    const latestShown = showJump || (hostHasScrollback === false && scrolledAway && paneKind !== 'claude');
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (next) => setAppActive(next === 'active'));
         return () => subscription.remove();
@@ -1509,7 +1515,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         <PendingChoices
                             key={props.id}
                             sessionId={props.id}
-                            waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !showJump && !scrolledAway && !desktopVisible}
+                            waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !latestShown && !scrolledAway && !desktopVisible}
                             channel={channel}
                             onVisibilityChange={setChoicesVisible}
                         />
@@ -1635,7 +1641,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </>)}
                         </View>
                         {terminalNotice}
-                        {showJump && (
+                        {latestShown && (
                             <Animated.View
                                 entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)}
                                 exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}

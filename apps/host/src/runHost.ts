@@ -507,6 +507,7 @@ async function main(): Promise<void> {
         },
         focusSession: (sessionId, assertActive) => source.paneFocus(sessionId, assertActive),
         readPaneScroll: (paneId) => source.paneScroll(paneId),
+        readPaneText: (paneId) => source.paneVisibleText(paneId),
         openTerminal: (paneId, opts) => source.herdrTerminal(paneId, opts),
     });
 

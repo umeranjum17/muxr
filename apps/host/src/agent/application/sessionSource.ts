@@ -170,6 +170,8 @@ export interface SessionSource {
      * full-screen program, so nothing the phone sends can move a viewport there.
      */
     paneScroll(paneId: string): Promise<{ offsetFromBottom: number; maxOffsetFromBottom: number }>;
+    /** The text a pane shows now, by pane id. */
+    paneVisibleText(paneId: string): Promise<string>;
     /** Register a watch; resolves once registered, not once the agent settles. */
     agentWatch(options: {
         sessionId: string;

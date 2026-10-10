@@ -189,6 +189,87 @@ setInterval(() => {}, 1000);
         expect(readFileSync(join(dir, 'wheel.log'), 'utf8').trim().split('\n')).toHaveLength(2);
     });
 
+    it('keeps a streaming full-screen program under the finger and finishes Latest at its live edge', { timeout: 15_000 }, async () => {
+        // The pane plays OpenCode: three rows per wheel report, a new line
+        // every 50 ms that it follows only at the live edge, and a repaint on
+        // every line, so it never goes still and draws no way back itself.
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-stream-wheel-'));
+        cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+        const bin = join(dir, 'fake-herdr.mjs');
+        const screenFile = join(dir, 'screen.txt');
+        const stateFile = join(dir, 'state.json');
+        writeFileSync(bin, `#!/usr/bin/env node
+import { writeFileSync } from 'node:fs';
+const lines = Array.from({ length: 200 }, (_, i) => 'line ' + (i + 1));
+let back = 0;
+let moved = 0;
+const paint = (full) => {
+    const end = lines.length - back;
+    const body = lines.slice(end - 8, end);
+    writeFileSync(${JSON.stringify(screenFile)}, ['OPENCODE', ...body, 'ask anything'].join('\\n'));
+    writeFileSync(${JSON.stringify(stateFile)}, JSON.stringify({ back, moved }));
+    process.stdout.write(JSON.stringify({ type: 'terminal.frame', full, bytes: Buffer.from(body.at(-1)).toString('base64') }) + '\\n');
+};
+paint(true);
+setInterval(() => { lines.push('line ' + (lines.length + 1)); if (back > 0) back += 1; paint(false); }, 50);
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+    buffer += chunk;
+    for (let nl = buffer.indexOf('\\n'); nl >= 0; nl = buffer.indexOf('\\n')) {
+        const frame = JSON.parse(buffer.slice(0, nl) || '{}');
+        buffer = buffer.slice(nl + 1);
+        if (frame.type === 'terminal.release') process.exit(0);
+        if (frame.type !== 'terminal.scroll') continue;
+        const next = frame.direction === 'up' ? Math.min(lines.length - 8, back + 3 * frame.lines) : Math.max(0, back - 3 * frame.lines);
+        moved += Math.abs(next - back);
+        back = next;
+        paint(false);
+    }
+});
+`, { mode: 0o755 });
+        const manager = new TerminalManager({
+            resolvePane: async () => 'pane-1',
+            focusSession: async () => undefined,
+            readPaneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),
+            readPaneText: async () => readFileSync(screenFile, 'utf8'),
+            openTerminal: openTerminalFor(bin),
+        });
+        cleanups.push(() => manager.closeAll());
+        let input!: (line: string) => void;
+        const results: Array<{ type: string; state?: string }> = [];
+        const socket = {
+            isOpen: true,
+            send: (line: string) => { results.push(JSON.parse(line)); },
+            onLine: (listener: (line: string) => void) => { input = listener; return () => undefined; },
+            onEnd: () => () => undefined,
+            close: () => undefined,
+        };
+        await manager.attach({ sessionId: 's1', channel: 'stream-wheel', cols: 20, rows: 10, socket });
+        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+        const state = (): { back: number; moved: number } => JSON.parse(readFileSync(stateFile, 'utf8'));
+        await sleep(300);
+
+        // A 30-row drag moves the program 30 rows, not three times that.
+        input(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 30, column: 10, row: 5 }));
+        await sleep(1_500);
+        expect(state().moved).toBeGreaterThanOrEqual(27);
+        expect(state().moved).toBeLessThanOrEqual(36);
+
+        // Latest reaches the live edge and says so, though the program never stops painting.
+        input(JSON.stringify({ type: 'terminal.bottom', requestId: 'stream-bottom' }));
+        await once(new Promise<void>((resolve) => {
+            const timer = setInterval(() => {
+                if (results.some((frame) => frame.type === 'terminal.bottom-state' && frame.state === 'complete')) {
+                    clearInterval(timer);
+                    resolve();
+                }
+            }, 10);
+            cleanups.push(() => clearInterval(timer));
+        }), 4_000, 'Latest completion');
+        expect(state().back).toBe(0);
+    });
+
     it('carries terminal and voice streams over the byokit link', { timeout: 60_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-terminal-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

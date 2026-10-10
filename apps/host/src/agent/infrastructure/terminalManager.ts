@@ -23,6 +23,8 @@ export interface TerminalManagerOptions {
     focusSession: (sessionId: string, assertActive?: () => void) => Promise<void>;
     /** Herdr's own viewport position for a pane. Omitted, the phone is told nothing. */
     readPaneScroll?: (paneId: string) => Promise<{ offsetFromBottom: number; maxOffsetFromBottom: number }>;
+    /** The pane's visible text. Omitted, a program's wheel is turned a row a report. */
+    readPaneText?: (paneId: string) => Promise<string>;
     /** Opens the kit terminal session; the kit owns the herdr binary and env. */
     openTerminal: (paneId: string, opts: TerminalOpenOptions) => TerminalSession;
 }
@@ -45,6 +47,8 @@ interface Attachment {
     scrollOffsetFromBottom: number;
     /** Whether Herdr holds scrollback here, as last read; unknown until then. */
     herdrOwnsScroll?: boolean;
+    /** Rows the program on the alternate screen moves per wheel report, once measured. */
+    wheelStep?: number;
     close: (reason?: string) => void;
 }
 
@@ -97,6 +101,48 @@ const WHEEL_RUSH_ROWS = 100;
  * agent's wheel spinning at its live edge.
  */
 const WHEEL_STILL_MS = 500;
+/**
+ * Programs differ in how far one wheel report moves them: Claude Code one row,
+ * OpenCode and vim three. Turned a report per row, those ran three times ahead
+ * of the finger. So the first reports on a program's screen go one at a time,
+ * reading the screen either side, until two agree on the step.
+ */
+const WHEEL_MEASURE_TRIES = 6;
+const WHEEL_MEASURE_PAINT_MS = 300;
+const WHEEL_MEASURE_SETTLE_MS = 60;
+const MAX_WHEEL_STEP = 12;
+/**
+ * A program that keeps repainting never goes still at its live edge, so
+ * Latest also stops the wheel now and then and watches: a screen that moves
+ * up on its own is following new output, which only happens at the bottom.
+ */
+const WHEEL_FOLLOW_AFTER_MS = 400;
+const WHEEL_FOLLOW_SETTLE_MS = 120;
+const WHEEL_FOLLOW_WATCH_MS = 250;
+
+/**
+ * How far the lines on a screen moved between two reads: positive when they
+ * moved down (the view went back), negative when they moved up, undefined when
+ * no shift explains more lines than standing still. Only lines that appear
+ * once count, so blank rows and repeated chrome cannot vote.
+ */
+export function screenShift(before: string, after: string): number | undefined {
+    const was = before.split('\n').map((line) => line.trimEnd());
+    const now = after.split('\n').map((line) => line.trimEnd());
+    const seen = new Map<string, number>();
+    for (const line of was) seen.set(line, (seen.get(line) ?? 0) + 1);
+    const matches = (shift: number): number => was.filter((line, i) =>
+        line.trim() !== '' && seen.get(line) === 1 && now[i + shift] === line).length;
+    let best: number | undefined;
+    let bestCount = Math.max(2, matches(0));
+    for (let step = 1; step <= MAX_WHEEL_STEP; step++) {
+        for (const shift of [step, -step]) {
+            const count = matches(shift);
+            if (count > bestCount) { best = shift; bestCount = count; }
+        }
+    }
+    return best;
+}
 
 /** Herdr's initial screen is a full repaint record, not merely the first line. */
 function isInitialScreenRecord(line: string): boolean {
@@ -240,6 +286,9 @@ export class TerminalManager {
         let paintedAt = 0;
         let wheelBurst = 0;
         let wheelSentAt = 0;
+        let wheelMeasuring = false;
+        let wheelMeasureTries = 0;
+        let wheelMeasured: number | undefined;
         let childExited = false;
         void session.exited.then(() => { childExited = true; });
         let removeInputRef: () => void = () => undefined;
@@ -367,9 +416,14 @@ export class TerminalManager {
                 onInputError(error instanceof Error ? error : new Error(String(error)));
             }
         };
+        const wheelStep = (): number => attachment.wheelStep ?? 1;
         const turnWheel = (): void => {
             wheelTimer = undefined;
-            if (finished || wheelRows === 0 || childExited) return;
+            if (finished || Math.abs(wheelRows) < wheelStep() || childExited || wheelMeasuring) return;
+            if (attachment.wheelStep === undefined && wheelMeasureTries < WHEEL_MEASURE_TRIES && this.options.readPaneText !== undefined) {
+                void measureWheel();
+                return;
+            }
             if (!pumping && Date.now() - paintedAt > WHEEL_STILL_MS) {
                 wheelRows = 0;
                 wheelReachedEnd = true;
@@ -377,23 +431,77 @@ export class TerminalManager {
             }
             const now = Date.now();
             if (now - wheelSentAt >= WHEEL_REST_MS) wheelBurst = 0;
-            if (wheelBurst >= WHEEL_BURST && Math.abs(wheelRows) <= WHEEL_RUSH_ROWS) {
+            if (wheelBurst >= WHEEL_BURST && Math.abs(wheelRows) <= WHEEL_RUSH_ROWS * wheelStep()) {
                 wheelTimer = setTimeout(turnWheel, WHEEL_REST_MS - (now - wheelSentAt));
                 return;
             }
             wheelBurst += 1;
             wheelSentAt = now;
+            if (!sendWheel()) return;
+            // Rows short of a whole report wait for the finger's next move.
+            if (Math.abs(wheelRows) >= wheelStep()) wheelTimer = setTimeout(turnWheel, WHEEL_TICK_MS);
+        };
+        const sendWheel = (): boolean => {
             const up = wheelRows > 0;
-            wheelRows += up ? -1 : 1;
+            wheelRows += up ? -wheelStep() : wheelStep();
             try {
                 session.send(JSON.stringify({ type: 'terminal.scroll', direction: up ? 'up' : 'down', lines: 1, ...wheelAt }));
+                return true;
             } catch (error) {
                 onInputError(error instanceof Error ? error : new Error(String(error)));
-                return;
+                return false;
             }
-            if (wheelRows !== 0) wheelTimer = setTimeout(turnWheel, WHEEL_TICK_MS);
+        };
+        const measureWheel = async (): Promise<void> => {
+            const read = this.options.readPaneText!;
+            wheelMeasuring = true;
+            wheelMeasureTries++;
+            try {
+                const before = await read(attachment.paneId);
+                if (finished || wheelRows === 0) return;
+                const up = wheelRows > 0;
+                const sentAt = Date.now();
+                if (!sendWheel()) return;
+                while (paintedAt < sentAt && Date.now() - sentAt < WHEEL_MEASURE_PAINT_MS) {
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                }
+                await new Promise((resolve) => setTimeout(resolve, WHEEL_MEASURE_SETTLE_MS));
+                const shift = screenShift(before, await read(attachment.paneId));
+                const step = shift === undefined ? undefined : (up ? shift : -shift);
+                // Output landing while a program follows its live edge skews one
+                // reading, never two the same way.
+                if (step !== undefined && step > 0 && step === wheelMeasured) {
+                    attachment.wheelStep = step;
+                    // The report already sent counted as one row; settle the rest.
+                    wheelRows = up ? Math.max(0, wheelRows + 1 - step) : Math.min(0, wheelRows + step - 1);
+                }
+                wheelMeasured = step;
+            } catch {
+                // An unreadable screen leaves the step at a row a report.
+                wheelMeasureTries = WHEEL_MEASURE_TRIES;
+            } finally {
+                wheelMeasuring = false;
+                paintedAt = Date.now();
+                if (wheelTimer === undefined) turnWheel();
+            }
         };
 
+        /** Pauses the wheel and reports whether the screen then moves up by itself. */
+        const followsLiveOutput = async (): Promise<boolean> => {
+            const read = this.options.readPaneText;
+            if (read === undefined || Math.abs(wheelRows) < wheelStep()) return false;
+            clearTimeout(wheelTimer);
+            wheelTimer = undefined;
+            try {
+                await new Promise((resolve) => setTimeout(resolve, WHEEL_FOLLOW_SETTLE_MS));
+                const before = await read(attachment.paneId);
+                await new Promise((resolve) => setTimeout(resolve, WHEEL_FOLLOW_WATCH_MS));
+                const shift = screenShift(before, await read(attachment.paneId));
+                return shift !== undefined && shift < 0;
+            } catch {
+                return false;
+            }
+        };
         const goToBottom = async (generation: number, requestId: string): Promise<void> => {
             const deadline = Date.now() + 3_000;
             const active = (): boolean => !finished && !childExited
@@ -420,8 +528,16 @@ export class TerminalManager {
                     wheelAt = { column: Math.floor(attachment.cols / 2), row: Math.floor(attachment.rows / 2) };
                     paintedAt = Date.now();
                     turnWheel();
-                    while (active() && wheelRows !== 0 && Date.now() < deadline) {
+                    let watchAt = Date.now() + WHEEL_FOLLOW_AFTER_MS;
+                    while (active() && (wheelMeasuring || Math.abs(wheelRows) >= wheelStep()) && Date.now() < deadline) {
                         await new Promise((resolve) => setTimeout(resolve, SCROLL_STATE_SETTLE_MS));
+                        if (Date.now() < watchAt || wheelMeasuring || !active()) continue;
+                        const following = await followsLiveOutput();
+                        if (!active()) return;
+                        if (following) { wheelRows = 0; result('complete'); return; }
+                        paintedAt = Date.now();
+                        if (wheelTimer === undefined) turnWheel();
+                        watchAt = Date.now() + WHEEL_FOLLOW_AFTER_MS;
                     }
                     if (!active()) return;
                     if (wheelReachedEnd) { result('complete'); return; }
@@ -545,6 +661,7 @@ export class TerminalManager {
             const scroll = await read(attachment.paneId);
             attachment.scrollOffsetFromBottom = scroll.offsetFromBottom;
             attachment.herdrOwnsScroll = scroll.maxOffsetFromBottom > 0;
+            if (attachment.herdrOwnsScroll) delete attachment.wheelStep;
             await this.sendToPhone(attachment, JSON.stringify({
                 type: 'terminal.scroll-state',
                 offsetFromBottom: scroll.offsetFromBottom,
