@@ -49,6 +49,8 @@ interface Attachment {
     herdrOwnsScroll?: boolean;
     /** Rows the program on the alternate screen moves per wheel report, once measured. */
     wheelStep?: number;
+    /** How long the program took to paint that measured report. */
+    wheelPaintMs?: number;
     close: (reason?: string) => void;
 }
 
@@ -475,6 +477,7 @@ export class TerminalManager {
                 // reading, never two the same way.
                 if (step !== undefined && step > 0 && step === wheelMeasured) {
                     attachment.wheelStep = step;
+                    attachment.wheelPaintMs = Date.now() - sentAt;
                     // The report already sent counted as one row; settle the rest.
                     wheelRows = up ? Math.max(0, wheelRows + 1 - step) : Math.min(0, wheelRows + step - 1);
                 }
@@ -496,7 +499,8 @@ export class TerminalManager {
             clearTimeout(wheelTimer);
             wheelTimer = undefined;
             try {
-                await new Promise((resolve) => setTimeout(resolve, WHEEL_FOLLOW_SETTLE_MS));
+                // Reports still painting late would move the screen up like live output.
+                await new Promise((resolve) => setTimeout(resolve, WHEEL_FOLLOW_SETTLE_MS + (attachment.wheelPaintMs ?? 0)));
                 const before = await read(attachment.paneId);
                 await new Promise((resolve) => setTimeout(resolve, WHEEL_FOLLOW_WATCH_MS));
                 const shift = screenShift(before, await read(attachment.paneId));

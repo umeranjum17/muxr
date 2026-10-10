@@ -194,7 +194,8 @@ setInterval(() => {}, 1000);
         // every 50 ms that it follows only at the live edge, and a repaint on
         // every line, so it never goes still and draws no way back itself.
         const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-stream-wheel-'));
-        cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+        // The program may still be painting while it exits.
+        cleanups.push(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
         const bin = join(dir, 'fake-herdr.mjs');
         const screenFile = join(dir, 'screen.txt');
         const stateFile = join(dir, 'state.json');
