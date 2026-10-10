@@ -478,8 +478,11 @@ export class TerminalManager {
                 if (step !== undefined && step > 0 && step === wheelMeasured) {
                     attachment.wheelStep = step;
                     attachment.wheelPaintMs = Date.now() - sentAt;
-                    // The report already sent counted as one row; settle the rest.
-                    wheelRows = up ? Math.max(0, wheelRows + 1 - step) : Math.min(0, wheelRows + step - 1);
+                    // The report already sent counted as one row; settle the rest,
+                    // unless the finger or Latest turned the wheel back meanwhile.
+                    if (Math.sign(wheelRows) === direction) {
+                        wheelRows = up ? Math.max(0, wheelRows + 1 - step) : Math.min(0, wheelRows + step - 1);
+                    }
                 }
                 wheelMeasured = step;
             } catch {
