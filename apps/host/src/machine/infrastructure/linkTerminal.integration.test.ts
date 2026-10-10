@@ -189,6 +189,251 @@ setInterval(() => {}, 1000);
         expect(readFileSync(join(dir, 'wheel.log'), 'utf8').trim().split('\n')).toHaveLength(2);
     });
 
+    it('keeps a streaming full-screen program under the finger and finishes Latest at its live edge', { timeout: 15_000 }, async () => {
+        // The pane plays OpenCode scrolled back into its transcript: three
+        // rows per wheel report, a new line every 50 ms it follows only at the
+        // live edge, and a repaint on every line. Away from the live edge its
+        // own output does not move the view, so the step is measurable.
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-stream-wheel-'));
+        // The program may still be painting while it exits.
+        cleanups.push(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
+        const bin = join(dir, 'fake-herdr.mjs');
+        const screenFile = join(dir, 'screen.txt');
+        const stateFile = join(dir, 'state.json');
+        writeFileSync(bin, `#!/usr/bin/env node
+import { renameSync, writeFileSync } from 'node:fs';
+// Whole files only: the host and the test read them while this paints.
+const save = (path, text) => { writeFileSync(path + '.tmp', text); renameSync(path + '.tmp', path); };
+const lines = Array.from({ length: 200 }, (_, i) => 'line ' + (i + 1));
+let back = 30;
+let moved = 0;
+const paint = (full) => {
+    const end = lines.length - back;
+    const body = lines.slice(end - 8, end);
+    save(${JSON.stringify(screenFile)}, ['OPENCODE', ...body, 'ask anything'].join('\\n'));
+    save(${JSON.stringify(stateFile)}, JSON.stringify({ back, moved }));
+    process.stdout.write(JSON.stringify({ type: 'terminal.frame', full, bytes: Buffer.from(body.at(-1)).toString('base64') }) + '\\n');
+};
+paint(true);
+setInterval(() => { lines.push('line ' + (lines.length + 1)); if (back > 0) back += 1; paint(false); }, 50);
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+    buffer += chunk;
+    for (let nl = buffer.indexOf('\\n'); nl >= 0; nl = buffer.indexOf('\\n')) {
+        const frame = JSON.parse(buffer.slice(0, nl) || '{}');
+        buffer = buffer.slice(nl + 1);
+        if (frame.type === 'terminal.release') process.exit(0);
+        if (frame.type !== 'terminal.scroll') continue;
+        // Painted late, as on a busy host, while its own output keeps painting.
+        setTimeout(() => {
+            const next = frame.direction === 'up' ? Math.min(lines.length - 8, back + 3 * frame.lines) : Math.max(0, back - 3 * frame.lines);
+            moved += Math.abs(next - back);
+            back = next;
+            paint(false);
+        }, 300);
+    }
+});
+`, { mode: 0o755 });
+        const manager = new TerminalManager({
+            resolvePane: async () => 'pane-1',
+            focusSession: async () => undefined,
+            readPaneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),
+            readPaneText: async () => readFileSync(screenFile, 'utf8'),
+            openTerminal: openTerminalFor(bin),
+        });
+        cleanups.push(() => manager.closeAll());
+        let input!: (line: string) => void;
+        const results: Array<{ type: string; state?: string }> = [];
+        const socket = {
+            isOpen: true,
+            send: (line: string) => { results.push(JSON.parse(line)); },
+            onLine: (listener: (line: string) => void) => { input = listener; return () => undefined; },
+            onEnd: () => () => undefined,
+            close: () => undefined,
+        };
+        await manager.attach({ sessionId: 's1', channel: 'stream-wheel', cols: 20, rows: 10, socket });
+        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+        const state = (): { back: number; moved: number } => JSON.parse(readFileSync(stateFile, 'utf8'));
+        await sleep(300);
+
+        // A 30-row drag moves the program 30 rows, not three times that.
+        input(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 30, column: 10, row: 5 }));
+        for (let last = -1, deadline = Date.now() + 6_000; state().moved !== last && Date.now() < deadline;) {
+            last = state().moved;
+            await sleep(700);
+        }
+        expect(state().moved).toBeGreaterThanOrEqual(27);
+        expect(state().moved).toBeLessThanOrEqual(36);
+
+        // Latest reaches the live edge and says so, though the program never stops painting.
+        input(JSON.stringify({ type: 'terminal.bottom', requestId: 'stream-bottom' }));
+        await once(new Promise<void>((resolve) => {
+            const timer = setInterval(() => {
+                if (results.some((frame) => frame.type === 'terminal.bottom-state' && frame.state === 'complete')) {
+                    clearInterval(timer);
+                    resolve();
+                }
+            }, 10);
+            cleanups.push(() => clearInterval(timer));
+        }), 4_000, 'Latest completion');
+        expect(state().back).toBe(0);
+    });
+
+    it('learns the program wheel step after a failed pane read', { timeout: 15_000 }, async () => {
+        // The pane plays OpenCode: three rows per wheel report, repainting the
+        // screen only when a report moves it. The first pane-text read fails as
+        // a transient herdr read does, and the step must still be learned.
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-read-fail-'));
+        cleanups.push(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
+        const bin = join(dir, 'fake-herdr.mjs');
+        const screenFile = join(dir, 'screen.txt');
+        const stateFile = join(dir, 'state.json');
+        writeFileSync(bin, `#!/usr/bin/env node
+import { renameSync, writeFileSync } from 'node:fs';
+// Whole files only: the host and the test read them while this paints.
+const save = (path, text) => { writeFileSync(path + '.tmp', text); renameSync(path + '.tmp', path); };
+const lines = Array.from({ length: 200 }, (_, i) => 'line ' + (i + 1));
+let back = 0;
+let moved = 0;
+const paint = (full) => {
+    const end = lines.length - back;
+    const body = lines.slice(end - 8, end);
+    save(${JSON.stringify(screenFile)}, ['OPENCODE', ...body, 'ask anything'].join('\\n'));
+    save(${JSON.stringify(stateFile)}, JSON.stringify({ back, moved }));
+    process.stdout.write(JSON.stringify({ type: 'terminal.frame', full, bytes: Buffer.from(body.at(-1)).toString('base64') }) + '\\n');
+};
+paint(true);
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+    buffer += chunk;
+    for (let nl = buffer.indexOf('\\n'); nl >= 0; nl = buffer.indexOf('\\n')) {
+        const frame = JSON.parse(buffer.slice(0, nl) || '{}');
+        buffer = buffer.slice(nl + 1);
+        if (frame.type === 'terminal.release') process.exit(0);
+        if (frame.type !== 'terminal.scroll') continue;
+        // Painted late, as on a busy host.
+        setTimeout(() => {
+            const next = frame.direction === 'up' ? Math.min(lines.length - 8, back + 3 * frame.lines) : Math.max(0, back - 3 * frame.lines);
+            moved += Math.abs(next - back);
+            back = next;
+            paint(false);
+        }, 300);
+    }
+});
+`, { mode: 0o755 });
+        let textReads = 0;
+        const manager = new TerminalManager({
+            resolvePane: async () => 'pane-1',
+            focusSession: async () => undefined,
+            readPaneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),
+            readPaneText: async () => {
+                textReads += 1;
+                if (textReads === 1) throw new Error('pane text unreadable');
+                return readFileSync(screenFile, 'utf8');
+            },
+            openTerminal: openTerminalFor(bin),
+        });
+        cleanups.push(() => manager.closeAll());
+        let input!: (line: string) => void;
+        const socket = {
+            isOpen: true,
+            send: () => undefined,
+            onLine: (listener: (line: string) => void) => { input = listener; return () => undefined; },
+            onEnd: () => () => undefined,
+            close: () => undefined,
+        };
+        await manager.attach({ sessionId: 's1', channel: 'read-fail', cols: 20, rows: 10, socket });
+        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+        const state = (): { back: number; moved: number } => JSON.parse(readFileSync(stateFile, 'utf8'));
+        await sleep(300);
+
+        // A 30-row drag moves the program 30 rows, not three times that, even
+        // though the first read of its screen threw.
+        input(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 30, column: 10, row: 5 }));
+        for (let last = -1, deadline = Date.now() + 6_000; state().moved !== last && Date.now() < deadline;) {
+            last = state().moved;
+            await sleep(700);
+        }
+        expect(textReads).toBeGreaterThan(1);
+        expect(state().moved).toBeGreaterThanOrEqual(27);
+        expect(state().moved).toBeLessThanOrEqual(36);
+    });
+
+    it('never learns a wheel step from a program that keeps painting', { timeout: 15_000 }, async () => {
+        // The pane keeps appending output while a down drag turns its wheel, so
+        // every reading of its screen moves on its own. The rows-per-report must
+        // not be read out of that motion: the wheel stays at a report a row.
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-live-paint-'));
+        cleanups.push(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
+        const bin = join(dir, 'fake-herdr.mjs');
+        const screenFile = join(dir, 'screen.txt');
+        const stateFile = join(dir, 'state.json');
+        writeFileSync(bin, `#!/usr/bin/env node
+import { renameSync, writeFileSync } from 'node:fs';
+const save = (path, text) => { writeFileSync(path + '.tmp', text); renameSync(path + '.tmp', path); };
+const lines = Array.from({ length: 400 }, (_, i) => 'line ' + (i + 1));
+let back = 20;
+let reports = 0;
+const paint = (full) => {
+    const end = lines.length - back;
+    const body = lines.slice(end - 8, end);
+    save(${JSON.stringify(screenFile)}, ['OPENCODE', ...body, 'ask anything'].join('\\n'));
+    save(${JSON.stringify(stateFile)}, JSON.stringify({ back, reports }));
+    process.stdout.write(JSON.stringify({ type: 'terminal.frame', full, bytes: Buffer.from(body.at(-1)).toString('base64') }) + '\\n');
+};
+paint(true);
+setInterval(() => { lines.push('line ' + (lines.length + 1)); paint(false); }, 20);
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+    buffer += chunk;
+    for (let nl = buffer.indexOf('\\n'); nl >= 0; nl = buffer.indexOf('\\n')) {
+        const frame = JSON.parse(buffer.slice(0, nl) || '{}');
+        buffer = buffer.slice(nl + 1);
+        if (frame.type === 'terminal.release') process.exit(0);
+        if (frame.type !== 'terminal.scroll') continue;
+        reports += 1;
+        save(${JSON.stringify(stateFile)}, JSON.stringify({ back, reports }));
+        setTimeout(() => {
+            back = frame.direction === 'up' ? Math.min(lines.length - 8, back + 3 * frame.lines) : Math.max(0, back - 3 * frame.lines);
+            paint(false);
+        }, 300);
+    }
+});
+`, { mode: 0o755 });
+        const manager = new TerminalManager({
+            resolvePane: async () => 'pane-1',
+            focusSession: async () => undefined,
+            readPaneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),
+            readPaneText: async () => readFileSync(screenFile, 'utf8'),
+            openTerminal: openTerminalFor(bin),
+        });
+        cleanups.push(() => manager.closeAll());
+        let input!: (line: string) => void;
+        const socket = {
+            isOpen: true,
+            send: () => undefined,
+            onLine: (listener: (line: string) => void) => { input = listener; return () => undefined; },
+            onEnd: () => () => undefined,
+            close: () => undefined,
+        };
+        await manager.attach({ sessionId: 's1', channel: 'live-paint', cols: 20, rows: 10, socket });
+        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+        const state = (): { back: number; reports: number } => JSON.parse(readFileSync(stateFile, 'utf8'));
+        await sleep(300);
+
+        input(JSON.stringify({ type: 'terminal.scroll', direction: 'down', lines: 30, column: 10, row: 5 }));
+        for (let last = -1, deadline = Date.now() + 8_000; state().reports !== last && Date.now() < deadline;) {
+            last = state().reports;
+            await sleep(700);
+        }
+        // One report per finger row, so the drag does not carry it three times as far.
+        expect(state().reports).toBeGreaterThanOrEqual(27);
+        expect(state().reports).toBeLessThanOrEqual(36);
+    });
+
     it('carries terminal and voice streams over the byokit link', { timeout: 60_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-terminal-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

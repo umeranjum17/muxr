@@ -22,10 +22,14 @@ import WebSocket from 'ws';
 import {
     DeviceLink,
     LinkError,
+    LINK_WORDS,
     b64url,
     COMPACT_TAG,
+    encodeCompactOffer,
     hostId,
     keyPair,
+    offerText,
+    parseOffer,
     pairWithOffer,
     type DeviceGrant,
     type LinkStatus,
@@ -35,7 +39,7 @@ import { cliMain, hostMain, hostRoot, pairingIntent, relayMain, waitForRelay } f
 import { machineIdentity } from './hostSetup.js';
 import type { StoredHostedGrant } from '../../apps/mobile/sources/pairing/application/linkPairing.js';
 import { LinkFirstClient } from '../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
-import { claimLinkPairing } from '../../apps/mobile/sources/pairing/infrastructure/linkPairClient.js';
+import { claimLinkPairing, type LinkPairPending } from '../../apps/mobile/sources/pairing/infrastructure/linkPairClient.js';
 import { SESSION_EVENT_TYPES, type SessionEvent } from '@trymuxr/contract';
 import { decidePairingInput, parsePairingString } from '../../apps/mobile/sources/pairing/domain/pairingString.js';
 
@@ -571,6 +575,86 @@ describe('native pairing over the byokit link', () => {
         await pairing;
         expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
     }, 90_000);
+
+    it('resumes a phone killed after the words and before approval, for a v1 and a compact offer, and refuses a different computer', async () => {
+        const machineId = readSelfhostState().machine.id;
+        // Model the phone process dying: the kit's sockets close mid-pairing,
+        // so the host sees the device gone while the person is still deciding.
+        const live = new Set<WebSocket>();
+        class KillableWebSocket extends WebSocket {
+            constructor(url: string | URL, protocols?: string | string[]) {
+                super(url, protocols);
+                live.add(this);
+                this.once('close', () => live.delete(this));
+            }
+        }
+        const killPhone = (): void => { for (const socket of live) socket.terminate(); live.clear(); };
+        const baseWebSocket = globalThis.WebSocket;
+        try {
+            for (const compact of [false, true]) {
+                phone.secure.delete(PENDING_LINK_KEY);
+                let words = '';
+                let approveNow: () => void = () => undefined;
+                const waiting = new Promise<void>((resolve) => { approveNow = resolve; });
+                const { pairing, offer, abort } = await showPairingQr({
+                    approve: async () => { await waiting; return true; },
+                }, compact ? { columns: 120, rows: 30 } : undefined);
+                try {
+                    (globalThis as { WebSocket: typeof WebSocket }).WebSocket = KillableWebSocket as unknown as typeof WebSocket;
+                    const claiming = runPhonePairing(offer, { onWords: (shown) => { words = shown; } });
+                    claiming.catch(() => undefined);
+                    await until(() => (words !== '' ? true : undefined), 'phone shows the words');
+                    // onPending persisted the pinned host before approval, on both offer forms.
+                    const durable = phone.secure.get(PENDING_LINK_KEY);
+                    expect(durable, `compact=${compact} pending`).toBeDefined();
+                    const pending = JSON.parse(durable!) as LinkPairPending;
+                    expect(pending.host, `compact=${compact} pinned host`).toBeDefined();
+
+                    // The code has run out by the time the phone relaunches:
+                    // re-encode the same offer with a past lifetime so the
+                    // resume must ignore it and still finish against the host.
+                    const parsed = parseOffer(offer, 0);
+                    const expired = 'code' in parsed
+                        ? encodeCompactOffer({ ...parsed, expires: Date.now() - 1_000 })
+                        : offerText({ ...parsed, expires: Date.now() - 1_000 });
+                    const relaunch = JSON.stringify({ ...pending, scanned: expired });
+
+                    // Kill the phone mid-claim, let the host observe it is gone,
+                    // then approve: the host keeps the grant because the phone
+                    // said it kept a pending one.
+                    killPhone();
+                    await claiming.catch(() => undefined);
+                    await new Promise((resolve) => setTimeout(resolve, 300));
+                    approveNow();
+                    // Relaunch sees the durable pending the kill left; the
+                    // in-process rejection path would have dropped it, which a
+                    // real process kill never runs.
+                    let stored: StoredHostedGrant | undefined;
+                    for (let attempt = 0; attempt < 20 && stored === undefined; attempt += 1) {
+                        phone.secure.set(PENDING_LINK_KEY, relaunch);
+                        stored = await resumePendingHostedPairing();
+                        if (stored === undefined) await new Promise((resolve) => setTimeout(resolve, 500));
+                    }
+                    expect(stored, `compact=${compact} resumed after expiry`).toBeDefined();
+                    expect(stored!.machineId).toBe(machineId);
+                    await pairing;
+                    expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
+
+                    // A resume pinned to a different host key is refused, with
+                    // the wrong-host cause rather than any other failure.
+                    const wrong = { ...pending, scanned: expired, host: b64url(Buffer.alloc(32, compact ? 0x5a : 0x69)) };
+                    phone.secure.set(PENDING_LINK_KEY, JSON.stringify(wrong));
+                    await expect(claimLinkPairing(wrong, { mode: 'resume' })).rejects.toThrow(LINK_WORDS['wrong-host']);
+                    expect(await resumePendingHostedPairing()).toBeUndefined();
+                } finally {
+                    await abort();
+                    await pairing.catch(() => undefined);
+                }
+            }
+        } finally {
+            (globalThis as { WebSocket: typeof WebSocket }).WebSocket = baseWebSocket;
+        }
+    }, 180_000);
 
     it('prints the full pairing string in plain output on an 80-column terminal', async () => {
         const previous = process.env.MUXR_NO_TUI;
