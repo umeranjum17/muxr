@@ -313,14 +313,6 @@ export default function RootLayout() {
                 } catch (error) {
                     console.warn('Could not clear old partial artifact downloads:', error);
                 }
-                // Skia draws the gauge and ring charts. Native ships it in the
-                // binary; the browser has to fetch CanvasKit first, and without
-                // this every plugin panel holding one of those charts died on
-                // `CanvasKit is not defined`.
-                if (Platform.OS === 'web') {
-                    const { LoadSkiaWeb } = await import('@shopify/react-native-skia/lib/module/web');
-                    await LoadSkiaWeb({ locateFile: (file: string) => `/${file}` });
-                }
 
                 try {
                     credentials = await TokenStorage.getCredentials();

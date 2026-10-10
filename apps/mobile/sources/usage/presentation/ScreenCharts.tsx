@@ -11,6 +11,7 @@ import { asChartSeries, type ChartVariant, type PluginChartItem } from '../domai
 import { t } from '@/text';
 import { Typography } from '@/constants/Typography';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
+import { SkiaWebGate } from '@/components/skiaWeb';
 import { useScreenContentWidth } from './screenWidth';
 
 /** Reserved above every column so one labelled bar cannot shrink its own plot. */
@@ -165,7 +166,7 @@ export function ScreenChart({ items, variant, title, emptyText, nested }: { item
                         {/* The arc is the picture and the number beside it is the
                             value; printing it inside the arc as well said it twice. */}
                         <View style={{ width: 84, height: 84 }}>
-                            <GaugeArc ratio={ratio} size={84} color={theme.colors.accent} track={withAlpha(theme.colors.accent, 0.1)} />
+                            <SkiaWebGate><GaugeArc ratio={ratio} size={84} color={theme.colors.accent} track={withAlpha(theme.colors.accent, 0.1)} /></SkiaWebGate>
                         </View>
                         <View style={{ flex: 1, minWidth: 0 }}>
                             {/* Caption for the value below, not a section heading:
@@ -245,11 +246,11 @@ export function ScreenChart({ items, variant, title, emptyText, nested }: { item
                 {title !== undefined && <SectionLabel style={{ marginBottom: 12 }}>{title}</SectionLabel>}
                 <View style={{ alignItems: 'center' }}>
                     <View style={{ width: 132, height: 132 }}>
-                        <PolarChart data={slices} labelKey="label" valueKey="value" colorKey="color" containerStyle={{ width: 132, height: 132 }}>
+                        <SkiaWebGate><PolarChart data={slices} labelKey="label" valueKey="value" colorKey="color" containerStyle={{ width: 132, height: 132 }}>
                             <Pie.Chart innerRadius="74%" startAngle={-90}>
                                 {() => <Pie.Slice {...(reduceMotion ? {} : { animate: { type: 'timing', duration: 500, easing: Easing.bezier(0.23, 1, 0.32, 1) } })} />}
                             </Pie.Chart>
-                        </PolarChart>
+                        </PolarChart></SkiaWebGate>
                         <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
                             <Text style={{ color: theme.colors.text, fontSize: 24, letterSpacing: -0.5, ...Typography.mono('semiBold') }}>{chartValue(hero)}</Text>
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 1 }}>{hero.label}</Text>
