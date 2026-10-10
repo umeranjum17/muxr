@@ -23,17 +23,22 @@ Preconditions:
 
 - `yarn build`, and a release APK built from this tree (`node perf/buildPrApk.mjs <out>`,
   or a lab-signed `:app:assembleRelease`) installed on an owned emulator `SERIAL`.
-- A private stack with at least two tabs, one carrying a label with a descender.
-  `perf/lib/fakeStack.mjs` (`startFakeStack`) builds its tabs from `TAB_LABELS`
-  in `perf/fake-herdr/world.mjs` (`['main', 'review', 'shell', 'scratch']`);
-  none has a descender, so set the first entries to descender words (e.g.
-  `['paging', 'playing', 'shell', 'scratch']`) before `startFakeStack`. The fake
-  Herdr has no rename method, so a long-press Rename in the app fails with
+- A private stack with every pane a shell and at least one tab carrying a
+  descender. `perf/lib/fakeStack.mjs` starts it with
+  `startFakeStack({ panes: 8, agents: 0, titleChurnHz: 0 })`: the default
+  `agents: 4` makes `w1:p1`..`w1:p4` agent panes, whose sessions are not
+  `shell:`, while `agents: 0` leaves all eight panes shells so the route in
+  step 2 resolves. It builds its tabs from `TAB_LABELS` in
+  `perf/fake-herdr/world.mjs` (`['main', 'review', 'shell', 'scratch']`); none
+  has a descender, so set the first entries to descender words (e.g.
+  `['paging', 'playing', 'shell', 'scratch']`) before starting. The fake Herdr
+  has no rename method, so a long-press Rename in the app fails with
   `method_not_found` and never reaches such a label; seeding the world is the
   only in-stack route. Revert the fixture edit before running the suite.
 
 1. Launch and pair (the pairing flow or `muxr://pair#<code>` with a `Pair` tap).
-2. Open a shell pane by deep link, `muxr:///session/shell%3Aw1%3Ap1`.
+2. Open a shell pane by deep link, `muxr:///session/shell%3Aw1%3Ap1` (a shell
+   under `agents: 0`, in the `paging` tab).
 3. Set the reference phone and the largest text:
    `adb -s $SERIAL shell wm size 1080x2376`,
    `adb -s $SERIAL shell wm density 640`,
