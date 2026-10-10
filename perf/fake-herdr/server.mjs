@@ -398,6 +398,23 @@ export async function startFakeHerdr(options) {
             }
             return {};
         },
+        // Lab-only: force a pane's (and its agent's) Herdr lifecycle so a proof
+        // can hold a blocked, failed or idle pane without waiting on the churn.
+        // Not a Herdr method; only a verification harness calls it.
+        'lab.set_agent_status': (params) => {
+            const pane = live.panes.find((row) => row.pane_id === params.pane_id);
+            if (pane === undefined) throw fail('pane_not_found', 'pane not found');
+            const status = params.agent_status;
+            pane.agent_status = status;
+            const agent = live.agents.find((row) => row.pane_id === pane.pane_id);
+            if (agent !== undefined) agent.agent_status = status;
+            if (typeof status === 'string') emitStatus(pane.pane_id, status);
+            emitEvent('pane.updated', {
+                pane_id: pane.pane_id,
+                pane: { pane_id: pane.pane_id, tab_id: pane.tab_id, workspace_id: pane.workspace_id, agent_status: status, focused: pane.focused === true },
+            });
+            return { pane_id: pane.pane_id, agent_status: status };
+        },
         'pane.split': (params) => {
             const target = live.panes.find((row) => row.pane_id === params.target_pane_id);
             if (target === undefined) throw fail('pane_not_found', 'pane not found');

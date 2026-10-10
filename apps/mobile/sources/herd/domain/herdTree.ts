@@ -3,6 +3,7 @@
  */
 
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
+import type { Session } from '@/catalog';
 import { t } from '@/text';
 
 // A producer that drew its own tree into a flat list prefixes the label with
@@ -96,6 +97,31 @@ export function agentCounts(workspaces: readonly HerdrTreeWorkspace[]): { total:
         working: panes.filter((pane) => pane.agentStatus === 'working' || pane.agentStatus === 'starting').length,
         needsYou: panes.filter((pane) => pane.agentStatus === 'blocked' || pane.agentStatus === 'failed').length,
     };
+}
+
+/**
+ * The one "needs you" count every surface reads: an Agent whose Herdr pane is
+ * blocked or failed, plus any online session holding a pending request that a
+ * pane has not already covered. Keyed by Agent Route, so one agent never
+ * counts twice; the in-app summary, the favicon dot and the icon badge agree.
+ */
+export function needsYouCount(
+    workspaces: readonly HerdrTreeWorkspace[],
+    sessions: readonly Session[],
+): number {
+    const needed = new Set<string>();
+    for (const ws of workspaces) for (const tab of ws.tabs) for (const pane of tab.panes) {
+        if (pane.sessionId !== undefined && (pane.agentStatus === 'blocked' || pane.agentStatus === 'failed')) {
+            needed.add(pane.sessionId);
+        }
+    }
+    for (const session of sessions) {
+        const requests = session.agentState?.requests;
+        if (session.presence === 'online' && requests != null && Object.keys(requests).length > 0) {
+            needed.add(session.id);
+        }
+    }
+    return needed.size;
 }
 
 
