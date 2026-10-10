@@ -46,8 +46,9 @@ needed to render the diff surface.
    ratchet — <n> bytes`; both must pass.
 3. Chunk split: list `dist/_expo/static/js/web`, and confirm the eager entry
    (`index-*.js` referenced by `dist/index.html`) and `__common-*.js` contain no
-   `xterm`/`shiki`/`Oniguruma`/`PierreDiffView`, while lazy `TerminalRoute-*.js`,
-   `TerminalView-*.js`, `codeSurfaces-*.js`, `pierreBundle-*.js` exist.
+   `xterm`/`shiki`/`Oniguruma`/`PierreDiffView`, while lazy `TerminalRoute-*.js`
+   (it holds the xterm `TerminalView` boundary; no separate `TerminalView-*.js`
+   chunk is emitted), `codeSurfaces-*.js`, `pierreBundle-*.js` exist.
 4. Cold browser load: one origin per capture (or a fresh profile) for an empty
    cache, `chrome-devtools-axi emulate --network "Slow 4G"` (plus
    `--viewport 393x852x3,mobile,touch` and `--color-scheme dark|light`), open the
