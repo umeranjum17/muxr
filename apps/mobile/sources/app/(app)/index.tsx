@@ -68,7 +68,9 @@ const styles = StyleSheet.create((theme) => ({
         gap: 24,
         paddingHorizontal: 16,
     },
-    hero: { alignItems: 'center', paddingHorizontal: 16 },
+    // Stretch to the row: without it the web sizer can take the title's
+    // max-content width and bleed the centered text past a narrow viewport.
+    hero: { alignItems: 'center', paddingHorizontal: 16, alignSelf: 'stretch' },
     markHalo: {
         padding: 26,
         borderRadius: 999,
