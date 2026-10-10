@@ -5,7 +5,8 @@
  * deliberately NOT re-exported: importing it drags xterm and the whole
  * terminal stack into the importer's bundle, and this barrel is reached from
  * the landing path (LiveTerminalsRow, HomeDock). The session route imports
- * `TerminalRoute` from its own module, so the terminal loads with the route
+ * `TerminalRoute` through `terminal/presentation/TerminalRouteLoader`, which
+ * resolves to its web variant on web, so the terminal loads with the route
  * that draws one.
  */
 export * from './presentation/AgentInputAttachmentStrip';

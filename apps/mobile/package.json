@@ -108,6 +108,7 @@
     "react-native-mmkv": "^3.3.3",
     "react-native-nitro-modules": "^0.36.5",
     "react-native-quick-base64": "^2.2.1",
+    "shiki": "3.23.0",
     "react-native-reanimated": "^4.2.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.22.0",

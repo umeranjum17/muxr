@@ -152,10 +152,11 @@ if (!existsSync(distIndex)) {
     // Ratchet, not target: the merge base's __common measures 1,112,979 B and
     // this head measures 881,764 B (-231,215 B), pinned with ~0.5% headroom.
     check('dist __common chunk ratchet', commonGzip <= 886173, `${commonGzip} bytes`);
-    const distText = [distHtml, ...refs.map((ref) => {
+    const refTexts = refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
-    })].join('\n');
+    });
+    const distText = [distHtml, ...refTexts].join('\n');
     // Origin check via URL parsing (not a substring match): any URL in the
     // payload whose host is the marketing origin is a leak.
     const normalizedText = distText.replace(/\\\//g, '/');
@@ -172,13 +173,18 @@ if (!existsSync(distIndex)) {
     check('dist initial payload carries no mermaid engine', !distText.includes('__esbuild_esm_mermaid_nm'));
     // The live terminal and its xterm addons must stay in the lazy TerminalRoute
     // chunk. The entry keeps only the small web wrapper, which has no body.
-    const initialAssets = refs.map((ref) => {
-        const file = join(mobile, 'dist', ref.replace(/^\//, ''));
-        return existsSync(file) ? readFileSync(file, 'utf8') : '';
-    }).join('\n');
+    const initialAssets = refTexts.join('\n');
     check('dist initial JS/CSS carries no xterm payload',
         !initialAssets.includes('xterm-scrollable-element') && !initialAssets.includes('@xterm/addon-webgl'));
     check('dist initial JS carries no syntax grammar payload', !initialAssets.includes('source.cpp'));
+    const lazyDir = join(mobile, 'dist', '_expo', 'static', 'js');
+    const lazyText = existsSync(lazyDir)
+        ? readdirSync(lazyDir, { recursive: true }).filter((name) => String(name).endsWith('.js'))
+            .map((name) => readFileSync(join(lazyDir, String(name)), 'utf8')).join('\n')
+        : '';
+    check('dist lazy chunks carry the xterm payload',
+        lazyText.includes('xterm-scrollable-element') && lazyText.includes('@xterm/addon-webgl'));
+    check('dist lazy chunks carry the grammar payload', lazyText.includes('source.cpp'));
     // Expo hashes asset names, so inspect emitted model-sized binaries instead
     // of grepping JS metadata for a legitimate filename.
     const MIN_WHISPER_MODEL_BYTES = 50 * 1024 * 1024;
