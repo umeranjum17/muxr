@@ -189,6 +189,7 @@ export function HomeWebInstallInvite() {
                 <ActionButton
                     title={ios ? t('webInstall.inviteIosAction') : t('webInstall.rowTitle')}
                     icon={ios ? 'share-outline' : 'download-outline'}
+                    wrap
                     onPress={ios ? openWebInstallGuide : () => void promptWebInstall()}
                 />
                 <Pressable accessibilityRole="button" accessibilityLabel={t('webInstall.inviteDismiss')} onPress={() => setDismissed(true)} style={styles.dismissTarget}>
