@@ -289,6 +289,22 @@ export const zhHant: TranslationStructure = {
         status: ({ status }: { status: string }) => `狀態：${status}`,
     },
 
+    webInstall: {
+        // Install row shown in a browser tab, next to the versions card
+        groupTitle: '安裝應用程式',
+        rowTitle: '安裝 muxr',
+        browserSubtitle: '將全螢幕應用程式加入主畫面。',
+        browserMenuSubtitle: '開啟瀏覽器選單，選擇「安裝應用程式」。',
+        iosSubtitle: '加入主畫面，即可全螢幕使用並接收通知。',
+        guideTitle: '將 muxr 加入主畫面',
+        guideLead: 'Safari 透過「分享」選單安裝網頁應用程式。',
+        guideSteps: '1. 點一下工具列中的「分享」按鈕。\n2. 點一下「加入主畫面」。\n3. 點一下「加入」。',
+        guideBenefit: '加入主畫面後，當代理需要你時，muxr 可以通知你。',
+        guideOpenInSafari: '請先在 Safari 中開啟 muxr。只有 Safari 可以將它加到主畫面。',
+        pushNeedsHomeScreen: '需要先將 muxr 加到主畫面',
+        guideClose: '關閉',
+    },
+
     optionSheet: {
         // Model/mode picker bottom sheet
         all: '全部',

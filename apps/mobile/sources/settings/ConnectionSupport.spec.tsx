@@ -17,6 +17,10 @@ const theme = vi.hoisted(() => ({
     colors: {
         text: '#000',
         textSecondary: '#555',
+        textLink: '#007aff',
+        header: { tint: '#007aff' },
+        surfaceHigh: '#eee',
+        groupped: { background: '#f2f2f7', sectionTitle: '#6d6d72' },
         box: { warning: { border: '#a00' } },
     },
 }));
