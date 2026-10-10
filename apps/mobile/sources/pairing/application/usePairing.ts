@@ -3,6 +3,8 @@ import { pairingView } from '@byokit/ui-core/link';
 import { pairingDeviceKind, pairingDeviceNoun } from '../infrastructure/pairingPlatform';
 import { useRouter } from 'expo-router';
 import { CameraView } from 'expo-camera';
+import * as Device from 'expo-device';
+import { Linking, Platform } from 'react-native';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
 import { linkPairMachineName, pairOverLink } from './linkPairing';
@@ -13,17 +15,28 @@ import { deliverScannedPairingLink } from './deliverScannedPairing';
 /**
  * All pairing entries share the screen's single consent and inline progress.
  * The one-time offer is not claimed until the person presses Pair there.
+ * An expired code goes there too, so its error leads with Scan a new code.
  */
 export function useHostedPairing() {
     const router = useRouter();
     return React.useCallback(async (url: string) => {
         const decided = decidePairingInput(url);
-        if (!decided.ok) {
-            Modal.alert(decided.expired ? 'Pairing code expired' : 'Pairing code not usable', decided.message);
+        if (!decided.ok && !decided.expired) {
+            Modal.alert('Pairing code not usable', decided.message);
             return;
         }
-        router.push({ pathname: '/pair', params: { offer: decided.link } });
+        router.push({ pathname: '/pair', params: { offer: decided.ok ? decided.link : url } });
     }, [router]);
+}
+
+/**
+ * True when Scan can open a camera here. expo-camera reports iOS 16+ as
+ * available even on a simulator, where launching the scanner then throws, so a
+ * simulator counts as no camera; web never scans.
+ */
+export function pairQrScannerAvailable(): boolean {
+    if (Platform.OS === 'web' || !CameraView.isModernBarcodeScannerAvailable) return false;
+    return Platform.OS !== 'ios' || Device.isDevice;
 }
 
 /**
@@ -163,7 +176,10 @@ export function usePairQrScanner(onScanned: (url: string) => void, enabled: bool
 
     return React.useCallback(async () => {
         if (!(await checkScannerPermissions())) {
-            Modal.alert('Camera required', 'Allow camera access to scan the secure machine QR.');
+            Modal.alert('Camera is off', 'Turn on Camera for muxr in Settings to scan, or paste the pairing string instead.', [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+            ]);
             return;
         }
         pendingScan = stableHandler;

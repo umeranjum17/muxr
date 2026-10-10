@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { useHostedPairing, usePairQrScanner } from '@/pairing';
+import { pairingDeviceNoun, pairQrScannerAvailable, useHostedPairing, usePairQrScanner } from '@/pairing';
 import { sshTunnelAvailable } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import * as Clipboard from 'expo-clipboard';
@@ -71,7 +71,8 @@ export function FirstRunConnection() {
     const [copied, setCopied] = React.useState(false);
     const browser = Platform.OS === 'web';
     const processPairLink = useHostedPairing();
-    const scanPairQr = usePairQrScanner(processPairLink, !browser);
+    const canScan = !browser && pairQrScannerAvailable();
+    const scanPairQr = usePairQrScanner(processPairLink, canScan);
     // Offer Direct SSH only when this native build includes the transport.
     const sshAvailable = !browser && sshTunnelAvailable();
 
@@ -126,12 +127,18 @@ export function FirstRunConnection() {
                         </View>
                     </SetupStep>
                 </View>
-            ) : (
+            ) : canScan ? (
                 <RouteTile
                     title="Step 2 · Scan the QR it shows"
                     badge="Recommended"
-                    preview="Point this phone at the QR shown by muxr on your computer."
+                    preview={`Point this ${pairingDeviceNoun()} at the QR shown by muxr on your computer.`}
                     onPress={() => { void scanPairQr(); }}
+                />
+            ) : (
+                <RouteTile
+                    title="Step 2 · Paste the pairing string"
+                    preview={`This ${pairingDeviceNoun()} can't scan a QR. Copy the string muxr shows on your computer.`}
+                    onPress={() => router.push('/pair')}
                 />
             )}
             {!browser && <>
@@ -142,9 +149,11 @@ export function FirstRunConnection() {
                 {setupDetailsOpen && <FirstRunSetupCard variant="command" />}
                 <Text style={styles.otherWaysText}>Other ways to connect</Text>
                 <View style={styles.otherWaysBody}>
-                    <ActionButton variant="secondary" title="Paste the pairing string" icon="keypad-outline" wrap
-                        action={async () => { router.push('/pair'); }} />
-                    <Text style={styles.routeHint}>Use this if you can't point this phone at that screen.</Text>
+                    {canScan && <>
+                        <ActionButton variant="secondary" title="Paste the pairing string" icon="keypad-outline" wrap
+                            action={async () => { router.push('/pair'); }} />
+                        <Text style={styles.routeHint}>{`Use this if you can't point this ${pairingDeviceNoun()} at that screen.`}</Text>
+                    </>}
                     {sshAvailable && <>
                         <ActionButton variant="secondary" title="Connect over SSH" icon="terminal-outline" onPress={() => router.push('/pair?route=ssh')} />
                         <Text style={styles.routeHint}>Use this if you already SSH into that computer; no QR needed.</Text>

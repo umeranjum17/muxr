@@ -10,16 +10,9 @@ export function useCheckScannerPermissions(): () => Promise<boolean> {
             return true;
         }
 
-        if (!cameraPermission) {
-            // camera permissions are loading
-            return false;
-        }
-
-        if (!cameraPermission.granted) {
-            const reqRes = await requestCameraPermission();
-            return reqRes.granted;
-        }
-
-        return true;
+        if (cameraPermission?.granted) return true;
+        // Still loading, or not granted yet: asking resolves either without a
+        // second tap, so a Scan pressed right after the screen opens still opens.
+        return (await requestCameraPermission()).granted;
     }
 }
