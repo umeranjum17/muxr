@@ -279,6 +279,87 @@ process.stdin.on('data', (chunk) => {
         expect(state().back).toBe(0);
     });
 
+    it('learns the program wheel step after a failed pane read', { timeout: 15_000 }, async () => {
+        // The pane plays OpenCode: three rows per wheel report, repainting the
+        // screen only when a report moves it. The first pane-text read fails as
+        // a transient herdr read does, and the step must still be learned.
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-read-fail-'));
+        cleanups.push(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
+        const bin = join(dir, 'fake-herdr.mjs');
+        const screenFile = join(dir, 'screen.txt');
+        const stateFile = join(dir, 'state.json');
+        writeFileSync(bin, `#!/usr/bin/env node
+import { renameSync, writeFileSync } from 'node:fs';
+// Whole files only: the host and the test read them while this paints.
+const save = (path, text) => { writeFileSync(path + '.tmp', text); renameSync(path + '.tmp', path); };
+const lines = Array.from({ length: 200 }, (_, i) => 'line ' + (i + 1));
+let back = 0;
+let moved = 0;
+const paint = (full) => {
+    const end = lines.length - back;
+    const body = lines.slice(end - 8, end);
+    save(${JSON.stringify(screenFile)}, ['OPENCODE', ...body, 'ask anything'].join('\\n'));
+    save(${JSON.stringify(stateFile)}, JSON.stringify({ back, moved }));
+    process.stdout.write(JSON.stringify({ type: 'terminal.frame', full, bytes: Buffer.from(body.at(-1)).toString('base64') }) + '\\n');
+};
+paint(true);
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+    buffer += chunk;
+    for (let nl = buffer.indexOf('\\n'); nl >= 0; nl = buffer.indexOf('\\n')) {
+        const frame = JSON.parse(buffer.slice(0, nl) || '{}');
+        buffer = buffer.slice(nl + 1);
+        if (frame.type === 'terminal.release') process.exit(0);
+        if (frame.type !== 'terminal.scroll') continue;
+        // Painted late, as on a busy host.
+        setTimeout(() => {
+            const next = frame.direction === 'up' ? Math.min(lines.length - 8, back + 3 * frame.lines) : Math.max(0, back - 3 * frame.lines);
+            moved += Math.abs(next - back);
+            back = next;
+            paint(false);
+        }, 300);
+    }
+});
+`, { mode: 0o755 });
+        let textReads = 0;
+        const manager = new TerminalManager({
+            resolvePane: async () => 'pane-1',
+            focusSession: async () => undefined,
+            readPaneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),
+            readPaneText: async () => {
+                textReads += 1;
+                if (textReads === 1) throw new Error('pane text unreadable');
+                return readFileSync(screenFile, 'utf8');
+            },
+            openTerminal: openTerminalFor(bin),
+        });
+        cleanups.push(() => manager.closeAll());
+        let input!: (line: string) => void;
+        const socket = {
+            isOpen: true,
+            send: () => undefined,
+            onLine: (listener: (line: string) => void) => { input = listener; return () => undefined; },
+            onEnd: () => () => undefined,
+            close: () => undefined,
+        };
+        await manager.attach({ sessionId: 's1', channel: 'read-fail', cols: 20, rows: 10, socket });
+        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+        const state = (): { back: number; moved: number } => JSON.parse(readFileSync(stateFile, 'utf8'));
+        await sleep(300);
+
+        // A 30-row drag moves the program 30 rows, not three times that, even
+        // though the first read of its screen threw.
+        input(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 30, column: 10, row: 5 }));
+        for (let last = -1, deadline = Date.now() + 6_000; state().moved !== last && Date.now() < deadline;) {
+            last = state().moved;
+            await sleep(700);
+        }
+        expect(textReads).toBeGreaterThan(1);
+        expect(state().moved).toBeGreaterThanOrEqual(27);
+        expect(state().moved).toBeLessThanOrEqual(36);
+    });
+
     it('carries terminal and voice streams over the byokit link', { timeout: 60_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-terminal-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

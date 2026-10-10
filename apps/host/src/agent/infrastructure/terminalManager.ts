@@ -51,6 +51,7 @@ interface Attachment {
     wheelStep?: number;
     /** How long the program took to paint that measured report. */
     wheelPaintMs?: number;
+    resetWheelMeasure?: () => void;
     close: (reason?: string) => void;
 }
 
@@ -291,6 +292,10 @@ export class TerminalManager {
         let wheelMeasuring = false;
         let wheelMeasureTries = 0;
         let wheelMeasured: number | undefined;
+        attachment.resetWheelMeasure = (): void => {
+            wheelMeasureTries = 0;
+            wheelMeasured = undefined;
+        };
         let childExited = false;
         void session.exited.then(() => { childExited = true; });
         let removeInputRef: () => void = () => undefined;
@@ -487,7 +492,6 @@ export class TerminalManager {
                 wheelMeasured = step;
             } catch {
                 // An unreadable screen leaves the step at a row a report.
-                wheelMeasureTries = WHEEL_MEASURE_TRIES;
             } finally {
                 wheelMeasuring = false;
                 paintedAt = Date.now();
@@ -672,7 +676,10 @@ export class TerminalManager {
             const scroll = await read(attachment.paneId);
             attachment.scrollOffsetFromBottom = scroll.offsetFromBottom;
             attachment.herdrOwnsScroll = scroll.maxOffsetFromBottom > 0;
-            if (attachment.herdrOwnsScroll) delete attachment.wheelStep;
+            if (attachment.herdrOwnsScroll) {
+                delete attachment.wheelStep;
+                attachment.resetWheelMeasure?.();
+            }
             await this.sendToPhone(attachment, JSON.stringify({
                 type: 'terminal.scroll-state',
                 offsetFromBottom: scroll.offsetFromBottom,
