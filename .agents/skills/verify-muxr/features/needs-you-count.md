@@ -4,15 +4,13 @@ The Home Needs you list, the Spaces header summary, the browser tab's favicon
 dot and the installed PWA's app icon badge all show the same agents, from one
 selector (`needsYouSessionIds` in `apps/mobile/sources/herd/domain/herdTree.ts`,
 counted through `useNeedsYouCount`, listed by `needsYouActivityRows`; the
-per-status rule is `statusNeedsYou`). An Agent counts when its Herdr pane is `blocked` or
-`failed`, plus any online session holding a pending request no pane already
-covers, counted once per Agent Route. Previously the favicon/badge counted only
-online sessions with `agentState.requests`, so a `failed` pane with no request
-showed in the app but not on the icon, and a request the pane list missed showed
-on the icon but not in the app. The list once dropped an agent a second after
-its Live card had been fully on screen (a seen mark), while the card, the count
-and the badge still said it needed you; now an agent leaves the list only when
-it stops needing you.
+per-status rule is `statusNeedsYou`). An Agent counts when its Herdr pane is
+`blocked` or `failed`, plus any online session holding a pending request no pane
+already covers, counted once per Agent Route. Previously the favicon/badge counted
+only online sessions with `agentState.requests`, so a `failed` pane with no
+request showed in the app but not on the icon, and a request the pane list
+missed showed on the icon but not in the app. An agent leaves the Needs you list
+only when it stops needing you, never because its card was seen.
 
 ## Sub-features
 
