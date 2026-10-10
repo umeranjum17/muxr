@@ -1,4 +1,5 @@
 import { lifecycleEventAgentName, type AgentLifecycle, type LifecycleEvent } from '@trymuxr/contract';
+import type { HerdPane } from './herd';
 
 export interface RecentActivityRow {
     eventId: string;
@@ -9,6 +10,11 @@ export interface RecentActivityRow {
     status: Extract<AgentLifecycle, 'blocked' | 'done' | 'failed'>;
     reasonCode: string;
     at: number;
+}
+
+/** The one rule for "needs you now": every Home surface asks it of an agent's current status. */
+export function statusNeedsYou(status: AgentLifecycle): status is 'blocked' | 'failed' {
+    return status === 'blocked' || status === 'failed';
 }
 
 const VISIBLE_STATES = new Set<AgentLifecycle>(['blocked', 'done', 'failed']);
@@ -80,6 +86,47 @@ export function unseenActivityRows(
         if (rows.length === limit) break;
     }
     return rows;
+}
+
+/**
+ * The Needs you tier: one row per agent that needs you now (needsYouSessionIds),
+ * newest first. A row leaves only when its agent stops needing you, never
+ * because it was seen, so the tier, the Spaces count and the badge agree. A
+ * failure whose agent has left the tree (it could not start) has no status
+ * left to read, so it stays an unseen notice from `unseen` until opened.
+ */
+export function needsYouActivityRows(
+    needsYou: ReadonlySet<string>,
+    panes: readonly Pick<HerdPane, 'id' | 'agentName' | 'taskTitle' | 'agentKind' | 'agentStatus' | 'changedAt'>[],
+    events: readonly LifecycleEvent[],
+    unseen: readonly RecentActivityRow[],
+    now = Date.now(),
+): RecentActivityRow[] {
+    const panesById = new Map(panes.map((pane) => [pane.id, pane]));
+    const current = [...needsYou].map((sessionId): RecentActivityRow => {
+        const pane = panesById.get(sessionId);
+        const latest = events.find((event) => event.sessionId === sessionId);
+        // A pending request with no blocked or failed pane still needs an answer.
+        const status = pane !== undefined && statusNeedsYou(pane.agentStatus) ? pane.agentStatus : 'blocked';
+        const event = latest?.state === status ? latest : undefined;
+        const at = event === undefined ? Number.NaN : Date.parse(event.at);
+        const agentName = pane?.agentName ?? (latest === undefined ? undefined : lifecycleEventAgentName(latest));
+        const agentKind = pane?.agentKind ?? latest?.agentKind;
+        return {
+            eventId: event?.eventId ?? `needs-you:${sessionId}`,
+            sessionId,
+            taskTitle: latest === undefined
+                ? pane?.taskTitle ?? pane?.agentName ?? ''
+                : resolveActivityTaskTitle(latest, pane?.taskTitle),
+            ...(agentName === undefined ? {} : { agentName }),
+            ...(agentKind === undefined ? {} : { agentKind }),
+            status,
+            reasonCode: event?.reasonCode ?? '',
+            at: Number.isFinite(at) ? at : pane?.changedAt ?? now,
+        };
+    });
+    const departed = unseen.filter((row) => row.status === 'failed' && !panesById.has(row.sessionId) && !needsYou.has(row.sessionId));
+    return [...current, ...departed].sort((left, right) => right.at - left.at);
 }
 
 export function recentActivityStatus(row: RecentActivityRow): string {

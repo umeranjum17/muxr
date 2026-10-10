@@ -3,7 +3,7 @@ import type { LifecycleEvent } from '@trymuxr/contract';
 import type { Session } from '@/catalog';
 import type { HerdPane } from '../domain/herd';
 import { agentAccessibilityLabel, agentLabels, agentStateLabel, liveCardState } from '../domain/agentPresentation';
-import { lifecycleStateSince, unseenActivityRows, unseenDoneSessionIds, type RecentActivityRow } from '../domain/recentActivity';
+import { lifecycleStateSince, unseenActivityRows, unseenDoneSessionIds } from '../domain/recentActivity';
 import {
     agentSwipeNeighbours,
     arrangeLiveTerminalCards,
@@ -12,7 +12,6 @@ import {
     liveTerminalOrderSettlesAt,
     selectLiveTerminalCards,
     sharedLiveTerminalCards,
-    visibleActivityEventIds,
     type LiveTerminalOrderCard,
 } from './liveTerminalOrder';
 
@@ -259,50 +258,6 @@ describe('agent lifecycle presentation', () => {
             event('blocked', 'four', 'blocked', '2026-01-01T23:56:00.000Z'),
             event('old', 'five', 'done', '2025-12-31T23:00:00.000Z'),
         ], new Set(['seen-done']), now)).toEqual(new Set(['one', 'three']));
-    });
-
-    it('acknowledges only fully visible cards on a focused foreground Herd screen', () => {
-        const rows: RecentActivityRow[] = [
-            {
-                eventId: 'first-event',
-                sessionId: 'first',
-                taskTitle: 'First task',
-                agentName: 'Otter',
-                status: 'done',
-                reasonCode: 'state-reconciled',
-                at: 100,
-            },
-            {
-                eventId: 'second-event',
-                sessionId: 'second',
-                taskTitle: 'Second task',
-                agentName: 'Badger',
-                status: 'blocked',
-                reasonCode: 'state-reconciled',
-                at: 200,
-            },
-        ];
-        const cards = [card('first', 100, 'done'), card('second', 200, 'blocked')];
-        const viewport = {
-            focused: true,
-            foreground: true,
-            viewportTop: 80,
-            viewportBottom: 500,
-            stripTop: 100,
-            stripHeight: 200,
-            scrollX: 0,
-            stripWidth: 390,
-            cardWidth: 300,
-            cardGap: 12,
-            gutter: 16,
-        };
-
-        expect(visibleActivityEventIds(rows, cards, viewport)).toEqual(['first-event']);
-        expect(visibleActivityEventIds(rows, cards, { ...viewport, focused: false })).toEqual([]);
-        expect(visibleActivityEventIds(rows, cards, { ...viewport, foreground: false })).toEqual([]);
-        expect(visibleActivityEventIds(rows, cards, { ...viewport, stripTop: 79 })).toEqual([]);
-        expect(visibleActivityEventIds(rows, cards, { ...viewport, stripTop: 349 })).toEqual([]);
-        expect(visibleActivityEventIds(rows, cards, { ...viewport, scrollX: 20 })).toEqual([]);
     });
 
     it('pages the terminal swipe along the strip, stopping at active and two-minute-recent agents or at every agent', () => {

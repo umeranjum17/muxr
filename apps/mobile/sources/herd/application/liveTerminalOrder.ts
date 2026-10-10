@@ -1,7 +1,7 @@
 import type { AgentInfo, AgentLifecycle } from '@trymuxr/contract';
 import type { HerdPane } from '../domain/herd';
 import { agentLabels, isShellLabels } from '../domain/agentPresentation';
-import type { RecentActivityRow } from '../domain/recentActivity';
+import { statusNeedsYou } from '../domain/recentActivity';
 
 export const RECENTLY_DONE_SWIPE_MS = 2 * 60_000;
 
@@ -38,7 +38,7 @@ export function selectLiveTerminalCards(
 }
 
 export function liveTerminalBucket(status: AgentLifecycle): LiveTerminalBucket {
-    if (status === 'blocked' || status === 'failed') return 'attention';
+    if (statusNeedsYou(status)) return 'attention';
     if (status === 'working' || status === 'starting') return 'working';
     if (status === 'done' || status === 'idle') return 'settled';
     return 'offline';
@@ -200,38 +200,6 @@ export function holdLiveTerminalOrder(): () => void {
 export function subscribeLiveTerminalOrder(listener: () => void): () => void {
     orderListeners.add(listener);
     return () => { orderListeners.delete(listener); };
-}
-
-export interface ActivityAcknowledgementViewport {
-    focused: boolean;
-    foreground: boolean;
-    viewportTop: number;
-    viewportBottom: number;
-    stripTop: number;
-    stripHeight: number;
-    scrollX: number;
-    stripWidth: number;
-    cardWidth: number;
-    cardGap: number;
-    gutter: number;
-}
-
-/** Needs-you activity becomes seen only while its entire terminal card is actually visible. Done outcomes clear on open instead (TerminalRoute acks), never by scrolling past. */
-export function visibleActivityEventIds(
-    rows: readonly RecentActivityRow[],
-    cards: readonly LiveTerminalOrderCard[],
-    viewport: ActivityAcknowledgementViewport,
-): string[] {
-    if (!viewport.focused || !viewport.foreground) return [];
-    if (viewport.stripTop < viewport.viewportTop) return [];
-    if (viewport.stripTop + viewport.stripHeight > viewport.viewportBottom) return [];
-
-    const visibleRoutes = new Set(cards.flatMap((card, index) => {
-        const start = viewport.gutter + index * (viewport.cardWidth + viewport.cardGap);
-        const end = start + viewport.cardWidth;
-        return start >= viewport.scrollX && end <= viewport.scrollX + viewport.stripWidth ? [card.id] : [];
-    }));
-    return rows.filter((row) => visibleRoutes.has(row.sessionId)).map((row) => row.eventId);
 }
 
 /** Which agents the terminal swipe stops at: active/recent agents, or every agent in the strip. */

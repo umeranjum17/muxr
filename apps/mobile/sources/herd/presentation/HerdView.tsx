@@ -278,8 +278,6 @@ export const HerdView = React.memo(({
                 {!needsRecovery && busySince === null && searchQuery.trim() === '' && <HomeNotificationPrimerCard />}
                 {!needsRecovery && !busy && searchQuery.trim() === '' && <LiveTerminalsRow
                     showZeroState={false}
-                    visibilityTop={topContentInset}
-                    visibilityBottomInset={bottomContentInset}
                     cardBadge={liveCardBadge}
                 />}
                 {needsRecovery && (mode === 'host' || mode === 'runtime') ? (
@@ -350,8 +348,6 @@ export const HerdView = React.memo(({
                     {header}
                     {recoveryCard}
                     {!needsRecovery && searchQuery.trim() === '' && <LiveTerminalsRow
-                        visibilityTop={topContentInset}
-                        visibilityBottomInset={bottomContentInset}
                         cardBadge={liveCardBadge}
                     />}
                     {noAgents && !needsRecovery && !busy && searchQuery.trim() === '' ? (showFirstAgent ? <FirstAgentCard /> : <HomeDiscoveryRows />) : null}

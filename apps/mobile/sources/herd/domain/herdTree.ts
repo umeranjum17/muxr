@@ -5,6 +5,7 @@
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import type { Session } from '@/catalog';
 import { t } from '@/text';
+import { statusNeedsYou } from './recentActivity';
 
 // A producer that drew its own tree into a flat list prefixes the label with
 // box-drawing glyphs, and may append an opaque correlator (` · p:<22 chars>`).
@@ -95,25 +96,24 @@ export function agentCounts(workspaces: readonly HerdrTreeWorkspace[]): { total:
     return {
         total: panes.length,
         working: panes.filter((pane) => pane.agentStatus === 'working' || pane.agentStatus === 'starting').length,
-        needsYou: panes.filter((pane) => pane.agentStatus === 'blocked' || pane.agentStatus === 'failed').length,
+        needsYou: panes.filter((pane) => statusNeedsYou(pane.agentStatus)).length,
     };
 }
 
 /**
- * The one "needs you" count every surface reads: an Agent whose Herdr pane is
- * blocked or failed, plus any online session holding a pending request that a
+ * The agents that need you now, which every surface reads: the Needs you list,
+ * the Spaces count, the favicon dot and the icon badge. An Agent whose Herdr
+ * pane needs you, plus any online session holding a pending request that a
  * pane has not already covered. Keyed by Agent Route, so one agent never
- * counts twice; the in-app summary, the favicon dot and the icon badge agree.
+ * counts twice. Current status only: having seen an agent never removes it.
  */
-export function needsYouCount(
+export function needsYouSessionIds(
     workspaces: readonly HerdrTreeWorkspace[],
-    sessions: readonly Session[],
-): number {
+    sessions: readonly (Pick<Session, 'id'> & Partial<Pick<Session, 'presence' | 'agentState'>>)[],
+): Set<string> {
     const needed = new Set<string>();
     for (const ws of workspaces) for (const tab of ws.tabs) for (const pane of tab.panes) {
-        if (pane.sessionId !== undefined && (pane.agentStatus === 'blocked' || pane.agentStatus === 'failed')) {
-            needed.add(pane.sessionId);
-        }
+        if (pane.sessionId !== undefined && statusNeedsYou(pane.agentStatus)) needed.add(pane.sessionId);
     }
     for (const session of sessions) {
         const requests = session.agentState?.requests;
@@ -121,7 +121,7 @@ export function needsYouCount(
             needed.add(session.id);
         }
     }
-    return needed.size;
+    return needed;
 }
 
 
@@ -217,7 +217,7 @@ export type HerdSpaceRow = {
 export function groupSummaryCounts(children: readonly HerdChildSpace[]): { needsYou: number; working: number; done: number } {
     const counts = { needsYou: 0, working: 0, done: 0 };
     for (const { workspace } of children) {
-        if (workspace.agentStatus === 'blocked') counts.needsYou += 1;
+        if (statusNeedsYou(workspace.agentStatus)) counts.needsYou += 1;
         else if (workspace.agentStatus === 'working') counts.working += 1;
         else if (workspace.agentStatus === 'done') counts.done += 1;
     }
