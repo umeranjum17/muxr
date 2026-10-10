@@ -19,7 +19,7 @@ export function pairingDeviceName(): string {
 
 export function assertSupportedOffer(scanned: string): void {
     if (Platform.OS === 'web' && !isBrowserLinkOffer(scanned)) {
-        throw new PairingNeedsNewCode('Native pairing codes are for phones. Use a fresh browser link from `muxr pair --browser` on the computer.');
+        throw new PairingNeedsNewCode('Native pairing codes are for phones. Use a fresh browser link from muxr pair --browser on the computer.');
     }
     const decided = decidePairingInput(scanned);
     if (!decided.ok) throw new PairingNeedsNewCode(decided.message);
