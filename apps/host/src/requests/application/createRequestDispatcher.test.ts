@@ -957,3 +957,51 @@ describe('dispatcher close', () => {
         expect(disposed).toBe(1);
     });
 });
+
+function processAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+describe('machine.shell process group', () => {
+    it('answers promptly and reaps a backgrounded child instead of leaking it', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-shell-group-'));
+        const pidFile = join(home, 'child.pid');
+        try {
+            // The shell backgrounds a child and exits; that child inherits the
+            // stdout pipe. Without a group kill the reply only settles on the
+            // 60 s host timeout and the child stays charged to the unit.
+            writeFileSync(join(home, 'bg.sh'), 'sleep 300 &\necho $! > child.pid\necho started\n');
+            const { dispatch } = createRequestDispatcher({
+                source: {} as never,
+                domain: {} as never,
+                machineId: 'm1',
+                hostVersion: '0.0.0',
+            });
+            const started = Date.now();
+            const reply = await dispatch({
+                type: 'machine.shell',
+                requestId: 'bg',
+                params: { command: 'sh ./bg.sh', cwd: home },
+            } as never) as { ok: boolean; data?: { stdout?: string; exitCode?: number } };
+            const elapsed = Date.now() - started;
+            expect(reply.ok).toBe(true);
+            expect(reply.data?.stdout).toContain('started');
+            expect(elapsed).toBeLessThan(10_000);
+            const pid = Number(readFileSync(pidFile, 'utf8').trim());
+            expect(Number.isInteger(pid)).toBe(true);
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            expect(processAlive(pid)).toBe(false);
+        } finally {
+            try {
+                const pid = Number(readFileSync(pidFile, 'utf8').trim());
+                if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
+            } catch { /* the fix already reaped it, or it never started */ }
+            rmSync(home, { recursive: true, force: true });
+        }
+    }, 30_000);
+});

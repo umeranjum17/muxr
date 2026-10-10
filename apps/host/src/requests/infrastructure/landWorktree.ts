@@ -1,8 +1,8 @@
 /**
- * Landing a worktree, machine half. Plain `git` calls through execFile -- no
- * shell string to quote, and each step checks before it acts so a retried land
- * after a mid-failure picks up where the last one stopped instead of stacking
- * duplicate squash commits.
+ * Landing a worktree, machine half. Plain `git` calls in their own process
+ * group -- no shell string to quote, and each step checks before it acts so a
+ * retried land after a mid-failure picks up where the last one stopped instead
+ * of stacking duplicate squash commits.
  *
  * The old failure modes this is built against:
  *  - the merge ran through the session's own shell with cwd inside the doomed
@@ -15,8 +15,11 @@
  * directory is a separate explicit action once no session lives in it.
  */
 
-import { execFile } from 'node:child_process';
 import type { LandWorktreeResult } from '@trymuxr/contract';
+import { runInProcessGroup } from '../../platform/processGroup.js';
+
+/** A merge, rebase or hook that leaves a child behind must not run unbounded. */
+const GIT_TIMEOUT_MS = 300_000;
 
 interface GitOut {
     stdout: string;
@@ -25,24 +28,17 @@ interface GitOut {
 }
 
 function git(cwd: string, args: string[]): Promise<GitOut> {
-    return new Promise((resolve, reject) => {
-        execFile(
-            'git',
-            args,
-            {
-                cwd,
-                maxBuffer: 10_000_000,
-                env: { ...process.env, GIT_EDITOR: 'true', GIT_TERMINAL_PROMPT: '0' },
-            },
-            (error, stdout, stderr) => {
-                const code = (error as { code?: unknown } | null)?.code;
-                if (error !== null && typeof code !== 'number') {
-                    reject(error); // git itself failed to spawn
-                    return;
-                }
-                resolve({ stdout, stderr, code: typeof code === 'number' ? code : 0 });
-            },
-        );
+    return runInProcessGroup('git', args, {
+        cwd,
+        maxBuffer: 10_000_000,
+        env: { ...process.env, GIT_EDITOR: 'true', GIT_TERMINAL_PROMPT: '0' },
+        timeoutMs: GIT_TIMEOUT_MS,
+    }).then((result) => {
+        const code = (result.error as { code?: unknown } | null)?.code;
+        if (result.error !== null && typeof code !== 'number') {
+            throw result.error; // git itself failed to spawn
+        }
+        return { stdout: result.stdout, stderr: result.stderr, code: result.code ?? 0 };
     });
 }
 

@@ -8,7 +8,6 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { execFile } from 'node:child_process';
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -32,6 +31,7 @@ import type {
 } from '@trymuxr/contract';
 import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@trymuxr/contract';
 import { hostDesktopForPanes } from '../../desktop/index.js';
+import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
@@ -181,12 +181,6 @@ const COMMAND_ALIASES: Record<string, string[]> = {
     cursor: ['cursor-agent'],
     kiro: ['kiro-cli'],
 };
-
-function execFileExitCode(error: { code?: unknown } | null): number | null {
-    if (error === null) return 0;
-    if (typeof error.code === 'number') return error.code;
-    return null;
-}
 
 export function agentToolPath(env: NodeJS.ProcessEnv = process.env): string[] {
     const home = env.HOME || homedir();
@@ -2306,12 +2300,13 @@ export async function createHerdrSessionSource(
             ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
         };
         try {
-            await new Promise<void>((done, fail) => {
-                execFile(argv[0], argv.slice(1), { timeout: 15_000, cwd: launchCwd, env: actionEnv, windowsHide: true }, (error) => {
-                    if (error) fail(error);
-                    else done();
-                });
+            const launched = await runInProcessGroup(argv[0], argv.slice(1), {
+                timeoutMs: 15_000,
+                cwd: launchCwd,
+                env: actionEnv,
+                windowsHide: true,
             });
+            if (launched.error !== null) throw launched.error;
             const deadline = Date.now() + 5_000;
             let opened: string[] = [];
             do {
@@ -3033,30 +3028,26 @@ export async function createHerdrSessionSource(
             const record = await resolvePane(shellOptions.sessionId);
             const cwd = cwdForSession(record.sessionId);
             if (cwd === undefined) throw agentUnavailable();
-            return await new Promise((resolve) => {
-                execFile(
-                    '/bin/sh',
-                    ['-c', shellOptions.command],
-                    { cwd, timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
-                    (error, stdout, stderr) => {
-                        const output = `${stdout}${stderr}`;
-                        const exitCode = execFileExitCode(error);
-                        if (shellOptions.quiet === true) {
-                            resolve({ output, exitCode, isError: error !== null });
-                            return;
-                        }
-                        publish(record.sessionId, { type: 'shell.start', command: shellOptions.command });
-                        if (output.length > 0) publish(record.sessionId, { type: 'shell.chunk', chunk: output });
-                        publish(record.sessionId, {
-                            type: 'shell.end',
-                            output,
-                            exitCode,
-                            isError: error !== null,
-                        });
-                        resolve(null);
-                    },
-                );
+            const result = await runInProcessGroup(
+                '/bin/sh',
+                ['-c', shellOptions.command],
+                { cwd, timeoutMs: 30_000, maxBuffer: 8 * 1024 * 1024 },
+            );
+            const output = `${result.stdout}${result.stderr}`;
+            const exitCode = result.code;
+            const isError = result.error !== null;
+            if (shellOptions.quiet === true) {
+                return { output, exitCode, isError };
+            }
+            publish(record.sessionId, { type: 'shell.start', command: shellOptions.command });
+            if (output.length > 0) publish(record.sessionId, { type: 'shell.chunk', chunk: output });
+            publish(record.sessionId, {
+                type: 'shell.end',
+                output,
+                exitCode,
+                isError,
             });
+            return null;
         },
 
         async readFile(readOptions: SessionReadFileOptions): Promise<{ content: string }> {
