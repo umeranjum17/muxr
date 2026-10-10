@@ -68,7 +68,8 @@ const PaneTile = React.memo(function PaneTile(props: {
     const { pane } = props;
     const labels = agentLabels(pane);
     const shell = isShellLabels(labels);
-    const tone = agentStatusColor(displayedAgentStatus(pane.agentStatus, props.pendingRequest), theme);
+    const displayed = displayedAgentStatus(pane.agentStatus, props.pendingRequest);
+    const tone = agentStatusColor(displayed, theme);
     const needsYou = agentNeedsYou(pane.agentStatus, props.pendingRequest);
     const task = paneTaskLine(pane);
     const roomy = props.height >= 76 && props.width >= 110;
@@ -78,7 +79,7 @@ const PaneTile = React.memo(function PaneTile(props: {
     // A close glyph only where it cannot crowd the name; long-press closes everywhere.
     const closable = props.canClose && pane.sessionId !== undefined && !props.pending;
     const showClose = closable && props.height >= 96 && props.width >= 132;
-    const state = shell ? 'Shell' : HERD_STATUS_LABELS[pane.agentStatus];
+    const state = shell ? 'Shell' : HERD_STATUS_LABELS[displayed];
     // Open and close are siblings, never one button inside another.
     return (
         <View style={{ flex: 1, borderRadius: 10, overflow: 'hidden', borderWidth: props.current ? 2 : needsYou ? 1.5 : 1, borderColor: props.current ? theme.colors.accent : needsYou ? theme.colors.status.error : theme.colors.divider, opacity: props.pending ? 0.5 : 1 }}>
@@ -99,7 +100,7 @@ const PaneTile = React.memo(function PaneTile(props: {
                 </View>
                 {roomy && task !== undefined && (
                     <Text numberOfLines={props.height >= 120 ? 2 : 1} style={{ ...Typography.default(), fontSize: 11, lineHeight: 15, color: needsYou ? theme.colors.status.error : theme.colors.textSecondary }}>
-                        {needsYou ? `Needs you · ${task}` : task}
+                        {needsYou ? `${HERD_STATUS_LABELS[displayed]} · ${task}` : task}
                     </Text>
                 )}
             </Pressable>

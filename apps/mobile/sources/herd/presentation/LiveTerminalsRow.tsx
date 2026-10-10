@@ -21,7 +21,7 @@ import { useActivityAcknowledgements } from '../application/useActivityAcknowled
 import { agentLabels, agentWhoLine, herdrPaneForSession, isShellLabels, liveCardState } from '../domain/agentPresentation';
 import { showPaneActions } from '../application/renameInHerdr';
 import { agentNeedsYou, displayedAgentStatus, needsYouActivityRows, unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
-import type { LifecycleEvent } from '@trymuxr/contract';
+import type { AgentLifecycle, LifecycleEvent } from '@trymuxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { SectionLabel } from '@/components/ui';
 import { TerminalPreview } from '@/terminal/ui';
@@ -106,8 +106,8 @@ interface CardProps {
     Badge?: React.ComponentType<LiveCardBadgeInfo>;
 }
 
-function terminalIsLive(card: LiveTerminalOrderCard): boolean {
-    return card.agentStatus === 'working' || card.agentStatus === 'starting' || card.agentStatus === 'blocked';
+function terminalIsLive(status: AgentLifecycle): boolean {
+    return status === 'working' || status === 'starting' || status === 'blocked';
 }
 
 const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone, canRename, Badge }: CardProps) => {
@@ -117,7 +117,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
     const needsYou = agentNeedsYou(card.agentStatus, card.pendingRequest);
     const status = displayedAgentStatus(card.agentStatus, card.pendingRequest);
     const dot = agentStatusColor(status, theme);
-    const live = terminalIsLive(card);
+    const live = terminalIsLive(status);
     const shell = isShellLabels(labels);
     const state = liveCardState(labels, status, card.id, events, now);
     const planAccount = storage((state) => herdrPaneForSession(state.herdrWorkspaces, card.id)?.planAccount);

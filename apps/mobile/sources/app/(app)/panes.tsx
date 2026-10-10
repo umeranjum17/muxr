@@ -22,7 +22,7 @@ import { Modal } from '@/modal';
 import { Text } from '@/components/StyledText';
 import { SectionLabel } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
-import { agentLabels, agentNeedsYou, isShellLabels, tabLabel, workspaceName } from '@/herd';
+import { HERD_STATUS_LABELS, agentLabels, agentNeedsYou, displayedAgentStatus, isShellLabels, tabLabel, workspaceName } from '@/herd';
 import { rememberPaneSelection, showPaneActions, showTabActions, useNavigateToSession, useUnseenDoneSessionIds } from '@/herd';
 import { AgentPickerSheet, AgentRow, WorkspaceTreeSheet, paneTaskLine, shellPath } from '@/herd/ui';
 
@@ -89,7 +89,8 @@ function anchorOf(panes: readonly HerdrTreePane[]): string | undefined {
 function subtitleOf(pane: HerdrTreePane, pending: ReadonlySet<string>): string | undefined {
     const labels = agentLabels(pane);
     if (isShellLabels(labels)) return shellPath(pane.cwd);
-    return agentNeedsYou(pane.agentStatus, pane.sessionId !== undefined && pending.has(pane.sessionId)) ?['Needs you', paneTaskLine(pane)].filter(Boolean).join(' · ') : undefined;
+    const pendingRequest = pane.sessionId !== undefined && pending.has(pane.sessionId);
+    return agentNeedsYou(pane.agentStatus, pendingRequest) ? [HERD_STATUS_LABELS[displayedAgentStatus(pane.agentStatus, pendingRequest)], paneTaskLine(pane)].filter(Boolean).join(' · ') : undefined;
 }
 
 /** Plugin launchers, when any are installed: small, below the tree. */
