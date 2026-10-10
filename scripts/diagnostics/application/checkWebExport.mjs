@@ -192,6 +192,12 @@ if (!existsSync(distIndex)) {
     check('dist ships on-demand grammar assets',
         existsSync(join(mobile, 'dist', 'shiki-langs', 'index.json')) && existsSync(join(mobile, 'dist', 'shiki-langs', 'vue.json')));
     check('dist initial payload never references a grammar asset', !distHtml.includes('/shiki-langs/'));
+    // The lab-only browser pair hook (pairing/application/labBrowserPairing.ts)
+    // registers only behind EXPO_PUBLIC_MUXR_LAB_PAIR, which a production export
+    // never sets: the guarded block is dead code and must not survive into any
+    // shipped byte. A hit means a lab build leaked the hook name or module.
+    check('dist ships no lab-only browser pair hook',
+        ![distText, lazyText].some((text) => text.includes('__MUXR_LAB_PAIR__') || text.includes('labBrowserPairing')));
     // Expo hashes asset names, so inspect emitted model-sized binaries instead
     // of grepping JS metadata for a legitimate filename.
     const MIN_WHISPER_MODEL_BYTES = 50 * 1024 * 1024;
