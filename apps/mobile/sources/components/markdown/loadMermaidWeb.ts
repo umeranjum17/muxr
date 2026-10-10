@@ -33,6 +33,9 @@ export function loadMermaidWeb(): Promise<MermaidGlobal> {
         };
         script.onerror = () => reject(new Error('mermaid could not be loaded'));
         document.head.appendChild(script);
+    }).catch((error: unknown) => {
+        pending = undefined;
+        throw error;
     });
     return pending;
 }
