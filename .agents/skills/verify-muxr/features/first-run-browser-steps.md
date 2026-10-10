@@ -5,8 +5,8 @@ browser branch): two numbered step cards in one style — Step 1 "On your
 computer" with the copyable install command, Step 2 "Paste the browser link"
 with a "Recommended" tag and a primary paste button inside the card — and no
 "Other ways" duplicate or camera/scan hint. The native branch (QR scan step,
-setup details, paste/SSH routes) is a different surface and must stay as it
-was.
+setup details, paste/SSH routes) is a different surface; its pair-entry rule is
+owned by [pair-scan-first.md](./pair-scan-first.md).
 
 ## How to get to it (user POV)
 

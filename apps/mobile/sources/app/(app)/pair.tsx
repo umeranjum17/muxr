@@ -9,7 +9,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
 import { decidePairingInput, linkPairMachineName, looksLikeLinkOffer, PairingNeedsNewCode } from '@/pairing/e2ee';
-import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScanner, resolvePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
+import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScannerAvailable, usePairQrScanner, resolvePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
@@ -129,7 +129,10 @@ export default function PairScreen() {
             }).catch(() => undefined);
         }).catch(() => undefined);
     }, [auth.isAuthenticated, router]);
-    const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
+    // Scan leads every native entry and error; a device with no camera
+    // scanner leads with paste instead of a button that cannot open.
+    const canScan = usePairQrScannerAvailable();
+    const scanPairQr = usePairQrScanner(reviewPairing, canScan);
     const switching = getCachedConnectionSettings().machineId !== '';
     const routePairUrl = typeof routeParams.offer === 'string' && carriesPairingOffer(routeParams.offer)
         ? routeParams.offer : undefined;
@@ -320,8 +323,9 @@ export default function PairScreen() {
                     <>
                         <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
                         <ActionButton title="Try again" icon="refresh-outline" onPress={confirm} />
-                        <ActionButton title="Enter another code" icon="keypad-outline" onPress={() => setState(undefined)} />
-                        <ActionButton title="Back" variant="secondary" onPress={cancel} />
+                        {canScan && <ActionButton title="Scan a new code" variant="secondary" icon="qr-code-outline" wrap onPress={() => void scanPairQr()} />}
+                        <ActionButton title="Enter another code" variant="secondary" icon="keypad-outline" wrap onPress={() => setState(undefined)} />
+                        <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
                 ) : (
                     <>
@@ -367,13 +371,18 @@ export default function PairScreen() {
                                 <SshField testID="ssh-passphrase" label="Private key passphrase" value={sshPassphrase} onChange={setSshPassphrase} placeholder="Only if the key is encrypted" secure />
                             </>
                         )}
-                        {!browser && openedFromSettings && !sshRoute && (
+                        {canScan && !sshRoute && (
                             <>
-                                <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
-                                <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
+                                <ActionButton title={state?.phase === 'error' ? 'Scan a new code' : 'Scan the QR'} icon="qr-code-outline" wrap onPress={() => void scanPairQr()} />
+                                <Text style={styles.routeHint}>{state?.phase === 'error'
+                                    ? 'On your computer, run muxr pair for a new code.'
+                                    : `Run muxr pair on your computer, then point this ${pairingDeviceNoun()} at the QR it shows.`}</Text>
                             </>
                         )}
-                        <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : sshRoute ? 'Pairing string from muxr pair' : 'Paste the pairing string'}</Text>
+                        {!browser && !canScan && !sshRoute && (
+                            <Text style={styles.routeHint}>{`This ${pairingDeviceNoun()} can't scan a QR, so paste the pairing string from muxr pair.`}</Text>
+                        )}
+                        <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : sshRoute ? 'Pairing string from muxr pair' : canScan ? 'Or paste the pairing string' : 'Paste the pairing string'}</Text>
                         <TextInput
                             accessibilityLabel="Pairing string"
                             testID={sshRoute ? "ssh-pairing-offer" : undefined}
@@ -389,10 +398,13 @@ export default function PairScreen() {
                             onSubmitEditing={connectManual}
                         />
                         <Text style={styles.routeHint}>{browser
-                            ? 'Copy the browser pairing link from your computer.'
+                            // No-break joiners keep the command whole on a narrow screen.
+                            ? 'Browsers pair by link, not QR. Copy it from muxr\u00A0pair\u00A0-\u2060-\u2060browser.'
                             : sshRoute
                                 ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
-                                : "If you can't point this phone at that screen — copy the string from its terminal."}</Text>
+                                : canScan
+                                    ? `If you can't point this ${pairingDeviceNoun()} at that screen, copy the string from its terminal.`
+                                    : 'Copy it from the terminal where muxr pair runs.'}</Text>
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
                 )}
@@ -410,7 +422,7 @@ export default function PairScreen() {
             // Same anchored bar as the SSH route: the manual Connect must stay
             // above the keyboard on short viewports.
             <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
-                <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
+                <ActionButton title="Connect" icon="link-outline" variant={canScan ? 'secondary' : 'primary'} disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
         </View>

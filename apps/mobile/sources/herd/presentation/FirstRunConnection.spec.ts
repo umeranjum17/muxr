@@ -40,8 +40,8 @@ vi.mock('react-native-unistyles', () => ({
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: routerPush }) }));
 vi.mock('@/pairing', async () => {
-    const { useHostedPairing, usePairQrScanner } = await import('@/pairing/application/usePairing');
-    return { useHostedPairing, usePairQrScanner };
+    const { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner } = await import('@/pairing/application/usePairing');
+    return { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner };
 });
 vi.mock('expo-camera', () => ({
     CameraView: {
@@ -54,12 +54,14 @@ vi.mock('expo-camera', () => ({
         dismissScanner: () => dismissScanner(),
     },
 }));
+vi.mock('expo-device', () => ({ isDevice: true }));
 vi.mock('@/pairing/application/useCheckCameraPermissions', () => ({ useCheckScannerPermissions: () => async () => true }));
 vi.mock('@/account/ui', () => ({ useAuth: () => ({}) }));
 vi.mock('@/pairing/application/linkPairing', () => ({ linkPairMachineName: vi.fn(), pairOverLink: vi.fn() }));
 vi.mock('@/pairing/application/PairMachine', () => ({ pairMachine: vi.fn() }));
 vi.mock('@/pairing/infrastructure/pairingPlatform', () => ({
     pairingDeviceKind: () => platformOs === 'web' ? 'browser' : 'phone',
+    pairingDeviceNoun: () => platformOs === 'web' ? 'browser' : 'phone',
 }));
 vi.mock('@/connection', () => ({ sshTunnelAvailable: () => platformOs === 'android' }));
 vi.mock('@/modal', () => ({ Modal: { prompt: vi.fn(async () => undefined), alert: (...args: unknown[]) => pairingAlert(...args) } }));
@@ -140,13 +142,14 @@ describe('guided first-connection chooser', () => {
         expect(routerPush).not.toHaveBeenCalled();
         expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('cut off'));
         pairingAlert.mockClear();
-        // An expired current code names expiry, not the version.
+        // An expired current code opens the pair screen's expired state, which leads with Scan a new code.
         press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
         await TestRenderer.act(async () => {});
-        await TestRenderer.act(async () => { scanOnScanned!({ data: expiredOffer() }); });
-        expect(routerPush).not.toHaveBeenCalled();
-        expect(pairingAlert).toHaveBeenCalledWith('Pairing code expired', expect.stringContaining('has run out'));
-        pairingAlert.mockClear();
+        const expired = expiredOffer();
+        await TestRenderer.act(async () => { scanOnScanned!({ data: expired }); });
+        expect(pairingAlert).not.toHaveBeenCalled();
+        expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: expired } });
+        routerPush.mockClear();
         // A wrapped valid offer still pairs: inner whitespace is stripped.
         press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
         await TestRenderer.act(async () => {});

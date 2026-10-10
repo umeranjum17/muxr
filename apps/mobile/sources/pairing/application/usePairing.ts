@@ -3,6 +3,8 @@ import { pairingView } from '@byokit/ui-core/link';
 import { pairingDeviceKind, pairingDeviceNoun } from '../infrastructure/pairingPlatform';
 import { useRouter } from 'expo-router';
 import { CameraView } from 'expo-camera';
+import * as Device from 'expo-device';
+import { Linking, Platform } from 'react-native';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
 import { linkPairMachineName, pairOverLink } from './linkPairing';
@@ -13,17 +15,42 @@ import { deliverScannedPairingLink } from './deliverScannedPairing';
 /**
  * All pairing entries share the screen's single consent and inline progress.
  * The one-time offer is not claimed until the person presses Pair there.
+ * An expired code goes there too, so its error leads with Scan a new code.
  */
 export function useHostedPairing() {
     const router = useRouter();
     return React.useCallback(async (url: string) => {
         const decided = decidePairingInput(url);
-        if (!decided.ok) {
-            Modal.alert(decided.expired ? 'Pairing code expired' : 'Pairing code not usable', decided.message);
+        if (!decided.ok && !decided.expired) {
+            Modal.alert('Pairing code not usable', decided.message);
             return;
         }
-        router.push({ pathname: '/pair', params: { offer: decided.link } });
+        router.push({ pathname: '/pair', params: { offer: decided.ok ? decided.link : url } });
     }, [router]);
+}
+
+/*
+ * expo-camera reports iOS 16+ as able to scan whatever the hardware, and only
+ * launching finds out (a simulator, an A11 or older chip, an iPad app on a
+ * Mac). A failed launch is remembered for the session, so every pair entry
+ * then leads with paste instead of a Scan that cannot open.
+ */
+let scannerFailed = false;
+const scannerListeners = new Set<() => void>();
+const subscribeScanner = (listener: () => void) => {
+    scannerListeners.add(listener);
+    return () => { scannerListeners.delete(listener); };
+};
+
+/** True when Scan can open a camera here; web never scans, a simulator has no camera. */
+export function pairQrScannerAvailable(): boolean {
+    if (scannerFailed || Platform.OS === 'web' || !CameraView.isModernBarcodeScannerAvailable) return false;
+    return Platform.OS !== 'ios' || Device.isDevice;
+}
+
+/** pairQrScannerAvailable() that re-renders once a launch has shown the scanner cannot open. */
+export function usePairQrScannerAvailable(): boolean {
+    return React.useSyncExternalStore(subscribeScanner, pairQrScannerAvailable);
 }
 
 /**
@@ -163,14 +190,24 @@ export function usePairQrScanner(onScanned: (url: string) => void, enabled: bool
 
     return React.useCallback(async () => {
         if (!(await checkScannerPermissions())) {
-            Modal.alert('Camera required', 'Allow camera access to scan the secure machine QR.');
+            Modal.alert('Camera is off', 'Turn on Camera for muxr in Settings to scan, or paste the pairing string instead.', [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+            ]);
             return;
         }
         pendingScan = stableHandler;
         try {
             await CameraView.launchScanner({ barcodeTypes: ['qr'] });
-        } catch {
+        } catch (error) {
             if (pendingScan === stableHandler) pendingScan = null;
+            // Android rejects when the person backs out of the scanner: not a failure.
+            const code = (error as { code?: string } | null)?.code;
+            if (code === 'ERR_BARCODE_SCANNING_CANCELLED') return;
+            if (code !== 'ERR_BARCODE_SCANNING_FAILED') {
+                scannerFailed = true;
+                scannerListeners.forEach((listener) => listener());
+            }
             Modal.alert('Camera scanner unavailable', 'The system QR scanner could not open. Enter the pairing string instead, or try again on a device with a working camera scanner.');
         }
     }, [checkScannerPermissions, stableHandler]);

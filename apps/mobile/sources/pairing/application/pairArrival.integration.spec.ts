@@ -12,9 +12,11 @@ const harness = vi.hoisted(() => ({
     params: {} as { offer?: string; source?: string },
     receive: undefined as ((event: { url: string }) => void) | undefined,
     router: { replace: vi.fn(), back: vi.fn() },
+    camera: { available: false, fails: undefined as string | undefined, launches: 0, scanned: undefined as ((event: { data: string }) => void) | undefined },
 }));
 
 vi.mock('react-native', () => ({
+    AppState: { currentState: 'active' },
     Platform: { OS: 'android' },
     ActivityIndicator: 'ActivityIndicator',
     Keyboard: { addListener: () => ({ remove: () => undefined }) },
@@ -46,7 +48,18 @@ vi.mock('expo-linking', () => ({
     },
 }));
 vi.mock('expo-camera', () => ({
-    CameraView: { isModernBarcodeScannerAvailable: false },
+    CameraView: {
+        get isModernBarcodeScannerAvailable() { return harness.camera.available; },
+        onModernBarcodeScanned: (scanned: (event: { data: string }) => void) => {
+            harness.camera.scanned = scanned;
+            return { remove: () => undefined };
+        },
+        launchScanner: async () => {
+            harness.camera.launches += 1;
+            if (harness.camera.fails) throw Object.assign(new Error('scanner rejected'), { code: harness.camera.fails });
+        },
+        dismissScanner: async () => undefined,
+    },
     useCameraPermissions: () => [{ granted: true }, async () => ({ granted: true })],
 }));
 vi.mock('expo-device', () => ({ isDevice: true }));
@@ -273,4 +286,84 @@ it('keeps the active pairing through screen recreation and relaunch, but asks be
     expect(mod.getCachedConnectionSettings().machineId).toBe(switchedSettings.machineId);
     expect(harness.claims).toBe(3);
     await unmount();
+});
+
+it('leads every native pair entry and failed code with Scan, which opens the camera in one tap', async () => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    vi.resetModules();
+    harness.secureValues.clear();
+    harness.asyncValues.clear();
+    Object.assign(harness, { authenticated: false, declined: false, claims: 0, initialUrl: null });
+    Object.assign(harness.camera, { available: true, fails: undefined });
+    const mod = await modules();
+    type ScreenNode = { type: unknown; props: Record<string, unknown> };
+    let screen!: ReturnType<typeof mod.renderer.create>;
+    const nodes = (predicate: (node: ScreenNode) => boolean) => (screen.root as {
+        findAll(predicate: (node: ScreenNode) => boolean): ScreenNode[];
+    }).findAll(predicate);
+    // Tree order is screen order: the first button is the one that leads.
+    const buttons = () => nodes((node) => node.type === 'Pressable' && node.props.accessibilityRole === 'button');
+    const labels = () => buttons().map((node) => node.props.accessibilityLabel);
+    const alerts = () => nodes((node) => node.type === 'Text' && node.props.accessibilityRole === 'alert').map((node) => node.props.children);
+    const settle = () => mod.renderer.act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    const open = async (params: typeof harness.params) => {
+        harness.params = params;
+        await mod.renderer.act(async () => { screen = mod.renderer.create(mod.React.createElement(mod.PairScreen)); });
+        await settle();
+    };
+    const close = () => mod.renderer.act(async () => { screen.unmount(); });
+    const press = async (label: string) => {
+        const target = buttons().find((node) => node.props.accessibilityLabel === label);
+        expect(target, label).toBeDefined();
+        await mod.renderer.act(async () => { (target!.props.onPress as () => void)(); });
+        await settle();
+    };
+    const scanLeads = async (label: string, offer: string) => {
+        expect(labels()[0]).toBe(label);
+        const launches = harness.camera.launches;
+        await press(label);
+        expect(harness.camera.launches).toBe(launches + 1);
+        await mod.renderer.act(async () => { harness.camera.scanned!({ data: offer }); });
+        await settle();
+        expect(labels()).toContain('Pair');
+    };
+
+    // Home, the recovery card and the palette open /pair bare; Settings adds its source.
+    for (const params of [{}, { source: 'settings' }]) {
+        await open(params);
+        await scanLeads('Scan the QR', machineOffer(9));
+        await close();
+    }
+
+    // A launch link, or a scan from first run, whose code ran out.
+    await open({ offer: machineOffer(9, { expires: Date.now() - 60_000 }) });
+    expect(alerts()).toContain('That pairing code has run out. Show a new one on your computer.');
+    await scanLeads('Scan a new code', machineOffer(10));
+
+    // The computer declined the code after Pair.
+    harness.declined = true;
+    await press('Pair');
+    expect(alerts()).toContain('The computer declined this pairing.');
+    expect(labels()[0]).toBe('Scan a new code');
+    await close();
+
+    // No camera scanner (a simulator), or one that failed to open (an older
+    // iPad): paste leads and the page says why.
+    const cantScan = () => nodes((node) => node.type === 'Text' && node.props.children === "This phone can't scan a QR, so paste the pairing string from muxr pair.");
+    harness.camera.available = false;
+    await open({});
+    expect(labels()).not.toContain('Scan the QR');
+    expect(cantScan()).toHaveLength(1);
+    await close();
+    harness.camera.available = true;
+    await open({});
+    // Backing out of the scanner is not a failure: Scan still leads.
+    harness.camera.fails = 'ERR_BARCODE_SCANNING_CANCELLED';
+    await press('Scan the QR');
+    expect(labels()[0]).toBe('Scan the QR');
+    harness.camera.fails = 'ERR_CAMERA_SCANNER_UNAVAILABLE';
+    await press('Scan the QR');
+    expect(labels()).not.toContain('Scan the QR');
+    expect(cantScan()).toHaveLength(1);
+    await close();
 });

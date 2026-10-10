@@ -10,6 +10,7 @@ import { LiveCardEmptyBadge } from '@/plans/ui';
 import { Wordmark } from '@/components/Wordmark';
 import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/pairing/e2ee';
+import { pairingDeviceNoun } from '@/pairing';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
 
 export default function Home() {
@@ -52,7 +53,7 @@ function NotAuthenticated() {
                 <View style={styles.markHalo} accessibilityLabel="muxr">
                     <View style={styles.markInner}><Wordmark width={148} /></View>
                 </View>
-                <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
+                <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : `Run your agents from your ${pairingDeviceNoun()}.`}</Text>
                 <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
             </View>
             <FirstRunConnection />
