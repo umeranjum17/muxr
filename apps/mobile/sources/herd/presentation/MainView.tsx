@@ -48,6 +48,7 @@ import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } fro
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
 import { HomeEmptyState } from './HomeEmptyState';
+import { HomeWebInstallInvite } from './HomeFirstRunCards';
 import { BusyConnectingCard, HomeRecoveryCard, recoveryMode, useBusyConnecting } from './HomeRecoveryCard';
 
 
@@ -484,6 +485,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
     // speaks. (RightNowCard itself is untouched.)
     const homeHeader = <>
         {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} />}
+        <HomeWebInstallInvite />
     </>;
 
     // In split view, the sidebar is the only navigator. The landing pane is
@@ -524,6 +526,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
                     {/* The same order as the phone: plans and machine first, then Live,
                         then what to start. */}
                     {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} />}
+                    <HomeWebInstallInvite />
                     {!splitRecovering && !splitBusy
                         ? <LiveTerminalsRow showZeroState={!splitEmpty} visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} cardBadge={liveCardBadge} /> : null}
                     {splitEmpty ? <HomeEmptyState />

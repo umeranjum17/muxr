@@ -309,6 +309,11 @@ export const en = {
         browserSubtitle: 'Adds a full-screen app to your home screen.',
         browserMenuSubtitle: 'Open your browser menu and choose Install app.',
         iosSubtitle: 'Add it to your Home Screen for a full-screen app and alerts.',
+        // One-time Home invitation, right below the Right now strip
+        inviteTitle: 'Install muxr on this device',
+        inviteBody: 'Open it full screen and get alerts when an agent needs you.',
+        inviteIosAction: 'Add to Home Screen',
+        inviteDismiss: 'Not now',
         guideTitle: 'Add muxr to your Home Screen',
         guideLead: 'Safari installs web apps through its Share menu.',
         guideSteps: '1. Tap the Share button in the toolbar.\n2. Tap “Add to Home Screen”.\n3. Tap “Add”.',
