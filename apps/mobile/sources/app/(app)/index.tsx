@@ -5,6 +5,7 @@ import * as React from 'react';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { MainView, FirstRunConnection } from '@/herd/ui';
+import { HomeWebInstallInvite } from '@/herd/presentation/HomeFirstRunCards';
 import { LiveCardEmptyBadge } from '@/plans/ui';
 import { Wordmark } from '@/components/Wordmark';
 import { Modal } from '@/modal';
@@ -55,6 +56,7 @@ function NotAuthenticated() {
                 <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
             </View>
             <FirstRunConnection />
+            <HomeWebInstallInvite />
         </ScrollView>
     );
 }
