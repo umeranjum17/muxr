@@ -361,9 +361,9 @@ export const ca: TranslationStructure = {
     },
 
     homeNotices: {
-        // Quiet notices at the top of Home
-        versions: 'Les versions de l\'app i de l\'amfitrió difereixen',
-        reviewUpdates: 'revisa les actualitzacions',
+        // Quiet notices on Home (the runtime notice leads; the version line sits at the foot)
+        versions: 'Les versions de l\'app i de l\'ordinador difereixen',
+        reviewUpdates: 'Revisa les actualitzacions',
         runtimeOffline: ({ name }: { name: string }) => `herdr no respon a ${name}`,
         runtimeStale: 'les sessions poden estar desactualitzades',
         liveEmpty: 'Cap agent actiu · inicia\'n un a sota',

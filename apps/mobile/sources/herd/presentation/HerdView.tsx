@@ -1,4 +1,4 @@
-import { HomeNotices } from '@/components/VersionNotice';
+import { HomeNotices, VersionNotice } from '@/components/VersionNotice';
 /**
  * Phone/root Herd surface: live terminal previews, then the shared Spaces tree.
  * Split layouts mount that tree once in the permanent sidebar instead.
@@ -329,6 +329,7 @@ export const HerdView = React.memo(({
                     </View>
                 </View>
             )}
+            <VersionNotice />
             </ScrollView>
         );
     }
@@ -357,6 +358,7 @@ export const HerdView = React.memo(({
                     {!needsRecovery && searchQuery.trim() === '' && <HomeBatteryCard />}
                     {!needsRecovery && searchQuery.trim() === '' && <HomeNotificationPrimerCard />}
                 </>}
+                listFooterComponent={<VersionNotice />}
                 topContentInset={topContentInset}
                 bottomContentInset={safeArea.bottom + bottomContentInset}
                 maxContentWidth={maxContentWidth}
