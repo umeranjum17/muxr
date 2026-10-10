@@ -172,13 +172,13 @@ if (!existsSync(distIndex)) {
     check('dist initial payload carries no mermaid engine', !distText.includes('__esbuild_esm_mermaid_nm'));
     // The live terminal and its xterm addons must stay in the lazy TerminalRoute
     // chunk. The entry keeps only the small web wrapper, which has no body.
-    const initialJs = refs.filter((ref) => ref.endsWith('.js')).map((ref) => {
+    const initialAssets = refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
     }).join('\n');
-    check('dist initial JS carries no xterm payload',
-        !initialJs.includes('xterm-scrollable-element') && !initialJs.includes('@xterm/addon-webgl'));
-    check('dist initial JS carries no syntax grammar payload', !initialJs.includes('source.cpp'));
+    check('dist initial JS/CSS carries no xterm payload',
+        !initialAssets.includes('xterm-scrollable-element') && !initialAssets.includes('@xterm/addon-webgl'));
+    check('dist initial JS carries no syntax grammar payload', !initialAssets.includes('source.cpp'));
     // Expo hashes asset names, so inspect emitted model-sized binaries instead
     // of grepping JS metadata for a legitimate filename.
     const MIN_WHISPER_MODEL_BYTES = 50 * 1024 * 1024;
