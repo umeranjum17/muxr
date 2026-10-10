@@ -22,6 +22,15 @@ export const AUTO = 'auto';
 const PROVIDER_NAMES: Record<string, string> = { claude: 'Claude', codex: 'ChatGPT', opencode: 'OpenCode' };
 export const providerName = (provider: string): string => PROVIDER_NAMES[provider] ?? provider;
 
+/** "a" or "an" from the word's first sound ("an OpenCode account", "a Claude account"). */
+const article = (word: string): 'a' | 'an' => (/^[aeiou]/i.test(word.trim()) ? 'an' : 'a');
+
+/** The Add row's label for a provider, in both the list and the account sheet. */
+export const addAccountLabel = (provider: string): string => {
+    const name = providerName(provider);
+    return `Add ${article(name)} ${name} account`;
+};
+
 /** Which provider's accounts an agent kind runs on. Pi only on a Claude model. */
 export function providerForAgent(kind: string): PlanProvider | null {
     if (kind === 'claude' || kind === 'pi') return 'claude';

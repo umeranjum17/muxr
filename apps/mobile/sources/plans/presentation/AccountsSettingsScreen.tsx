@@ -8,7 +8,7 @@ import { ItemList } from '@/components/ItemList';
 import { Switch } from '@/components/Switch';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { providerName, type PlanAccount } from '../domain/planAccounts';
+import { addAccountLabel, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, usePlans, usePlansStore } from '../application/plansStore';
 import { planFailure, removeAccount, renameAccount } from '../application/plansApi';
 import { Notice, useAccountFlows, useFlows } from './AccountFlows';
@@ -47,6 +47,61 @@ function EmailSplit({ email }: { email: string }) {
         <View ref={rowRef} style={stacked ? styles.emailColumn : styles.emailRow} onLayout={measure}>
             <Text style={styles.emailLocal} numberOfLines={1} ellipsizeMode="tail">{local}</Text>
             <Text ref={domainRef} style={styles.emailDomain} numberOfLines={1} ellipsizeMode="tail">{domain}</Text>
+        </View>
+    );
+}
+
+/** The facts a row can carry, keyed so the ones that differ can lead it. */
+function identityParts(account: PlanAccount): { key: 'room' | 'plan' | 'found'; text: string }[] {
+    if (!account.signedIn) return [];
+    return [
+        ...(account.roomLeftPercent === undefined ? [] : [{ key: 'room' as const, text: `${account.roomLeftPercent}% left` }]),
+        ...(account.plan === undefined ? [] : [{ key: 'plan' as const, text: account.plan }]),
+        ...(account.foundOnComputer ? [{ key: 'found' as const, text: 'found on this computer' }] : []),
+    ];
+}
+
+/** Every account that shares one name and email with another in its group. */
+function sharedNameEmail(accounts: readonly PlanAccount[]): Set<string> {
+    const counts = new Map<string, number>();
+    for (const account of accounts) {
+        if (!account.signedIn) continue;
+        const key = `${account.name}\u0000${account.email ?? ''}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return new Set([...counts].filter(([, count]) => count > 1).map(([key]) => key));
+}
+
+const collides = (account: PlanAccount, shared: Set<string>): boolean =>
+    account.signedIn && shared.has(`${account.name}\u0000${account.email ?? ''}`);
+
+const twins = (account: PlanAccount, group: readonly PlanAccount[]): PlanAccount[] =>
+    group.filter((other) => other.name === account.name && other.email === account.email);
+
+/** What a shared-name row leads with: the facts that tell it from its twins. */
+function distinguishingLine(account: PlanAccount, group: readonly PlanAccount[]): string | undefined {
+    const parts = identityParts(account);
+    const lead = parts.filter((part) => twins(account, group).some((other) =>
+        !identityParts(other).some((them) => them.key === part.key && them.text === part.text)));
+    return lead.length === 0 ? undefined : lead.map((part) => part.text).join('\u00a0· ');
+}
+
+/** Facts every twin shares — shown beneath the distinguishing lead line. */
+function sharedLine(account: PlanAccount, group: readonly PlanAccount[]): string | undefined {
+    const parts = identityParts(account);
+    const shared = parts.filter((part) => twins(account, group).every((other) =>
+        identityParts(other).some((them) => them.key === part.key && them.text === part.text)));
+    return shared.length === 0 ? undefined : shared.map((part) => part.text).join('\u00a0· ');
+}
+
+/** The shared name and email beneath a distinguishing lead line. */
+function AccountIdentity({ account }: { account: PlanAccount }) {
+    return (
+        <View style={styles.identity}>
+            <Text style={styles.identityText} numberOfLines={2} ellipsizeMode="tail">{account.name}</Text>
+            {account.email !== undefined && (Platform.OS === 'web'
+                ? <EmailSplit email={account.email} />
+                : <Text style={styles.identityText} numberOfLines={1} ellipsizeMode="tail">{account.email}</Text>)}
         </View>
     );
 }
@@ -100,21 +155,20 @@ export function AccountsSettingsScreen() {
     ]);
 
     // Accounts of one provider must stay tellable apart at the largest text size.
-    // The name wraps to two lines; the email stays on a single line so it never
-    // breaks mid-word and keeps the part that tells addresses apart: the local
-    // part before the @ (native end ellipsis, "umer@exam…"). Web ignores
-    // ellipsizeMode, so there we split the address: the local part shrinks and
-    // ellipsizes and the whole domain stays. Accounts that still share a name
-    // and email are told apart by the usage line beneath.
+    // A row that already differs by name keeps its name first. Two accounts that
+    // share one name and one email cannot be told apart by name: that row leads
+    // with the fact that differs between them (how much room is left, and the
+    // plan or where found only when those differ too), and shows the shared name
+    // and email beneath. The email never breaks mid-word: the local part before
+    // the @ stays on one line (native end ellipsis, "umer@exam…"); web ignores
+    // ellipsizeMode, so there the address is split and the whole domain stays.
     const subtitle = (account: PlanAccount): string | React.ReactNode =>
         account.signedIn && account.email
             ? (Platform.OS === 'web' ? <EmailSplit email={account.email} /> : account.email)
             : 'Signed out';
     const facts = (account: PlanAccount): string | undefined => {
-        if (!account.signedIn) return undefined;
-        const room = account.roomLeftPercent === undefined ? undefined : `${account.roomLeftPercent}% left`;
-        return [room, account.plan, account.foundOnComputer ? 'found on this computer' : undefined]
-            .filter(Boolean).join('\u00a0· ') || undefined;
+        const parts = identityParts(account);
+        return parts.length === 0 ? undefined : parts.map((part) => part.text).join('\u00a0· ');
     };
 
     return (
@@ -130,19 +184,24 @@ export function AccountsSettingsScreen() {
             )}
             {list !== null && PROVIDERS.map((provider) => {
                 const accounts = list.providers.find((entry) => entry.provider === provider.id)?.accounts ?? [];
+                const shared = sharedNameEmail(accounts);
                 return (
                     <ItemGroup key={provider.id} title={provider.title}>
-                        {accounts.map((account) => (
+                        {accounts.map((account) => {
+                            // A row whose name and email are shared leads with what tells it apart.
+                            const lead = collides(account, shared) ? distinguishingLine(account, accounts) : undefined;
+                            const distinct = lead !== undefined;
+                            return (
                             <Item
                                 key={account.id}
                                 selected={account.id === landed}
                                 style={account.id === landed ? { backgroundColor: theme.colors.surfacePressed } : undefined}
-                                title={account.name}
+                                title={lead ?? account.name}
                                 titleLines={2}
-                                subtitle={subtitle(account)}
-                                subtitleLines={1}
+                                subtitle={distinct ? <AccountIdentity account={account} /> : subtitle(account)}
+                                subtitleLines={distinct ? undefined : 1}
                                 subtitleEllipsizeMode={Platform.OS === 'web' ? undefined : 'tail'}
-                                meta={facts(account)}
+                                meta={distinct ? sharedLine(account, accounts) : facts(account)}
                                 metaLines={0}
                                 icon={<Ionicons
                                     name={account.signedIn ? 'person-circle-outline' : 'alert-circle-outline'}
@@ -154,11 +213,14 @@ export function AccountsSettingsScreen() {
                                 showChevron={account.signedIn}
                                 onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
                                 onLongPress={() => actions(account)}
-                                accessibilityLabel={[account.name, account.signedIn ? account.email : 'Signed out', facts(account)].filter(Boolean).join(', ')}
+                                accessibilityLabel={distinct
+                                    ? [lead, account.name, account.email, sharedLine(account, accounts)].filter(Boolean).join(', ')
+                                    : [account.name, account.signedIn ? account.email : 'Signed out', facts(account)].filter(Boolean).join(', ')}
                             />
-                        ))}
+                            );
+                        })}
                         <Item
-                            title={`Add a ${providerName(provider.id)} account`}
+                            title={addAccountLabel(provider.id)}
                             subtitle={accounts.length === 0 ? 'Next to the one already signed in on this computer' : undefined}
                             subtitleLines={2}
                             titleStyle={{ color: theme.colors.textLink }}
@@ -192,6 +254,17 @@ const styles = StyleSheet.create((theme) => ({
         paddingHorizontal: 20,
         paddingTop: 12,
         ...Typography.default(),
+    },
+    identity: {
+        marginTop: 2,
+        maxWidth: '100%',
+    },
+    identityText: {
+        ...Typography.default(),
+        fontSize: 14,
+        lineHeight: 20,
+        letterSpacing: 0.1,
+        color: theme.colors.textSecondary,
     },
     emailRow: {
         flexDirection: 'row',
