@@ -13,6 +13,8 @@ const harness = vi.hoisted(() => ({
 
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('expo-camera', () => ({ CameraView: {} }));
+vi.mock('react-native', () => ({ Platform: { OS: 'android' }, Linking: {} }));
+vi.mock('expo-device', () => ({ isDevice: true }));
 vi.mock('@/account/ui', () => ({ useAuth: () => ({}) }));
 vi.mock('@/modal', () => ({
     Modal: {
