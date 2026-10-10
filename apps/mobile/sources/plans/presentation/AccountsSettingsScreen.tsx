@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, ScrollView, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Platform, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
@@ -25,31 +25,28 @@ const PROVIDERS: { id: string; title: string }[] = [
  * row losing the domain. The address stays on one line while the whole domain
  * fits next to a shortened local part (`umer.w…@example.com`). Only when the
  * domain alone cannot fit does it drop to a second line, broken before the `@`,
- * and each line ellipsizes its own end. The domain width is measured once, off
- * layout, to choose between the two.
+ * and each line ellipsizes its own end. The domain's own overflow (its real
+ * width against the row's) picks between the two; it never wraps mid-word.
  */
 function EmailSplit({ email }: { email: string }) {
     const at = email.lastIndexOf('@');
     const local = at > 0 ? email.slice(0, at) : email;
     const domain = at > 0 ? email.slice(at) : '';
-    const [rowWidth, setRowWidth] = React.useState<number>();
-    const [domainWidth, setDomainWidth] = React.useState<number>();
-    const stacked = rowWidth !== undefined && domainWidth !== undefined && domainWidth > rowWidth;
-    const onRow = (event: LayoutChangeEvent) => {
-        const width = event.nativeEvent.layout.width;
-        setRowWidth((previous) => (previous === width ? previous : width));
-    };
-    const onDomain = (event: LayoutChangeEvent) => {
-        const width = event.nativeEvent.layout.width;
-        setDomainWidth((previous) => (previous === width ? previous : width));
-    };
+    const rowRef = React.useRef<View>(null);
+    const domainRef = React.useRef<Text>(null);
+    const [stacked, setStacked] = React.useState(false);
+    const measure = React.useCallback(() => {
+        const row = rowRef.current as unknown as HTMLElement | null;
+        const domainNode = domainRef.current as unknown as HTMLElement | null;
+        if (row === null || domainNode === null || typeof domainNode.scrollWidth !== 'number') return;
+        const next = domainNode.scrollWidth > row.clientWidth + 1;
+        setStacked((previous) => (previous === next ? previous : next));
+    }, []);
+    React.useEffect(() => { measure(); }, [measure, local, domain]);
     return (
-        <View style={stacked ? styles.emailColumn : styles.emailRow} onLayout={onRow}>
+        <View ref={rowRef} style={stacked ? styles.emailColumn : styles.emailRow} onLayout={measure}>
             <Text style={styles.emailLocal} numberOfLines={1} ellipsizeMode="tail">{local}</Text>
-            <Text style={styles.emailDomain} numberOfLines={1} ellipsizeMode="tail">{domain}</Text>
-            {domainWidth === undefined && (
-                <Text style={styles.emailMeasure} numberOfLines={1} onLayout={onDomain}>{domain}</Text>
-            )}
+            <Text ref={domainRef} style={styles.emailDomain} numberOfLines={1} ellipsizeMode="tail">{domain}</Text>
         </View>
     );
 }
@@ -223,15 +220,5 @@ const styles = StyleSheet.create((theme) => ({
         lineHeight: 20,
         letterSpacing: 0.1,
         color: theme.colors.textSecondary,
-    },
-    emailMeasure: {
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        opacity: 0,
-        ...Typography.default(),
-        fontSize: 14,
-        lineHeight: 20,
-        letterSpacing: 0.1,
     },
 }));

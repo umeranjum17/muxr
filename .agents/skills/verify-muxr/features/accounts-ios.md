@@ -15,9 +15,10 @@ first one.
   stays fully visible below it.
 - `accounts-rows-distinct` at the largest text size, rows of one provider that
   share a name and email stay tellable apart: the name wraps to two lines, the
-  email stays on one line and never breaks mid-word (native `ellipsizeMode`
-  `middle` keeps both ends; web shortens the local part so `start…@domain`
-  stays), and the usage line (`40% left · max`) differs.
+  email never breaks mid-word (native `ellipsizeMode` `middle` keeps both ends;
+  web shortens the local part and keeps the whole domain, dropping to a second
+  line broken before the `@` only when the domain cannot fit), and the usage
+  line (`40% left · max`) differs.
 - `accounts-signin-states` in-progress banner, cancel, refusal, re-sign-in without the name step.
 - `accounts-remove` row › Remove › Remove resets to one account.
 
@@ -69,7 +70,8 @@ Preconditions:
   one email (the Android/PWA lab fixture in `data/pock-accounts-rows-distinct1`
   does), each row must still read apart at the largest text: the name wraps to
   two lines, the email stays on one line without breaking mid-word (native
-  middle ellipsis keeps both ends, web `start…@domain`), and the `…% left · max`
+  middle ellipsis keeps both ends; web keeps the whole domain, wrapping before
+  the `@` only when it cannot fit), and the `…% left · max`
   line beneath differs, so no two rows truncate to one shared `Name …` / `email@…`
   prefix.
 - **Sign-in states.** The lab prints its `lab home`. While `signin-hold` exists
