@@ -101,11 +101,11 @@ export function AccountsSettingsScreen() {
 
     // Accounts of one provider must stay tellable apart at the largest text size.
     // The name wraps to two lines; the email stays on a single line so it never
-    // breaks mid-word. Native keeps both ends of a too-long email (ellipsizeMode
-    // "middle"); web ignores that mode, so there we split the address: the local
-    // part shrinks and ellipsizes and the whole domain stays, the part that tells
-    // addresses apart. Accounts that still share a name and email are told apart
-    // by the usage line beneath.
+    // breaks mid-word and keeps the part that tells addresses apart: the local
+    // part before the @ (native end ellipsis, "umer@exam…"). Web ignores
+    // ellipsizeMode, so there we split the address: the local part shrinks and
+    // ellipsizes and the whole domain stays. Accounts that still share a name
+    // and email are told apart by the usage line beneath.
     const subtitle = (account: PlanAccount): string | React.ReactNode =>
         account.signedIn && account.email
             ? (Platform.OS === 'web' ? <EmailSplit email={account.email} /> : account.email)
@@ -141,7 +141,7 @@ export function AccountsSettingsScreen() {
                                 titleLines={2}
                                 subtitle={subtitle(account)}
                                 subtitleLines={1}
-                                subtitleEllipsizeMode={Platform.OS === 'web' ? undefined : 'middle'}
+                                subtitleEllipsizeMode={Platform.OS === 'web' ? undefined : 'tail'}
                                 meta={facts(account)}
                                 metaLines={0}
                                 icon={<Ionicons
