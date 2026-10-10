@@ -9,9 +9,12 @@ export const FALLBACK_AGENT_KINDS = [
 export const AGENT_KINDS = FALLBACK_AGENT_KINDS;
 
 export type AgentAvailability = 'installed' | 'unavailable' | 'unknown';
+/** The herdr kit's install probe: a real binary, a first-start auto-installer, or absent. */
+export type AgentInstallState = 'installed' | 'installs-on-first-start' | 'missing';
 export type AgentCatalogOption = {
     kind: string;
     availability: AgentAvailability;
+    installState?: AgentInstallState;
     signedIn?: 'yes' | 'no' | 'unknown';
     installHint?: string;
     signInHint?: string;
@@ -20,7 +23,7 @@ export type AgentCatalogOption = {
 export function resolveAgentCatalog(result: {
     kinds?: string[];
     installed?: string[];
-    readiness?: Record<string, { signedIn: 'yes' | 'no' | 'unknown'; installHint?: string; signInHint?: string }>;
+    readiness?: Record<string, { signedIn: 'yes' | 'no' | 'unknown'; installState?: AgentInstallState; installHint?: string; signInHint?: string }>;
 }): { options: AgentCatalogOption[]; authoritative: boolean } {
     const kinds = [...new Set((result.kinds ?? []).filter((kind) => /^[a-z][a-z0-9_-]{0,31}$/.test(kind)))].slice(0, 64);
     const authoritative = Array.isArray(result.installed);

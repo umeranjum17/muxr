@@ -10,6 +10,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
     SESSION_EVENT_TYPES,
+    type AgentInstallState,
     type SessionEventBody,
     type SessionInfo,
     type SessionSnapshot,
@@ -131,6 +132,14 @@ export function createFakeSessionSource(): SessionSource {
 
         async installedAgentKinds(kinds) {
             return kinds.filter((kind) => kind === 'pi');
+        },
+
+        async agentInstallStates(kinds) {
+            const states: Record<string, AgentInstallState> = {};
+            for (const kind of kinds) {
+                states[kind] = kind === 'pi' ? 'installs-on-first-start' : 'installed';
+            }
+            return states;
         },
 
         async voiceStream() {

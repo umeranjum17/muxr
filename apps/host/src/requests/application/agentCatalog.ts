@@ -33,7 +33,7 @@ export class AgentCatalog {
     private pending: Promise<Catalog> | undefined;
 
     constructor(
-        private readonly source: Pick<SessionSource, 'agentKinds' | 'installedAgentKinds'>,
+        private readonly source: Pick<SessionSource, 'agentKinds' | 'installedAgentKinds' | 'agentInstallStates'>,
         private readonly env: NodeJS.ProcessEnv = process.env,
     ) {}
 
@@ -66,10 +66,17 @@ export class AgentCatalog {
         const kinds = await this.source.agentKinds();
         const ordered = [...kinds].sort((left, right) => leadingRank(left) - leadingRank(right));
         const installed = await this.source.installedAgentKinds(ordered);
+        // The kit's install probe: a first-start auto-installer (a Herdr-managed
+        // shim such as Pi's) reads installs-on-first-start even while its command
+        // is on PATH; that is what the phone shows as the install phase.
+        const installStates = await this.source.agentInstallStates(ordered);
         const env = { ...this.env, PATH: agentToolPath(this.env).join(delimiter) };
         const readiness: NonNullable<Catalog['readiness']> = {};
         await Promise.all(ordered.map(async (kind) => {
-            const state: NonNullable<Catalog['readiness']>[string] = { signedIn: 'unknown' };
+            const state: NonNullable<Catalog['readiness']>[string] = {
+                signedIn: 'unknown',
+                ...(installStates[kind] === undefined ? {} : { installState: installStates[kind] }),
+            };
             readiness[kind] = state;
             if (!installed.includes(kind)) {
                 const command = INSTALL_COMMANDS[kind];

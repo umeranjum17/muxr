@@ -197,6 +197,14 @@ export interface SessionWarning {
 export const AGENT_LIFECYCLES = ['starting', 'idle', 'working', 'blocked', 'done', 'failed', 'unknown'] as const;
 export type AgentLifecycle = (typeof AGENT_LIFECYCLES)[number];
 
+/**
+ * How an Agent Kind's command is available on the machine, from the herdr kit's
+ * install probe: a real runnable binary, a Herdr-managed auto-installer that
+ * installs on first start, or an absent (or unusable) command.
+ */
+export const AGENT_INSTALL_STATES = ['installed', 'installs-on-first-start', 'missing'] as const;
+export type AgentInstallState = (typeof AGENT_INSTALL_STATES)[number];
+
 export const LIFECYCLE_NOTIFICATION_LEVELS = ['off', 'important', 'all'] as const;
 export type LifecycleNotificationLevel = (typeof LIFECYCLE_NOTIFICATION_LEVELS)[number];
 

@@ -40,6 +40,7 @@ import { AccountSheet } from '@/plans/ui';
 import {
     applyWorktreeSelection,
     currentDockAgent,
+    dockInstallPhase,
     listWorktreeOptions,
     projectDockOptions,
     resolveDockOption,
@@ -640,6 +641,9 @@ export const HomeDock = React.memo(({
     const compact = useWindowDimensions().width < 330;
     const catalogReady = hostAgentKinds !== null && socketStatus.status === 'connected';
     const canSubmit = !isSubmitting && hasPrompt && catalogReady;
+    // The chosen agent's CLI installs on first start: say what the computer is
+    // doing while the start request runs instead of an unnamed spinner.
+    const installPhase = isSubmitting ? dockInstallPhase(currentAgent) : undefined;
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     // On a short phone the keyboard would lift the pickers under the back
     // control and the status bar, so the dock is bounded between the two and
@@ -821,7 +825,7 @@ export const HomeDock = React.memo(({
     };
 
     const environmentRows: SettingsRow[] = [
-        { page: 'agent', label: 'AGENT', value: currentAgent.name, detail: currentAgent.description, icon: 'hardware-chip-outline' },
+        { page: 'agent', label: 'AGENT', value: currentAgent.name, detail: installPhase ?? currentAgent.description, icon: 'hardware-chip-outline' },
         ...(accountLine === null ? [] : [{ page: 'account', label: 'ACCOUNT', value: accountLine.value, detail: accountLine.detail, icon: 'person-circle-outline' as const, stacked: true }]),
         { page: 'project', label: 'PROJECT', value: currentProject?.name ?? '~', icon: 'folder-outline' },
         { page: 'worktree', label: 'WORKTREE', value: currentWorktree?.name ?? 'No worktree', icon: 'git-branch-outline' },
@@ -1134,7 +1138,7 @@ export const HomeDock = React.memo(({
                                             accessibilityLabel={`Start ${currentAgent.name} without a prompt`}
                                         >
                                             <Ionicons name="play" size={16} color={theme.colors.fab.icon} />
-                                            <Text style={styles.startRowText}>Start {currentAgent.name}</Text>
+                                            <Text style={styles.startRowText}>{installPhase ?? `Start ${currentAgent.name}`}</Text>
                                         </BubblePressable>
                                     </FocusConfigRevealRow>
                                 </View>
