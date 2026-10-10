@@ -35,7 +35,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 8,
     },
     dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.box.warning.text, marginTop: 6 },
-    cardText: { flex: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18 },
+    cardText: { flex: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18, ...Typography.default() },
 }));
 
 /**
