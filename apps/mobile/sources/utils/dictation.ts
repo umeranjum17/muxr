@@ -34,6 +34,21 @@ function recordingErrorMessage(error: unknown): string {
 // Below this a recording is a mis-tap, not speech.
 const MIN_RECORDING_MS = 400;
 
+// BYOKit reports normalised capture energy, already lifted ×4. Read linearly,
+// quiet far-field speech (about −45 dBFS, where a phone microphone puts
+// arm's-length speech) sits an order of magnitude under desk-close speech, so
+// the bars never rose above their 4 dp base and the meter read frozen exactly
+// when the speaker was quiet. A meter answers relative loudness, so read the
+// energy on a log scale instead: every practical speaking level moves the bars,
+// while digital silence and room tone below the floor rest flat.
+const METER_FLOOR = 0.004; // ≈ −60 dBFS at the kit's ×4 scale
+const METER_SPAN = Math.log10(1 / METER_FLOOR);
+
+export function dictationMeterLevel(energy: number): number {
+    if (!(energy > METER_FLOOR)) return 0;
+    return Math.min(1, Math.log10(energy / METER_FLOOR) / METER_SPAN);
+}
+
 // How long a cancelled transcription can still be taken back. The reading
 // keeps going underneath, so Undo returns the whole transcript, not a part.
 export const DICTATION_UNDO_MS = 5000;
@@ -125,7 +140,7 @@ export function useDictation(getText: () => string, setText: (text: string) => v
             sessionRef.current = await startLiveTranscription({
                 hint: bias.prompt,
                 keywords: bias.keywords,
-                onLevel: (value) => { level.value = value; },
+                onLevel: (value) => { level.value = dictationMeterLevel(value); },
                 onText: (spoken) => { if (!controller.signal.aborted) showSpoken(spoken); },
             });
             startedAtRef.current = Date.now();
