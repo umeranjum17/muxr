@@ -134,7 +134,7 @@ export function needsYouActivityRows(
         const pane = panesById.get(sessionId);
         const latest = events.find((event) => event.sessionId === sessionId);
         // A pending request with no blocked or failed pane still needs an answer.
-        const status = pane !== undefined && statusNeedsYou(pane.agentStatus) ? pane.agentStatus : 'blocked';
+        const status = displayedAgentStatus(pane?.agentStatus ?? 'blocked', true) as RecentActivityRow['status'];
         const event = latest?.state === status ? latest : undefined;
         const at = event === undefined ? Number.NaN : Date.parse(event.at);
         const agentName = pane?.agentName ?? (latest === undefined ? undefined : lifecycleEventAgentName(latest));

@@ -19,6 +19,7 @@ import { sync } from '@/catalog/sync';
 import { agentStatusColor } from '../application/sessionUtils';
 import { HERD_STATUS_LABELS, agentLabels, agentWhoLine, isShellLabels } from '../domain/agentPresentation';
 import { paneMapTiles, type PaneMapLayout } from '../domain/paneMap';
+import { agentNeedsYou, displayedAgentStatus } from '../domain/recentActivity';
 
 /** The smallest a tile gets, so every pane stays a comfortable tap. */
 const MIN_TILE = 52;
@@ -57,6 +58,7 @@ const PaneTile = React.memo(function PaneTile(props: {
     height: number;
     current: boolean;
     pending: boolean;
+    pendingRequest: boolean;
     canClose: boolean;
     onOpen: (pane: HerdrTreePane) => void;
     onClose: (pane: HerdrTreePane) => void;
@@ -66,8 +68,8 @@ const PaneTile = React.memo(function PaneTile(props: {
     const { pane } = props;
     const labels = agentLabels(pane);
     const shell = isShellLabels(labels);
-    const tone = agentStatusColor(pane.agentStatus, theme);
-    const needsYou = pane.agentStatus === 'blocked';
+    const tone = agentStatusColor(displayedAgentStatus(pane.agentStatus, props.pendingRequest), theme);
+    const needsYou = agentNeedsYou(pane.agentStatus, props.pendingRequest);
     const task = paneTaskLine(pane);
     const roomy = props.height >= 76 && props.width >= 110;
     // A sliver of a pane (a quarter split on a narrow phone) gives the glyph's
@@ -121,6 +123,8 @@ export function PaneMap(props: {
     /** The outlined pane: the one open on this device, or the split target. */
     currentPaneId?: string;
     pendingPaneIds?: ReadonlySet<string>;
+    /** Agents an online session is holding a request for. */
+    pendingRequestIds: ReadonlySet<string>;
     canClose: boolean;
     onOpen: (pane: HerdrTreePane) => void;
     onClose: (pane: HerdrTreePane) => void;
@@ -149,6 +153,7 @@ export function PaneMap(props: {
                             height={tile.height - GAP}
                             current={pane.paneId === props.currentPaneId}
                             pending={props.pendingPaneIds?.has(pane.paneId) ?? false}
+                            pendingRequest={pane.sessionId !== undefined && props.pendingRequestIds.has(pane.sessionId)}
                             canClose={props.canClose}
                             onOpen={props.onOpen}
                             onClose={props.onClose}

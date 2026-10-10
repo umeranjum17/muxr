@@ -9,7 +9,7 @@ import {
 } from '@trymuxr/contract';
 import type { Session } from '@/catalog';
 import { agentLabels, HERD_STATUS_LABELS } from './agentPresentation';
-import { pendingRequestSessionIds } from './recentActivity';
+import { agentNeedsYou, pendingRequestSessionIds } from './recentActivity';
 
 export { HERD_STATUS_LABELS } from './agentPresentation';
 
@@ -162,12 +162,12 @@ export function herdNotificationState(
         return { mode: 'offline', count: 0, name: '', names: '', eventKey: 'offline' };
     }
 
-    const blocked = panes.filter((pane) => pane.agentStatus === 'blocked');
+    const needing = panes.filter((pane) => agentNeedsYou(pane.agentStatus, pane.pendingRequest));
     const working = panes.filter((pane) => pane.agentStatus === 'working' || pane.agentStatus === 'starting');
-    const active = blocked.length > 0 ? blocked : working;
+    const active = needing.length > 0 ? needing : working;
     const top = active[0];
     if (!top) return { mode: 'idle', count: 0, name: '', names: '', eventKey: 'idle' };
-    const mode = blocked.length > 0 ? 'attention' : 'working';
+    const mode = needing.length > 0 ? 'attention' : 'working';
     const names = active.map((pane) => pane.agentName ?? 'Unnamed agent').join(', ');
     const ids = active.map((pane) => encodeURIComponent(pane.id)).sort().join(',');
     return { mode, count: active.length, name: top.agentName ?? 'Unnamed agent', names, eventKey: `${mode}:${ids}` };
