@@ -31,6 +31,8 @@ fastlane/README.md
 apps/mobile/public/canvaskit.wasm
 # copied from mermaid at start/build time (see apps/mobile/package.json)
 apps/mobile/public/mermaid.min.js
+# generated from @shikijs/langs at start/build time (see apps/mobile/package.json)
+apps/mobile/public/shiki-langs/
 dist-npm/
 /*.apk
 

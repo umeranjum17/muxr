@@ -1,13 +1,24 @@
 /**
  * What `import "shiki"` resolves to on web (metro.config.js), for the diff
- * viewer. The stock bundle lazy-imports every grammar; the grammars embed one
- * another, so per-grammar chunks hoist the shared ones into `__common`, which
- * index.html loads eagerly. Here the slim set below is imported statically and
- * loads with the diff view. Other languages render as plain text on web.
+ * viewer.
+ *
+ * The stock bundle lazy-imports every grammar; the grammars embed one another,
+ * so Metro's serializer files the shared ones under `__common`, which
+ * index.html loads eagerly: megabytes of grammars before the first paint. Here
+ * the grammars people actually diff are imported statically, so the whole set
+ * lives in the lazy diff chunk.
+ *
+ * Every other grammar is fetched on demand as one JSON file per language from
+ * `/shiki-langs/` (built by scripts/buildShikiLangs.mjs). Metro cannot split
+ * per-grammar chunks without hoisting their shared embedded grammars back into
+ * the eager `__common` chunk, so the payload leaves the bundle entirely and
+ * loads only when a diff needs that language. Until it arrives the file renders
+ * as plain text; the async highlight re-renders it once the grammar resolves.
  */
 import { createBundledHighlighter, createSingletonShorthands, guessEmbeddedLanguages } from '@shikijs/core';
 import type { LanguageRegistration } from '@shikijs/core';
 import { createOnigurumaEngine } from '@shikijs/engine-oniguruma';
+import { languageAliasNames, languageNames } from '@shikijs/langs';
 import { bundledThemes } from 'shiki/themes';
 import c from '@shikijs/langs/c';
 import cpp from '@shikijs/langs/cpp';
@@ -46,19 +57,53 @@ export { createJavaScriptRegexEngine } from '@shikijs/engine-javascript';
 export { createOnigurumaEngine } from '@shikijs/engine-oniguruma';
 
 type Grammar = LanguageRegistration[];
+type GrammarLoader = () => Promise<{ default: Grammar }>;
 const grammars: Record<string, Grammar> = {
     c, cpp, css, diff, dockerfile, go, graphql, html, ini, java, javascript, json, jsonc, jsx, kotlin, make,
     markdown, php, python, ruby, rust, scss, shellscript, sql, swift, toml, tsx, typescript, xml, yaml,
 };
-const entries = Object.entries(grammars).map(([id, grammar]) => [id, () => Promise.resolve({ default: grammar })] as const);
-const aliases = Object.entries(grammars).flatMap(([id, grammar]) =>
-    (grammar[grammar.length - 1]?.aliases ?? []).map((alias) => [alias, () => Promise.resolve({ default: grammars[id]! })] as const));
-export const bundledLanguagesBase = Object.fromEntries(entries);
-export const bundledLanguagesAlias = Object.fromEntries(aliases);
-export const bundledLanguages = { ...bundledLanguagesBase, ...bundledLanguagesAlias };
+const slimBases: Record<string, GrammarLoader> = Object.fromEntries(
+    Object.entries(grammars).map(([id, grammar]) => [id, () => Promise.resolve({ default: grammar })]),
+);
+const slimAliases: Record<string, GrammarLoader> = Object.fromEntries(
+    Object.entries(grammars).flatMap(([id, grammar]) =>
+        (grammar[grammar.length - 1]?.aliases ?? []).map((alias) => [alias, () => Promise.resolve({ default: grammars[id]! })] as const)),
+);
+export const bundledLanguagesBase = slimBases;
+export const bundledLanguagesAlias = slimAliases;
 export const bundledLanguagesInfo = Object.entries(grammars).map(([id, grammar]) => ({
-    id, name: grammar[grammar.length - 1]?.displayName ?? id, aliases: grammar[grammar.length - 1]?.aliases, import: bundledLanguagesBase[id]!,
+    id, name: grammar[grammar.length - 1]?.displayName ?? id, aliases: grammar[grammar.length - 1]?.aliases, import: slimBases[id]!,
 }));
+
+// A fetched grammar's JSON holds only the grammars outside the slim set; the
+// slim grammars are prepended so shiki can resolve the embedded grammars it
+// names (loadLanguages throws if any named grammar is missing from the batch).
+const slimGrammars = Object.values(grammars).flat();
+const slimKeys = new Set([...Object.keys(slimBases), ...Object.keys(slimAliases)]);
+
+let aliasMap: Promise<Record<string, string>> | undefined;
+function loadAliasMap(): Promise<Record<string, string>> {
+    aliasMap ??= fetch('/shiki-langs/index.json')
+        .then((response) => (response.ok ? response.json() : {}))
+        .then((manifest: { aliases?: Record<string, string> }) => manifest.aliases ?? {})
+        .catch(() => ({}));
+    return aliasMap;
+}
+
+async function loadExtraGrammar(key: string): Promise<{ default: Grammar }> {
+    const id = (await loadAliasMap())[key] ?? key;
+    const response = await fetch(`/shiki-langs/${id}.json`);
+    if (!response.ok) throw new Error(`shiki grammar "${key}" unavailable (${response.status})`);
+    const data: Grammar = await response.json();
+    return { default: [...slimGrammars, ...data] };
+}
+
+const extraLoaders: Record<string, GrammarLoader> = Object.fromEntries(
+    [...languageNames, ...languageAliasNames]
+        .filter((key) => !slimKeys.has(key))
+        .map((key) => [key, () => loadExtraGrammar(key)]),
+);
+export const bundledLanguages: Record<string, GrammarLoader> = { ...slimBases, ...slimAliases, ...extraLoaders };
 
 export const createHighlighter = createBundledHighlighter({
     langs: bundledLanguages,
