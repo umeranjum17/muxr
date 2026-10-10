@@ -366,8 +366,8 @@ export const zhHant: TranslationStructure = {
     },
 
     homeNotices: {
-        // Quiet notices at the top of Home
-        versions: '應用與主機版本不一致',
+        // Quiet notices on Home (the runtime notice leads; the version line sits at the foot)
+        versions: '應用程式和電腦的版本不一致',
         reviewUpdates: '查看更新',
         runtimeOffline: ({ name }: { name: string }) => `herdr 在 ${name} 上沒有回應`,
         runtimeStale: '工作階段可能已過期',

@@ -384,9 +384,9 @@ export const en = {
     },
 
     homeNotices: {
-        // Quiet notices at the top of Home
-        versions: 'App and host versions differ',
-        reviewUpdates: 'review updates',
+        // Quiet notices on Home (the runtime notice leads; the version line sits at the foot)
+        versions: 'App and computer versions differ',
+        reviewUpdates: 'Review updates',
         runtimeOffline: ({ name }: { name: string }) => `herdr isn't answering on ${name}`,
         runtimeStale: 'sessions may be stale',
         liveEmpty: 'No live agents · start one below',

@@ -352,9 +352,9 @@ export const ru: TranslationStructure = {
     },
 
     homeNotices: {
-        // Quiet notices at the top of Home
-        versions: 'Версии приложения и хоста различаются',
-        reviewUpdates: 'проверить обновления',
+        // Quiet notices on Home (the runtime notice leads; the version line sits at the foot)
+        versions: 'Версии приложения и компьютера различаются',
+        reviewUpdates: 'Проверить обновления',
         runtimeOffline: ({ name }: { name: string }) => `herdr не отвечает на ${name}`,
         runtimeStale: 'сессии могут быть устаревшими',
         liveEmpty: 'Нет активных агентов · запустите ниже',

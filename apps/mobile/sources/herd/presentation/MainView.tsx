@@ -512,7 +512,6 @@ export const MainView = React.memo(({ liveCardBadge }: {
                             <HeaderTitle large linkDown={splitLinkDown} />
                         </View>
                     </View>
-                    <VersionNotice />
                     {splitRecovering ? (
                         <HomeRecoveryCard
                             mode={recoveryMode(socketStatus.error, splitRuntimeOffline && !splitHostOffline)}
@@ -546,6 +545,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
                             ))}
                         </View>
                     )}
+                    <VersionNotice />
                 </ScrollView>
             </View>
         );
