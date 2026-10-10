@@ -14,8 +14,8 @@ so it stays whole at the largest text sizes, and normal font scale is unchanged.
 ## How to get to it (user POV)
 
 - Home -> a workspace with more than one tab -> open a pane -> read the
-  pane-tabs row above the composer. With one tab, turn on Terminal settings ->
-  Pane tabs to always show the row.
+  pane-tabs row above the composer. With one tab, turn on Settings -> Appearance
+  -> Terminal -> Tabs row to always show the row.
 
 ## Driving it with the private stack
 
@@ -24,10 +24,13 @@ Preconditions:
 - `yarn build`, and a release APK built from this tree (`node perf/buildPrApk.mjs <out>`,
   or a lab-signed `:app:assembleRelease`) installed on an owned emulator `SERIAL`.
 - A private stack with at least two tabs, one carrying a label with a descender.
-  `perf/lib/fakeStack.mjs` (`startFakeStack`) seeds tabs `main`/`review`; none
-  has a descender, so rename one through the user path: long-press the chip ->
-  Rename -> a word such as `paging`. (Seeding the world's tab labels with a
-  descender word works too, but the app-rename path needs no fixture change.)
+  `perf/lib/fakeStack.mjs` (`startFakeStack`) builds its tabs from `TAB_LABELS`
+  in `perf/fake-herdr/world.mjs` (`['main', 'review', 'shell', 'scratch']`);
+  none has a descender, so set the first entries to descender words (e.g.
+  `['paging', 'playing', 'shell', 'scratch']`) before `startFakeStack`. The fake
+  Herdr has no rename method, so a long-press Rename in the app fails with
+  `method_not_found` and never reaches such a label; seeding the world is the
+  only in-stack route. Revert the fixture edit before running the suite.
 
 1. Launch and pair (the pairing flow or `muxr://pair#<code>` with a `Pair` tap).
 2. Open a shell pane by deep link, `muxr:///session/shell%3Aw1%3Ap1`.
