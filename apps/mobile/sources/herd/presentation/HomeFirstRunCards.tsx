@@ -11,12 +11,22 @@ import { useAuth } from '@/account/ui';
 import { useHerdrTree, useLocalSettingMutable, useSessions, useSocketStatus } from '@/catalog/store';
 import { openBackgroundActivitySettings } from '@/../modules/voice-overlay';
 import { notificationPermissionStatus, requestNotificationPermission } from '@/utils/microphonePermissions';
+import { getWebInstallState, promptWebInstall, subscribeWebInstall, type WebInstallState } from '@/utils/webInstall';
+import { openWebInstallGuide } from '@/settings';
+import { t } from '@/text';
 import { herdNotificationState, sortHerd } from '../domain/herd';
 
 const styles = StyleSheet.create((theme) => ({
     card: {
         width: '92%', maxWidth: 800, alignSelf: 'center', marginTop: 12,
         padding: 16, gap: 10,
+    },
+    // On the first-run screen the card sits beside FirstRunConnection's step
+    // cards, so it takes their container width (100% of the centered section,
+    // maxWidth 360) instead of Home's wide 92% card, and drops the Home-only
+    // top margin so it flows with the section gap.
+    cardFirstRun: {
+        width: '100%', maxWidth: 360, marginTop: 0,
     },
     row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     title: { flex: 1, color: theme.colors.text, fontSize: 17, ...Typography.default('semiBold') },
@@ -149,6 +159,48 @@ export function HomeBatteryCard() {
                 <ActionButton title="Open settings" icon="settings-outline" onPress={openSettings} />
                 <Pressable accessibilityRole="button" accessibilityLabel="Dismiss background connection card" onPress={() => setPrompted(true)} style={styles.dismissTarget}>
                     <Text style={styles.dismiss}>Not now</Text>
+                </Pressable>
+            </View>
+        </View>
+    );
+}
+
+function useWebInstallInviteState(): WebInstallState {
+    return React.useSyncExternalStore(subscribeWebInstall, getWebInstallState, getWebInstallState);
+}
+
+/**
+ * One-time Home invitation to install muxr from a browser tab, sitting right
+ * below the Right now strip. It reuses the flow PR 765 added: on Chromium it
+ * hands back the held install prompt, and on iOS it opens the Add to Home
+ * Screen guide. It never renders on native, once installed, in a browser with
+ * no install path, or after the person dismisses it on this device (the
+ * persisted flag), so nobody is invited to install something already there.
+ */
+export function HomeWebInstallInvite({ variant = 'home' }: { variant?: 'home' | 'firstRun' } = {}) {
+    const { theme } = useUnistyles();
+    const state = useWebInstallInviteState();
+    const [dismissed, setDismissed] = useLocalSettingMutable('webInstallInviteDismissed');
+    // Only an actionable install path earns the invitation: a held prompt or
+    // the iOS guide. A dismissed prompt (browser-menu) or no path shows nothing.
+    if (dismissed || (state !== 'ready' && state !== 'ios-guide')) return null;
+    const ios = state === 'ios-guide';
+    return (
+        <View style={[styles.card, variant === 'firstRun' && styles.cardFirstRun, cardStyle(theme)]}>
+            <View style={styles.row}>
+                <Ionicons name="download-outline" size={22} color={theme.colors.accent} />
+                <Text style={styles.title}>{t('webInstall.inviteTitle')}</Text>
+            </View>
+            <Text style={styles.body}>{t('webInstall.inviteBody')}</Text>
+            <View style={styles.actions}>
+                <ActionButton
+                    title={ios ? t('webInstall.inviteIosAction') : t('webInstall.rowTitle')}
+                    icon={ios ? 'share-outline' : 'download-outline'}
+                    wrap
+                    onPress={ios ? openWebInstallGuide : () => void promptWebInstall()}
+                />
+                <Pressable accessibilityRole="button" accessibilityLabel={t('webInstall.inviteDismiss')} onPress={() => setDismissed(true)} style={styles.dismissTarget}>
+                    <Text style={styles.dismiss}>{t('webInstall.inviteDismiss')}</Text>
                 </Pressable>
             </View>
         </View>
