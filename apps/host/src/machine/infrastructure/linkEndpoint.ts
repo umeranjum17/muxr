@@ -434,10 +434,10 @@ export class LinkEndpoint {
         // Native phones read either text. The terminal shows the full v1 offer
         // wherever its QR fits and the compact offer where it cannot; the
         // compact form packs the same addresses and terms through one code
-        // entry, so its phone pairs like a typed code. Either offer resumes
-        // through the kit's pendingGrant: the phone keeps the host key the code
-        // handshake authenticated (v1 carries it, the compact offer gets it
-        // from onPending), so a phone killed before approving reconnects only to
+        // entry, so its phone pairs like a typed code. Either offer keeps a
+        // pending grant: the phone holds the host key the code handshake
+        // authenticated (v1 carries it, the compact offer gets it from
+        // onPending), so a phone killed before approving reconnects only to
         // this computer. Browser links keep the full offer: the compact form
         // has no browser-link shape.
         if (intent.kind !== 'native') return offer;
