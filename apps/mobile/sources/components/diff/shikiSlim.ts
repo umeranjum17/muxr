@@ -1,11 +1,9 @@
 /**
  * What `import "shiki"` resolves to on web (metro.config.js), for the diff
  * viewer. The stock bundle lazy-imports every grammar; the grammars embed one
- * another, so Metro's serializer files the shared ones under `__common`,
- * which index.html loads eagerly: megabytes of grammars before the first
- * paint. Here the grammars people actually diff are imported statically, so
- * the whole set lives in the lazy diff chunk. Anything else renders
- * unhighlighted, which is what pierre does for unknown languages.
+ * another, so per-grammar chunks hoist the shared ones into `__common`, which
+ * index.html loads eagerly. Here the slim set below is imported statically and
+ * loads with the diff view. Other languages render as plain text on web.
  */
 import { createBundledHighlighter, createSingletonShorthands, guessEmbeddedLanguages } from '@shikijs/core';
 import type { LanguageRegistration } from '@shikijs/core';

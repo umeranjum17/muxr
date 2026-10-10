@@ -32,9 +32,10 @@ config.resolver.blockList = [
 const preactCjsPath = require.resolve('preact');
 const preactHooksCjsPath = require.resolve('preact/hooks');
 
-// The diff viewer's `shiki` resolves to shikiSlim.ts on web, which loads every
-// grammar through shiki's own lazy loader. Native never draws the web diff, so
-// the alias stays scoped to web and leaves the native bundle untouched.
+// The diff viewer's `shiki` resolves to shikiSlim.ts on web, which loads a
+// fixed slim grammar set with the diff view; other languages render as plain
+// text on web. Native never draws the web diff, so the alias stays scoped to
+// web and leaves the native bundle untouched.
 const shikiSlimPath = path.resolve(__dirname, 'sources/components/diff/shikiSlim.ts');
 
 const baseResolveRequest = config.resolver.resolveRequest;
