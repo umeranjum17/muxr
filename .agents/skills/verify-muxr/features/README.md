@@ -56,6 +56,11 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
 
+- [Read the desktop receiver's decoder and frame rate (developer probe)](./desktop-decoder-probe.md) —
+  developer-mode-only machine row and `/debug/decode` route: absent until ten
+  taps enable dev mode, then the live receiver reports `VideoToolbox`/H.264,
+  picture size and rising frame counters from the private fake stack.
+
 - [Reload the installed PWA with no network](./pwa-offline.md) —
   standalone-window PWA over the owned relay serving `dist`: boot-registered
   worker, versioned shell, offline reload, self-recovery, and a build update.
