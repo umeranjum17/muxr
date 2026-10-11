@@ -72,6 +72,8 @@ Preconditions:
   itself paints dark.
 - Toggling `font_scale` while the session is open can leave a stale layout;
   force-stop and reopen the session before each capture.
-- The key row is horizontally scrollable, so a key beyond the viewport is still
-  reachable by scrolling — the cap is what keeps the whole default row on
-  screen without scrolling at the largest text size.
+- The key row is horizontally scrollable, and the default row is already wider
+  than the 270 dp viewport at every font scale: only its leading keys fit without
+  scrolling, and the trailing ones (Enter, arrows, paste, hide kb) are reached by
+  scrolling the row. The cap keeps each label at one size so the row does not
+  grow wider or taller than it already is at the largest text size.
