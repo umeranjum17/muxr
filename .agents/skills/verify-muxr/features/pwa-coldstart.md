@@ -28,8 +28,9 @@ the export's own `/mermaid.min.js` when a diagram renders
   `ScreenChart` mounts around its Skia/victory subtrees, so CanvasKit arrives
   only when a screen that draws with Skia opens. `sw.js` caches it on first
   fetch, so that screen also works offline afterwards. `checkWebExport` fails
-  (`web entry never loads CanvasKit at startup`) if the entry names the loader
-  again.
+  (`web entry never loads CanvasKit at startup`) if the CanvasKit glue reaches
+  the eager payload again; the runtime "no request before first paint" proof is
+  step 5.
 - `grep -c 'xterm'`/`'shiki'`/`'Oniguruma'`/`'PierreDiffView'` against the eager
   entry and `__common` chunks is `0`; they appear only in the lazy
   `TerminalRoute-*.js` (which holds the xterm `TerminalView` boundary),
@@ -86,11 +87,14 @@ needed to render the diff surface.
    `matchMedia('(display-mode: standalone)').matches === true`.
 5. Skia stays off the landing: on that cold load assert no `canvaskit.wasm` in
    `performance.getEntriesByType("resource")` and `window.CanvasKit ===
-   undefined`. Then open a screen that draws with Skia — `/usage` at ≥680 px
-   content width renders the gauge arc and ring donut — and assert
+   undefined`. No shipped in-repo web screen draws with Skia — `UsageScreen`
+   hardcodes `variant="bar"`/`variant="column"`, and only the `gauge`/`ring`
+   variants mount `SkiaWebGate` (`ScreenCharts.tsx`), which no in-repo caller
+   passes — so the on-demand half of this proof needs a host-installed plugin
+   panel that supplies `gauge`/`ring`, or a harness mounting `ScreenChart` with
+   that variant at ≥680 px content width. On that surface assert
    `canvaskit.wasm` is fetched (`initiatorType: fetch`, ~8 MB) and
-   `window.CanvasKit` becomes an object. At phone width the usage charts draw
-   meters, not Skia, so CanvasKit correctly stays unloaded.
+   `window.CanvasKit` becomes an object.
 6. Route chunks: open `/session/<any-id>` and assert the `TerminalRoute-*.js`
    request happened and the screen shows the not-paired state, not a blank body.
 7. Diff surface: with a paired host, open a commit/change and assert the
