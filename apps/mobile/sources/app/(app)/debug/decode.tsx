@@ -1,6 +1,6 @@
 import { Redirect } from 'expo-router';
 import { useLocalSetting } from '@/catalog/store';
-import { DecoderStatsScreen } from '@/desktop';
+import { DecoderStatsScreen } from '@/desktop/presentation/DecoderStatsScreenLoader';
 
 /**
  * Developer-only decoder probe. It is reachable through the machine screen's
