@@ -16,7 +16,8 @@ appears either. A `--browser` (control) PWA on the same host still types.
   type, click or run anything."
 - `terminal` typing a command and Enter in a pane changes nothing on the
   computer; the host logs one `link: dropped terminal input from view-only
-  device <id>` line per session, never the payload.
+  device <id>` line per device and input kind for the host's lifetime, never
+  the payload.
 - `watch` output the control browser causes appears in the view browser.
 - `control` the control PWA's command runs.
 
