@@ -16,4 +16,5 @@ You may not:
 - Use the marks in domain names, app store listings, or company names without
   written permission.
 
-The muxr website (trymuxr.com) and its branding are not open source.
+The website source lives in [`apps/site`](apps/site); the `trymuxr.com`
+deployment and its branding remain the project owner's.
