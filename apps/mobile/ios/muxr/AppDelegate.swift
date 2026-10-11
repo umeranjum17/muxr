@@ -20,6 +20,7 @@ class AppDelegate: ExpoAppDelegate {
     reactNativeDelegate = delegate
     reactNativeFactory = factory
     trimKeyboardlessTextViewMenu()
+    disableSmartPunctuationWithAutocorrection()
 
 #if os(iOS) || os(tvOS)
     window = UIWindow(frame: UIScreen.main.bounds)
@@ -85,6 +86,40 @@ private func trimKeyboardlessTextViewMenu() {
     stockBuild(view, buildSel, builder)
   }
   class_replaceMethod(cls, buildSel, imp_implementationWithBlock(trimmedBuild), method_getTypeEncoding(build))
+}
+
+// iOS rewrites the terminal composer as it is keyed: `--` turns into a dash and
+// a straight quote into a curly one. React Native turns that off only through
+// its `autoCorrect` prop — it has no smart-quotes or smart-dashes prop — and the
+// linkage that made `autoCorrect={false}` also disable smart quotes and dashes
+// lived in patches/react-native+0.83.1.patch. That patch never compiles: the app
+// links prebuilt React Native core, so node_modules' RCTUITextView.mm and
+// RCTUITextField.mm are never built. Reinstall the linkage at launch, so any
+// input asked for autocorrection off also gets smart quotes and dashes off.
+// Tied to React Native's private input classes: if an upgrade renames them or
+// their method, do nothing and leave the stock behavior.
+private func disableSmartPunctuationWithAutocorrection() {
+  let setter = NSSelectorFromString("setAutocorrectionType:")
+  typealias Setter = @convention(c) (AnyObject, Selector, UITextAutocorrectionType) -> Void
+  for name in ["RCTUITextView", "RCTUITextField"] {
+    guard let cls = NSClassFromString(name) else { continue }
+    guard let stockIMP = class_getMethodImplementation(cls, setter) else { continue }
+    let stock = unsafeBitCast(stockIMP, to: Setter.self)
+    let linked: @convention(block) (AnyObject, UITextAutocorrectionType) -> Void = { view, correction in
+      stock(view, setter, correction)
+      let off = correction == UITextAutocorrectionType.no
+      let quotes: UITextSmartQuotesType = off ? .no : .default
+      let dashes: UITextSmartDashesType = off ? .no : .default
+      if let field = view as? UITextField {
+        field.smartQuotesType = quotes
+        field.smartDashesType = dashes
+      } else if let textView = view as? UITextView {
+        textView.smartQuotesType = quotes
+        textView.smartDashesType = dashes
+      }
+    }
+    class_replaceMethod(cls, setter, imp_implementationWithBlock(linked), "v@:q")
+  }
 }
 
 class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
