@@ -158,7 +158,7 @@ export async function stopOwnedSelfhostRelay() {
     if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error('running relay has no valid pid file; leaving it untouched');
     const command = run(env('MUXR_PS_BIN') || 'ps', ['-ww', '-p', String(pid), '-o', 'command=']);
     const relayCommand = command.ok ? command.stdout.trim() : '';
-    if (!/(?:^|\s)\S*\/relay\.js(?:\s|$)/.test(relayCommand) && !relayCommand.includes(relayEntry())) {
+    if (!/(?:^|\s)\S*\/relay\.(?:js|mjs)(?:\s|$)/.test(relayCommand) && !relayCommand.includes(relayEntry())) {
         throw new Error('relay pid does not belong to a muxr relay process; leaving it untouched');
     }
     try { process.kill(pid, 'SIGTERM'); }

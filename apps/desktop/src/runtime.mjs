@@ -66,47 +66,66 @@ export class MuxrRuntime extends EventEmitter {
         return child;
     }
 
-    async start() {
-        this.emit('status', { phase: 'starting', message: 'Starting muxr on this computer' });
-        mkdirSync(this.#home, { recursive: true, mode: 0o700 });
-        const relayDataDir = join(this.#home, 'relay');
-        const relay = this.#spawn(this.#relayEntry, {
+    #spawnRelay(port) {
+        return this.#spawn(this.#relayEntry, {
             MUXR_RELAY_LOCAL_AUTHORITY: '1',
             MUXR_RELAY_MDNS: '0',
-            MUXR_RELAY_PORT: String(this.#port),
+            MUXR_RELAY_PORT: String(port),
             MUXR_RELAY_HOST: '0.0.0.0',
-            MUXR_RELAY_DATA_DIR: relayDataDir,
+            MUXR_RELAY_DATA_DIR: join(this.#home, 'relay'),
         }, 'relay');
+    }
 
-        let boundPort;
+    async #awaitRelay(relay) {
         try {
-            boundPort = await waitForRelay(relay);
+            return await waitForRelay(relay);
         } catch (error) {
             this.emit('status', { phase: 'error', message: error instanceof Error ? error.message : String(error) });
             throw error;
         }
+    }
 
-        // Same self-host state a `muxr setup` writes: this computer's pairing
-        // identity, the relay it owns, and the relay owner's secret.
+    async start() {
+        this.emit('status', { phase: 'starting', message: 'Starting muxr on this computer' });
+        mkdirSync(this.#home, { recursive: true, mode: 0o700 });
+        const relayDataDir = join(this.#home, 'relay');
+
+        // A self-host state written by the CLI is authoritative: the app runs the
+        // host against it and never rewrites it, so a remote relay or a shared
+        // connection setup survives launching the desktop app.
         const statePath = join(this.#home, 'selfhost.json');
-        const state = existsSync(statePath)
+        const existing = existsSync(statePath)
             ? JSON.parse(readFileSync(statePath, 'utf8'))
-            : { version: 1, machine: machineIdentity(undefined), relayRole: 'single-machine', connectionMode: 'lan' };
-        if (!state.machine?.id || !state.machine?.crypto) throw new Error('desktop app: self-host state is invalid; refusing to replace its pairing identity');
-        const lanIp = lanIpv4Addresses()[0];
-        const advertised = process.env.MUXR_RELAY_URL?.trim()
-            || (lanIp === undefined ? `ws://127.0.0.1:${boundPort}` : `ws://${lanIp}:${boundPort}`);
-        Object.assign(state, {
-            version: 1,
-            relayPort: boundPort,
-            relayUrl: advertised,
-            relayLocation: 'local',
-            relayRole: 'single-machine',
-            connectionMode: 'lan',
-            mintSecret: JSON.parse(readFileSync(join(relayDataDir, 'mint-secret'), 'utf8')),
-        });
-        writeFileSync(statePath, `${JSON.stringify(state)}\n`, { mode: 0o600 });
-        this.emit('log', 'runtime', `relay on :${boundPort}, advertised ${advertised}\n`);
+            : undefined;
+        if (existing !== undefined && (!existing.machine?.id || !existing.machine?.crypto)) {
+            throw new Error('desktop app: self-host state is invalid; refusing to replace its pairing identity');
+        }
+
+        if (existing === undefined) {
+            // Same self-host state a `muxr setup` writes: this computer's pairing
+            // identity, the relay it owns, and the relay owner's secret.
+            const boundPort = await this.#awaitRelay(this.#spawnRelay(this.#port));
+            const lanIp = lanIpv4Addresses()[0];
+            const advertised = process.env.MUXR_RELAY_URL?.trim()
+                || (lanIp === undefined ? `ws://127.0.0.1:${boundPort}` : `ws://${lanIp}:${boundPort}`);
+            const state = {
+                version: 1,
+                machine: machineIdentity(undefined),
+                relayRole: 'single-machine',
+                connectionMode: 'lan',
+                relayPort: boundPort,
+                relayUrl: advertised,
+                relayLocation: 'local',
+                mintSecret: JSON.parse(readFileSync(join(relayDataDir, 'mint-secret'), 'utf8')),
+            };
+            writeFileSync(statePath, `${JSON.stringify(state)}\n`, { mode: 0o600 });
+            this.emit('log', 'runtime', `relay on :${boundPort}, advertised ${advertised}\n`);
+        } else if (existing.relayLocation !== 'remote') {
+            await this.#awaitRelay(this.#spawnRelay(existing.relayPort));
+            this.emit('log', 'runtime', `using the existing self-host state at ${statePath}\n`);
+        } else {
+            this.emit('log', 'runtime', `using the existing self-host state at ${statePath}\n`);
+        }
 
         const host = this.#spawn(this.#hostEntry, {
             MUXR_MODE: 'selfhost',

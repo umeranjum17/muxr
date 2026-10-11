@@ -41,6 +41,7 @@ let win;
 let tray;
 let runtime;
 let pairing;
+let retrying = false;
 let blockerId = null;
 let settings = { keepAwake: false, autostart: true };
 // The state the window shows; kept so a window opened later paints immediately.
@@ -194,7 +195,15 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('muxr:settings', () => settingsForRenderer());
     ipcMain.handle('muxr:approve', () => { pairing?.approve(true); send({ phase: 'online', message: 'Finishing pairing…' }); });
     ipcMain.handle('muxr:deny', () => { pairing?.approve(false); send({ phase: 'online', message: 'Pairing declined' }); });
-    ipcMain.handle('muxr:retry', async () => { runtime?.stop(); runtime = undefined; await startRuntime(); });
+    ipcMain.handle('muxr:retry', async () => {
+        if (retrying) return;
+        retrying = true;
+        try {
+            runtime?.stop();
+            runtime = undefined;
+            await startRuntime();
+        } finally { retrying = false; }
+    });
     ipcMain.handle('muxr:set-keep-awake', (_event, on) => setKeepAwake(Boolean(on)));
     ipcMain.handle('muxr:set-autostart', (_event, on) => setStartAtLogin(Boolean(on)));
     ipcMain.handle('muxr:copy', (_event, text) => { clipboard.writeText(String(text)); });
