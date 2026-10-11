@@ -3,7 +3,7 @@
  * State from the command-line install means muxr already runs there, so the app
  * refuses with one plain state; only a desktop-created state starts processes.
  */
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -28,9 +28,9 @@ function listeningRelayFixture(path: string) {
     ].join('\n'));
 }
 
-function collectingRuntime(home: string, relayEntry: string, hostEntry: string) {
+function collectingRuntime(home: string, relayEntry: string, hostEntry: string, node = process.execPath) {
     const statuses: { phase: string; message?: string; canRetry?: boolean }[] = [];
-    const runtime = new MuxrRuntime({ home, node: process.execPath, relayEntry, hostEntry, port: 8792 });
+    const runtime = new MuxrRuntime({ home, node, relayEntry, hostEntry, port: 8792 });
     runtime.on('status', (event) => statuses.push(event));
     return { runtime, statuses };
 }
@@ -135,21 +135,37 @@ describe('desktop runtime self-host state', () => {
         expect(readFileSync(join(home, 'selfhost.json'), 'utf8')).toBe(corrupt);
     });
 
-    it('fails fast when the host entry cannot be launched', async () => {
-        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-badhost-'));
+    it('fails fast when the host cannot be spawned, without an unhandled error', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-nonode-'));
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
-        const relayEntry = join(home, 'relay-fixture.mjs');
-        listeningRelayFixture(relayEntry);
+        // The relay runs from a tiny shell copied into the home; it unlinks that
+        // shell before it announces itself, so the host spawn finds no executable.
+        const node = join(home, 'sh');
+        copyFileSync(realpathSync('/bin/sh'), node);
+        chmodSync(node, 0o755);
+        const relayEntry = join(home, 'relay-fixture.sh');
+        writeFileSync(relayEntry, [
+            '#!/bin/sh',
+            `rm -f ${JSON.stringify(node)}`,
+            "printf 'relay listening on ws://127.0.0.1:8792\\n'",
+            'while true; do sleep 1; done',
+            '',
+        ].join('\n'));
+        chmodSync(relayEntry, 0o755);
 
-        const { runtime, statuses } = collectingRuntime(home, relayEntry, join(home, 'missing-host.mjs'));
+        const { runtime, statuses } = collectingRuntime(home, relayEntry, join(home, 'host-fixture.sh'), node);
         const started = Date.now();
+        let thrown;
         try {
-            await expect(runtime.start()).rejects.toThrow();
-        } finally {
-            await runtime.stop();
-        }
+            await runtime.start();
+        } catch (error) { thrown = error; }
+        // The spawn error arrives on the child's next tick; let it land before stop().
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const elapsed = Date.now() - started;
+        await runtime.stop();
 
-        expect(Date.now() - started).toBeLessThan(5_000);
-        expect(statuses.some((status) => status.phase === 'error')).toBe(true);
+        expect(thrown instanceof Error ? thrown.message : '').toMatch(/host could not be started/);
+        expect(elapsed).toBeLessThan(5_000);
+        expect(statuses.some((status) => status.phase === 'error' && (status.message ?? '').includes('host could not start'))).toBe(true);
     }, 15_000);
 });

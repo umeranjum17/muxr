@@ -12,6 +12,7 @@ import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bundleVoiceRuntime } from '../../../scripts/release/application/bundleVoiceRuntime.mjs';
 
 const appDir = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const root = join(appDir, '..', '..');
@@ -49,6 +50,12 @@ try {
     });
 } catch (error) { failure('host bundle', error); }
 
+// The host loads the realtime voice adapter runtime from a `voice/` folder
+// beside its bundle, so stage it the same way the packed CLI does.
+try {
+    await bundleVoiceRuntime({ root, out: dist, external });
+} catch (error) { failure('voice runtime', error); }
+
 // 2. The muxr relay the host runs beside.
 try {
     await build({
@@ -82,7 +89,7 @@ for (const [entry, outfile] of [['src/main.mjs', 'main.mjs'], ['src/preload.mjs'
     } catch (error) { failure(`${entry} bundle`, error); }
 }
 
-process.stdout.write('desktop build: bundled host, relay, main and preload into dist/\n');
+process.stdout.write('desktop build: bundled host, relay, voice, main and preload into dist/\n');
 
 // 4. Package the AppImage. No publish, no upload, ever.
 if (process.argv.includes('--package')) {
