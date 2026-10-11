@@ -4,14 +4,8 @@
 </h1>
 
 <p align="center">
-  <strong>Your coding agents, wherever you are.</strong><br />
-  Check in. Answer a question. Get back to your day.
-</p>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/@trymuxr/cli"><img alt="npm version" src="https://img.shields.io/npm/v/@trymuxr/cli?style=flat&label=npm" /></a>
-  <a href="https://github.com/umeranjum17/muxr/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/umeranjum17/muxr/ci.yml?style=flat&branch=main" /></a>
-  <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat" /></a>
+  <strong>When an agent needs you, answer from your phone.</strong><br />
+  muxr shows which agent is waiting and what it asks. One tap answers it in the same live terminal.
 </p>
 
 <p align="center">
@@ -20,16 +14,22 @@
     <source media="(max-width: 520px)" srcset="docs/readme/hero-phone-day.webp" />
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/hero-night.webp" />
     <source media="(prefers-color-scheme: light)" srcset="docs/readme/hero-day.webp" />
-    <img src="docs/readme/hero-day.webp" width="1000" alt="muxr’s real web app: an agent and its workspace on Home; on wide screens, the same workspace’s checkout code and passing test in a live terminal" />
+    <img src="docs/readme/hero-day.webp" width="880" alt="A coding agent fixed a shipping bug, passed its tests and now asks before it pushes: muxr shows it under Needs you, and the agent’s live terminal offers the answers as one-tap buttons" />
   </picture>
   <br />
-  <sub>Real app. Demo workspace. Day or night.</sub>
+  <sub>The real app and a real agent run, in a demo shop.</sub>
 </p>
 
 <p align="center">
   <a href="https://trymuxr.com/downloads/stable/android"><strong>Get it for Android</strong></a> ·
   <a href="https://testflight.apple.com/join/aJSbs8pN"><strong>Join iOS TestFlight</strong></a> ·
   <a href="#get-going"><strong>Get going ↓</strong></a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@trymuxr/cli"><img alt="npm version" src="https://img.shields.io/npm/v/@trymuxr/cli?style=flat&label=npm" /></a>
+  <a href="https://github.com/umeranjum17/muxr/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/umeranjum17/muxr/ci.yml?style=flat&branch=main" /></a>
+  <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat" /></a>
 </p>
 
 ## A little less waiting at your desk
