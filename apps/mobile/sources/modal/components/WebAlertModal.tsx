@@ -4,16 +4,25 @@ import { BaseModal } from '@/modal/components/BaseModal';
 import { AlertModalConfig, ConfirmModalConfig } from '@/modal/types';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 
 interface WebAlertModalProps {
     config: AlertModalConfig | ConfirmModalConfig;
     onClose: () => void;
     onConfirm?: (value: boolean) => void;
+    /**
+     * Paint the dialog from a fixed theme. A sheet over the session forces
+     * `dark`, but on native the surrounding `ScopedTheme` does not survive the
+     * RN Modal boundary, so the dialog falls back to the app theme and clashes
+     * with the sheet. Re-apply the scope inside the modal content here.
+     */
+    surface?: 'dark' | 'light';
 }
 
-export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps) {
+type WebAlertModalContentProps = Omit<WebAlertModalProps, 'surface'>;
+
+function WebAlertModalContent({ config, onClose, onConfirm }: WebAlertModalContentProps) {
     const { theme } = useUnistyles();
     const isConfirm = config.type === 'confirm';
     
@@ -105,52 +114,60 @@ export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps
     });
 
     return (
-        <BaseModal visible={true} onClose={onClose} closeOnBackdrop={false}>
-            <MobileGlassSurface
-                enabled={Platform.OS !== 'web'}
-                nativeEffect
-                glassEffectStyle="regular"
-                intensity={88}
-                tintColor={theme.colors.glass.overlayTint}
-                style={styles.container}
-            >
-                <View style={styles.content}>
-                    <Text style={[styles.title, Typography.default('semiBold')]}>
-                        {config.title}
+        <MobileGlassSurface
+            enabled={Platform.OS !== 'web'}
+            nativeEffect
+            glassEffectStyle="regular"
+            intensity={88}
+            tintColor={theme.colors.glass.overlayTint}
+            style={styles.container}
+        >
+            <View style={styles.content}>
+                <Text style={[styles.title, Typography.default('semiBold')]}>
+                    {config.title}
+                </Text>
+                {config.message && (
+                    <Text style={[styles.message, Typography.default()]}>
+                        {config.message}
                     </Text>
-                    {config.message && (
-                        <Text style={[styles.message, Typography.default()]}>
-                            {config.message}
-                        </Text>
-                    )}
-                </View>
-                
-                {/* Three or more choices stack, as a system alert does, so none is squeezed. */}
-                <View style={[styles.buttonContainer, buttons.length > 2 && { flexDirection: 'column' }]}>
-                    {buttons.map((button, index) => (
-                        <React.Fragment key={index}>
-                            {index > 0 && <View style={buttons.length > 2 ? { height: 1, backgroundColor: theme.colors.divider } : styles.buttonSeparator} />}
-                            <Pressable
-                                style={({ pressed }) => [
-                                    styles.button,
-                                    buttons.length > 2 && { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
-                                    pressed && styles.buttonPressed
-                                ]}
-                                onPress={() => handleButtonPress(index)}
-                            >
-                                <Text style={[
-                                    styles.buttonText,
-                                    button.style === 'cancel' && styles.cancelText,
-                                    button.style === 'destructive' && styles.destructiveText,
-                                    Typography.default(button.style === 'cancel' ? undefined : 'semiBold')
-                                ]}>
-                                    {button.text}
-                                </Text>
-                            </Pressable>
-                        </React.Fragment>
-                    ))}
-                </View>
-            </MobileGlassSurface>
+                )}
+            </View>
+            
+            {/* Three or more choices stack, as a system alert does, so none is squeezed. */}
+            <View style={[styles.buttonContainer, buttons.length > 2 && { flexDirection: 'column' }]}>
+                {buttons.map((button, index) => (
+                    <React.Fragment key={index}>
+                        {index > 0 && <View style={buttons.length > 2 ? { height: 1, backgroundColor: theme.colors.divider } : styles.buttonSeparator} />}
+                        <Pressable
+                            style={({ pressed }) => [
+                                styles.button,
+                                buttons.length > 2 && { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
+                                pressed && styles.buttonPressed
+                            ]}
+                            onPress={() => handleButtonPress(index)}
+                        >
+                            <Text style={[
+                                styles.buttonText,
+                                button.style === 'cancel' && styles.cancelText,
+                                button.style === 'destructive' && styles.destructiveText,
+                                Typography.default(button.style === 'cancel' ? undefined : 'semiBold')
+                            ]}>
+                                {button.text}
+                            </Text>
+                        </Pressable>
+                    </React.Fragment>
+                ))}
+            </View>
+        </MobileGlassSurface>
+    );
+}
+
+export function WebAlertModal({ config, onClose, onConfirm, surface }: WebAlertModalProps) {
+    const content = <WebAlertModalContent config={config} onClose={onClose} onConfirm={onConfirm} />;
+
+    return (
+        <BaseModal visible={true} onClose={onClose} closeOnBackdrop={false}>
+            {surface === undefined ? content : <ScopedTheme name={surface}>{content}</ScopedTheme>}
         </BaseModal>
     );
 }
