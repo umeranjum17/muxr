@@ -28,9 +28,10 @@ the export's own `/mermaid.min.js` when a diagram renders
   `ScreenChart` mounts around its Skia/victory subtrees, so CanvasKit arrives
   only when a screen that draws with Skia opens. `sw.js` caches it on first
   fetch, so that screen also works offline afterwards. `checkWebExport` fails
-  (`web entry never loads CanvasKit at startup`) if the CanvasKit glue reaches
-  the eager payload again; the runtime "no request before first paint" proof is
-  step 5.
+  (`web entry never loads CanvasKit at startup`) if any module the entry loads
+  eagerly names the loader outside `skiaWeb.tsx`/`ScreenCharts.tsx`, and
+  (`eager payload carries no CanvasKit glue`) if the built payload gains the
+  glue; the runtime "no request before first paint" proof is step 5.
 - `grep -c 'xterm'`/`'shiki'`/`'Oniguruma'`/`'PierreDiffView'` against the eager
   entry and `__common` chunks is `0`; they appear only in the lazy
   `TerminalRoute-*.js` (which holds the xterm `TerminalView` boundary),
