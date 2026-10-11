@@ -16,6 +16,7 @@ import {
 } from '@trymuxr/contract';
 import { attachFailureCode, type LinkTerminalAttachParams, type LinkTerminalPort, type TerminalPipe } from '../domain/terminal.js';
 import type { MachineCryptoState, MachineDeviceRecord } from '../domain/crypto.js';
+import { deviceAuthority } from '../domain/deviceGrant.js';
 import { safeQuestion, safeTaskTitle } from '../../platform/safeTaskTitle.js';
 
 /** How the host answers one device's frame: the same answer the relay transport sends back. */
@@ -89,6 +90,35 @@ const COPY_SUFFIX: Record<string, string> = {
     failed: ' failed.',
 };
 
+/**
+ * The link role a stored device is enrolled and trusted under. It reads the
+ * domain's authority, so a browser record stored without one stays view-only.
+ * Peers keep the control role here; the dispatcher scopes them by capability.
+ */
+const linkRole = (device: MachineDeviceRecord): Grant['role'] =>
+    device.kind !== 'peer' && deviceAuthority(device) === 'observe' ? 'view' : 'control';
+
+const VIEW_ONLY_REFUSAL = 'this device grant is view-only; pair a control browser or use the native app';
+
+/**
+ * What a device may send: a control grant anything, a view grant only what
+ * the host lets a watcher read (deny by default), plus its own push
+ * registration. Request frames and desktop signaling both pass here, because
+ * the desktop engine applies input from any session it opens.
+ */
+function permits(grant: Grant, frame: ClientFrame, canView: LinkEndpointOptions['canView']): boolean {
+    return grant.role === 'control' || frame.type.startsWith('push.') || canView(frame);
+}
+
+const deniedNoted = new Set<string>();
+/** One line per device and input kind, never the payload. */
+function noteDenied(grant: Grant, kind: 'request' | 'desktop' | 'terminal'): void {
+    const key = `${grant.id} ${kind}`;
+    if (deniedNoted.has(key)) return;
+    deniedNoted.add(key);
+    process.stderr.write(`link: dropped ${kind} input from view-only device ${muxrDeviceIdOf(grant) ?? grant.id}\n`);
+}
+
 const muxrDeviceIdOf = (grant: Grant): string | undefined => {
     const meta = grant.meta as Partial<DeviceMeta> | undefined;
     return typeof meta?.muxrDeviceId === 'string' ? meta.muxrDeviceId : undefined;
@@ -134,8 +164,9 @@ class LinkTerminalSocket implements TerminalPipe {
     private buffer = '';
     private ended = false;
 
-    constructor(private readonly stream: LinkStream, private readonly observe: boolean) {
+    constructor(private readonly stream: LinkStream, private readonly observe: boolean, onDropped?: () => void) {
         stream.onData = (chunk) => {
+            if (this.observe) onDropped?.();
             if (this.ended || this.observe) return;
             this.buffer += this.decoder.decode(chunk, { stream: true });
             if (this.buffer.length > 1_048_576) {
@@ -213,7 +244,7 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
     const deviceId = muxrDeviceIdOf(grant);
     const device = linkDevices(crypto, Date.now()).find((entry) => entry.deviceId === deviceId);
     const result = device !== undefined && Buffer.from(device.devicePublicKey, 'base64').toString('base64url') === grant.key
-        && (device.authority === 'observe' ? 'view' : 'control') === grant.role;
+        && linkRole(device) === grant.role;
     return result;
 }
 
@@ -273,8 +304,10 @@ export class LinkEndpoint {
                 if (req.op === 'voice') return grant.role === 'control' && options.voiceStreams !== undefined;
                 if (req.op === 'desktop') return true;
                 const frame = parseClientFrame(req.args);
-                return frame.type === req.op && !frame.type.startsWith('desktop.')
-                    && (frame.type.startsWith('push.') || grant.role === 'control' || options.canView(frame));
+                if (frame.type !== req.op || frame.type.startsWith('desktop.')) return false;
+                if (permits(grant, frame, options.canView)) return true;
+                noteDenied(grant, 'request');
+                return false;
             },
             handle: async (req, grant) => {
                 if (req.op === 'pair.complete' || req.op === 'pair.verified') {
@@ -503,7 +536,7 @@ export class LinkEndpoint {
             if (deviceId === undefined && this.pairing !== undefined) continue;
             const device = deviceId === undefined ? undefined : wanted.get(deviceId);
             const sameKey = device !== undefined && Buffer.from(device.devicePublicKey, 'base64').toString('base64url') === grant.key;
-            const roleMatches = device !== undefined && (device.authority === 'observe' ? 'view' : 'control') === grant.role;
+            const roleMatches = device !== undefined && linkRole(device) === grant.role;
             // A role-only change keeps the pairing: the phone reconnects under
             // the new grant without being told it was removed.
             if (device === undefined || !sameKey) {
@@ -525,7 +558,7 @@ export class LinkEndpoint {
             await this.host.enrol({
                 key: Buffer.from(device.devicePublicKey, 'base64'),
                 name: device.name ?? 'Paired phone',
-                role: device.authority === 'observe' ? 'view' : 'control',
+                role: linkRole(device),
                 meta: { muxrDeviceId: device.deviceId } satisfies DeviceMeta,
             });
         }
@@ -584,9 +617,9 @@ async function streamDesktop(stream: LinkStream, req: LinkRequest, grant: Grant,
                     stream.end('desktop device is no longer trusted');
                     return;
                 }
-                if (frame.type === 'desktop.open' && grant.role === 'view'
-                    && frame.params.permissions.some((permission) => permission !== 'view')) {
-                    await stream.write(JSON.stringify({ type: 'result', requestId: frame.requestId, ok: false, error: 'this device may only view the desktop', code: 'permission-denied' }) + '\n');
+                if (!permits(grant, frame, options.canView)) {
+                    noteDenied(grant, 'desktop');
+                    await stream.write(JSON.stringify({ type: 'result', requestId: frame.requestId, ok: false, error: VIEW_ONLY_REFUSAL, code: 'permission-denied' }) + '\n');
                     return;
                 }
                 try {
@@ -641,7 +674,8 @@ async function streamTerminal(stream: LinkStream, req: LinkRequest, grant: Grant
     // An observing device renders the pane without touching it, the same way
     // the relay dispatcher rewrites its terminal.attach.
     const mode = grant.role === 'view' ? 'observe' : params.mode;
-    const socket: TerminalPipe = new LinkTerminalSocket(stream, mode === 'observe');
+    const socket: TerminalPipe = new LinkTerminalSocket(stream, mode === 'observe',
+        grant.role === 'view' ? () => noteDenied(grant, 'terminal') : undefined);
     const reply = (result: { ok: true; data: { paneId: string } } | { ok: false; error: string; code?: string }): void => {
         options.terminals!.sendResult(socket, params.channel, { type: 'result', requestId: params.requestId, ...result });
     };

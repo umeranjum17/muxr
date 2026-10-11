@@ -71,7 +71,7 @@ export function pairLinkConsent(scanned: string, machineName: string): ConsentLi
     const noun = pairingDeviceNoun();
     const role = linkOfferRole(scanned);
     const can = role === 'view'
-        ? `This ${noun} can see ${machineName}, but can't change anything.`
+        ? `This ${noun} can watch ${machineName}, but can't type, click or run anything.`
         : `This ${noun} can see and change things on ${machineName}.`;
     const lasts = device === 'browser'
         ? `It lasts ${hostedPairingDuration(scanned)}, then stops on its own.`
