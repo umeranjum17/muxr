@@ -12,7 +12,11 @@ export function loadSkiaWeb(): Promise<void> {
     if (Platform.OS !== 'web') return Promise.resolve();
     if (skiaWebLoad === null) {
         skiaWebLoad = import('@shopify/react-native-skia/lib/module/web')
-            .then(({ LoadSkiaWeb }) => LoadSkiaWeb({ locateFile: (file: string) => `/${file}` }));
+            .then(({ LoadSkiaWeb }) => LoadSkiaWeb({ locateFile: (file: string) => `/${file}` }))
+            .catch((error) => {
+                skiaWebLoad = null;
+                throw error;
+            });
     }
     return skiaWebLoad;
 }
