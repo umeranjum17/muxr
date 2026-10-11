@@ -477,6 +477,11 @@ export class TerminalManager {
                 const before = await read(attachment.paneId);
                 await new Promise((resolve) => setTimeout(resolve, WHEEL_MEASURE_SETTLE_MS));
                 if (screenShift(before, await read(attachment.paneId)) !== undefined) {
+                    // A screen that moves on its own cannot yield a step, so this
+                    // is one of the tries, not a free retry: a program that keeps
+                    // painting would otherwise be re-measured before every report
+                    // (a settle window each) and only crawl through a drag.
+                    count();
                     wheelPainting = true;
                     return;
                 }
