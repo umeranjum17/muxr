@@ -18,9 +18,6 @@
 import type { LandWorktreeResult } from '@trymuxr/contract';
 import { runInProcessGroup } from '../../platform/processGroup.js';
 
-/** A merge, rebase or hook that leaves a child behind must not run unbounded. */
-const GIT_TIMEOUT_MS = 300_000;
-
 interface GitOut {
     stdout: string;
     stderr: string;
@@ -32,7 +29,6 @@ function git(cwd: string, args: string[]): Promise<GitOut> {
         cwd,
         maxBuffer: 10_000_000,
         env: { ...process.env, GIT_EDITOR: 'true', GIT_TERMINAL_PROMPT: '0' },
-        timeoutMs: GIT_TIMEOUT_MS,
     }).then((result) => {
         const code = (result.error as { code?: unknown } | null)?.code;
         if (result.error !== null && typeof code !== 'number') {

@@ -2306,7 +2306,8 @@ export async function createHerdrSessionSource(
                 env: actionEnv,
                 windowsHide: true,
                 // A plugin action may start a helper (an app server) and exit 0;
-                // leave that helper's group running. Timeout and abort still reap.
+                // leave that helper's group running. A timeout or a non-zero
+                // exit still reaps it.
                 preserveGroupOnCleanExit: true,
             });
             if (launched.error !== null) throw launched.error;

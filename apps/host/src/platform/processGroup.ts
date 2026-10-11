@@ -22,16 +22,14 @@ export interface ProcessGroupOptions {
     /** SIGTERM the group after this many ms, SIGKILL after the grace. */
     timeoutMs?: number;
     maxBuffer?: number;
-    /** Aborting kills the group immediately. */
-    signal?: AbortSignal;
     windowsHide?: boolean;
     /**
      * Launcher mode. A plugin action may deliberately start a helper (an app
      * server) and then exit 0; reaping its group would kill that helper. When
      * set, a clean exit (code 0, no signal) leaves the group running and settles
      * as soon as the direct child exits, so a helper holding our stdio pipes
-     * does not turn a clean launch into a timeout. A timeout, an abort, or a
-     * non-zero exit still kills the group.
+     * does not turn a clean launch into a timeout. A timeout or a non-zero exit
+     * still kills the group.
      */
     preserveGroupOnCleanExit?: boolean;
 }
@@ -41,9 +39,6 @@ export interface ProcessGroupResult {
     stderr: string;
     /** Exit code: 0 on success, the code on failure, null when killed or not spawned. */
     code: number | null;
-    signal: NodeJS.Signals | null;
-    timedOut: boolean;
-    aborted: boolean;
     /** The failure, shaped like execFile's error, so a caller keeps its wording. */
     error: Error | null;
 }
@@ -60,8 +55,7 @@ export function runInProcessGroup(
     return new Promise((resolve) => {
         const processGroup = process.platform !== 'win32';
         const maxBuffer = options.maxBuffer ?? DEFAULT_MAX_BUFFER;
-        let timedOut = false;
-        let aborted = false;
+        let child: ChildProcess;
         let settled = false;
         let exited = false;
         let exitCode: number | null = null;
@@ -74,12 +68,27 @@ export function runInProcessGroup(
         let stderr = '';
         let capturedBytes = 0;
 
+        try {
+            child = spawn(file, [...args], {
+                ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+                ...(options.env === undefined ? {} : { env: options.env }),
+                ...(options.windowsHide === undefined ? {} : { windowsHide: options.windowsHide }),
+                detached: processGroup,
+                stdio: ['ignore', 'pipe', 'pipe'],
+            });
+        } catch (error) {
+            resolve({ stdout: '', stderr: '', code: null, error: error as Error });
+            return;
+        }
+
         const finish = (): void => {
             if (settled) return;
             settled = true;
-            if (killTimer !== undefined) clearTimeout(killTimer);
             if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
-            options.signal?.removeEventListener('abort', onAbort);
+            child.stdout?.removeAllListeners('data');
+            child.stderr?.removeAllListeners('data');
+            child.stdout?.resume();
+            child.stderr?.resume();
             let error = spawnError ?? overflowError;
             if (error === null && !(exited && exitCode === 0)) {
                 // execFile reports a non-zero exit or a signal as an error.
@@ -94,25 +103,8 @@ export function runInProcessGroup(
             } else {
                 code = null;
             }
-            resolve({ stdout, stderr, code, signal: exitSignal, timedOut, aborted, error });
+            resolve({ stdout, stderr, code, error });
         };
-
-        let child: ChildProcess;
-        try {
-            child = spawn(file, [...args], {
-                ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-                ...(options.env === undefined ? {} : { env: options.env }),
-                ...(options.windowsHide === undefined ? {} : { windowsHide: options.windowsHide }),
-                detached: processGroup,
-                stdio: ['ignore', 'pipe', 'pipe'],
-            });
-        } catch (error) {
-            resolve({
-                stdout: '', stderr: '', code: null, signal: null,
-                timedOut: false, aborted: false, error: error as Error,
-            });
-            return;
-        }
 
         const signalGroup = (signal: NodeJS.Signals): void => {
             if (child.pid === undefined) return;
@@ -129,12 +121,8 @@ export function runInProcessGroup(
             killTimer = setTimeout(() => signalGroup('SIGKILL'), KILL_GRACE_MS);
             killTimer.unref();
         };
-        const onAbort = (): void => {
-            aborted = true;
-            killGroup();
-        };
         const append = (chunk: Buffer, toStderr: boolean): void => {
-            if (overflowError !== null) return;
+            if (settled || overflowError !== null) return;
             capturedBytes += chunk.length;
             if (capturedBytes > maxBuffer) {
                 overflowError = Object.assign(new Error('maxBuffer length exceeded'), {
@@ -179,15 +167,8 @@ export function runInProcessGroup(
             finish();
         });
 
-        if (options.signal !== undefined) {
-            if (options.signal.aborted) onAbort();
-            else options.signal.addEventListener('abort', onAbort, { once: true });
-        }
         if (options.timeoutMs !== undefined) {
-            timeoutTimer = setTimeout(() => {
-                timedOut = true;
-                killGroup();
-            }, options.timeoutMs);
+            timeoutTimer = setTimeout(() => killGroup(), options.timeoutMs);
         }
     });
 }

@@ -975,8 +975,14 @@ describe('machine.shell process group', () => {
         try {
             // The shell backgrounds a child and exits; that child inherits the
             // stdout pipe. Without a group kill the reply only settles on the
-            // 60 s host timeout and the child stays charged to the unit.
-            writeFileSync(join(home, 'bg.sh'), 'sleep 300 &\necho $! > child.pid\necho started\n');
+            // 60 s host timeout and the child stays charged to the unit. A
+            // second child redirects its own stdio and ignores SIGTERM: it must
+            // still die on the SIGKILL escalation, which 'close' would
+            // otherwise cancel.
+            writeFileSync(join(home, 'bg.sh'),
+                'sleep 300 &\necho $! > child.pid\n'
+                + 'sh -c \'trap "" TERM; echo ready > ready; while :; do sleep 1; done\' >/dev/null 2>&1 &\n'
+                + 'echo $! >> child.pid\nwhile [ ! -f ready ]; do sleep 0.01; done\necho started\n');
             const { dispatch } = createRequestDispatcher({
                 source: {} as never,
                 domain: {} as never,
@@ -993,14 +999,15 @@ describe('machine.shell process group', () => {
             expect(reply.ok).toBe(true);
             expect(reply.data?.stdout).toContain('started');
             expect(elapsed).toBeLessThan(10_000);
-            const pid = Number(readFileSync(pidFile, 'utf8').trim());
-            expect(Number.isInteger(pid)).toBe(true);
-            await new Promise((resolve) => setTimeout(resolve, 250));
-            expect(processAlive(pid)).toBe(false);
+            const pids = readFileSync(pidFile, 'utf8').trim().split('\n').map(Number);
+            expect(pids.every(Number.isInteger)).toBe(true);
+            await new Promise((resolve) => setTimeout(resolve, 3_000));
+            expect(pids.every((pid) => !processAlive(pid))).toBe(true);
         } finally {
             try {
-                const pid = Number(readFileSync(pidFile, 'utf8').trim());
-                if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
+                for (const pid of readFileSync(pidFile, 'utf8').trim().split('\n').map(Number)) {
+                    if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
+                }
             } catch { /* the fix already reaped it, or it never started */ }
             rmSync(home, { recursive: true, force: true });
         }
@@ -1012,19 +1019,23 @@ describe('machine.shell process group', () => {
         try {
             // A plugin action may start an app server and exit 0; that helper
             // inherits our stdio pipes. Launcher mode must settle on the clean
-            // exit and leave the helper's group running rather than reap it.
-            writeFileSync(join(home, 'start.sh'), 'sleep 300 &\necho $! > helper.pid\necho started\n');
+            // exit and leave the helper's group running rather than reap it --
+            // even when the helper then writes past maxBuffer.
+            writeFileSync(join(home, 'start.sh'),
+                '(sleep 0.3; i=0; while [ $i -lt 200 ]; do echo "................................................"; i=$((i+1)); done; sleep 300) &\n'
+                + 'echo $! > helper.pid\necho started\n');
             const started = Date.now();
             const result = await runInProcessGroup('sh', ['./start.sh'], {
                 cwd: home,
                 timeoutMs: 15_000,
+                maxBuffer: 64,
                 preserveGroupOnCleanExit: true,
             });
             expect(result.error).toBeNull();
             expect(Date.now() - started).toBeLessThan(5_000);
             const pid = Number(readFileSync(pidFile, 'utf8').trim());
             expect(Number.isInteger(pid)).toBe(true);
-            await new Promise((resolve) => setTimeout(resolve, 250));
+            await new Promise((resolve) => setTimeout(resolve, 1_200));
             expect(processAlive(pid)).toBe(true);
         } finally {
             try {
