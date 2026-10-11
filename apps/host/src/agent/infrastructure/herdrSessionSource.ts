@@ -1764,6 +1764,9 @@ export async function createHerdrSessionSource(
         await client.subscribeEvents(EVENT_KINDS);
         await refreshSnapshot();
         emitAllStates();
+        // Seed the backstop before any client subscribes; an empty unchanged
+        // pane must not announce itself thirty seconds after a phone connects.
+        await artifacts.rescanAll();
     } catch (cause) {
         process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
     }
@@ -3140,17 +3143,23 @@ export async function createHerdrSessionSource(
 
 
 
-        resendCumulativeState(deliver: (sessionId: string, event: SessionEventBody) => void): void {
+        async resendCumulativeState(
+            deliver: (sessionId: string, event: SessionEventBody) => void,
+            deliverMachine: (frame: PluginsInvalidatedFrame) => void,
+        ): Promise<void> {
             reconcileLaunchFailures();
             for (const failure of launchFailureByPane.values()) {
                 deliver(failure.sessionId, { type: 'session.error', message: failure.message });
             }
-            // Invalidation frames are edge-triggered. If the machine→relay link
-            // dropped one while clients stayed connected, host reconnect must
-            // force a full mobile catalog reconciliation.
-            const pluginFrame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
-            for (const listener of machineListeners) listener(pluginFrame);
-            void artifacts.resendAll(currentSessions().map((session) => session.paneId));
+            // One cache reconciliation for this client, not one per pane.
+            deliverMachine({ type: 'plugins.invalidated', reason: 'changed', pluginIds: [] });
+            await artifacts.resendAll(currentSessions().map((session) => session.paneId), (paneId, entries, total, truncated) => {
+                const session = currentSessionByPane(paneId);
+                if (session === undefined) return;
+                deliver(session.sessionId, { type: 'artifacts.update', artifacts: entries, total, truncated });
+                // Pre-rename phones still read this event (sync.ts folds it).
+                deliver(session.sessionId, { type: 'attachments.update', attachments: entries, total, truncated });
+            });
         },
 
         subscribe(listener: (sessionId: string, event: SessionEventBody) => void): () => void {
