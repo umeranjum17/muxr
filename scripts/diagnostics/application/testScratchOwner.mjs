@@ -5,6 +5,29 @@ import { basename, join } from 'node:path';
 
 export const scratchBase = () => process.platform === 'darwin' ? '/tmp' : tmpdir();
 
+const REMOVAL_RETRY_CODES = new Set(['EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM']);
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/**
+ * Remove a test scratch tree. A node compile cache inside it can flush a file
+ * after the directory's children were enumerated, and fs.rmSync's own retry only
+ * repeats the final rmdir, so that file keeps every retry failing with ENOTEMPTY.
+ * Re-run the whole removal instead, which re-reads the children each attempt. If
+ * the tree still will not go, leave it: the owner sweep reclaims leftovers on the
+ * next run, and scratch cleanup must never decide the check's result.
+ */
+export function removeTestScratch(path) {
+    for (let attempt = 0; attempt < 20; attempt++) {
+        try {
+            rmSync(path, { recursive: true, force: true });
+            return;
+        } catch (error) {
+            if (!REMOVAL_RETRY_CODES.has(error.code)) return;
+            sleepSync(200);
+        }
+    }
+}
+
 export function processStart(pid) {
     try {
         if (process.platform === 'darwin') return execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], { encoding: 'utf8' }).trim() || undefined;
@@ -54,7 +77,7 @@ export function scratchEntries(root) {
 export function cleanTestScratch(root) {
     for (const name of scratchEntries(root)) {
         if (/^(?:muxr-|desklink-|v-|x-|attention-|node-compile-cache$)/.test(name)) {
-            rmSync(join(root, name), { recursive: true, force: true });
+            removeTestScratch(join(root, name));
         }
     }
 }
@@ -63,6 +86,6 @@ export function testScratchOwner(base) {
     for (const name of readdirSync(base)) {
         if (!/^muxr-host-test-[1-9]\d*-.+$/.test(name)) continue;
         const path = join(base, name);
-        if (scratchUnused(path)) rmSync(path, { recursive: true, force: true });
+        if (scratchUnused(path)) removeTestScratch(path);
     }
 }
