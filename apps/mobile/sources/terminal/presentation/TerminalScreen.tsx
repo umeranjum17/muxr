@@ -337,12 +337,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // `raise` is the settled keyboard raise this measure was taken at.
     const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number; raise: number }>();
     // The terminal measures a grid at one size; the answer band must end on a
-    // line boundary so its top edge never clips a terminal line. The rendered
-    // terminal reports its true row height; native and pre-first-fit fall back
-    // to the box over its rows, which is the same measure because the terminal
-    // fills that box. `gridInset` is the leftover between a whole number of
-    // rows and the box below them (a viewport height that is not a whole
-    // multiple of the row height), which shifts where the last line ends.
+    // line boundary so its top edge never clips a terminal line. The grid floors
+    // the viewport to whole rows, so the drawn cell height is not box/rows: both
+    // renderers report their true row height (web from xterm's cell height,
+    // native from Ghostty's cell metrics), and the box-over-rows fallback covers
+    // only the moment before the first fit. `gridInset` is the leftover between a
+    // whole number of rows and the box below them (a viewport height that is not
+    // a whole multiple of the row height), which shifts where the last line ends.
     const grid = terminalGrid();
     const [drawnRowHeight, setDrawnRowHeight] = React.useState<number>();
     const terminalRowHeight = drawnRowHeight ?? (terminalBox !== undefined && grid !== undefined && grid.rows > 0

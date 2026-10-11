@@ -388,6 +388,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 }}
                 onResize={({ nativeEvent }) => {
                     attach(nativeEvent.cols, nativeEvent.rows);
+                    // The grid floors the viewport to whole rows, so the drawn
+                    // cell height is not box/rows; hand it up so the answer band
+                    // can end on a row line instead of clipping the row above.
+                    if (nativeEvent.rowHeight > 0) props.onRowHeight?.(nativeEvent.rowHeight);
                 }}
                 // herdr owns the history, so a drag has to move herdr's
                 // viewport and be repainted back to us. Ghostty's own buffer
