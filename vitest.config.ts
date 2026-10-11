@@ -3,8 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Keep `yarn vitest run apps/mobile/sources` deterministic from the repo root.
-// Metro's @/ alias points at the mobile source tree; without this, the two
-// suites that import toolDisplay/turnChanges fail before their tests load.
+// Metro's @/ alias points at the mobile source tree; without this, mobile
+// suites that import product modules through @/ fail before their tests load.
 export default defineConfig({
     test: {
         globalSetup: [fileURLToPath(new URL('./apps/host/src/testScratchCleanup.ts', import.meta.url))],

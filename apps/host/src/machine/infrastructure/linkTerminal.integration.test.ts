@@ -129,6 +129,24 @@ describe('byokit link streams (real relay + real host)', () => {
         while (cleanups.length > 0) cleanups.pop()!();
     });
 
+    /**
+     * Waits until the manager has settled the pane's scroll ownership and
+     * relayed it to the phone. A drag fed before this is handed straight to the
+     * program instead of the wheel, so the wait replaces a fixed settle that was
+     * too short under a loaded runner with the observable that the terminal is
+     * adopted and the wheel path is live.
+     */
+    const waitForScreen = async (frames: unknown[], ms = 8_000): Promise<void> => {
+        await once(new Promise<void>((resolve) => {
+            const timer = setInterval(() => {
+                const ready = frames.some((frame) => typeof frame === 'object' && frame !== null
+                    && (frame as { type?: unknown }).type === 'terminal.scroll-state');
+                if (ready) { clearInterval(timer); resolve(); }
+            }, 10);
+            cleanups.push(() => clearInterval(timer));
+        }), ms, 'pane scroll-state');
+    };
+
     it('holds a streaming pane at a slow phone instead of queueing its whole output', { timeout: 15_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-pressure-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
@@ -269,9 +287,8 @@ process.stdin.on('data', (chunk) => {
             close: () => undefined,
         };
         await manager.attach({ sessionId: 's1', channel: 'stream-wheel', cols: 20, rows: 10, socket });
-        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
         const state = (): { back: number; moved: number } => JSON.parse(readFileSync(stateFile, 'utf8'));
-        await sleep(300);
+        await waitForScreen(results);
 
         // A 30-row drag moves the program 30 rows, not three times that.
         input(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 30, column: 10, row: 5 }));
@@ -350,17 +367,17 @@ process.stdin.on('data', (chunk) => {
         });
         cleanups.push(() => manager.closeAll());
         let input!: (line: string) => void;
+        const frames: unknown[] = [];
         const socket = {
             isOpen: true,
-            send: () => undefined,
+            send: (line: string) => { frames.push(JSON.parse(line)); },
             onLine: (listener: (line: string) => void) => { input = listener; return () => undefined; },
             onEnd: () => () => undefined,
             close: () => undefined,
         };
         await manager.attach({ sessionId: 's1', channel: 'read-fail', cols: 20, rows: 10, socket });
-        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
         const state = (): { back: number; moved: number } => JSON.parse(readFileSync(stateFile, 'utf8'));
-        await sleep(300);
+        await waitForScreen(frames);
 
         // A 30-row drag moves the program 30 rows, not three times that, even
         // though the first read of its screen threw.
@@ -422,17 +439,17 @@ process.stdin.on('data', (chunk) => {
         });
         cleanups.push(() => manager.closeAll());
         let input!: (line: string) => void;
+        const frames: unknown[] = [];
         const socket = {
             isOpen: true,
-            send: () => undefined,
+            send: (line: string) => { frames.push(JSON.parse(line)); },
             onLine: (listener: (line: string) => void) => { input = listener; return () => undefined; },
             onEnd: () => () => undefined,
             close: () => undefined,
         };
         await manager.attach({ sessionId: 's1', channel: 'live-paint', cols: 20, rows: 10, socket });
-        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
         const state = (): { back: number; reports: number } => JSON.parse(readFileSync(stateFile, 'utf8'));
-        await sleep(300);
+        await waitForScreen(frames);
 
         input(JSON.stringify({ type: 'terminal.scroll', direction: 'down', lines: 30, column: 10, row: 5 }));
         await waitForDrag(() => state().reports, 27, 12_000);

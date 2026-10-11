@@ -40,12 +40,24 @@ jobs:
           # The constraints floor guard diffs the pull request against its
           # merge base, which a depth-1 checkout cannot compute.
           fetch-depth: 0
+      # A documentation- or evidence-only change cannot affect this job. The
+      # job still runs and reports success so it stays a required check; its
+      # expensive steps are the ones skipped. The decision is fail-open and
+      # treats README.md/SKILL.md as non-docs, because the product reads them;
+      # scripts/diagnostics/application/scopeDocsOnly.mjs owns the rule for
+      # both jobs.
+      - name: Scope (a docs/evidence-only change cannot affect this job)
+        id: scope
+        run: node scripts/diagnostics/application/scopeDocsOnly.mjs "${{ github.event.pull_request.base.sha }}"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.scope.outputs.docs_only != 'true'
         with:
           node-version: 22
           cache: yarn
-      - run: yarn install --frozen-lockfile --non-interactive
+      - if: steps.scope.outputs.docs_only != 'true'
+        run: yarn install --frozen-lockfile --non-interactive
       - name: Fast lane (typecheck, self-checks, vitest flows, architecture)
+        if: steps.scope.outputs.docs_only != 'true'
         run: yarn run check:fast
 
   suite:
@@ -56,21 +68,36 @@ jobs:
         with:
           # Same reason as the fast job: the floor guard needs real history.
           fetch-depth: 0
+      # Same docs/evidence-only scope as `fast` (plus README.md/SKILL.md as
+      # non-docs, since the product reads them), and the same fail-open rule.
+      # scripts/diagnostics/application/scopeDocsOnly.mjs owns the rule.
+      - name: Scope (a docs/evidence-only change cannot affect this job)
+        id: scope
+        run: node scripts/diagnostics/application/scopeDocsOnly.mjs "${{ github.event.pull_request.base.sha }}"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.scope.outputs.docs_only != 'true'
         with:
           node-version: 22
           cache: yarn
-      - run: yarn install --frozen-lockfile --non-interactive
-      - run: yarn build
+      - if: steps.scope.outputs.docs_only != 'true'
+        run: yarn install --frozen-lockfile --non-interactive
+      - if: steps.scope.outputs.docs_only != 'true'
+        run: yarn build
       - name: Production web export (self-host, origin-clean)
+        if: steps.scope.outputs.docs_only != 'true'
         run: yarn web:export:selfhost
       - name: Web export checks against dist (manifest, budget, no marketing origin)
+        if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/diagnostics/application/checkWebExport.mjs
       - name: Live web serving delivery (relay + static server over HTTP)
+        if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/diagnostics/application/checkWebServing.mjs
       - name: Export chain isolation (canary export + full-dist secret scan)
+        if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/diagnostics/application/checkExportIsolation.mjs
       - name: Full suite (typecheck, crypto, pairing, e2e, package smoke, purity, secrets, architecture)
+        if: steps.scope.outputs.docs_only != 'true'
         run: yarn run check
       - name: Core purity guard
+        if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/diagnostics/application/checkCorePurity.mjs
