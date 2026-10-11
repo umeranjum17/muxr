@@ -1261,10 +1261,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 blurOnSubmit
                 submitBehavior="blurAndSubmit"
                 multiline
-                autoCapitalize={currentPane?.agentKind === undefined ? 'none' : undefined}
-                autoCorrect={currentPane?.agentKind === undefined ? false : undefined}
-                spellCheck={currentPane?.agentKind === undefined ? false : undefined}
-                smartInsertDelete={currentPane?.agentKind === undefined ? false : undefined}
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                smartInsertDelete={false}
                 // Web renders multiline as a textarea and defaults it to two
                 // rows: the rail stood 12dp taller than its own minimum and the
                 // placeholder sat a line above the controls beside it. Native
