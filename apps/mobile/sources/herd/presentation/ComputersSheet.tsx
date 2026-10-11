@@ -1,0 +1,284 @@
+/**
+ * The Computers sheet, opened over an agent. It lists the one cloud computer
+ * (coming later) and every computer this phone has paired, marks the one the
+ * agent runs on, and lets the person point the agent at another online
+ * computer. One list, built on the pairing grants the app already keeps —
+ * there is no second registry of computers.
+ *
+ * The app holds one live connection, so a computer that is not the connected
+ * one is checked with the same fresh host request collaboration uses; until
+ * that check answers the row says "Checking…" rather than guessing.
+ */
+
+import * as React from 'react';
+import { View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
+import { OptionSheet } from '@/components/OptionSheet';
+import { Item } from '@/components/Item';
+import { ItemGroup } from '@/components/ItemGroup';
+import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
+import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
+import { LinkFirstClient } from '@/pairing/client';
+import { useAuth } from '@/account/ui';
+import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
+import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
+import { Modal } from '@/modal';
+
+/** Plain states a row can show. "Not paired" is a computer the app is
+ * connected to that this phone keeps no pairing for. */
+type ComputerState = 'online' | 'asleep' | 'offline' | 'not-paired';
+
+interface ComputerRow {
+    id: string;
+    name: string;
+    state: ComputerState;
+    inUse: boolean;
+    checking: boolean;
+    grant?: StoredHostedGrant;
+}
+
+const STATE_LABEL: Record<ComputerState, string> = {
+    online: 'Online',
+    asleep: 'Asleep',
+    offline: 'Offline',
+    'not-paired': 'Not paired',
+};
+
+/** Why an offline computer cannot be picked. Plain words, no internal ids. */
+function stateReason(state: ComputerState, inUse: boolean): string | undefined {
+    if (inUse) return undefined;
+    switch (state) {
+        case 'offline': return 'Turn it on and keep muxr running to use it.';
+        case 'asleep': return 'Not answering right now.';
+        case 'not-paired': return 'No pairing is saved on this phone.';
+        case 'online': return undefined;
+    }
+}
+
+/** The active computer answers on the app's own link; every other one answers
+ * a fresh probe. A paired computer the probe has not answered yet is still
+ * being checked. */
+function resolveComputerState(isActive: boolean, socketConnected: boolean, probed: boolean | undefined): ComputerState {
+    if (isActive) return socketConnected ? 'online' : 'asleep';
+    return probed === true ? 'online' : 'offline';
+}
+
+function stateColor(state: ComputerState, theme: ReturnType<typeof useUnistyles>['theme']): string {
+    switch (state) {
+        case 'online': return theme.colors.status.connected;
+        // Amber: known to this phone, just not answering — distinct from a
+        // computer the phone has never reached.
+        case 'asleep': return '#FF9F0A';
+        case 'offline': return theme.colors.status.disconnected;
+        case 'not-paired': return theme.colors.textSecondary;
+    }
+}
+
+/** A fresh liveness check that does not touch the app's active connection: open
+ * the pairing's own link and see whether the host answers. Resolves true when
+ * the link opens, false when it goes stale or does not answer in time. */
+function probeComputer(grant: StoredHostedGrant): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+        const client = new LinkFirstClient({ hostedGrant: grant, requestTimeoutMs: 8_000 });
+        let settled = false;
+        const finish = (online: boolean) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            unsubscribe();
+            client.close();
+            resolve(online);
+        };
+        const timer = setTimeout(() => finish(false), 8_000);
+        const unsubscribe = client.onStateChange((state) => {
+            if (state === 'open') finish(true);
+            else if (state === 'stale') finish(false);
+        });
+        client.connect();
+    });
+}
+
+function displayName(grant: StoredHostedGrant, liveName: string | undefined): string {
+    const trimmed = liveName?.trim();
+    if (trimmed) return trimmed;
+    const paired = grant.machineName?.trim();
+    if (paired) return paired;
+    return 'Paired computer';
+}
+
+export function ComputersSheet(props: { visible: boolean; sessionId: string; onClose: () => void }): React.JSX.Element {
+    return (
+        <ScopedTheme name="dark">
+            <ComputersSheetBody {...props} />
+        </ScopedTheme>
+    );
+}
+
+function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean; sessionId: string; onClose: () => void }): React.JSX.Element {
+    const { theme } = useUnistyles();
+    const router = useRouter();
+    const auth = useAuth();
+    const socketStatus = useSocketStatus();
+    const liveMachines = useAllMachines({ includeOffline: true });
+    const session = useSession(sessionId);
+    const [grants, setGrants] = React.useState<StoredHostedGrant[]>([]);
+    const [probes, setProbes] = React.useState<Record<string, boolean>>({});
+    const [switching, setSwitching] = React.useState<string | null>(null);
+
+    const activeMachineId = getCachedConnectionSettings().machineId;
+    const agentMachineId = session?.metadata?.machineId ?? activeMachineId;
+    const socketConnected = socketStatus.status === 'connected';
+
+    // Load the pairings and run a fresh host check on every computer that is
+    // not the connected one, so each row reports what it can reach now.
+    React.useEffect(() => {
+        if (!visible) return;
+        let cancelled = false;
+        setProbes({});
+        void listPairedGrants().then((all) => {
+            if (cancelled) return;
+            setGrants(all);
+            for (const grant of all.filter((entry) => entry.machineId !== activeMachineId)) {
+                void probeComputer(grant)
+                    .then((online) => { if (!cancelled) setProbes((current) => ({ ...current, [grant.machineId]: online })); });
+            }
+        });
+        return () => { cancelled = true; };
+    }, [visible, activeMachineId]);
+
+    const rows = React.useMemo<ComputerRow[]>(() => {
+        const liveById = new Map(liveMachines.map((machine) => [machine.id, machine]));
+        const pairedIds = new Set(grants.map((grant) => grant.machineId));
+        const next: ComputerRow[] = [];
+        for (const grant of grants) {
+            const isActive = grant.machineId === activeMachineId;
+            const probed = probes[grant.machineId];
+            const state = resolveComputerState(isActive, socketConnected, probed);
+            next.push({
+                id: grant.machineId,
+                name: displayName(grant, liveById.get(grant.machineId)?.metadata?.displayName),
+                state,
+                inUse: grant.machineId === agentMachineId,
+                checking: !isActive && probed === undefined,
+                grant,
+            });
+        }
+        // A connected computer this phone holds no pairing for: real, and
+        // honestly labelled rather than hidden.
+        for (const machine of liveMachines) {
+            if (pairedIds.has(machine.id)) continue;
+            if (machine.id !== activeMachineId) continue;
+            next.push({
+                id: machine.id,
+                name: machine.metadata?.displayName?.trim() || 'This computer',
+                state: 'not-paired',
+                inUse: machine.id === agentMachineId,
+                checking: false,
+            });
+        }
+        return next;
+    }, [activeMachineId, agentMachineId, grants, liveMachines, probes, socketConnected]);
+
+    const switchTo = React.useCallback(async (row: ComputerRow) => {
+        if (row.grant === undefined || switching !== null) return;
+        const voiceActive = !realtimeMachineSwitchGuard(row.id).allowed;
+        const confirmed = await Modal.confirm(
+            voiceActive ? 'End voice and switch?' : `Switch to ${row.name}?`,
+            voiceActive
+                ? 'Realtime voice stays pinned to the computer where it started.'
+                : 'The app reconnects to this computer with the stored pairing, so the next prompt runs there. You can switch back the same way.',
+            { confirmText: voiceActive ? 'End voice and switch' : 'Switch', destructive: voiceActive },
+        );
+        if (!confirmed) return;
+        if (voiceActive) stopRealtimeSession();
+        const grant = row.grant;
+        setSwitching(row.id);
+        try {
+            await saveConnectionSettings({
+                ...getCachedConnectionSettings(),
+                mode: 'hosted',
+                relayUrl: grant.relayUrl,
+                machineId: grant.machineId,
+                token: '',
+                selfhost: grant.source === 'selfhost' ? true : undefined,
+            });
+            await auth.login(grant.credential, grant.deviceKey.secretKey);
+            onClose();
+            // The agent on the computer just left stays where it was; the
+            // stack holds one agent over Home, so back lands on the newly
+            // connected computer's agents.
+            router.back();
+        } catch (cause) {
+            Modal.alert('Could not switch computer', cause instanceof Error ? cause.message : String(cause));
+            setSwitching(null);
+        }
+    }, [auth, onClose, router, switching]);
+
+    const body = (
+        <View>
+            <ItemGroup
+                title="Cloud computer"
+                footer="A cloud computer for this agent is coming. There is nothing to set up here yet."
+            >
+                <Item
+                    title="Cloud computer"
+                    detail="Coming soon"
+                    disabled
+                    showChevron={false}
+                    icon={<Ionicons name="cloud-outline" size={29} color={theme.colors.textSecondary} />}
+                />
+            </ItemGroup>
+
+            <ItemGroup
+                title="Your computers"
+                footer="Tap an online computer to run this agent's next prompt there."
+            >
+                {rows.map((row) => {
+                    const availability = row.checking ? 'Checking…' : STATE_LABEL[row.state];
+                    const reason = row.checking ? undefined : stateReason(row.state, row.inUse);
+                    const subtitle = [availability, row.inUse ? 'In use' : undefined, reason]
+                        .filter((part): part is string => Boolean(part))
+                        .join(' • ');
+                    const selectable = row.state === 'online' && !row.inUse && row.grant !== undefined;
+                    return (
+                        <Item
+                            key={row.id}
+                            title={row.name}
+                            subtitle={subtitle}
+                            subtitleLines={0}
+                            icon={<Ionicons name="desktop-outline" size={29} color={stateColor(row.state, theme)} />}
+                            rightElement={row.inUse
+                                ? <Ionicons name="checkmark-circle" size={25} color={theme.colors.status.connected} />
+                                : undefined}
+                            loading={row.checking || switching === row.id}
+                            disabled={!row.inUse && row.state !== 'online'}
+                            showChevron={false}
+                            onPress={selectable ? () => { void switchTo(row); } : undefined}
+                            accessibilityLabel={`${row.name}. ${availability}${row.inUse ? '. In use' : ''}${reason === undefined ? '' : `. ${reason}`}`}
+                        />
+                    );
+                })}
+                <Item
+                    title="Add a computer"
+                    subtitle="Pair another computer with this phone"
+                    icon={<Ionicons name="qr-code-outline" size={29} color="#007AFF" />}
+                    onPress={() => { onClose(); router.push('/pair'); }}
+                />
+            </ItemGroup>
+        </View>
+    );
+
+    return (
+        <OptionSheet
+            visible={visible}
+            title="Computers"
+            options={[]}
+            onSelect={() => undefined}
+            onClose={onClose}
+            maxWidth={560}
+            body={body}
+        />
+    );
+}
