@@ -37,7 +37,7 @@ async function typePairingCode(code) {
         await run(process.execPath, [secretTyper, '--serial', serial, '--text', code], { timeout: 180_000, maxBuffer: 16 * 1024 * 1024 });
     } catch (error) {
         const detail = String(error.stderr ?? '').trim() || error.message;
-        throw new Error(`pairing code entry failed before the pair wait: ${detail}`);
+        throw new Error(`pairing code entry failed before the pair wait: ${detail.split(code).join('<pairing string>')}`);
     }
 }
 const ui = async () => { await adb('shell', 'uiautomator', 'dump', '/sdcard/muxr-perf-ui.xml'); return adb('shell', 'cat', '/sdcard/muxr-perf-ui.xml'); };
