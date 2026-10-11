@@ -16,7 +16,7 @@
  * `paneEnvironment` in `apps/host/src/agent/infrastructure/herdrSessionSource.ts`),
  * so pi processes Herdr spawns for these checks inherit the temp dir.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -25,6 +25,12 @@ export const PI_AGENT_DIR_ENV = 'PI_CODING_AGENT_DIR';
 /** Point pi at a fresh per-run temp agent dir. Returns the dir for cleanup. */
 export function isolatePiAgentDir() {
     const dir = mkdtempSync(join(tmpdir(), 'pock-pi-agent-'));
+    // A check's cwd often sits under the real home while the lab overrides HOME,
+    // so pi sees the person's real ~/.agents/skills as an untrusted project
+    // resource and blocks on its "Trust project folder?" prompt. That prompt
+    // swallows typed input, so the isolated agent dir opts out of project trust
+    // for every run: pi starts at its own prompt with no question to answer.
+    writeFileSync(join(dir, 'settings.json'), `${JSON.stringify({ defaultProjectTrust: 'never' })}\n`, { mode: 0o600 });
     const previous = process.env[PI_AGENT_DIR_ENV];
     process.env[PI_AGENT_DIR_ENV] = dir;
     return { dir, previous };
