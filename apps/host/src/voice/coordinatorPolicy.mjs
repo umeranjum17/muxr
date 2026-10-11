@@ -438,12 +438,19 @@ export function reportAgentOutcome(value) {
     ].join('\n');
 }
 
-/** Human-readable startup inventory; routes and raw paths never enter provider instructions. */
-export function workspaceContext(open) {
+/**
+ * Human-readable startup inventory; routes and raw paths never enter provider
+ * instructions. `derivedName(session)` supplies the fallback for a session with
+ * no name: the bundled caller passes `derivedAgentName` from the workspace
+ * contract, because this raw runtime file must not import it. The pack bundles
+ * that package into the host instead of installing it, so a top-level import
+ * here would not resolve in the packed CLI.
+ */
+export function workspaceContext(open, derivedName) {
     const sessions = Array.isArray(open?.publicContext?.sessions) ? open.publicContext.sessions : [];
     const lines = sessions.slice(0, 64).map((session) => {
         if (!session || typeof session !== 'object') return '';
-        const name = cleanProviderProse(session.agentName, 'Unnamed agent', 80);
+        const name = cleanProviderProse(session.agentName, derivedName(session), 80);
         const task = cleanProviderProse(session.taskTitle, 'No task title', 120);
         const status = cleanProviderProse(session.agentStatus, 'unknown', 32);
         const kind = cleanProviderProse(session.agentKind, 'unknown provider', 32);

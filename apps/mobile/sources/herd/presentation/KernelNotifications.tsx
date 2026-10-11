@@ -15,7 +15,7 @@ import {
     updateVoiceNotification,
 } from '@/../modules/voice-overlay';
 import { notificationPermissionStatus } from '@/utils/microphonePermissions';
-import { completionNotificationState, completionTransition, herdNotificationState, nativeLifecycleNotificationState, sortHerd, type HerdNotificationState } from '../domain/herd';
+import { completionNotificationState, completionTransition, herdNotificationState, herdPaneName, nativeLifecycleNotificationState, sortHerd, type HerdNotificationState } from '../domain/herd';
 import { applyRealtimeMuted, boundRealtimeSession, realtimeGeneration, retryVadStandby, stopRealtimeSession, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
 import { Modal } from '@/modal';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
@@ -58,7 +58,8 @@ export function KernelNotifications() {
         () => lifecycleCatalogAvailable && herd.mode === 'attention' ? { ...herd, eventKey: 'attention:' } : herd,
         [herd, lifecycleCatalogAvailable],
     );
-    const voiceName = panes.find((pane) => pane.id === boundRealtimeSession())?.agentName ?? 'Unnamed agent';
+    const boundPane = panes.find((pane) => pane.id === boundRealtimeSession());
+    const voiceName = boundPane === undefined ? '' : herdPaneName(boundPane);
     const previous = React.useRef<Record<string, AgentLifecycle> | null>(null);
     const [presentation, setPresentation] = React.useState(herd);
     const [appActive, setAppActive] = React.useState(AppState.currentState === 'active');
@@ -75,7 +76,7 @@ export function KernelNotifications() {
         muted,
         agents: panes.map((pane) => ({
             id: pane.id,
-            name: pane.agentName ?? 'Unnamed agent',
+            name: herdPaneName(pane),
             status: pane.agentStatus,
         })),
     };

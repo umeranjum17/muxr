@@ -56,6 +56,9 @@ export {
 export type { AgentTaskSources } from './domain/agentTask.js';
 export { agentAlertTitle, agentTask } from './domain/agentTask.js';
 
+export type { AgentNameSources } from './domain/agentName.js';
+export { agentFolderName, agentKindLabel, derivedAgentName } from './domain/agentName.js';
+
 export type { SessionEvent, SessionEventBody, SessionEventType } from './domain/sessionEvent.js';
 export { SESSION_EVENT_TYPES } from './domain/sessionEvent.js';
 

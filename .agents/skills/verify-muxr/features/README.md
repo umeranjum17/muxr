@@ -72,8 +72,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 - [Name agents on Home by kind and task, never a launch id](./home-agent-labels.md) —
   paired lab PWA over a real-Herdr lab with an unnamed Codex and pi agent: the
-  `Ready · unseen` rows read the kind/task and never a `pp_*` id, at 393 px light
-  and dark.
+  `Ready · unseen` rows read the kind/task and never a `pp_*` id, and an agent
+  with no published name reads its kind, else its folder, else `Agent`, never
+  `Unnamed agent`, at 393 px light and dark.
 
 - [Show the needs-you count on the installed PWA's app icon](./pwa-badge.md) —
   a paired lab PWA over a fake herd: recorded `setAppBadge`/`clearAppBadge`
