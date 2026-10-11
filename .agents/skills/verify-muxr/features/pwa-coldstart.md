@@ -24,12 +24,12 @@ the export's own `/mermaid.min.js` when a diagram renders
   so the engine now loads from `/mermaid.min.js` on demand instead.
 - The cold landing and pair screen draw no Skia, so they never fetch CanvasKit
   (`canvaskit.wasm`, ~8 MB): the web entry does not call the loader. The only
-  load site is `components/skiaWeb.tsx` (`loadSkiaWeb` / `SkiaWebGate`), which
+  load site is `components/skiaWeb.web.tsx` (`loadSkiaWeb` / `SkiaWebGate`), which
   `ScreenChart` mounts around its Skia/victory subtrees, so CanvasKit arrives
   only when a screen that draws with Skia opens. `sw.js` caches it on first
   fetch, so that screen also works offline afterwards. `checkWebExport` fails
   (`web entry never loads CanvasKit at startup`) if any module the entry loads
-  eagerly names the loader outside `skiaWeb.tsx`/`ScreenCharts.tsx`, and
+  eagerly names the loader outside `skiaWeb.web.tsx`/`ScreenCharts.tsx`, and
   (`eager payload carries no CanvasKit glue`) if the built payload gains the
   glue; the runtime "no request before first paint" proof is step 5.
 - `grep -c 'xterm'`/`'shiki'`/`'Oniguruma'`/`'PierreDiffView'` against the eager
@@ -96,6 +96,11 @@ needed to render the diff surface.
    that variant at ≥680 px content width. On that surface assert
    `canvaskit.wasm` is fetched (`initiatorType: fetch`, ~8 MB) and
    `window.CanvasKit` becomes an object.
+   Native graph regression: from `apps/mobile`, run `npx expo export --platform ios
+   --output-dir <scratch>/ios --max-workers 2` and the same command for `android`.
+   Both must succeed without resolving `canvaskit-wasm`/Node `fs`. Metro selects
+   `skiaWeb.tsx` (native passthrough), not the web-only loader. These exports
+   prove release JS bundling, not a signed native binary or device rendering.
 6. Route chunks: open `/session/<any-id>` and assert the `TerminalRoute-*.js`
    request happened and the screen shows the not-paired state, not a blank body.
 7. Diff surface: with a paired host, open a commit/change and assert the
