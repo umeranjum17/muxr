@@ -89,11 +89,12 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
         channel.sendText(choice.key);
     };
 
-    // A solid band in the terminal's canvas colour: no text shows between or
-    // behind the chips. Its top is padded so the band's edge lands on a terminal
-    // row boundary (measured from the terminal's own grid, offset by the gap
-    // between the last row and the band's own box): the line directly above the
-    // chips keeps its full descenders instead of being half-covered.
+    // A solid band in the terminal's own resolved background (the colour the
+    // person tunes in Settings), so it tracks the terminal and no text shows
+    // between or behind the chips. Its top is padded so the band's edge lands
+    // on a terminal row boundary (measured from the terminal's own grid, offset
+    // by the gap between the last row and the band's own box): the line directly
+    // above the chips keeps its full descenders instead of being half-covered.
     const bandInset = gridInset !== undefined && gridInset > 0 ? gridInset : 0;
     const padTop = lineHeight !== undefined && lineHeight > 0 && stackHeight > 0
         ? STACK_PAD + (((bandInset - (stackHeight + STACK_PAD * 2)) % lineHeight + lineHeight) % lineHeight)
