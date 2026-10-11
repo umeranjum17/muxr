@@ -53,10 +53,11 @@ let state = { phase: 'starting' };
 
 // The window says one plain sentence and what Try again does. The raw runtime
 // detail (which host/relay exited and why) goes to the log, never to the window.
-const START_FAILED_MESSAGE = 'muxr stopped unexpectedly. Choose Try again to restart it on this computer.';
-function reportStartFailure(what, error) {
+const START_FAILED_MESSAGE = 'muxr could not start on this computer. Choose Try again to start it again.';
+const RUNTIME_EXIT_MESSAGE = 'muxr stopped unexpectedly. Choose Try again to start it again.';
+function reportFailure(what, error, message) {
     process.stderr.write(`desktop: ${what}: ${error instanceof Error ? error.message : String(error)}\n`);
-    send({ phase: 'error', message: START_FAILED_MESSAGE });
+    send({ phase: 'error', message });
 }
 
 function send(next) {
@@ -189,7 +190,7 @@ async function startRuntime() {
     send({ phase: 'starting' });
     runtime = new MuxrRuntime({ home: MUXR_HOME, node: process.execPath, relayEntry: RELAY_ENTRY, hostEntry: HOST_ENTRY, port: RELAY_PORT });
     runtime.on('status', (event) => {
-        if (event.phase === 'error') reportStartFailure('runtime error', event.message);
+        if (event.phase === 'error') reportFailure('runtime error', event.message, RUNTIME_EXIT_MESSAGE);
         else if (event.phase === 'starting') send({ phase: 'starting' });
         else if (event.phase === 'already-running') send({ phase: 'already-running', message: event.message, canRetry: event.canRetry === true });
         else if (event.phase === 'online') { send({ phase: 'online', message: 'Ready to pair' }); startPairing(); }
@@ -198,7 +199,7 @@ async function startRuntime() {
     try { await runtime.start(); }
     catch (error) {
         if (error instanceof RelayOwnedError) return;
-        reportStartFailure('start failed', error);
+        reportFailure('start failed', error, START_FAILED_MESSAGE);
     }
 }
 
