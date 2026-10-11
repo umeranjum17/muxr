@@ -48,3 +48,10 @@ in `apps/host/src/machine/infrastructure/linkTerminal.integration.test.ts`.
 - Desktop watching is unavailable to a view grant: `desktop.open` answers
   `permission-denied`, because a desklink 0.5 session always carries an input
   channel.
+- On an Android emulator, install the PWA from Chrome's menu (Add to Home
+  screen, Install) and reach it over `adb reverse` for both the web and relay
+  ports, so `127.0.0.1` stays a secure context. Changing `font_scale` or night
+  mode restarts the PWA at its start URL; open `/pair?offer=…` afterwards.
+- `adb shell input text` typed straight into the xterm repeats characters
+  through Gboard's composition, so bash gets garbage. Send the control check
+  through the Prompt composer instead.
