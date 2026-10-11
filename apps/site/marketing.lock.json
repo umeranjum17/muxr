@@ -1,0 +1,682 @@
+{
+    "version": 1,
+    "source": {
+        "repository": "https://github.com/umeranjum17/muxr",
+        "commit": "fa0b780cacbec8a889aff99f2b3bd9695767b155"
+    },
+    "outputs": [
+        {
+            "file": "docs/icons/apple-touch-icon.png",
+            "sha256": "564ea55092b7921463db025103c55e05fa155dcc04d605afe3d8c77c98fe5fc3"
+        },
+        {
+            "file": "docs/icons/favicon-16.png",
+            "sha256": "ba3fd455d9c7c4034d4e6f244694f96a0a221f499fa54a7120872be2c4c36c05"
+        },
+        {
+            "file": "docs/icons/favicon-32.png",
+            "sha256": "ab8107dfded9b4755b3a30eeb0bba263086a29585729490813907efe6c8f71fa"
+        },
+        {
+            "file": "docs/icons/favicon.ico",
+            "sha256": "61e37274eaf24a85f1fd500765b6b6154de37e18ba6f099378d5c59d9f0d632e"
+        },
+        {
+            "file": "docs/icons/favicon.svg",
+            "sha256": "42691330b6a47625293e0ab52abc3ce877573605ecdb9983550a4fc44dad009a"
+        },
+        {
+            "file": "docs/icons/muxr-app-icon.png",
+            "sha256": "1b8919a1dc8cb587f783ad6029a5495242d04fabdad37fd2beb92d6087b7a374"
+        },
+        {
+            "file": "docs/marketing/agent-amp.png",
+            "sha256": "cca2091806daeffb34afc2531427cb8e4f6fa2bbbf784b4c64482f61b2542f5d"
+        },
+        {
+            "file": "docs/marketing/agent-antigravity.png",
+            "sha256": "5e5f5f72d5f8d5fd02ea12c416a50b4f15264be074b7df8ed01f2a5c842fb10c"
+        },
+        {
+            "file": "docs/marketing/agent-claude.png",
+            "sha256": "7b9c09dadd7359d4779217ef343647f3f9b8f1a23b4f8a1304d0c6bb46f73c29"
+        },
+        {
+            "file": "docs/marketing/agent-cline.png",
+            "sha256": "94238ead58926f9093cd292278fda21490cb0a6d98818c5c1b0fe3d735e3604e"
+        },
+        {
+            "file": "docs/marketing/agent-codex.png",
+            "sha256": "150107dbdb186cb26b934d224b7b86f6d448c85b9269e038f30d26d03f731372"
+        },
+        {
+            "file": "docs/marketing/agent-copilot.png",
+            "sha256": "0e750893ede2cd498a5f4588371d2fbccbe29b891dcba5ad8dab37e94d937d7f"
+        },
+        {
+            "file": "docs/marketing/agent-cursor.png",
+            "sha256": "a20a93f447c087e49060277d1f11bea1f477af01065e67cf9b4b7bde62a49b04"
+        },
+        {
+            "file": "docs/marketing/agent-devin.png",
+            "sha256": "792f4b73c6bdd7d85b44137d964024f09cde1a3e59e1a914a834c3fb694c42c6"
+        },
+        {
+            "file": "docs/marketing/agent-droid.png",
+            "sha256": "64e551e92b5fd69edbee3dc7de452a415398e7ad010cee876546a2aa0ffa9d28"
+        },
+        {
+            "file": "docs/marketing/agent-gemini.png",
+            "sha256": "ec2229ff4e60cbe52b39b6bed64616e831ed4845920e617834f13fcd8c8d443e"
+        },
+        {
+            "file": "docs/marketing/agent-grok.png",
+            "sha256": "3a5c893b3fee5a5dcddfa76fff80b28ff8f1b360039365e6a9da40be694f24a1"
+        },
+        {
+            "file": "docs/marketing/agent-hermes.png",
+            "sha256": "b5b25e2b3ab7ac1b1d5c77c09447207ed2926637b5d959b2ede0caa254a0aa78"
+        },
+        {
+            "file": "docs/marketing/agent-kilocode.png",
+            "sha256": "0a994310d10e0f0be327376aac1302b30efd07cf487be2bfb02d17d9e9b86c4a"
+        },
+        {
+            "file": "docs/marketing/agent-kimi.png",
+            "sha256": "921e221bb087f625510a08ef46cd6415a95d48762def67b5cb284a4dcc380070"
+        },
+        {
+            "file": "docs/marketing/agent-kiro.png",
+            "sha256": "30915324ba69d5077e7b8c84d87f18106bf23b91ec7999605e947b9f3d5fca63"
+        },
+        {
+            "file": "docs/marketing/agent-maki.png",
+            "sha256": "dea3216ee81e2131a1d8b33e46338cff54797f5694a38249c61b75f2e2ca9105"
+        },
+        {
+            "file": "docs/marketing/agent-mastracode.png",
+            "sha256": "07a9cbe7da5ae555b4ac3c73169b02db4a8ecd4a496f34fc4cc4b00974fc2193"
+        },
+        {
+            "file": "docs/marketing/agent-omp.png",
+            "sha256": "de0ac7e2dfbb79543f07b542d9a5803bfad6d8ca753a882e461c21dfdc8d1f1c"
+        },
+        {
+            "file": "docs/marketing/agent-opencode.png",
+            "sha256": "4c812cbed60f9a08c1fcb09e1bb082684f5487c3aeaf4f4971da27a76c648b61"
+        },
+        {
+            "file": "docs/marketing/agent-pi.png",
+            "sha256": "d5b8c08b959f73cbfc44f46c9767f53729ed889e0555a7aa86dbf4ce1a046abf"
+        },
+        {
+            "file": "docs/marketing/agent-qoder.png",
+            "sha256": "a688afaf5a2c6692965e1db138e46fa007e109133d610554e070d817bce3b41f"
+        },
+        {
+            "file": "docs/marketing/bricolage-grotesque-bold.woff2",
+            "sha256": "ab53ef132fb29ec14bf6827c84ad59410320de2c1d66d01dd54d089cc2fd2be5"
+        },
+        {
+            "file": "docs/marketing/campaign-changes.png",
+            "sha256": "9a56450a913d831b05906fad208cef956e59e990fbf9a00b24a0f842d56844c1"
+        },
+        {
+            "file": "docs/marketing/campaign-changes.webp",
+            "sha256": "919336396185973d623184f7deee088abeea9a669722e4bfb2141fdf2c711430"
+        },
+        {
+            "file": "docs/marketing/campaign-connection.png",
+            "sha256": "736f365493b43f46c7d3746acf98657e25284aceffd2f3778ebe6cb38d4b2e5d"
+        },
+        {
+            "file": "docs/marketing/campaign-connection.webp",
+            "sha256": "ee02d8a258f64a6238ec434d96890b680d097cb205c3902d5ec0595d4ec98ae4"
+        },
+        {
+            "file": "docs/marketing/campaign-herd.png",
+            "sha256": "338666feee11547c5380e52f480705ea747cb5c6bb457f1c2d3f8311f469cdb1"
+        },
+        {
+            "file": "docs/marketing/campaign-herd.webp",
+            "sha256": "a8dd28664da00fb9d6c384c266e7a8d2234b9cf2adbc52707fcab9a580d50074"
+        },
+        {
+            "file": "docs/marketing/campaign-inbox.png",
+            "sha256": "7c3075c22d58ec346a081c8d058f6ae4a2fd580f2ea3beee4fe2aec5dfceed40"
+        },
+        {
+            "file": "docs/marketing/campaign-inbox.webp",
+            "sha256": "9ba729bef82f2275a1301c778f0fa5523a74c7ed588161281039cbbb3014f99d"
+        },
+        {
+            "file": "docs/marketing/campaign-terminal.png",
+            "sha256": "a98d079f902478c76950ee4adb307dca8eb20e63d374fbd0a89fe5772e9654f7"
+        },
+        {
+            "file": "docs/marketing/campaign-terminal.webp",
+            "sha256": "dadcffe009b5addf4008696789a44df98f9b2a040e886a97166a66a8f25b0940"
+        },
+        {
+            "file": "docs/marketing/campaign-voice.png",
+            "sha256": "53361798685efdb2a7a800b218b6616db91aa17ed424bbb5a0e2e870c3e334e7"
+        },
+        {
+            "file": "docs/marketing/campaign-voice.webp",
+            "sha256": "af08b80104aa6089b1b01093d388021351d2e5b122ac94cdabae8b5b2c73ba0a"
+        },
+        {
+            "file": "docs/marketing/demo-poster.png",
+            "sha256": "23f6b525538d0ffcf3fd1c98e302be394e424541cb2f37417f92200ad2da1755"
+        },
+        {
+            "file": "docs/marketing/demo-poster.webp",
+            "sha256": "a681cc2c2e7328f7365aa4ef4d25512fb6e4d0e05b77bd93a75e7aaacc6629d9"
+        },
+        {
+            "file": "docs/marketing/favicon.png",
+            "sha256": "edd692283ec100dd61220009a08dfec578a5a0efe5d7ff6109fa4fa678c1152e"
+        },
+        {
+            "file": "docs/marketing/ibm-plex-mono-regular.woff2",
+            "sha256": "f5e0e7b367a02ac91b9f0e0e4aff131b2ca350471d48d7c9e46d5791bf59c430"
+        },
+        {
+            "file": "docs/marketing/ibm-plex-sans-regular.woff2",
+            "sha256": "f3b0798da25fce10c8535de62d6f96f705a1dbae4ba5786d95a675cffec8c246"
+        },
+        {
+            "file": "docs/marketing/ibm-plex-sans-semibold.woff2",
+            "sha256": "4cf5d4f3e4a2388a5948d018420f0e3c1ca4b57a6fb2fb1e12330bf373b84b50"
+        },
+        {
+            "file": "docs/marketing/product-files.png",
+            "sha256": "ba23fb80505805d9a8c719555221e0157ac7c5ce82b8c95a9548cd8b9f3e05cf"
+        },
+        {
+            "file": "docs/marketing/product-files.webp",
+            "sha256": "38584eb44a2ce4e88b861710ea7dba8a4cff5ce4424bce9a24761a8af771908e"
+        },
+        {
+            "file": "docs/marketing/product-terminal.png",
+            "sha256": "f52fae8270f958fe36b9d001f7d0239cf31081ec6076413d6722bfd774b33047"
+        },
+        {
+            "file": "docs/marketing/product-terminal.webp",
+            "sha256": "33a86e83e464bbc0827525cb36d42d28c18ffd1a19239328d2f306f52b94a392"
+        },
+        {
+            "file": "docs/marketing/readme-changes.jpg",
+            "sha256": "fb62f485afb0334f34b52242f99233212aa172028416e9e3b0b233b84e1e9641"
+        },
+        {
+            "file": "docs/marketing/readme-changes.webp",
+            "sha256": "bda33dc33c49348867664444d9cd30871505741b05b0b8c1502ae5d69ace4c42"
+        },
+        {
+            "file": "docs/marketing/readme-computer.jpg",
+            "sha256": "afe0c4702c0d05e25109e7f49fbd71d0cc50580de2d6631b88264972feb23400"
+        },
+        {
+            "file": "docs/marketing/readme-computer.webp",
+            "sha256": "39cb861a7826dae66e36242f8e3806782dacbc11375d49631673ee79d34c95ba"
+        },
+        {
+            "file": "docs/marketing/readme-gestures.jpg",
+            "sha256": "2ed6f14f4aae6a644f10ab8e90d400ec028d032419b769db3f907ce753c2c1d2"
+        },
+        {
+            "file": "docs/marketing/readme-gestures.webp",
+            "sha256": "a21d24bfc070991430fd2c99d0f2f45e371759e7764ef8e3800020a496ecdd21"
+        },
+        {
+            "file": "docs/marketing/readme-herd.jpg",
+            "sha256": "4a3987ff1560276952a0da878f0eebfb39ae3c723a539e85ac47d1959e6990a8"
+        },
+        {
+            "file": "docs/marketing/readme-herd.webp",
+            "sha256": "449d184fc1a635f60e289c1a6a4b15299d84fc7225c4a2a7e9e8862ad530bd1b"
+        },
+        {
+            "file": "docs/marketing/readme-inbox.jpg",
+            "sha256": "ceedb28a19df8b307c62b8df763a87f2853ff7856135f58f4c3029d6c5a35eff"
+        },
+        {
+            "file": "docs/marketing/readme-inbox.webp",
+            "sha256": "1e4f46737387c2d4ac8ae50c51206384af531868be89370db7674ff435b82c8c"
+        },
+        {
+            "file": "docs/marketing/readme-terminal.jpg",
+            "sha256": "7032a7d5ce7bdf9fe3de7d23280b010c15019c075506e3c4e98d99b09ec0d89b"
+        },
+        {
+            "file": "docs/marketing/readme-terminal.webp",
+            "sha256": "0795c8d9b8161b1c9ff360fb999c3d0eb44cc498cce325cb11b7499473fd4a8a"
+        },
+        {
+            "file": "docs/marketing/readme-voice.jpg",
+            "sha256": "9f64f4e485e73185ac9bf4751506761c705e0296e28c138bb9e402c4e433615d"
+        },
+        {
+            "file": "docs/marketing/readme-voice.webp",
+            "sha256": "7e9e61faa1ee896d480588ea166ad9c7d01e99676e1c7d288d3ef16ae5890ab5"
+        },
+        {
+            "file": "docs/marketing/rpg-cover.png",
+            "sha256": "7a14b1bd0752e6ca4c34d865e788eaa9b27fa95911c961fe56ecca6a866323b8"
+        },
+        {
+            "file": "docs/marketing/rpg-cover.webp",
+            "sha256": "aab9a6ac0c9acf5370da39e5e14519fb7f469ead8b01722c0336764ab0364f03"
+        },
+        {
+            "file": "docs/marketing/wordmark.png",
+            "sha256": "f02dfbe9785f97ea5ac0e18eb7c675cd199a6c3fe006f445a19f55a908470cbe"
+        },
+        {
+            "file": "docs/media/demo.json",
+            "sha256": "a18d7286b3667da1a30d27e3ebaa2a5ebdf7f80c5418e0a432d19721851e23a9"
+        },
+        {
+            "file": "docs/media/demo.mp4",
+            "sha256": "c1d0a41400d4d3be534392e707200ec4c3f74a45ffbdbaf11339c478a40c87fb"
+        }
+    ],
+    "film": {
+        "source": "Tales from the Herd finals and current-main app captures",
+        "inputs": [
+            {
+                "file": "muxr-ep2-good-morning-16x9.mp4",
+                "sha256": "3cc3aedd5923783fb5b57f22fa0a1531abede2b9e3c46871c85e3c31fe491b82"
+            },
+            {
+                "file": "muxr-ep3-the-shearing-16x9.mp4",
+                "sha256": "615ef9c92b3cb8dcbe5295d25871f15310efc4e2b64da7b368ddc3ff8ade11e2"
+            },
+            {
+                "file": "muxr-ep6-the-whole-farm-16x9.mp4",
+                "sha256": "f201f33ad424188caa84aa9da7515a05493262a4c0814e3db56637ea83e903ec"
+            },
+            {
+                "file": "muxr-ep7-talk-to-the-herd-16x9.mp4",
+                "sha256": "b599a8cdf23c118503cd3fc8fb0cab3be26b83409df41cb4bb05183a81ed922e"
+            },
+            {
+                "file": "muxr-the-gate-16x9.mp4",
+                "sha256": "5a97071dd16d9a72c5d189b3e5638012d437c7cd0098042ba767a53bf21362b6"
+            },
+            {
+                "file": "muxr-ep4-the-line-up-16x9.mp4",
+                "sha256": "44690c4b6fafc7461208773892a46957dc959466cf67bdf16ab67836d553228a"
+            },
+            {
+                "file": "muxr-ep5-the-farmhouse-window-16x9.mp4",
+                "sha256": "fe03ae910bbd4a005e979c01c8f7c9b02b81aa51c5b0bf9ad5c8c8aacb2e071d"
+            },
+            {
+                "file": "commands-sheet.jpg",
+                "sha256": "ace98c34cf61d2a4660285a7a25826fbc817634ba46fe756d899c07a1ca91446"
+            },
+            {
+                "file": "farmhouse-4-computer-signed-in.png",
+                "sha256": "a2ef02f77f6f726bd5fb198a98a3876ad45c69baeacea73dd7d0a4aee08a1ade"
+            },
+            {
+                "file": "home-ready.png",
+                "sha256": "e4c12bae1d45c318df7dce2507cf9aad1357f5b4429e2c7515b7c58a4da1abba"
+            },
+            {
+                "file": "needs-you-terminal.png",
+                "sha256": "b74e9aec7007a57d535fb0e794d214f9bbdaf74e04776f9fccc1bb695191b7c0"
+            },
+            {
+                "file": "spaces.png",
+                "sha256": "d325fc3ce0fd0ce3f6a6f53369d0cef0833b001aa9d807b2b4f2815e9e3bdeee"
+            },
+            {
+                "file": "swipe-mid.png",
+                "sha256": "cb21097d440434f58e188d014cd05b87a0c2770172db529f263b0d3154a24a6f"
+            },
+            {
+                "file": "voice.jpg",
+                "sha256": "9f64f4e485e73185ac9bf4751506761c705e0296e28c138bb9e402c4e433615d"
+            }
+        ],
+        "outputs": [
+            {
+                "file": "docs/film/farmhouse-16x9.mp4",
+                "sha256": "c19980efd0e3e2900a204593e438c83be1014087e3d9f72dc99bfefb222035d4"
+            },
+            {
+                "file": "docs/film/farmhouse-16x9.webm",
+                "sha256": "3f167e94631a4de61a1d64990662605e5ea8b7c36dec73a0c3054c552a90e8f5"
+            },
+            {
+                "file": "docs/film/farmhouse-16x9.webp",
+                "sha256": "17c4e131874307efda151362955f655b83864a8698c0087fbc3a900796872229"
+            },
+            {
+                "file": "docs/film/gate-16x9.jpg",
+                "sha256": "a423233f24442caad68b7a8dda1fa80a56d53810819b78e053f1caa78dff5bd5"
+            },
+            {
+                "file": "docs/film/gate-16x9.mp4",
+                "sha256": "ff05ee203725521b777e1a558d998a1f6b938eee75fd051fdf0f3eaf8e6c230c"
+            },
+            {
+                "file": "docs/film/gate-16x9.webm",
+                "sha256": "7b557d646cc115ed2e96270f4756a0cfc2a646fc30bb464b1fee6a27c24ee820"
+            },
+            {
+                "file": "docs/film/gate-16x9.webp",
+                "sha256": "9dff3aef674f23846ce9672e4b9d31711554c5dbe8c67f428975a64bae37fbb8"
+            },
+            {
+                "file": "docs/film/gate-answer-16x9.mp4",
+                "sha256": "ebcaf2156ab4f24f2f56fbf96454ad0c8a86ec583a3f28df204a0bf715fd5ecc"
+            },
+            {
+                "file": "docs/film/gate-answer-16x9.webm",
+                "sha256": "67b81916ab1709ed0d046704ccab0e134c0e911e5fd15f2e13c3b0ff1d4639f0"
+            },
+            {
+                "file": "docs/film/gate-answer-16x9.webp",
+                "sha256": "94d3f58170b0c971b851c044972dad3b47f6bbfbc4b8c1fa46afa54f9dcf3b51"
+            },
+            {
+                "file": "docs/film/good-morning-16x9.mp4",
+                "sha256": "477d4ff5aa3c4891e4371eea4bf3dc7ea4cc7f24a127d9f5472d134348be456c"
+            },
+            {
+                "file": "docs/film/good-morning-16x9.webm",
+                "sha256": "995f19d209fb7be3ba315673cc89d381815b5e033ae716f08703e03075ea6db2"
+            },
+            {
+                "file": "docs/film/good-morning-16x9.webp",
+                "sha256": "cd685bed9522c79f85dc558e912f842d04ba39bceb8f5d2714f5384139ec6061"
+            },
+            {
+                "file": "docs/film/line-up-16x9.mp4",
+                "sha256": "65804ddc107a50ab8ffdea847068b6a7ffe4c9cf07a38bd487ac1846e0ac261c"
+            },
+            {
+                "file": "docs/film/line-up-16x9.webm",
+                "sha256": "a1848012094038ce0e78c22e57c593967bdca109ea4a2503c363aa7522466382"
+            },
+            {
+                "file": "docs/film/line-up-16x9.webp",
+                "sha256": "f0772b9ed2eabdafd1550336ea6bb4095901aeb456dfd59259cdb979d9ff8e50"
+            },
+            {
+                "file": "docs/film/screen-farmhouse.webp",
+                "sha256": "7de99c6c7b838baf69840b5d22bde20746298617a0ba7de071e37792cb4b0ce6"
+            },
+            {
+                "file": "docs/film/screen-gate.webp",
+                "sha256": "9400241510c6d9a29ff0ba462966207474ccbf6de14dc9684176506f25738880"
+            },
+            {
+                "file": "docs/film/screen-good-morning.webp",
+                "sha256": "a407bf3783f4367c8141896bcb5702540da4843f5202525625485dee8f61627c"
+            },
+            {
+                "file": "docs/film/screen-line-up.webp",
+                "sha256": "9a48259cf618be2542c4b8fa685711d80553e2aa2f77c9f2805cfec9159fad24"
+            },
+            {
+                "file": "docs/film/screen-shearing.webp",
+                "sha256": "aaa1dcbd057cb2c45879e1885ea18aff56a1726956320d069c9f1ed3a1310b27"
+            },
+            {
+                "file": "docs/film/screen-talk-to-the-herd.webp",
+                "sha256": "5e22cecd488a93e65486e695b39276c16d0861df554dfcc5973d06065106bf75"
+            },
+            {
+                "file": "docs/film/screen-whole-farm.webp",
+                "sha256": "de69aeec3d0763e094d7c7189aab5e9d6de0b0d7958d05c0310d1037566712b7"
+            },
+            {
+                "file": "docs/film/shearing-16x9.mp4",
+                "sha256": "520f4dd19ad9d5da2048c1db44758b8ac1e72615f4fe378951b191da057c1838"
+            },
+            {
+                "file": "docs/film/shearing-16x9.webm",
+                "sha256": "4f16b3489b19a1b71a342d9e62cf0caa5207e41f4d930e8b02d84c1963900be3"
+            },
+            {
+                "file": "docs/film/shearing-16x9.webp",
+                "sha256": "bffff7ed930792cc8109cda7ebfe870b79ac51457ef9ceba2e33e614e84b885c"
+            },
+            {
+                "file": "docs/film/talk-to-the-herd-16x9.mp4",
+                "sha256": "09d4dba9c98d8b182f21164c15b56651dbb054dfde7123ded23a6f88a3fb8638"
+            },
+            {
+                "file": "docs/film/talk-to-the-herd-16x9.webm",
+                "sha256": "0066d698bb52c62513e6926f60f3ac6fa9b5cf74528efd56c92b4bf16958fad2"
+            },
+            {
+                "file": "docs/film/talk-to-the-herd-16x9.webp",
+                "sha256": "6f4734b50b6e52f04e3c4364663b5e00d78c7c392b5a463393f3621258cbfbe7"
+            },
+            {
+                "file": "docs/film/whole-farm-16x9.mp4",
+                "sha256": "37eb610fe2239fe9909621921a246a0aa9070c7440286daa3c95be52ae7dffdb"
+            },
+            {
+                "file": "docs/film/whole-farm-16x9.webm",
+                "sha256": "f8762c3735eed864e11f5456abc0d89a3a05897f52336f1aba78fc0d0eab0920"
+            },
+            {
+                "file": "docs/film/whole-farm-16x9.webp",
+                "sha256": "277b0f99a6ccbdaf75f03038786644f91a5ff2d0bbd3add107f2431babc35757"
+            }
+        ]
+    },
+    "herd": {
+        "source": "Tales from the Herd film engine and cast, drawn by scripts/herd-spots.cjs",
+        "inputs": [
+            {
+                "file": "core.js",
+                "sha256": "a64a816c7f044f13041eb3f2f295bf7b5fed754843e3aa71940b6a2ac6b4929c"
+            },
+            {
+                "file": "studio.js",
+                "sha256": "ef9c87bf45933f65d97abad661f18f40363939b8326c1bd9c3be224783058372"
+            },
+            {
+                "file": "cels.js",
+                "sha256": "b3f75dccf981a922b6de5d7bd1ad85182da1e8f40b290f547036821553b80ef1"
+            },
+            {
+                "file": "fonts.js",
+                "sha256": "58d9dfa2527349e12433bbfefd31d7d1d00e26eae184cce67d681633c6848788"
+            },
+            {
+                "file": "art.js",
+                "sha256": "32bdb5236ba31ab1a319f62242292b8db9f8f42e3c05fadd4a7e4e0a05022268"
+            },
+            {
+                "file": "human.js",
+                "sha256": "804f75b5b8441e49415d676e302f10dc68a5aeac26ba5fc1b241c0a18ef89346"
+            },
+            {
+                "file": "world.js",
+                "sha256": "08faffb808bd880e175904f97cdad2c824447858179eb73a3610c709182a1073"
+            },
+            {
+                "file": "sets3.js",
+                "sha256": "8c2ff9c52f88e1d67d61339c0336e958a24784e2da59a8fb0912df610338be8f"
+            }
+        ],
+        "outputs": [
+            {
+                "file": "docs/herd/delivery-dark.webp",
+                "sha256": "7f015c8d48244c0e24fcc9ba553cf6f9dbca0f034637f7324a8b9a0b82a4ab81"
+            },
+            {
+                "file": "docs/herd/delivery.webp",
+                "sha256": "c7ddbcb5a8baa7be237de14035890ebcf74ad426a06fae36d1db974ac6f786f8"
+            },
+            {
+                "file": "docs/herd/farm-dark.webp",
+                "sha256": "90dca77a437786ccd7a9423f1a03036f5c6ce11a28e80050995f1e929e880e60"
+            },
+            {
+                "file": "docs/herd/farm.webp",
+                "sha256": "1fe87bff16b14271cba075d0f13887661db44d79104209b229152b286a3e48e7"
+            },
+            {
+                "file": "docs/herd/fence-dark.webp",
+                "sha256": "a52f9c3339f647d029b6774d5df25778ea9e08e4ef30465913599867d7bc303f"
+            },
+            {
+                "file": "docs/herd/fence.webp",
+                "sha256": "f3d8b9315b45229f684794a49df976acd70cc68ee4f82cc322682efe3fe50b61"
+            },
+            {
+                "file": "docs/herd/herd-dark.webp",
+                "sha256": "790ab6042a456cd7a8f64a6cda4ee224d28a813113be3fe2e0a133f7298cf76f"
+            },
+            {
+                "file": "docs/herd/herd.webp",
+                "sha256": "2e46a33fd6c348c829ef29a5c18e349f5e3842f5d32ba6774e56ad40b2efdb9c"
+            },
+            {
+                "file": "docs/herd/lost-dark.webp",
+                "sha256": "fd24e30ba4022a433f04f37c95eedf10b149d37b6256420f1144862ecb17a604"
+            },
+            {
+                "file": "docs/herd/lost.webp",
+                "sha256": "05f5716073fd688e73a3e9e1eb0288823e93974da38ecfbf7b8a72fc7d7def91"
+            },
+            {
+                "file": "docs/herd/pair-dark.webp",
+                "sha256": "9f972ae55ec7d04942f102ca437efeae07cc535c17435731e6f8fbd25c03b044"
+            },
+            {
+                "file": "docs/herd/pair.webp",
+                "sha256": "c3e13f7b102f3979a7be3824e08751f51f03eb30475b0a4725020961d6748fae"
+            },
+            {
+                "file": "docs/herd/question-dark.webp",
+                "sha256": "b4f08ba84b94124591116f89364ad45a283e04c8d1c8a478e27b37342ffae498"
+            },
+            {
+                "file": "docs/herd/question.webp",
+                "sha256": "8176d4cc5cf5c41ce8cc74a47b3d3e6bef2ea1b7dec5121decf1cba7610ca304"
+            },
+            {
+                "file": "docs/herd/step-app-dark.webp",
+                "sha256": "a0906a937083511d466b68cd140cebf2e7584fe45251a893ec3c6ca9f056b085"
+            },
+            {
+                "file": "docs/herd/step-app.webp",
+                "sha256": "f9cb127a042e0a66812d157a599db8ddbcce1344c66b7c77473cd43c5a949561"
+            },
+            {
+                "file": "docs/herd/step-install-dark.webp",
+                "sha256": "ae81a27ffd849fe4a92752ba1e5400dd1507068227ff43acc75e5fd7ff688b42"
+            },
+            {
+                "file": "docs/herd/step-install.webp",
+                "sha256": "396cd66c07926f406b653c097d973c5496402b04c29fb9857f8fd648f56281cd"
+            },
+            {
+                "file": "docs/herd/step-scan-dark.webp",
+                "sha256": "b6dd032a28520e30ca03de462019e0fc3103f61c7d6b12468330b8d464aea2bd"
+            },
+            {
+                "file": "docs/herd/step-scan.webp",
+                "sha256": "bb9d38ecb8b16f0b3f810e14c3b666b90eec41bcb3e164602ce8003394ee9f5c"
+            }
+        ]
+    },
+    "screens": {
+        "source": "current-main app captures and the muxr README screens",
+        "inputs": [
+            {
+                "file": "changes.jpg",
+                "sha256": "fb62f485afb0334f34b52242f99233212aa172028416e9e3b0b233b84e1e9641"
+            },
+            {
+                "file": "dictation.jpg",
+                "sha256": "857a2b12cf3843bc6744fb924fda4645af308758bcd5a6b2c594c7c004db3923"
+            },
+            {
+                "file": "home-needs-you.png",
+                "sha256": "175d4d0fc5fb69a70d9acceea72e4c0bfcb5bac9a0abde825c678b45f056e97b"
+            },
+            {
+                "file": "notification-lock-screen.png",
+                "sha256": "b7e46ac20c4785c9d4174a62703c2da427a7a2584aacd47df56edaa7ca06f5d8"
+            },
+            {
+                "file": "settings-appearance.png",
+                "sha256": "c3f90e891a1b1a83cab368e2237cbff7c748dcbe52118321eca16798fe21e43d"
+            },
+            {
+                "file": "settings-gestures.png",
+                "sha256": "3130131928aa1854fe174ebdfa0ab1cfdf01fbb11ccab6f2264d3c58a7547d6f"
+            },
+            {
+                "file": "tabs.jpg",
+                "sha256": "0cdd2844502a0b3b8b81a669e5f2ecc0707d1fa1587b807e321a9f8d6062cf34"
+            },
+            {
+                "file": "terminal-key-row-keyboard.png",
+                "sha256": "47f3b14aa1126934bc5c6235011ae9b33cff32d4792da33099f40df34c9c9d2e"
+            },
+            {
+                "file": "usage.png",
+                "sha256": "919cf735c20aafd95ec9a78788a3d1f5a4d58c4a433fb3ca4a99b6975e2a166b"
+            },
+            {
+                "file": "voice.jpg",
+                "sha256": "9f64f4e485e73185ac9bf4751506761c705e0296e28c138bb9e402c4e433615d"
+            }
+        ],
+        "outputs": [
+            {
+                "file": "docs/screens/appearance.webp",
+                "sha256": "84249bb5bf69925944b4cce8bdcee8fc75d42ab1628f0e0ac20cb9e6af03485c"
+            },
+            {
+                "file": "docs/screens/dictation.webp",
+                "sha256": "74164cb8179e2a7f0dffbe899f8bf6334245db360bc5b01a92b7e1bb34b3d1ff"
+            },
+            {
+                "file": "docs/screens/gestures.webp",
+                "sha256": "cfd63a33189b7fea5a406e698f73aaacc075b3b4e16adb445bf03ac0a926af88"
+            },
+            {
+                "file": "docs/screens/keys.webp",
+                "sha256": "ab6a2d289f61d1e995df4b8f188477606381d1efae1bffec44bec944f7c10468"
+            },
+            {
+                "file": "docs/screens/live.webp",
+                "sha256": "84c56266c204c6c3e96cadc2285194cac7d8fb32c6aae2d4cb936267d55d6cc8"
+            },
+            {
+                "file": "docs/screens/lock-screen.webp",
+                "sha256": "098243a9fe9f32c3182e919011efbb2955441cb320208e55ba1608c797e890e8"
+            },
+            {
+                "file": "docs/screens/review.webp",
+                "sha256": "272b02f7f9270e9aa2a9571bf905b7209a8b65feb88cfea701548f22dd22b580"
+            },
+            {
+                "file": "docs/screens/tabs.webp",
+                "sha256": "653af99efae4b89782fee7abe7481fe9f40f518f93b1c9ab7051858bd02f22c8"
+            },
+            {
+                "file": "docs/screens/usage.webp",
+                "sha256": "d81a51f9e2e6048b0e7129ec732504d8042c96f221884a1640e75f1322374870"
+            },
+            {
+                "file": "docs/screens/voice.webp",
+                "sha256": "452cd6cad50accb1ae6ec41e6493d943f1bdae8c805bebb0ce6996c896da5f66"
+            }
+        ]
+    }
+}

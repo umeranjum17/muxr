@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname, isAbsolute } from 'node:path';
-import { lifecycleEventAgentName, spokenMatches, type AgentInfo, type LifecycleEvent } from '@trymuxr/contract';
+import { derivedAgentName, lifecycleEventAgentName, spokenMatches, type AgentInfo, type LifecycleEvent } from '@trymuxr/contract';
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_PROVIDER_TEXT_BYTES = 8 * 1024;
@@ -238,11 +238,11 @@ function key(value: string): string {
 }
 
 function taskLabel(agent: RealtimeCodingAgent): string {
-    return agent.taskTitle ?? agent.agentName ?? 'Unnamed agent';
+    return agent.taskTitle ?? derivedAgentName(agent);
 }
 
 function agentNameLabel(agent: RealtimeCodingAgent): string {
-    return agent.agentName ?? 'Unnamed agent';
+    return derivedAgentName(agent);
 }
 
 function agentKindLabel(agent: RealtimeCodingAgent): string {
@@ -294,11 +294,11 @@ function kindLabel(value: string): string {
 }
 
 function spokenAgentName(agent: RealtimeCodingAgent): string {
-    return safeProviderText(agentNameLabel(agent), 80) || 'Unnamed agent';
+    return safeProviderText(agentNameLabel(agent), 80) || 'Agent';
 }
 
 function spokenTaskTitle(agent: RealtimeCodingAgent): string {
-    return safeProviderText(taskLabel(agent), 120) || 'Unnamed agent';
+    return safeProviderText(taskLabel(agent), 120) || 'Agent';
 }
 
 function diagnosticOperation(method: string | undefined): RealtimeCoordinationOperation {

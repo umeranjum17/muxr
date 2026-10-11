@@ -292,7 +292,7 @@ describe('phone launch before herdr detects the agent', () => {
             answer: host.answer, canView: host.canView,
             onDeviceConnection: (id, active) => { linkStates.set(id, active); host.setLinkDeviceConnection(id, active); },
         });
-        host.onBroadcast((frame) => endpoint!.broadcast(frame));
+        host.onBroadcast((frame, deviceId) => endpoint!.broadcast(frame, deviceId));
         endpoint!.start();
         const grant: DeviceGrant = {
             v: 1, secretKey: b64url(phone.secretKey), host: b64url(machine.publicKey), hostName: 'Umer',
