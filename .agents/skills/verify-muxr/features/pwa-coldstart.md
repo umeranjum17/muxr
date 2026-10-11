@@ -22,6 +22,16 @@ the export's own `/mermaid.min.js` when a diagram renders
   their shared d3/lodash tree. Before this slice those were hoisted there
   (~640 KB gzip) because mermaid's diagram modules load each other dynamically,
   so the engine now loads from `/mermaid.min.js` on demand instead.
+- The cold landing and pair screen draw no Skia, so they never fetch CanvasKit
+  (`canvaskit.wasm`, ~8 MB): the web entry does not call the loader. The only
+  load site is `components/skiaWeb.tsx` (`loadSkiaWeb` / `SkiaWebGate`), which
+  `ScreenChart` mounts around its Skia/victory subtrees, so CanvasKit arrives
+  only when a screen that draws with Skia opens. `sw.js` caches it on first
+  fetch, so that screen also works offline afterwards. `checkWebExport` fails
+  (`web entry never loads CanvasKit at startup`) if any module the entry loads
+  eagerly names the loader outside `skiaWeb.tsx`/`ScreenCharts.tsx`, and
+  (`eager payload carries no CanvasKit glue`) if the built payload gains the
+  glue; the runtime "no request before first paint" proof is step 5.
 - `grep -c 'xterm'`/`'shiki'`/`'Oniguruma'`/`'PierreDiffView'` against the eager
   entry and `__common` chunks is `0`; they appear only in the lazy
   `TerminalRoute-*.js` (which holds the xterm `TerminalView` boundary),
@@ -76,12 +86,22 @@ needed to render the diff surface.
    `first-contentful-paint`/`navigation.loadEventEnd`. For a true standalone
    window launch Chromium with `--app=<url>` and assert
    `matchMedia('(display-mode: standalone)').matches === true`.
-5. Route chunks: open `/session/<any-id>` and assert the `TerminalRoute-*.js`
+5. Skia stays off the landing: on that cold load assert no `canvaskit.wasm` in
+   `performance.getEntriesByType("resource")` and `window.CanvasKit ===
+   undefined`. No shipped in-repo web screen draws with Skia — `UsageScreen`
+   hardcodes `variant="bar"`/`variant="column"`, and only the `gauge`/`ring`
+   variants mount `SkiaWebGate` (`ScreenCharts.tsx`), which no in-repo caller
+   passes — so the on-demand half of this proof needs a host-installed plugin
+   panel that supplies `gauge`/`ring`, or a harness mounting `ScreenChart` with
+   that variant at ≥680 px content width. On that surface assert
+   `canvaskit.wasm` is fetched (`initiatorType: fetch`, ~8 MB) and
+   `window.CanvasKit` becomes an object.
+6. Route chunks: open `/session/<any-id>` and assert the `TerminalRoute-*.js`
    request happened and the screen shows the not-paired state, not a blank body.
-6. Diff surface: with a paired host, open a commit/change and assert the
+7. Diff surface: with a paired host, open a commit/change and assert the
    `codeSurfaces-*.js` and `pierreBundle-*.js` requests happened and the diff
    renders highlighted.
-7. On-demand grammars, without a host: bundle the diff surface's `shiki` alias
+8. On-demand grammars, without a host: bundle the diff surface's `shiki` alias
    and `@pierre/diffs/react` for the browser with the repo's `esbuild`
    (`--alias shiki` -> `sources/components/diff/shikiSlim.ts`, mirroring the
    Metro alias), serve the harness from `dist` so `/shiki-langs/` resolves, and
@@ -90,7 +110,7 @@ needed to render the diff surface.
    `/shiki-langs/vue.json` are fetched and the diff paints Vue and TypeScript
    highlighting at 393 px light and dark; render a TypeScript-only patch and
    confirm no `/shiki-langs/` request happens.
-8. Mermaid engine, with a markdown block: the app's only `MarkdownView` →
+9. Mermaid engine, with a markdown block: the app's only `MarkdownView` →
    `MermaidRenderer` surface is the changelog's legacy markdown
    (`app/(app)/changelog.tsx`), reached in-app via Settings → What's New. Its
    bundled `changelog.json` has no mermaid fence, so add a temporary
@@ -115,7 +135,7 @@ needed to render the diff surface.
   budget from the check, not the browser.
 - The commit / changes-file routes need a paired host to render; without one
   they show the transport error and never fetch `codeSurfaces`. When no host is
-  available, drive the diff surface standalone with step 7 instead of claiming
+  available, drive the diff surface standalone with step 8 instead of claiming
   the app route rendered.
 - The on-demand grammar assets live in `dist/shiki-langs/` (built into
   `public/shiki-langs/` before the export; gitignored like canvaskit). A stale
