@@ -1,0 +1,6 @@
+/* Minimal readable defaults so the window is legible before the full stylesheet (PR 3) lands. */
+:root { color-scheme: dark; }
+[hidden] { display: none !important; }
+body { margin: 0; background: #181818; color: #f0f0f0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: #7ec8ff; }
+button, .btn { color: inherit; }
