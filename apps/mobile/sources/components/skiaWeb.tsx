@@ -11,8 +11,15 @@ let skiaWebLoad: Promise<void> | null = null;
 export function loadSkiaWeb(): Promise<void> {
     if (Platform.OS !== 'web') return Promise.resolve();
     if (skiaWebLoad === null) {
-        skiaWebLoad = import('@shopify/react-native-skia/lib/module/web')
-            .then(({ LoadSkiaWeb }) => LoadSkiaWeb({ locateFile: (file: string) => `/${file}` }))
+        // Call CanvasKitInit directly rather than the library's LoadSkiaWeb
+        // wrapper. That wrapper memoizes its init promise at module scope and
+        // never clears it, so one failed ~8 MB wasm fetch would rethrow the
+        // same rejected promise on every later mount for the rest of the
+        // session. Owning the promise here is what lets a failed fetch be
+        // retried; the wrapper did nothing beyond this init plus the global.
+        skiaWebLoad = import('canvaskit-wasm/bin/full/canvaskit')
+            .then(({ default: CanvasKitInit }) => CanvasKitInit({ locateFile: (file: string) => `/${file}` }))
+            .then((CanvasKit) => { (globalThis as { CanvasKit?: unknown }).CanvasKit = CanvasKit; })
             .catch((error) => {
                 skiaWebLoad = null;
                 throw error;
