@@ -44,6 +44,7 @@ let win;
 let tray;
 let runtime;
 let pairing;
+let reopenTimer;
 let retrying = false;
 let blockerId = null;
 let settings = { keepAwake: false, autostart: true };
@@ -143,17 +144,35 @@ function offerState(offer) {
     return { phase: 'online', code: shown.text, expires: shown.expires };
 }
 
+const PAIRING_REOPEN_MS = 3_000;
+
+// One shared timer: a completed or failed session and the socket's own close
+// never both mint a fresh offer, and only the newest session re-opens.
+function reopenPairingSoon() {
+    if (reopenTimer !== undefined) clearTimeout(reopenTimer);
+    reopenTimer = setTimeout(() => {
+        reopenTimer = undefined;
+        if (runtime !== undefined) startPairing();
+    }, PAIRING_REOPEN_MS);
+}
+
 function startPairing() {
-    pairing?.close();
+    if (reopenTimer !== undefined) { clearTimeout(reopenTimer); reopenTimer = undefined; }
+    const previous = pairing;
+    pairing = undefined;
+    previous?.close();
     const connect = () => {
         // The host opens pair.sock a moment after it reports online; retry until it is there.
         if (!existsSync(runtime.pairSocketPath)) { setTimeout(connect, 300); return; }
-        pairing = openPairingSocket(runtime.pairSocketPath, {
+        let client;
+        client = openPairingSocket(runtime.pairSocketPath, {
             onOffer: (offer) => send(offerState(offer)),
             onApproval: (approval) => send({ phase: 'approval', deviceName: approval.name, words: approval.words }),
-            onPaired: (record) => { send({ phase: 'paired', deviceName: record?.name ?? 'your phone' }); setTimeout(() => { if (runtime !== undefined) startPairing(); }, 3_000); },
-            onError: (message) => send({ phase: 'error', message }),
+            onPaired: (record) => { send({ phase: 'paired', deviceName: record?.name ?? 'your phone' }); reopenPairingSoon(); },
+            onError: (message) => { send({ phase: 'error', message }); reopenPairingSoon(); },
+            onClosed: () => { if (pairing === client) reopenPairingSoon(); },
         });
+        pairing = client;
     };
     connect();
 }
@@ -211,6 +230,7 @@ if (!app.requestSingleInstanceLock()) {
     app.on('activate', () => showWindow());
     app.on('window-all-closed', () => { if (tray === undefined) app.quit(); });
     app.on('before-quit', () => {
+        if (reopenTimer !== undefined) { clearTimeout(reopenTimer); reopenTimer = undefined; }
         pairing?.close();
         runtime?.stop();
         if (blockerId !== null) { powerSaveBlocker.stop(blockerId); blockerId = null; }
