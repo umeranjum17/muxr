@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cleanTestScratch, processGroup, processStart, scratchEntries, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
+import { cleanTestScratch, processGroup, processStart, removeTestScratch, scratchEntries, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
 
 const base = mkdtempSync(join(process.cwd(), '.scratch-check-'));
 let orphan;
@@ -80,9 +80,28 @@ try {
     writeFileSync(join(unknown, 'owner'), 'unknown');
     testScratchOwner(base);
     assert.equal(existsSync(unknown), true);
+
+    // A node compile cache can flush a file into a directory after its children
+    // were enumerated. fs.rmSync's retry only repeats the final rmdir, so that
+    // stray keeps every retry failing with ENOTEMPTY; the shared removal re-reads
+    // the tree and clears it once the writer stops.
+    const raced = mkdtempSync(join(base, 'raced-'));
+    const leaf = join(raced, 'leaf');
+    const ready = join(leaf, '.writing');
+    mkdirSync(leaf);
+    for (let i = 0; i < 2000; i++) writeFileSync(join(leaf, `bulk-${i}.cache`), 'x');
+    const lateWriter = spawn(process.execPath, ['-e',
+        'const {writeFileSync}=require("node:fs");const leaf=process.argv[1];const ready=process.argv[2];writeFileSync(ready,"x");const end=Date.now()+1500;let n=0;while(Date.now()<end){try{writeFileSync(leaf+"/late-"+(n++)+".cache","x");}catch{break}}',
+        leaf, ready], { stdio: 'ignore' });
+    const waitStart = Date.now();
+    while (!existsSync(ready) && Date.now() - waitStart < 5000) {}
+    assert.ok(existsSync(ready), 'late writer never started');
+    removeTestScratch(raced);
+    assert.equal(existsSync(raced), false);
+    lateWriter.kill('SIGKILL');
 } finally {
     if (orphan) {
         try { process.kill(orphan, 'SIGKILL'); } catch {}
     }
-    rmSync(base, { recursive: true, force: true });
+    removeTestScratch(base);
 }

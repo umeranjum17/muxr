@@ -1,4 +1,5 @@
 export function scratchBase(): string;
+export function removeTestScratch(path: string): void;
 export function processStart(pid: number): string | undefined;
 export function processGroup(pid: number): number | undefined;
 export function testScratchOwner(base: string): void;
