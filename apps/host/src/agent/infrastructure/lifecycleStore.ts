@@ -16,6 +16,8 @@ export interface LifecycleStore {
     latestFor(sessionId: string): LifecycleEvent | undefined;
     remove(sessionId: string): void;
     transition(sessionId: string, agentName: string, state: AgentLifecycle, reason: LifecycleReasonCode, taskTitle?: string, agentKind?: string, question?: string): LifecycleEvent | undefined;
+    /** Flush the pending write; resolves once it has landed. */
+    dispose(): Promise<void>;
 }
 
 const MAX_EVENTS = 50;
@@ -63,6 +65,9 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
     }
 
     return {
+        dispose() {
+            return persist.dispose();
+        },
         catalog() {
             const current = events.filter((event) => now().getTime() - Date.parse(event.at) <= MAX_AGE_MS);
             if (current.length !== events.length) {
