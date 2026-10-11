@@ -14,6 +14,8 @@
 
 * { box-sizing: border-box; }
 
+[hidden] { display: none !important; }
+
 html, body {
     height: 100%;
     margin: 0;
@@ -77,8 +79,6 @@ body {
     padding: 22px;
     text-align: center;
 }
-
-.card[hidden] { display: none; }
 
 .card h1 {
     margin: 0 0 8px;
