@@ -5,7 +5,7 @@ const cards = {
     approval: document.getElementById('card-approval'),
     paired: document.getElementById('card-paired'),
     error: document.getElementById('card-error'),
-    'cli-running': document.getElementById('card-cli-running'),
+    'already-running': document.getElementById('card-already-running'),
     note: document.getElementById('card-note'),
 };
 const dot = document.getElementById('status-dot');
@@ -27,7 +27,7 @@ const TITLES = {
     approval: 'Waiting for approval',
     paired: 'Paired',
     error: 'Needs attention',
-    'cli-running': 'Already running',
+    'already-running': 'Already running',
 };
 
 function show(which) {
@@ -84,9 +84,9 @@ window.muxr.onState((state) => {
     } else if (state.phase === 'error') {
         document.getElementById('error-message').textContent = state.message ?? 'muxr could not start.';
         show('error');
-    } else if (state.phase === 'cli-running') {
-        document.getElementById('cli-running-message').textContent = state.message ?? 'muxr is already running on this computer from the command-line install.';
-        show('cli-running');
+    } else if (state.phase === 'already-running') {
+        document.getElementById('already-running-message').textContent = state.message ?? 'muxr is already running on this computer from the command-line install.';
+        show('already-running');
     }
 });
 
