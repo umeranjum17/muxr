@@ -536,6 +536,11 @@ process.stdin.on('data', (chunk) => {
         await desktop.write(`${JSON.stringify({ type: 'desktop.open', requestId: 'lv-2', params: { permissions: ['view'] } })}\n`);
         await until(() => replies.length > 0, 'desktop refusal');
         expect(JSON.parse(replies[0]!)).toMatchObject({ type: 'result', requestId: 'lv-2', ok: false, code: 'permission-denied' });
+
+        // It asks the host to run an agent action: refused by the grant before
+        // the engine, so the host's answer callback never sees the frame.
+        await expect(link.request('session.prompt', { type: 'session.prompt', requestId: 'lv-3', params: { sessionId: 's1', text: 'rm -rf typed by a watcher' } }))
+            .rejects.toMatchObject({ code: 'view-only' });
         expect(answered).toEqual([]);
     });
 
