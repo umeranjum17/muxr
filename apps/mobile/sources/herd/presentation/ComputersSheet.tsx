@@ -206,17 +206,19 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
 
     const body = (
         <View>
-            <ItemGroup title="Cloud computer">
+            <ItemGroup title="Cloud computer" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
                 <Item
                     title="Cloud computer"
+                    titleStyle={{ color: theme.colors.text }}
                     detail="Coming soon"
+                    detailStyle={{ color: theme.colors.textSecondary }}
                     disabled
                     showChevron={false}
                     icon={<Ionicons name="cloud-outline" size={29} color={theme.colors.textSecondary} />}
                 />
             </ItemGroup>
 
-            <ItemGroup title="Your computers">
+            <ItemGroup title="Your computers" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
                 {rows.map((row) => {
                     const availability = row.checking ? 'Checking…' : STATE_LABEL[row.state];
                     const reason = row.checking ? undefined : stateReason(row.state, row.inUse);
