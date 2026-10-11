@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure } from '@trymuxr/contract';
 import { createRequestDispatcher } from './createRequestDispatcher.js';
+import { runInProcessGroup } from '../../platform/processGroup.js';
 import { agentToolPath, createFakeSessionSource, type SessionSource } from '../../agent/index.js';
 import { hostPlatformLabel } from '../../machine/index.js';
 import { HerdrKit, agentInstallState } from '@byokit/herdr';
@@ -956,4 +957,83 @@ describe('dispatcher close', () => {
         await dispatcher.close();
         expect(disposed).toBe(1);
     });
+});
+
+function processAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+describe('machine.shell process group', () => {
+    it('answers promptly and reaps a backgrounded child instead of leaking it', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-shell-group-'));
+        const pidFile = join(home, 'child.pid');
+        try {
+            // The shell backgrounds a child and exits; that child inherits the
+            // stdout pipe. Without a group kill the reply only settles on the
+            // 60 s host timeout and the child stays charged to the unit. A
+            // second child redirects its own stdio and ignores SIGTERM: it must
+            // still die on the SIGKILL escalation, which 'close' would
+            // otherwise cancel.
+            writeFileSync(join(home, 'bg.sh'),
+                'sleep 300 &\necho $! > child.pid\n'
+                + 'sh -c \'trap "" TERM; echo ready > ready; while :; do sleep 1; done\' >/dev/null 2>&1 &\n'
+                + 'echo $! >> child.pid\nwhile [ ! -f ready ]; do sleep 0.01; done\necho started\n');
+            const { dispatch } = createRequestDispatcher({
+                source: {} as never,
+                domain: {} as never,
+                machineId: 'm1',
+                hostVersion: '0.0.0',
+            });
+            const started = Date.now();
+            const reply = await dispatch({
+                type: 'machine.shell',
+                requestId: 'bg',
+                params: { command: 'sh ./bg.sh', cwd: home },
+            } as never) as { ok: boolean; data?: { stdout?: string; exitCode?: number } };
+            const elapsed = Date.now() - started;
+            expect(reply.ok).toBe(true);
+            expect(reply.data?.stdout).toContain('started');
+            expect(elapsed).toBeLessThan(10_000);
+            const pids = readFileSync(pidFile, 'utf8').trim().split('\n').map(Number);
+            expect(pids.every(Number.isInteger)).toBe(true);
+            await new Promise((resolve) => setTimeout(resolve, 3_000));
+            expect(pids.every((pid) => !processAlive(pid))).toBe(true);
+        } finally {
+            try {
+                for (const pid of readFileSync(pidFile, 'utf8').trim().split('\n').map(Number)) {
+                    if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
+                }
+            } catch { /* the fix already reaped it, or it never started */ }
+            rmSync(home, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it('decodes a multi-byte code point split across a chunk boundary', async () => {
+        // 30000 of a 3-byte code point crosses the 64 KiB pipe chunk boundary
+        // mid-character, which a per-chunk Buffer.toString mangles.
+        const size = 30_000;
+        const result = await runInProcessGroup(
+            process.execPath,
+            ['-e', `process.stdout.write('\\u20ac'.repeat(${size}))`],
+            { maxBuffer: 10_000_000 },
+        );
+        expect(result.error).toBeNull();
+        expect(result.stdout).toBe('\u20ac'.repeat(size));
+    }, 30_000);
+
+    it('caps stdout and stderr separately, as execFile did', async () => {
+        const result = await runInProcessGroup(
+            process.execPath,
+            ['-e', "process.stdout.write('a'.repeat(600000)); process.stderr.write('b'.repeat(600000))"],
+            { maxBuffer: 1_000_000 },
+        );
+        expect(result.error).toBeNull();
+        expect(result.stdout).toBe('a'.repeat(600_000));
+        expect(result.stderr).toBe('b'.repeat(600_000));
+    }, 30_000);
 });
