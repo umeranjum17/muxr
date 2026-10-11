@@ -1018,10 +1018,11 @@ describe('machine.shell process group', () => {
         const pidFile = join(home, 'helper.pid');
         try {
             // A plugin action may start an app server and exit 0; that helper
-            // inherits our stdio pipes. Launcher mode must settle on the clean
-            // exit and leave the helper's group running rather than reap it,
-            // even when the helper writes past maxBuffer while the launcher is
-            // still running.
+            // keeps running after the launcher. Launcher mode discards the
+            // launcher's output, settles on the clean exit and leaves the
+            // helper's group running rather than reap it, even when the helper
+            // writes far more than maxBuffer while the launcher is still
+            // running.
             writeFileSync(join(home, 'start.sh'),
                 '(sleep 0.3; i=0; while [ $i -lt 200 ]; do echo "................................................"; i=$((i+1)); done; sleep 300) &\n'
                 + 'echo $! > helper.pid\nsleep 0.6\necho started\n');
@@ -1032,7 +1033,7 @@ describe('machine.shell process group', () => {
                 maxBuffer: 64,
                 preserveGroupOnCleanExit: true,
             });
-            expect((result.error as { code?: string } | null)?.code).toBe('ERR_CHILD_PROCESS_STDIO_MAXBUFFER');
+            expect(result.error).toBeNull();
             expect(Date.now() - started).toBeLessThan(5_000);
             const pid = Number(readFileSync(pidFile, 'utf8').trim());
             expect(Number.isInteger(pid)).toBe(true);

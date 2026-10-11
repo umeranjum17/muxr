@@ -18,9 +18,9 @@ instead of `Your computer didn't answer in time.`
   killed on exit or timeout.
 - Launcher mode (the plugin application launcher in `herdrSessionSource.ts`): a
   plugin action that starts a helper (an app server) and exits 0 keeps that
-  helper; only a timeout or a non-zero exit reaps the group. The
-  launcher settles on the clean exit even though the helper holds its stdio
-  pipes.
+  helper; only a timeout or a non-zero exit reaps the group. The launcher's
+  output is discarded rather than piped, so it settles on the clean exit
+  regardless of what the helper writes.
 
 ## How to get to it (user POV)
 

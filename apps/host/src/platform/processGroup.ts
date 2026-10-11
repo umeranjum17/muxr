@@ -27,11 +27,10 @@ export interface ProcessGroupOptions {
     /**
      * Launcher mode. A plugin action may deliberately start a helper (an app
      * server) and then exit 0; reaping its group would kill that helper. When
-     * set, a clean exit (code 0, no signal) leaves the group running and settles
-     * as soon as the direct child exits, so a helper holding our stdio pipes
-     * does not turn a clean launch into a timeout. A timeout or a non-zero exit
-     * still kills the group; a maxBuffer overflow settles as an error without
-     * reaping it.
+     * set, the launcher's output is discarded rather than piped, a clean exit
+     * (code 0, no signal) leaves the group running, and the promise settles as
+     * soon as the direct child exits, so nothing the launcher starts can hold
+     * the request open. A timeout or a non-zero exit still kills the group.
      */
     preserveGroupOnCleanExit?: boolean;
 }
@@ -78,7 +77,7 @@ export function runInProcessGroup(
                 ...(options.env === undefined ? {} : { env: options.env }),
                 ...(options.windowsHide === undefined ? {} : { windowsHide: options.windowsHide }),
                 detached: processGroup,
-                stdio: ['ignore', 'pipe', 'pipe'],
+                stdio: options.preserveGroupOnCleanExit === true ? ['ignore', 'ignore', 'ignore'] : ['ignore', 'pipe', 'pipe'],
             });
         } catch (error) {
             resolve({ stdout: '', stderr: '', code: null, error: error as Error });
@@ -134,7 +133,7 @@ export function runInProcessGroup(
                 overflowError = Object.assign(new Error('maxBuffer length exceeded'), {
                     code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
                 });
-                if (options.preserveGroupOnCleanExit !== true) killGroup();
+                killGroup();
                 return;
             }
             if (toStderr) stderr += stderrDecoder.write(chunk);
@@ -153,9 +152,8 @@ export function runInProcessGroup(
             exitSignal = signal;
             if (options.preserveGroupOnCleanExit === true && code === 0 && signal === null) {
                 // A plugin action that exited cleanly may have started a helper
-                // on purpose: leave the group alone and settle now, because a
-                // helper holding our stdio pipes would hold 'close' open until
-                // the timeout. A non-clean exit still reaps the group below.
+                // on purpose: leave the group alone and settle on the clean
+                // exit. A non-clean exit still reaps the group below.
                 finish();
                 return;
             }
