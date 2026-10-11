@@ -510,9 +510,10 @@ export class LinkEndpoint {
         });
     }
 
-    broadcast(frame: HostFrame): void {
+    broadcast(frame: HostFrame, deviceId?: string): void {
         const crypto = this.currentCrypto();
-        this.host.broadcast(frame, (grant) => trusted(grant, crypto));
+        this.host.broadcast(frame, (grant) => trusted(grant, crypto)
+            && (deviceId === undefined || muxrDeviceIdOf(grant) === deviceId));
     }
 
     close(): void {

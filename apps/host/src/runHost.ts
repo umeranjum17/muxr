@@ -366,7 +366,7 @@ async function main(): Promise<void> {
                     keys.dataKey = crypto.dataKey;
                 }
                 applyDeviceTables(keys, crypto);
-                void linkEndpoint?.sync(crypto).then((ok) => { if (ok) recordLinkAdmission(crypto); if (linkOnline) host.refreshLinkEnrolment(); }).catch((error: unknown) => {
+                void linkEndpoint?.sync(crypto).then((ok) => { if (ok) recordLinkAdmission(crypto); }).catch((error: unknown) => {
                     process.stderr.write(`link: admission record failed: ${error instanceof Error ? error.message : String(error)}\n`);
                 });
             } catch {
@@ -394,7 +394,7 @@ async function main(): Promise<void> {
                     hostedE2ee.dataKey = next.dataKey;
                 }
                 applyDeviceTables(hostedE2ee, next);
-                void linkEndpoint?.sync(next).then(() => { if (linkOnline) host.refreshLinkEnrolment(); });
+                void linkEndpoint?.sync(next);
             },
         };
         try {
@@ -596,7 +596,6 @@ async function main(): Promise<void> {
                                 return;
                             }
                             if (linkOnline) {
-                                host.refreshLinkEnrolment();
                                 peerRuntime?.retryRecovery();
                             }
                         },
@@ -610,8 +609,7 @@ async function main(): Promise<void> {
                         linkEndpoint.start();
                         const { startHostPairingServer } = await import('../../../scripts/setup/application/linkPair.mjs');
                         pairingServer = await startHostPairingServer(linkEndpoint, join(dataDir, 'pair.sock'), selfhostAuth?.relayUrl ?? relayUrl, herdrSession);
-                        host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
-                        if (linkOnline) host.refreshLinkEnrolment();
+                        host.onBroadcast((frame, deviceId) => linkEndpoint?.broadcast(frame, deviceId));
                     }
                     return;
                 } catch (error) {

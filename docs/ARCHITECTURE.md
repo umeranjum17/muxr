@@ -197,7 +197,9 @@ Beyond the session basics, the host exposes herdr's topology to the app:
 Shared Artifacts is product-owned per-session history over the pane's watched
 dump directory. `artifact.list` returns a bounded metadata-only snapshot and
 `artifacts.update` publishes that same newest-first view when the watcher
-changes; neither metadata path carries bytes. Previews can use `artifact.fetch`;
+changes, or to a client that just connected as its own replay — a connecting
+client's snapshot never wakes clients already watching the machine; neither
+metadata path carries bytes. Previews can use `artifact.fetch`;
 current app downloads use bounded `artifact.read` chunks (up to 512 KiB each)
 on the encrypted RPC path. The host directs each chunk response to the requesting
 link, and the relay neither replays nor buffers it. A separate one-time local

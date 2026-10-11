@@ -55,8 +55,7 @@ export interface Host {
     closeDeviceDesktopSessions: (deviceId: string, removed?: boolean) => Promise<void>;
     canView: (frame: ClientFrame) => boolean;
     /** Product events fan out through the byokit endpoint. */
-    onBroadcast: (listener: (frame: HostFrame) => void) => void;
-    refreshLinkEnrolment: () => void;
+    onBroadcast: (listener: (frame: HostFrame, deviceId?: string) => void) => void;
 }
 
 export function startHost(options: HostOptions): Host {
@@ -146,9 +145,9 @@ export function startHost(options: HostOptions): Host {
         return seq;
     }
 
-    const broadcastListeners = new Set<(frame: HostFrame) => void>();
-    function broadcast(frame: HostFrame): void {
-        for (const listener of broadcastListeners) listener(frame);
+    const broadcastListeners = new Set<(frame: HostFrame, deviceId?: string) => void>();
+    function broadcast(frame: HostFrame, deviceId?: string): void {
+        for (const listener of broadcastListeners) listener(frame, deviceId);
     }
 
     /** What the host replies to one frame; the caller's transport decides where the reply goes. */
@@ -192,24 +191,20 @@ export function startHost(options: HostOptions): Host {
         return response;
     }
 
-    function deliverSessionEvent(sessionId: string, body: SessionEventBody): void {
+    function deliverSessionEvent(sessionId: string, body: SessionEventBody, deviceId?: string): void {
         // Herdr's own session frames know nothing of presence; stamp the same
         // device preview as lists, including cumulative replay.
         const carried = body.type === 'session.created' || body.type === 'session.updated'
             ? { ...body, session: withPreview([body.session], devicePreviewFor)[0] ?? body.session }
             : body;
         const event: SessionEvent = { ...carried, seq: nextSeq(sessionId) };
-        broadcast({ type: 'session.event', sessionId, event });
+        broadcast({ type: 'session.event', sessionId, event }, deviceId);
     }
 
     function forward(sessionId: string, body: SessionEventBody): void {
         deliverSessionEvent(sessionId, body);
         if (body.type === 'session.removed') domain.unread.acknowledge(sessionId);
         else domain.unread.noteActivity(sessionId, '');
-    }
-
-    function refreshLinkEnrolment(): void {
-        source.resendCumulativeState?.(deliverSessionEvent);
     }
 
     const unsubscribe = source.subscribe(forward);
@@ -242,9 +237,15 @@ export function startHost(options: HostOptions): Host {
                 // The phone admits this handshake before fetching its tree. Reconcile closed or
                 // recovered panes first, then deliver retained launch errors before shell routing.
                 await source.list();
-                source.resendCumulativeState?.(deliverSessionEvent);
             }
-            if (frame.type === 'client.hello') source.resendCumulativeState?.(deliverSessionEvent);
+            if (frame.type === 'client.hello' || frame.type === 'machine.hello' && response?.type === 'result' && response.ok) {
+                // Replays belong to this authenticated client, never every phone
+                // already watching the machine. They do not mark new unread activity.
+                await source.resendCumulativeState?.(
+                    (sessionId, body) => deliverSessionEvent(sessionId, body, authenticatedSenderId),
+                    (event) => broadcast(event, authenticatedSenderId),
+                );
+            }
             return response;
         },
         setLinkDesktopConnection: (connectionId, active) => {
@@ -264,7 +265,6 @@ export function startHost(options: HostOptions): Host {
             await iosWatcher.targets.revokeDevice(deviceId);
         },
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
-        refreshLinkEnrolment,
         close: async () => {
             unsubscribe();
             unsubscribeMachine?.();
