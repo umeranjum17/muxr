@@ -30,6 +30,11 @@ const KEY_ICON_SIZE = 18;
  *  the edge dissolves into the chrome instead of being cut through its glyph,
  *  and at the end of the row the fade covers only this empty inset. */
 const TRAILING_EDGE = 32;
+/** The row keeps one height and one key width; at Android font scale 2.0 the
+ *  labels grew both ways, pushing keys off the trailing edge and past the row's
+ *  height. Capped, the same as the pane-tabs chip, so the labels stay whole and
+ *  every key stays reachable at the largest text size. */
+const KEY_LABEL_MAX_SCALE = 1.5;
 
 // Sticky modifiers: tap = applies to the next key, tap again =
 // locked until tapped once more. A touchscreen makes hold-and-reach a
@@ -137,7 +142,7 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
                 accessibilityState={{ selected: active(ctrl) }}
                 style={({ pressed }) => [style(ctrl === 'lock'), pressed && { opacity: 0.6 }]}
             >
-                <Text style={labelStyle(active(ctrl) ? theme.colors.accent : theme.colors.textSecondary)}>{modifierIcons === true ? '⌃' : 'ctrl'}</Text>
+                <Text maxFontSizeMultiplier={KEY_LABEL_MAX_SCALE} style={labelStyle(active(ctrl) ? theme.colors.accent : theme.colors.textSecondary)}>{modifierIcons === true ? '⌃' : 'ctrl'}</Text>
             </Pressable>
             <Pressable
                 onPress={() => { hapticsSelection(); applyMods(ctrlRef.current, cycle(shiftRef.current)); }}
@@ -150,7 +155,7 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
                 accessibilityState={{ selected: active(shift) }}
                 style={({ pressed }) => [style(shift === 'lock'), pressed && { opacity: 0.6 }]}
             >
-                <Text style={labelStyle(active(shift) ? theme.colors.accent : theme.colors.textSecondary)}>{modifierIcons === true ? '⇧' : 'shift'}</Text>
+                <Text maxFontSizeMultiplier={KEY_LABEL_MAX_SCALE} style={labelStyle(active(shift) ? theme.colors.accent : theme.colors.textSecondary)}>{modifierIcons === true ? '⇧' : 'shift'}</Text>
             </Pressable>
             {keys.map((key, index) => {
                 // An action key never encodes modifiers, so an armed modifier
@@ -178,7 +183,7 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
                     >
                         {icon !== undefined
                             ? <Ionicons name={icon} size={KEY_ICON_SIZE} color={theme.colors.textSecondary} />
-                            : <Text style={labelStyle(theme.colors.textSecondary)}>{key.label}</Text>}
+                            : <Text maxFontSizeMultiplier={KEY_LABEL_MAX_SCALE} style={labelStyle(theme.colors.textSecondary)}>{key.label}</Text>}
                     </Pressable>
                 );
             })}

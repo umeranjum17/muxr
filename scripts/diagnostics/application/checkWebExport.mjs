@@ -72,6 +72,48 @@ for (const file of ['public/sw.js', 'public/manifest.webmanifest']) {
 // scripts/deployWebExport.sh always runs a full export and targets the real
 // document root, so it cannot run against a throwaway fixture in isolation.
 
+// 5b. The web landing must never start the CanvasKit load. The regression this
+// slice removed was `_layout.tsx` awaiting the Skia web loader during startup,
+// which fetched the ~8 MB wasm before the first paint. Follow the entry's
+// static import graph and fail if any module the entry loads eagerly names the
+// loader outside the on-demand loader and the gated chart allowed to.
+const SKIA_LOADER_ALLOWED = new Set([
+    join(mobile, 'sources', 'components', 'skiaWeb.tsx'),
+    join(mobile, 'sources', 'usage', 'presentation', 'ScreenCharts.tsx'),
+]);
+const SKIA_LOADER_MARKERS = ['react-native-skia/lib/module/web', 'LoadSkiaWeb', 'loadSkiaWeb'];
+const SOURCE_CANDIDATES = ['.web.tsx', '.web.ts', '.tsx', '.ts', '.jsx', '.js'];
+const resolveMobileSource = (fromFile, specifier) => {
+    let base;
+    if (specifier.startsWith('@/')) base = join(mobile, 'sources', specifier.slice(2));
+    else if (specifier.startsWith('.')) base = join(dirname(fromFile), specifier);
+    else return undefined;
+    for (const candidate of [base, ...SOURCE_CANDIDATES.map((ext) => `${base}${ext}`), ...SOURCE_CANDIDATES.map((ext) => join(base, `index${ext}`))]) {
+        if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+    }
+    return undefined;
+};
+const eagerStartupFiles = new Set();
+const walkEagerStartup = (file) => {
+    if (eagerStartupFiles.has(file)) return;
+    eagerStartupFiles.add(file);
+    const body = read(file);
+    for (const match of body.matchAll(/\bimport\s+(?:type\s+)?(?:[^'"()]*?\s+from\s+)?['"]([^'"]+)['"]/g)) {
+        const resolved = resolveMobileSource(file, match[1]);
+        if (resolved !== undefined) walkEagerStartup(resolved);
+    }
+    for (const match of body.matchAll(/\bexport\s+(?:\*|\{[^}]*\})\s+from\s+['"]([^'"]+)['"]/g)) {
+        const resolved = resolveMobileSource(file, match[1]);
+        if (resolved !== undefined) walkEagerStartup(resolved);
+    }
+};
+walkEagerStartup(join(mobile, 'sources', 'app', '_layout.tsx'));
+const skiaStartupOffenders = [...eagerStartupFiles]
+    .filter((file) => !SKIA_LOADER_ALLOWED.has(file))
+    .filter((file) => SKIA_LOADER_MARKERS.some((marker) => read(file).includes(marker)))
+    .map((file) => file.replace(`${mobile}/`, ''));
+check('web entry never loads CanvasKit at startup', skiaStartupOffenders.length === 0, skiaStartupOffenders.join(', '));
+
 // 6. Unhashed entry payload: icons + manifest + worker stay small. This is
 // NOT the initial bundle budget — hashed JS/CSS is measured against dist
 // below. The known lazy payload (canvaskit.wasm, pdf.worker, mermaid) is
@@ -179,6 +221,14 @@ if (!existsSync(distIndex)) {
     const initialAssets = refTexts.join('\n');
     check('dist initial JS/CSS carries no xterm payload',
         !initialAssets.includes('xterm-scrollable-element') && !initialAssets.includes('@xterm/addon-webgl'));
+    // CanvasKit's glue (an 8 MB wasm and its loader) must never sit in the
+    // eager payload index.html loads; it belongs in a lazy chunk fetched only
+    // when a Skia chart mounts. The compiled startup path that can call it is
+    // guarded at source level above (`web entry never loads CanvasKit at
+    // startup`); this asserts the built artifact keeps the glue lazy. The
+    // runtime "no request before first paint" proof lives in
+    // .agents/skills/verify-muxr/features/pwa-coldstart.md.
+    check('eager payload carries no CanvasKit glue', !initialAssets.includes('canvaskit.wasm'));
     check('dist initial JS carries no syntax grammar payload', !initialAssets.includes('source.cpp'));
     // The mermaid engine must never be bundled. Mermaid's diagram modules load
     // each other dynamically, so Metro hoists their shared core, cytoscape and

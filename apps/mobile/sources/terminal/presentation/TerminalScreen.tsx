@@ -1273,6 +1273,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 {...(Platform.OS === 'web' ? { rows: 1 } as object : {})}
                 placeholder={windowWidth < 340 ? 'Prompt…' : 'Type a prompt…'}
                 placeholderTextColor={theme.colors.textSecondary}
+                // The rail keeps one height; at Android font scale 2.0 the field
+                // and its placeholder grew past it. Capped like the pane-tabs
+                // chip so the prompt stays legible at the largest text size and
+                // normal font scale is unchanged.
+                maxFontSizeMultiplier={1.5}
                 accessibilityLabel="Prompt"
                 // Web: remove the focus ring; the rail is not a browser widget.
                 style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingLeft: 14, paddingRight: 2, paddingVertical: 8, fontSize: 15, maxHeight: 120,

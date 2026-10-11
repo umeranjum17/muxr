@@ -79,9 +79,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   start in both themes at 393 and 270 px, offline hand-off, native comparison.
 - [Paint the installed PWA landing without the terminal payload](./pwa-coldstart.md) —
   static `dist`: the initial-transfer gzip ratchet, the eager entry/`__common`
-  carrying no xterm/shiki/diff, the session route still loading its lazy
-  terminal chunks at runtime, and non-slim diff grammars fetching on demand from
-  `/shiki-langs/` only when a diff needs them.
+  carrying no xterm/shiki/diff/CanvasKit, the session route still loading its
+  lazy terminal chunks at runtime, and non-slim diff grammars fetching on
+  demand from `/shiki-langs/` only when a diff needs them.
 
 - [Install muxr to the home screen from a browser tab](./pwa-install.md) —
   exported web client in Chrome and emulated iOS Safari: prompt row, Add to
@@ -114,6 +114,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   unchanged native QR branch from a release APK.
 - [Check the self-host](./selfhost-health.md) — relay `/health`, version
   identity, and the owner-only hosts listing.
+- [Keep a shell request's backgrounded child from outliving it](./host-shell-process-group.md) —
+  real `machine.shell` over a fake-Herdr stack: prompt reply, backgrounded child
+  reaped, and the host unit's memory and process count flat across the run.
 - [Name the current workspace and pane](./agent-naming.md) — `muxr name`
   inside a Herdr pane, with provider/model attribution.
 - [Inspect and prune Shared Artifacts history](./artifact-retention.md) —
@@ -168,6 +171,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Keep terminal tab chip labels inside their row](./terminal-tab-chip.md) —
   native app over a private stack: a tab chip label keeps its descenders at
   Android font scale 2.0 and normal font scale is unchanged.
+- [Keep the terminal key row and prompt field inside their rows at large font](./terminal-keyrow-font-scale.md) —
+  native app over a private stack: every key stays reachable and the prompt
+  placeholder stays in the rail at Android font scale 2.0, normal scale
+  unchanged.
 - [Read a Live preview with no output](./live-preview-empty.md) —
   native release app and PWA over a fake-Herdr stack whose pane reads empty:
   a calm placeholder and a plain line, themes and 270dp/360dp, live output
