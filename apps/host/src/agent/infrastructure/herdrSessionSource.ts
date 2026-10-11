@@ -8,6 +8,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -2300,17 +2301,12 @@ export async function createHerdrSessionSource(
             ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
         };
         try {
-            const launched = await runInProcessGroup(argv[0], argv.slice(1), {
-                timeoutMs: 15_000,
-                cwd: launchCwd,
-                env: actionEnv,
-                windowsHide: true,
-                // A plugin action may start a helper (an app server) and exit 0;
-                // leave that helper's group running. A timeout or a non-zero
-                // exit still reaps it.
-                preserveGroupOnCleanExit: true,
+            await new Promise<void>((done, fail) => {
+                execFile(argv[0], argv.slice(1), { timeout: 15_000, cwd: launchCwd, env: actionEnv, windowsHide: true }, (error) => {
+                    if (error) fail(error);
+                    else done();
+                });
             });
-            if (launched.error !== null) throw launched.error;
             const deadline = Date.now() + 5_000;
             let opened: string[] = [];
             do {

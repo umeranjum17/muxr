@@ -1013,41 +1013,6 @@ describe('machine.shell process group', () => {
         }
     }, 30_000);
 
-    it('keeps a helper the launcher intentionally backgrounded on a clean exit', async () => {
-        const home = mkdtempSync(join(tmpdir(), 'muxr-shell-keep-'));
-        const pidFile = join(home, 'helper.pid');
-        try {
-            // A plugin action may start an app server and exit 0; that helper
-            // keeps running after the launcher. Launcher mode discards the
-            // launcher's output, settles on the clean exit and leaves the
-            // helper's group running rather than reap it, even when the helper
-            // writes far more than maxBuffer while the launcher is still
-            // running.
-            writeFileSync(join(home, 'start.sh'),
-                '(sleep 0.3; i=0; while [ $i -lt 200 ]; do echo "................................................"; i=$((i+1)); done; sleep 300) &\n'
-                + 'echo $! > helper.pid\nsleep 0.6\necho started\n');
-            const started = Date.now();
-            const result = await runInProcessGroup('sh', ['./start.sh'], {
-                cwd: home,
-                timeoutMs: 15_000,
-                maxBuffer: 64,
-                preserveGroupOnCleanExit: true,
-            });
-            expect(result.error).toBeNull();
-            expect(Date.now() - started).toBeLessThan(5_000);
-            const pid = Number(readFileSync(pidFile, 'utf8').trim());
-            expect(Number.isInteger(pid)).toBe(true);
-            await new Promise((resolve) => setTimeout(resolve, 1_200));
-            expect(processAlive(pid)).toBe(true);
-        } finally {
-            try {
-                const pid = Number(readFileSync(pidFile, 'utf8').trim());
-                if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
-            } catch { /* the helper never started */ }
-            rmSync(home, { recursive: true, force: true });
-        }
-    }, 30_000);
-
     it('decodes a multi-byte code point split across a chunk boundary', async () => {
         // 30000 of a 3-byte code point crosses the 64 KiB pipe chunk boundary
         // mid-character, which a per-chunk Buffer.toString mangles.

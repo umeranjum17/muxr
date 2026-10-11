@@ -16,11 +16,6 @@ instead of `Your computer didn't answer in time.`
 - A command with no backgrounded child is unchanged.
 - A long-running foreground command still runs to completion; the group is only
   killed on exit or timeout.
-- Launcher mode (the plugin application launcher in `herdrSessionSource.ts`): a
-  plugin action that starts a helper (an app server) and exits 0 keeps that
-  helper; only a timeout or a non-zero exit reaps the group. The launcher's
-  output is discarded rather than piped, so it settles on the clean exit
-  regardless of what the helper writes.
 
 ## How to get to it (user POV)
 

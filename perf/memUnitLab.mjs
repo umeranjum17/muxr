@@ -10,8 +10,8 @@
  *   --mode terminal     repeated terminal attach/detach churn
  *   --mode home         Home traffic (tree poll + Live tiles + dials)
  *
- * It writes an action log; the cgroup sampler (sample-cgroup.sh) records what
- * the unit actually holds.
+ * It writes an action log; sample the unit cgroup (memory and nprocs) while it
+ * runs to see what the unit actually holds.
  */
 import { createConnection } from 'node:net';
 import { existsSync, writeFileSync } from 'node:fs';
