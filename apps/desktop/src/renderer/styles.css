@@ -64,7 +64,7 @@ body {
 .stage {
     flex: 1;
     display: flex;
-    align-items: center;
+    align-items: safe center;
     justify-content: center;
     padding: 20px;
     overflow-y: auto;
