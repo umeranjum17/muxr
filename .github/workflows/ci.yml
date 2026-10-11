@@ -40,12 +40,29 @@ jobs:
           # The constraints floor guard diffs the pull request against its
           # merge base, which a depth-1 checkout cannot compute.
           fetch-depth: 0
+      # A documentation- or evidence-only change cannot affect this job. The
+      # job still runs and reports success so it stays a required check; its
+      # expensive steps are the ones skipped. The decision is fail-open: an
+      # unknown base or any non-doc file runs the whole lane.
+      - name: Scope (a docs/evidence-only change cannot affect this job)
+        id: scope
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$base" HEAD)
+          non_docs=$(printf '%s\n' "$changed" | grep -vE '\.(md|mdx)$|^(docs/|data/|\.lavish/|screenshots/|LICENSE$|NOTICE$|TRADEMARK$)' | sed '/^$/d' || true)
+          if [ -z "$non_docs" ]; then echo "docs_only=true" >> "$GITHUB_OUTPUT"; else echo "docs_only=false" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.scope.outputs.docs_only != 'true'
         with:
           node-version: 22
           cache: yarn
-      - run: yarn install --frozen-lockfile --non-interactive
+      - if: steps.scope.outputs.docs_only != 'true'
+        run: yarn install --frozen-lockfile --non-interactive
       - name: Fast lane (typecheck, self-checks, vitest flows, architecture)
+        if: steps.scope.outputs.docs_only != 'true'
         run: yarn run check:fast
 
   suite:
@@ -56,21 +73,41 @@ jobs:
         with:
           # Same reason as the fast job: the floor guard needs real history.
           fetch-depth: 0
+      # Same docs/evidence-only scope as `fast`, and the same fail-open rule.
+      - name: Scope (a docs/evidence-only change cannot affect this job)
+        id: scope
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$base" HEAD)
+          non_docs=$(printf '%s\n' "$changed" | grep -vE '\.(md|mdx)$|^(docs/|data/|\.lavish/|screenshots/|LICENSE$|NOTICE$|TRADEMARK$)' | sed '/^$/d' || true)
+          if [ -z "$non_docs" ]; then echo "docs_only=true" >> "$GITHUB_OUTPUT"; else echo "docs_only=false" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.scope.outputs.docs_only != 'true'
         with:
           node-version: 22
           cache: yarn
-      - run: yarn install --frozen-lockfile --non-interactive
-      - run: yarn build
+      - if: steps.scope.outputs.docs_only != 'true'
+        run: yarn install --frozen-lockfile --non-interactive
+      - if: steps.scope.outputs.docs_only != 'true'
+        run: yarn build
       - name: Production web export (self-host, origin-clean)
+        if: steps.scope.outputs.docs_only != 'true'
         run: yarn web:export:selfhost
       - name: Web export checks against dist (manifest, budget, no marketing origin)
+        if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/diagnostics/application/checkWebExport.mjs
       - name: Live web serving delivery (relay + static server over HTTP)
+        if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/diagnostics/application/checkWebServing.mjs
       - name: Export chain isolation (canary export + full-dist secret scan)
+        if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/diagnostics/application/checkExportIsolation.mjs
       - name: Full suite (typecheck, crypto, pairing, e2e, package smoke, purity, secrets, architecture)
+        if: steps.scope.outputs.docs_only != 'true'
         run: yarn run check
       - name: Core purity guard
+        if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/diagnostics/application/checkCorePurity.mjs
