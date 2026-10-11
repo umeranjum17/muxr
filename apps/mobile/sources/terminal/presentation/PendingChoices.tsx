@@ -7,6 +7,7 @@ import { hapticsSelection } from '@/components/haptics';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { pendingChoices, type PendingChoice } from '../domain/promptAvailability';
+import { useTerminalColors } from './useTerminalColors';
 
 /** The stack's own breathing room above and below the chips. */
 const STACK_PAD = 8;
@@ -40,6 +41,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
     gridInset?: number;
 }) {
     const { theme } = useUnistyles();
+    const { colors: terminalColors } = useTerminalColors();
     const [choices, setChoices] = React.useState<PendingChoice[]>([]);
     const [stackHeight, setStackHeight] = React.useState(0);
     const answered = React.useRef<{ signature: string; at: number } | null>(null);
@@ -113,7 +115,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                 paddingHorizontal: STACK_PAD,
                 paddingTop: padTop,
                 paddingBottom: STACK_PAD,
-                backgroundColor: theme.colors.terminalChrome.canvas,
+                backgroundColor: terminalColors.background,
             }}
         >
             <View onLayout={measureStack} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
