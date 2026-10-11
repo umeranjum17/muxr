@@ -71,8 +71,10 @@ describe('visible herd tree flow', () => {
         const namedShell = pane('p-named', undefined, { sessionId: 'shell-route', label: 'Release browser', terminalTitle: 'umer@host:~/repo', cwd: '/repo' });
         expect(agentLabels(namedShell)).toMatchObject({ title: 'Release browser', agentName: 'Shell' });
         expect(agentWhoLine(agentLabels(namedShell))).toBe('Shell');
-        delete namedShell.label;
-        expect(agentLabels(namedShell).title).toBe('umer@host:~/repo');
+        // Tree panes are immutable snapshots, so a label-less pane is its own
+        // object, not a label deleted from one that was already read.
+        const unlabeledShell = pane('p-named-2', undefined, { sessionId: 'shell-route-2', terminalTitle: 'umer@host:~/repo', cwd: '/repo' });
+        expect(agentLabels(unlabeledShell).title).toBe('umer@host:~/repo');
         const liveCards = selectLiveTerminalCards([], herdPanes([], [ws('w-shell', 'repo', [tab('t-shell', 'Tools', [namedShell])])]));
         expect(liveCards).toEqual([]);
         expect(isShellLabels(labels)).toBe(false);

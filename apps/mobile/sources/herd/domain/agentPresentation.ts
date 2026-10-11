@@ -122,7 +122,7 @@ function publicSource(value: string | null | undefined): string | undefined {
  * Who runs it goes on the line under that. A shell has no agent name and
  * leads with its pane label, else its window title (`user@host:path`).
  */
-export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'terminalTitle' | 'cwd'>>): AgentLabels {
+function computeAgentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'terminalTitle' | 'cwd'>>): AgentLabels {
     const rawName = pane?.agentName?.trim();
     // `parseAgentName` rejects the internal launch id (and control chars), so a
     // host that leaked `pp_*` as the name leaves this agent unnamed and the
@@ -157,6 +157,23 @@ export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'labe
         ...(pane?.model === undefined ? {} : { model: pane.model }),
         ...(pane?.displayAgent === undefined ? {} : { displayAgent: pane.displayAgent }),
     };
+}
+
+// Home rerenders every row on each herd flush, and each row (and `herdPanes`)
+// calls agentLabels on the same tree pane object. Herdr tree panes are rebuilt
+// as fresh objects when the tree changes and are never mutated in place, so a
+// quiet agent's pane is the same reference across the session/status flushes
+// that drive most rerenders: cache by it and skip rebuilding the label object
+// every pass. WeakMap so a replaced tree pane is collectable.
+const labelsByPane = new WeakMap<object, AgentLabels>();
+
+export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'terminalTitle' | 'cwd'>>): AgentLabels {
+    if (pane === undefined || pane === null || typeof pane !== 'object') return computeAgentLabels(pane);
+    const cached = labelsByPane.get(pane);
+    if (cached !== undefined) return cached;
+    const labels = computeAgentLabels(pane);
+    labelsByPane.set(pane, labels);
+    return labels;
 }
 
 export function isShellLabels(labels: AgentLabels): boolean {
