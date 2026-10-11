@@ -11,8 +11,8 @@ request before its row says Online.
 
 ## Sub-features
 
-- `states` the connected computer reads `Online · In use` while its link is up and
-  `Asleep · In use` when the link drops; another computer reads `Online` when a
+- `states` the connected computer reads `Online • In use` while its link is up and
+  `Asleep • In use` when the link drops; another computer reads `Online` when a
   fresh probe answers and `Offline` (with a plain reason) when it does not.
 - `switch` tapping an online, not-in-use row asks to confirm, then reconnects the
   app to that computer with its stored pairing; the agent's next prompt runs there
@@ -48,18 +48,18 @@ Native (release APK on a task-owned emulator, paired through `/pair`):
 
 1. Pair host A: Home empty state → **Other ways to connect** → **Paste the pairing
    string** → paste A's code → **Pair**; approve the consent. The sheet shows
-   `A Online · In use`.
+   `A Online • In use`.
 2. Pair host B: **Connect Device** in the command palette (Home also offers
    **Other ways to connect**) → paste B's code → **Pair**. The sheet shows both; B
    becomes the connected one.
-3. Switch: tap A's row → **Switch**; the sheet now checks A and Home reconnects to
-   A. Prove the next prompt runs there from the hosts' own diagnostics
+3. Switch: tap A's row → **Switch**; the sheet closes and Home reconnects to A.
+   Prove the next prompt runs there from the hosts' own diagnostics
    (`/tmp/muxr-perf-*/muxr/host/diagnostics.json`): A's `session.prompt` count rises
    and B's stays flat; switch back and the reverse holds.
 4. Offline: `stop` the not-in-use host and reopen the sheet — its row reads
-   `Offline · Turn it on and keep muxr running to use it.`
+   `Offline • Turn it on and keep muxr running to use it.`
 5. Asleep: `stop` the connected host with the sheet open — its row reads
-   `Asleep · In use`.
+   `Asleep • In use`.
 
 PWA (browser build with the lab flag, over `serveWebExport.mjs`):
 
