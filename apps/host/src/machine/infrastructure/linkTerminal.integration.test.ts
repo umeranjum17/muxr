@@ -25,6 +25,22 @@ const b64 = (value: Uint8Array | string): string => Buffer.from(value).toString(
 const toB64url = (valueBase64: string): string => Buffer.from(valueBase64, 'base64').toString('base64url');
 
 /**
+ * A drag is only done once its rows have paid out and the count holds still.
+ * One quiet poll can be a stalled host mid-drag, so require the expected floor
+ * before trusting the count as final.
+ */
+async function waitForDrag(count: () => number, atLeast: number, timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    let last = -1;
+    while (Date.now() < deadline) {
+        const now = count();
+        if (now >= atLeast && now === last) return;
+        last = now;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+}
+
+/**
  * The pane: paints a full screen, echoes input, repaints on resize, and scrolls
  * like a full-screen program -- it repaints on a wheel report only while there
  * is transcript left that way (100 rows), and logs every report it is handed.
@@ -189,7 +205,7 @@ setInterval(() => {}, 1000);
         expect(readFileSync(join(dir, 'wheel.log'), 'utf8').trim().split('\n')).toHaveLength(2);
     });
 
-    it('keeps a streaming full-screen program under the finger and finishes Latest at its live edge', { timeout: 15_000 }, async () => {
+    it('keeps a streaming full-screen program under the finger and finishes Latest at its live edge', { timeout: 20_000 }, async () => {
         // The pane plays OpenCode scrolled back into its transcript: three
         // rows per wheel report, a new line every 50 ms it follows only at the
         // live edge, and a repaint on every line. Away from the live edge its
@@ -259,10 +275,7 @@ process.stdin.on('data', (chunk) => {
 
         // A 30-row drag moves the program 30 rows, not three times that.
         input(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 30, column: 10, row: 5 }));
-        for (let last = -1, deadline = Date.now() + 6_000; state().moved !== last && Date.now() < deadline;) {
-            last = state().moved;
-            await sleep(700);
-        }
+        await waitForDrag(() => state().moved, 27, 12_000);
         expect(state().moved).toBeGreaterThanOrEqual(27);
         expect(state().moved).toBeLessThanOrEqual(36);
 
@@ -280,7 +293,7 @@ process.stdin.on('data', (chunk) => {
         expect(state().back).toBe(0);
     });
 
-    it('learns the program wheel step after a failed pane read', { timeout: 15_000 }, async () => {
+    it('learns the program wheel step after a failed pane read', { timeout: 20_000 }, async () => {
         // The pane plays OpenCode: three rows per wheel report, repainting the
         // screen only when a report moves it. The first pane-text read fails as
         // a transient herdr read does, and the step must still be learned.
@@ -352,16 +365,13 @@ process.stdin.on('data', (chunk) => {
         // A 30-row drag moves the program 30 rows, not three times that, even
         // though the first read of its screen threw.
         input(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 30, column: 10, row: 5 }));
-        for (let last = -1, deadline = Date.now() + 6_000; state().moved !== last && Date.now() < deadline;) {
-            last = state().moved;
-            await sleep(700);
-        }
+        await waitForDrag(() => state().moved, 27, 12_000);
         expect(textReads).toBeGreaterThan(1);
         expect(state().moved).toBeGreaterThanOrEqual(27);
         expect(state().moved).toBeLessThanOrEqual(36);
     });
 
-    it('never learns a wheel step from a program that keeps painting', { timeout: 15_000 }, async () => {
+    it('never learns a wheel step from a program that keeps painting', { timeout: 20_000 }, async () => {
         // The pane keeps appending output while a down drag turns its wheel, so
         // every reading of its screen moves on its own. The rows-per-report must
         // not be read out of that motion: the wheel stays at a report a row.
@@ -425,10 +435,7 @@ process.stdin.on('data', (chunk) => {
         await sleep(300);
 
         input(JSON.stringify({ type: 'terminal.scroll', direction: 'down', lines: 30, column: 10, row: 5 }));
-        for (let last = -1, deadline = Date.now() + 8_000; state().reports !== last && Date.now() < deadline;) {
-            last = state().reports;
-            await sleep(700);
-        }
+        await waitForDrag(() => state().reports, 27, 12_000);
         // One report per finger row, so the drag does not carry it three times as far.
         expect(state().reports).toBeGreaterThanOrEqual(27);
         expect(state().reports).toBeLessThanOrEqual(36);
