@@ -29,7 +29,8 @@ export interface ProcessGroupOptions {
      * set, a clean exit (code 0, no signal) leaves the group running and settles
      * as soon as the direct child exits, so a helper holding our stdio pipes
      * does not turn a clean launch into a timeout. A timeout or a non-zero exit
-     * still kills the group.
+     * still kills the group; a maxBuffer overflow settles as an error without
+     * reaping it.
      */
     preserveGroupOnCleanExit?: boolean;
 }
@@ -128,7 +129,7 @@ export function runInProcessGroup(
                 overflowError = Object.assign(new Error('maxBuffer length exceeded'), {
                     code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
                 });
-                killGroup();
+                if (options.preserveGroupOnCleanExit !== true) killGroup();
                 return;
             }
             if (toStderr) stderr += chunk.toString('utf8');
