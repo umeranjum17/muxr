@@ -109,15 +109,20 @@ export class MuxrRuntime extends EventEmitter {
             if (relay.exitCode !== null || relay.signalCode !== null) await closed;
             const message = error instanceof Error ? error.message : String(error);
             if (output.includes('another relay already owns')) {
-                const ownerPid = /\(pid (\d+)\)/.exec(output)?.[1];
+                const ownerText = output.trim();
+                const ownerPid = /\(pid (\d+)\)/.exec(ownerText)?.[1];
                 const ownerMessage = ownerPid === undefined
                     ? 'An earlier muxr desktop session is still running. Quit it, or restart the computer, then try again.'
                     : `An earlier muxr desktop session is still running (process ${ownerPid}). Quit it, or restart the computer, then try again.`;
                 this.emit('status', { phase: 'already-running', message: ownerMessage, canRetry: true });
-                throw new RelayOwnedError(output.trim(), ownerPid === undefined ? undefined : Number(ownerPid));
+                throw new RelayOwnedError(ownerText, ownerPid === undefined ? undefined : Number(ownerPid));
             }
             this.emit('status', { phase: 'error', message });
             throw error;
+        } finally {
+            relay.stdout?.off('data', collect);
+            relay.stderr?.off('data', collect);
+            output = '';
         }
     }
 
@@ -185,14 +190,20 @@ export class MuxrRuntime extends EventEmitter {
     async #waitForHost(host) {
         const deadline = Date.now() + 20_000;
         let out = '';
-        host.stdout?.on('data', (chunk) => { out += chunk.toString(); });
-        while (Date.now() < deadline) {
-            if (host.pid === undefined) throw new Error('the muxr host could not be started');
-            if (host.exitCode !== null) throw new Error('the muxr host exited before it came online');
-            if (out.includes('link relay: online') && existsSync(this.pairSocketPath)) return;
-            await sleep(100);
+        const collect = (chunk) => { out += chunk.toString(); };
+        host.stdout?.on('data', collect);
+        try {
+            while (Date.now() < deadline) {
+                if (host.pid === undefined) throw new Error('the muxr host could not be started');
+                if (host.exitCode !== null) throw new Error('the muxr host exited before it came online');
+                if (out.includes('link relay: online') && existsSync(this.pairSocketPath)) return;
+                await sleep(100);
+            }
+            throw new Error('the muxr host did not come online');
+        } finally {
+            host.stdout?.off('data', collect);
+            out = '';
         }
-        throw new Error('the muxr host did not come online');
     }
 
     stop() {
