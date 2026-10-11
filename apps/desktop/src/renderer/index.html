@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>muxr</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <header class="bar">
+        <span class="dot" id="status-dot"></span>
+        <span class="bar-title" id="status-title">Starting…</span>
+    </header>
+
+    <main class="stage">
+        <section class="card" id="card-starting">
+            <div class="spinner" aria-hidden="true"></div>
+            <h1>Starting muxr on this computer</h1>
+            <p class="muted">Getting the relay and the agent host ready. This takes a few seconds.</p>
+        </section>
+
+        <section class="card" id="card-ready" hidden>
+            <h1>Ready to pair</h1>
+            <p class="muted">On your phone, open muxr and add this computer. Scan the code below.</p>
+            <div class="qr-wrap"><canvas id="qr" width="230" height="230"></canvas></div>
+            <button class="copy" id="copy-code" type="button">
+                <span class="copy-label">Copy pairing code</span>
+            </button>
+            <p class="muted small" id="expiry"></p>
+        </section>
+
+        <section class="card" id="card-approval" hidden>
+            <h1>Pair <span id="approval-name">this phone</span>?</h1>
+            <p class="muted">Your phone shows these two words. They must match:</p>
+            <p class="words" id="words"></p>
+            <div class="row">
+                <button class="btn primary" id="approve" type="button">Approve</button>
+                <button class="btn" id="deny" type="button">Don't pair</button>
+            </div>
+        </section>
+
+        <section class="card" id="card-paired" hidden>
+            <div class="check" aria-hidden="true">✓</div>
+            <h1>Paired with <span id="paired-name">your phone</span></h1>
+            <p class="muted">You can put this window away. muxr keeps running in the tray.</p>
+        </section>
+
+        <section class="card" id="card-error" hidden>
+            <h1>Something went wrong</h1>
+            <p class="error" id="error-message"></p>
+            <button class="btn primary" id="retry" type="button">Try again</button>
+        </section>
+
+        <section class="card" id="card-note" hidden>
+            <p class="muted" id="note-message"></p>
+        </section>
+    </main>
+
+    <footer class="settings">
+        <label class="toggle">
+            <input type="checkbox" id="keep-awake" />
+            <span class="toggle-text">
+                <span class="toggle-title">Keep this computer awake</span>
+                <span class="toggle-hint">Stops this computer sleeping while muxr runs</span>
+            </span>
+        </label>
+        <label class="toggle">
+            <input type="checkbox" id="autostart" />
+            <span class="toggle-text">
+                <span class="toggle-title">Start at login</span>
+                <span class="toggle-hint">Open muxr automatically when you sign in</span>
+            </span>
+        </label>
+    </footer>
+
+    <script type="module" src="renderer.mjs"></script>
+</body>
+</html>
