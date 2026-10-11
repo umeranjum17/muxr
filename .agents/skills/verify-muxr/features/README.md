@@ -168,6 +168,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Keep terminal tab chip labels inside their row](./terminal-tab-chip.md) —
   native app over a private stack: a tab chip label keeps its descenders at
   Android font scale 2.0 and normal font scale is unchanged.
+- [Keep the terminal key row and prompt field inside their rows at large font](./terminal-keyrow-font-scale.md) —
+  native app over a private stack: every key stays reachable and the prompt
+  placeholder stays in the rail at Android font scale 2.0, normal scale
+  unchanged.
 - [Read a Live preview with no output](./live-preview-empty.md) —
   native release app and PWA over a fake-Herdr stack whose pane reads empty:
   a calm placeholder and a plain line, themes and 270dp/360dp, live output
