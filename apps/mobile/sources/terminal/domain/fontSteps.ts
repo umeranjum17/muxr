@@ -17,9 +17,12 @@ export function nearestFontIndex(size: number): number {
 }
 
 /** Faces the browser terminal can draw. The phone's native terminal has its own
- *  built-in face, so this choice only reaches the web. */
+ *  built-in face, so this choice only reaches the web. Each family ends with
+ *  mono faces that carry the symbols a build tool prints (node's `ℹ`, ticks,
+ *  box drawing): without them the browser falls through to a colour-emoji font
+ *  and the character arrives as a filled box. */
 export const TERMINAL_FONTS = {
-    system: { name: 'System', family: 'Menlo, Monaco, "Courier New", monospace' },
-    plex: { name: 'IBM Plex Mono', family: 'IBMPlexMono-Regular, monospace' },
+    system: { name: 'System', family: 'Menlo, Monaco, "Courier New", "Noto Sans Mono", "DejaVu Sans Mono", monospace' },
+    plex: { name: 'IBM Plex Mono', family: 'IBMPlexMono-Regular, "Noto Sans Mono", "DejaVu Sans Mono", monospace' },
 } as const;
 export type TerminalFont = keyof typeof TERMINAL_FONTS;
