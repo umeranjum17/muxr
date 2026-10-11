@@ -8,7 +8,7 @@
  */
 import { createInterface } from 'node:readline';
 import { appBridge, realtimeEngine, toolBridge } from '@byokit/realtime/node';
-import { REALTIME_PLANNING_DETAIL } from '@trymuxr/contract';
+import { derivedAgentName, REALTIME_PLANNING_DETAIL } from '@trymuxr/contract';
 import { codexAccess, codexDelegate, DELEGATE_TOOL, DELEGATION_FAILURE, PROMPT as CODEX_PROMPT } from './codex.mjs';
 import { RUN_DEADLINE_MS } from './codexDelegation.mjs';
 import { appControlInstructions, INTERNAL_REFERENCES, isExplicitHangup, voiceCoordinationInstructions, workspaceContext } from './coordinatorPolicy.mjs';
@@ -100,7 +100,7 @@ async function main() {
     engine = realtimeEngine({
         engine: codex ? 'chatgpt' : provider.id,
         auth,
-        instructions: (codex ? CODEX_PROMPT : PROMPT) + workspaceContext(open),
+        instructions: (codex ? CODEX_PROMPT : PROMPT) + workspaceContext(open, (session) => derivedAgentName({ agentKind: session?.agentKind })),
         tools: codex ? [DELEGATE_TOOL] : voiceTools,
         bridge,
         emit,
