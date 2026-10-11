@@ -19,6 +19,8 @@ export interface AttentionStore {
     set(sessionId: string, reason: AttentionReason, detail: string, at?: string): boolean;
     /** Clear the named reasons, or every reason for the session when none are named. */
     clear(sessionId: string, ...reasons: AttentionReason[]): boolean;
+    /** Flush the pending write; resolves once it has landed. */
+    dispose(): Promise<void>;
 }
 
 /** 'done' rows are noise after ten minutes: the work is finished, the row isn't. */
@@ -67,6 +69,10 @@ export function createAttentionStore(dataDir: string, now: () => Date = () => ne
     }
 
     return {
+        dispose(): Promise<void> {
+            return persist.dispose();
+        },
+
         catalog(): AttentionCatalog {
             const nowMs = now().getTime();
             let pruned = false;

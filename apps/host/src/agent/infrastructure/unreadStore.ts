@@ -16,6 +16,8 @@ export interface UnreadStore {
     catalog(): UnreadCatalog;
     acknowledge(sessionId: string, throughSeq?: number): UnreadCatalog;
     noteActivity(sessionId: string, cwd: string): UnreadCatalog;
+    /** Flush the pending write; resolves once it has landed. */
+    dispose(): Promise<void>;
 }
 
 function isUnreadFile(value: unknown): value is UnreadFile {
@@ -59,6 +61,10 @@ export function createUnreadStore(dataDir: string, now: () => Date = () => new D
     }
 
     return {
+        dispose(): Promise<void> {
+            return persist.dispose();
+        },
+
         catalog: snapshot,
 
         noteActivity(sessionId: string, cwd: string): UnreadCatalog {

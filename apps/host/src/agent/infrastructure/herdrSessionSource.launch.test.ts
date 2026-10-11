@@ -382,7 +382,8 @@ describe('phone launch before herdr detects the agent', () => {
             expect(delivered.filter((frame) => frame.type === 'session.event' && frame.event.type === 'session.error')).toEqual([]);
         } finally {
             phoneLink?.stop(); endpoint?.close(); await host.close();
-            await source.dispose(); await relay.close(); herdr.close();
+            await source.dispose(); await domain.dispose();
+            await relay.close(); herdr.close();
             rmSync(dir, { recursive: true, force: true });
         }
     }, 60_000);
