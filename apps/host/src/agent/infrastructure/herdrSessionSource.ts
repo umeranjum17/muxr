@@ -1985,8 +1985,11 @@ export async function createHerdrSessionSource(
                 return snapshotFor(shell, true);
             }
             const launchName = `pp_${randomBytes(8).toString('hex')}`;
+            // The tab was created at `cwd`; seed it so the start snapshot and the
+            // agent launch carry that cwd instead of waiting for a snapshot read.
             seedLaunchPane(paneId, {
                 pane_id: paneId,
+                cwd,
                 tab_id: tab.tab.tab_id,
                 workspace_id: workspaceId,
             });
@@ -2924,8 +2927,11 @@ export async function createHerdrSessionSource(
                 return { sessionId: shellRoute(paneId) };
             }
             const launchName = `pp_${randomBytes(8).toString('hex')}`;
+            // The tab was created at `cwd`; seed it so the created session's cwd
+            // is known before the next snapshot read.
             seedLaunchPane(paneId, {
                 pane_id: paneId,
+                cwd,
                 tab_id: tab.tab.tab_id,
                 workspace_id: workspaceId,
             });

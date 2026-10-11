@@ -70,6 +70,14 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
             if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host did not start: ${host.output()}`);
             await sleep(100);
         }
+        // The pairing server listens before the host's own relay link is up, so a
+        // device that pairs that early has its socket closed as unreachable. Wait
+        // for the host's own online line first; on a loaded machine this is the
+        // difference between a proven journey and a flaky refusal.
+        while (!host.output().includes('link relay: online')) {
+            if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host never reached the relay: ${host.output()}`);
+            await sleep(100);
+        }
         link = await linkLabClient(join(hostDir, 'pair.sock'), onEvent);
         return { link, env, machine, port, session, wrapper,
             herdr: (args, timeout = 10_000) => execFileSync(wrapper, args, { encoding: 'utf8', timeout }),
