@@ -1,4 +1,4 @@
-import { agentTask, parseAgentName, type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@trymuxr/contract';
+import { agentFolderName, agentKindLabel, agentTask, derivedAgentName, parseAgentName, type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@trymuxr/contract';
 import { compactAge } from '../../utils/compactAge';
 import { lifecycleStateSince } from './recentActivity';
 
@@ -8,6 +8,8 @@ export interface AgentLabels {
     /** What the agent is working on, when anything Herdr supplies says so. */
     task?: string;
     agentName: string;
+    /** True for a bare terminal pane: no published name and no Agent Kind. */
+    shell?: boolean;
     agentKind?: string;
     provider?: string;
     model?: string;
@@ -59,14 +61,6 @@ export const HERD_STATUS_LABELS: Record<AgentLifecycle, string> = {
     unknown: 'Offline',
 };
 
-const AGENT_KIND_LABELS: Readonly<Record<string, string>> = {
-    claude: 'Claude',
-    codex: 'Codex',
-    cursor: 'Cursor',
-    opencode: 'OpenCode',
-    pi: 'Pi',
-};
-
 // Hermes on Android answers locale-aware string calls through ICU over JNI.
 // With a dozen agents they cost more than the rest of Home's render together.
 // Root-locale lower case is plain toLowerCase, which stays in the engine for
@@ -88,15 +82,7 @@ function sameLabel(left: string, right: string): boolean {
     return remember(`same\u0000${left}\u0000${right}`, () => left.localeCompare(right, undefined, { sensitivity: 'accent' }) === 0);
 }
 
-export function agentKindLabel(kind?: string): string | undefined {
-    const value = kind?.trim();
-    if (value === undefined || value === '') return undefined;
-    return AGENT_KIND_LABELS[value.toLowerCase()] ?? value;
-}
-
-
-
-const UNNAMED_AGENT = 'Unnamed agent';
+export { agentFolderName, agentKindLabel, derivedAgentName };
 
 /**
  * Herdr's internal launch id (`pp_<hex>`, `pph_<hex>`). It rides lifecycle
@@ -119,8 +105,9 @@ function publicSource(value: string | null | undefined): string | undefined {
  * own window title, Herdr title metadata, or the host's task-workspace
  * fallback already folded into `taskTitle`), else its Herdr name, else its
  * kind's label (a started agent has a published kind long before any name).
- * Who runs it goes on the line under that. A shell has no agent name and
- * leads with its pane label, else its window title (`user@host:path`).
+ * Who runs it goes on the line under that. A shell has no agent name and no
+ * kind; it is flagged `shell` and leads with its pane label, else its window
+ * title (`user@host:path`).
  */
 export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'terminalTitle' | 'cwd'>>): AgentLabels {
     const rawName = pane?.agentName?.trim();
@@ -129,15 +116,18 @@ export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'labe
     // kind's own label stands in — never the id.
     const named = rawName !== undefined && parseAgentName(rawName).ok ? rawName : undefined;
     const kind = pane?.agentKind?.trim();
-    const hasAgent = named !== undefined && named !== '' || kind !== undefined && kind !== '';
+    const hasKind = kind !== undefined && kind !== '';
+    const hasAgent = named !== undefined && named !== '' || hasKind;
+    const shell = !hasAgent;
     const label = publicSource(pane?.label);
     const terminalTitle = publicSource(pane?.terminalTitle);
     const taskTitle = publicSource(pane?.taskTitle);
     // Herdr publishes the kind long before it ever publishes a name: a started
     // agent arrives as `agentKind` with no `agentName` (the host withholds its
-    // internal launch id), so the kind's own label stands in for the name.
+    // internal launch id), so the kind's own label stands in for the name. An
+    // agent with neither name nor kind yet is named by its folder, else `Agent`.
     // Never the terminal title: at startup it only holds a spinner or folder.
-    const agentName = named || (kind === undefined || kind === '' ? 'Shell' : agentKindLabel(kind) ?? UNNAMED_AGENT);
+    const agentName = derivedAgentName({ agentName: named, agentKind: kind, cwd: pane?.cwd });
     const task = hasAgent ? agentTask({
         label,
         terminalTitle,
@@ -147,11 +137,12 @@ export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'labe
         cwd: pane?.cwd,
     }) : undefined;
     const shellTitle = label?.trim() || terminalTitle?.trim() || taskTitle?.trim()
-        || pane?.cwd?.replace(/\/+$/, '').split('/').pop() || 'Shell';
+        || agentFolderName(pane?.cwd) || 'Shell';
     return {
         title: hasAgent ? task ?? (named || agentName) : shellTitle,
         ...(task === undefined ? {} : { task }),
         agentName,
+        ...(shell ? { shell: true } : {}),
         ...(pane?.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
         ...(pane?.provider === undefined ? {} : { provider: pane.provider }),
         ...(pane?.model === undefined ? {} : { model: pane.model }),
@@ -160,7 +151,7 @@ export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'labe
 }
 
 export function isShellLabels(labels: AgentLabels): boolean {
-    return labels.agentKind === undefined && labels.agentName === 'Shell';
+    return labels.shell === true;
 }
 
 function agentKindSlug(kind?: string): string | undefined {
@@ -181,7 +172,7 @@ function nameRepeatsKind(labels: AgentLabels): boolean {
 
 /** The agent's name beside a title that leads with its task; nothing when the title already is the name or the name only repeats the kind. */
 export function agentBesideName(labels: AgentLabels): string | undefined {
-    if (isShellLabels(labels) || labels.task === undefined || labels.agentName === UNNAMED_AGENT || nameRepeatsKind(labels)) return undefined;
+    if (isShellLabels(labels) || labels.task === undefined || nameRepeatsKind(labels)) return undefined;
     return sameLabel(labels.agentName, labels.title) ? undefined : labels.agentName;
 }
 
@@ -191,7 +182,7 @@ export function agentBesideName(labels: AgentLabels): string | undefined {
  */
 export function agentWhoLine(labels: AgentLabels, withName = false): string {
     if (isShellLabels(labels)) return 'Shell';
-    const name = withName && labels.agentName !== UNNAMED_AGENT && !nameRepeatsKind(labels)
+    const name = withName && !nameRepeatsKind(labels)
         ? labels.agentName
         : agentBesideName(labels);
     return [agentKindSlug(labels.agentKind), name].filter((part) => part !== undefined).join(' · ');

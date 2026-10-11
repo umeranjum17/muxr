@@ -15,6 +15,15 @@ kind (`Codex`, `Pi`), the same way every other surface names it.
   carries the kind and any real name, never the id.
 - `id-in-title` a pane label or window title that only carries the id says
   nothing and is ignored, so it cannot become the row's task either.
+- `derived-name` an agent with no published name reads as its Agent Kind's
+  label, else the folder it runs in, else `Agent` — one shared rule
+  (`derivedAgentName` in `packages/contract/src/herd/domain/agentName.ts`) the
+  host and phone both call, so the row, the needs-you notification and the
+  voice read-out name it the same way.
+- `no-unnamed-agent` no surface renders the literal `Unnamed agent`: the Home
+  row (`agentLabels`), the native notification (`herd.ts` `herdPaneName`,
+  `KernelNotifications`) and the host voice (`coordinatorPolicy`
+  `workspaceContext`, `realtimeCoordinator`) all go through the derived name.
 
 ## How to get to it (user POV)
 

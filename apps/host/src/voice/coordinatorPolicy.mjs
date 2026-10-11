@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createConnection } from 'node:net';
+import { derivedAgentName } from '@trymuxr/contract/herd';
 
 const agentProperty = {
     agent: {
@@ -443,7 +444,7 @@ export function workspaceContext(open) {
     const sessions = Array.isArray(open?.publicContext?.sessions) ? open.publicContext.sessions : [];
     const lines = sessions.slice(0, 64).map((session) => {
         if (!session || typeof session !== 'object') return '';
-        const name = cleanProviderProse(session.agentName, 'Unnamed agent', 80);
+        const name = cleanProviderProse(session.agentName, derivedAgentName({ agentKind: session.agentKind }), 80);
         const task = cleanProviderProse(session.taskTitle, 'No task title', 120);
         const status = cleanProviderProse(session.agentStatus, 'unknown', 32);
         const kind = cleanProviderProse(session.agentKind, 'unknown provider', 32);
