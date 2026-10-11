@@ -97,9 +97,11 @@ export class MuxrRuntime extends EventEmitter {
         const collect = (chunk) => { output += chunk.toString(); };
         relay.stdout?.on('data', collect);
         relay.stderr?.on('data', collect);
+        const closed = new Promise((resolve) => relay.once('close', resolve));
         try {
             return await waitForRelay(relay);
         } catch (error) {
+            if (relay.exitCode !== null || relay.signalCode !== null) await closed;
             const message = error instanceof Error ? error.message : String(error);
             if (output.includes('another relay already owns')) {
                 this.emit('status', { phase: 'already-running', message: CLI_RUNNING_MESSAGE });
@@ -115,13 +117,17 @@ export class MuxrRuntime extends EventEmitter {
         mkdirSync(this.#home, { recursive: true, mode: 0o700 });
         const relayDataDir = join(this.#home, 'relay');
 
-        // A self-host state written by the CLI is authoritative: the app runs the
-        // host against it and never rewrites it, so a remote relay or a shared
-        // connection setup survives launching the desktop app.
+        // The app owns the relay and host only for the state it wrote itself.
+        // State from the command-line install means muxr is already running
+        // there, so the desktop refuses instead of racing it.
         const statePath = join(this.#home, 'selfhost.json');
         const existing = existsSync(statePath)
             ? JSON.parse(readFileSync(statePath, 'utf8'))
             : undefined;
+        if (existing !== undefined && existing.createdBy !== 'desktop') {
+            this.emit('status', { phase: 'already-running', message: CLI_RUNNING_MESSAGE });
+            throw new RelayOwnedError(CLI_RUNNING_MESSAGE);
+        }
         if (existing !== undefined && (!existing.machine?.id || !existing.machine?.crypto)) {
             throw new Error('desktop app: self-host state is invalid; refusing to replace its pairing identity');
         }
@@ -135,6 +141,7 @@ export class MuxrRuntime extends EventEmitter {
                 || (lanIp === undefined ? `ws://127.0.0.1:${boundPort}` : `ws://${lanIp}:${boundPort}`);
             const state = {
                 version: 1,
+                createdBy: 'desktop',
                 machine: machineIdentity(undefined),
                 relayRole: 'single-machine',
                 connectionMode: 'lan',
@@ -145,10 +152,8 @@ export class MuxrRuntime extends EventEmitter {
             };
             writeFileSync(statePath, `${JSON.stringify(state)}\n`, { mode: 0o600 });
             this.emit('log', 'runtime', `relay on :${boundPort}, advertised ${advertised}\n`);
-        } else if (existing.relayLocation !== 'remote') {
-            await this.#awaitRelay(this.#spawnRelay(existing.relayPort, existing));
-            this.emit('log', 'runtime', `using the existing self-host state at ${statePath}\n`);
         } else {
+            await this.#awaitRelay(this.#spawnRelay(existing.relayPort, existing));
             this.emit('log', 'runtime', `using the existing self-host state at ${statePath}\n`);
         }
 
@@ -179,14 +184,13 @@ export class MuxrRuntime extends EventEmitter {
         this.#stopping = true;
         const children = this.#children;
         this.#children = [];
-        const pending = children.filter((child) => child.exitCode === null && child.signalCode === null);
-        if (pending.length === 0) return Promise.resolve();
+        const pending = new Set(children.filter((child) => child.pid !== undefined && child.exitCode === null && child.signalCode === null));
+        if (pending.size === 0) return Promise.resolve();
         return new Promise((resolve) => {
-            let left = pending.length;
             let timer;
-            const settle = () => {
-                left -= 1;
-                if (left > 0) return;
+            const settle = (child) => {
+                pending.delete(child);
+                if (pending.size > 0) return;
                 clearTimeout(timer);
                 resolve();
             };
@@ -197,7 +201,9 @@ export class MuxrRuntime extends EventEmitter {
             }, 2_000);
             timer.unref();
             for (const child of pending) {
-                child.once('exit', settle);
+                child.once('exit', () => settle(child));
+                child.once('error', () => settle(child));
+                child.once('close', () => settle(child));
                 child.kill('SIGTERM');
             }
         });

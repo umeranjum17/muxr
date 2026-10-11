@@ -1,58 +1,79 @@
 /**
- * A self-host state written by a `muxr` CLI install is authoritative. Launching
- * the desktop app must run the host against that config and leave the file
- * byte-for-byte unchanged, so a remote relay setup is not silently rewritten to
- * a local one.
+ * The desktop app owns the relay and host only for the state it wrote itself.
+ * State from the command-line install means muxr already runs there, so the app
+ * refuses with one plain state; only a desktop-created state starts processes.
  */
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MuxrRuntime, RelayOwnedError } from './runtime.mjs';
 
-describe('desktop runtime self-host state', () => {
-    it('keeps an existing remote-relay CLI config exactly as it is', async () => {
-        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-state-'));
-        const statePath = join(home, 'selfhost.json');
-        const cliState = {
-            version: 1,
-            machine: {
-                id: 'machine-cli-owner',
-                name: 'cli-host',
-                crypto: {
-                    signingPublicKey: 'signing-public',
-                    signingSecretKey: 'signing-secret',
-                    boxPublicKey: 'box-public',
-                    boxSecretKey: 'box-secret',
-                    dataKey: 'data-key',
-                    keyVersion: 1,
-                    devices: [],
-                },
-            },
-            relayLocation: 'remote',
-            relayUrl: 'wss://relay.example.test',
-            connectionMode: 'shared',
-            relayRole: 'shared-relay-owner',
-            relayPort: 8792,
-            mintSecret: 'cli-owned-mint-secret',
-            machineCredential: 'cli-credential',
-        };
-        const before = `${JSON.stringify(cliState)}\n`;
-        writeFileSync(statePath, before, { mode: 0o600 });
+const MACHINE = { id: 'machine-owner', name: 'computer', crypto: { signingPublicKey: 's' } };
 
-        // Stands in for the relay the desktop app would keep alive itself; it
-        // must never be launched for a state that already names a relay.
+function appendingFixture(path: string, marker: string, logPath: string) {
+    writeFileSync(path, [
+        "import { appendFileSync } from 'node:fs';",
+        `appendFileSync(${JSON.stringify(logPath)}, ${JSON.stringify(marker)} + String.fromCharCode(10));`,
+        'setInterval(() => {}, 1000);',
+        '',
+    ].join('\n'));
+}
+
+function collectingRuntime(home: string, relayEntry: string, hostEntry: string) {
+    const statuses: { phase: string; message?: string }[] = [];
+    const runtime = new MuxrRuntime({ home, node: process.execPath, relayEntry, hostEntry, port: 8792 });
+    runtime.on('status', (event) => statuses.push(event));
+    return { runtime, statuses };
+}
+
+describe('desktop runtime self-host state', () => {
+    it('refuses a CLI local state without starting the relay or host', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-cli-local-'));
+        const before = `${JSON.stringify({ version: 1, machine: MACHINE, relayLocation: 'local', relayPort: 8792, bindHost: '127.0.0.1' })}\n`;
+        writeFileSync(join(home, 'selfhost.json'), before, { mode: 0o600 });
+        const spawnLog = join(home, 'spawns.log');
+        const relayEntry = join(home, 'relay-fixture.mjs');
+        appendingFixture(relayEntry, 'relay', spawnLog);
+        const hostEntry = join(home, 'host-fixture.mjs');
+        appendingFixture(hostEntry, 'host', spawnLog);
+
+        const { runtime, statuses } = collectingRuntime(home, relayEntry, hostEntry);
+        await expect(runtime.start()).rejects.toThrow(RelayOwnedError);
+
+        expect(statuses.at(-1)?.phase).toBe('already-running');
+        expect(statuses.at(-1)?.message).toContain('muxr pair');
+        expect(readFileSync(join(home, 'selfhost.json'), 'utf8')).toBe(before);
+        expect(existsSync(spawnLog)).toBe(false);
+    });
+
+    it('refuses a CLI remote state without starting the relay or host', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-cli-remote-'));
+        const before = `${JSON.stringify({ version: 1, machine: MACHINE, relayLocation: 'remote', relayUrl: 'wss://relay.example.test', connectionMode: 'shared' })}\n`;
+        writeFileSync(join(home, 'selfhost.json'), before, { mode: 0o600 });
+        const spawnLog = join(home, 'spawns.log');
+        const relayEntry = join(home, 'relay-fixture.mjs');
+        appendingFixture(relayEntry, 'relay', spawnLog);
+        const hostEntry = join(home, 'host-fixture.mjs');
+        appendingFixture(hostEntry, 'host', spawnLog);
+
+        const { runtime, statuses } = collectingRuntime(home, relayEntry, hostEntry);
+        await expect(runtime.start()).rejects.toThrow(RelayOwnedError);
+
+        expect(statuses.at(-1)?.phase).toBe('already-running');
+        expect(readFileSync(join(home, 'selfhost.json'), 'utf8')).toBe(before);
+        expect(existsSync(spawnLog)).toBe(false);
+    });
+
+    it('runs the relay and host for state the desktop created itself', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-own-'));
+        writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
         const relayEntry = join(home, 'relay-fixture.mjs');
         writeFileSync(relayEntry, [
-            "import { mkdirSync, writeFileSync } from 'node:fs';",
-            "import { join } from 'node:path';",
-            "mkdirSync(process.env.MUXR_RELAY_DATA_DIR, { recursive: true });",
-            "writeFileSync(join(process.env.MUXR_RELAY_DATA_DIR, 'mint-secret'), JSON.stringify('desktop-mint-secret'));",
             "setTimeout(() => process.stdout.write('relay listening on ws://127.0.0.1:8792\\n'), 150);",
             'setInterval(() => {}, 1000);',
             '',
         ].join('\n'));
-
         const hostEntry = join(home, 'host-fixture.mjs');
         writeFileSync(hostEntry, [
             "import { mkdirSync, writeFileSync } from 'node:fs';",
@@ -64,7 +85,7 @@ describe('desktop runtime self-host state', () => {
             '',
         ].join('\n'));
 
-        const runtime = new MuxrRuntime({ home, node: process.execPath, relayEntry, hostEntry, port: 8792 });
+        const { runtime, statuses } = collectingRuntime(home, relayEntry, hostEntry);
         try {
             await runtime.start();
         } finally {
@@ -72,19 +93,11 @@ describe('desktop runtime self-host state', () => {
             await new Promise((resolve) => setTimeout(resolve, 300));
         }
 
-        expect(readFileSync(statePath, 'utf8')).toBe(before);
+        expect(statuses.at(-1)?.phase).toBe('online');
     }, 30_000);
 
-    it('refuses with the plain state and spawns no second relay when the command-line relay owns the port', async () => {
+    it('refuses and spawns once when the relay data dir already has an owner', async () => {
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-owned-'));
-        writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({
-            version: 1,
-            machine: { id: 'machine-cli-owner', crypto: { signingPublicKey: 's' } },
-            relayLocation: 'local',
-            relayPort: 8792,
-            bindHost: '127.0.0.1',
-        })}\n`, { mode: 0o600 });
-
         const spawnLog = join(home, 'relay-spawns.log');
         const relayEntry = join(home, 'relay-owned-fixture.mjs');
         writeFileSync(relayEntry, [
@@ -94,16 +107,10 @@ describe('desktop runtime self-host state', () => {
             '',
         ].join('\n'));
 
-        const statuses: { phase: string; message?: string }[] = [];
-        const runtime = new MuxrRuntime({ home, node: process.execPath, relayEntry, hostEntry: join(home, 'unused-host.mjs'), port: 8792 });
-        runtime.on('status', (event) => statuses.push(event));
-
+        const { runtime, statuses } = collectingRuntime(home, relayEntry, join(home, 'unused-host.mjs'));
         await expect(runtime.start()).rejects.toThrow(RelayOwnedError);
 
-        const last = statuses.at(-1);
-        expect(last?.phase).toBe('already-running');
-        expect(last?.message).toContain('already running on this computer from the command-line install');
-        expect(last?.message).toContain('muxr pair');
+        expect(statuses.at(-1)?.phase).toBe('already-running');
         expect(readFileSync(spawnLog, 'utf8').trim().split('\n')).toHaveLength(1);
-    }, 30_000);
+    });
 });
