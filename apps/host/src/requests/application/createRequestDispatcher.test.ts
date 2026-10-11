@@ -1060,4 +1060,15 @@ describe('machine.shell process group', () => {
         expect(result.error).toBeNull();
         expect(result.stdout).toBe('\u20ac'.repeat(size));
     }, 30_000);
+
+    it('caps stdout and stderr separately, as execFile did', async () => {
+        const result = await runInProcessGroup(
+            process.execPath,
+            ['-e', "process.stdout.write('a'.repeat(600000)); process.stderr.write('b'.repeat(600000))"],
+            { maxBuffer: 1_000_000 },
+        );
+        expect(result.error).toBeNull();
+        expect(result.stdout).toBe('a'.repeat(600_000));
+        expect(result.stderr).toBe('b'.repeat(600_000));
+    }, 30_000);
 });

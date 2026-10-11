@@ -69,7 +69,8 @@ export function runInProcessGroup(
         let stderr = '';
         const stdoutDecoder = new StringDecoder('utf8');
         const stderrDecoder = new StringDecoder('utf8');
-        let capturedBytes = 0;
+        let stdoutBytes = 0;
+        let stderrBytes = 0;
 
         try {
             child = spawn(file, [...args], {
@@ -128,8 +129,10 @@ export function runInProcessGroup(
         };
         const append = (chunk: Buffer, toStderr: boolean): void => {
             if (settled || overflowError !== null) return;
-            capturedBytes += chunk.length;
-            if (capturedBytes > maxBuffer) {
+            const bytes = (toStderr ? stderrBytes : stdoutBytes) + chunk.length;
+            if (toStderr) stderrBytes = bytes;
+            else stdoutBytes = bytes;
+            if (bytes > maxBuffer) {
                 overflowError = Object.assign(new Error('maxBuffer length exceeded'), {
                     code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
                 });
