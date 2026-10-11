@@ -257,6 +257,25 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
                         />
                     );
                 })}
+                <Item
+                    key="add-computer"
+                    title="Add a computer"
+                    subtitleStyle={{ color: theme.colors.textSecondary }}
+                    subtitle={undefined}
+                    subtitleLines={0}
+                    icon={(
+                        <View>
+                            <Ionicons name="add-outline" size={29} color={theme.colors.textSecondary} />
+                        </View>
+                    )}
+                    rightElement={undefined}
+                    loading={false}
+                    showChevron={false}
+                    onPress={() => {
+                        router.push('/pair');
+                    }}
+                    accessibilityLabel="Add a computer to pair with this agent"
+                />
             </ItemGroup>
         </View>
     );
