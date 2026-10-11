@@ -30,8 +30,7 @@ export function agentKindLabel(kind?: string | null): string | undefined {
 
 /** The last path segment of a cwd: the folder a pane runs in. */
 export function agentFolderName(cwd?: string | null): string | undefined {
-    const parts = cwd?.replace(/\/+$/, '').split('/');
-    const last = parts?.pop();
+    const last = cwd?.split('/').filter((segment) => segment !== '').pop();
     return last !== undefined && last !== '' ? last : undefined;
 }
 
