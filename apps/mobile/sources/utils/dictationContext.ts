@@ -156,7 +156,7 @@ export function currentDictationContext(draftText?: string, hint?: string): Dict
         : undefined;
     const hasAgent = (focusedPane?.agentName?.trim() ?? '') !== '';
     return buildDictationBias({
-        // Never bias the 'Shell'/'Unnamed agent' placeholders: they name no one.
+        // Never bias the derived placeholders ('Shell', 'Agent', a folder): they name no one.
         agentNames: hasAgent ? [focusedPane?.agentName, labels?.agentName] : [],
         taskTitles: [labels?.task, labels?.title, focusedPane?.taskTitle, metadata.summary?.text],
         repoNames: [metadata.worktree?.repo, focusedWorkspace?.worktree?.repo, metadata.workspaceLabel],
