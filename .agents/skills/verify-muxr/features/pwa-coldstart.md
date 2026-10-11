@@ -110,7 +110,7 @@ needed to render the diff surface.
    `/shiki-langs/vue.json` are fetched and the diff paints Vue and TypeScript
    highlighting at 393 px light and dark; render a TypeScript-only patch and
    confirm no `/shiki-langs/` request happens.
-8. Mermaid engine, with a markdown block: the app's only `MarkdownView` →
+9. Mermaid engine, with a markdown block: the app's only `MarkdownView` →
    `MermaidRenderer` surface is the changelog's legacy markdown
    (`app/(app)/changelog.tsx`), reached in-app via Settings → What's New. Its
    bundled `changelog.json` has no mermaid fence, so add a temporary
@@ -135,7 +135,7 @@ needed to render the diff surface.
   budget from the check, not the browser.
 - The commit / changes-file routes need a paired host to render; without one
   they show the transport error and never fetch `codeSurfaces`. When no host is
-  available, drive the diff surface standalone with step 7 instead of claiming
+  available, drive the diff surface standalone with step 8 instead of claiming
   the app route rendered.
 - The on-demand grammar assets live in `dist/shiki-langs/` (built into
   `public/shiki-langs/` before the export; gitignored like canvaskit). A stale

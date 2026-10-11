@@ -74,9 +74,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   start in both themes at 393 and 270 px, offline hand-off, native comparison.
 - [Paint the installed PWA landing without the terminal payload](./pwa-coldstart.md) —
   static `dist`: the initial-transfer gzip ratchet, the eager entry/`__common`
-  carrying no xterm/shiki/diff, the session route still loading its lazy
-  terminal chunks at runtime, and non-slim diff grammars fetching on demand from
-  `/shiki-langs/` only when a diff needs them.
+  carrying no xterm/shiki/diff/CanvasKit, the session route still loading its
+  lazy terminal chunks at runtime, and non-slim diff grammars fetching on
+  demand from `/shiki-langs/` only when a diff needs them.
 
 - [Install muxr to the home screen from a browser tab](./pwa-install.md) —
   exported web client in Chrome and emulated iOS Safari: prompt row, Add to
