@@ -199,7 +199,7 @@ if (!app.requestSingleInstanceLock()) {
         if (retrying) return;
         retrying = true;
         try {
-            runtime?.stop();
+            await runtime?.stop();
             runtime = undefined;
             await startRuntime();
         } finally { retrying = false; }

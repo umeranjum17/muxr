@@ -152,9 +152,30 @@ export class MuxrRuntime extends EventEmitter {
 
     stop() {
         this.#stopping = true;
-        for (const child of this.#children) {
-            if (child.exitCode === null) child.kill('SIGTERM');
-        }
+        const children = this.#children;
         this.#children = [];
+        const pending = children.filter((child) => child.exitCode === null && child.signalCode === null);
+        if (pending.length === 0) return Promise.resolve();
+        return new Promise((resolve) => {
+            let left = pending.length;
+            let timer;
+            const settle = () => {
+                left -= 1;
+                if (left > 0) return;
+                clearTimeout(timer);
+                resolve();
+            };
+            timer = setTimeout(() => {
+                for (const child of pending) {
+                    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+                }
+                resolve();
+            }, 2_000);
+            timer.unref();
+            for (const child of pending) {
+                child.once('exit', settle);
+                child.kill('SIGTERM');
+            }
+        });
     }
 }
