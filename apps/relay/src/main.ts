@@ -16,7 +16,7 @@ if (existsSync(lockFile)) {
         try {
             process.kill(pid, 0);
             const command = spawnSync(process.env.MUXR_PS_BIN?.trim() || 'ps', ['-ww', '-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
-            aliveRelay = command.status === 0 && /(?:\/relay\.js|apps\/relay\/.+\/main\.js)(?:\s|$)/.test(command.stdout);
+            aliveRelay = command.status === 0 && /(?:\/relay\.(?:js|mjs)|apps\/relay\/.+\/main\.js)(?:\s|$)/.test(command.stdout);
         } catch {
             // dead pid: stale lock
         }
