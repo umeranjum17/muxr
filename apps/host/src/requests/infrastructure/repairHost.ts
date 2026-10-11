@@ -1,7 +1,7 @@
-import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { RequestParams, RequestResult } from '@trymuxr/contract';
+import { runInProcessGroup } from '../../platform/processGroup.js';
 
 /** Resolve only the running installation, never a client path or shell command. */
 export async function repairHost(params: RequestParams<'host.update'>, owner: string): Promise<RequestResult<'host.update'>> {
@@ -17,13 +17,16 @@ export async function repairHost(params: RequestParams<'host.update'>, owner: st
     if (!cli) throw new Error('Phone host updates require a packaged installation. Use muxr update on this host first.');
     const request = JSON.stringify({ ...params, owner });
     if (request.length > 2048) throw new Error('Invalid host update request.');
-    return new Promise((resolve, reject) => {
-        execFile(process.execPath, [cli!, 'host-repair', request], { timeout: 45000, maxBuffer: 65536 }, (error, stdout) => {
-            try {
-                const result = JSON.parse(stdout);
-                if (error || result.error) { reject(new Error(result.error || 'Host update failed.')); return; }
-                resolve(result);
-            } catch { reject(new Error('The host could not check or start this update.')); }
-        });
+    const result = await runInProcessGroup(process.execPath, [cli, 'host-repair', request], {
+        timeoutMs: 45_000,
+        maxBuffer: 65536,
     });
+    let parsed: RequestResult<'host.update'> & { error?: string };
+    try {
+        parsed = JSON.parse(result.stdout);
+    } catch {
+        throw new Error('The host could not check or start this update.');
+    }
+    if (result.error !== null || parsed.error) throw new Error(parsed.error ?? 'Host update failed.');
+    return parsed;
 }

@@ -114,6 +114,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   unchanged native QR branch from a release APK.
 - [Check the self-host](./selfhost-health.md) — relay `/health`, version
   identity, and the owner-only hosts listing.
+- [Keep a shell request's backgrounded child from outliving it](./host-shell-process-group.md) —
+  real `machine.shell` over a fake-Herdr stack: prompt reply, backgrounded child
+  reaped, and the host unit's memory and process count flat across the run.
 - [Name the current workspace and pane](./agent-naming.md) — `muxr name`
   inside a Herdr pane, with provider/model attribution.
 - [Inspect and prune Shared Artifacts history](./artifact-retention.md) —

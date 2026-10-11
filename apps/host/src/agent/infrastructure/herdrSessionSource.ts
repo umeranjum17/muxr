@@ -32,6 +32,7 @@ import type {
 } from '@trymuxr/contract';
 import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@trymuxr/contract';
 import { hostDesktopForPanes } from '../../desktop/index.js';
+import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
@@ -181,12 +182,6 @@ const COMMAND_ALIASES: Record<string, string[]> = {
     cursor: ['cursor-agent'],
     kiro: ['kiro-cli'],
 };
-
-function execFileExitCode(error: { code?: unknown } | null): number | null {
-    if (error === null) return 0;
-    if (typeof error.code === 'number') return error.code;
-    return null;
-}
 
 export function agentToolPath(env: NodeJS.ProcessEnv = process.env): string[] {
     const home = env.HOME || homedir();
@@ -3033,30 +3028,26 @@ export async function createHerdrSessionSource(
             const record = await resolvePane(shellOptions.sessionId);
             const cwd = cwdForSession(record.sessionId);
             if (cwd === undefined) throw agentUnavailable();
-            return await new Promise((resolve) => {
-                execFile(
-                    '/bin/sh',
-                    ['-c', shellOptions.command],
-                    { cwd, timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
-                    (error, stdout, stderr) => {
-                        const output = `${stdout}${stderr}`;
-                        const exitCode = execFileExitCode(error);
-                        if (shellOptions.quiet === true) {
-                            resolve({ output, exitCode, isError: error !== null });
-                            return;
-                        }
-                        publish(record.sessionId, { type: 'shell.start', command: shellOptions.command });
-                        if (output.length > 0) publish(record.sessionId, { type: 'shell.chunk', chunk: output });
-                        publish(record.sessionId, {
-                            type: 'shell.end',
-                            output,
-                            exitCode,
-                            isError: error !== null,
-                        });
-                        resolve(null);
-                    },
-                );
+            const result = await runInProcessGroup(
+                '/bin/sh',
+                ['-c', shellOptions.command],
+                { cwd, timeoutMs: 30_000, maxBuffer: 8 * 1024 * 1024 },
+            );
+            const output = `${result.stdout}${result.stderr}`;
+            const exitCode = result.code;
+            const isError = result.error !== null;
+            if (shellOptions.quiet === true) {
+                return { output, exitCode, isError };
+            }
+            publish(record.sessionId, { type: 'shell.start', command: shellOptions.command });
+            if (output.length > 0) publish(record.sessionId, { type: 'shell.chunk', chunk: output });
+            publish(record.sessionId, {
+                type: 'shell.end',
+                output,
+                exitCode,
+                isError,
             });
+            return null;
         },
 
         async readFile(readOptions: SessionReadFileOptions): Promise<{ content: string }> {
