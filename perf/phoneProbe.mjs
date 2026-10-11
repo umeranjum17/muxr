@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { setAndroidSerial, androidArgs } from './lib/deviceTarget.mjs';
 import { LOAD } from './lib/scenario.mjs';
+import { redact } from './lib/pairPhone.mjs';
 import { appPid, totalPssKb, framesRendered, resetGfx, jankReport } from './lib/androidSignals.mjs';
 import { apkIdentity, sha256 } from './lib/provenance.mjs';
 import { acquirePhoneKeeper } from './lib/phoneKeeper.mjs';
@@ -37,7 +38,7 @@ async function typePairingCode(code) {
         await run(process.execPath, [secretTyper, '--serial', serial, '--text', code], { timeout: 180_000, maxBuffer: 16 * 1024 * 1024 });
     } catch (error) {
         const detail = String(error.stderr ?? '').trim() || error.message;
-        throw new Error(`pairing code entry failed before the pair wait: ${detail.split(code).join('<pairing string>')}`);
+        throw new Error(`pairing code entry failed before the pair wait: ${redact(detail, code)}`);
     }
 }
 const ui = async () => { await adb('shell', 'uiautomator', 'dump', '/sdcard/muxr-perf-ui.xml'); return adb('shell', 'cat', '/sdcard/muxr-perf-ui.xml'); };
