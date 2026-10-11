@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { cleanTestScratch, processGroup, processStart, scratchBase, scratchEntries, scratchUnused, testScratchOwner } from '../../../scripts/diagnostics/application/testScratchOwner.mjs';
+import { cleanTestScratch, processGroup, processStart, removeTestScratch, scratchBase, scratchEntries, scratchUnused, testScratchOwner } from '../../../scripts/diagnostics/application/testScratchOwner.mjs';
 
 export default function setupHostTestScratch(): () => void {
     const inherited = process.env.TMPDIR;
@@ -24,7 +24,7 @@ export default function setupHostTestScratch(): () => void {
                 for (const name of scratchEntries(root)) {
                     if (name !== 'owner') leftovers.push(join(root, name));
                 }
-                rmSync(root, { recursive: true, force: true });
+                removeTestScratch(root);
             }
         }
         if (owned) {

@@ -361,6 +361,38 @@ describe('on-device dictation flow', () => {
         mocks.transcribe.mockImplementation(quick);
     });
 
+    it('moves the level for quiet far-field speech and rests on true silence', async () => {
+        // A phone mic puts arm's-length speech near −45 dBFS: ~0.005 normalised
+        // RMS, which the kit reports as ~0.02. The old linear read drew that as
+        // a 4.2 dp bar, so the meter froze exactly when the speaker was quiet.
+        const quiet = (amplitude: number) => Buffer.from(new Int16Array(1280).fill(amplitude).buffer).toString('base64');
+        const silence = Buffer.alloc(2560).toString('base64');
+
+        const dictation = await renderDictation();
+        await act(async () => { dictation.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+
+        let loudest = 0;
+        let quietest = 1;
+        // Speech arrives in bursts: a −45 dBFS frame, then the gap between words.
+        for (let i = 0; i < 30; i++) {
+            onData?.(quiet(i % 2 === 0 ? 164 : 30));
+            await vi.advanceTimersByTimeAsync(80);
+            loudest = Math.max(loudest, dictation.level.value);
+            quietest = Math.min(quietest, dictation.level.value);
+        }
+        expect(loudest).toBeGreaterThan(0.25); // clears the frozen 4 dp base
+        expect(loudest - quietest).toBeGreaterThan(0.2); // follows the words
+
+        for (let i = 0; i < 6; i++) {
+            onData?.(silence);
+            await vi.advanceTimersByTimeAsync(80);
+        }
+        expect(dictation.level.value).toBe(0); // true silence stays flat
+        await act(async () => { dictation.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+    });
+
     it('starts notification Talk on the pane last used on the phone, not a stale desk focus', async () => {
         const tree = {
             workspaces: [
