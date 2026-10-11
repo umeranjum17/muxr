@@ -1,4 +1,4 @@
-/* muxr desktop window, in the app's dark theme tokens (apps/mobile theme.ts). */
+/* muxr desktop window, in the app's dark theme tokens (apps/mobile/sources/theme.ts). */
 :root {
     color-scheme: dark light;
     --surface: #1a1a1a;
