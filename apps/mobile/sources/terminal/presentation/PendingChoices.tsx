@@ -1,13 +1,16 @@
 import * as React from 'react';
-import { Pressable, Text } from 'react-native';
+import { Pressable, Text, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import { sync } from '@/catalog/sync';
 import { hapticsSelection } from '@/components/haptics';
-import { withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { pendingChoices, type PendingChoice } from '../domain/promptAvailability';
+import { useTerminalColors } from './useTerminalColors';
+
+/** The stack's own breathing room above and below the chips. */
+const STACK_PAD = 8;
 
 /** A question can arrive a beat after the status flips, and the next one can
  *  follow the last without the status ever leaving blocked. */
@@ -25,15 +28,22 @@ const signature = (choices: readonly PendingChoice[]): string =>
  * selects and confirms it. The screen is read with the passive `pane.read`,
  * so reading it never moves the agent's viewport.
  */
-export const PendingChoices = React.memo(function PendingChoices({ sessionId, waiting, channel, onVisibilityChange }: {
+export const PendingChoices = React.memo(function PendingChoices({ sessionId, waiting, channel, onVisibilityChange, lineHeight, gridInset }: {
     sessionId: string;
     /** The pane is blocked and this device may answer it. */
     waiting: boolean;
     channel?: { sendText: (text: string) => void };
     onVisibilityChange: (visible: boolean) => void;
+    /** The terminal's row height, so the band behind the chips can end on a line boundary. */
+    lineHeight?: number;
+    /** The gap between the terminal's last row and the box the band sits in, so a
+     *  short viewport that does not divide into whole rows still ends on a line. */
+    gridInset?: number;
 }) {
     const { theme } = useUnistyles();
+    const { colors: terminalColors } = useTerminalColors();
     const [choices, setChoices] = React.useState<PendingChoice[]>([]);
+    const [stackHeight, setStackHeight] = React.useState(0);
     const answered = React.useRef<{ signature: string; at: number } | null>(null);
 
     React.useEffect(() => {
@@ -79,6 +89,21 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
         channel.sendText(choice.key);
     };
 
+    // A solid band in the terminal's own resolved background (the colour the
+    // person tunes in Settings), so it tracks the terminal and no text shows
+    // between or behind the chips. Its top is padded so the band's edge lands
+    // on a terminal row boundary (measured from the terminal's own grid, offset
+    // by the gap between the last row and the band's own box): the line directly
+    // above the chips keeps its full descenders instead of being half-covered.
+    const bandInset = gridInset !== undefined && gridInset > 0 ? gridInset : 0;
+    const padTop = lineHeight !== undefined && lineHeight > 0 && stackHeight > 0
+        ? STACK_PAD + (((bandInset - (stackHeight + STACK_PAD * 2)) % lineHeight + lineHeight) % lineHeight)
+        : STACK_PAD;
+    const measureStack = (event: LayoutChangeEvent): void => {
+        const next = event.nativeEvent.layout.height;
+        setStackHeight((current) => (Math.abs(current - next) < 0.5 ? current : next));
+    };
+
     return (
         <Animated.View
             entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)}
@@ -88,37 +113,37 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                 left: 0,
                 right: 0,
                 bottom: 0,
-                flexDirection: 'row',
-                flexWrap: 'wrap',
-                gap: 6,
-                paddingHorizontal: 8,
-                paddingVertical: 8,
-                backgroundColor: withAlpha(theme.colors.terminalChrome.canvas, 0.94),
+                paddingHorizontal: STACK_PAD,
+                paddingTop: padTop,
+                paddingBottom: STACK_PAD,
+                backgroundColor: terminalColors.background,
             }}
         >
-            {choices.map((choice) => (
-                <Pressable
-                    key={choice.key}
-                    onPress={() => answer(choice)}
-                    onLongPress={() => Modal.alert(`Answer ${choice.key}`, choice.label)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Answer ${choice.label}`}
-                    accessibilityHint={`Types ${choice.key}`}
-                    style={({ pressed }) => ({
-                        maxWidth: '100%',
-                        minHeight: 36,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 6,
-                        paddingHorizontal: 12,
-                        borderRadius: 999,
-                        backgroundColor: pressed ? theme.colors.terminalChrome.clusterPressed : theme.colors.terminalChrome.cluster,
-                    })}
-                >
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 11, ...Typography.mono() }}>{choice.key}</Text>
-                    <Text numberOfLines={2} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13 }}>{choice.label}</Text>
-                </Pressable>
-            ))}
+            <View onLayout={measureStack} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {choices.map((choice) => (
+                    <Pressable
+                        key={choice.key}
+                        onPress={() => answer(choice)}
+                        onLongPress={() => Modal.alert(`Answer ${choice.key}`, choice.label)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Answer ${choice.label}`}
+                        accessibilityHint={`Types ${choice.key}`}
+                        style={({ pressed }) => ({
+                            maxWidth: '100%',
+                            minHeight: 36,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                            paddingHorizontal: 12,
+                            borderRadius: 999,
+                            backgroundColor: pressed ? theme.colors.terminalChrome.clusterPressed : theme.colors.terminalChrome.cluster,
+                        })}
+                    >
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 11, ...Typography.mono() }}>{choice.key}</Text>
+                        <Text numberOfLines={2} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13 }}>{choice.label}</Text>
+                    </Pressable>
+                ))}
+            </View>
         </Animated.View>
     );
 });
