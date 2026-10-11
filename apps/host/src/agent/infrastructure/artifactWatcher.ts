@@ -233,16 +233,14 @@ export class ArtifactWatcher {
         this.interval.unref();
     }
 
-    /** Re-emit all panes, or only the supplied active panes, even when unchanged. */
-    async resendAll(paneIds?: Iterable<string>): Promise<void> {
-        if (paneIds === undefined) {
-            this.lastSignature.clear();
-            await this.rescanAll();
-            return;
-        }
-        for (const paneId of paneIds) {
-            this.lastSignature.delete(paneId);
-            await this.scanAndEmit(paneId);
+    /** A connecting client's full snapshot, separate from signature-guarded live updates. */
+    async resendAll(
+        paneIds: Iterable<string>,
+        deliver: (paneId: string, artifacts: SessionArtifactMetadata[], total: number, truncated: boolean) => void,
+    ): Promise<void> {
+        for (const paneId of new Set(paneIds)) {
+            const scan = await this.scanPane(paneId);
+            deliver(paneId, scan.artifacts.map(metaOnly), scan.total, scan.truncated);
         }
     }
 

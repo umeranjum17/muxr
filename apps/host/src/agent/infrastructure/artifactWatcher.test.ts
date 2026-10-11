@@ -151,7 +151,7 @@ describe('ArtifactWatcher', () => {
         }
     });
 
-    it('resendAll re-emits an unchanged pane so a late client still gets ids', async () => {
+    it('replays unchanged ids to a late client without waking existing clients', async () => {
         const root = paneRoot();
         mkdirSync(join(root, 'p1'), { recursive: true });
         writeFileSync(join(root, 'p1', 'a.png'), PIXEL);
@@ -164,9 +164,11 @@ describe('ArtifactWatcher', () => {
             await watcher.rescanAll();
             expect(emits.length).toBe(before);
             // A client just connected, so the same list has to go out again.
-            await watcher.resendAll();
-            expect(emits.length).toBe(before + 1);
-            expect(emits[emits.length - 1]!.artifacts[0]!.name).toBe('a.png');
+            const replayed: string[] = [];
+            await watcher.resendAll(['p1'], (_paneId, artifacts) => replayed.push(...artifacts.map((entry) => entry.name)));
+            expect(replayed).toEqual(['a.png']);
+            await watcher.rescanAll();
+            expect(emits.length).toBe(before);
         } finally {
             watcher.dispose();
         }
@@ -364,8 +366,9 @@ describe('ArtifactWatcher', () => {
             expect(readdirSync(join(root, paneId)).sort()).toEqual(history);
 
             watcher.dropPane(paneId);
-            await watcher.resendAll([paneId]);
-            expect(emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(history);
+            const replayed: string[] = [];
+            await watcher.resendAll([paneId], (_paneId, artifacts) => replayed.push(...artifacts.map((entry) => entry.name)));
+            expect(replayed.sort()).toEqual(history);
             expect(readdirSync(join(root, paneId)).sort()).toEqual(history);
         } finally {
             watcher.dispose();

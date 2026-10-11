@@ -407,7 +407,10 @@ export async function startFakeHerdr(options) {
             const status = params.agent_status;
             pane.agent_status = status;
             const agent = live.agents.find((row) => row.pane_id === pane.pane_id);
-            if (agent !== undefined) agent.agent_status = status;
+            if (agent !== undefined) {
+                agent.agent_status = status;
+                if (typeof params.title === 'string') agent.title = params.title;
+            }
             if (typeof status === 'string') emitStatus(pane.pane_id, status);
             emitEvent('pane.updated', {
                 pane_id: pane.pane_id,
