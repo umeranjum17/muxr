@@ -275,6 +275,7 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
             {confirm !== null && (
                 <WebAlertModal
                     surface="dark"
+                    opaque
                     config={{
                         id: 'computer-switch-confirm',
                         type: 'confirm',

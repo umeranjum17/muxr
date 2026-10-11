@@ -18,11 +18,18 @@ interface WebAlertModalProps {
      * with the sheet. Re-apply the scope inside the modal content here.
      */
     surface?: 'dark' | 'light';
+    /**
+     * Render the dialog on a fully opaque solid surface instead of the
+     * translucent native glass. A confirm opened over a busy screen (the
+     * Computers switch confirm over a terminal) must not let text behind
+     * the dialog show through its body.
+     */
+    opaque?: boolean;
 }
 
 type WebAlertModalContentProps = Omit<WebAlertModalProps, 'surface'>;
 
-function WebAlertModalContent({ config, onClose, onConfirm }: WebAlertModalContentProps) {
+function WebAlertModalContent({ config, onClose, onConfirm, opaque }: WebAlertModalContentProps) {
     const { theme } = useUnistyles();
     const isConfirm = config.type === 'confirm';
     
@@ -44,12 +51,14 @@ function WebAlertModalContent({ config, onClose, onConfirm }: WebAlertModalConte
 
     const styles = StyleSheet.create({
         container: {
-            backgroundColor: Platform.select({
-                web: theme.colors.surface,
-                ios: theme.colors.glass.overlay,
-                android: theme.colors.glass.backgroundStrong,
-                default: theme.colors.surface,
-            }),
+            backgroundColor: opaque
+                ? theme.colors.surface
+                : Platform.select({
+                    web: theme.colors.surface,
+                    ios: theme.colors.glass.overlay,
+                    android: theme.colors.glass.backgroundStrong,
+                    default: theme.colors.surface,
+                }),
             borderRadius: 14,
             width: 270,
             overflow: 'hidden',
@@ -113,15 +122,8 @@ function WebAlertModalContent({ config, onClose, onConfirm }: WebAlertModalConte
         }
     });
 
-    return (
-        <MobileGlassSurface
-            enabled={Platform.OS !== 'web'}
-            nativeEffect
-            glassEffectStyle="regular"
-            intensity={88}
-            tintColor={theme.colors.glass.overlayTint}
-            style={styles.container}
-        >
+    const body = (
+        <>
             <View style={styles.content}>
                 <Text style={[styles.title, Typography.default('semiBold')]}>
                     {config.title}
@@ -158,12 +160,31 @@ function WebAlertModalContent({ config, onClose, onConfirm }: WebAlertModalConte
                     </React.Fragment>
                 ))}
             </View>
+        </>
+    );
+
+    // An opaque dialog skips the glass entirely: a translucent blur layer over
+    // a busy screen lets the text behind show through the dialog body.
+    if (opaque) {
+        return <View style={styles.container}>{body}</View>;
+    }
+
+    return (
+        <MobileGlassSurface
+            enabled={Platform.OS !== 'web'}
+            nativeEffect
+            glassEffectStyle="regular"
+            intensity={88}
+            tintColor={theme.colors.glass.overlayTint}
+            style={styles.container}
+        >
+            {body}
         </MobileGlassSurface>
     );
 }
 
-export function WebAlertModal({ config, onClose, onConfirm, surface }: WebAlertModalProps) {
-    const content = <WebAlertModalContent config={config} onClose={onClose} onConfirm={onConfirm} />;
+export function WebAlertModal({ config, onClose, onConfirm, surface, opaque }: WebAlertModalProps) {
+    const content = <WebAlertModalContent config={config} onClose={onClose} onConfirm={onConfirm} opaque={opaque} />;
 
     return (
         <BaseModal visible={true} onClose={onClose} closeOnBackdrop={false}>
