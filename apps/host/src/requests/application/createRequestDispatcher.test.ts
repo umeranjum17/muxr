@@ -1046,4 +1046,17 @@ describe('machine.shell process group', () => {
             rmSync(home, { recursive: true, force: true });
         }
     }, 30_000);
+
+    it('decodes a multi-byte code point split across a chunk boundary', async () => {
+        // 30000 of a 3-byte code point crosses the 64 KiB pipe chunk boundary
+        // mid-character, which a per-chunk Buffer.toString mangles.
+        const size = 30_000;
+        const result = await runInProcessGroup(
+            process.execPath,
+            ['-e', `process.stdout.write('\\u20ac'.repeat(${size}))`],
+            { maxBuffer: 10_000_000 },
+        );
+        expect(result.error).toBeNull();
+        expect(result.stdout).toBe('\u20ac'.repeat(size));
+    }, 30_000);
 });

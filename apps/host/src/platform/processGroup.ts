@@ -12,6 +12,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 
 const KILL_GRACE_MS = 2_000;
 const DEFAULT_MAX_BUFFER = 1024 * 1024;
@@ -67,6 +68,8 @@ export function runInProcessGroup(
         let timeoutTimer: NodeJS.Timeout | undefined;
         let stdout = '';
         let stderr = '';
+        const stdoutDecoder = new StringDecoder('utf8');
+        const stderrDecoder = new StringDecoder('utf8');
         let capturedBytes = 0;
 
         try {
@@ -104,6 +107,8 @@ export function runInProcessGroup(
             } else {
                 code = null;
             }
+            stdout += stdoutDecoder.end();
+            stderr += stderrDecoder.end();
             resolve({ stdout, stderr, code, error });
         };
 
@@ -132,8 +137,8 @@ export function runInProcessGroup(
                 if (options.preserveGroupOnCleanExit !== true) killGroup();
                 return;
             }
-            if (toStderr) stderr += chunk.toString('utf8');
-            else stdout += chunk.toString('utf8');
+            if (toStderr) stderr += stderrDecoder.write(chunk);
+            else stdout += stdoutDecoder.write(chunk);
         };
 
         child.stdout?.on('data', (chunk: Buffer) => append(chunk, false));
