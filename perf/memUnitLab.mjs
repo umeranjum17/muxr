@@ -5,8 +5,9 @@
  * Starts the real relay + host from this checkout against fake Herdr, pairs a
  * synthetic device, then drives one of the child-spawning paths the task names:
  *
- *   --mode grandchild   machine.shell commands whose grandchild outlives the
- *                       login shell (execFile kills only the direct child)
+ *   --mode grandchild   machine.shell commands that background a grandchild.
+ *                       The pre-fix host leaked it (execFile killed only the
+ *                       direct child); the fixed host reaps the process group.
  *   --mode terminal     repeated terminal attach/detach churn
  *   --mode home         Home traffic (tree poll + Live tiles + dials)
  *
