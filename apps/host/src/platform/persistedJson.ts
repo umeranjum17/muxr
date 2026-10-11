@@ -19,11 +19,29 @@ export function loadPersistedJson<T>(
     return fallback;
 }
 
+export interface PersistQueue {
+    schedule(state: unknown): void;
+    /**
+     * Stop accepting writes and resolve once the last one has landed, so a
+     * caller can remove the queue's directory without a later write recreating it.
+     */
+    dispose(): Promise<void>;
+}
+
 /** Serializes writes and collapses a burst to its latest complete state. */
-export function createPersistQueue(filePath: string): { schedule(state: unknown): void } {
+export function createPersistQueue(filePath: string): PersistQueue {
     let writing = false;
     let pending = false;
     let latest: unknown;
+    let disposed = false;
+    let idleResolvers: Array<() => void> = [];
+
+    const settleIfIdle = (): void => {
+        if (writing || pending) return;
+        const resolvers = idleResolvers;
+        idleResolvers = [];
+        for (const resolve of resolvers) resolve();
+    };
 
     const flush = async (): Promise<void> => {
         if (writing) return;
@@ -31,21 +49,31 @@ export function createPersistQueue(filePath: string): { schedule(state: unknown)
         try {
             while (pending) {
                 pending = false;
-                await atomicWriteJson(filePath, latest);
+                try {
+                    await atomicWriteJson(filePath, latest);
+                } catch {
+                    // Persistence is best effort; the next mutation retries latest state.
+                }
             }
-        } catch {
-            // Persistence is best effort; the next mutation retries latest state.
         } finally {
             writing = false;
             if (pending) void flush();
+            else settleIfIdle();
         }
     };
 
     return {
         schedule(state: unknown): void {
+            if (disposed) return;
             latest = state;
             pending = true;
             void flush();
+        },
+        async dispose(): Promise<void> {
+            disposed = true;
+            while (writing || pending) {
+                await new Promise<void>((resolve) => idleResolvers.push(resolve));
+            }
         },
     };
 }

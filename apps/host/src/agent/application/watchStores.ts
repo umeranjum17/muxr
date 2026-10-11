@@ -11,6 +11,8 @@ export interface AgentWatchStores {
     };
     attention: AttentionStore;
     lifecycle: LifecycleStore;
+    /** Flush every store's pending write; resolves once they have all landed. */
+    dispose(): Promise<void>;
 }
 
 export interface CreateAgentWatchStoresOptions {
@@ -20,9 +22,15 @@ export interface CreateAgentWatchStoresOptions {
 
 export function createAgentWatchStores(options: CreateAgentWatchStoresOptions): AgentWatchStores {
     const now = options.now ?? (() => new Date());
+    const unread = createUnreadStore(options.dataDir, now);
+    const attention = createAttentionStore(options.dataDir, now);
+    const lifecycle = createLifecycleStore(options.dataDir, now);
     return {
-        unread: createUnreadStore(options.dataDir, now),
-        attention: createAttentionStore(options.dataDir, now),
-        lifecycle: createLifecycleStore(options.dataDir, now),
+        unread,
+        attention,
+        lifecycle,
+        dispose: async (): Promise<void> => {
+            await Promise.all([unread.dispose(), attention.dispose(), lifecycle.dispose()]);
+        },
     };
 }
