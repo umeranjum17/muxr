@@ -71,7 +71,7 @@ describe('pairLinkOffer consent', () => {
         expect(declined).toBe(false);
         expect(harness.confirms).toHaveLength(1);
         expect(harness.confirms[0]?.title).toBe('Pair with Desk?');
-        expect(harness.confirms[0]?.body).toContain("This browser can see Desk, but can't change anything");
+        expect(harness.confirms[0]?.body).toContain("This browser can watch Desk, but can't type, click or run anything");
         expect(harness.confirms[0]?.body).not.toContain('see and change');
         expect(harness.confirms[0]?.body).toContain('muxr pair --browser-view');
     });
@@ -80,7 +80,7 @@ describe('pairLinkOffer consent', () => {
         const declined = await pairLinkOffer(`muxr://pair#${linkOffer({ role: 'view', name: 'Desk' })}`, {} as never);
         expect(declined).toBe(false);
         expect(harness.confirms).toHaveLength(1);
-        expect(harness.confirms[0]?.body).toContain("This iPhone can see Desk, but can't change anything");
+        expect(harness.confirms[0]?.body).toContain("This iPhone can watch Desk, but can't type, click or run anything");
         expect(harness.confirms[0]?.body).not.toContain('see and change');
     });
 

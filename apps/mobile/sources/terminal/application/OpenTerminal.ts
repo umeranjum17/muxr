@@ -124,6 +124,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         recordTerminalChannel('attach', { ok: false, code: 'grant-expired' });
         throw new Error("This device's access to the computer expired. Pair again to reconnect.");
     }
+    // The host drops a view-only device's input; sending none keeps a fake echo off its screen.
+    const watching = grant.authority === 'observe';
     const channel = newTerminalChannel();
 
     // Every re-attach spawns herdr at this size, so it has to track the resizes
@@ -722,11 +724,13 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             return () => predictedDataListeners.delete(listener);
         },
         sendText: (text) => {
+            if (watching) return;
             predictEcho(text);
             queueInput({ kind: 'text', text });
         },
         reconnect: reconnectNow,
         sendBytes: (base64) => {
+            if (watching) return;
             const bytes = decodeBase64(base64);
             predictEcho(new TextDecoder().decode(bytes));
             queueInput({ kind: 'bytes', bytes });
