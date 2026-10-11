@@ -55,7 +55,10 @@
         <section class="card" id="card-already-running" hidden>
             <h1>Already running</h1>
             <p class="muted" id="already-running-message"></p>
-            <button class="btn primary" id="quit" type="button">Quit muxr</button>
+            <div class="row">
+                <button class="btn primary" id="already-running-retry" type="button" hidden>Try again</button>
+                <button class="btn" id="quit" type="button">Quit muxr</button>
+            </div>
         </section>
 
         <section class="card" id="card-note" hidden>

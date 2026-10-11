@@ -86,6 +86,7 @@ window.muxr.onState((state) => {
         show('error');
     } else if (state.phase === 'already-running') {
         document.getElementById('already-running-message').textContent = state.message ?? 'muxr is already running on this computer from the command-line install.';
+        document.getElementById('already-running-retry').hidden = state.canRetry !== true;
         show('already-running');
     }
 });
@@ -98,6 +99,7 @@ window.muxr.onSettings((settings) => {
 document.getElementById('approve').addEventListener('click', () => window.muxr.approve());
 document.getElementById('deny').addEventListener('click', () => window.muxr.deny());
 document.getElementById('retry').addEventListener('click', () => window.muxr.retry());
+document.getElementById('already-running-retry').addEventListener('click', () => window.muxr.retry());
 document.getElementById('quit').addEventListener('click', () => window.muxr.quit());
 keepAwake.addEventListener('change', () => window.muxr.setKeepAwake(keepAwake.checked));
 autostart.addEventListener('change', () => window.muxr.setAutostart(autostart.checked));

@@ -9,8 +9,8 @@ without a terminal.
 
 - One window with six states: Starting…, Ready to pair (QR and code), Waiting
   for approval (the phone's two words), Paired, Needs attention (retry), and
-  Already running when the command-line install already manages this computer
-  (Quit only).
+  Already running — a command-line install that manages this computer (Quit
+  only) or an orphaned desktop relay (Try again and Quit).
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.
 - Closing the window keeps the relay and host running in the tray.
@@ -45,9 +45,13 @@ APK.
 
 - The app starts its own relay and host only for state it wrote itself. If
   `selfhost.json` came from the command-line install (local or remote) the
-  window reads Already running with Quit only; a different listener on the
-  relay port makes the host exit so the window reads Needs attention — useful
-  for the error state, never for pairing.
+  window reads Already running with Quit only. If the desktop's own relay is
+  still alive after a hard kill, the window names the owning process and offers
+  Try again and Quit; the app never kills that relay itself. A different
+  listener on the relay port makes the host exit so the window reads Needs
+  attention — useful for the error state, never for pairing. A `selfhost.json`
+  that does not parse is refused (Needs attention) rather than overwritten,
+  because it may be a command-line identity.
 - An inherited `HERDR_SOCKET_PATH` from an agent pane makes the wrapped host
   fail; unset every `HERDR_*` variable before launching.
 - The window paints late under software GL, so Starting… is only visible

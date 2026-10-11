@@ -20,8 +20,16 @@ function appendingFixture(path: string, marker: string, logPath: string) {
     ].join('\n'));
 }
 
+function listeningRelayFixture(path: string) {
+    writeFileSync(path, [
+        "setTimeout(() => process.stdout.write('relay listening on ws://127.0.0.1:8792\\n'), 150);",
+        'setInterval(() => {}, 1000);',
+        '',
+    ].join('\n'));
+}
+
 function collectingRuntime(home: string, relayEntry: string, hostEntry: string) {
-    const statuses: { phase: string; message?: string }[] = [];
+    const statuses: { phase: string; message?: string; canRetry?: boolean }[] = [];
     const runtime = new MuxrRuntime({ home, node: process.execPath, relayEntry, hostEntry, port: 8792 });
     runtime.on('status', (event) => statuses.push(event));
     return { runtime, statuses };
@@ -43,6 +51,7 @@ describe('desktop runtime self-host state', () => {
 
         expect(statuses.at(-1)?.phase).toBe('already-running');
         expect(statuses.at(-1)?.message).toContain('muxr pair');
+        expect(statuses.at(-1)?.canRetry).toBe(false);
         expect(readFileSync(join(home, 'selfhost.json'), 'utf8')).toBe(before);
         expect(existsSync(spawnLog)).toBe(false);
     });
@@ -61,6 +70,8 @@ describe('desktop runtime self-host state', () => {
         await expect(runtime.start()).rejects.toThrow(RelayOwnedError);
 
         expect(statuses.at(-1)?.phase).toBe('already-running');
+        expect(statuses.at(-1)?.message).toContain('muxr pair');
+        expect(statuses.at(-1)?.canRetry).toBe(false);
         expect(readFileSync(join(home, 'selfhost.json'), 'utf8')).toBe(before);
         expect(existsSync(spawnLog)).toBe(false);
     });
@@ -69,11 +80,7 @@ describe('desktop runtime self-host state', () => {
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-own-'));
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
         const relayEntry = join(home, 'relay-fixture.mjs');
-        writeFileSync(relayEntry, [
-            "setTimeout(() => process.stdout.write('relay listening on ws://127.0.0.1:8792\\n'), 150);",
-            'setInterval(() => {}, 1000);',
-            '',
-        ].join('\n'));
+        listeningRelayFixture(relayEntry);
         const hostEntry = join(home, 'host-fixture.mjs');
         writeFileSync(hostEntry, [
             "import { mkdirSync, writeFileSync } from 'node:fs';",
@@ -96,8 +103,9 @@ describe('desktop runtime self-host state', () => {
         expect(statuses.at(-1)?.phase).toBe('online');
     }, 30_000);
 
-    it('refuses and spawns once when the relay data dir already has an owner', async () => {
+    it('asks the user to quit the earlier desktop session when its relay is still alive', async () => {
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-owned-'));
+        writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
         const spawnLog = join(home, 'relay-spawns.log');
         const relayEntry = join(home, 'relay-owned-fixture.mjs');
         writeFileSync(relayEntry, [
@@ -111,6 +119,37 @@ describe('desktop runtime self-host state', () => {
         await expect(runtime.start()).rejects.toThrow(RelayOwnedError);
 
         expect(statuses.at(-1)?.phase).toBe('already-running');
+        expect(statuses.at(-1)?.message).toContain('An earlier muxr desktop session is still running (process 4242)');
+        expect(statuses.at(-1)?.canRetry).toBe(true);
         expect(readFileSync(spawnLog, 'utf8').trim().split('\n')).toHaveLength(1);
     });
+
+    it('refuses a corrupt state instead of overwriting it', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-corrupt-'));
+        const corrupt = '{ this is not json';
+        writeFileSync(join(home, 'selfhost.json'), corrupt, { mode: 0o600 });
+
+        const { runtime } = collectingRuntime(home, join(home, 'unused-relay.mjs'), join(home, 'unused-host.mjs'));
+        await expect(runtime.start()).rejects.toThrow(/could not be read/);
+
+        expect(readFileSync(join(home, 'selfhost.json'), 'utf8')).toBe(corrupt);
+    });
+
+    it('fails fast when the host entry cannot be launched', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-badhost-'));
+        writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
+        const relayEntry = join(home, 'relay-fixture.mjs');
+        listeningRelayFixture(relayEntry);
+
+        const { runtime, statuses } = collectingRuntime(home, relayEntry, join(home, 'missing-host.mjs'));
+        const started = Date.now();
+        try {
+            await expect(runtime.start()).rejects.toThrow();
+        } finally {
+            await runtime.stop();
+        }
+
+        expect(Date.now() - started).toBeLessThan(5_000);
+        expect(statuses.some((status) => status.phase === 'error')).toBe(true);
+    }, 15_000);
 });

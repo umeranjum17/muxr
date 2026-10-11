@@ -6,18 +6,19 @@
  */
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
-import { machineIdentity } from '../../../scripts/setup/infrastructure/runtime.mjs';
+import { atomicWrite, machineIdentity } from '../../../scripts/setup/infrastructure/runtime.mjs';
 import { waitForRelay } from '../../../scripts/diagnostics/application/waitForRelay.mjs';
 
 const CLI_RUNNING_MESSAGE = 'muxr is already running on this computer from the command-line install. Pair from there with: muxr pair';
 
 export class RelayOwnedError extends Error {
-    constructor(message) {
+    constructor(message, pid) {
         super(message);
         this.name = 'RelayOwnedError';
+        this.pid = pid;
     }
 }
 
@@ -72,6 +73,10 @@ export class MuxrRuntime extends EventEmitter {
             if (this.#stopping) return;
             this.emit('status', { phase: 'error', message: `${label} exited (${signal ?? code ?? 1})` });
         });
+        child.on('error', (error) => {
+            if (this.#stopping) return;
+            this.emit('status', { phase: 'error', message: `${label} could not start: ${error.message}` });
+        });
         return child;
     }
 
@@ -104,8 +109,12 @@ export class MuxrRuntime extends EventEmitter {
             if (relay.exitCode !== null || relay.signalCode !== null) await closed;
             const message = error instanceof Error ? error.message : String(error);
             if (output.includes('another relay already owns')) {
-                this.emit('status', { phase: 'already-running', message: CLI_RUNNING_MESSAGE });
-                throw new RelayOwnedError(output.trim());
+                const ownerPid = /\(pid (\d+)\)/.exec(output)?.[1];
+                const ownerMessage = ownerPid === undefined
+                    ? 'An earlier muxr desktop session is still running. Quit it, or restart the computer, then try again.'
+                    : `An earlier muxr desktop session is still running (process ${ownerPid}). Quit it, or restart the computer, then try again.`;
+                this.emit('status', { phase: 'already-running', message: ownerMessage, canRetry: true });
+                throw new RelayOwnedError(output.trim(), ownerPid === undefined ? undefined : Number(ownerPid));
             }
             this.emit('status', { phase: 'error', message });
             throw error;
@@ -121,11 +130,16 @@ export class MuxrRuntime extends EventEmitter {
         // State from the command-line install means muxr is already running
         // there, so the desktop refuses instead of racing it.
         const statePath = join(this.#home, 'selfhost.json');
-        const existing = existsSync(statePath)
-            ? JSON.parse(readFileSync(statePath, 'utf8'))
-            : undefined;
-        if (existing !== undefined && existing.createdBy !== 'desktop') {
-            this.emit('status', { phase: 'already-running', message: CLI_RUNNING_MESSAGE });
+        let existing;
+        if (existsSync(statePath)) {
+            try {
+                existing = JSON.parse(readFileSync(statePath, 'utf8'));
+            } catch {
+                throw new Error(`muxr's saved state at ${statePath} could not be read; it may belong to a command-line install, so the app will not overwrite it. Repair or remove that file, then try again.`);
+            }
+        }
+        if (existing !== undefined && existing?.createdBy !== 'desktop') {
+            this.emit('status', { phase: 'already-running', message: CLI_RUNNING_MESSAGE, canRetry: false });
             throw new RelayOwnedError(CLI_RUNNING_MESSAGE);
         }
         if (existing !== undefined && (!existing.machine?.id || !existing.machine?.crypto)) {
@@ -150,7 +164,7 @@ export class MuxrRuntime extends EventEmitter {
                 relayLocation: 'local',
                 mintSecret: JSON.parse(readFileSync(join(relayDataDir, 'mint-secret'), 'utf8')),
             };
-            writeFileSync(statePath, `${JSON.stringify(state)}\n`, { mode: 0o600 });
+            atomicWrite(statePath, `${JSON.stringify(state)}\n`, 0o600);
             this.emit('log', 'runtime', `relay on :${boundPort}, advertised ${advertised}\n`);
         } else {
             await this.#awaitRelay(this.#spawnRelay(existing.relayPort, existing));
@@ -173,6 +187,7 @@ export class MuxrRuntime extends EventEmitter {
         let out = '';
         host.stdout?.on('data', (chunk) => { out += chunk.toString(); });
         while (Date.now() < deadline) {
+            if (host.pid === undefined) throw new Error('the muxr host could not be started');
             if (host.exitCode !== null) throw new Error('the muxr host exited before it came online');
             if (out.includes('link relay: online') && existsSync(this.pairSocketPath)) return;
             await sleep(100);

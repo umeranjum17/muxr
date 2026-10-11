@@ -144,7 +144,7 @@ async function startRuntime() {
     runtime.on('status', (event) => {
         if (event.phase === 'error') send({ phase: 'error', message: event.message });
         else if (event.phase === 'starting') send({ phase: 'starting' });
-        else if (event.phase === 'already-running') send({ phase: 'already-running', message: event.message });
+        else if (event.phase === 'already-running') send({ phase: 'already-running', message: event.message, canRetry: event.canRetry === true });
         else if (event.phase === 'online') { send({ phase: 'online', message: 'Ready to pair' }); startPairing(); }
     });
     runtime.on('log', (_label, chunk) => process.stdout.write(chunk));
