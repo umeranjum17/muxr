@@ -113,6 +113,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   view-only consent, plain copy, the words step saying its instruction once, and
   the spinner giving way to a check mark naming the computer, at 360dp/270dp font 1.3
   and 393/270 px, dark and light.
+- [Watch from a view-only browser that cannot type](./view-only-input.md) —
+  a `--browser-view` PWA and a `--browser` PWA on one real Herdr lab host: the
+  view one watches the pane but its typing, desktop and agent actions never
+  reach the computer; the control one runs the command.
 - [Land on the first-run browser pairing steps](./first-run-browser-steps.md) —
   unpaired installed PWA: matching step badges, Step 2's paste button and prompt
   with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the

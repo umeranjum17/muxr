@@ -533,7 +533,7 @@ async function devicesMenu() {
         const choice = await select('Phones and browsers', [
             { value: 'pair', title: 'Pair a phone', description: 'show a two-minute QR and short pairing string' },
             { value: 'pair-browser', title: 'Pair a control browser', description: 'full terminal and agent control for eight hours' },
-            { value: 'pair-browser-view', title: 'Pair a view-only browser', description: 'observe agents without control for eight hours' },
+            { value: 'pair-browser-view', title: 'Pair a view-only browser', description: 'watch for eight hours; cannot type, click or run anything' },
             { value: 'list', title: 'List paired devices', description: 'names and pairing dates' },
             { value: 'revoke', title: 'Revoke a device', description: 'disconnect a phone or browser' },
             { value: 'back', title: 'Back', description: 'return to the main menu' },

@@ -441,6 +441,109 @@ process.stdin.on('data', (chunk) => {
         expect(state().reports).toBeLessThanOrEqual(36);
     });
 
+    it('drops every input a view-only device sends', { timeout: 30_000 }, async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-link-view-'));
+        cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+        const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay') } });
+        cleanups.push(() => void relay.close());
+        const machine = generateKeyPair();
+        const machineSigning = generateSigningKeyPair();
+        const phone = generateKeyPair();
+        const crypto: MachineCryptoState = {
+            signingPublicKey: machineSigning.publicKey,
+            signingSecretKey: machineSigning.secretKey,
+            boxPublicKey: machine.publicKey,
+            boxSecretKey: machine.secretKey,
+            dataKey: b64(new Uint8Array(32)),
+            keyVersion: 1,
+            // A browser record stored without an authority is view-only.
+            devices: [{
+                deviceId: 'dev-watcher',
+                kind: 'browser',
+                devicePublicKey: phone.publicKey,
+                ingressKey: 'ingress',
+                expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            }],
+        };
+        const terminals = new TerminalManager({
+            resolvePane: async (sessionId) => `pane-${sessionId}`,
+            focusSession: async () => undefined,
+            readPaneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),
+            openTerminal: openTerminalFor(writeFakeHerdr(dir)),
+        });
+        cleanups.push(() => terminals.closeAll());
+        const answered: string[] = [];
+        const endpoint = await LinkEndpoint.open({
+            relayUrl: `ws://127.0.0.1:${relay.port}/relay`,
+            ownerToken: JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string,
+            machineName: 'test machine',
+            crypto,
+            currentCrypto: () => crypto,
+            savePushLevel: () => undefined,
+            grants: { load: () => [], save: () => undefined },
+            // The desktop engine applies input from any session it opens, so a
+            // watcher's desktop signaling must never reach the host's answer.
+            answer: async (frame) => { answered.push(frame.type); return undefined; },
+            canView: () => false,
+            terminals: {
+                attach: (params) => terminals.attach(params),
+                sendResult: (socket, channel, result) => terminals.sendResult(socket, channel, result),
+            },
+        });
+        endpoint!.start();
+        cleanups.push(() => endpoint!.close());
+        const link = new DeviceLink({
+            v: 1,
+            secretKey: toB64url(phone.secretKey),
+            host: toB64url(machine.publicKey),
+            hostName: 'test machine',
+            urls: [`ws://127.0.0.1:${relay.port}/link/v1/${hostId(keyPairFrom(Buffer.from(machine.secretKey, 'base64')).publicKey)}`],
+            device: { id: '', name: 'Watcher', role: 'view' },
+        });
+        cleanups.push(() => link.stop());
+        await once(new Promise<void>((resolve) => {
+            const timer = setInterval(() => { if (link.status === 'online') { clearInterval(timer); resolve(); } }, 50);
+        }), 15_000, 'watcher link online');
+        const lines = (stream: { onData?: (chunk: Uint8Array) => void }): string[] => {
+            const seen: string[] = [];
+            let buffer = '';
+            stream.onData = (chunk) => {
+                buffer += Buffer.from(chunk).toString('utf8');
+                const parts = buffer.split('\n');
+                buffer = parts.pop() ?? '';
+                seen.push(...parts.filter(Boolean));
+            };
+            return seen;
+        };
+        const until = (check: () => boolean, what: string): Promise<void> => once(new Promise<void>((resolve) => {
+            const timer = setInterval(() => { if (check()) { clearInterval(timer); resolve(); } }, 50);
+        }), 5_000, what);
+
+        // It asks to control the pane and types: it watches, and the pane hears nothing.
+        const pane = await link.stream('terminal', { requestId: 'lv-1', sessionId: 's1', channel: 'tm_view_1', cols: 20, rows: 5, mode: 'control', takeover: true });
+        const painted = lines(pane);
+        await until(() => painted.some((line) => line.includes('"type":"result"')) && painted.length >= 2, 'watcher attach and paint');
+        expect(JSON.parse(painted.find((line) => line.includes('"type":"result"'))!)).toMatchObject({ ok: true, data: { paneId: 'pane-s1' } });
+        const before = painted.length;
+        await pane.write(`${JSON.stringify({ type: 'terminal.input', text: 'rm -rf typed by a watcher\r' })}\n`);
+        await pane.write(`${JSON.stringify({ type: 'terminal.resize', cols: 40, rows: 12 })}\n`);
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        expect(painted.slice(before).filter((line) => line.includes('"terminal.frame"'))).toEqual([]);
+
+        // It opens the desktop asking only to view: refused before the engine.
+        const desktop = await link.stream('desktop', {});
+        const replies = lines(desktop);
+        await desktop.write(`${JSON.stringify({ type: 'desktop.open', requestId: 'lv-2', params: { permissions: ['view'] } })}\n`);
+        await until(() => replies.length > 0, 'desktop refusal');
+        expect(JSON.parse(replies[0]!)).toMatchObject({ type: 'result', requestId: 'lv-2', ok: false, code: 'permission-denied' });
+
+        // It asks the host to run an agent action: refused by the grant before
+        // the engine, so the host's answer callback never sees the frame.
+        await expect(link.request('session.prompt', { type: 'session.prompt', requestId: 'lv-3', params: { sessionId: 's1', text: 'rm -rf typed by a watcher' } }))
+            .rejects.toMatchObject({ code: 'view-only' });
+        expect(answered).toEqual([]);
+    });
+
     it('carries terminal and voice streams over the byokit link', { timeout: 60_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-terminal-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

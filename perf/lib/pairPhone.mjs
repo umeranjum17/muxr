@@ -55,7 +55,7 @@ export async function waitForHerd(labels, seconds) {
 }
 
 /** A pairing string is a credential; it must not survive into the report. */
-const redact = (text, code) => (code === undefined ? text : text.split(code).join('<pairing string>'))
+export const redact = (text, code) => (code === undefined ? text : text.split(code).join('<pairing string>'))
     .replace(/wss?:\/\/\S*pair=\S*|byokit-link:1:[A-Za-z0-9_-]+/gi, '<pairing string>');
 
 /**
