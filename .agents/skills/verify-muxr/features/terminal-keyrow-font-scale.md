@@ -11,6 +11,8 @@ the largest text size, and normal font scale is unchanged.
 
 - `keyrow-label-cap` at font scale 2.0 every key in the row is reachable and its
   label is drawn whole, none cut off at the right edge or by the row height.
+- `keyrow-reachable` at font scale 2.0 scrolling the row reaches the trailing
+  keys (^C, ^D, Enter and the rest) whole, none clipped at the right edge.
 - `prompt-placeholder-cap` at font scale 2.0 the composer's prompt placeholder
   sits inside the rail band and stays legible, not grown past it.
 - `keyrow-font-normal` at font scale 1.0 the key row and prompt field render
@@ -52,7 +54,12 @@ Preconditions:
    placeholder not grown past the rail; at 1.0 the row and field are
    pixel-identical to the same build before the cap (the cap only bites above
    1.5).
-6. Undo the display: `wm size reset`, `wm density reset`,
+6. Reachability at 2.0: the row is wider than the viewport, so scroll it left
+   with small swipes inside the row (`adb -s $SERIAL shell input swipe 850
+   <rowY> 650 <rowY> 300`) until `^C`, `^D` and `Enter` are all whole on screen,
+   and capture that shot plus its `uiautomator` bounds. Every key must be
+   reachable this way; if one cannot be, that is a failure, not a pass.
+7. Undo the display: `wm size reset`, `wm density reset`,
    `settings put system font_scale 1.0`, `cmd uimode night no`.
 
 ## Gotchas
