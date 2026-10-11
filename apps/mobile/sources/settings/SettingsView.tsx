@@ -6,9 +6,9 @@ import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
-import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
+import { getCachedConnectionSettings } from '@/connection';
 import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/pairing/e2ee';
-import { forgetMachine as forgetPairedMachine, isMachineOnline } from '@/pairing';
+import { forgetMachine as forgetPairedMachine, isMachineOnline, pairMachine } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { ItemList } from '@/components/ItemList';
 import { useLocalSettingMutable, useSettingMutable, useSocketStatus, storage } from '@/catalog/store';
@@ -137,16 +137,9 @@ export const SettingsView = React.memo(function SettingsView({
             { confirmText: voiceActive ? 'End voice and switch' : 'Switch', destructive: voiceActive },
         );
         if (!confirmed) return;
-        if (voiceActive) stopRealtimeSession();
-        await saveConnectionSettings({
-            ...getCachedConnectionSettings(),
-            mode: 'hosted',
-            relayUrl: grant.relayUrl,
-            machineId,
-            token: '',
-            selfhost: grant.source === 'selfhost' ? true : undefined,
-        });
-        await auth.login(grant.credential, grant.deviceKey.secretKey);
+        const activated = await pairMachine({ grant, endVoiceIfPinned: voiceActive });
+        if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer');
+        await auth.login(activated.credential, activated.secretKey);
     }, [auth, router]);
 
     const forgetMachine = React.useCallback(async (machineId: string, name: string) => {
@@ -183,12 +176,9 @@ export const SettingsView = React.memo(function SettingsView({
             await auth.logout();
             return;
         }
-        await saveConnectionSettings({
-            ...getCachedConnectionSettings(),
-            mode: 'hosted', relayUrl: next.relayUrl, machineId: next.machineId,
-            token: '', selfhost: next.source === 'selfhost' ? true : undefined,
-        });
-        await auth.login(next.credential, next.deviceKey.secretKey);
+        const activated = await pairMachine({ grant: next, endVoiceIfPinned: true });
+        if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer');
+        await auth.login(activated.credential, activated.secretKey);
         if (pushAction === 'rebind-endpoint') {
             await updateWebPushNotificationLevel(storage.getState().localSettings.lifecycleNotificationLevel);
         }

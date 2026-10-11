@@ -6,8 +6,8 @@
  * there is no second registry of computers.
  *
  * The app holds one live connection, so a computer that is not the connected
- * one is checked with the same fresh host request collaboration uses; until
- * that check answers the row says "Checking…" rather than guessing.
+ * one is checked with the same fresh paired-machine link collaboration opens;
+ * until that check answers the row says "Checking…" rather than guessing.
  */
 
 import * as React from 'react';
@@ -20,7 +20,7 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { getCachedConnectionSettings } from '@/connection';
 import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
-import { LinkFirstClient } from '@/pairing/client';
+import { openPairedMachine } from '@/collaboration';
 import { pairMachine } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
@@ -80,25 +80,14 @@ function stateColor(state: ComputerState, theme: ReturnType<typeof useUnistyles>
 /** A fresh liveness check that does not touch the app's active connection: open
  * the pairing's own link and see whether the host answers. Resolves true when
  * the link opens, false when it goes stale or does not answer in time. */
-function probeComputer(grant: StoredHostedGrant): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-        const client = new LinkFirstClient({ hostedGrant: grant, requestTimeoutMs: 8_000 });
-        let settled = false;
-        const finish = (online: boolean) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            unsubscribe();
-            client.close();
-            resolve(online);
-        };
-        const timer = setTimeout(() => finish(false), 8_000);
-        const unsubscribe = client.onStateChange((state) => {
-            if (state === 'open') finish(true);
-            else if (state === 'stale') finish(false);
-        });
-        client.connect();
-    });
+async function probeComputer(grant: StoredHostedGrant): Promise<boolean> {
+    try {
+        const client = await openPairedMachine(grant);
+        client.close();
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 function displayName(grant: StoredHostedGrant, liveName: string | undefined): string {
