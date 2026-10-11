@@ -7,8 +7,9 @@ without a terminal.
 
 ## Sub-features
 
-- One window with five states: Starting…, Ready to pair (QR and code), Waiting
-  for approval (the phone's two words), Paired, Needs attention (retry).
+- One window with six states: Starting…, Ready to pair (QR and code), Waiting
+  for approval (the phone's two words), Paired, Needs attention (retry), and
+  Already running when the command-line install owns the relay (Quit only).
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.
 - Closing the window keeps the relay and host running in the tray.
@@ -41,9 +42,10 @@ APK.
 
 ## Gotchas
 
-- The relay port must be free: a second listener on it makes the host exit and
-  the window reads Needs attention — useful for the error state, never for
-  pairing.
+- The relay port must be free: another muxr relay owning it (a running
+  command-line install) makes the window read Already running with Quit only,
+  and a different listener on it makes the host exit so the window reads Needs
+  attention — useful for the error state, never for pairing.
 - An inherited `HERDR_SOCKET_PATH` from an agent pane makes the wrapped host
   fail; unset every `HERDR_*` variable before launching.
 - The window paints late under software GL, so Starting… is only visible

@@ -13,4 +13,5 @@ contextBridge.exposeInMainWorld('muxr', {
     setKeepAwake: (on) => ipcRenderer.invoke('muxr:set-keep-awake', on),
     setAutostart: (on) => ipcRenderer.invoke('muxr:set-autostart', on),
     copyCode: (text) => ipcRenderer.invoke('muxr:copy', text),
+    quit: () => ipcRenderer.invoke('muxr:quit'),
 });

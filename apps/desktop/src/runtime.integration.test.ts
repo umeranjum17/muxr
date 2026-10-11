@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { MuxrRuntime } from './runtime.mjs';
+import { MuxrRuntime, RelayOwnedError } from './runtime.mjs';
 
 describe('desktop runtime self-host state', () => {
     it('keeps an existing remote-relay CLI config exactly as it is', async () => {
@@ -73,5 +73,37 @@ describe('desktop runtime self-host state', () => {
         }
 
         expect(readFileSync(statePath, 'utf8')).toBe(before);
+    }, 30_000);
+
+    it('refuses with the plain state and spawns no second relay when the command-line relay owns the port', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-owned-'));
+        writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({
+            version: 1,
+            machine: { id: 'machine-cli-owner', crypto: { signingPublicKey: 's' } },
+            relayLocation: 'local',
+            relayPort: 8792,
+            bindHost: '127.0.0.1',
+        })}\n`, { mode: 0o600 });
+
+        const spawnLog = join(home, 'relay-spawns.log');
+        const relayEntry = join(home, 'relay-owned-fixture.mjs');
+        writeFileSync(relayEntry, [
+            "import { appendFileSync } from 'node:fs';",
+            `appendFileSync(${JSON.stringify(spawnLog)}, 'spawn' + String.fromCharCode(10));`,
+            "throw new Error('another relay already owns ' + process.env.MUXR_RELAY_DATA_DIR + ' (pid 4242)');",
+            '',
+        ].join('\n'));
+
+        const statuses: { phase: string; message?: string }[] = [];
+        const runtime = new MuxrRuntime({ home, node: process.execPath, relayEntry, hostEntry: join(home, 'unused-host.mjs'), port: 8792 });
+        runtime.on('status', (event) => statuses.push(event));
+
+        await expect(runtime.start()).rejects.toThrow(RelayOwnedError);
+
+        const last = statuses.at(-1);
+        expect(last?.phase).toBe('already-running');
+        expect(last?.message).toContain('already running on this computer from the command-line install');
+        expect(last?.message).toContain('muxr pair');
+        expect(readFileSync(spawnLog, 'utf8').trim().split('\n')).toHaveLength(1);
     }, 30_000);
 });

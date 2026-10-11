@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { qrMatrix } from '@byokit/ui-core/link';
 import { autostartInstalled, setAutostart } from './autostart.mjs';
 import { openPairingSocket } from './pairClient.mjs';
-import { MuxrRuntime } from './runtime.mjs';
+import { MuxrRuntime, RelayOwnedError } from './runtime.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..', '..');
@@ -68,7 +68,7 @@ function applyAutostart(on) {
 
 function updateTray() {
     if (tray === undefined) return;
-    const labels = { starting: 'Starting…', online: 'Ready to pair', approval: 'Waiting for approval', paired: 'Paired', error: 'Needs attention' };
+    const labels = { starting: 'Starting…', online: 'Ready to pair', approval: 'Waiting for approval', paired: 'Paired', error: 'Needs attention', 'already-running': 'Already running' };
     tray.setToolTip(`muxr — ${labels[state.phase] ?? 'muxr'}`);
     tray.setContextMenu(Menu.buildFromTemplate([
         { label: labels[state.phase] ?? 'muxr', enabled: false },
@@ -144,11 +144,15 @@ async function startRuntime() {
     runtime.on('status', (event) => {
         if (event.phase === 'error') send({ phase: 'error', message: event.message });
         else if (event.phase === 'starting') send({ phase: 'starting' });
+        else if (event.phase === 'already-running') send({ phase: 'already-running', message: event.message });
         else if (event.phase === 'online') { send({ phase: 'online', message: 'Ready to pair' }); startPairing(); }
     });
     runtime.on('log', (_label, chunk) => process.stdout.write(chunk));
     try { await runtime.start(); }
-    catch (error) { send({ phase: 'error', message: error instanceof Error ? error.message : String(error) }); }
+    catch (error) {
+        if (error instanceof RelayOwnedError) return;
+        send({ phase: 'error', message: error instanceof Error ? error.message : String(error) });
+    }
 }
 
 function setKeepAwake(on) {
@@ -207,6 +211,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('muxr:set-keep-awake', (_event, on) => setKeepAwake(Boolean(on)));
     ipcMain.handle('muxr:set-autostart', (_event, on) => setStartAtLogin(Boolean(on)));
     ipcMain.handle('muxr:copy', (_event, text) => { clipboard.writeText(String(text)); });
+    ipcMain.handle('muxr:quit', () => app.quit());
 }
 
 process.on('uncaughtException', (error) => process.stderr.write(`desktop: ${error.stack ?? error.message}\n`));

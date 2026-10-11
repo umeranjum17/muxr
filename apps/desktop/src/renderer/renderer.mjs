@@ -5,6 +5,7 @@ const cards = {
     approval: document.getElementById('card-approval'),
     paired: document.getElementById('card-paired'),
     error: document.getElementById('card-error'),
+    'cli-running': document.getElementById('card-cli-running'),
     note: document.getElementById('card-note'),
 };
 const dot = document.getElementById('status-dot');
@@ -26,6 +27,7 @@ const TITLES = {
     approval: 'Waiting for approval',
     paired: 'Paired',
     error: 'Needs attention',
+    'cli-running': 'Already running',
 };
 
 function show(which) {
@@ -82,6 +84,9 @@ window.muxr.onState((state) => {
     } else if (state.phase === 'error') {
         document.getElementById('error-message').textContent = state.message ?? 'muxr could not start.';
         show('error');
+    } else if (state.phase === 'cli-running') {
+        document.getElementById('cli-running-message').textContent = state.message ?? 'muxr is already running on this computer from the command-line install.';
+        show('cli-running');
     }
 });
 
@@ -93,6 +98,7 @@ window.muxr.onSettings((settings) => {
 document.getElementById('approve').addEventListener('click', () => window.muxr.approve());
 document.getElementById('deny').addEventListener('click', () => window.muxr.deny());
 document.getElementById('retry').addEventListener('click', () => window.muxr.retry());
+document.getElementById('quit').addEventListener('click', () => window.muxr.quit());
 keepAwake.addEventListener('change', () => window.muxr.setKeepAwake(keepAwake.checked));
 autostart.addEventListener('change', () => window.muxr.setAutostart(autostart.checked));
 

@@ -12,6 +12,15 @@ import { join } from 'node:path';
 import { machineIdentity } from '../../../scripts/setup/infrastructure/runtime.mjs';
 import { waitForRelay } from '../../../scripts/diagnostics/application/waitForRelay.mjs';
 
+const CLI_RUNNING_MESSAGE = 'muxr is already running on this computer from the command-line install. Pair from there with: muxr pair';
+
+export class RelayOwnedError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'RelayOwnedError';
+    }
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function lanIpv4Addresses() {
@@ -66,21 +75,37 @@ export class MuxrRuntime extends EventEmitter {
         return child;
     }
 
-    #spawnRelay(port) {
+    #spawnRelay(port, state) {
+        const machine = state?.machine;
         return this.#spawn(this.#relayEntry, {
             MUXR_RELAY_LOCAL_AUTHORITY: '1',
-            MUXR_RELAY_MDNS: '0',
+            MUXR_RELAY_MDNS: machine?.id && state?.relayUrl ? '1' : '0',
+            ...(machine?.id ? { MUXR_RELAY_MDNS_MACHINE: machine.id } : {}),
+            ...(machine?.name ? { MUXR_RELAY_MDNS_NAME: `muxr ${machine.name}` } : {}),
+            ...(state?.relayUrl ? { MUXR_RELAY_MDNS_RELAY: state.relayUrl } : {}),
+            ...(state?.connectionMode ? { MUXR_RELAY_MDNS_MODE: state.connectionMode } : {}),
             MUXR_RELAY_PORT: String(port),
-            MUXR_RELAY_HOST: '0.0.0.0',
+            MUXR_RELAY_HOST: state?.bindHost || '0.0.0.0',
             MUXR_RELAY_DATA_DIR: join(this.#home, 'relay'),
+            ...(state?.webRoot ? { MUXR_WEB_ROOT: state.webRoot } : {}),
+            ...(state?.webOrigin ? { MUXR_ALLOWED_ORIGINS: state.webOrigin } : {}),
         }, 'relay');
     }
 
     async #awaitRelay(relay) {
+        let output = '';
+        const collect = (chunk) => { output += chunk.toString(); };
+        relay.stdout?.on('data', collect);
+        relay.stderr?.on('data', collect);
         try {
             return await waitForRelay(relay);
         } catch (error) {
-            this.emit('status', { phase: 'error', message: error instanceof Error ? error.message : String(error) });
+            const message = error instanceof Error ? error.message : String(error);
+            if (output.includes('another relay already owns')) {
+                this.emit('status', { phase: 'already-running', message: CLI_RUNNING_MESSAGE });
+                throw new RelayOwnedError(output.trim());
+            }
+            this.emit('status', { phase: 'error', message });
             throw error;
         }
     }
@@ -121,7 +146,7 @@ export class MuxrRuntime extends EventEmitter {
             writeFileSync(statePath, `${JSON.stringify(state)}\n`, { mode: 0o600 });
             this.emit('log', 'runtime', `relay on :${boundPort}, advertised ${advertised}\n`);
         } else if (existing.relayLocation !== 'remote') {
-            await this.#awaitRelay(this.#spawnRelay(existing.relayPort));
+            await this.#awaitRelay(this.#spawnRelay(existing.relayPort, existing));
             this.emit('log', 'runtime', `using the existing self-host state at ${statePath}\n`);
         } else {
             this.emit('log', 'runtime', `using the existing self-host state at ${statePath}\n`);
@@ -169,7 +194,6 @@ export class MuxrRuntime extends EventEmitter {
                 for (const child of pending) {
                     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
                 }
-                resolve();
             }, 2_000);
             timer.unref();
             for (const child of pending) {
