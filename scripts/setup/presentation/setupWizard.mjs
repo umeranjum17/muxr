@@ -445,7 +445,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         { value: 'phone', title: 'Phone', description: 'pair the native app first' },
         ...(web ? [
             { value: 'browser', title: 'Control browser', description: 'full terminal and agent control for eight hours' },
-            { value: 'browser-view', title: 'View-only browser', description: 'observe agents without control for eight hours' },
+            { value: 'browser-view', title: 'View-only browser', description: 'watch for eight hours; cannot type, click or run anything' },
             { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
         ] : []),
     ];
@@ -849,7 +849,7 @@ export async function connectRemoteRelay() {
         { value: 'phone', title: 'Phone', description: 'pair the native app after the host connects' },
         ...(enrollment.web ? [
             { value: 'browser', title: 'Control browser', description: 'full terminal and agent control for eight hours' },
-            { value: 'browser-view', title: 'View-only browser', description: 'observe agents without control for eight hours' },
+            { value: 'browser-view', title: 'View-only browser', description: 'watch for eight hours; cannot type, click or run anything' },
             { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
         ] : []),
         { value: 'none', title: 'Not now', description: 'connect the host without pairing a client yet' },

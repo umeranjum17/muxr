@@ -21,10 +21,10 @@ showed on the computer (for example `Works only on this Wi-Fi` or
   (`Show the relay address`); tapping the row shows `Relay address: <url>`.
 - `trust-plain` the `Trust on this device` row says who can act in one
   plain sentence (`This phone can control your computer.` or
-  `This browser can control your computer.`, `… can view your computer but
-  not control it.` for view-only), `This phone has no access now. Pair
-  again on the computer.` with no grant; the end-to-end-encrypted meaning
-  lives only in the `Privacy` row.
+  `This browser can control your computer.`, `… can watch your computer,
+  but can't type, click or run anything.` for view-only), `This phone has no
+  access now. Pair again on the computer.` with no grant; the
+  end-to-end-encrypted meaning lives only in the `Privacy` row.
 - `browser-access-plain` the web-only `Browser access` row shows the grant's
   end as a plain local time with no seconds: `Browser can control until
   10:19 PM` when it ends today, `… until Nov 8, 3:52 PM` on another day,

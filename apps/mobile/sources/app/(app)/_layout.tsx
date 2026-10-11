@@ -189,6 +189,14 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="debug/decode"
+                options={{
+                    headerShown: true,
+                    headerTitle: 'Desktop decoder',
+                    headerBackTitle: t('common.back'),
+                }}
+            />
+            <Stack.Screen
                 name="text-selection"
                 options={{
                     headerShown: true,
