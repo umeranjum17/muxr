@@ -36,6 +36,9 @@ function writeSettings(next) {
     mkdirSync(dirname(settingsPath), { recursive: true });
     writeFileSync(settingsPath, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
 }
+function settingsFailure(what, error) {
+    process.stderr.write(`desktop: ${what} failed: ${error instanceof Error ? error.message : String(error)}\n`);
+}
 
 let win;
 let tray;
@@ -58,12 +61,15 @@ function settingsForRenderer() {
 }
 
 function applyKeepAwake(on) {
-    if (on && blockerId === null) blockerId = powerSaveBlocker.start('prevent-app-suspension');
-    else if (!on && blockerId !== null) { powerSaveBlocker.stop(blockerId); blockerId = null; }
+    try {
+        if (on && blockerId === null) blockerId = powerSaveBlocker.start('prevent-app-suspension');
+        else if (!on && blockerId !== null) { powerSaveBlocker.stop(blockerId); blockerId = null; }
+    } catch (error) { settingsFailure('keep awake', error); }
 }
 
 function applyAutostart(on) {
-    setAutostart(on, { execPath: process.execPath, appImage: process.env.APPIMAGE });
+    try { setAutostart(on, { execPath: process.execPath, appImage: process.env.APPIMAGE }); }
+    catch (error) { settingsFailure('start at login', error); }
 }
 
 function updateTray() {
@@ -157,7 +163,7 @@ async function startRuntime() {
 
 function setKeepAwake(on) {
     settings = { ...settings, keepAwake: on };
-    writeSettings(settings);
+    try { writeSettings(settings); } catch (error) { settingsFailure('saving settings', error); }
     applyKeepAwake(on);
     if (win !== undefined && !win.isDestroyed()) win.webContents.send('muxr:settings', settingsForRenderer());
     updateTray();
@@ -165,7 +171,7 @@ function setKeepAwake(on) {
 
 function setStartAtLogin(on) {
     settings = { ...settings, autostart: on };
-    writeSettings(settings);
+    try { writeSettings(settings); } catch (error) { settingsFailure('saving settings', error); }
     applyAutostart(on);
     if (win !== undefined && !win.isDestroyed()) win.webContents.send('muxr:settings', settingsForRenderer());
     updateTray();
