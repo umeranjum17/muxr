@@ -5,7 +5,7 @@ device may do, how long it lasts, and the safety check, as two or three plain
 bullets. It carries no raw backticks, no internal vocabulary ("machine keys",
 "the access shown on the pairing screen"), and its icon is never clipped. A
 control grant reads "can see and change things"; a browser view-only grant
-reads "can see …, but can't change anything"; the browser line states the
+reads "can watch …, but can't type, click or run anything"; the browser line states the
 eight-hour (or 30-day personal) lifetime, and the phone line states "until you
 remove it". The last bullet always keeps "Only continue if you just ran muxr…"
 so an unexpected card can never be waved through.

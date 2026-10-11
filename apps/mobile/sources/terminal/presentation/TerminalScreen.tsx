@@ -1261,10 +1261,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 blurOnSubmit
                 submitBehavior="blurAndSubmit"
                 multiline
-                autoCapitalize={currentPane?.agentKind === undefined ? 'none' : undefined}
-                autoCorrect={currentPane?.agentKind === undefined ? false : undefined}
-                spellCheck={currentPane?.agentKind === undefined ? false : undefined}
-                smartInsertDelete={currentPane?.agentKind === undefined ? false : undefined}
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                smartInsertDelete={false}
                 // Web renders multiline as a textarea and defaults it to two
                 // rows: the rail stood 12dp taller than its own minimum and the
                 // placeholder sat a line above the controls beside it. Native
@@ -1485,7 +1485,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     {Platform.OS === 'web' && !canControl && (
                         <View style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
-                                View-only browser · terminal input and agent controls are disabled · access expires eight hours after pairing
+                                View-only browser · can watch, but can’t type, click or run anything
                             </Text>
                         </View>
                     )}

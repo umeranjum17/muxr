@@ -73,9 +73,13 @@ const STRAIGHT: Record<string, string> = { '‘': '\'', '’': '\'', '“': '"',
  * Undoes the one edit iOS smart punctuation makes as a shell command is typed:
  * the straight quote just typed swapped for a curly one, or `--` swapped for a
  * dash (iOS inserts the key, then replaces it as a second edit).
- * `autoCorrect={false}` is meant to turn both off, but the prebuilt React
- * Native core drops that link. Pasted curly text replaces nothing straight, so
- * it is kept.
+ *
+ * The composer now disables smart punctuation at the source —
+ * `disableSmartPunctuationWithAutocorrection` in AppDelegate.swift makes
+ * `autoCorrect={false}` also turn smart quotes and dashes off. This stays as a
+ * fallback for the shell pane should that native override stop installing (for
+ * example if a React Native upgrade renames its private input classes).
+ * Pasted curly text replaces nothing straight, so it is kept.
  */
 export function undoSmartPunctuation(previous: string, next: string): string {
     let start = 0;

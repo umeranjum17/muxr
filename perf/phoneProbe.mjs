@@ -4,10 +4,12 @@ import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { setAndroidSerial, androidArgs } from './lib/deviceTarget.mjs';
 import { LOAD } from './lib/scenario.mjs';
+import { redact } from './lib/pairPhone.mjs';
 import { appPid, totalPssKb, framesRendered, resetGfx, jankReport } from './lib/androidSignals.mjs';
 import { apkIdentity, sha256 } from './lib/provenance.mjs';
 import { acquirePhoneKeeper } from './lib/phoneKeeper.mjs';
@@ -23,6 +25,22 @@ setAndroidSerial(serial);
 const pkg = 'app.muxr.crashperf.dev';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const adb = async (...args) => (await run('adb', androidArgs(args), { timeout: args[0] === 'install' ? 120_000 : 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
+// The pairing offer is a long credential, and one `adb shell input text` burst
+// silently drops characters on a long string (observed: 314 sent, 294 arrived),
+// so a burst entry would only surface after the long pair wait. Reuse the
+// focused-secret helper: it clears the focused field, reads it back, types one
+// strictly sequential `input text` per character, and verifies the readback
+// equals the code. On residue or a mismatch it fails in seconds with the quoted
+// difference, before any wait.
+const secretTyper = fileURLToPath(new URL('../scripts/diagnostics/application/checkFocusedSecretTyping.mjs', import.meta.url));
+async function typePairingCode(code) {
+    try {
+        await run(process.execPath, [secretTyper, '--serial', serial, '--text', code], { timeout: 180_000, maxBuffer: 16 * 1024 * 1024 });
+    } catch (error) {
+        const detail = String(error.stderr ?? '').trim() || error.message;
+        throw new Error(`pairing code entry failed before the pair wait: ${redact(detail, code)}`);
+    }
+}
 const ui = async () => { await adb('shell', 'uiautomator', 'dump', '/sdcard/muxr-perf-ui.xml'); return adb('shell', 'cat', '/sdcard/muxr-perf-ui.xml'); };
 function position(xml, pattern, attribute = 'text') {
     for (const node of xml.matchAll(/<node\s[^>]*\/>/g)) {
@@ -117,7 +135,7 @@ try {
     await tap(/^Enter pairing string$/);
     await tap(/^wss?:\/\/your-relay|^Pairing string$/, 'text', true);
     if (!(await tap(/^Pairing string$/, 'content-desc', true))) throw new Error('pairing input not accessible');
-    await adb('shell', 'input', 'text', pairing.code).catch(() => { throw new Error('ADB could not enter pairing offer'); });
+    await typePairingCode(pairing.code);
     await adb('shell', 'input', 'keyevent', 'KEYCODE_ENTER');
     await wait(/THIS PHONE WILL BE ABLE TO/, 25);
     await adb('shell', 'input', 'swipe', '530', '1800', '530', '800', '350');

@@ -78,7 +78,7 @@ for (const file of ['public/sw.js', 'public/manifest.webmanifest']) {
 // static import graph and fail if any module the entry loads eagerly names the
 // loader outside the on-demand loader and the gated chart allowed to.
 const SKIA_LOADER_ALLOWED = new Set([
-    join(mobile, 'sources', 'components', 'skiaWeb.tsx'),
+    join(mobile, 'sources', 'components', 'skiaWeb.web.tsx'),
     join(mobile, 'sources', 'usage', 'presentation', 'ScreenCharts.tsx'),
 ]);
 const SKIA_LOADER_MARKERS = ['react-native-skia/lib/module/web', 'LoadSkiaWeb', 'loadSkiaWeb'];

@@ -588,7 +588,7 @@ export default function ConnectionSettingsScreen() {
             const canControl = Platform.OS === 'web' ? browserRole === 'Control' : currentGrant.authority !== 'observe';
             trust = canControl
                 ? `This ${device} can control your computer.`
-                : `This ${device} can view your computer but not control it.`;
+                : `This ${device} can watch your computer, but can't type, click or run anything.`;
         } else if (grantRefresh === 'loading') trust = 'Checking the saved device grant…';
         else if (grantRefresh === 'failed') trust = 'Could not read this device’s grant. Reopen the screen or pair again on the computer.';
         let browserAccess = 'No active browser grant. Pair again on the computer.';

@@ -491,6 +491,20 @@ export default function MachineDetailScreen() {
                             />
                         )}
                 </ItemGroup>
+
+                {/* Developer-only decoder probe: opens this computer's live
+                    desktop and reads back which decoder and frame rate the
+                    receiver reports. The screen is gated on the same flag. */}
+                {devModeEnabled && getCachedConnectionSettings().machineId === machineId && (
+                    <ItemGroup title="Developer">
+                        <Item
+                            title="Desktop decoder"
+                            subtitle="Open the live desktop and read the decoder and frame rate the receiver reports"
+                            subtitleLines={0}
+                            onPress={() => router.push('/debug/decode')}
+                        />
+                    </ItemGroup>
+                )}
             </ItemList>
         </>
     );
