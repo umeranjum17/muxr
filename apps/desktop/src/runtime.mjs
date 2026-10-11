@@ -126,6 +126,12 @@ export class MuxrRuntime extends EventEmitter {
         }
     }
 
+    #advertisedUrl(port) {
+        const lanIp = lanIpv4Addresses()[0];
+        return process.env.MUXR_RELAY_URL?.trim()
+            || (lanIp === undefined ? `ws://127.0.0.1:${port}` : `ws://${lanIp}:${port}`);
+    }
+
     async start() {
         this.emit('status', { phase: 'starting', message: 'Starting muxr on this computer' });
         mkdirSync(this.#home, { recursive: true, mode: 0o700 });
@@ -155,9 +161,7 @@ export class MuxrRuntime extends EventEmitter {
             // Same self-host state a `muxr setup` writes: this computer's pairing
             // identity, the relay it owns, and the relay owner's secret.
             const boundPort = await this.#awaitRelay(this.#spawnRelay(this.#port));
-            const lanIp = lanIpv4Addresses()[0];
-            const advertised = process.env.MUXR_RELAY_URL?.trim()
-                || (lanIp === undefined ? `ws://127.0.0.1:${boundPort}` : `ws://${lanIp}:${boundPort}`);
+            const advertised = this.#advertisedUrl(boundPort);
             const state = {
                 version: 1,
                 createdBy: 'desktop',
@@ -172,8 +176,10 @@ export class MuxrRuntime extends EventEmitter {
             atomicWrite(statePath, `${JSON.stringify(state)}\n`, 0o600);
             this.emit('log', 'runtime', `relay on :${boundPort}, advertised ${advertised}\n`);
         } else {
+            existing.relayUrl = this.#advertisedUrl(existing.relayPort);
+            atomicWrite(statePath, `${JSON.stringify(existing)}\n`, 0o600);
             await this.#awaitRelay(this.#spawnRelay(existing.relayPort, existing));
-            this.emit('log', 'runtime', `using the existing self-host state at ${statePath}\n`);
+            this.emit('log', 'runtime', `using the existing self-host state at ${statePath}, advertised ${existing.relayUrl}\n`);
         }
 
         const host = this.#spawn(this.#hostEntry, {
