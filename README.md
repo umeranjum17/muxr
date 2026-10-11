@@ -40,7 +40,7 @@ An agent can work for a while, then need one answer to keep going. muxr brings t
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/answer-night.webp" />
     <source media="(prefers-color-scheme: light)" srcset="docs/readme/answer-day.webp" />
-    <img src="docs/readme/answer-day.gif" width="300" alt="A ten-second loop of the real app: the agent waiting under Needs you, one tap on Yes, proceed in its live terminal, the push runs, and Home shows it idle with the card gone" />
+    <img src="docs/readme/answer-day.gif" width="300" alt="A short loop of the real app: the agent waiting under Needs you, a tap on Yes, proceed in its live terminal, the push runs, and Home shows it idle with the card gone" />
   </picture><br />
   <sub>A real recording. The quiet waits are shortened.</sub>
 </p>
