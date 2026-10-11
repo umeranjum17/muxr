@@ -1,0 +1,22 @@
+{
+    "name": "@trymuxr/site",
+    "version": "0.1.2",
+    "private": true,
+    "type": "module",
+    "description": "The trymuxr.com website.",
+    "scripts": {
+        "build": "tsc --build",
+        "start": "node dist/site.js",
+        "test": "yarn marketing:check && vitest run test/site.journey.test.ts",
+        "marketing:sync": "node scripts/sync-marketing.mjs",
+        "marketing:check": "node scripts/sync-marketing.mjs --check"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.0",
+        "typescript": "^5.7.2",
+        "vitest": "4.1.11"
+    },
+    "engines": {
+        "node": ">=22"
+    }
+}
