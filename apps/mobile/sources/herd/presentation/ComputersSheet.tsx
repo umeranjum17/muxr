@@ -26,6 +26,7 @@ import { useAuth } from '@/account/ui';
 import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
 import { realtimeMachineSwitchGuard } from '@/conversation/session';
 import { Modal } from '@/modal';
+import { WebAlertModal } from '@/modal/components/WebAlertModal';
 
 /** Plain states a row can show. "Not paired" is a computer the app is
  * connected to that this phone keeps no pairing for. */
@@ -116,6 +117,7 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
     const [grants, setGrants] = React.useState<StoredHostedGrant[]>([]);
     const [probes, setProbes] = React.useState<Record<string, boolean>>({});
     const [switching, setSwitching] = React.useState<string | null>(null);
+    const [confirm, setConfirm] = React.useState<{ row: ComputerRow; voiceActive: boolean } | null>(null);
 
     const activeMachineId = getCachedConnectionSettings().machineId;
     const agentMachineId = session?.metadata?.machineId ?? activeMachineId;
@@ -171,17 +173,20 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
         return next;
     }, [activeMachineId, agentMachineId, grants, liveMachines, probes, socketConnected]);
 
-    const switchTo = React.useCallback(async (row: ComputerRow) => {
+    // Tapping another online computer asks first, through the app's own dialog
+    // rather than the stock OS alert, whose caps'd buttons and system chrome
+    // would not look like the rest of muxr.
+    const requestSwitch = React.useCallback((row: ComputerRow) => {
         if (row.grant === undefined || switching !== null) return;
-        const voiceActive = !realtimeMachineSwitchGuard(row.id).allowed;
-        const confirmed = await Modal.confirm(
-            voiceActive ? 'End voice and switch?' : `Switch to ${row.name}?`,
-            voiceActive
-                ? 'Realtime voice stays pinned to the computer where it started.'
-                : 'The app reconnects to this computer with the stored pairing, so the next prompt runs there. You can switch back the same way.',
-            { confirmText: voiceActive ? 'End voice and switch' : 'Switch', destructive: voiceActive },
-        );
-        if (!confirmed) return;
+        setConfirm({ row, voiceActive: !realtimeMachineSwitchGuard(row.id).allowed });
+    }, [switching]);
+
+    const doSwitch = React.useCallback(async () => {
+        const pending = confirm;
+        if (pending === null) return;
+        const { row, voiceActive } = pending;
+        if (row.grant === undefined) return;
+        setConfirm(null);
         const grant = row.grant;
         setSwitching(row.id);
         try {
@@ -197,14 +202,11 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
             Modal.alert('Could not switch computer', cause instanceof Error ? cause.message : String(cause));
             setSwitching(null);
         }
-    }, [auth, onClose, router, switching]);
+    }, [auth, confirm, onClose, router]);
 
     const body = (
         <View>
-            <ItemGroup
-                title="Cloud computer"
-                footer="A cloud computer for this agent is coming. There is nothing to set up here yet."
-            >
+            <ItemGroup title="Cloud computer">
                 <Item
                     title="Cloud computer"
                     detail="Coming soon"
@@ -214,10 +216,7 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
                 />
             </ItemGroup>
 
-            <ItemGroup
-                title="Your computers"
-                footer="Tap an online computer to run this agent's next prompt there."
-            >
+            <ItemGroup title="Your computers">
                 {rows.map((row) => {
                     const availability = row.checking ? 'Checking…' : STATE_LABEL[row.state];
                     const reason = row.checking ? undefined : stateReason(row.state, row.inUse);
@@ -225,20 +224,33 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
                         .filter((part): part is string => Boolean(part))
                         .join(' • ');
                     const selectable = row.state === 'online' && !row.inUse && row.grant !== undefined;
+                    // An online row reads at full contrast; a computer the app
+                    // cannot use right now keeps its text readable and dims only
+                    // its icon, so the reason stays legible at a glance.
+                    const mutedIcon = row.state !== 'online';
                     return (
                         <Item
                             key={row.id}
                             title={row.name}
+                            // The sheet forces the dark theme; state the row's
+                            // text colours from that theme so an interactive row
+                            // keeps the sheet's primary/secondary contrast rather
+                            // than a stale light-theme default.
+                            titleStyle={{ color: theme.colors.text }}
+                            subtitleStyle={{ color: theme.colors.textSecondary }}
                             subtitle={subtitle}
                             subtitleLines={0}
-                            icon={<Ionicons name="desktop-outline" size={29} color={stateColor(row.state, theme)} />}
+                            icon={(
+                                <View style={mutedIcon ? { opacity: 0.5 } : undefined}>
+                                    <Ionicons name="desktop-outline" size={29} color={stateColor(row.state, theme)} />
+                                </View>
+                            )}
                             rightElement={row.inUse
                                 ? <Ionicons name="checkmark-circle" size={25} color={theme.colors.status.connected} />
                                 : undefined}
                             loading={row.checking || switching === row.id}
-                            disabled={!row.inUse && row.state !== 'online'}
                             showChevron={false}
-                            onPress={selectable ? () => { void switchTo(row); } : undefined}
+                            onPress={selectable ? () => { requestSwitch(row); } : undefined}
                             accessibilityLabel={`${row.name}. ${availability}${row.inUse ? '. In use' : ''}${reason === undefined ? '' : `. ${reason}`}`}
                         />
                     );
@@ -248,14 +260,33 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
     );
 
     return (
-        <OptionSheet
-            visible={visible}
-            title="Computers"
-            options={[]}
-            onSelect={() => undefined}
-            onClose={onClose}
-            maxWidth={560}
-            body={body}
-        />
+        <>
+            <OptionSheet
+                visible={visible}
+                title="Computers"
+                options={[]}
+                onSelect={() => undefined}
+                onClose={onClose}
+                maxWidth={560}
+                body={body}
+            />
+            {confirm !== null && (
+                <WebAlertModal
+                    config={{
+                        id: 'computer-switch-confirm',
+                        type: 'confirm',
+                        title: confirm.voiceActive ? 'End voice and switch?' : `Switch to ${confirm.row.name}?`,
+                        message: confirm.voiceActive
+                            ? 'Realtime voice stays pinned to the computer where it started.'
+                            : 'The app reconnects to this computer with the stored pairing, so the next prompt runs there. You can switch back the same way.',
+                        cancelText: 'Cancel',
+                        confirmText: confirm.voiceActive ? 'End voice and switch' : 'Switch',
+                        destructive: confirm.voiceActive,
+                    }}
+                    onClose={() => setConfirm(null)}
+                    onConfirm={(value) => { if (value) { void doSwitch(); } else { setConfirm(null); } }}
+                />
+            )}
+        </>
     );
 }
