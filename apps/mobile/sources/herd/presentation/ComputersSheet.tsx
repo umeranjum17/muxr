@@ -18,12 +18,13 @@ import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
-import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
+import { getCachedConnectionSettings } from '@/connection';
 import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
 import { LinkFirstClient } from '@/pairing/client';
+import { pairMachine } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
-import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
+import { realtimeMachineSwitchGuard } from '@/conversation/session';
 import { Modal } from '@/modal';
 
 /** Plain states a row can show. "Not paired" is a computer the app is
@@ -192,19 +193,12 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
             { confirmText: voiceActive ? 'End voice and switch' : 'Switch', destructive: voiceActive },
         );
         if (!confirmed) return;
-        if (voiceActive) stopRealtimeSession();
         const grant = row.grant;
         setSwitching(row.id);
         try {
-            await saveConnectionSettings({
-                ...getCachedConnectionSettings(),
-                mode: 'hosted',
-                relayUrl: grant.relayUrl,
-                machineId: grant.machineId,
-                token: '',
-                selfhost: grant.source === 'selfhost' ? true : undefined,
-            });
-            await auth.login(grant.credential, grant.deviceKey.secretKey);
+            const activated = await pairMachine({ grant, endVoiceIfPinned: voiceActive });
+            if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer');
+            await auth.login(activated.credential, activated.secretKey);
             onClose();
             // The agent on the computer just left stays where it was; the
             // stack holds one agent over Home, so back lands on the newly
@@ -260,12 +254,6 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
                         />
                     );
                 })}
-                <Item
-                    title="Add a computer"
-                    subtitle="Pair another computer with this phone"
-                    icon={<Ionicons name="qr-code-outline" size={29} color="#007AFF" />}
-                    onPress={() => { onClose(); router.push('/pair'); }}
-                />
             </ItemGroup>
         </View>
     );

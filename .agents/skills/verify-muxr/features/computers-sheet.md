@@ -3,7 +3,7 @@
 Over an agent, the `…` overflow opens a **Computers** sheet: one `Cloud computer`
 row (Coming soon, not selectable), then one row per paired computer under **Your
 computers**, each with a plain state — `Online`, `Asleep`, `Offline`, or
-`Not paired` — a check on the one the agent runs on, and `Add a computer`. Tapping
+`Not paired` — a check on the one the agent runs on. Tapping
 another online computer switches the agent's computer after a confirmation, so
 the next prompt runs there. The sheet is one list over the app's own pairing
 grants; a computer that is not the connected one is checked with a fresh host
@@ -17,7 +17,6 @@ request before its row says Online.
 - `switch` tapping an online, not-in-use row asks to confirm, then reconnects the
   app to that computer with its stored pairing; the agent's next prompt runs there
   and the check moves.
-- `add` the `Add a computer` row opens the pair screen.
 - `not-paired` a computer the app is connected to but holds no pairing for is
   labelled `Not paired` rather than hidden (defensive; see Gotchas).
 
@@ -40,16 +39,19 @@ unshare -Ur --uts -- sh -c "hostname Desk-Mac; exec node $PWD/.agents/skills/ver
 
 Each prints `host <label> (<name>) ready: relay <port>` and a `pairing link`.
 `PAIR_KIND=native` prints a code for the pair screen; the default `browser` prints
-a link for the PWA. `echo stop | nc …` or the control socket stops a host so its
-row reads Offline (or Asleep when it is the connected one).
+a link for the PWA. Send `{"cmd":"stop"}` as one newline-terminated line to the
+host's control socket (`printf '{"cmd":"stop"}\n' | nc -U /tmp/muxr-computers-lab-A.sock`),
+or type `stop` on its stdin, to stop a host so its row reads Offline (or Asleep
+when it is the connected one).
 
 Native (release APK on a task-owned emulator, paired through `/pair`):
 
 1. Pair host A: Home empty state → **Other ways to connect** → **Paste the pairing
    string** → paste A's code → **Pair**; approve the consent. The sheet shows
    `A Online · In use`.
-2. Pair host B: **Add a computer** in the sheet → paste B's code → **Pair**. The
-   sheet shows both; B becomes the connected one.
+2. Pair host B: **Connect Device** in the command palette (Home also offers
+   **Other ways to connect**) → paste B's code → **Pair**. The sheet shows both; B
+   becomes the connected one.
 3. Switch: tap A's row → **Switch**; the sheet now checks A and Home reconnects to
    A. Prove the next prompt runs there from the hosts' own diagnostics
    (`/tmp/muxr-perf-*/muxr/host/diagnostics.json`): A's `session.prompt` count rises
