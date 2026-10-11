@@ -44,6 +44,7 @@ import {
     undoSmartPunctuation,
 } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
+import { terminalGrid } from '../application/terminalAhead';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { useDraft } from '@/hooks/useDraft';
 import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
@@ -335,6 +336,21 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
     // `raise` is the settled keyboard raise this measure was taken at.
     const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number; raise: number }>();
+    // The terminal measures a grid at one size; the answer band must end on a
+    // line boundary so its top edge never clips a terminal line. The rendered
+    // terminal reports its true row height; native and pre-first-fit fall back
+    // to the box over its rows, which is the same measure because the terminal
+    // fills that box. `gridInset` is the leftover between a whole number of
+    // rows and the box below them (a viewport height that is not a whole
+    // multiple of the row height), which shifts where the last line ends.
+    const grid = terminalGrid();
+    const [drawnRowHeight, setDrawnRowHeight] = React.useState<number>();
+    const terminalRowHeight = drawnRowHeight ?? (terminalBox !== undefined && grid !== undefined && grid.rows > 0
+        ? terminalBox.height / grid.rows
+        : undefined);
+    const terminalGridInset = drawnRowHeight !== undefined && terminalBox !== undefined && grid !== undefined && grid.rows > 0
+        ? Math.max(0, terminalBox.height - grid.rows * drawnRowHeight)
+        : 0;
     // How far the terminal's visible bottom sits from the one it was last
     // measured at: the rails ride the keyboard frame by frame, while the
     // terminal resizes only once it settles. The ring's control rides this, so
@@ -1519,7 +1535,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             status={status}
                             onNothingThere={nothingToSwipeTo}
                             onSwitch={switchAgent}
-                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} />}
+                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} />}
                         >
                         {linkMenu !== null && terminalBox !== undefined && terminalLinkCardFits(terminalBox.height, linkActions.length) && (
                             <TerminalLinkMenu
@@ -1538,6 +1554,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !latestShown && !scrolledAway && !desktopVisible}
                             channel={channel}
                             onVisibilityChange={setChoicesVisible}
+                            lineHeight={terminalRowHeight}
+                            gridInset={terminalGridInset}
                         />
                         </AgentPager>
                     </View>

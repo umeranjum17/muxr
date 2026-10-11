@@ -55,6 +55,8 @@ export interface TerminalViewProps {
      * owns its long press and only hands the tap up to this callback.
      */
     onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
+    /** The rendered row height, so overlays can end on a terminal line. */
+    onRowHeight?: (height: number) => void;
 }
 
 export type TerminalViewControls = {

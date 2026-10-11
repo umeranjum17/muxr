@@ -42,6 +42,8 @@ export interface TerminalViewProps {
     /** A printed link was reached for; the screen decides what to offer for it.
      *  Without a screen callback, taps open and holds copy. */
     onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
+    /** The rendered row height, so overlays can end on a terminal line. */
+    onRowHeight?: (height: number) => void;
 }
 
 // Injected when this lazy chunk loads, before any terminal measures its grid.
@@ -86,7 +88,7 @@ function plainUrlCellRanges(buffer: IBuffer, cols: number, row: number): { start
 
 export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
-    const { sessionId, onStatus, onChannel, onLinkPress } = props;
+    const { sessionId, onStatus, onChannel, onLinkPress, onRowHeight } = props;
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const firstFrameCallback = React.useRef(props.onFirstFrameWritten);
     firstFrameCallback.current = props.onFirstFrameWritten;
@@ -337,6 +339,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             });
 
         let resizeFrame: number | undefined;
+        const cellHeight = (): number => {
+            const css = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } } })
+                ._core?._renderService?.dimensions?.css?.cell;
+            return css?.height !== undefined && css.height > 0 ? css.height : 18;
+        };
         const resize = (): void => {
             cancelAnimationFrame(resizeFrame ?? 0);
             resizeFrame = requestAnimationFrame(() => {
@@ -344,6 +351,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 fit.fit();
                 setTerminalColumns(sessionId, term.cols);
                 rememberTerminalGrid(term.cols, term.rows);
+                onRowHeight?.(cellHeight());
                 channel?.resize(term.cols, term.rows);
             });
         };
@@ -362,11 +370,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             resize();
         };
 
-        const cellHeight = (): number => {
-            const css = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } } })
-                ._core?._renderService?.dimensions?.css?.cell;
-            return css?.height !== undefined && css.height > 0 ? css.height : 18;
-        };
         const screen = element.querySelector('.xterm-screen') ?? element;
         const cellWidth = (): number => {
             const css = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width?: number } } } } } })
