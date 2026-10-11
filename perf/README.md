@@ -197,6 +197,21 @@ and host/relay CPU and RSS. Before the herd-tree lookup stopped rescanning every
 missed the phone's 20 s budget, which is the "computer not available" the app
 showed. Run it after `yarn build`; it is a development signal, not acceptance.
 
+`homeLoad.mjs` says what the host sends; only a real phone says what the app
+pays for it. `node perf/emulatorMatrix.mjs --before-root <built host>
+--after-root . --apk <release.apk> --panes 300 --runs 3 --seconds 30` is that
+native half: it boots an emulator it owns, installs a release APK, and samples
+the phone's `mqt_v_js` thread over a quiet 300-pane herd for each built host, so
+two host commits are compared against one unchanged app. The owned-emulator
+helper (`perf/lib/androidEmulator.mjs`) creates the AVD and launches the
+emulator under a single explicit `ANDROID_AVD_HOME` (a mismatch between
+`avdmanager` and `emulator` defaults is an "Unknown AVD name" boot timeout),
+finds the serial from the emulator's own AVD name rather than a pinned port,
+waits for both `sys.boot_completed` and `pm path android`, and reports the
+emulator's log the moment the child exits instead of waiting out the timeout.
+Pass `--launcher "fm-mem-gate.sh"` (or a device lock) to start it through a
+launcher that owns capacity and the wait.
+
 ## Side-by-side physical phone probe
 
 For a shared phone whose `com.trymuxr.app` install must not be touched, build a

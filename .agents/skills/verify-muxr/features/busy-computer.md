@@ -17,7 +17,7 @@ Pair with the lab computer. With the computer stalled, reopen the app from cold 
 
 ## Driving it with the private stack
 
-Preconditions: follow ../SKILL.md isolation. Use `perf/lib/fakeStack.mjs` (real relay and host from this checkout, fake Herdr) with `transport: 'adb'`, not the owner's host. Use one task-owned emulator under the home's emulator lock, with a release APK built by `perf/buildPrApk.mjs`.
+Preconditions: follow ../SKILL.md isolation. Use `perf/lib/fakeStack.mjs` (real relay and host from this checkout, fake Herdr) with `transport: 'adb'`, not the owner's host. Boot one task-owned emulator through `perf/lib/androidEmulator.mjs` (`bootOwnedEmulator`): it creates the AVD under one explicit `ANDROID_AVD_HOME`, waits for `sys.boot_completed` **and** the package manager, and pins the discovered serial for every adb call. The release APK comes from `perf/buildPrApk.mjs`. The whole native matrix is one command — `node perf/emulatorMatrix.mjs --before-root <built commit> --after-root . --apk <apk> --avd <name> --avd-home <dir>` samples the phone's JS thread over a quiet herd for each built host.
 
 1. Load without the phone: `node perf/homeLoad.mjs --minutes 5 --phones 2 --panes 300 --agents 150 --out report.json`. Expect zero failed `herdr.tree`/`pane.read`, dial open p95 well under the 20 s budget, and `linkOffline` 0. On the pre-fix host the same run failed nearly every request and every dial.
 2. Start a fakeStack at 300 panes / 150 agents with `titleChurnHz: 0.2`, `adb reverse` its relay port, and pair the app by typing a minted code.
@@ -28,6 +28,7 @@ Preconditions: follow ../SKILL.md isolation. Use `perf/lib/fakeStack.mjs` (real 
 
 ## Gotchas
 
+- `avdmanager` and `emulator` can resolve different default AVD homes (avdmanager has defaulted under `~/.config/.android` while the emulator searches `$ANDROID_AVD_HOME`, `$ANDROID_SDK_HOME/avd`, then `$HOME/.android`). An AVD created without an explicit home is then invisible to the emulator, which exits "Unknown AVD name" and leaves a boot wait on `sys.boot_completed` burning its whole timeout. Create and launch with the same explicit `ANDROID_AVD_HOME`; `perf/lib/androidEmulator.mjs` does. A launcher that only overrides the emulator's home is exactly this bug.
 - Freezing the host under an already-open link does not drop it: a 60 s freeze kept the header "connected" and the tiles caught up on resume. The not-available path is a fresh dial into a slow host, so drive the cold start.
 - The release app's own JS cost grows with the herd: on the emulator it ran about 35% CPU at 6 panes, about 120% at 120 and about 155% at 300, where header taps stopped navigating. That is separate from the connection. A 2 Hz title churn on every pane (600 updates/s) is far beyond real Herdr; use `titleChurnHz` 0.2 or lower for the phone.
 - A machine-wide stall under swap pressure freezes the lab, the relay and your sampler together. Read a lone slow tail in a homeLoad report against the relay's event-loop gaps before blaming the host.
