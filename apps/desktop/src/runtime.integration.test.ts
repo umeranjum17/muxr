@@ -103,6 +103,43 @@ describe('desktop runtime self-host state', () => {
         expect(statuses.at(-1)?.phase).toBe('online');
     }, 30_000);
 
+    it('keeps the stored advertised relay url across a relaunch', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-relaunch-'));
+        const stored = `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792, relayUrl: 'wss://relay.example.test', bindHost: '127.0.0.1' })}\n`;
+        writeFileSync(join(home, 'selfhost.json'), stored, { mode: 0o600 });
+        const dump = join(home, 'relay-env.json');
+        const relayEntry = join(home, 'relay-fixture.mjs');
+        writeFileSync(relayEntry, [
+            "import { writeFileSync } from 'node:fs';",
+            `writeFileSync(${JSON.stringify(dump)}, JSON.stringify({ relayUrl: process.env.MUXR_RELAY_MDNS_RELAY, bindHost: process.env.MUXR_RELAY_HOST }));`,
+            "setTimeout(() => process.stdout.write('relay listening on ws://127.0.0.1:8792\\n'), 150);",
+            'setInterval(() => {}, 1000);',
+            '',
+        ].join('\n'));
+        const hostEntry = join(home, 'host-fixture.mjs');
+        writeFileSync(hostEntry, [
+            "import { mkdirSync, writeFileSync } from 'node:fs';",
+            "import { join } from 'node:path';",
+            "mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
+            "writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
+            "setTimeout(() => process.stdout.write('link relay: online\\n'), 150);",
+            'setInterval(() => {}, 1000);',
+            '',
+        ].join('\n'));
+
+        const { runtime, statuses } = collectingRuntime(home, relayEntry, hostEntry);
+        try {
+            await runtime.start();
+        } finally {
+            runtime.stop();
+            await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+
+        expect(statuses.at(-1)?.phase).toBe('online');
+        expect(JSON.parse(readFileSync(dump, 'utf8'))).toEqual({ relayUrl: 'wss://relay.example.test', bindHost: '127.0.0.1' });
+        expect(readFileSync(join(home, 'selfhost.json'), 'utf8')).toBe(stored);
+    }, 30_000);
+
     it('asks the user to quit the earlier desktop session when its relay is still alive', async () => {
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-owned-'));
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
