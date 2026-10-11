@@ -84,10 +84,10 @@ const SKIA_LOADER_ALLOWED = new Set([
 const SKIA_LOADER_MARKERS = ['react-native-skia/lib/module/web', 'LoadSkiaWeb', 'loadSkiaWeb'];
 const SOURCE_CANDIDATES = ['.web.tsx', '.web.ts', '.tsx', '.ts', '.jsx', '.js'];
 const resolveMobileSource = (fromFile, specifier) => {
-    const base = specifier.startsWith('@/')
-        ? join(mobile, 'sources', specifier.slice(2))
-        : specifier.startsWith('.') ? join(dirname(fromFile), specifier) : undefined;
-    if (base === undefined) return undefined;
+    let base;
+    if (specifier.startsWith('@/')) base = join(mobile, 'sources', specifier.slice(2));
+    else if (specifier.startsWith('.')) base = join(dirname(fromFile), specifier);
+    else return undefined;
     for (const candidate of [base, ...SOURCE_CANDIDATES.map((ext) => `${base}${ext}`), ...SOURCE_CANDIDATES.map((ext) => join(base, `index${ext}`))]) {
         if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
     }
