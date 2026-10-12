@@ -50,7 +50,7 @@ task-owned emulator paired to that window.
 
 - The card needs a host built from this change; an older host never sends
   `missing`, so the phone keeps the restart card.
-- The host looks for `herdr` on its own PATH; the desktop app appends
-  `~/.local/bin` (or `HERDR_INSTALL_DIR`) to the host's PATH, because an
-  AppImage's PATH does not carry the user's shell profile.
+- The host resolves Herdr with `herdrBin()` at every spawn, so a Herdr installed
+  into `~/.local/bin` (or `HERDR_INSTALL_DIR`) after the host started is used
+  without a restart and without a PATH change.
 - At font 2.0 the card's pre-existing Retry connection button ellipsizes.

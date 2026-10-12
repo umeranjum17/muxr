@@ -20,7 +20,8 @@ without a terminal.
 - A computer with no Herdr shows one sentence ("muxr runs your agents in Herdr,
   which isn't installed on this computer.") with Install Herdr above the
   pairing offer; the QR stays on screen and pairing never waits for Herdr.
-  Install runs the published herdr.dev installer into `~/.local/bin` (no root),
+  Install runs the published herdr.dev installer into the user's own folder
+  (where `herdrBin()` looks, `~/.local/bin` by default; no root),
   with the user's own environment (AppImage paths stripped), shows Downloading
   Herdr… then Starting Herdr…, starts the server and clears the notice; the host
   picks Herdr up without a restart. A failed install reads "Couldn't install
