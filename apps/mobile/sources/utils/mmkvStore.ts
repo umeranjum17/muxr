@@ -1,5 +1,6 @@
 import { createMMKV, type MMKV } from 'react-native-mmkv';
 
+/** Every app store comes from here: a failed `set` is logged, never thrown into a UI handler. */
 export function createStore(): MMKV {
     const store = createMMKV();
     const set = store.set.bind(store);
