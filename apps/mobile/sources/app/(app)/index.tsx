@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as React from 'react';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { MainView, FirstRunConnection } from '@/herd/ui';
+import { MainView, FirstRunConnection, TailscaleStep } from '@/herd/ui';
 import { HomeWebInstallInvite } from '@/herd/presentation/HomeFirstRunCards';
 import { LiveCardEmptyBadge } from '@/plans/ui';
 import { Wordmark } from '@/components/Wordmark';
@@ -23,6 +23,7 @@ function NotAuthenticated() {
     const auth = useAuth();
     const insets = useSafeAreaInsets();
     const pairing = React.useRef(false);
+    const [hasTailscale, setHasTailscale] = React.useState(false);
 
     React.useEffect(() => {
         if (pairing.current) return;
@@ -56,7 +57,7 @@ function NotAuthenticated() {
                 <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : `Run your agents from your ${pairingDeviceNoun()}.`}</Text>
                 <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
             </View>
-            <FirstRunConnection />
+            {hasTailscale ? <FirstRunConnection /> : <TailscaleStep onReady={() => setHasTailscale(true)} />}
             <HomeWebInstallInvite variant="firstRun" />
         </ScrollView>
     );

@@ -11,7 +11,8 @@ owned by [pair-scan-first.md](./pair-scan-first.md).
 ## How to get to it (user POV)
 
 Install the muxr web build as a PWA (or serve the export) on a fresh profile
-with no stored grant and open it: the first-run screen appears. Press the Step
+with no stored grant and open it: the first-run screen appears; press **I have
+Tailscale** ([tailscale-first-step.md](./tailscale-first-step.md)). Press the Step
 2 button: the paste prompt opens with the `muxr pair --browser` command in its
 message, word-joined so the flag never breaks across lines.
 
@@ -50,8 +51,8 @@ profile keeps the client unpaired).
    (throwaway keystore is fine; `FM_MEM_JOB_GB=16` under the gradle lock),
    boot a task-owned AVD headless, and — because a fresh emulator can still
    auto-pair to a lab relay reachable at 10.0.2.2 — `adb root`, drop OUTPUT to
-   10.0.2.2/10.0.2.3, `pm clear` the app, relaunch, and capture the first-run
-   screen showing the QR-scan step, setup details and Other-ways routes.
+   10.0.2.2/10.0.2.3, `pm clear` the app, relaunch, tap I have Tailscale, and capture
+   the first-run screen showing the QR-scan step, setup details and Other-ways routes.
    Kill the emulator by exact serial (`adb -s <serial> emu kill`).
 
 ## Durable proof
