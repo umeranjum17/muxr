@@ -13,6 +13,9 @@ import {
     type DeviceGrant as LinkDeviceGrant,
 } from '@byokit/link';
 import { linkOfferExpired, PairingNeedsNewCode, readOffer } from '../domain/pairingString';
+import { isTailscaleAddress, tailscaleUnreachableMessage } from './linkFirstClient';
+import { pairingDeviceNoun } from './pairingPlatform';
+import { hasTailnetAddress } from '@/../modules/tailnet-address';
 
 /**
  * The byokit pairing protocol, behind one port: application code asks this
@@ -199,6 +202,15 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
             throw new PairingNeedsNewCode('The pairing link closed after the two words, before approval completed. Get a fresh code from muxr on your computer and approve it before it expires.');
         }
         if (cause instanceof LinkError && (cause.code === 'expired' || cause.code === 'declined')) throw new PairingNeedsNewCode(LINK_WORDS[cause.code]);
+        // The first dial of a Tailscale address: say which end to fix rather
+        // than the kit's generic sentence. An SSH tunnel carries its own route.
+        if (options.mode === 'claim' && lost(cause) && resolve === undefined) {
+            const offer = readOffer(pending.scanned);
+            if (offer !== undefined && offer.urls.some(isTailscaleAddress)) {
+                const noun = pairingDeviceNoun();
+                throw new Error(tailscaleUnreachableMessage(offer.name, noun === 'browser' ? 'device' : noun, hasTailnetAddress()));
+            }
+        }
         throw cause instanceof Error ? cause : new Error('pairing failed');
     }
     if (options.mode === 'claim') await options.onClaimed?.();

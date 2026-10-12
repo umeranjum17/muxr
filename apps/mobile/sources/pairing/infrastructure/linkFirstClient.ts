@@ -86,8 +86,7 @@ function protocolMismatchMessage(reason: 'host-too-old' | 'host-too-new', hostVe
  *  `describeRoute` labels name the transport ("Local or private network")
  *  but never form a sentence, so they must not be interpolated into one. */
 export function hostUnreachableMessage(route: string | undefined, computer: string): string {
-    if (route === 'Tailscale')
-        return `Can't reach ${computer}. Is it awake and is Tailscale connected on this phone and the computer?`;
+    if (route === 'Tailscale') return tailscaleUnreachableMessage(computer, 'phone');
     if (route === 'Private network')
         return `Can't reach ${computer}. Is it awake and on the same private network as this phone?`;
     if (route === 'Cloudflare tunnel')
@@ -97,6 +96,25 @@ export function hostUnreachableMessage(route: string | undefined, computer: stri
     if (route === 'Local or private network')
         return `Can't reach ${computer}. Is it awake and on the same Wi-Fi as this phone?`;
     return `Can't reach ${computer}. Is it awake and online?`;
+}
+
+/** A Tailscale address: a MagicDNS name, or the 100.64.0.0/10 range Tailscale
+ *  hands out, which the kit's `describeRoute` files under "Private network". */
+export function isTailscaleAddress(url: string): boolean {
+    let host: string;
+    try { host = new URL(url).hostname.toLowerCase(); }
+    catch { return false; }
+    const ip = /^100\.(\d+)\.\d+\.\d+$/.exec(host);
+    return host.endsWith('.ts.net') || (ip !== null && Number(ip[1]) >= 64 && Number(ip[1]) <= 127);
+}
+
+/** What to fix, in one sentence, when this device cannot reach the computer
+ *  over Tailscale. `onTailscale` says whether this device holds a Tailscale
+ *  address; where that is unknown (iOS, the web) both ends are named. */
+export function tailscaleUnreachableMessage(computer: string, device: string, onTailscale?: boolean): string {
+    if (onTailscale === false) return `Can't reach ${computer}: turn on Tailscale on this ${device} and sign in, then try again.`;
+    if (onTailscale === true) return `Can't reach ${computer}: check it's awake and Tailscale is on there, signed in to the same account as this ${device}.`;
+    return `Can't reach ${computer}. Is it awake and is Tailscale connected on this ${device} and the computer?`;
 }
 
 /** The relay answers but the computer is not attached to it: wake the

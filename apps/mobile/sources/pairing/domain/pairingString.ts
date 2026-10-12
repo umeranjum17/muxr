@@ -25,7 +25,7 @@ export function isCompactOfferText(value: string): boolean {
     return value.startsWith(COMPACT_TAG);
 }
 
-type OfferTerms = Pick<PairOffer, 'expires' | 'name' | 'role' | 'lifetime'>;
+type OfferTerms = Pick<PairOffer, 'expires' | 'name' | 'role' | 'lifetime' | 'urls'>;
 
 /** The terms of either offer form, read without the expiry check (callers compare `expires`); undefined when the text is neither. */
 export function readOffer(scanned: string): OfferTerms | undefined {
