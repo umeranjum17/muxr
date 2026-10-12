@@ -57,16 +57,17 @@ export function FirstAgentCard() {
         try {
             const { options } = resolveAgentCatalog(await sync.request('herdr.agentKinds', { refresh }));
             setOffer(firstAgentOffer(options, useNewSessionDraft.getState().agentType));
+            setError(undefined);
         } catch {
-            // Without a catalog the card keeps its plain invitation to the picker.
+            // Without a catalog the card keeps its plain invitation to the picker;
+            // only an asked-for check says it failed.
+            if (refresh) setError('Could not reach your computer. Try again.');
         }
     }, []);
     React.useEffect(() => { void check(false); }, [check]);
     if (dismissed) return null;
-    const choose = () => {
-        setDismissed(true);
-        router.push('/new-agent' as never);
-    };
+    // Opening the picker keeps the card: it retires once an agent starts or on Not now.
+    const choose = () => router.push('/new-agent' as never);
     const start = async (kind: string) => {
         setError(undefined);
         useNewSessionDraft.getState().setAgentType(kind as NewSessionAgentType);
@@ -80,9 +81,9 @@ export function FirstAgentCard() {
     };
     const name = offer !== undefined && offer.step !== 'install' ? agentName(offer.kind) : '';
     let body = 'Pick an agent on your computer and put it to work. It appears here, live, the moment it starts.';
-    if (offer?.step === 'start') body = `${name} is ready on your computer. It appears here, live, the moment it starts.`;
+    if (offer?.step === 'start') body = `${name} is ready on your computer.`;
     if (offer?.step === 'sign-in') body = `Sign in to ${name} on your computer, then tap Check again.`;
-    if (offer?.step === 'choose') body = `${name} is on your computer. Choose it to start, and sign in there if it asks.`;
+    if (offer?.step === 'choose') body = `Choose ${name} to start it, and sign in on your computer if it asks.`;
     if (offer?.step === 'install') body = 'Install a coding agent such as Claude Code on your computer, then tap Check again.';
     const needsCheck = offer?.step === 'sign-in' || offer?.step === 'install';
     return (

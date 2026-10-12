@@ -103,7 +103,7 @@ it('starts a ready agent in one tap, with no picker', async () => {
     host.readiness = { claude: { signedIn: 'yes' }, codex: { signedIn: 'no' } };
     const screen = await render();
 
-    expect(texts(screen)).toContain('Claude Code is ready on your computer. It appears here, live, the moment it starts.');
+    expect(texts(screen)).toContain('Claude Code is ready on your computer.');
     await TestRenderer.act(async () => { button(screen, 'Start Claude Code').props.onPress(); });
 
     expect(host.started).toEqual([{ cwd: '/home/umer/project', kind: 'claude' }]);
@@ -127,4 +127,6 @@ it('says plainly what to do when no agent is ready, and recovers in place', asyn
 
     await TestRenderer.act(async () => { button(screen, 'Choose another agent').props.onPress(); });
     expect(pushed).toEqual(['/new-agent']);
+    // Only a started agent or Not now retires the card; a look at the picker does not.
+    expect(button(screen, 'Start Claude Code')).toBeTruthy();
 });
