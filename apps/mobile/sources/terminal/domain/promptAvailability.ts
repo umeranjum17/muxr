@@ -1,7 +1,6 @@
 import type { AgentLifecycle, HerdrTreePane } from '@trymuxr/contract';
 import type { Session } from '@/catalog';
-import { paneStatus } from '@/herd/domain/herd';
-import { displayedAgentStatus, sessionHoldsRequest } from '@/herd/domain/recentActivity';
+import { displayedAgentStatus, paneStatus, sessionHoldsRequest } from '@/herd';
 
 /**
  * The lifecycle the terminal header draws: the agent's attention state, from

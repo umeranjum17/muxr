@@ -112,11 +112,12 @@ const installedVersion = vi.hoisted(() => ({ value: '0.1.27' }));
 vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.value }));
 vi.mock('@/herd', async () => {
     const { herdrPaneForSession } = await vi.importActual('@/herd/domain/agentPresentation');
-    const { lifecycleNotificationCopy } = await vi.importActual<typeof import('@/herd/domain/herd')>('@/herd/domain/herd');
+    const { lifecycleNotificationCopy, paneStatus } = await vi.importActual<typeof import('@/herd/domain/herd')>('@/herd/domain/herd');
     const { dropOldestAbsent } = await vi.importActual<typeof import('@/herd/domain/herdTree')>('@/herd/domain/herdTree');
+    const { displayedAgentStatus, sessionHoldsRequest } = await vi.importActual<typeof import('@/herd/domain/recentActivity')>('@/herd/domain/recentActivity');
     return {
         useActivityAcknowledgements: () => hostSync.activityHook!(), lifecycleNotificationCopy,
-        herdrPaneForSession, dropOldestAbsent,
+        herdrPaneForSession, dropOldestAbsent, paneStatus, displayedAgentStatus, sessionHoldsRequest,
         getSessionName: (session: Session, pane?: HerdrTreePane) =>
             pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
         getSessionSubtitle: (_session: Session, pane?: HerdrTreePane) => pane?.agentName ?? '',

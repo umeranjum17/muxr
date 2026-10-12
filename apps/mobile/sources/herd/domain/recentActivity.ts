@@ -30,7 +30,7 @@ export function displayedAgentStatus(status: AgentLifecycle, pendingRequest = fa
 
 /** Whether an online agent is holding a request it has not answered yet. */
 export function sessionHoldsRequest(
-    session: Pick<Session, 'presence'> & Partial<Pick<Session, 'agentState'>>,
+    session: Partial<Pick<Session, 'presence' | 'agentState'>>,
 ): boolean {
     const requests = session.agentState?.requests;
     return session.presence === 'online' && requests != null && Object.keys(requests).length > 0;
