@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/audit.mjs';
 
@@ -140,6 +140,7 @@ export function licenseInventory({ bundles, root, rootPackage, declared, closure
 
 /** Copy each dependency's license text and write the inventory beside them. */
 export function writeThirdPartyInventory({ inventoryPath, licenseDir, artifact, dependencies, policy = 'Packaging fails on copyleft or unknown/non-approved dependency licenses.' }) {
+    rmSync(licenseDir, { recursive: true, force: true });
     mkdirSync(licenseDir, { recursive: true });
     for (const dependency of dependencies) {
         if (dependency.licensePath === undefined) continue;

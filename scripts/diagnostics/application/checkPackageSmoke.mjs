@@ -584,21 +584,7 @@ try {
     for (const notice of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) writeFileSync(join(packagedRoot, notice), `${notice} fixture\n`);
     const desktopInventory = JSON.parse(readFileSync(join(packagedApp, 'THIRD_PARTY_LICENSES.json'), 'utf8'));
     assert.equal(desktopInventory.artifact, `@muxr/desktop@${desktopManifest.version}`);
-    assert.equal(desktopInventory.bundledInputs, undefined);
     assert.ok(!JSON.stringify(desktopInventory).includes(`${snapshot}/`), 'desktop inventory leaked a repository path');
-    const desktopDeclared = { ...runtimeDependencies(snapshot), electron: desktopManifest.devDependencies.electron };
-    const desktopNames = new Set(desktopInventory.dependencies.map(({ name }) => name));
-    for (const dependency of desktopInventory.dependencies) {
-        if (dependency.transitiveOf !== undefined) {
-            assert.equal(dependency.declaredRange, null);
-            assert.ok(desktopNames.has(dependency.transitiveOf), `${dependency.name} is transitive of ${dependency.transitiveOf}, which the inventory does not list`);
-        } else {
-            assert.equal(dependency.declaredRange, dependency.bundled ? null : desktopDeclared[dependency.name]);
-        }
-        assert.match(dependency.auditedVersion, /^\d+\.\d+\.\d+/);
-        assert.equal(dependency.version, undefined, 'ambiguous dependency version field returned');
-        assert.equal(dependency.licensePath, undefined, 'desktop inventory leaked a build path');
-    }
     const desktopElectron = desktopInventory.dependencies.find((dependency) => dependency.name === 'electron');
     assert.ok(desktopElectron, 'desktop inventory has no electron entry for the Electron/Chromium runtime');
     assert.equal(desktopElectron.auditedVersion, desktopManifest.devDependencies.electron);

@@ -28,8 +28,7 @@ if (statSync(distRoot, { throwIfNoEntry: false })?.isFile() === true) {
     try {
         execFileSync(distRoot, ['--appimage-extract'], { cwd: scratch, stdio: 'ignore' });
     } catch (error) {
-        process.stderr.write(`license audit: could not extract ${distRoot}: ${error instanceof Error ? error.message : String(error)}\n`);
-        process.exit(1);
+        fail(`license audit: could not extract ${distRoot}: ${error instanceof Error ? error.message : String(error)}`);
     }
     distRoot = join(scratch, 'squashfs-root');
 }
