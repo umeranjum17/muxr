@@ -121,6 +121,26 @@ export function defaultAgentKind(options: readonly AgentCatalogOption[], preferr
     return signedIn.find((option) => option.kind === preferred)?.kind ?? signedIn[0]?.kind ?? null;
 }
 
+/**
+ * What Home's first-agent card offers: one tap to start a ready agent, else
+ * the next step for the best candidate. Shell is never the offer.
+ */
+export type FirstAgentOffer =
+    | { step: 'start'; kind: string }
+    | { step: 'sign-in'; kind: string }
+    | { step: 'choose'; kind: string }
+    | { step: 'install' };
+
+export function firstAgentOffer(options: readonly AgentCatalogOption[], preferred?: string): FirstAgentOffer {
+    const ready = defaultAgentKind(options, preferred);
+    if (ready !== null) return { step: 'start', kind: ready };
+    const installed = options.filter((option) => option.availability === 'installed' && option.kind !== 'shell');
+    const signIn = installed.find((option) => option.signedIn === 'no');
+    if (signIn !== undefined) return { step: 'sign-in', kind: signIn.kind };
+    if (installed[0] !== undefined) return { step: 'choose', kind: installed[0].kind };
+    return { step: 'install' };
+}
+
 export function visibleDockAgents(options: readonly AgentCatalogOption[] | null, more = false): DockOption[] {
     const agents = (options ?? []).filter((option) => (option.availability === 'installed') !== more).map((option) => ({
         key: option.kind,

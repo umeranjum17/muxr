@@ -8,6 +8,10 @@ import { ActionButton } from '@/components/ActionButton';
 import { cardStyle } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { useAuth } from '@/account/ui';
+import { resolveAgentCatalog, type NewSessionAgentType } from '@/catalog';
+import { sync } from '@/catalog/sync';
+import { getCachedConnectionSettings } from '@/connection';
+import { agentName, firstAgentOffer, startNewAgent, useNewSessionDraft, type FirstAgentOffer } from '@/spawn';
 import { useHerdrTree, useLocalSettingMutable, useSessions, useSocketStatus } from '@/catalog/store';
 import { openBackgroundActivitySettings } from '@/../modules/voice-overlay';
 import { notificationPermissionStatus, requestNotificationPermission } from '@/utils/microphonePermissions';
@@ -37,30 +41,71 @@ const styles = StyleSheet.create((theme) => ({
 }));
 
 /**
- * One-time Home card for a user with no agents yet: it opens the start-agent
- * flow and goes away for good after the first agent starts (no agents means
- * the card's condition) or after dismiss (the persisted flag).
+ * One-time Home card for a user with no agents yet. When an agent on the
+ * computer is ready it starts it in one tap; otherwise it says, in one plain
+ * sentence, what to do for the best candidate, with the picker one tap away.
+ * It goes away for good after the first agent starts (no agents means the
+ * card's condition) or after dismiss (the persisted flag).
  */
 export function FirstAgentCard() {
     const router = useRouter();
     const { theme } = useUnistyles();
     const [dismissed, setDismissed] = useLocalSettingMutable('firstAgentCardDismissed');
+    const [offer, setOffer] = React.useState<FirstAgentOffer | undefined>();
+    const [error, setError] = React.useState<string | undefined>();
+    const check = React.useCallback(async (refresh: boolean) => {
+        try {
+            const { options } = resolveAgentCatalog(await sync.request('herdr.agentKinds', { refresh }));
+            setOffer(firstAgentOffer(options, useNewSessionDraft.getState().agentType));
+        } catch {
+            // Without a catalog the card keeps its plain invitation to the picker.
+        }
+    }, []);
+    React.useEffect(() => { void check(false); }, [check]);
     if (dismissed) return null;
-    const start = () => {
+    const choose = () => {
         setDismissed(true);
         router.push('/new-agent' as never);
     };
+    const start = async (kind: string) => {
+        setError(undefined);
+        useNewSessionDraft.getState().setAgentType(kind as NewSessionAgentType);
+        const result = await startNewAgent({
+            directory: getCachedConnectionSettings().lastSessionCwd || '~',
+            kinds: [kind],
+            squad: false,
+            worktree: false,
+        });
+        if (result.error !== undefined) setError(result.error);
+    };
+    const name = offer !== undefined && offer.step !== 'install' ? agentName(offer.kind) : '';
+    let body = 'Pick an agent on your computer and put it to work. It appears here, live, the moment it starts.';
+    if (offer?.step === 'start') body = `${name} is ready on your computer. It appears here, live, the moment it starts.`;
+    if (offer?.step === 'sign-in') body = `Sign in to ${name} on your computer, then tap Check again.`;
+    if (offer?.step === 'choose') body = `${name} is on your computer. Choose it to start, and sign in there if it asks.`;
+    if (offer?.step === 'install') body = 'Install a coding agent such as Claude Code on your computer, then tap Check again.';
+    const needsCheck = offer?.step === 'sign-in' || offer?.step === 'install';
     return (
         <View style={[styles.card, cardStyle(theme)]}>
             <View style={styles.row}>
                 <Ionicons name="rocket-outline" size={22} color={theme.colors.accent} />
                 <Text style={styles.title}>Start your first agent</Text>
             </View>
-            <Text style={styles.body}>
-                Pick an agent on your computer and put it to work. It appears here, live, the moment it starts.
-            </Text>
+            <Text style={styles.body}>{body}</Text>
+            {error !== undefined && <Text style={[styles.body, { color: theme.colors.deleteAction }]}>{error}</Text>}
             <View style={styles.actions}>
-                <ActionButton title="Start an agent" icon="add-circle-outline" onPress={start} />
+                {offer?.step === 'start' ? (
+                    <ActionButton title={`Start ${name}`} icon="play-circle-outline" wrap action={() => start(offer.kind)} />
+                ) : needsCheck ? (
+                    <ActionButton title="Check again" icon="refresh-outline" action={() => check(true)} />
+                ) : null}
+                <ActionButton
+                    title={offer?.step === 'start' ? 'Choose another agent' : offer === undefined ? 'Start an agent' : 'Choose an agent'}
+                    icon="add-circle-outline"
+                    variant={offer?.step === 'start' || needsCheck ? 'secondary' : 'primary'}
+                    wrap
+                    onPress={choose}
+                />
                 <Pressable accessibilityRole="button" accessibilityLabel="Dismiss first agent card" onPress={() => setDismissed(true)} style={styles.dismissTarget}>
                     <Text style={styles.dismiss}>Not now</Text>
                 </Pressable>
