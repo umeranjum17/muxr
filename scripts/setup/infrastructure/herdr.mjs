@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
     existsSync,
     lstatSync,
@@ -113,7 +113,25 @@ export function detectedLifecycleTargets(statuses, all = false) {
     });
 }
 
-export function runHerdrInstaller() {
+/**
+ * Run one installer step. Its output still reaches the terminal; stderr is kept
+ * too, so a failure names its real cause (offline, a checksum mismatch) instead
+ * of a bare "failed".
+ */
+function runInstallerStep(command, args, timeout) {
+    return new Promise((resolveStep) => {
+        let stderr = '';
+        const child = spawn(command, args, { stdio: ['ignore', 'inherit', 'pipe'], timeout });
+        child.stderr.on('data', (chunk) => { stderr += chunk; process.stderr.write(chunk); });
+        child.once('error', (cause) => resolveStep({ ok: false, detail: cause.message }));
+        child.once('close', (code, signal) => resolveStep({
+            ok: code === 0,
+            detail: stderr.trim().split('\n').at(-1) || (signal ? `stopped by ${signal}` : `exit ${code}`),
+        }));
+    });
+}
+
+export async function runHerdrInstaller() {
     const localInstaller = process.env.MUXR_HERDR_INSTALLER?.trim();
     if (localInstaller) {
         const info = lstatSync(localInstaller);
@@ -121,8 +139,8 @@ export function runHerdrInstaller() {
             throw new Error('MUXR_HERDR_INSTALLER must be an executable regular file');
         }
         print(`  run reviewed local Herdr installer: ${localInstaller}`);
-        const installed = spawnSync(localInstaller, [], { stdio: 'inherit', timeout: 300_000 });
-        if (installed.status !== 0) throw new Error('local Herdr installation failed');
+        const installed = await runInstallerStep(localInstaller, [], 300_000);
+        if (!installed.ok) throw new Error(`local Herdr installation failed: ${installed.detail}`);
         return;
     }
 
@@ -130,10 +148,10 @@ export function runHerdrInstaller() {
     const installer = join(scratch, 'install.sh');
     try {
         print(`  download Herdr installer: ${HERDR_INSTALL_URL}`);
-        const downloaded = spawnSync('curl', ['-fsSL', '--connect-timeout', '10', '--max-time', '60', HERDR_INSTALL_URL, '-o', installer], { stdio: 'inherit', timeout: 65_000 });
-        if (downloaded.status !== 0) throw new Error('Herdr installer download failed');
-        const installed = spawnSync('sh', [installer], { stdio: 'inherit', timeout: 300_000 });
-        if (installed.status !== 0) throw new Error('Herdr installation failed');
+        const downloaded = await runInstallerStep('curl', ['-fsSL', '--connect-timeout', '10', '--max-time', '60', HERDR_INSTALL_URL, '-o', installer], 65_000);
+        if (!downloaded.ok) throw new Error(`Herdr installer download failed: ${downloaded.detail}`);
+        const installed = await runInstallerStep('sh', [installer], 300_000);
+        if (!installed.ok) throw new Error(`Herdr installation failed: ${installed.detail}`);
     } finally {
         rmSync(scratch, { recursive: true, force: true });
     }
@@ -148,7 +166,7 @@ export async function ensureHerdr({ dryRun, noInstall, installRequested }) {
             print(`  would install Herdr from ${process.env.MUXR_HERDR_INSTALLER?.trim() || HERDR_INSTALL_URL}`);
             return undefined;
         }
-        runHerdrInstaller();
+        await runHerdrInstaller();
         binary = herdrBin();
         if (!binary) throw new Error('herdr installed but is not on PATH; restart the shell and rerun setup');
     }

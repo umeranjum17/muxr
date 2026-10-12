@@ -100,6 +100,8 @@ body {
     word-break: break-word;
 }
 
+#herdr-message { margin-bottom: 16px; }
+
 .spinner {
     width: 30px;
     height: 30px;

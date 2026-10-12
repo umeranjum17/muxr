@@ -15,6 +15,7 @@ import { qrMatrix } from '@byokit/ui-core/link';
 import { autostartInstalled, setAutostart } from './autostart.mjs';
 import { openPairingSocket } from './pairClient.mjs';
 import { MuxrRuntime, RelayOwnedError } from './runtime.mjs';
+import { createHerdrSetup } from './herdrSetup.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..', '..');
@@ -51,6 +52,8 @@ let blockerId = null;
 let settings = { keepAwake: false, autostart: true };
 // The state the window shows; kept so a window opened later paints immediately.
 let state = { phase: 'starting' };
+// Herdr is said beside the runtime phase, because pairing still works without it.
+const herdr = createHerdrSetup(() => send(state));
 
 // The window says one plain sentence and what Try again does. The raw runtime
 // detail (which host/relay exited and why) goes to the log, never to the window.
@@ -64,7 +67,7 @@ function reportFailure(what, error, message) {
 
 function send(next) {
     state = next;
-    if (win !== undefined && !win.isDestroyed()) win.webContents.send('muxr:state', state);
+    if (win !== undefined && !win.isDestroyed()) win.webContents.send('muxr:state', { ...state, herdr: herdr.state });
     updateTray();
 }
 
@@ -127,11 +130,12 @@ function createWindow(show = !startHidden || tray === undefined) {
     win.removeMenu();
     win.loadFile(join(rendererDir, 'index.html'));
     win.once('ready-to-show', () => {
-        win.webContents.send('muxr:state', state);
+        win.webContents.send('muxr:state', { ...state, herdr: herdr.state });
         win.webContents.send('muxr:settings', settingsForRenderer());
         if (show) win.show();
     });
     win.on('closed', () => { win = undefined; });
+    win.on('focus', () => void herdr.recheck());
     win.webContents.setWindowOpenHandler(({ url }) => { void shell.openExternal(url); return { action: 'deny' }; });
 }
 
@@ -239,6 +243,7 @@ if (!app.requestSingleInstanceLock()) {
         try { tray = new Tray(nativeImage.createFromPath(asset('tray.png'))); tray.on('click', showWindow); updateTray(); }
         catch (error) { process.stderr.write(`tray unavailable: ${error instanceof Error ? error.message : String(error)}\n`); }
         createWindow();
+        void herdr.check();
         await startRuntime();
     });
 
@@ -263,6 +268,7 @@ if (!app.requestSingleInstanceLock()) {
             await startRuntime();
         } finally { retrying = false; }
     });
+    ipcMain.handle('muxr:install-herdr', () => herdr.install());
     ipcMain.handle('muxr:set-keep-awake', (_event, on) => setKeepAwake(Boolean(on)));
     ipcMain.handle('muxr:set-autostart', (_event, on) => setStartAtLogin(Boolean(on)));
     ipcMain.handle('muxr:copy', (_event, text) => { clipboard.writeText(String(text)); });

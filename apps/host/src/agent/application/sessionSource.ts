@@ -121,8 +121,8 @@ export interface SessionSource {
     open(options: SessionOpenOptions): Promise<SessionSnapshot>;
     /** Refresh herdr's cached snapshot after an out-of-band CLI mutation. */
     refreshHerdr(): Promise<void>;
-    /** The whole herd: workspaces -> tabs -> panes with live agent state. `connected` is herdr event-socket liveness. */
-    herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }>;
+    /** The whole herd: workspaces -> tabs -> panes with live agent state. `connected` is herdr event-socket liveness; `missing` says no Herdr binary is installed. */
+    herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean; missing?: true }>;
     /** Third-party Applications: enabled plugins' global launcher actions, read from the live Herdr registry. */
     applicationsList(): Promise<{ items: ApplicationLauncher[] }>;
     /** Launch one third-party application action in its own new tab; returns the pane it opened. */

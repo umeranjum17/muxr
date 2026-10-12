@@ -6,6 +6,7 @@ const cards = {
     paired: document.getElementById('card-paired'),
     error: document.getElementById('card-error'),
     'already-running': document.getElementById('card-already-running'),
+    herdr: document.getElementById('card-herdr'),
     note: document.getElementById('card-note'),
 };
 const dot = document.getElementById('status-dot');
@@ -61,10 +62,31 @@ function tickExpiry() {
 
 setInterval(tickExpiry, 1000);
 
+const HERDR_MISSING_MESSAGE = "muxr runs your agents in Herdr, which isn't installed on this computer.";
+
+// Herdr stands in for the starting, ready and paired cards until it runs; an
+// approval, an error or the command-line install still speaks for itself.
+function showHerdr(herdr) {
+    const installing = herdr.status === 'installing';
+    dot.className = `dot ${installing ? 'starting' : 'error'}`;
+    title.textContent = installing ? 'Setting up Herdr…' : 'Needs attention';
+    document.getElementById('herdr-spinner').hidden = !installing;
+    document.getElementById('herdr-title').textContent = installing ? 'Setting up Herdr'
+        : herdr.status === 'failed' ? "Herdr isn't ready" : 'Herdr is missing';
+    const message = document.getElementById('herdr-message');
+    message.className = herdr.status === 'failed' ? 'error' : 'muted';
+    message.textContent = installing ? herdr.step : herdr.status === 'failed' ? herdr.message : HERDR_MISSING_MESSAGE;
+    const button = document.getElementById('install-herdr');
+    button.hidden = installing;
+    button.textContent = herdr.status === 'failed' ? 'Try again' : 'Install Herdr';
+    show('herdr');
+}
+
 window.muxr.onState((state) => {
     dot.className = `dot ${state.phase}`;
     title.textContent = TITLES[state.phase] ?? 'muxr';
-    if (state.phase === 'starting') { show('starting'); }
+    if (state.herdr !== undefined && state.herdr.status !== 'ok' && ['starting', 'online', 'paired'].includes(state.phase)) { showHerdr(state.herdr); }
+    else if (state.phase === 'starting') { show('starting'); }
     else if (state.phase === 'online') {
         if (state.code !== undefined) {
             currentCode = state.code;
@@ -108,6 +130,7 @@ window.muxr.onSettings((settings) => {
 document.getElementById('approve').addEventListener('click', () => window.muxr.approve());
 document.getElementById('deny').addEventListener('click', () => window.muxr.deny());
 document.getElementById('retry').addEventListener('click', () => window.muxr.retry());
+document.getElementById('install-herdr').addEventListener('click', () => window.muxr.installHerdr());
 document.getElementById('already-running-retry').addEventListener('click', () => window.muxr.retry());
 document.getElementById('quit').addEventListener('click', () => window.muxr.quit());
 keepAwake.addEventListener('change', () => window.muxr.setKeepAwake(keepAwake.checked));

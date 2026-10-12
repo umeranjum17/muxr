@@ -7,8 +7,8 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { networkInterfaces } from 'node:os';
-import { join } from 'node:path';
+import { homedir, networkInterfaces } from 'node:os';
+import { delimiter, join } from 'node:path';
 import { atomicWrite, machineIdentity } from '../../../scripts/setup/infrastructure/runtime.mjs';
 import { waitForRelay } from '../../../scripts/diagnostics/application/waitForRelay.mjs';
 
@@ -194,7 +194,13 @@ export class MuxrRuntime extends EventEmitter {
         }
 
         if (this.#stopping) return;
+        // The window installs Herdr into the installer's folder, which a desktop
+        // session's PATH often lacks; with it on the host's PATH a Herdr that
+        // lands there later is found without restarting the host.
+        const herdrDir = process.env.HERDR_INSTALL_DIR || join(homedir(), '.local', 'bin');
+        const path = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
         const host = this.#spawn(this.#hostEntry, {
+            PATH: (path.includes(herdrDir) ? path : [...path, herdrDir]).join(delimiter),
             MUXR_MODE: 'selfhost',
             MUXR_HOME: this.#home,
             MUXR_DATA_DIR: join(this.#home, 'host'),

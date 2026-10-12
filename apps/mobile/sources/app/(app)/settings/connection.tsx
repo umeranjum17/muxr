@@ -8,7 +8,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { RoundButton } from '@/components/RoundButton';
 import { Typography } from '@/constants/Typography';
-import { useHerdrRuntime, useMachine, useSocketStatus } from '@/catalog/store';
+import { useHerdrMissing, useHerdrRuntime, useMachine, useSocketStatus } from '@/catalog/store';
 import { sync, syncReconnect } from '@/catalog/sync';
 import {
     executeSshCommand,
@@ -207,6 +207,7 @@ export default function ConnectionSettingsScreen() {
     // Same shared summary the Home header reads: the link state plus the
     // herdr runtime liveness, so the two surfaces cannot disagree.
     const herdrRuntime = useHerdrRuntime();
+    const herdrMissing = useHerdrMissing();
     const nearbyPhase = useRelayDiscoveryPhase();
     const [clock, setClock] = React.useState(Date.now());
     React.useEffect(() => {
@@ -577,7 +578,7 @@ export default function ConnectionSettingsScreen() {
         else if (hostRefresh === 'failed') pairedCountText = 'Could not refresh the count. Reconnect or run muxr devices list on the computer.';
         else if (pairedDeviceCount === undefined) pairedCountText = 'This host has not reported a count. Run muxr devices list on the computer.';
         else pairedCountText = `${pairedDeviceCount} paired at last check`;
-        const statusSubtitle = connectionStatusSubtitle({ status, socketError, latestFailure, hostRefresh, herdrRuntime });
+        const statusSubtitle = connectionStatusSubtitle({ status, socketError, latestFailure, hostRefresh, herdrRuntime, herdrMissing });
         let routeTitle = 'Connection name';
         if (knownRoute !== undefined) routeTitle = status === 'connected' && hostRefresh === 'ready' ? 'Current route' : 'Last reported route';
         let trust = Platform.OS === 'web'

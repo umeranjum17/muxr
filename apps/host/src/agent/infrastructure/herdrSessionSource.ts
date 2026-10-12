@@ -208,6 +208,24 @@ function executableOnPath(command: string): boolean {
 }
 
 /**
+ * Whether a Herdr binary exists where setup looks for one: `bin` itself when it
+ * is a path, else PATH, the installer's folder and /usr/local/bin. A host that
+ * cannot reach Herdr says when it is missing, because that fix is an install,
+ * not a restart.
+ */
+function herdrInstalled(bin: string): boolean {
+    const candidates = isAbsolute(bin) ? [bin] : [
+        ...(process.env.PATH ?? '').split(delimiter).filter(Boolean).map((directory) => join(directory, bin)),
+        join(process.env.HERDR_INSTALL_DIR || join(homedir(), '.local', 'bin'), 'herdr'),
+        '/usr/local/bin/herdr',
+    ];
+    return candidates.some((candidate) => {
+        try { accessSync(candidate, constants.X_OK); return statSync(candidate).isFile(); }
+        catch { return false; }
+    });
+}
+
+/**
  * Bounded PATH for third-party application launches: the host's own PATH plus
  * the usual user-install directories a GUI daemon's inherited PATH omits.
  */
@@ -2513,7 +2531,7 @@ export async function createHerdrSessionSource(
             }
         },
 
-        async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }> {
+        async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean; missing?: true }> {
             const workspaces: HerdrTreeWorkspace[] = [];
             const sessionsByPane = new Map<string, CurrentSession>();
             for (const session of currentSessions()) if (!sessionsByPane.has(session.paneId)) sessionsByPane.set(session.paneId, session);
@@ -2574,7 +2592,7 @@ export async function createHerdrSessionSource(
                     tabs,
                 });
             }
-            return { workspaces, connected: client.connected };
+            return { workspaces, connected: client.connected, ...(client.connected || herdrInstalled(herdrBin) ? {} : { missing: true as const }) };
         },
 
         async applicationsList(): Promise<{ items: ApplicationLauncher[] }> {
