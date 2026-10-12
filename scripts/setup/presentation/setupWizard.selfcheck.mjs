@@ -193,6 +193,8 @@ async function checkWizard() {
         lan = undefined;
         const plannedCancel = await run(['b']);
         recommended(plannedCancel, 'Use muxr away from home (Tailscale)');
+        assert.deepEqual([...plannedCancel.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
+            ['1', '2'].map((step) => [step, '3']));
         assert.deepEqual(calls, [], 'Planned Tailscale connected before Apply');
 
         // With no local route, Enter on the recommended external server and
