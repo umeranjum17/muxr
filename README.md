@@ -75,6 +75,8 @@ muxr
 
 muxr opens guided setup on a new computer and installs [Herdr](https://herdr.dev) if needed. Choose how your phone reaches it—including a route that works away from home—review the plan, then choose **Apply setup**.
 
+**Prefer a desktop app?** On Linux the same setup runs in one window: it starts the host, starts at login, can keep the computer awake, and pairs with your phone by QR or by two words. Build the AppImage with `yarn desktop:build:linux`, then run `apps/desktop/release/muxr-*.AppImage`. A signed download ships with the phone's "Add your computer" step in a later release.
+
 ### 2. Get the phone app
 
 [Android APK](https://trymuxr.com/downloads/stable/android) · [Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN)

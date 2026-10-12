@@ -297,7 +297,9 @@ Maps:
 - `packages/crypto` — E2EE module; the relay never holds keys
 - `packages/USE_CASES.md` — capability → use case → domain owner → adapters
 - `apps/host` — the Herdr bridge; `src/agent/` owns the backend integration
-- `apps/relay` — blind byokit link routing, push and shared-relay enrollment
+ - `apps/relay` — blind byokit link routing, push and shared-relay enrollment
+- `apps/desktop` — the Linux AppImage; wraps `apps/host` and `apps/relay` so a
+  desktop install needs no terminal
 - `apps/mobile` — the app; runtime and UI features under `sources/<feature>/`
 - `apps/mobile/sources/USE_CASES.md` — capability → use case → adapters
 - `docs/ARCHITECTURE.md` — the herdr facts this code depends on; read it before
