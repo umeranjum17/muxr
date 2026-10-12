@@ -13,15 +13,12 @@ const permissiveLicenses = new Set([
     'Unlicense',
 ]);
 
-function isPermissiveLicense(license) {
-    return permissiveLicenses.has(license);
-}
-
 export function assertPermissiveLicense({ name, version, license }) {
-    if (isPermissiveLicense(license)) return license;
+    if (permissiveLicenses.has(license)) return;
     const reason = /(?:^|[^A-Z])(?:A?GPL|LGPL)/i.test(license) ? 'copyleft' : 'unknown/non-approved';
     throw new Error(`license audit: ${reason} license ${license || '<missing>'} for ${name}@${version}`);
 }
+
 export function packagePathFromInput(root, input) {
     const absolute = resolve(root, input);
     const marker = `${sep}node_modules${sep}`;
@@ -32,13 +29,14 @@ export function packagePathFromInput(root, input) {
     return name ? join(absolute.slice(0, index + marker.length), ...name.split('/'), 'package.json') : undefined;
 }
 
-export function packageInfoFromPath(packagePath, bundled) {
+export function packageInfoFromPath(packagePath, bundled, { allowDeclaredOnly = false } = {}) {
     if (!existsSync(packagePath)) throw new Error(`license audit: missing package metadata for bundled input`);
     const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
     const license = typeof pkg.license === 'string' ? pkg.license : '';
     assertPermissiveLicense({ name: pkg.name, version: pkg.version, license });
     const packageDir = dirname(packagePath);
     const licenseName = ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'license', 'COPYING'].find((file) => existsSync(join(packageDir, file)));
-    if (licenseName === undefined) throw new Error(`license audit: no license text for ${pkg.name}@${pkg.version}`);
-    return { name: pkg.name, auditedVersion: pkg.version, license, bundled, licensePath: join(packageDir, licenseName) };
+    if (licenseName !== undefined) return { name: pkg.name, auditedVersion: pkg.version, license, bundled, licensePath: join(packageDir, licenseName) };
+    if (!allowDeclaredOnly) throw new Error(`license audit: no license text for ${pkg.name}@${pkg.version}`);
+    return { name: pkg.name, auditedVersion: pkg.version, license, bundled, author: typeof pkg.author === 'string' ? pkg.author : pkg.author?.name, licenseFile: 'none' };
 }

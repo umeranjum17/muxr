@@ -139,11 +139,11 @@ function writeDesktopLicenseInventory({ appDir, version, dependencies }) {
     });
 }
 
-/** Bundle, audit and stage the desktop inventory in one step. */
-export async function desktopLicenseInventory({ root, appDir, dist, external, stageDir = appDir }) {
+/** Bundle, audit and write the desktop inventory beside the app's legal files. */
+export async function desktopLicenseInventory({ root, appDir, dist, external }) {
     const bundles = await bundleDesktopEntries({ root, appDir, dist, external });
     const desktopPackage = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'));
     const dependencies = auditDesktopDependencies({ root, appDir, bundles });
-    writeDesktopLicenseInventory({ appDir: stageDir, version: desktopPackage.version, dependencies });
+    writeDesktopLicenseInventory({ appDir, version: desktopPackage.version, dependencies });
     return dependencies;
 }

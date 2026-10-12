@@ -5,8 +5,8 @@
  * enforces at build time).
  *
  * Usage: node scripts/diagnostics/application/checkDesktopLicenses.mjs <AppImage|directory>
- * A directory is the already-extracted AppImage root (squashfs-root) or a
- * staged resources/app layout; an AppImage file is extracted with
+ * A directory is the already-extracted AppImage root (squashfs-root or the
+ * electron-builder linux-unpacked output); an AppImage file is extracted with
  * --appimage-extract into a short scratch dir first.
  */
 import { execFileSync } from 'node:child_process';
@@ -40,19 +40,9 @@ function fail(message) {
     process.exit(1);
 }
 
-const packagedInventory = join(distRoot, 'resources', 'app', 'THIRD_PARTY_LICENSES.json');
-const stagedInventory = join(distRoot, 'THIRD_PARTY_LICENSES.json');
-let appRoot;
-let inventoryPath;
-if (existsSync(packagedInventory)) {
-    appRoot = join(distRoot, 'resources', 'app');
-    inventoryPath = packagedInventory;
-} else if (existsSync(stagedInventory)) {
-    appRoot = distRoot;
-    inventoryPath = stagedInventory;
-} else {
-    fail(`license audit: AppImage inventory missing (looked for ${packagedInventory} and ${stagedInventory})`);
-}
+const appRoot = join(distRoot, 'resources', 'app');
+const inventoryPath = join(appRoot, 'THIRD_PARTY_LICENSES.json');
+if (!existsSync(inventoryPath)) fail(`license audit: AppImage inventory missing (looked for ${inventoryPath})`);
 
 let inventory;
 try {
@@ -77,14 +67,12 @@ if (!inventory.dependencies.some((dependency) => dependency.name === 'electron')
 }
 // Electron's own notices ship at the AppImage root beside the muxr binary;
 // the inventory covers Chromium through them, never a hand-written list.
-// A bare staged app dir has no AppImage root, so there is nothing to check.
-if (appRoot !== distRoot) {
-    for (const notice of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) {
-        if (!existsSync(join(distRoot, notice))) fail(`license audit: ${notice} missing beside the AppImage binary`);
-    }
+for (const notice of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) {
+    if (!existsSync(join(distRoot, notice))) fail(`license audit: ${notice} missing beside the AppImage binary`);
 }
 const licenseDir = join(appRoot, 'LICENSES', 'npm');
 for (const dependency of inventory.dependencies) {
+    if (dependency.licenseFile === 'none') continue;
     const licenseFile = join(licenseDir, `${dependency.name.replaceAll('/', '__')}@${dependency.auditedVersion}.txt`);
     if (!existsSync(licenseFile)) fail(`license audit: license text missing for ${dependency.name}@${dependency.auditedVersion} (${licenseFile})`);
 }

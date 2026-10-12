@@ -11,7 +11,7 @@ import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/aud
  */
 
 /** Resolve every node_modules package inlined by the given esbuild bundles and audit it. */
-export function bundledDependenciesFromMetafiles(bundles) {
+export function bundledDependenciesFromMetafiles(bundles, { allowDeclaredOnly = false } = {}) {
     const bundledPackagePaths = new Set(
         bundles
             .flatMap(({ root, metafile }) => Object.keys(metafile.inputs).map((input) => packagePathFromInput(root, input)))
@@ -19,7 +19,7 @@ export function bundledDependenciesFromMetafiles(bundles) {
     );
     return [...bundledPackagePaths]
         .sort()
-        .map((path) => ({ ...packageInfoFromPath(path, true), declaredRange: null }));
+        .map((path) => ({ ...packageInfoFromPath(path, true, { allowDeclaredOnly }), declaredRange: null }));
 }
 
 /** Audit installed (not inlined) dependencies by their declared ranges. */
@@ -43,26 +43,31 @@ function resolveInstalled(fromDir, name) {
 
 /**
  * The production closure electron-builder copies into node_modules: each
- * declared package, then every `dependencies` entry reached from it, resolved
- * the way Node resolves them so nested copies (a second ws under
- * @desklink/host) are audited too. Optional and platform packages stay with
- * their own helpers; packages already inlined at the same version are skipped.
+ * declared package, then every `dependencies` and installed
+ * `optionalDependencies` entry reached from it, resolved the way Node resolves
+ * them so nested copies (a second ws under @desklink/host) are audited too.
+ * Packages already audited at the same version are skipped.
  */
-export function installedClosure({ root, declared, bundled }) {
+export function installedClosure({ root, declared, audited }) {
     const found = new Map();
-    const queue = Object.keys(declared).sort().map((name) => ({ fromDir: root, name, declaredRange: declared[name], transitiveOf: undefined }));
+    const queue = Object.keys(declared).sort().map((name) => ({ fromDir: root, name, declaredRange: declared[name], transitiveOf: undefined, optional: false }));
     for (const next of queue) {
         const manifest = resolveInstalled(next.fromDir, next.name);
-        if (manifest === undefined) throw new Error(`license audit: ${next.name} is not installed beside ${next.fromDir}`);
+        if (manifest === undefined) {
+            if (next.optional) continue;
+            throw new Error(`license audit: ${next.name} is not installed beside ${next.fromDir}`);
+        }
         if (found.has(manifest)) continue;
-        const info = packageInfoFromPath(manifest, false);
+        const info = packageInfoFromPath(manifest, false, { allowDeclaredOnly: true });
         found.set(manifest, { ...info, declaredRange: next.declaredRange, transitiveOf: next.transitiveOf });
-        const { dependencies = {} } = JSON.parse(readFileSync(manifest, 'utf8'));
-        for (const name of Object.keys(dependencies).sort()) {
-            queue.push({ fromDir: dirname(manifest), name, declaredRange: null, transitiveOf: info.name });
+        const { dependencies = {}, optionalDependencies = {} } = JSON.parse(readFileSync(manifest, 'utf8'));
+        for (const [edges, optional] of [[dependencies, false], [optionalDependencies, true]]) {
+            for (const name of Object.keys(edges).sort()) {
+                queue.push({ fromDir: dirname(manifest), name, declaredRange: null, transitiveOf: info.name, optional });
+            }
         }
     }
-    return [...found.values()].filter((entry) => !bundled.some(({ name, auditedVersion }) => name === entry.name && auditedVersion === entry.auditedVersion));
+    return [...found.values()].filter((entry) => !audited.some(({ name, auditedVersion }) => name === entry.name && auditedVersion === entry.auditedVersion));
 }
 
 /**
@@ -118,24 +123,26 @@ export function desklinkPlatformDependencies({ root }) {
 
 /**
  * Audit one distribution's full dependency set: inlined, platform and installed.
- * `closure` audits the whole installed production closure instead of only the
- * declared names; the npm packer keeps the declared-only set.
+ * `closure` is the AppImage mode: it audits the whole installed production
+ * closure instead of only the declared names, and a package that ships no
+ * license text is recorded from its package.json license and author instead of
+ * failing. The npm packer keeps the declared-only set and strict text checks.
  */
 export function licenseInventory({ bundles, root, rootPackage, declared, closure = false }) {
-    const bundled = bundledDependenciesFromMetafiles(bundles);
+    const bundled = bundledDependenciesFromMetafiles(bundles, { allowDeclaredOnly: closure });
     const bundledNames = new Set(bundled.map(({ name }) => name));
-    return [
-        ...bundled,
-        ...ccusagePlatformDependencies({ root, rootPackage }),
-        ...desklinkPlatformDependencies({ root }),
-        ...(closure ? installedClosure({ root, declared, bundled }) : installedDependencies({ root, declared, bundledNames })),
-    ];
+    const platform = [...ccusagePlatformDependencies({ root, rootPackage }), ...desklinkPlatformDependencies({ root })];
+    const installed = closure
+        ? installedClosure({ root, declared, audited: [...bundled, ...platform] })
+        : installedDependencies({ root, declared, bundledNames });
+    return [...bundled, ...platform, ...installed];
 }
 
 /** Copy each dependency's license text and write the inventory beside them. */
 export function writeThirdPartyInventory({ inventoryPath, licenseDir, artifact, dependencies, policy = 'Packaging fails on copyleft or unknown/non-approved dependency licenses.' }) {
     mkdirSync(licenseDir, { recursive: true });
     for (const dependency of dependencies) {
+        if (dependency.licensePath === undefined) continue;
         const licenseFile = `${dependency.name.replaceAll('/', '__')}@${dependency.auditedVersion}.txt`;
         copyFileSync(dependency.licensePath, join(licenseDir, licenseFile));
     }

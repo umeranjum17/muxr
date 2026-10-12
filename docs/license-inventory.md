@@ -104,17 +104,20 @@ from the npm package under `resources/app/LICENSES/` (`Apache-2.0.txt`,
 through the same generator as the npm packer
 ([`desktopLicenseInventory`](../scripts/release/application/desktopLicenseInventory.mjs)).
 Its inventory covers: the dependencies inlined into the host, relay, voice,
-main and preload bundles; the full installed production closure electron-builder
+main and preload bundles; the installed production closure electron-builder
 copies into `resources/app/node_modules` (every declared runtime dependency and
-each package reachable through its `dependencies`, nested copies included, with
-`transitiveOf` naming the parent); the ccusage and desklink platform entries
-(optional packages, audited by name); and the Electron runtime shell. The npm
-CLI inventory keeps the declared runtime dependencies only. Chromium is covered
-through Electron's own `LICENSES.chromium.html`, never a hand-written list. The
-build fails on a copyleft or unknown/non-approved license before packaging, and
-the generated `THIRD_PARTY_LICENSES.json` ships at `resources/app/` beside
-`LICENSES/`, with each dependency's exact license text under
-`resources/app/LICENSES/npm/`. After packaging, the build runs
+each installed package reachable through its `dependencies` or
+`optionalDependencies`, nested copies included, with `transitiveOf` naming the
+parent); the ccusage and desklink platform entries (optional packages, audited
+by name); and the Electron runtime shell. The npm CLI inventory keeps the
+declared runtime dependencies only. Chromium is covered through Electron's own
+`LICENSES.chromium.html`, never a hand-written list. A closure package that ships
+no license file is recorded from its `package.json` SPDX license and author with
+`licenseFile: "none"`; no license text is written for it, and the allow-list
+still applies. The build fails on a copyleft or unknown/non-approved license
+before packaging, and the generated `THIRD_PARTY_LICENSES.json` ships at
+`resources/app/` beside `LICENSES/`, with each dependency's exact license text
+under `resources/app/LICENSES/npm/`. After packaging, the build runs
 `scripts/diagnostics/application/checkDesktopLicenses.mjs` on the packaged
 `release/linux-unpacked` layout, so the gate checks the artifact's own inventory,
 notices and license texts, and fails when any is missing or a listed dependency
