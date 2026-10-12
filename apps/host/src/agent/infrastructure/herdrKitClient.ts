@@ -47,10 +47,6 @@ export async function labHerdrSocket(bin: string, socketPath: string | undefined
     return named.socket_path;
 }
 
-// The host and herdr boot together; a short backoff absorbs the startup race.
-// After these, start() gives up to the 1s reconnect loop so the host stays up.
-const START_RETRY_DELAYS_MS = [250, 500, 1000, 2000];
-
 const EVENT_SUBSCRIPTION = (type: string): { type: string; [key: string]: unknown } => ({ type });
 
 export class KitHerdrClient implements HerdrCaller {
@@ -103,26 +99,23 @@ export class KitHerdrClient implements HerdrCaller {
         return /socket unavailable|socket closed|request timed out|ECONNREFUSED|ENOENT|EACCES|connect E|not connected/i.test(message);
     }
 
+    /**
+     * One kit start. The kit already pings with its own backoff, which absorbs
+     * the host and herdr booting together; a second backoff here would keep the
+     * host off the link while herdr is down.
+     */
     async start(): Promise<void> {
-        let lastError: unknown;
-        for (let attempt = 0; attempt <= START_RETRY_DELAYS_MS.length; attempt += 1) {
-            try {
-                await this.kit.start();
-                this.started = true;
-                return;
-            } catch (cause) {
-                lastError = cause;
-                if (!KitHerdrClient.isDownError(cause)) throw cause;
-                const delay = START_RETRY_DELAYS_MS[attempt];
-                if (delay === undefined) break;
-                await new Promise((resolve) => setTimeout(resolve, delay));
-            }
+        try {
+            await this.kit.start();
+            this.started = true;
+        } catch (cause) {
+            if (!KitHerdrClient.isDownError(cause)) throw cause;
+            // Staying up matters more than starting clean: the reconnect loop keeps
+            // retrying and onReconnect resubscribes when herdr comes back.
+            this.down = true;
+            this.scheduleReconnect();
+            throw cause;
         }
-        // Staying up matters more than starting clean: the reconnect loop keeps
-        // retrying and onReconnect resubscribes when herdr comes back.
-        this.down = true;
-        this.scheduleReconnect();
-        throw lastError;
     }
 
     /** One request, one connection. The server closes after answering. */
