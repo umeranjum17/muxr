@@ -15,6 +15,9 @@ picked.
 - The trust question shows `No, exit` and `Yes, I trust this folder` as chips
   with no number badge; tapping `Yes, I trust this folder` reaches the agent's
   banner (or its sign-in line) without any key-row press.
+- The question can wait: Herdr keeps the agent launch-pending until it is
+  answered, and the launch still counts as started after the host's 60 s
+  launch deadline, so the chips stay instead of "Agent could not start".
 - Numbered prompts (`❯ 1. Yes / 2. …`) keep their number badge and still type
   the number.
 - An agent started from New agent in a folder makes Home's next Start use that
@@ -41,17 +44,21 @@ lab pane's own environment so the agent never reads the owner's config. Write
 `$CLAUDE_CONFIG_DIR/.claude.json` before each run so the folder is untrusted
 again; no sign-in is needed, the question comes before it.
 
-1. Pair the device through `node scripts/cli.mjs pair` (deep link
-   `muxr://pair#<offer>` via `adb shell am start` on a phone, with
-   `adb reverse tcp:<port> tcp:<port>`), or the PWA through
-   `pair --browser` and `window.__MUXR_LAB_PAIR__`.
+1. Pair the device through `node scripts/cli.mjs pair` under a pty
+   (`script -qec 'node scripts/cli.mjs pair' /dev/null`; without a TTY it
+   refuses), deep link `muxr://pair#<offer>` via `adb shell am start`, with
+   `adb reverse tcp:<port> tcp:<port>`. The PWA cannot use `pair --browser`
+   on this Wi-Fi-only lab route; mint the browser offer on the lab host's
+   `pair.sock` the way `perf/lib/fakeStack.mjs` `mintPairing` does and pass
+   it to `window.__MUXR_LAB_PAIR__`.
 2. New agent → Claude Code → Start. Open the agent; Herdr's `agent explain`
    reports `state: blocked` (`live_blocked_form`) while the question shows.
 3. Capture the chip band, then tap `Yes, I trust this folder` and capture the
    agent's next screen with its timestamp. Time the step from the question
    first painted to the trusted screen; on a build without the chips the same
    step takes the key row's down key and Enter.
-4. PWA: capture the chip band at 393 and 270 px, light and dark.
+4. PWA: leave the question unanswered for over 60 s, then capture the chip
+   band at 393 and 270 px, light and dark, and tap `Yes, I trust this folder`.
 5. Start folder: start once from New agent in `~/notes-app`; Home's Start now
    reads `notes-app` and its agent's pane cwd (`agent list`) is that folder.
 
@@ -64,3 +71,7 @@ again; no sign-in is needed, the question comes before it.
   again on every start; that is Claude Code's rule, not a muxr regression.
 - The notifications modal can sit over the first agent; dismiss it before
   timing the trust step.
+- The terminal screen is dark in both themes; only the rest of the app follows
+  light mode. Emulate the scheme before a reload, the theme is read at load.
+- Run the Herdr lab teardown with the caller's own `HOME`/`XDG_*`, not the lab
+  pane's: the helper's tripwire reads the fleet with them and refuses otherwise.
