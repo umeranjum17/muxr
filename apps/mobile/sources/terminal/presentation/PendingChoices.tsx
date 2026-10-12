@@ -25,7 +25,8 @@ const signature = (choices: readonly PendingChoice[]): string =>
  * bottom of its terminal: the question stays readable above, and each answer
  * is one tap instead of a key hunted for in a scrolled row. A tap types the
  * answer's number, or the arrow presses and Enter that reach it, through the
- * same channel the key row writes to, which both selects and confirms it. The screen is read with the passive `pane.read`,
+ * same channel the key row writes to, which both selects and confirms it.
+ * The screen is read with the passive `pane.read`,
  * so reading it never moves the agent's viewport.
  */
 export const PendingChoices = React.memo(function PendingChoices({ sessionId, waiting, channel, onVisibilityChange, lineHeight, gridInset, columns }: {
