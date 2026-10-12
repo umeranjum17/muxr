@@ -170,6 +170,7 @@ export function ingressPlan(mode: string, tailscalePlanned: boolean, { shared = 
 }
 
 export function connectionLabel(mode: string, endpoint: string | undefined, port: number): string {
+    if (mode === 'relay' || mode === 'remote') return endpoint === undefined ? 'the muxr relay' : `the muxr relay (${new URL(endpoint).host})`;
     if (mode === 'tailscale') return `Tailscale Serve on local port ${port}`;
     if (mode === 'tailscale-direct') return `Direct Tailscale on port ${port}`;
     if (mode === 'private') return `Private network on port ${port}`;
