@@ -90,6 +90,19 @@ executable the artifact itself carries: a macOS host unpacks it to mirror and
 drive an iOS simulator an agent pane claimed. It is the unchanged upstream
 release asset and never runs on Linux; its notice lives in `NOTICE`.
 
+## Linux AppImage
+
+The Linux desktop app is a second distribution. An AppImage ships the
+Electron/Chromium runtime, the same bundled host, relay and voice runtime as
+the npm artifact, and the shared runtime dependencies installed as production
+`node_modules` under `resources/app/node_modules`. Its notices are the
+Electron/Chromium texts at the AppImage root beside the `muxr` binary
+(`LICENSE.electron.txt`, `LICENSES.chromium.html`), plus the `LICENSES/` copied
+from the npm package under `resources/app/LICENSES/` (`Apache-2.0.txt`,
+`MIT.txt`, `OFL-1.1.txt`, `Unlicense.txt`). `THIRD_PARTY_LICENSES.json` covers
+the npm CLI artifact only: this AppImage needs its own generated inventory
+before any public AppImage release.
+
 ## Mobile artifact
 
 The Android/iOS app is a separate distribution. Besides muxr product code it
