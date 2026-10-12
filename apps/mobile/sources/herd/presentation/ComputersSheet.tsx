@@ -257,7 +257,7 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
                         />
                     );
                 })}
-                </ItemGroup>
+            </ItemGroup>
         </View>
     );
 

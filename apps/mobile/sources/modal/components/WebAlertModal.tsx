@@ -134,7 +134,7 @@ function WebAlertModalContent({ config, onClose, onConfirm, opaque }: WebAlertMo
                     </Text>
                 )}
             </View>
-            
+
             {/* Three or more choices stack, as a system alert does, so none is squeezed. */}
             <View style={[styles.buttonContainer, buttons.length > 2 && { flexDirection: 'column' }]}>
                 {buttons.map((button, index) => (

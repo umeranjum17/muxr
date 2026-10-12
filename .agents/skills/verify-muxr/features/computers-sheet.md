@@ -73,10 +73,11 @@ PWA (browser build with the lab flag, over `serveWebExport.mjs`):
 
 ## Gotchas
 
-- The sheet is a dark surface over the session (like the pane overview): under the
-  app's light theme the standard list components read the app theme on web, where
-  `ScopedTheme` does not survive the modal portal, while native keeps the scoped
-  dark. Capture the PWA in the app's dark theme, as the reference device runs.
+- The sheet is a dark surface over the session (like the pane overview) and forces
+  `ScopedTheme dark`. That scope does not survive the RN modal boundary on native,
+  so the sheet states its own text colours from the forced theme and the switch
+  confirm re-applies the scope. Capture the PWA in the app's dark theme, as the
+  reference device runs.
 - `Not paired` is defensive: it appears only for a computer the app is connected
   to that has no stored pairing (a pairing lost on the device while the connection
   persists). Normal pairing always stores a grant, so it is not reachable through
