@@ -43,7 +43,9 @@ function fakeHerdr(dir: string, cwd: string) {
         paneText: string;
         /** Every pane.send_text, so a launch's `unset` line can be read back. */
         sentTexts: string[];
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [] };
+        /** Fields the next started agent carries, e.g. a first-run question Herdr reports. */
+        startAgentAs: Record<string, unknown>;
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {} };
     const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
@@ -58,7 +60,7 @@ function fakeHerdr(dir: string, cwd: string) {
         return { tab: { tab_id }, root_pane: { pane_id } };
     };
     const handleAgentStart = (params: Record<string, unknown>) => {
-        const agent = { pane_id: params.pane_id, name: params.name, agent_status: 'idle' };
+        const agent = { pane_id: params.pane_id, name: params.name, agent_status: 'idle', ...state.startAgentAs };
         agents.push(agent);
         return { agent };
     };
@@ -451,6 +453,38 @@ describe('phone launch before herdr detects the agent', () => {
             expect(removedSessions).toContain(failed.info.id);
             expect(treePane(await source.herdrTree(), 'w1:p3').agentKind).toBeUndefined();
             expect(treePane(await source.herdrTree(), 'w1:p1').agentKind).toBe('claude');
+        } finally {
+            unsubscribe();
+            vi.restoreAllMocks();
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+
+    it('keeps a launch waiting on the folder-trust question past the launch deadline', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-trust-'));
+        const herdr = fakeHerdr(dir, dir);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath, dataDir: join(dir, 'data'), artifactsDir: join(dir, 'attachments'), hostHttpPort: 0,
+        });
+        const events: string[] = [];
+        const unsubscribe = source.subscribe((_sessionId, event) => { events.push(event.type); });
+        try {
+            // Claude Code asks "Is this a project you trust?" before its prompt: Herdr
+            // reports it blocked and still launch-pending until the person answers.
+            herdr.state.startAgentAs = { agent: 'claude', agent_status: 'blocked', launch_pending: true };
+            const started = await source.start({ cwd: dir, kind: 'claude' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            const launched = Date.now();
+            vi.spyOn(Date, 'now').mockImplementation(() => launched + 61_000);
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            vi.restoreAllMocks();
+            await source.refreshHerdr();
+            expect(events).not.toContain('session.error');
+            expect(events).not.toContain('session.removed');
+            expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId: started.info.id, promptable: false });
         } finally {
             unsubscribe();
             vi.restoreAllMocks();

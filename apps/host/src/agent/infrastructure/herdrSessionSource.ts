@@ -1635,7 +1635,7 @@ export async function createHerdrSessionSource(
     async function confirmLaunch(paneId: string, kind: string, sessionId: string): Promise<void> {
         try {
             await waitForMatchingKind(paneId, kind, 60_000);
-            await waitForInteractiveAgent(paneId, 60_000);
+            await waitForInteractiveAgent(paneId, 60_000, true);
             await refreshSnapshot();
             const current = currentSession(sessionId);
             if (current === undefined) return;
@@ -1669,8 +1669,12 @@ export async function createHerdrSessionSource(
      * agent.wait returns the moment a pane looks idle, which is earlier than
      * promptable. Kinds that skip screen detection never report
      * interactive_ready at all, so readiness uses the one promptable rule.
+     * `launched` also takes an agent Herdr shows blocked on a first-run question
+     * (Claude Code's folder trust) as started: Herdr keeps it launch-pending until
+     * the person answers, and that wait is theirs, not a failed launch. Prompts
+     * never pass it, so nothing is typed into that question.
      */
-    async function waitForInteractiveAgent(paneId: string, timeoutMs: number): Promise<void> {
+    async function waitForInteractiveAgent(paneId: string, timeoutMs: number, launched = false): Promise<void> {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
             const remaining = Math.max(1_000, deadline - Date.now());
@@ -1683,7 +1687,7 @@ export async function createHerdrSessionSource(
             const status = waited === 'unknown' ? agent?.agent_status : waited;
             const lifecycle: AgentLifecycle = status === 'idle' || status === 'working' || status === 'blocked'
                 || status === 'done' || status === 'failed' ? status : 'unknown';
-            if (herdrAgentIsPromptable(agent ?? {}, lifecycle)) return;
+            if (herdrAgentIsPromptable(agent ?? {}, lifecycle) || (launched && lifecycle === 'blocked')) return;
             await sleep(300);
         }
         throw new Error('herdr agent did not become interactive');
