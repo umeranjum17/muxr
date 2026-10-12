@@ -865,13 +865,9 @@ export async function hostSharedRelay() {
 }
 
 function describeEnrollment(raw) {
-    try {
-        const parsed = new URL(raw.trim());
-        const payload = JSON.parse(Buffer.from(parsed.searchParams.get('payload') ?? '', 'base64url').toString('utf8'));
-        if (parsed.protocol !== 'muxr:' || parsed.hostname !== 'enroll' || payload.v !== 1 || !String(payload.relay).startsWith('wss://')
-            || typeof payload.expires === 'number' && payload.expires <= Date.now()) throw new Error('invalid');
-        return { relay: new URL(payload.relay).origin, web: typeof payload.web === 'string' ? new URL(payload.web).origin : undefined };
-    } catch { throw new Error('paste the complete muxr://enroll string from the shared relay server'); }
+    const parsed = parseEnrollment(raw);
+    if (!parsed.ok) throw new Error(parsed.reason);
+    return { relay: parsed.value.relay, web: parsed.value.web };
 }
 
 export async function connectRemoteRelay() {

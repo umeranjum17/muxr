@@ -20,6 +20,17 @@ function enrollableRelay(value: unknown): string | undefined {
     return protocol === 'wss:' || ['127.0.0.1', 'localhost', '[::1]'].includes(hostname) ? relay : undefined;
 }
 
+function enrollableWeb(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const origin = value.trim().replace(/\/$/, '');
+    try {
+        const parsed = new URL(origin);
+        return parsed.protocol === 'https:' && parsed.origin === origin ? origin : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 export function parseEnrollment(link: unknown): Result<Enrollment> {
     if (typeof link !== 'string') return rejected('enrollment must be the muxr://enroll string created on the relay server');
     try {
@@ -40,12 +51,16 @@ export function parseEnrollment(link: unknown): Result<Enrollment> {
         if (typeof payload.expires === 'number' && payload.expires <= Date.now()) {
             return rejected('this enrollment has expired; ask for a new one');
         }
+        const web = typeof payload.web === 'string' ? enrollableWeb(payload.web) : undefined;
+        if (typeof payload.web === 'string' && web === undefined) {
+            return rejected('enrollment must be the muxr://enroll string created on the relay server');
+        }
         return accepted({
             id: payload.id,
             claim: payload.claim,
             relay,
             ...(typeof payload.link === 'string' && payload.link !== '' ? { link: payload.link } : {}),
-            ...(typeof payload.web === 'string' ? { web: new URL(payload.web).origin } : {}),
+            ...(web === undefined ? {} : { web }),
         });
     } catch {
         return rejected('enrollment must be the muxr://enroll string created on the relay server');
