@@ -391,12 +391,12 @@ export default function PairScreen() {
                             <>
                                 <ActionButton title={state?.phase === 'error' ? 'Scan a new code' : 'Scan the QR'} icon="qr-code-outline" wrap onPress={() => void scanPairQr()} />
                                 <Text style={styles.routeHint}>{state?.phase === 'error'
-                                    ? 'On your computer, run muxr pair for a new code.'
-                                    : `Run muxr pair on your computer, then point this ${pairingDeviceNoun()} at the QR it shows.`}</Text>
+                                    ? 'On your computer, open muxr or run muxr\u00A0pair for a new code.'
+                                    : `Open muxr on your computer, or run muxr\u00A0pair, then point this ${pairingDeviceNoun()} at the QR it shows.`}</Text>
                             </>
                         )}
                         {!browser && !canScan && !sshRoute && (
-                            <Text style={styles.routeHint}>{`This ${pairingDeviceNoun()} can't scan a QR, so paste the pairing string from muxr pair.`}</Text>
+                            <Text style={styles.routeHint}>{`This ${pairingDeviceNoun()} can't scan a QR, so paste the pairing string muxr shows on your computer.`}</Text>
                         )}
                         <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : sshRoute ? 'Pairing string from muxr pair' : canScan ? 'Or paste the pairing string' : 'Paste the pairing string'}</Text>
                         <TextInput
@@ -419,8 +419,8 @@ export default function PairScreen() {
                             : sshRoute
                                 ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
                                 : canScan
-                                    ? `If you can't point this ${pairingDeviceNoun()} at that screen, copy the string from its terminal.`
-                                    : 'Copy it from the terminal where muxr pair runs.'}</Text>
+                                    ? `If you can't point this ${pairingDeviceNoun()} at that screen, copy the pairing string shown there.`
+                                    : 'Copy it from muxr on your computer.'}</Text>
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
                 )}

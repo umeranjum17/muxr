@@ -80,7 +80,7 @@ export function pairLinkConsent(scanned: string, machineName: string): ConsentLi
         ? (role === 'view' ? 'muxr pair --browser-view' : 'muxr pair --browser')
         : undefined;
     const safety: ConsentLine = command === undefined
-        ? { text: 'Only continue if you just ran muxr on that computer.' }
+        ? { text: 'Only continue if you just started pairing in muxr on that computer.' }
         : { text: 'Only continue if you just ran this on that computer:', command };
     return [{ text: can }, { text: lasts }, safety];
 }

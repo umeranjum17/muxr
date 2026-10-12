@@ -4,6 +4,8 @@ import { dirname, join, resolve, sep } from 'node:path';
 const permissiveLicenses = new Set([
     '0BSD',
     'Apache-2.0',
+    'BlueOak-1.0.0',
+    'Apache2',
     'BSD-2-Clause',
     'BSD-3-Clause',
     'CC0-1.0',
@@ -12,6 +14,13 @@ const permissiveLicenses = new Set([
     'MPL-2.0',
     'Unlicense',
 ]);
+
+export function assertPermissiveLicense({ name, version, license }) {
+    const ids = Array.isArray(license) ? license : [license];
+    if (ids.length && ids.every((id) => permissiveLicenses.has(id))) return;
+    const reason = /(?:^|[^A-Z])(?:A?GPL|LGPL)/i.test(String(license)) ? 'copyleft' : 'unknown/non-approved';
+    throw new Error(`license audit: ${reason} license ${license || '<missing>'} for ${name}@${version}`);
+}
 
 export function packagePathFromInput(root, input) {
     const absolute = resolve(root, input);
@@ -23,16 +32,14 @@ export function packagePathFromInput(root, input) {
     return name ? join(absolute.slice(0, index + marker.length), ...name.split('/'), 'package.json') : undefined;
 }
 
-export function packageInfoFromPath(packagePath, bundled) {
+export function packageInfoFromPath(packagePath, bundled, { allowDeclaredOnly = false } = {}) {
     if (!existsSync(packagePath)) throw new Error(`license audit: missing package metadata for bundled input`);
     const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
-    const license = typeof pkg.license === 'string' ? pkg.license : '';
-    if (!permissiveLicenses.has(license)) {
-        const reason = /(?:^|[^A-Z])(?:A?GPL|LGPL)/i.test(license) ? 'copyleft' : 'unknown/non-approved';
-        throw new Error(`license audit: ${reason} license ${license || '<missing>'} for ${pkg.name}@${pkg.version}`);
-    }
+    const license = typeof pkg.license === 'string' || Array.isArray(pkg.license) ? pkg.license : '';
+    assertPermissiveLicense({ name: pkg.name, version: pkg.version, license });
     const packageDir = dirname(packagePath);
     const licenseName = ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'license', 'COPYING'].find((file) => existsSync(join(packageDir, file)));
-    if (licenseName === undefined) throw new Error(`license audit: no license text for ${pkg.name}@${pkg.version}`);
-    return { name: pkg.name, auditedVersion: pkg.version, license, bundled, licensePath: join(packageDir, licenseName) };
+    if (licenseName !== undefined) return { name: pkg.name, auditedVersion: pkg.version, license, bundled, licensePath: join(packageDir, licenseName) };
+    if (!allowDeclaredOnly) throw new Error(`license audit: no license text for ${pkg.name}@${pkg.version}`);
+    return { name: pkg.name, auditedVersion: pkg.version, license, bundled, author: typeof pkg.author === 'string' ? pkg.author : pkg.author?.name, licenseFile: 'none' };
 }

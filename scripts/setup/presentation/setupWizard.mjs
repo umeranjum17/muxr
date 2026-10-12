@@ -214,8 +214,8 @@ const herdr = () => process.env.HERDR_BIN?.trim() || 'herdr';
 
 // Plain-words name for a connection mode, used anywhere the topology is stated.
 const RELAY_KIND = {
-    relay: 'Works anywhere (muxr relay)',
-    remote: 'Works anywhere (muxr relay)',
+    relay: 'Away from home (your muxr server)',
+    remote: 'Away from home (your muxr server)',
     tailscale: 'Away from home (Tailscale)',
     'tailscale-direct': 'Away from home — phone only (Tailscale)',
     private: 'Away from home (private network)',
@@ -229,7 +229,7 @@ const relayKind = (mode) => RELAY_KIND[mode] ?? mode;
  * Each route says what it costs and what it needs before it is chosen. A
  * route that is unavailable explains what to install or connect before retrying.
  */
-function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconclusive' }) {
+function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconclusive' }, current = undefined) {
     const serveOccupied = serveRoot.status === 'occupied';
     const serveDisabled = serveRoot.status === 'disabled';
     const tailscaleAvailable = found.tailscale.connected || tailscalePlanned;
@@ -239,19 +239,21 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
     else if (tailscalePlanned) tailscaleSentence = 'Sign-in happens next; your phone also needs the Tailscale app, signed in to the same account.';
     else if (!tailscaleAvailable) tailscaleSentence = `Install the free Tailscale app on this computer and your phone and sign in on both, so your phone reaches this computer from anywhere, then rerun setup: ${TAILSCALE_INSTALL_URL}.`;
     return [
-        // Offered only with an enrollment in hand: the relay is reached by
-        // dialing out, so nothing on this computer needs to be open.
+        // Offered only with an enrollment from your own muxr server: this
+        // computer dials out to it, so nothing on it needs to be open.
         ...(found.relay ? [{
-            value: 'relay', title: 'Works anywhere',
-            description: 'Your phone reaches this computer through the muxr relay, on any network. Nothing to open or install on this computer.',
+            value: 'relay', title: 'Use muxr away from home (your muxr server)',
+            description: 'Your phone reaches this computer through your muxr server, on any network. Nothing to open or install on this computer.',
         }] : []),
-        {
+        // Wi-Fi only is no longer offered to new setups; a computer already on
+        // it keeps it as a choice.
+        ...(current?.connectionMode === 'lan' ? [{
             value: 'lan', title: 'Works only on this Wi-Fi',
             description: found.lan
                 ? 'Your phone must stay on this same Wi-Fi, and stops working when you leave home. Nothing to install.'
                 : 'No Wi-Fi address found; connect this computer to your Wi-Fi, then rerun setup.',
             disabled: !found.lan,
-        },
+        }] : []),
         {
             value: 'tailscale', title: 'Use muxr away from home (Tailscale)',
             description: tailscaleSentence,
@@ -283,36 +285,43 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
 }
 
 export function recommendedConnection(found, current, tailscalePlanned, serveRoot) {
-    if (found.relay) return { mode: 'relay', title: 'Works anywhere', description: 'through the muxr relay; nothing to open on this computer' };
-    if (found.tailscale.connected) {
-        const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
-        return direct
-            ? { mode: 'tailscale-direct', title: 'Use muxr away from home — phone only (Tailscale)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
-            : { mode: 'tailscale', title: 'Use muxr away from home (Tailscale)', description: 'both devices need the Tailscale app, signed in to the same account' };
-    }
-    if (current?.relayHealthy && current?.publicHealthy && current?.connectionMode !== 'lan'
-        && choices(found, tailscalePlanned, serveRoot).some((choice) => choice.value === current.connectionMode && !choice.disabled)) {
+    if (found.relay) return { mode: 'relay', title: 'Use muxr away from home (your muxr server)', description: 'through your muxr server; nothing to open on this computer' };
+    if (!found.tailscale.connected && current?.relayHealthy && current?.publicHealthy && current?.connectionMode !== 'lan'
+        && choices(found, tailscalePlanned, serveRoot, current).some((choice) => choice.value === current.connectionMode && !choice.disabled)) {
         return { mode: current.connectionMode, title: connectionLabel(current.connectionMode, current.relayUrl, current.relayPort), description: 'already configured and reachable' };
     }
-    if (found.private) return {
-        mode: 'private',
-        title: `Use muxr away from home (${found.private.provider})`,
-        description: 'use the private network already connected to this computer',
-    };
-    if (tailscalePlanned) {
-        const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
-        return direct
-            ? { mode: 'tailscale-direct', title: 'Use muxr away from home — phone only (Tailscale)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
-            : { mode: 'tailscale', title: 'Use muxr away from home (Tailscale)', description: 'both devices need the Tailscale app, signed in to the same account' };
-    }
-    if (found.cloudflared.ok) return { mode: 'cloudflare', title: 'Use muxr away from home (temporary link)', description: 'create a temporary public HTTPS route during Apply' };
-    // The Wi-Fi-only route is never the default while a remote-reachable route exists:
-    // it stops working when the phone leaves home.
-    if (found.lan) return { mode: 'lan', title: 'Works only on this Wi-Fi', description: 'home network only — stops working when the phone leaves this Wi-Fi' };
-    return { mode: 'external', title: 'Use muxr away from home (your own server)', description: 'use an existing secure (wss://) server you manage' };
+    // Tailscale is the default route. When it is missing or not signed in, the
+    // route screen says so and checks again in place.
+    const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
+    return direct && (found.tailscale.connected || tailscalePlanned)
+        ? { mode: 'tailscale-direct', title: 'Use muxr away from home — phone only (Tailscale)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
+        : { mode: 'tailscale', title: 'Use muxr away from home (Tailscale)', description: 'both devices need the Tailscale app, signed in to the same account' };
 }
 
 const aborted = (value) => value === undefined || value === BACK;
+
+// A disconnected Tailscale installation is proposed as one reviewed route;
+// connecting it remains behind Apply instead of becoming a preflight prompt.
+const tailscalePlannable = (found) => found.tailscale.installed && !found.tailscale.connected && found.tailscale.backend !== undefined;
+
+// One plain sentence: what is missing and how to fix it; Enter checks again.
+function tailscaleMissing(found) {
+    if (!found.tailscale.installed) return `Tailscale isn't on this computer yet. Install it from ${TAILSCALE_INSTALL_URL} and sign in, then press Enter to check again.`;
+    return `Tailscale is on this computer but not connected: ${TAILSCALE_UP_HINT}, then press Enter to check again.`;
+}
+
+// A first run reviews its plan on the route screen itself, so one Enter on a
+// route applies it. The route-specific cost is in each route's description.
+function firstRunSummary(found) {
+    return [
+        found.herdr.installed
+            ? 'We will use the Herdr already on this computer.'
+            : 'We will install Herdr during setup.',
+        'Your phone pairs next with a short code.',
+        'You can add a browser or change status updates later from the muxr menu.',
+        'Press Enter to apply this setup. Nothing changes before then.',
+    ];
+}
 
 export function continueWithDirectTailscale(plan) {
     const browserPair = plan.pairing === 'browser' || plan.pairing === 'browser-view' || plan.pairing === 'both';
@@ -354,28 +363,49 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         return 1;
     }
     const plannedPort = requestedPort === undefined ? current?.relayPort ?? envPort ?? 8792 : Number(requestedPort);
-    const serveRoot = await serveRootFor(found, plannedPort);
+    let serveRoot = await serveRootFor(found, plannedPort);
+    const isFirstRun = current === undefined;
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
-    if (!mode) {
+    // The route picker is the first run's Apply; a mode given on the command
+    // line still goes through the Apply confirmation.
+    const confirmed = isFirstRun && !mode;
+    const summary = confirmed ? firstRunSummary(found) : [];
+    while (!mode) {
         const proposal = recommendedConnection(found, current, tailscalePlanned, serveRoot);
-        const connectionChoices = choices(found, tailscalePlanned, serveRoot).map((choice) => ({
+        const connectionChoices = choices(found, tailscalePlanned, serveRoot, current).map((choice) => ({
             ...choice,
             title: `${choice.title}${choice.value === current?.connectionMode ? ' · current' : ''}`,
             recommended: choice.value === proposal.mode && !choice.disabled,
         }));
         const recommended = connectionChoices.find((choice) => choice.recommended);
         const otherWays = { value: 'other', title: 'Other ways', description: 'choose another network or your own server' };
-        const vpnNote = 'Another VPN on your phone? Choose Works only on this Wi-Fi with that VPN\'s allow-local-network option, or pause that VPN to use muxr away from home.';
-        if (!recommended) note(vpnNote);
-        const connectionPrompt = recommended ? [recommended, otherWays] : connectionChoices;
-        const connectionInitial = recommended ? 0 : -1;
-        mode = await select('How will your phone reach this computer?', connectionPrompt, connectionInitial);
-        if (mode === 'other') {
-            note(vpnNote);
-            mode = await select('Other ways', [recommended, ...connectionChoices.filter((choice) => choice !== recommended)], -1);
+        const vpnNote = 'Another VPN on your phone? A phone runs one VPN at a time, so pause it while you use muxr over Tailscale.';
+        // Tailscale missing or not signed in: say so, and check again in place.
+        const recheck = { value: 'recheck', title: 'Check again', description: 'once Tailscale is installed and signed in on this computer' };
+        const connectionPrompt = recommended ? [recommended, otherWays] : [recheck, otherWays];
+        mode = await select('How will your phone reach this computer?', connectionPrompt, 0, undefined, recommended ? summary : [tailscaleMissing(found)]);
+        if (mode === 'recheck') {
+            // The whole probe, so a new tailnet address is not listed as a private network.
+            Object.assign(found, await withSpinner('Checking Tailscale again', async () => probeMachine()));
+            tailscalePlanned = tailscalePlannable(found);
+            serveRoot = await serveRootFor(found, plannedPort);
+            setupStep(2, totalSteps, 'Connect your phone');
+            mode = undefined;
+            continue;
         }
-
+        if (mode === 'other') {
+            setupStep(2, totalSteps, 'Connect your phone');
+            note(vpnNote);
+            mode = await select('Other ways', [recommended, ...connectionChoices.filter((choice) => choice !== recommended)].filter(Boolean), -1, 'go back', summary);
+            // Esc goes back to the route screen and its Check again, not out of setup.
+            if (mode === BACK) {
+                setupStep(2, totalSteps, 'Connect your phone');
+                mode = undefined;
+                continue;
+            }
+        }
+        break;
     }
     if (aborted(mode)) return undefined;
     if (mode === 'lan') {
@@ -408,7 +438,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         process.stderr.write('the relay route needs an enrollment; pass --enrollment <muxr://enroll?...>\n');
         return 1;
     }
-    if (mode === 'relay') return { mode, port: plannedPort, endpoint: found.relay.relay, web: false, pairing: 'phone', syncIntegrations: false };
+    if (mode === 'relay') return { mode, port: plannedPort, endpoint: found.relay.relay, web: false, pairing: 'phone', syncIntegrations: false, confirmed };
 
     const port = plannedPort;
     if (!Number.isInteger(port) || port < 1024 || port > 65535) {
@@ -435,8 +465,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     // the browser-client, pairing, and status-updates questions stay
     // available when changing the connection later, and browser pairing
     // stays in the devices menu.
-    const isFirstRun = current === undefined;
-    if (isFirstRun) return { mode, port, endpoint, web: false, pairing: 'phone', syncIntegrations: false };
+    if (isFirstRun) return { mode, port, endpoint, web: false, pairing: 'phone', syncIntegrations: false, confirmed };
     setupStep(3, totalSteps, 'Choose app access');
     let web = false;
     if (modeAllowsBrowserHosting(mode)) {
@@ -609,18 +638,18 @@ export async function applyMachineSetup(args = []) {
     // answered to no effect. A failed availability check keeps the question:
     // sync may still succeed when the check itself is what broke.
     const asksIntegrations = !found.agents.checked || found.agents.available.length > 0;
-    const totalSteps = isFirstRun ? 4 : 6;
+    const totalSteps = isFirstRun ? 3 : 6;
     setupStep(1, totalSteps, 'Check this computer');
     renderInspection(found);
-    // A disconnected Tailscale installation is proposed as one reviewed route;
-    // connecting it remains behind Apply instead of becoming a preflight prompt.
-    const tailscalePlanned = found.tailscale.installed && !found.tailscale.connected && found.tailscale.backend !== undefined;
+    let tailscalePlanned = tailscalePlannable(found);
     const cancelSetup = () => cancelled();
 
     setupStep(2, totalSteps, 'Connect your phone');
     let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, totalSteps, asksIntegrations: asksIntegrations && !isFirstRun });
     if (plan === undefined) return cancelSetup();
     if (plan === 1) return 1;
+    // Check again may have found Tailscale on the route screen.
+    tailscalePlanned = tailscalePlannable(found);
     const { syncIntegrations } = plan;
     const desiredUrl = advertisedUrlForMode({ ...plan, found, current, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
@@ -629,21 +658,9 @@ export async function applyMachineSetup(args = []) {
     else if (current !== undefined) existingConnections = 'keep working; restart only if a reviewed runtime setting changed';
 
     if (isFirstRun) {
-        setupStep(3, totalSteps, 'Review setup');
-        note([
+        if (!plan.confirmed) note([
             `Your phone will reach this computer over ${connectionLabel(plan.mode, plan.endpoint, plan.port)}.`,
-            found.herdr.installed
-                ? 'We will use the Herdr already on this computer.'
-                : 'We will install Herdr during setup.',
-            'Your phone pairs next with a short code.',
-            'You can add a browser or change status updates later from the muxr menu.',
-            ...(plan.mode === 'lan'
-                ? ['This works only on this Wi-Fi and stops working when you leave home.']
-                : []),
-            ...(plan.mode === 'relay'
-                ? ['This computer dials out to the relay, so nothing on it needs to be open. It works through firewalls and away from home.']
-                : []),
-            'No change is made until you choose Apply setup.',
+            ...firstRunSummary(found),
         ]);
     } else {
     setupStep(5, totalSteps, 'Review setup');
@@ -662,7 +679,7 @@ export async function applyMachineSetup(args = []) {
         'No change is made until you choose Apply setup.',
     ]);
     }
-    const apply = await select('Apply this setup?', [
+    const apply = plan.confirmed || await select('Apply this setup?', [
         { value: false, title: 'Cancel', description: 'leave this machine unchanged' },
         { value: true, title: 'Apply setup', description: 'make the reviewed changes and verify health; pair a new device if selected' },
     ], 1);

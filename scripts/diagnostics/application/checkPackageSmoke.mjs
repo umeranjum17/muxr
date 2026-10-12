@@ -18,7 +18,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, sealRelease, verifyRelease } from '../../release/index.mjs';
+import { desktopLicenseInventory, packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, runtimeDependencies, sealRelease, verifyRelease } from '../../release/index.mjs';
 
 const root = process.cwd();
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'p-')));
@@ -562,6 +562,45 @@ try {
     for (const target of ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']) {
         assert.ok(licenseInventory.dependencies.some((dependency) => dependency.name === `@ccusage/ccusage-${target}` && dependency.transitiveOf === 'ccusage'), `${target} ccusage binary missing from license audit`);
     }
+
+    // The desktop AppImage carries its own generated inventory through the
+    // same generator: audit the snapshot's real desktop bundles, lay the output
+    // out as the AppImage's resources/app, then drive the same license gate the
+    // build runs through its pass and fail paths. The real AppImage packaging
+    // itself is proven by the release build, not this suite.
+    const desktopRoot = join(snapshot, 'apps', 'desktop');
+    const desktopManifest = JSON.parse(readFileSync(join(desktopRoot, 'package.json'), 'utf8'));
+    await desktopLicenseInventory({
+        root: snapshot,
+        appDir: desktopRoot,
+        dist: join(scratch, 'desktop-dist'),
+        external: ['electron', ...Object.keys(runtimeDependencies(snapshot))],
+    });
+    const packagedRoot = join(scratch, 'desktop-appimage');
+    const packagedApp = join(packagedRoot, 'resources', 'app');
+    mkdirSync(packagedApp, { recursive: true });
+    cpSync(join(desktopRoot, 'THIRD_PARTY_LICENSES.json'), join(packagedApp, 'THIRD_PARTY_LICENSES.json'));
+    cpSync(join(desktopRoot, 'LICENSES'), join(packagedApp, 'LICENSES'), { recursive: true });
+    for (const notice of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) writeFileSync(join(packagedRoot, notice), `${notice} fixture\n`);
+    const desktopInventory = JSON.parse(readFileSync(join(packagedApp, 'THIRD_PARTY_LICENSES.json'), 'utf8'));
+    assert.equal(desktopInventory.artifact, `@muxr/desktop@${desktopManifest.version}`);
+    assert.ok(!JSON.stringify(desktopInventory).includes(`${snapshot}/`), 'desktop inventory leaked a repository path');
+    const desktopElectron = desktopInventory.dependencies.find((dependency) => dependency.name === 'electron');
+    assert.ok(desktopElectron, 'desktop inventory has no electron entry for the Electron/Chromium runtime');
+    assert.equal(desktopElectron.auditedVersion, desktopManifest.devDependencies.electron);
+    const desktopGate = join(root, 'scripts', 'diagnostics', 'application', 'checkDesktopLicenses.mjs');
+    assert.match(run(process.execPath, [desktopGate, packagedRoot], { env: process.env }).stdout, /desktop license audit PASS/);
+    rmSync(join(packagedApp, 'THIRD_PARTY_LICENSES.json'));
+    const gateMissing = run(process.execPath, [desktopGate, packagedRoot], { env: process.env, allowFailure: true });
+    assert.notEqual(gateMissing.status, 0, 'license gate passed with the AppImage inventory missing');
+    assert.match(gateMissing.stderr, /inventory missing/);
+    writeFileSync(join(packagedApp, 'THIRD_PARTY_LICENSES.json'), `${JSON.stringify({
+        ...desktopInventory,
+        dependencies: desktopInventory.dependencies.map((dependency) => dependency.name === 'ws' ? { ...dependency, license: 'GPL-3.0' } : dependency),
+    }, null, 2)}\n`);
+    const gateCopyleft = run(process.execPath, [desktopGate, packagedRoot], { env: process.env, allowFailure: true });
+    assert.notEqual(gateCopyleft.status, 0, 'license gate passed a copyleft dependency');
+    assert.match(gateCopyleft.stderr, /copyleft/);
 
     writeFileSync(join(installDir, 'package.json'), '{"private":true}\n');
     run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], {

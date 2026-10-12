@@ -14,10 +14,11 @@ muxr
 
 See [CLI startup guidance](../README.md#install) for first-time and later launches.
 Local interactive setup inspects the computer without changing it. Choose
-how your phone connects in the [route picker](#reaching-the-relay-from-your-phone),
-then whether to host the control/view-only web client, what to pair, and whether
-to set up **Agent status updates**.
-After a final **Apply setup** confirmation, muxr
+how your phone connects in the [route picker](#reaching-the-relay-from-your-phone);
+on a first run the short plan sits under the routes and Enter on a route applies
+it. Changing an existing setup also asks whether to host the control/view-only
+web client, what to pair, and whether to set up **Agent status updates**, then
+waits for a final **Apply setup** confirmation. muxr then
 starts the selected relay and host, then:
 
 1. Stores machine authority and link state under `~/.muxr`.
@@ -44,27 +45,23 @@ automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
 
 ## Reaching the relay from your phone
 
-Interactive `muxr setup` shows all six local routes together, each with an explanatory
-sentence and exactly one **Recommended** tag: Works only on this Wi-Fi, three
-away-from-home routes (Tailscale, your private network, a temporary link), and
-your own server. Unavailable routes explain what to install or connect before
-retrying. When setup is given an enrollment (`--enrollment` or
-`MUXR_ENROLLMENT`), it additionally offers **Works anywhere (muxr relay)**
-first and Recommended: this computer dials out to that relay, so nothing on it
-needs to be open — it works through firewalls and away from home.
+Interactive `muxr setup` recommends Tailscale, your own tailnet: install the
+free Tailscale app on the phone and the computer and sign in to the same
+account. It uses phone-only Tailscale when Serve is proven disabled or
+occupied, and an installed Tailscale that is signed out connects during
+**Apply setup**. If Tailscale is missing or not running, the route screen says
+so in one sentence and **Check again** probes once more in place. **Other ways**
+lists the rest, each with an explanatory sentence: your private network, a
+temporary link and your own server. Unavailable routes explain what to install
+or connect before retrying. A computer that already runs muxr keeps a healthy
+current route as the recommendation.
 
-Without an enrollment, the connected Tailscale route is recommended first, using phone-only Tailscale
-when Serve is proven disabled or occupied. Without connected Tailscale, the
-healthy current route is recommended if it is still selectable; setup then
-prefers a detected private network, then an installed Tailscale route that
-connects during **Apply setup**, then an available Cloudflare tunnel, then
-Works only on this Wi-Fi — the Wi-Fi-only route is never the default while an
-away-from-home route exists, and every screen that shows it warns that it stops
-working when the phone leaves home. If
-none of those is available, **your own server** is recommended; you must supply
-an existing secure `wss://` endpoint. If another VPN is active on your phone,
-the picker advises Works only on this Wi-Fi with that VPN's allow-local-network
-option, or pausing the VPN to use muxr away from home.
+Works only on this Wi-Fi is no longer offered to new setups; a computer already
+on it keeps working and keeps the choice behind Other ways. When setup is given
+an enrollment from your muxr server (`--enrollment` or `MUXR_ENROLLMENT`), it
+recommends that server instead: this computer dials out to it, so nothing on it
+needs to be open. If another VPN is active on your phone, pause it: a phone runs
+one VPN at a time.
 Automation uses:
 
 | Flag | What happens |
@@ -74,7 +71,7 @@ Automation uses:
 | *(choose Use muxr away from home (Tailscale))* | Uses private HTTPS through `tailscale serve`; the relay stays on loopback. |
 | `--tailscale-direct` | Uses the tailnet IP directly. |
 | *(detected private network)* | Uses the address on an existing NetBird, WireGuard, ZeroTier, or similar interface. The phone must join that same private network. |
-| *(choose Works only on this Wi-Fi)* | Home network only: the phone stops working when it leaves this Wi-Fi. Never the default while an away-from-home route exists. |
+| *(Works only on this Wi-Fi)* | Kept only for a computer already set up on it. Home network only. |
 | *(choose Direct SSH in the native app)* | Pair through the host's loopback relay over SSH; see [Direct SSH](#direct-ssh). |
 
 For either Tailscale route, install the free Tailscale app on your phone and sign in to the same account before pairing.
