@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/audit.mjs';
 
 /**
@@ -31,6 +31,38 @@ export function installedDependencies({ root, declared, bundledNames }) {
             ...packageInfoFromPath(join(root, 'node_modules', ...name.split('/'), 'package.json'), false),
             declaredRange: declared[name],
         }));
+}
+
+function resolveInstalled(fromDir, name) {
+    for (let dir = fromDir; ; dir = dirname(dir)) {
+        const manifest = join(dir, 'node_modules', ...name.split('/'), 'package.json');
+        if (existsSync(manifest)) return manifest;
+        if (dirname(dir) === dir) return undefined;
+    }
+}
+
+/**
+ * The production closure electron-builder copies into node_modules: each
+ * declared package, then every `dependencies` entry reached from it, resolved
+ * the way Node resolves them so nested copies (a second ws under
+ * @desklink/host) are audited too. Optional and platform packages stay with
+ * their own helpers; packages already inlined at the same version are skipped.
+ */
+export function installedClosure({ root, declared, bundled }) {
+    const found = new Map();
+    const queue = Object.keys(declared).sort().map((name) => ({ fromDir: root, name, declaredRange: declared[name], transitiveOf: undefined }));
+    for (const next of queue) {
+        const manifest = resolveInstalled(next.fromDir, next.name);
+        if (manifest === undefined) throw new Error(`license audit: ${next.name} is not installed beside ${next.fromDir}`);
+        if (found.has(manifest)) continue;
+        const info = packageInfoFromPath(manifest, false);
+        found.set(manifest, { ...info, declaredRange: next.declaredRange, transitiveOf: next.transitiveOf });
+        const { dependencies = {} } = JSON.parse(readFileSync(manifest, 'utf8'));
+        for (const name of Object.keys(dependencies).sort()) {
+            queue.push({ fromDir: dirname(manifest), name, declaredRange: null, transitiveOf: info.name });
+        }
+    }
+    return [...found.values()].filter((entry) => !bundled.some(({ name, auditedVersion }) => name === entry.name && auditedVersion === entry.auditedVersion));
 }
 
 /**
@@ -84,15 +116,19 @@ export function desklinkPlatformDependencies({ root }) {
         }));
 }
 
-/** Audit one distribution's full dependency set: inlined, platform and installed. */
-export function licenseInventory({ bundles, root, rootPackage, declared }) {
+/**
+ * Audit one distribution's full dependency set: inlined, platform and installed.
+ * `closure` audits the whole installed production closure instead of only the
+ * declared names; the npm packer keeps the declared-only set.
+ */
+export function licenseInventory({ bundles, root, rootPackage, declared, closure = false }) {
     const bundled = bundledDependenciesFromMetafiles(bundles);
     const bundledNames = new Set(bundled.map(({ name }) => name));
     return [
         ...bundled,
         ...ccusagePlatformDependencies({ root, rootPackage }),
         ...desklinkPlatformDependencies({ root }),
-        ...installedDependencies({ root, declared, bundledNames }),
+        ...(closure ? installedClosure({ root, declared, bundled }) : installedDependencies({ root, declared, bundledNames })),
     ];
 }
 

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runtimeDependencies } from './runtimeDependencies.mjs';
-import { licenseInventory, writeThirdPartyInventory } from './licenseInventory.mjs';
+import { installedDependencies, licenseInventory, writeThirdPartyInventory } from './licenseInventory.mjs';
 
 /**
  * The desktop AppImage's license inventory. It audits exactly what the
@@ -87,7 +87,7 @@ function desktopBundleJobs({ root, appDir, dist, external }) {
 }
 
 /** Bundle every desktop entry and return the esbuild metafiles for the audit. */
-export async function bundleDesktopEntries({ root, appDir, dist, external }) {
+async function bundleDesktopEntries({ root, appDir, dist, external }) {
     // esbuild and the voice bundler load lazily: this module is reachable
     // from the packed CLI's release index, where build-time-only imports
     // must never resolve at user runtime.
@@ -116,15 +116,13 @@ export async function bundleDesktopEntries({ root, appDir, dist, external }) {
  * Audit what the AppImage ships. Throws on a copyleft or unknown/non-approved
  * license, the same allow-list as the CLI packer.
  */
-export function auditDesktopDependencies({ root, appDir, bundles }) {
+function auditDesktopDependencies({ root, appDir, bundles }) {
     const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
     const desktopPackage = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'));
-    return licenseInventory({
-        bundles,
-        root,
-        rootPackage,
-        declared: { ...runtimeDependencies(root), electron: desktopPackage.devDependencies.electron },
-    });
+    return [
+        ...licenseInventory({ bundles, root, rootPackage, declared: runtimeDependencies(root), closure: true }),
+        ...installedDependencies({ root, declared: { electron: desktopPackage.devDependencies.electron }, bundledNames: new Set() }),
+    ];
 }
 
 /**
@@ -132,7 +130,7 @@ export function auditDesktopDependencies({ root, appDir, bundles }) {
  * other legal files, so it lands at resources/app/THIRD_PARTY_LICENSES.json
  * inside the AppImage.
  */
-export function writeDesktopLicenseInventory({ appDir, version, dependencies }) {
+function writeDesktopLicenseInventory({ appDir, version, dependencies }) {
     writeThirdPartyInventory({
         inventoryPath: join(appDir, 'THIRD_PARTY_LICENSES.json'),
         licenseDir: join(appDir, 'LICENSES', 'npm'),
@@ -147,5 +145,5 @@ export async function desktopLicenseInventory({ root, appDir, dist, external, st
     const desktopPackage = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'));
     const dependencies = auditDesktopDependencies({ root, appDir, bundles });
     writeDesktopLicenseInventory({ appDir: stageDir, version: desktopPackage.version, dependencies });
-    return { bundles, dependencies };
+    return dependencies;
 }

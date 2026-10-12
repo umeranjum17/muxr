@@ -584,10 +584,11 @@ try {
     assert.equal(desktopInventory.bundledInputs, undefined);
     assert.ok(!JSON.stringify(desktopInventory).includes(`${snapshot}/`), 'desktop inventory leaked a repository path');
     const desktopDeclared = { ...runtimeDependencies(snapshot), electron: desktopManifest.devDependencies.electron };
+    const desktopNames = new Set(desktopInventory.dependencies.map(({ name }) => name));
     for (const dependency of desktopInventory.dependencies) {
         if (dependency.transitiveOf !== undefined) {
             assert.equal(dependency.declaredRange, null);
-            assert.ok(['ccusage', '@desklink/host'].includes(dependency.transitiveOf), `${dependency.name} is transitive of ${dependency.transitiveOf}`);
+            assert.ok(desktopNames.has(dependency.transitiveOf), `${dependency.name} is transitive of ${dependency.transitiveOf}, which the inventory does not list`);
         } else {
             assert.equal(dependency.declaredRange, dependency.bundled ? null : desktopDeclared[dependency.name]);
         }

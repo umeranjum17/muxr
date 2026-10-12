@@ -13,7 +13,7 @@ const permissiveLicenses = new Set([
     'Unlicense',
 ]);
 
-export function isPermissiveLicense(license) {
+function isPermissiveLicense(license) {
     return permissiveLicenses.has(license);
 }
 

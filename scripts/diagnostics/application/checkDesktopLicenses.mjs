@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { isPermissiveLicense } from '../../release/index.mjs';
+import { assertPermissiveLicense } from '../../release/infrastructure/audit.mjs';
 
 const target = process.argv[2];
 if (target === undefined) {
@@ -64,9 +64,10 @@ if (!Array.isArray(inventory.dependencies) || inventory.dependencies.length === 
     fail(`license audit: AppImage inventory at ${inventoryPath} lists no dependencies`);
 }
 for (const dependency of inventory.dependencies) {
-    if (!isPermissiveLicense(dependency.license)) {
-        const reason = /(?:^|[^A-Z])(?:A?GPL|LGPL)/i.test(dependency.license ?? '') ? 'copyleft' : 'unknown/non-approved';
-        fail(`license audit: ${reason} license ${dependency.license || '<missing>'} for ${dependency.name}@${dependency.auditedVersion}`);
+    try {
+        assertPermissiveLicense({ name: dependency.name, version: dependency.auditedVersion, license: dependency.license });
+    } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
     }
     if (dependency.licensePath !== undefined) fail(`license audit: inventory leaks a build path for ${dependency.name}`);
 }

@@ -12,7 +12,7 @@ import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { auditDesktopDependencies, bundleDesktopEntries, writeDesktopLicenseInventory } from '../../../scripts/release/application/desktopLicenseInventory.mjs';
+import { desktopLicenseInventory } from '../../../scripts/release/application/desktopLicenseInventory.mjs';
 import { runtimeDependencies } from '../../../scripts/release/application/runtimeDependencies.mjs';
 
 const appDir = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
@@ -40,24 +40,16 @@ const external = ['electron', ...Object.keys(runtimeDeps)];
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 
-// 1-3. The muxr host, the relay it runs beside, and the Electron main and
-// preload, with the repo's setup helpers bundled in.
-let bundles;
-try {
-    bundles = await bundleDesktopEntries({ root, appDir, dist, external });
-} catch (error) { failure('bundle', error); }
-process.stdout.write('desktop build: bundled host, relay, voice, main and preload into dist/\n');
-
-// The license audit is a build gate: a bundled or installed dependency with a
-// license outside the shared allow-list fails the build before packaging.
-// The inventory stages beside the app's other legal files so it lands at
+// 1-3. The muxr host, the relay it runs beside, the Electron main and preload,
+// and the license audit. A bundled or installed dependency with a license
+// outside the shared allow-list fails the build before packaging. The
+// inventory stages beside the app's other legal files so it lands at
 // resources/app/THIRD_PARTY_LICENSES.json inside the AppImage.
 let dependencies;
 try {
-    dependencies = auditDesktopDependencies({ root, appDir, bundles });
-    writeDesktopLicenseInventory({ appDir, version: desktopPackage.version, dependencies });
-} catch (error) { failure('license audit', error); }
-process.stdout.write(`desktop build: license audit passed for ${dependencies.length} dependencies -> THIRD_PARTY_LICENSES.json\n`);
+    dependencies = await desktopLicenseInventory({ root, appDir, dist, external });
+} catch (error) { failure('desktop license inventory', error); }
+process.stdout.write(`desktop build: bundled host, relay, voice, main and preload; license audit passed for ${dependencies.length} dependencies -> THIRD_PARTY_LICENSES.json\n`);
 
 // 4. Package the AppImage. No publish, no upload, ever.
 if (process.argv.includes('--package')) {
@@ -70,4 +62,9 @@ if (process.argv.includes('--package')) {
         });
     } catch (error) { failure('electron-builder', error); }
     process.stdout.write('desktop build: AppImage written to apps/desktop/release/\n');
+    // The gate checks the packaged layout itself, so a missing inventory or
+    // notice in the artifact fails the build, not only the staged copy.
+    try {
+        execFileSync(process.execPath, [join(root, 'scripts', 'diagnostics', 'application', 'checkDesktopLicenses.mjs'), join(appDir, 'release', 'linux-unpacked')], { stdio: 'inherit' });
+    } catch (error) { failure('packaged license gate', error); }
 }
