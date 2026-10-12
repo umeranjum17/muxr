@@ -3,10 +3,11 @@
  * State from the command-line install means muxr already runs there, so the app
  * refuses with one plain state; only a desktop-created state starts processes.
  */
-import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { createHerdrSetup } from './herdrSetup.mjs';
 import { MuxrRuntime, RelayOwnedError } from './runtime.mjs';
 
 const MACHINE = { id: 'machine-owner', name: 'computer', crypto: { signingPublicKey: 's' } };
@@ -131,6 +132,159 @@ describe('desktop runtime self-host state', () => {
         }
 
         expect(statuses.map((status) => status.phase)).toEqual(['starting', 'stalled', 'online']);
+    }, 30_000);
+
+    it('on a computer with no Herdr, installs it from the window after an offline try and starts it', async () => {
+        // An older herdr (below the minimum) sits first on PATH; the install folder is empty.
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-noherdr-'));
+        writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
+        const emptyPath = join(home, 'path');
+        const installDir = join(home, 'bin');
+        mkdirSync(emptyPath);
+        writeFileSync(join(emptyPath, 'herdr'), "#!/bin/sh\necho 'herdr 0.8.0'\n", { mode: 0o755 });
+        const offline = join(home, 'offline');
+        writeFileSync(offline, '');
+        // The published installer's two outcomes: offline, or a herdr whose server reports running once started.
+        const installer = join(home, 'install-herdr.sh');
+        writeFileSync(installer, [
+            '#!/bin/sh',
+            `PATH=${JSON.stringify(process.env.PATH ?? '')}`,
+            `if [ -e ${JSON.stringify(offline)} ]; then echo "error: can't reach https://herdr.dev/latest.json" >&2; exit 1; fi`,
+            `mkdir -p ${JSON.stringify(installDir)}`,
+            `cat > ${JSON.stringify(join(installDir, 'herdr'))} <<'HERDR'`,
+            '#!/bin/sh',
+            `case "$1" in --version) echo 'herdr 0.9.1' ;; server) : > ${JSON.stringify(join(home, 'server-up'))} ;; status) [ -e ${JSON.stringify(join(home, 'server-up'))} ] && echo '{"running":true}' || echo '{"running":false}' ;; esac`,
+            'HERDR',
+            `chmod +x ${JSON.stringify(join(installDir, 'herdr'))}`,
+            '',
+        ].join('\n'), { mode: 0o755 });
+        const relayEntry = join(home, 'relay-fixture.mjs');
+        listeningRelayFixture(relayEntry);
+        const hostEntry = join(home, 'host-fixture.mjs');
+        writeFileSync(hostEntry, [
+            "import { mkdirSync, writeFileSync } from 'node:fs';",
+            "import { join } from 'node:path';",
+            "mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
+            "writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
+            "process.stdout.write('link relay: online\\n');",
+            'setInterval(() => {}, 1000);',
+            '',
+        ].join('\n'));
+
+        const saved = { HOME: process.env.HOME, PATH: process.env.PATH, HERDR_BIN: process.env.HERDR_BIN, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, MUXR_HERDR_INSTALLER: process.env.MUXR_HERDR_INSTALLER, MUXR_HOME: process.env.MUXR_HOME, MUXR_NO_SERVICE_COMMANDS: process.env.MUXR_NO_SERVICE_COMMANDS };
+        Object.assign(process.env, { HOME: home, PATH: emptyPath, HERDR_INSTALL_DIR: installDir, MUXR_HERDR_INSTALLER: installer, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1' });
+        delete process.env.HERDR_BIN;
+        const shown: { status: string; step?: string; message?: string }[] = [];
+        const herdr = createHerdrSetup((next: { status: string }) => shown.push(next));
+        const { runtime, statuses } = collectingRuntime(home, relayEntry, hostEntry);
+        try {
+            // Pairing still comes up; the window says Herdr is missing beside it.
+            await Promise.all([runtime.start(), herdr.check()]);
+            expect(statuses.at(-1)?.phase).toBe('online');
+            expect(shown).toEqual([{ status: 'missing' }]);
+
+            await herdr.install();
+            expect(shown.at(-1)).toEqual({ status: 'failed', message: "Couldn't install Herdr. Check this computer's internet connection, then press Try again." });
+
+            rmSync(offline);
+            await herdr.install();
+            expect(shown.slice(-3).map((entry) => entry.step ?? entry.status)).toEqual(['Downloading Herdr…', 'Starting Herdr…', 'ok']);
+            expect(existsSync(join(home, 'server-up'))).toBe(true);
+        } finally {
+            await runtime.stop();
+            for (const [name, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+        }
+    }, 30_000);
+
+    it('starts an installed Herdr only once the desktop owns the computer', async () => {
+        // The fake Herdr leaves a marker when its server starts, so a start is observable.
+        const root = mkdtempSync(join(tmpdir(), 'muxr-desktop-herdr-owner-'));
+        const installDir = join(root, 'bin');
+        mkdirSync(installDir);
+        const serverUp = join(root, 'server-up');
+        // Herdr sits outside PATH and the install folder; only the CLI service's pin reaches it.
+        const herdrPath = join(root, 'elsewhere', 'herdr');
+        mkdirSync(join(root, 'elsewhere'));
+        const fakeHerdr = (version: string) => writeFileSync(herdrPath, [
+            '#!/bin/sh',
+            `case "$1" in --version) echo 'herdr ${version}' ;; server) : > ${JSON.stringify(serverUp)} ;; status) [ -e ${JSON.stringify(serverUp)} ] && echo '{"running":true}' || echo '{"running":false}' ;; esac`,
+            '',
+        ].join('\n'), { mode: 0o755 });
+        fakeHerdr('0.9.1');
+        mkdirSync(join(root, '.config', 'systemd', 'user'), { recursive: true });
+        writeFileSync(join(root, '.config', 'systemd', 'user', 'muxr.service'), `[Service]\nEnvironment=HERDR_BIN=${herdrPath}\n`);
+        const cliHome = join(root, 'cli');
+        const ownHome = join(root, 'own');
+        mkdirSync(cliHome);
+        mkdirSync(ownHome);
+        writeFileSync(join(cliHome, 'selfhost.json'), `${JSON.stringify({ version: 1, machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
+        writeFileSync(join(ownHome, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
+        const relayEntry = join(root, 'relay-fixture.mjs');
+        listeningRelayFixture(relayEntry);
+        const hostEntry = join(root, 'host-fixture.mjs');
+        writeFileSync(hostEntry, [
+            "import { mkdirSync, writeFileSync } from 'node:fs';",
+            "import { join } from 'node:path';",
+            "mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
+            "writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
+            "process.stdout.write('link relay: online\\n');",
+            'setInterval(() => {}, 1000);',
+            '',
+        ].join('\n'));
+
+        const saved = { HOME: process.env.HOME, PATH: process.env.PATH, HERDR_BIN: process.env.HERDR_BIN, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, MUXR_HOME: process.env.MUXR_HOME, MUXR_NO_SERVICE_COMMANDS: process.env.MUXR_NO_SERVICE_COMMANDS };
+        const emptyPath = join(root, 'path');
+        mkdirSync(emptyPath);
+        Object.assign(process.env, { HOME: root, PATH: emptyPath, HERDR_INSTALL_DIR: installDir, MUXR_NO_SERVICE_COMMANDS: '1' });
+        delete process.env.HERDR_BIN;
+        const shown: { status: string }[] = [];
+        const herdr = createHerdrSetup((next: { status: string }) => shown.push(next));
+        // Every status the real runtime emits goes into the window's Herdr rule, as main.mjs does.
+        const forward = (runtime: MuxrRuntime) => {
+            const pending: Promise<void>[] = [];
+            runtime.on('status', (event) => { pending.push(herdr.observeRuntime(event)); });
+            return pending;
+        };
+        try {
+            // A command-line computer: the launch check reads the pinned Herdr, and no status starts it.
+            process.env.MUXR_HOME = cliHome;
+            herdr.check();
+            const cli = collectingRuntime(cliHome, relayEntry, hostEntry).runtime;
+            const cliStarts = forward(cli);
+            await expect(cli.start()).rejects.toThrow(RelayOwnedError);
+            await Promise.all(cliStarts);
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            expect(existsSync(serverUp)).toBe(false);
+            expect(shown).toEqual([]);
+
+            // A Herdr below the minimum counts as missing and is not started until a compatible one is there.
+            fakeHerdr('0.8.0');
+            process.env.MUXR_HOME = ownHome;
+            const { runtime, statuses } = collectingRuntime(ownHome, relayEntry, hostEntry);
+            const starts = forward(runtime);
+            try {
+                await runtime.start();
+                await Promise.all(starts);
+                expect(statuses.at(-1)?.phase).toBe('online');
+                expect(shown.at(-1)).toEqual({ status: 'missing' });
+                expect(existsSync(serverUp)).toBe(false);
+
+                fakeHerdr('0.9.1');
+                await herdr.observeRuntime({ phase: 'online' });
+                expect(existsSync(serverUp)).toBe(true);
+                expect(shown.at(-1)).toEqual({ status: 'ok' });
+            } finally {
+                await runtime.stop();
+            }
+        } finally {
+            for (const [name, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+        }
     }, 30_000);
 
     it('keeps the stored advertised relay url across a relaunch', async () => {

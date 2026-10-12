@@ -8,6 +8,7 @@ const cards = {
     'already-running': document.getElementById('card-already-running'),
     note: document.getElementById('card-note'),
 };
+const herdrNotice = document.getElementById('herdr-notice');
 const dot = document.getElementById('status-dot');
 const title = document.getElementById('status-title');
 const canvas = document.getElementById('qr');
@@ -61,9 +62,29 @@ function tickExpiry() {
 
 setInterval(tickExpiry, 1000);
 
+const HERDR_MISSING_MESSAGE = "muxr runs your agents in Herdr, which isn't installed on this computer.";
+
+// Herdr is said above the card, and pairing never waits for it. An approval or an
+// error still speaks for itself, so the notice shows only where the pairing offer,
+// the paired state or the already-running card is on screen.
+function showHerdrNotice(herdr) {
+    herdrNotice.hidden = herdr === undefined;
+    if (herdr === undefined) return;
+    const installing = herdr.status === 'installing';
+    document.getElementById('herdr-spinner').hidden = !installing;
+    const message = document.getElementById('herdr-message');
+    message.className = herdr.status === 'failed' ? 'error' : 'muted';
+    message.textContent = installing ? herdr.step : herdr.status === 'failed' ? herdr.message : HERDR_MISSING_MESSAGE;
+    const button = document.getElementById('install-herdr');
+    button.hidden = installing;
+    button.textContent = herdr.status === 'failed' ? 'Try again' : 'Install Herdr';
+}
+
 window.muxr.onState((state) => {
-    dot.className = `dot ${state.phase}`;
-    title.textContent = TITLES[state.phase] ?? 'muxr';
+    const herdr = state.herdr !== undefined && state.herdr.status !== 'ok' && ['starting', 'online', 'paired', 'already-running'].includes(state.phase) ? state.herdr : undefined;
+    showHerdrNotice(herdr);
+    dot.className = `dot ${herdr === undefined ? state.phase : herdr.status === 'installing' ? 'starting' : 'error'}`;
+    title.textContent = herdr === undefined ? (TITLES[state.phase] ?? 'muxr') : herdr.status === 'installing' ? 'Setting up Herdr…' : 'Needs attention';
     if (state.phase === 'starting') { show('starting'); }
     else if (state.phase === 'online') {
         if (state.code !== undefined) {
@@ -108,6 +129,7 @@ window.muxr.onSettings((settings) => {
 document.getElementById('approve').addEventListener('click', () => window.muxr.approve());
 document.getElementById('deny').addEventListener('click', () => window.muxr.deny());
 document.getElementById('retry').addEventListener('click', () => window.muxr.retry());
+document.getElementById('install-herdr').addEventListener('click', () => window.muxr.installHerdr());
 document.getElementById('already-running-retry').addEventListener('click', () => window.muxr.retry());
 document.getElementById('quit').addEventListener('click', () => window.muxr.quit());
 keepAwake.addEventListener('change', () => window.muxr.setKeepAwake(keepAwake.checked));

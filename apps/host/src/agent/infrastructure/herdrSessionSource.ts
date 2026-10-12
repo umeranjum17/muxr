@@ -14,6 +14,7 @@ import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { findHerdrBin } from '../../../../../scripts/setup/infrastructure/herdr.mjs';
 import type {
     AgentLifecycle,
     ApplicationLauncher,
@@ -1473,10 +1474,10 @@ export async function createHerdrSessionSource(
         for (const session of currentSessions()) emitState(session.sessionId);
     }
 
-    // The kit spawns `bin` directly for CLI and terminal verbs, so it needs
-    // the same resolved binary the host would exec, not a PATH lookup.
-    const herdrBin = options.herdrBin ?? process.env.HERDR_BIN ?? 'herdr';
-    const client = new KitHerdrClient(herdrBin, socketPath, () => {
+    // Resolved at each use, so a Herdr installed after the host started is
+    // found without a restart; the kit spawns that exact path for CLI and terminal verbs.
+    const resolvedHerdrBin = (): string | undefined => options.herdrBin || process.env.HERDR_BIN || findHerdrBin();
+    const client = new KitHerdrClient(() => resolvedHerdrBin() ?? 'herdr', socketPath, () => {
         routingEpoch += 1;
         void client.subscribeEvents(EVENT_KINDS).catch(() => {});
         void refreshSnapshot().then(emitAllStates).then(() => artifacts.rescanAll()).catch(() => {});
@@ -2513,7 +2514,7 @@ export async function createHerdrSessionSource(
             }
         },
 
-        async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }> {
+        async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean; missing?: true }> {
             const workspaces: HerdrTreeWorkspace[] = [];
             const sessionsByPane = new Map<string, CurrentSession>();
             for (const session of currentSessions()) if (!sessionsByPane.has(session.paneId)) sessionsByPane.set(session.paneId, session);
@@ -2574,7 +2575,7 @@ export async function createHerdrSessionSource(
                     tabs,
                 });
             }
-            return { workspaces, connected: client.connected };
+            return { workspaces, connected: client.connected, ...(client.connected || resolvedHerdrBin() !== undefined ? {} : { missing: true as const }) };
         },
 
         async applicationsList(): Promise<{ items: ApplicationLauncher[] }> {
