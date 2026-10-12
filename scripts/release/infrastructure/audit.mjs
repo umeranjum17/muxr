@@ -4,6 +4,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 const permissiveLicenses = new Set([
     '0BSD',
     'Apache-2.0',
+    'BlueOak-1.0.0',
     'Apache2',
     'BSD-2-Clause',
     'BSD-3-Clause',

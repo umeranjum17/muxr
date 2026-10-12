@@ -114,7 +114,10 @@ declared runtime dependencies only. Chromium is covered through Electron's own
 `LICENSES.chromium.html`, never a hand-written list. A closure package that ships
 no license file is recorded from its `package.json` SPDX license and author with
 `licenseFile: "none"`; no license text is written for it, and the allow-list
-still applies. The build fails on a copyleft or unknown/non-approved license
+still applies. The shared allow-list is permissive SPDX ids (`0BSD`, `Apache-2.0`,
+`Apache2`, `BSD-2-Clause`, `BSD-3-Clause`, `BlueOak-1.0.0`, `CC0-1.0`, `ISC`, `MIT`,
+`MPL-2.0`, `Unlicense`); `BlueOak-1.0.0` is admitted for `sax`, a transitive
+dependency of the desktop closure. The build fails on a copyleft or unknown/non-approved license
 before packaging, and the generated `THIRD_PARTY_LICENSES.json` ships at
 `resources/app/` beside `LICENSES/`, with each dependency's exact license text
 under `resources/app/LICENSES/npm/`. After packaging, the build runs
