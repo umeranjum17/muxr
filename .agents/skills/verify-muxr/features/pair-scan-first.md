@@ -4,7 +4,7 @@ On the native app, every way into pairing leads with one Scan button that opens
 the system QR scanner in one tap: first run, Home before the first pairing, the
 recovery card's Pair again, Settings → Pair another machine, the command
 palette, and a launch link. A code that has run out or was refused leads with
-**Scan a new code**, plus one line saying to run `muxr pair` for a new one.
+**Scan a new code**, plus one line saying to open muxr on the computer or run `muxr pair` for a new one.
 Pasting the string, and SSH, sit below as quieter options. A device that cannot
 scan (web/PWA, an iOS simulator, an older iPad whose system scanner throws)
 says so in one line and leads with paste; it never shows a Scan that cannot
@@ -13,10 +13,10 @@ open.
 ## Sub-features
 
 - `scan-leads-entry` bare `/pair` (Home, recovery card, palette) and `/pair?source=settings` open with **Scan the QR** as the first, primary button; **Or paste the pairing string** and a secondary Connect sit below.
-- `scan-new-code` an expired launch link, an expired QR scanned on first run or Home, and a code the computer refused all land on the pair page with the error and **Scan a new code** first, under it "On your computer, run muxr pair for a new code."
+- `scan-new-code` an expired launch link, an expired QR scanned on first run or Home, and a code the computer refused all land on the pair page with the error and **Scan a new code** first, under it "On your computer, open muxr or run muxr pair for a new code."
 - `scan-retry` a retryable failure keeps **Try again** primary, then **Scan a new code**, **Enter another code**, and a quiet **Back**.
 - `scan-one-tap` the Scan press opens the scanner directly; a camera permission still loading is asked for in the same tap, and a refusal offers **Open Settings**.
-- `no-scanner` web/PWA, the iOS simulator, or a session whose scanner already failed to open lead with paste and say why — native "This <device> can't scan a QR, so paste the pairing string from muxr pair.", web/PWA "Browsers pair by link, not QR." (native first run shows a "Paste the pairing string" tile instead of the scan step).
+- `no-scanner` web/PWA, the iOS simulator, or a session whose scanner already failed to open lead with paste and say why — native "This <device> can't scan a QR, so paste the pairing string muxr shows on your computer.", web/PWA "Browsers pair by link, not QR." (native first run shows a "Paste the pairing string" tile instead of the scan step).
 - `ssh-untouched` `/pair?route=ssh` keeps its SSH form with no Scan.
 
 ## How to get to it (user POV)

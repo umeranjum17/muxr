@@ -207,7 +207,7 @@ export const ja: TranslationStructure = {
     pairing: {
         busy: 'ペアリング中…',
         connecting: 'コンピューターに安全に接続しています…',
-        compareWords: ({ name }: { name: string }) => `${name} に同じ二つの単語が表示されていることを確認し、コンピューターで y を押してください。`,
+        compareWords: ({ name }: { name: string }) => `${name} に同じ二つの単語が表示されていることを確認し、コンピューターで承認してください。`,
         paired: ({ name }: { name: string }) => `${name} とペアリングしました。`,
     },
 

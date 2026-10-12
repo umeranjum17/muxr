@@ -185,7 +185,7 @@ export const ru: TranslationStructure = {
     pairing: {
         busy: 'Сопряжение…',
         connecting: 'Безопасное подключение к вашему компьютеру…',
-        compareWords: ({ name }: { name: string }) => `Проверьте, что ${name} показывает эти два слова, затем нажмите y на компьютере.`,
+        compareWords: ({ name }: { name: string }) => `Проверьте, что ${name} показывает эти два слова, затем подтвердите на компьютере.`,
         paired: ({ name }: { name: string }) => `Сопряжено с ${name}.`,
     },
 

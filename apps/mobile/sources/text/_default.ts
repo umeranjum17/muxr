@@ -205,7 +205,7 @@ export const en = {
         // The words step after consent: compare the two words, then approve on the computer.
         busy: 'Pairing…',
         connecting: 'Connecting securely to your computer…',
-        compareWords: ({ name }: { name: string }) => `Check that ${name} shows these two words, then press y on the computer.`,
+        compareWords: ({ name }: { name: string }) => `Check that ${name} shows these two words, then approve on your computer.`,
         paired: ({ name }: { name: string }) => `Paired with ${name}.`,
     },
 
