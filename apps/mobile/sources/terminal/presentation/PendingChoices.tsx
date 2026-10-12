@@ -28,7 +28,7 @@ const signature = (choices: readonly PendingChoice[]): string =>
  * same channel the key row writes to, which both selects and confirms it. The screen is read with the passive `pane.read`,
  * so reading it never moves the agent's viewport.
  */
-export const PendingChoices = React.memo(function PendingChoices({ sessionId, waiting, channel, onVisibilityChange, lineHeight, gridInset }: {
+export const PendingChoices = React.memo(function PendingChoices({ sessionId, waiting, channel, onVisibilityChange, lineHeight, gridInset, columns }: {
     sessionId: string;
     /** The pane is blocked and this device may answer it. */
     waiting: boolean;
@@ -39,6 +39,9 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
     /** The gap between the terminal's last row and the box the band sits in, so a
      *  short viewport that does not divide into whole rows still ends on a line. */
     gridInset?: number;
+    /** The terminal grid width in columns the pane is drawn at; wrapped
+     *  unnumbered labels are rejoined against it. */
+    columns?: number;
 }) {
     const { theme } = useUnistyles();
     const { colors: terminalColors } = useTerminalColors();
@@ -58,7 +61,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
             try {
                 const { text } = await sync.request('pane.read', { sessionId, source: 'visible' });
                 if (!alive) return;
-                const next = pendingChoices(text);
+                const next = pendingChoices(text, columns);
                 const nextSignature = signature(next);
                 const last = answered.current;
                 if (last !== null && last.signature === nextSignature && Date.now() - last.at < ANSWER_SETTLE_MS) return;
@@ -74,7 +77,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
             alive = false;
             clearTimeout(timer);
         };
-    }, [sessionId, waiting]);
+    }, [columns, sessionId, waiting]);
 
     const visible = waiting && choices.length > 0 && channel !== undefined;
     React.useLayoutEffect(() => { onVisibilityChange(visible); }, [onVisibilityChange, visible]);
@@ -95,7 +98,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
         void (async () => {
             try {
                 const { text } = await sync.request('pane.read', { sessionId, source: 'visible' });
-                const fresh = pendingChoices(text);
+                const fresh = pendingChoices(text, columns);
                 const match = fresh.find((candidate) => candidate.number === undefined && candidate.label === choice.label);
                 if (match === undefined) {
                     answered.current = null;

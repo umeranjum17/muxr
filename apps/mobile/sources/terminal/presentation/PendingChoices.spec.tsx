@@ -47,7 +47,7 @@ import { PendingChoices } from './PendingChoices';
 
 const SCREEN = ['Which approach should I take?', '\u276f 1. Option one', '  2. Option two', '  3. Option three'].join('\n');
 
-async function mount(props: { lineHeight?: number; gridInset?: number }) {
+async function mount(props: { lineHeight?: number; gridInset?: number; columns?: number }) {
     readText.value = SCREEN;
     let renderer: any;
     await TestRenderer.act(async () => {
@@ -117,15 +117,29 @@ const TRUST_SCREEN = [
     '',
 ].join('\n');
 
-describe('one-tap answers to a question with no numbers', () => {
-    it('answers the folder-trust question by moving to the tapped row, never by Enter on the highlighted Exit', async () => {
+/** Claude Code 2.1.296's MCP question at a ~37-column phone grid: two labels wrap. */
+const MCP_SCREEN = [
+    ' New MCP server found in this project',
+    '',
+    '    Use this MCP server',
+    '    Use this and all future MCP',
+    '    servers in this project',
+    '  \u276f Continue without using this MCP',
+    '    server',
+    '',
+    ' Enter to confirm \u00b7 Esc to cancel',
+    '',
+    '',
+].join('\n');
+
+describe('one-tap answers to a question with no numbers', () => {    it('answers the folder-trust question by moving to the tapped row, never by Enter on the highlighted Exit', async () => {
         currentOverrides.value = {};
         readText.value = TRUST_SCREEN;
         const sent: string[] = [];
         let renderer: any;
         await TestRenderer.act(async () => {
             renderer = TestRenderer.create(
-                <PendingChoices sessionId="s" waiting channel={{ sendText: (text) => sent.push(text) }} onVisibilityChange={() => undefined} />,
+                <PendingChoices sessionId="s" waiting channel={{ sendText: (text) => sent.push(text) }} onVisibilityChange={() => undefined} columns={44} />,
             );
         });
         await TestRenderer.act(async () => { await Promise.resolve(); });
@@ -137,5 +151,28 @@ describe('one-tap answers to a question with no numbers', () => {
 
         await TestRenderer.act(async () => { chips[1].props.onPress(); });
         expect(sent).toEqual(['\u001b[B\r']);
+    });
+
+    it('joins labels wrapped at the phone grid so a chip never answers another row', async () => {
+        currentOverrides.value = {};
+        readText.value = MCP_SCREEN;
+        const sent: string[] = [];
+        let renderer: any;
+        await TestRenderer.act(async () => {
+            renderer = TestRenderer.create(
+                <PendingChoices sessionId="s" waiting channel={{ sendText: (text) => sent.push(text) }} onVisibilityChange={() => undefined} columns={37} />,
+            );
+        });
+        await TestRenderer.act(async () => { await Promise.resolve(); });
+
+        const chips = renderer.root.findAll((node: any) => node.type === 'Pressable');
+        expect(chips.map((chip: any) => chip.props.accessibilityLabel)).toEqual([
+            'Answer Use this MCP server',
+            'Answer Use this and all future MCP servers in this project',
+            'Answer Continue without using this MCP server',
+        ]);
+
+        await TestRenderer.act(async () => { chips[1].props.onPress(); });
+        expect(sent).toEqual(['\u001b[A\r']);
     });
 });

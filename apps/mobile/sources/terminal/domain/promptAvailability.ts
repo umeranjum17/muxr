@@ -27,9 +27,9 @@ const WRAP_LINES = 4;
  * Claude Code's folder-trust question, answers to arrow presses from its
  * highlighted row and Enter.
  */
-export function pendingChoices(screen: string): PendingChoice[] {
+export function pendingChoices(screen: string, columns?: number): PendingChoice[] {
     const numbered = numberedChoices(screen);
-    return numbered.length > 0 ? numbered : unnumberedChoices(screen);
+    return numbered.length > 0 ? numbered : unnumberedChoices(screen, columns);
 }
 
 function numberedChoices(screen: string): PendingChoice[] {
@@ -65,11 +65,15 @@ function numberedChoices(screen: string): PendingChoice[] {
  * label's own column, with no more than a footer ("Enter to confirm · Esc to
  * cancel") below it. Each answer moves from the highlight to its row and
  * presses Enter, so no answer depends on which row Enter alone would pick.
- * ponytail: a label wrapped at the pane width reads as two rows, which a
- * 44-column phone grid does not do to the folder-trust answers; wrapped
- * unnumbered menus need the pane width to tell them apart.
+ * A label wrapped at the pane width reads as two terminal rows, so the rows
+ * are rejoined before moves are counted: a visual line continues the logical
+ * row above it when that row's visual plus a space plus this line's first
+ * word would not fit in the grid width (word wrap). Without the width, or
+ * when a visual already exceeds it, there is no honest split, so there are
+ * no chips rather than a chip that answers another row.
  */
-function unnumberedChoices(screen: string): PendingChoice[] {
+function unnumberedChoices(screen: string, columns?: number): PendingChoice[] {
+    if (columns === undefined || !Number.isFinite(columns) || columns <= 0) return [];
     const lines = screen.split('\n').map((line) => line.trimEnd());
     while (lines.length > 0 && lines.at(-1) === '') lines.pop();
     let cursor = -1;
@@ -86,10 +90,30 @@ function unnumberedChoices(screen: string): PendingChoice[] {
     let last = cursor;
     while (isRow(lines[last + 1])) last++;
     if (last === first || lines.slice(last + 1).filter((line) => line.trim() !== '').length > FOOTER_LINES) return [];
-    return lines.slice(first, last + 1).map((line, offset) => {
-        const row = first + offset;
-        const moves = row > cursor ? DOWN.repeat(row - cursor) : UP.repeat(cursor - row);
-        return { key: `${moves}\r`, label: row === cursor ? highlighted! : line.trim() };
+    const visuals = lines.slice(first, last + 1);
+    if (visuals.some((visual) => visual.length > columns)) return [];
+    const firstWord = (visual: string): string => visual.trim().split(/\s+/)[0] ?? '';
+    const rows: string[] = [cursor === first ? highlighted! : visuals[0]!.trim()];
+    let cursorRow = 0;
+    for (let offset = 1; offset < visuals.length; offset++) {
+        const previous = lines[first + offset - 1]!;
+        const visual = visuals[offset]!;
+        const isCursor = offset + first === cursor;
+        const text = isCursor ? CURSOR_LINE.exec(visual)![2]! : visual.trim();
+        if (!isCursor) {
+            const word = firstWord(visual);
+            if (word !== '' && previous.length + 1 + word.length > columns) {
+                rows[rows.length - 1] += ` ${text}`;
+                continue;
+            }
+        }
+        rows.push(text);
+        if (isCursor) cursorRow = rows.length - 1;
+    }
+    if (rows.length < 2) return [];
+    return rows.map((label, row) => {
+        const moves = row > cursorRow ? DOWN.repeat(row - cursorRow) : UP.repeat(cursorRow - row);
+        return { key: `${moves}\r`, label };
     });
 }
 
