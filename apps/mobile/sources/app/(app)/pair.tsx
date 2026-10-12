@@ -279,9 +279,15 @@ export default function PairScreen() {
     }, [openedFromSettings, router]);
 
     const manualForm = state === undefined || state.phase === 'error' && state.url === undefined;
-    // An error leads the card, a screen above the field at a large font on a short phone: bring it into view.
+    // An error leads the card, a screen above the field at a large font on a short phone: bring it into view
+    // once the keyboard has closed, or the scroll view's own keyboard adjustment moves it away again.
     const scrollRef = React.useRef<KeyboardAwareScrollViewRef>(null);
-    React.useEffect(() => { if (state?.phase === 'error') scrollRef.current?.scrollTo({ y: 0, animated: true }); }, [state]);
+    const shownError = React.useRef<PairState>(undefined);
+    React.useEffect(() => {
+        if (state?.phase !== 'error' || keyboardOpen || shownError.current === state) return;
+        shownError.current = state;
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
+    }, [state, keyboardOpen]);
     return (
         <View style={styles.screenWrap}>
         <PairScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
