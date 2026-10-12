@@ -9,10 +9,11 @@ by itself and lists the agents; nobody restarts anything.
 ## Sub-features
 
 - `missing-signal` the host's `herdr.tree` reply carries `missing: true` only
-  when its Herdr socket is down and no `herdr` binary is on its PATH,
-  `HERDR_INSTALL_DIR`, `~/.local/bin` or `/usr/local/bin` (the lookup setup
-  uses, `herdrBin()`); a Herdr that is installed but stopped
-  keeps the older "Agent runtime unavailable" restart card.
+  when its Herdr socket is down and no compatible Herdr (0.9.1 or newer)
+  resolves: an explicit `HERDR_BIN`, else the binary the service pins, PATH,
+  `HERDR_INSTALL_DIR` or `~/.local/bin`, then `/usr/local/bin` (`herdrBin()`).
+  A Herdr that is installed but stopped keeps the older "Agent runtime
+  unavailable" restart card.
 - `phone-card` Home's recovery card titles "Herdr is missing on your computer",
   names the desktop app's Install Herdr, and offers `muxr doctor` with a copy
   button; Settings → Connection reads "Herdr is missing on the computer".
@@ -50,7 +51,7 @@ task-owned emulator paired to that window.
 
 - The card needs a host built from this change; an older host never sends
   `missing`, so the phone keeps the restart card.
-- The host resolves Herdr with `herdrBin()` at every spawn, so a Herdr installed
+- The host resolves Herdr through `findHerdrBin()` at every spawn, so a Herdr installed
   into `~/.local/bin` (or `HERDR_INSTALL_DIR`) after the host started is used
   without a restart and without a PATH change.
 - At font 2.0 the card's pre-existing Retry connection button ellipsizes.

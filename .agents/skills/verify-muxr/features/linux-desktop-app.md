@@ -25,8 +25,7 @@ without a terminal.
   with the user's own environment (AppImage paths stripped), shows Downloading
   Herdr… then Starting Herdr…, starts the server and clears the notice; the host
   picks Herdr up without a restart. A failed install reads "Couldn't install
-  Herdr. Check this computer's internet connection, then press Try again." Focusing
-  the window re-checks, so a Herdr installed from a terminal is picked up too.
+  Herdr. Check this computer's internet connection, then press Try again."
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.
 - Closing the window keeps the relay and host running in the tray.
