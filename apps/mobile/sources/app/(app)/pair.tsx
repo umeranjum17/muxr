@@ -107,6 +107,9 @@ export default function PairScreen() {
     // Rides on the keyboard on both native platforms: Android's window does
     // not resize under the keyboard provider, so a plain bar sat behind it.
     const ConnectBar = browser ? View : KeyboardStickyView;
+    // The open keyboard already covers the bottom inset; keeping it would
+    // lift the bar and cut that much off a 270dp viewport.
+    const connectBarOffset = browser ? {} : { offset: { opened: insets.bottom } };
     const openedFromSettings = routeParams.source === 'settings';
     const sshRoute = !browser && routeParams.route === 'ssh' && sshTunnelAvailable();
     // pairArrival.ts owns intent restoration; typed, pasted and scanned input
@@ -426,7 +429,7 @@ export default function PairScreen() {
         {sshRoute && manualForm && (
             // Anchored below the scroll; on native it follows the keyboard
             // without shrinking the aware scroll.
-            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
+            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
                 {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
                 <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
@@ -434,7 +437,7 @@ export default function PairScreen() {
         {!sshRoute && manualForm && (
             // Same anchored bar as the SSH route: the manual Connect must stay
             // above the keyboard on short viewports.
-            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
+            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
                 <ActionButton title="Connect" icon="link-outline" variant={canScan ? 'secondary' : 'primary'} disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
