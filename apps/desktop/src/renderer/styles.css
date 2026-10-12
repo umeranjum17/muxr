@@ -67,7 +67,7 @@ body {
     flex-direction: column;
     gap: 12px;
     align-items: safe center;
-    justify-content: center;
+    justify-content: safe center;
     padding: 20px;
     overflow-y: auto;
 }
