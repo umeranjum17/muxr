@@ -99,15 +99,7 @@ function displayName(grant: StoredHostedGrant, liveName: string | undefined): st
     return 'Paired computer';
 }
 
-export function ComputersSheet(props: { visible: boolean; sessionId: string; onClose: () => void }): React.JSX.Element {
-    return (
-        <ScopedTheme name="dark">
-            <ComputersSheetBody {...props} />
-        </ScopedTheme>
-    );
-}
-
-function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean; sessionId: string; onClose: () => void }): React.JSX.Element {
+export function ComputersSheet({ visible, sessionId, onClose }: { visible: boolean; sessionId: string; onClose: () => void }): React.JSX.Element {
     const { theme } = useUnistyles();
     const router = useRouter();
     const auth = useAuth();
@@ -264,8 +256,12 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
         </View>
     );
 
+    // A sheet over the session paints from the dark surface whatever the app
+    // is set to; the scope sits here, in this sheet's own render, so the rows
+    // it mounts on its own state (the pairing read, the liveness probes) read
+    // it too instead of the phone's theme.
     return (
-        <>
+        <ScopedTheme name="dark">
             <OptionSheet
                 visible={visible}
                 title="Computers"
@@ -294,6 +290,6 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
                     onConfirm={(value) => { if (value) { void doSwitch(); } else { setConfirm(null); } }}
                 />
             )}
-        </>
+        </ScopedTheme>
     );
 }
