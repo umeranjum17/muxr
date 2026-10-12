@@ -1,5 +1,7 @@
 export { updateCli } from './application/updateCli.mjs';
-export { packageInfoFromPath, packagePathFromInput } from './infrastructure/audit.mjs';
+export { desktopLicenseInventory } from './application/desktopLicenseInventory.mjs';
+export { runtimeDependencies } from './application/runtimeDependencies.mjs';
+export { isPermissiveLicense, packageInfoFromPath, packagePathFromInput } from './infrastructure/audit.mjs';
 export { prepareChangelog, reportFiles, selectChangelogEntry } from './application/prepareChangelog.mjs';
 export { sealRelease } from './application/sealRelease.mjs';
 export { verifyRelease } from './application/verifyRelease.mjs';

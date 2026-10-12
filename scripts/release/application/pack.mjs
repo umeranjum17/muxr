@@ -6,7 +6,6 @@ import {
     cpSync,
     existsSync,
     mkdirSync,
-    readFileSync,
     readdirSync,
     rmSync,
     statSync,
@@ -15,7 +14,7 @@ import {
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
-import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/audit.mjs';
+import { licenseInventory, writeThirdPartyInventory } from './licenseInventory.mjs';
 import { releaseCompatibility } from './repairHost.mjs';
 import { distribution } from '../domain/channel.mjs';
 import { bundleVoiceRuntime } from './bundleVoiceRuntime.mjs';
@@ -34,7 +33,6 @@ const sourceDirty = execFileSync('git', ['status', '--porcelain', '--untracked-f
 const releaseMetadata = { ...release, commit, sourceTree, sourceDirty };
 // The desktop engine is a dependency, not inlined: installing muxr installs
 // @desklink/host, whose optional platform package carries the prebuilt engine.
-const desklinkHost = require(join(root, 'node_modules', '@desklink', 'host', 'package.json'));
 // The link loads libsodium's native addon, which cannot be bundled: install it.
 const runtimeDependencies = deriveRuntimeDependencies(root);
 const external = Object.keys(runtimeDependencies);
@@ -88,80 +86,21 @@ await build({
 
 const voiceResult = await bundleVoiceRuntime({ root, out, external });
 
-const bundledPackagePaths = new Set(
-    Object.keys(result.metafile.inputs)
-        .map((input) => packagePathFromInput(join(root, 'apps', 'host', 'dist'), input))
-        .concat(Object.keys(voiceResult.metafile.inputs)
-            .map((input) => packagePathFromInput(root, input)))
-        .filter((path) => path !== undefined && !/node_modules\/@(?:try)?muxr\//.test(path)),
-);
-const bundledDependencies = [...bundledPackagePaths]
-    .sort()
-    .map((path) => ({ ...packageInfoFromPath(path, true), declaredRange: null }));
-const bundledNames = new Set(bundledDependencies.map(({ name }) => name));
-const ccusagePlatformRoot = join(root, 'node_modules', '@ccusage');
-const ccusageManifestPath = join(root, 'node_modules', 'ccusage', 'package.json');
-const ccusageManifest = JSON.parse(readFileSync(ccusageManifestPath, 'utf8'));
-const ccusagePackage = packageInfoFromPath(ccusageManifestPath, false);
-const ccusagePlatformDependencies = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'].map((target) => {
-    const name = `@ccusage/ccusage-${target}`;
-    const version = ccusageManifest.optionalDependencies?.[name];
-    if (version !== rootPackage.dependencies.ccusage) throw new Error(`license audit: ccusage does not pin ${name} to ${rootPackage.dependencies.ccusage}`);
-    const installedManifest = join(ccusagePlatformRoot, `ccusage-${target}`, 'package.json');
-    if (existsSync(installedManifest)) {
-        const pkg = JSON.parse(readFileSync(installedManifest, 'utf8'));
-        if (pkg.name !== name || pkg.license !== ccusagePackage.license || pkg.version !== version) {
-            throw new Error(`license audit: ccusage platform metadata mismatch for ${pkg.name}@${pkg.version}`);
-        }
-    }
-    return {
-        name,
-        auditedVersion: version,
-        license: ccusagePackage.license,
-        bundled: false,
-        licensePath: ccusagePackage.licensePath,
-        declaredRange: null,
-        transitiveOf: 'ccusage',
-    };
+const dependencies = licenseInventory({
+    bundles: [
+        { root: join(root, 'apps', 'host', 'dist'), metafile: result.metafile },
+        { root, metafile: voiceResult.metafile },
+    ],
+    root,
+    rootPackage,
+    declared: runtimeDependencies,
 });
-// Its native executable is desklink's own Apache-2.0 build; the licences of
-// what it links travel inside that package as THIRD_PARTY_LICENSES.txt.
-const desklinkPlatformDependencies = Object.entries(desklinkHost.optionalDependencies)
-    .map(([name, version]) => ({
-        name,
-        auditedVersion: version,
-        license: desklinkHost.license,
-        bundled: false,
-        licensePath: join(root, 'node_modules', '@desklink', 'host', 'LICENSE'),
-        declaredRange: null,
-        transitiveOf: '@desklink/host',
-    }));
-const dependencies = [
-    ...bundledDependencies,
-    ...ccusagePlatformDependencies,
-    ...desklinkPlatformDependencies,
-    ...external
-        .filter((name) => !bundledNames.has(name))
-        .sort()
-        .map((name) => ({
-            ...packageInfoFromPath(join(root, 'node_modules', ...name.split('/'), 'package.json'), false),
-            declaredRange: runtimeDependencies[name],
-        })),
-];
-
-mkdirSync(join(out, 'LICENSES', 'npm'), { recursive: true });
-for (const dependency of dependencies) {
-    const licenseFile = `${dependency.name.replaceAll('/', '__')}@${dependency.auditedVersion}.txt`;
-    copyFileSync(dependency.licensePath, join(out, 'LICENSES', 'npm', licenseFile));
-}
-writeFileSync(
-    join(out, 'THIRD_PARTY_LICENSES.json'),
-    `${JSON.stringify({
-        artifact: `@trymuxr/cli@${version}`,
-        policy: 'Packaging fails on copyleft or unknown/non-approved dependency licenses.',
-        dependencies: dependencies.map(({ licensePath: _licensePath, ...dependency }) => dependency),
-    }, null, 2)}\n`,
-);
+writeThirdPartyInventory({
+    inventoryPath: join(out, 'THIRD_PARTY_LICENSES.json'),
+    licenseDir: join(out, 'LICENSES', 'npm'),
+    artifact: `@trymuxr/cli@${version}`,
+    dependencies,
+});
 const contractResult = await build({
     entryPoints: ['packages/contract/dist/index.js'],
     outfile: join(out, 'contract.mjs'),

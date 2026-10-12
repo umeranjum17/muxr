@@ -99,9 +99,20 @@ the npm artifact, and the shared runtime dependencies installed as production
 Electron/Chromium texts at the AppImage root beside the `muxr` binary
 (`LICENSE.electron.txt`, `LICENSES.chromium.html`), plus the `LICENSES/` copied
 from the npm package under `resources/app/LICENSES/` (`Apache-2.0.txt`,
-`MIT.txt`, `OFL-1.1.txt`, `Unlicense.txt`). `THIRD_PARTY_LICENSES.json` covers
-the npm CLI artifact only: this AppImage needs its own generated inventory
-before any public AppImage release.
+`MIT.txt`, `OFL-1.1.txt`, `Unlicense.txt`). The desktop build
+(`apps/desktop/scripts/build.mjs`) audits everything the AppImage ships
+through the same generator as the npm packer
+([`desktopLicenseInventory`](../scripts/release/application/desktopLicenseInventory.mjs)):
+the dependencies inlined into the host, relay, voice, main and preload
+bundles, the installed production dependencies, the ccusage/desklink platform
+entries, and the Electron runtime shell itself. Chromium is covered through
+Electron's own `LICENSES.chromium.html`, never a hand-written list. The build
+fails on a copyleft or unknown/non-approved license before packaging, and the
+generated `THIRD_PARTY_LICENSES.json` ships at `resources/app/` beside
+`LICENSES/`, with each dependency's exact license text under
+`resources/app/LICENSES/npm/`. `scripts/diagnostics/application/checkDesktopLicenses.mjs`
+is the audit gate for the built artifact: it fails when that inventory is
+missing or when a listed dependency falls outside the shared allow-list.
 
 ## Mobile artifact
 

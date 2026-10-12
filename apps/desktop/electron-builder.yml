@@ -15,6 +15,7 @@ files:
   - build/icon.png
   - build/tray.png
   - package.json
+  - THIRD_PARTY_LICENSES.json
   - LICENSES/**/*
 
 extraMetadata:

@@ -13,6 +13,15 @@ const permissiveLicenses = new Set([
     'Unlicense',
 ]);
 
+export function isPermissiveLicense(license) {
+    return permissiveLicenses.has(license);
+}
+
+export function assertPermissiveLicense({ name, version, license }) {
+    if (isPermissiveLicense(license)) return license;
+    const reason = /(?:^|[^A-Z])(?:A?GPL|LGPL)/i.test(license) ? 'copyleft' : 'unknown/non-approved';
+    throw new Error(`license audit: ${reason} license ${license || '<missing>'} for ${name}@${version}`);
+}
 export function packagePathFromInput(root, input) {
     const absolute = resolve(root, input);
     const marker = `${sep}node_modules${sep}`;
@@ -27,10 +36,7 @@ export function packageInfoFromPath(packagePath, bundled) {
     if (!existsSync(packagePath)) throw new Error(`license audit: missing package metadata for bundled input`);
     const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
     const license = typeof pkg.license === 'string' ? pkg.license : '';
-    if (!permissiveLicenses.has(license)) {
-        const reason = /(?:^|[^A-Z])(?:A?GPL|LGPL)/i.test(license) ? 'copyleft' : 'unknown/non-approved';
-        throw new Error(`license audit: ${reason} license ${license || '<missing>'} for ${pkg.name}@${pkg.version}`);
-    }
+    assertPermissiveLicense({ name: pkg.name, version: pkg.version, license });
     const packageDir = dirname(packagePath);
     const licenseName = ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'license', 'COPYING'].find((file) => existsSync(join(packageDir, file)));
     if (licenseName === undefined) throw new Error(`license audit: no license text for ${pkg.name}@${pkg.version}`);

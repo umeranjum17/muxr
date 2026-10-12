@@ -1,0 +1,93 @@
+/**
+ * License audit gate for the desktop AppImage. Fails when the AppImage's
+ * third-party license inventory is missing or when a listed dependency has
+ * a license outside the shared allow-list (the same list the npm CLI packer
+ * enforces at build time).
+ *
+ * Usage: node scripts/diagnostics/application/checkDesktopLicenses.mjs <AppImage|directory>
+ * A directory is the already-extracted AppImage root (squashfs-root) or a
+ * staged resources/app layout; an AppImage file is extracted with
+ * --appimage-extract into a short scratch dir first.
+ */
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { isPermissiveLicense } from '../../release/index.mjs';
+
+const target = process.argv[2];
+if (target === undefined) {
+    process.stderr.write('usage: checkDesktopLicenses.mjs <AppImage|directory>\n');
+    process.exit(1);
+}
+
+let distRoot = resolve(target);
+let scratch;
+if (statSync(distRoot, { throwIfNoEntry: false })?.isFile() === true) {
+    scratch = mkdtempSync(join(tmpdir(), 'mxr-lic-'));
+    try {
+        execFileSync(distRoot, ['--appimage-extract'], { cwd: scratch, stdio: 'ignore' });
+    } catch (error) {
+        process.stderr.write(`license audit: could not extract ${distRoot}: ${error instanceof Error ? error.message : String(error)}\n`);
+        process.exit(1);
+    }
+    distRoot = join(scratch, 'squashfs-root');
+}
+
+function fail(message) {
+    process.stderr.write(`${message}\n`);
+    if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true });
+    process.exit(1);
+}
+
+const packagedInventory = join(distRoot, 'resources', 'app', 'THIRD_PARTY_LICENSES.json');
+const stagedInventory = join(distRoot, 'THIRD_PARTY_LICENSES.json');
+let appRoot;
+let inventoryPath;
+if (existsSync(packagedInventory)) {
+    appRoot = join(distRoot, 'resources', 'app');
+    inventoryPath = packagedInventory;
+} else if (existsSync(stagedInventory)) {
+    appRoot = distRoot;
+    inventoryPath = stagedInventory;
+} else {
+    fail(`license audit: AppImage inventory missing (looked for ${packagedInventory} and ${stagedInventory})`);
+}
+
+let inventory;
+try {
+    inventory = JSON.parse(readFileSync(inventoryPath, 'utf8'));
+} catch (error) {
+    fail(`license audit: AppImage inventory at ${inventoryPath} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+}
+if (!Array.isArray(inventory.dependencies) || inventory.dependencies.length === 0) {
+    fail(`license audit: AppImage inventory at ${inventoryPath} lists no dependencies`);
+}
+for (const dependency of inventory.dependencies) {
+    if (!isPermissiveLicense(dependency.license)) {
+        const reason = /(?:^|[^A-Z])(?:A?GPL|LGPL)/i.test(dependency.license ?? '') ? 'copyleft' : 'unknown/non-approved';
+        fail(`license audit: ${reason} license ${dependency.license || '<missing>'} for ${dependency.name}@${dependency.auditedVersion}`);
+    }
+    if (dependency.licensePath !== undefined) fail(`license audit: inventory leaks a build path for ${dependency.name}`);
+}
+if (JSON.stringify(inventory).includes('/node_modules/')) fail('license audit: inventory leaks repository paths');
+if (!inventory.dependencies.some((dependency) => dependency.name === 'electron')) {
+    fail('license audit: AppImage inventory has no electron entry for the Electron/Chromium runtime');
+}
+// Electron's own notices ship at the AppImage root beside the muxr binary;
+// the inventory covers Chromium through them, never a hand-written list.
+// A bare staged app dir has no AppImage root, so there is nothing to check.
+if (appRoot !== distRoot) {
+    for (const notice of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) {
+        if (!existsSync(join(distRoot, notice))) fail(`license audit: ${notice} missing beside the AppImage binary`);
+    }
+}
+const licenseDir = join(appRoot, 'LICENSES', 'npm');
+for (const dependency of inventory.dependencies) {
+    const licenseFile = join(licenseDir, `${dependency.name.replaceAll('/', '__')}@${dependency.auditedVersion}.txt`);
+    if (!existsSync(licenseFile)) fail(`license audit: license text missing for ${dependency.name}@${dependency.auditedVersion} (${licenseFile})`);
+}
+
+if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true });
+const electron = inventory.dependencies.find((dependency) => dependency.name === 'electron');
+process.stdout.write(`desktop license audit PASS: ${inventory.dependencies.length} dependencies in ${inventoryPath}, electron ${electron.auditedVersion}\n`);

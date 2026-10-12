@@ -18,7 +18,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, sealRelease, verifyRelease } from '../../release/index.mjs';
+import { desktopLicenseInventory, packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, runtimeDependencies, sealRelease, verifyRelease } from '../../release/index.mjs';
 
 const root = process.cwd();
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'p-')));
@@ -562,6 +562,55 @@ try {
     for (const target of ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']) {
         assert.ok(licenseInventory.dependencies.some((dependency) => dependency.name === `@ccusage/ccusage-${target}` && dependency.transitiveOf === 'ccusage'), `${target} ccusage binary missing from license audit`);
     }
+
+    // The desktop AppImage carries its own generated inventory through the
+    // same generator: audit the snapshot's real desktop bundles into a staged
+    // app dir, then drive the AppImage license gate through its pass and fail
+    // paths. The real AppImage packaging itself is proven by the release
+    // build, not this suite.
+    const desktopRoot = join(snapshot, 'apps', 'desktop');
+    const desktopManifest = JSON.parse(readFileSync(join(desktopRoot, 'package.json'), 'utf8'));
+    const desktopStaging = join(scratch, 'desktop-app');
+    mkdirSync(desktopStaging, { recursive: true });
+    await desktopLicenseInventory({
+        root: snapshot,
+        appDir: desktopRoot,
+        dist: join(scratch, 'desktop-dist'),
+        external: ['electron', ...Object.keys(runtimeDependencies(snapshot))],
+        stageDir: desktopStaging,
+    });
+    const desktopInventory = JSON.parse(readFileSync(join(desktopStaging, 'THIRD_PARTY_LICENSES.json'), 'utf8'));
+    assert.equal(desktopInventory.artifact, `@muxr/desktop@${desktopManifest.version}`);
+    assert.equal(desktopInventory.bundledInputs, undefined);
+    assert.ok(!JSON.stringify(desktopInventory).includes(`${snapshot}/`), 'desktop inventory leaked a repository path');
+    const desktopDeclared = { ...runtimeDependencies(snapshot), electron: desktopManifest.devDependencies.electron };
+    for (const dependency of desktopInventory.dependencies) {
+        if (dependency.transitiveOf !== undefined) {
+            assert.equal(dependency.declaredRange, null);
+            assert.ok(['ccusage', '@desklink/host'].includes(dependency.transitiveOf), `${dependency.name} is transitive of ${dependency.transitiveOf}`);
+        } else {
+            assert.equal(dependency.declaredRange, dependency.bundled ? null : desktopDeclared[dependency.name]);
+        }
+        assert.match(dependency.auditedVersion, /^\d+\.\d+\.\d+/);
+        assert.equal(dependency.version, undefined, 'ambiguous dependency version field returned');
+        assert.equal(dependency.licensePath, undefined, 'desktop inventory leaked a build path');
+    }
+    const desktopElectron = desktopInventory.dependencies.find((dependency) => dependency.name === 'electron');
+    assert.ok(desktopElectron, 'desktop inventory has no electron entry for the Electron/Chromium runtime');
+    assert.equal(desktopElectron.auditedVersion, desktopManifest.devDependencies.electron);
+    const desktopGate = join(root, 'scripts', 'diagnostics', 'application', 'checkDesktopLicenses.mjs');
+    assert.match(run(process.execPath, [desktopGate, desktopStaging], { env: process.env }).stdout, /desktop license audit PASS/);
+    rmSync(join(desktopStaging, 'THIRD_PARTY_LICENSES.json'));
+    const gateMissing = run(process.execPath, [desktopGate, desktopStaging], { env: process.env, allowFailure: true });
+    assert.notEqual(gateMissing.status, 0, 'license gate passed with the AppImage inventory missing');
+    assert.match(gateMissing.stderr, /inventory missing/);
+    writeFileSync(join(desktopStaging, 'THIRD_PARTY_LICENSES.json'), `${JSON.stringify({
+        ...desktopInventory,
+        dependencies: desktopInventory.dependencies.map((dependency) => dependency.name === 'ws' ? { ...dependency, license: 'GPL-3.0' } : dependency),
+    }, null, 2)}\n`);
+    const gateCopyleft = run(process.execPath, [desktopGate, desktopStaging], { env: process.env, allowFailure: true });
+    assert.notEqual(gateCopyleft.status, 0, 'license gate passed a copyleft dependency');
+    assert.match(gateCopyleft.stderr, /copyleft/);
 
     writeFileSync(join(installDir, 'package.json'), '{"private":true}\n');
     run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], {
