@@ -46,9 +46,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 ## Features
 
 - [Pair the phone from the installable desktop app](./linux-desktop-app.md) —
-  a Linux AppImage wrapping the relay and host: launch→Ready timing, QR and
-  two-word pairing with a release APK on an emulator, Paired and Needs-attention
-  states, and keep-awake/start-at-login persistence.
+  a Linux AppImage wrapping the relay and host: launch→Ready timing with and
+  without Herdr, QR and two-word pairing with a release APK on an emulator,
+  Paired and Needs-attention states, and keep-awake/start-at-login persistence.
 - [Connect an older phone without optional UI plugins](./retired-ui-compatibility.md) —
   all five legacy replies over a real paired host, then released Android Home/session acceptance.
 - [Open agent pages on the normal desktop](./agent-desktop.md) —
@@ -73,6 +73,13 @@ user-visible behavior, then exactly four H2 sections in this order:
   lab-only `__MUXR_LAB_PAIR__` hook that stores the Hosted Grant through
   `webSecureStore`; the one supported path around the HTTPS-only pair screen,
   absent from production exports, used by the PWA features below.
+
+- [Start the first agent from Home in one tap](./home-first-agent.md) —
+  fresh release app paired to the fake-Herdr stack with no agents and a lab
+  `claude` stand-in: `Start Claude Code` opens the agent with no picker; signed
+  out, one plain sentence plus `Check again` turns into the one-tap offer in
+  place; timed Home-to-agent screenshots on main and the candidate; installed
+  PWA at 393 and 270 px, light and dark.
 
 - [Name agents on Home by kind and task, never a launch id](./home-agent-labels.md) —
   paired lab PWA over a real-Herdr lab with an unnamed Codex and pi agent: the
