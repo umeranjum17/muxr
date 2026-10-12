@@ -47,13 +47,17 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 - [Pair the phone from the installable desktop app](./linux-desktop-app.md) —
   a Linux AppImage wrapping the relay and host: launch→Ready timing with and
-  without Herdr, QR and two-word pairing with a release APK on an emulator,
+  without Herdr, Install Herdr from the window, QR and two-word pairing with a release APK on an emulator,
   Paired and Needs-attention states, and keep-awake/start-at-login persistence.
 - [Connect an older phone without optional UI plugins](./retired-ui-compatibility.md) —
   all five legacy replies over a real paired host, then released Android Home/session acceptance.
 - [Open agent pages on the normal desktop](./agent-desktop.md) —
   guarded real-Herdr launch environment evidence; all launch families,
   plan-account moves and headless device mirrors stay isolated.
+- [Install a missing Herdr without a terminal](./home-herdr-missing.md) —
+  desktop app with Herdr hidden: one plain sentence on the window and the
+  paired phone's Home, offline Try again, real published install, Home
+  recovers and lists the agent with no restart.
 - [Read a plain Computer failure](./computer-failure.md) —
   real native release app against a guarded Linux lab without ScreenCast:
   plain cause and next step, Try again, themes and 270dp/font 1.3.
