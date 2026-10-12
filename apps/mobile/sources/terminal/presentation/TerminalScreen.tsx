@@ -1558,6 +1558,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             onVisibilityChange={setChoicesVisible}
                             lineHeight={terminalRowHeight}
                             gridInset={terminalGridInset}
+                            columns={grid?.cols}
                         />
                         </AgentPager>
                     </View>

@@ -27,6 +27,7 @@ import { FOCUS_BACK_SIZE, FOCUS_BACK_TOP, focusDockMaxHeight } from './focusDock
 import { t } from '@/text';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
+import { dockStartPath } from '../application/startFolder';
 import { RealtimeTalkButton } from '@/conversation/ui';
 import { useAllMachines, useSessions, useSocketStatus } from '@/catalog/store';
 import { isMachineOnline } from '@/pairing';
@@ -562,19 +563,20 @@ export const HomeDock = React.memo(({
         }
     }, [selectedMachine, selectedPath, setPath]);
 
+    const startPath = dockStartPath(selectedPath, selectedMachine?.metadata?.homeDir);
     const projectOptions = React.useMemo(() => projectDockOptions({
-        selectedPath,
+        selectedPath: startPath,
         selectedMachineId: activeMachineId,
         sessions,
         homeDir: selectedMachine?.metadata?.homeDir,
-    }), [selectedMachine, activeMachineId, selectedPath, sessions]);
-    const currentProject = resolveDockOption(projectOptions, [selectedPath, '~']);
+    }), [selectedMachine, activeMachineId, startPath, sessions]);
+    const currentProject = resolveDockOption(projectOptions, [startPath]);
     const worktreeSelectionKey = selectedWorktreeKey(sessionType, worktreeKey);
     const [existingWorktrees, setExistingWorktrees] = React.useState<DockOption[]>([]);
     const [worktreeProbeError, setWorktreeProbeError] = React.useState<string | null>(null);
 
     React.useEffect(() => {
-        const path = resolveAbsolutePath(selectedPath ?? '~', selectedMachine?.metadata?.homeDir);
+        const path = resolveAbsolutePath(startPath, selectedMachine?.metadata?.homeDir);
         setWorktreeProbeError(null);
         if (!activeMachineId || !selectedMachine || !isMachineOnline(selectedMachine) || !path) {
             setExistingWorktrees([]);
@@ -593,7 +595,7 @@ export const HomeDock = React.memo(({
         return () => {
             cancelled = true;
         };
-    }, [selectedMachine, activeMachineId, selectedPath]);
+    }, [selectedMachine, activeMachineId, startPath]);
 
     const worktreeOptions = React.useMemo(
         () => worktreeDockOptions(existingWorktrees, worktreeKey),

@@ -24,11 +24,12 @@ const signature = (choices: readonly PendingChoice[]): string =>
  * The answers to the question a waiting agent is asking, as buttons along the
  * bottom of its terminal: the question stays readable above, and each answer
  * is one tap instead of a key hunted for in a scrolled row. A tap types the
- * answer's number through the same channel the key row writes to, which both
- * selects and confirms it. The screen is read with the passive `pane.read`,
+ * answer's number, or the arrow presses and Enter that reach it, through the
+ * same channel the key row writes to, which both selects and confirms it.
+ * The screen is read with the passive `pane.read`,
  * so reading it never moves the agent's viewport.
  */
-export const PendingChoices = React.memo(function PendingChoices({ sessionId, waiting, channel, onVisibilityChange, lineHeight, gridInset }: {
+export const PendingChoices = React.memo(function PendingChoices({ sessionId, waiting, channel, onVisibilityChange, lineHeight, gridInset, columns }: {
     sessionId: string;
     /** The pane is blocked and this device may answer it. */
     waiting: boolean;
@@ -39,6 +40,9 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
     /** The gap between the terminal's last row and the box the band sits in, so a
      *  short viewport that does not divide into whole rows still ends on a line. */
     gridInset?: number;
+    /** The terminal grid width in columns the pane is drawn at; wrapped
+     *  unnumbered labels are rejoined against it. */
+    columns?: number;
 }) {
     const { theme } = useUnistyles();
     const { colors: terminalColors } = useTerminalColors();
@@ -58,7 +62,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
             try {
                 const { text } = await sync.request('pane.read', { sessionId, source: 'visible' });
                 if (!alive) return;
-                const next = pendingChoices(text);
+                const next = pendingChoices(text, columns);
                 const nextSignature = signature(next);
                 const last = answered.current;
                 if (last !== null && last.signature === nextSignature && Date.now() - last.at < ANSWER_SETTLE_MS) return;
@@ -74,7 +78,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
             alive = false;
             clearTimeout(timer);
         };
-    }, [sessionId, waiting]);
+    }, [columns, sessionId, waiting]);
 
     const visible = waiting && choices.length > 0 && channel !== undefined;
     React.useLayoutEffect(() => { onVisibilityChange(visible); }, [onVisibilityChange, visible]);
@@ -83,10 +87,33 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
     if (!visible) return null;
 
     const answer = (choice: PendingChoice): void => {
+        const last = answered.current;
+        if (last !== null && Date.now() - last.at < ANSWER_SETTLE_MS) return;
         answered.current = { signature: signature(choices), at: Date.now() };
         setChoices([]);
-        hapticsSelection();
-        channel.sendText(choice.key);
+        if (choice.number !== undefined) {
+            hapticsSelection();
+            channel.sendText(choice.key);
+            return;
+        }
+        void (async () => {
+            try {
+                const { text } = await sync.request('pane.read', { sessionId, source: 'visible' });
+                const fresh = pendingChoices(text, columns);
+                const match = fresh.find((candidate) => candidate.number === undefined && candidate.label === choice.label);
+                if (match === undefined) {
+                    answered.current = null;
+                    setChoices(fresh);
+                    return;
+                }
+                answered.current = { signature: signature(fresh), at: Date.now() };
+                hapticsSelection();
+                channel.sendText(match.key);
+            } catch {
+                answered.current = null;
+                return;
+            }
+        })();
     };
 
     // A solid band in the terminal's own resolved background (the colour the
@@ -124,10 +151,10 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                     <Pressable
                         key={choice.key}
                         onPress={() => answer(choice)}
-                        onLongPress={() => Modal.alert(`Answer ${choice.key}`, choice.label)}
+                        onLongPress={() => Modal.alert(choice.number === undefined ? 'Answer' : `Answer ${choice.number}`, choice.label)}
                         accessibilityRole="button"
                         accessibilityLabel={`Answer ${choice.label}`}
-                        accessibilityHint={`Types ${choice.key}`}
+                        {...(choice.number === undefined ? {} : { accessibilityHint: `Types ${choice.number}` })}
                         style={({ pressed }) => ({
                             maxWidth: '100%',
                             minHeight: 36,
@@ -139,7 +166,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                             backgroundColor: pressed ? theme.colors.terminalChrome.clusterPressed : theme.colors.terminalChrome.cluster,
                         })}
                     >
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 11, ...Typography.mono() }}>{choice.key}</Text>
+                        {choice.number !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 11, ...Typography.mono() }}>{choice.number}</Text>}
                         <Text numberOfLines={2} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13 }}>{choice.label}</Text>
                     </Pressable>
                 ))}
