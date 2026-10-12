@@ -115,12 +115,12 @@ vi.mock('@/conversation/session', () => ({
     },
 }));
 vi.mock('react-native-mmkv', () => ({
-    MMKV: class {
+    createMMKV: () => new class {
         getString(key: string) { return mmkvValues.get(key); }
         getBoolean(key: string) { return mmkvValues.has(key) ? mmkvValues.get(key) === 'true' : undefined; }
         set(key: string, value: string) { mmkvValues.set(key, value); }
-        delete(key: string) { mmkvValues.delete(key); }
-    },
+        remove(key: string) { mmkvValues.delete(key); }
+    }(),
 }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { currentState: 'active' } }));
 vi.mock('expo-localization', () => ({ getLocales: () => [{ languageCode: 'en', languageTag: 'en-US' }] }));

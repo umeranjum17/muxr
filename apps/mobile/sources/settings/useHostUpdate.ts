@@ -1,11 +1,11 @@
 import * as React from 'react';
-import { MMKV } from 'react-native-mmkv';
+import { createStore } from '@/utils/mmkvStore';
 import type { RequestResult } from '@trymuxr/contract';
 import { sync } from '@/catalog/sync';
 import { getCachedConnectionSettings } from '@/connection';
 import { Modal } from '@/modal';
 
-const saved = new MMKV();
+const saved = createStore();
 const pending = new Set(['queued', 'updating', 'rolling-back']);
 /** Persist the plan before applying: the host may restart before its reply arrives. */
 export function useHostUpdate(appVersion: string) {
@@ -29,7 +29,7 @@ export function useHostUpdate(appVersion: string) {
             const next = await sync.request('host.update', { action: 'status', planId });
             if (!relevant()) return;
             lastStatus.current = next.status; setResult(next); setMessage(next.message);
-            if (!pending.has(next.status) && next.status !== 'needs-attention') saved.delete(key);
+            if (!pending.has(next.status) && next.status !== 'needs-attention') saved.remove(key);
         } catch { if (relevant()) setMessage('Waiting for the host. Your update record is saved; check again after it reconnects.'); }
         finally { refreshing.current = false; }
     }, [machine, key]);
