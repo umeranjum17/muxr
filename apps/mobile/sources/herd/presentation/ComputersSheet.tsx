@@ -109,16 +109,25 @@ export function ComputersSheet({ visible, sessionId, onClose }: { visible: boole
     const [grants, setGrants] = React.useState<StoredHostedGrant[]>([]);
     const [probes, setProbes] = React.useState<Record<string, boolean>>({});
     const [switching, setSwitching] = React.useState<string | null>(null);
+    // pairMachine stores the next machineId before the socket reconnects, so a
+    // live read would label the picked computer asleep and reset the probes of
+    // the one being left to Checking… for about a second. Freeze what the rows
+    // read from until the switch settles or fails instead.
+    const [switchSnapshot, setSwitchSnapshot] = React.useState<{ from: string | undefined; connected: boolean } | null>(null);
     const [confirm, setConfirm] = React.useState<{ row: ComputerRow; voiceActive: boolean } | null>(null);
 
     const activeMachineId = getCachedConnectionSettings().machineId;
     const agentMachineId = session?.metadata?.machineId ?? activeMachineId;
     const socketConnected = socketStatus.status === 'connected';
+    const frozen = switching !== null && switchSnapshot !== null;
+    const effectiveActiveId = frozen ? switchSnapshot.from : activeMachineId;
+    const effectiveConnected = frozen ? switchSnapshot.connected : socketConnected;
 
     // Load the pairings and run a fresh host check on every computer that is
-    // not the connected one, so each row reports what it can reach now.
+    // not the connected one, so each row reports what it can reach now. A
+    // switch in flight keeps the frozen list instead of re-probing mid-flight.
     React.useEffect(() => {
-        if (!visible) return;
+        if (!visible || switching !== null) return;
         let cancelled = false;
         setProbes({});
         void listPairedGrants().then((all) => {
@@ -133,16 +142,16 @@ export function ComputersSheet({ visible, sessionId, onClose }: { visible: boole
             Modal.alert('Could not load computers', cause instanceof Error ? cause.message : String(cause));
         });
         return () => { cancelled = true; };
-    }, [visible, activeMachineId]);
+    }, [visible, activeMachineId, switching]);
 
     const rows = React.useMemo<ComputerRow[]>(() => {
         const liveById = new Map(liveMachines.map((machine) => [machine.id, machine]));
         const pairedIds = new Set(grants.map((grant) => grant.machineId));
         const next: ComputerRow[] = [];
         for (const grant of grants) {
-            const isActive = grant.machineId === activeMachineId;
+            const isActive = grant.machineId === effectiveActiveId;
             const probed = probes[grant.machineId];
-            const state = resolveComputerState(isActive, socketConnected, probed);
+            const state = resolveComputerState(isActive, effectiveConnected, probed);
             next.push({
                 id: grant.machineId,
                 name: displayName(grant, liveById.get(grant.machineId)?.metadata?.displayName),
@@ -156,7 +165,7 @@ export function ComputersSheet({ visible, sessionId, onClose }: { visible: boole
         // honestly labelled rather than hidden.
         for (const machine of liveMachines) {
             if (pairedIds.has(machine.id)) continue;
-            if (machine.id !== activeMachineId) continue;
+            if (machine.id !== effectiveActiveId) continue;
             next.push({
                 id: machine.id,
                 name: machine.metadata?.displayName?.trim() || 'This computer',
@@ -166,7 +175,7 @@ export function ComputersSheet({ visible, sessionId, onClose }: { visible: boole
             });
         }
         return next;
-    }, [activeMachineId, agentMachineId, grants, liveMachines, probes, socketConnected]);
+    }, [effectiveActiveId, agentMachineId, grants, liveMachines, probes, effectiveConnected]);
 
     // Tapping another online computer asks first, through the app's own dialog
     // rather than the stock OS alert, whose caps'd buttons and system chrome
@@ -183,6 +192,7 @@ export function ComputersSheet({ visible, sessionId, onClose }: { visible: boole
         if (row.grant === undefined) return;
         setConfirm(null);
         const grant = row.grant;
+        setSwitchSnapshot({ from: getCachedConnectionSettings().machineId, connected: socketStatus.status === 'connected' });
         setSwitching(row.id);
         try {
             const activated = await pairMachine({ grant, endVoiceIfPinned: voiceActive });
@@ -196,8 +206,9 @@ export function ComputersSheet({ visible, sessionId, onClose }: { visible: boole
         } catch (cause) {
             Modal.alert('Could not switch computer', cause instanceof Error ? cause.message : String(cause));
             setSwitching(null);
+            setSwitchSnapshot(null);
         }
-    }, [auth, confirm, onClose, router]);
+    }, [auth, confirm, onClose, router, socketStatus.status]);
 
     const body = (
         <View>
