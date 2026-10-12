@@ -83,10 +83,30 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
     if (!visible) return null;
 
     const answer = (choice: PendingChoice): void => {
-        answered.current = { signature: signature(choices), at: Date.now() };
-        setChoices([]);
-        hapticsSelection();
-        channel.sendText(choice.key);
+        if (choice.number !== undefined) {
+            answered.current = { signature: signature(choices), at: Date.now() };
+            setChoices([]);
+            hapticsSelection();
+            channel.sendText(choice.key);
+            return;
+        }
+        void (async () => {
+            try {
+                const { text } = await sync.request('pane.read', { sessionId, source: 'visible' });
+                const fresh = pendingChoices(text);
+                const match = fresh.find((candidate) => candidate.number === undefined && candidate.label === choice.label);
+                if (match === undefined) {
+                    setChoices(fresh);
+                    return;
+                }
+                answered.current = { signature: signature(choices), at: Date.now() };
+                setChoices([]);
+                hapticsSelection();
+                channel.sendText(match.key);
+            } catch {
+                return;
+            }
+        })();
     };
 
     // A solid band in the terminal's own resolved background (the colour the
