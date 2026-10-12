@@ -47,9 +47,8 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 - [Pair the phone from the installable desktop app](./linux-desktop-app.md) —
   a Linux AppImage wrapping the relay and host: launch→Ready timing with and
-  without Herdr, QR and
-  two-word pairing with a release APK on an emulator, Paired and Needs-attention
-  states, and keep-awake/start-at-login persistence.
+  without Herdr, QR and two-word pairing with a release APK on an emulator,
+  Paired and Needs-attention states, and keep-awake/start-at-login persistence.
 - [Connect an older phone without optional UI plugins](./retired-ui-compatibility.md) —
   all five legacy replies over a real paired host, then released Android Home/session acceptance.
 - [Open agent pages on the normal desktop](./agent-desktop.md) —

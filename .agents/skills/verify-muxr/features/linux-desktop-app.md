@@ -37,10 +37,10 @@ under a software-GL X display. Pair a task-owned emulator running the release
 APK.
 
 1. Launch the AppImage and time launch→`Ready to pair`: record the X display
-   at 2 fps with an elapsed-time overlay, or read the window's title over CDP. Repeat with Herdr hidden from
-   PATH (a symlink farm of `/usr/bin` minus `herdr`, kept outside `/tmp`) and
-   no lab socket: it must still reach Ready to pair, within a few seconds of
-   the with-Herdr run.
+   at 2 fps with an elapsed-time overlay, or read the window's title over CDP.
+   Repeat with Herdr hidden from PATH (a symlink farm of `/usr/bin` minus
+   `herdr`, kept outside `/tmp`) and no lab socket: it must still reach Ready
+   to pair, within a few seconds of the with-Herdr run.
 2. Read the offer out of the window's QR, render a crisp QR into the emulator's
    camera image, and scan it in the app.
 3. Confirm the same two words show on the phone's consent and the window's
@@ -62,9 +62,9 @@ APK.
   that does not parse is refused (Needs attention) rather than overwritten,
   because it may be a command-line identity.
 - An inherited `HERDR_SOCKET_PATH` from an agent pane makes the wrapped host
-  fail; unset every `HERDR_*` variable before launching. For the with-Herdr timing, set
-  `HERDR_SOCKET_PATH` to the lab session's own socket (from the lab helper's
-  `session list --json`), never the default one.
+  fail; unset every `HERDR_*` variable before launching. For the with-Herdr
+  timing, set `HERDR_SOCKET_PATH` to the lab session's own socket (from the lab
+  helper's `session list --json`), never the default one.
 - Without libfuse2 the AppImage cannot mount; extract it once with
   `--appimage-extract` and launch its `muxr` binary, so extraction never lands
   inside the launch→Ready timing.

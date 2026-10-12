@@ -100,9 +100,9 @@ export class KitHerdrClient implements HerdrCaller {
     }
 
     /**
-     * One kit start: the kit already pings with its own backoff, which absorbs
-     * the host and herdr booting together. Wrapping it in a second backoff held
-     * a host with no herdr off the link for over twenty seconds.
+     * One kit start. The kit already pings with its own backoff, which absorbs
+     * the host and herdr booting together; a second backoff here would keep the
+     * host off the link while herdr is down.
      */
     async start(): Promise<void> {
         try {
