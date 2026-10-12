@@ -135,12 +135,13 @@ describe('desktop runtime self-host state', () => {
     }, 30_000);
 
     it('on a computer with no Herdr, installs it from the window after an offline try and starts it', async () => {
-        // No herdr anywhere the app looks: an empty PATH and an empty install folder.
+        // An older herdr (below the minimum) sits first on PATH; the install folder is empty.
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-noherdr-'));
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
         const emptyPath = join(home, 'path');
         const installDir = join(home, 'bin');
         mkdirSync(emptyPath);
+        writeFileSync(join(emptyPath, 'herdr'), "#!/bin/sh\necho 'herdr 0.8.0'\n", { mode: 0o755 });
         const offline = join(home, 'offline');
         writeFileSync(offline, '');
         // The published installer's two outcomes: offline, or a herdr whose server reports running once started.
