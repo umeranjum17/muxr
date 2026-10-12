@@ -60,9 +60,7 @@ export function FirstAgentCard() {
             setOffer(authoritative ? firstAgentOffer(options) : undefined);
             setError(undefined);
         } catch {
-            // Without a catalog the card keeps its plain invitation to the picker;
-            // only an asked-for check says it failed.
-            if (refresh) setError('Could not reach your computer. Try again.');
+            setError('Could not reach your computer. Try again.');
         }
     }, []);
     React.useEffect(() => { void check(false); }, [check]);
@@ -89,7 +87,7 @@ export function FirstAgentCard() {
     if (offer?.step === 'choose') body = `Choose ${name} to start it, and sign in on your computer if it asks.`;
     if (offer?.step === 'install') body = 'Install a coding agent such as Claude Code on your computer, then tap Check again.';
     const oneTap = offer?.step === 'start' && !startFailed;
-    const checkable = offer?.step === 'sign-in' || offer?.step === 'install' || startFailed;
+    const checkable = offer?.step === 'sign-in' || offer?.step === 'install' || startFailed || error !== undefined;
     let pickerTitle = offer === undefined ? 'Start an agent' : 'Choose an agent';
     if (offer?.step === 'start') pickerTitle = 'Choose another agent';
     if (startFailed) pickerTitle = 'Open agents';

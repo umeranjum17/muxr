@@ -30,7 +30,8 @@ the card is `FirstAgentCard` in `apps/mobile/sources/herd/presentation/HomeFirst
 - `start-error` a failed start shows the real cause under the sentence and
   retires the one-tap `Start` for the rest of the card's life: the card offers
   `Open agents` (the picker) and `Check again`, never a second `Start`. A failed
-  `Check again` says the computer could not be reached.
+  `Check again` says the computer could not be reached. A failed read on mount
+  does the same, with `Check again` to retry in place.
 
 ## How to get to it (user POV)
 
