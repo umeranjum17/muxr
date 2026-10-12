@@ -79,7 +79,31 @@ export const previewCopy = {
     closedLabel: 'Closed',
 } as const;
 
-/** The icon for a preview's kind. */
-export function previewIcon(kind: string) {
-    return kind === 'ios' ? 'logo-apple' as const : 'logo-android' as const;
+/** One preview kind's words, so a kind this build does not know still has some. */
+export interface PreviewKindCopy {
+    name: string;
+    opening: string;
+    closedTitle: string;
+    unreachableTitle: string;
+    failedTitle: string;
+    viewOnlyBody: string;
+    stage: string;
+}
+
+/** The words for a preview device kind this build cannot name: still a device, just not one it knows. */
+export const unknownPreviewCopy: PreviewKindCopy = {
+    name: 'Device preview',
+    opening: 'Opening the device preview…',
+    closedTitle: 'The preview closed',
+    unreachableTitle: "Can't show the preview from here",
+    failedTitle: "Couldn't open the preview",
+    viewOnlyBody: 'This phone was paired to watch. It can see the preview but not use it.',
+    stage: "Live view of your agent's device preview",
+};
+
+/** The icon for a preview's kind; a kind this build does not know gets a plain device mark. */
+export function previewIcon(kind: string | null) {
+    if (kind === 'ios') return 'logo-apple' as const;
+    if (kind === 'android') return 'logo-android' as const;
+    return 'phone-portrait-outline' as const;
 }

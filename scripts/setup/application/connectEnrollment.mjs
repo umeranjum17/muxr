@@ -74,7 +74,7 @@ export async function connectEnrollment(args = []) {
         const identity = machineIdentity(reuseIdentity ? existing : undefined);
         const message = Buffer.from(`muxr-enroll-v2\n${enrollment.id}\n${enrollment.relay}\n${identity.crypto.signingPublicKey}\n${identity.crypto.boxPublicKey}`, 'utf8');
         const proof = Buffer.from(signDetached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
-        const enrollmentBase = env('MUXR_REMOTE_CONTROL_BASE')?.replace(/\/$/, '') ?? enrollment.relay.replace(/^wss:/, 'https:');
+        const enrollmentBase = env('MUXR_REMOTE_CONTROL_BASE')?.replace(/\/$/, '') ?? enrollment.relay.replace(/^ws/, 'http');
         const claimed = await api(enrollmentBase, `/v1/selfhost/enrollments/${encodeURIComponent(enrollment.id)}/claim`, {
             method: 'POST',
             body: JSON.stringify({ claim: enrollment.claim, relay_url: enrollment.relay,

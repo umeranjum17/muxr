@@ -1,13 +1,13 @@
 import * as React from 'react';
 import { AppState, Platform } from 'react-native';
-import { status as statusChip, type StatusState } from '@byokit/statusbar';
+import { status as statusChip } from '@byokit/statusbar';
 import { useRouter } from 'expo-router';
 import { refreshStatusChip, statusChipAgentKey, statusChipVoiceKey } from '../application/refreshStatusChip';
 import { navigateToSession } from '../application/useNavigateToSession';
 import { startRealtimeCapability } from '@/conversation';
 import type { AgentLifecycle } from '@trymuxr/contract';
 import { useAuth } from '@/account/ui';
-import { useHerdrTree, useLifecycleCatalogAvailable, useLocalSetting, useLocalSettingMutable, useSessions, useSocketStatus } from '@/catalog/store';
+import { useHerdrTree, useLifecycleCatalogAvailable, useLocalSetting, useSessions, useSocketStatus } from '@/catalog/store';
 import {
     clearVoiceNotification,
     startHerdKeepalive,
@@ -17,7 +17,6 @@ import {
 import { notificationPermissionStatus } from '@/utils/microphonePermissions';
 import { completionNotificationState, completionTransition, herdNotificationState, herdPaneName, nativeLifecycleNotificationState, sortHerd, type HerdNotificationState } from '../domain/herd';
 import { applyRealtimeMuted, boundRealtimeSession, realtimeGeneration, retryVadStandby, stopRealtimeSession, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
-import { Modal } from '@/modal';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 import { focusedAgentRoute, subscribeFocusedAgent } from '@/watch/lifecycleAlert';
 
@@ -41,8 +40,6 @@ function sameNotification(
 export function KernelNotifications() {
     const router = useRouter();
     const [chipActions, setChipActions] = React.useState<string[]>([]);
-    const chip = React.useRef({ active: false, attentionRoute: null as string | null, dismissed: false });
-    const [chipState, setChipState] = React.useState<StatusState>('unsupported');
     const sessions = useSessions();
     const sessionCount = Object.keys(sessions).length;
     const { workspaces } = useHerdrTree();
@@ -63,10 +60,8 @@ export function KernelNotifications() {
     const previous = React.useRef<Record<string, AgentLifecycle> | null>(null);
     const [presentation, setPresentation] = React.useState(herd);
     const [appActive, setAppActive] = React.useState(AppState.currentState === 'active');
-    const [promotionPrompted, setPromotionPrompted] = useLocalSettingMutable('promotedNotificationsPrompted');
     const vadStandbyEnabled = useLocalSetting('vadStandbyEnabled');
     const lifecycleNotificationLevel = useLocalSetting('lifecycleNotificationLevel');
-    const promotionPrompting = React.useRef(false);
     const keepalive = React.useRef(false);
     const herdActive = herd.mode === 'working' || herd.mode === 'attention';
     const notification = {
@@ -92,19 +87,16 @@ export function KernelNotifications() {
             visibleAgents.push({ id: focus, name: '', status: 'unknown', focused: true });
         }
         updateVoiceNotification(state, voice, name, isMuted, visibleAgents);
-        const next = refreshStatusChip({ herd: state, voiceState: voice, voiceName: name, muted: isMuted, agents: visibleAgents, voiceGeneration: realtimeGeneration() });
-        chip.current = { ...next, dismissed: next.active && chip.current.dismissed };
-        void statusChip.state().then(setChipState);
+        refreshStatusChip({ herd: state, voiceState: voice, voiceName: name, muted: isMuted, agents: visibleAgents, voiceGeneration: realtimeGeneration() });
     }, []);
 
     React.useEffect(() => {
         const offAction = statusChip.on('action', ({ id }) => setChipActions((pending) => [...pending, id]));
-        const offDismissed = statusChip.on('dismissed', () => { chip.current.dismissed = true; });
         // Renew an unchanged post before its timeout, including a quiet busy herd.
         const refresh = setInterval(() => {
             if (native.current.authenticated) sendNative(focusedAgentRoute(), AppState.currentState !== 'active' && keepalive.current);
         }, 60_000);
-        return () => { offAction(); offDismissed(); clearInterval(refresh); };
+        return () => { offAction(); clearInterval(refresh); };
     }, [sendNative]);
 
     React.useEffect(() => {
@@ -149,7 +141,6 @@ export function KernelNotifications() {
             keepalive.current = false;
             clearVoiceNotification();
             statusChip.clear();
-            chip.current = { active: false, attentionRoute: null, dismissed: false };
             return;
         }
         // A brief background network drop must not tear down the service that
@@ -212,32 +203,6 @@ export function KernelNotifications() {
             void retryVadStandby();
         }
     }, [appActive, isAuthenticated, sessionCount, vadStandbyEnabled]);
-
-    // The battery prompt lives on Home as a dismissible card
-    // (HomeBatteryCard), never as a blocking modal over the first agent.
-    React.useEffect(() => {
-        if (
-            Platform.OS !== 'android'
-            || !appActive
-            || !isAuthenticated
-            || !herdActive
-            || promotionPrompted
-            || promotionPrompting.current
-            || chip.current.dismissed
-            || (chipState !== 'off' && chipState !== 'needs-permission')
-        ) return;
-        promotionPrompting.current = true;
-        setPromotionPrompted(true);
-        void Modal.confirm(
-            chipState === 'needs-permission' ? 'Allow muxr notifications?' : 'Show live agent updates?',
-            chipState === 'needs-permission'
-                ? 'Allow muxr notifications so working agents can appear in notifications and Android’s status-bar island.'
-                : 'Allow muxr Live Updates so working agents appear in Android’s status-bar island as well as notifications.',
-            { confirmText: 'Open settings' },
-        ).then((confirmed) => {
-            if (confirmed) void statusChip.openSettings();
-        }).finally(() => { promotionPrompting.current = false; });
-    }, [appActive, chipState, herdActive, isAuthenticated, promotionPrompted, setPromotionPrompted]);
 
     return null;
 }

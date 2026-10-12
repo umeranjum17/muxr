@@ -11,9 +11,8 @@ tags:
 - repeat:
     times: 4
     commands:
-      # Android and the app both raise one-off prompts (live updates, battery,
-      # notifications); none of them are what this flow measures, and they queue
-      # one behind another.
+      # Android can raise one-off system prompts (notifications); none of them
+      # are what this flow measures, and they can queue one behind another.
       - tapOn:
           text: 'CANCEL|Not now|Deny|Later'
           optional: true

@@ -149,9 +149,16 @@ user-visible behavior, then exactly four H2 sections in this order:
   native release app over a guarded lab: device chips still work, the retired
   Browser presence/URL stays unavailable, and Computer reads `Computer` from
   shell and agent entry.
+- [Keep the mirror view up for a preview kind the client does not know](./unknown-preview-kind.md) —
+  lab PWA over a throwaway unknown-kind injection: the header, help popup
+  (general gestures) and toolbar (no device keys) all stay up, at 393/270 px.
 - [See pinned spaces on the phone's Spaces list](./spaces-pinned.md) —
   native app on an emulator over a private stack: pin, themes, tablet width,
   plus guarded two-computer pin isolation and legacy migration.
+- [Open the first agent with no notifications modal over it](./first-agent-no-modal.md) —
+  native release app over a real-Herdr lab with no panes: fresh install,
+  Home's Start an agent opens Claude Code and neither notifications modal
+  appears in 30 s of 0.5 s screenshots; the Home card still asks.
 - [Read the computer name in the Home header](./home-header-name.md) —
   native app over a named fake-Herdr stack: one line with an ellipsis, at
   270dp and font scale 2.0, light and dark.
@@ -174,6 +181,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Read the connection route on the phone](./connection-route.md) —
   Settings > Connection names the route as `muxr setup` does: dev client on
   an emulator over a real lab host, themes and 270dp/font 1.3.
+- [Pair a computer that dials out to the muxr relay](./dial-out-relay.md) —
+  setup's `Works anywhere` route with an enrollment, a computer with no
+  inbound network (bwrap), phone pairs through a lab relay, agent answers.
 - [Keep a terminal pane alive across a reconnect](./terminal-reconnect.md) —
   native app over a private stack: relay and host restarts under an
   open pane, last frame kept, recovery with no tap, plain words.

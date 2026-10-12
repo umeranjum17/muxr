@@ -10,7 +10,7 @@ import { requestLab } from './scripts/diagnostics/application/linkLabClient.mjs'
 
 const { EVIDENCE, SERIAL } = process.env;
 if (!EVIDENCE) throw new Error('Set EVIDENCE to the run evidence directory');
-const KINDS = (process.env.KINDS ?? 'opencode,claude,codex,pi,shell').split(',');
+const KINDS = (process.env.KINDS ?? 'opencode,claude,codex,pi,shell').split(',').filter(Boolean);
 const LINES = Number(process.env.LINES ?? 400);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const mark = (line) => {
