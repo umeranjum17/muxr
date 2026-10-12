@@ -375,8 +375,8 @@ export default function PairScreen() {
                             <>
                                 <ActionButton title={state?.phase === 'error' ? 'Scan a new code' : 'Scan the QR'} icon="qr-code-outline" wrap onPress={() => void scanPairQr()} />
                                 <Text style={styles.routeHint}>{state?.phase === 'error'
-                                    ? 'On your computer, open muxr or run muxr pair for a new code.'
-                                    : `Open muxr on your computer, or run muxr pair, then point this ${pairingDeviceNoun()} at the QR it shows.`}</Text>
+                                    ? 'On your computer, open muxr or run muxr\u00A0pair for a new code.'
+                                    : `Open muxr on your computer, or run muxr\u00A0pair, then point this ${pairingDeviceNoun()} at the QR it shows.`}</Text>
                             </>
                         )}
                         {!browser && !canScan && !sshRoute && (
