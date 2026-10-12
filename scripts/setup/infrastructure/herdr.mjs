@@ -12,7 +12,7 @@ import {
     statSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
     HERDR_INSTALL_HINT,
@@ -75,11 +75,19 @@ export function productPanePack() {
 
 export function herdrBin() {
     const configured = env('HERDR_BIN');
-    const selected = configured ? executable(configured) : executable('herdr') || [
+    if (configured) {
+        const selected = executable(configured);
+        if (selected === undefined) throw new Error(`HERDR_BIN does not resolve to an executable: ${configured}`);
+        return realpathSync(resolve(selected));
+    }
+    const dirs = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
+    const candidates = [
+        pinnedHerdrBin(),
+        ...dirs.map((dir) => join(dir, 'herdr')),
         join(env('HERDR_INSTALL_DIR') || join(home(), '.local', 'bin'), 'herdr'),
         '/usr/local/bin/herdr',
-    ].find((candidate) => executable(candidate));
-    if (configured && selected === undefined) throw new Error(`HERDR_BIN does not resolve to an executable: ${configured}`);
+    ];
+    const selected = candidates.find((candidate) => candidate !== undefined && executable(candidate) !== undefined && compatibleHerdr(candidate));
     return selected === undefined ? undefined : realpathSync(resolve(selected));
 }
 
@@ -88,7 +96,15 @@ export function findHerdrBin(onError) {
     catch (error) { onError?.(error); return undefined; }
 }
 
-/** The Herdr muxr's own service pins (HERDR_BIN in muxr.service or com.muxr.host.plist), if it still runs. */
+/** The HERDR_BIN a service unit or LaunchAgent pins for the host, undecoded for the path itself. */
+function unitHerdrBin(content) {
+    const systemd = content.match(/^Environment=HERDR_BIN=(?:"([^"]+)"|(\S+))$/m);
+    const plist = content.match(/<key>HERDR_BIN<\/key><string>([^<]+)<\/string>/)?.[1]
+        ?.replaceAll('&quot;', '"').replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&amp;', '&');
+    return systemd?.[1] ?? systemd?.[2] ?? plist;
+}
+
+/** The Herdr muxr's own service pins (HERDR_BIN in muxr.service or com.muxr.host.plist), if it still exists. */
 export function pinnedHerdrBin() {
     const unit = platform() === 'darwin'
         ? join(home(), 'Library', 'LaunchAgents', 'com.muxr.host.plist')
@@ -96,15 +112,24 @@ export function pinnedHerdrBin() {
     let content;
     try { content = readFileSync(unit, 'utf8'); }
     catch { return undefined; }
-    const pinned = content.match(/^Environment=HERDR_BIN=(?:"([^"]+)"|(\S+))$/m)?.slice(1).find(Boolean)
-        ?? content.match(/<key>HERDR_BIN<\/key><string>([^<]+)<\/string>/)?.[1];
+    const pinned = unitHerdrBin(content);
     return pinned !== undefined && executable(pinned) ? realpathSync(resolve(pinned)) : undefined;
 }
 
-export function herdrIsCompatible(binary) {
+function herdrIsCompatible(binary) {
     const result = run(binary, ['--version'], { timeout: 5_000 });
     const version = parseVersion(result.stdout);
     return result.ok && version !== undefined && versionIsCompatible(version);
+}
+
+const compatibleByBinary = new Map();
+
+// Keyed by the binary's own mtime and size, so an installer that replaces it in place is re-probed.
+function compatibleHerdr(binary) {
+    const { mtimeMs, size } = statSync(binary);
+    const key = `${binary}:${mtimeMs}:${size}`;
+    if (!compatibleByBinary.has(key)) compatibleByBinary.set(key, herdrIsCompatible(binary));
+    return compatibleByBinary.get(key);
 }
 
 export function parseVersion(text) {
@@ -309,10 +334,7 @@ export function staleUnitPaths(unitPath) {
         ? [...execStart.matchAll(/"([^"]+)"|(\S+)/g)].map((match) => match[1] ?? match[2])
         : [...(content.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/)?.[1] ?? '')
             .matchAll(/<string>([^<]+)<\/string>/g)].map((match) => match[1]);
-    const systemdHerdr = content.match(/^Environment=HERDR_BIN=(?:"([^"]+)"|(\S+))$/m);
-    const plistHerdr = content.match(/<key>HERDR_BIN<\/key><string>([^<]+)<\/string>/)?.[1]
-        ?.replaceAll('&quot;', '"').replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&amp;', '&');
-    return [...tokens, systemdHerdr?.[1] ?? systemdHerdr?.[2], plistHerdr]
+    return [...tokens, unitHerdrBin(content)]
         .filter((token) => typeof token === 'string')
         // Undo systemd %% escaping so a path containing % is not a false FAIL.
         .map((token) => token.replaceAll('%%', '%').replaceAll('\\"', '"').replaceAll('\\\\', '\\'))

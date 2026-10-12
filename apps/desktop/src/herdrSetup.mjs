@@ -8,9 +8,8 @@
  * Status: 'ok', 'missing', 'installing' (with a step) or 'failed' (with one
  * plain sentence; the raw cause goes to the log).
  */
-import { dirname, join } from 'node:path';
-import { ensureHerdrServer, findHerdrBin, herdrIsCompatible, pinnedHerdrBin, runHerdrInstaller } from '../../../scripts/setup/infrastructure/herdr.mjs';
-import { env, executable, home } from '../../../scripts/setup/infrastructure/runtime.mjs';
+import { dirname } from 'node:path';
+import { ensureHerdrServer, findHerdrBin, runHerdrInstaller } from '../../../scripts/setup/infrastructure/herdr.mjs';
 
 const INSTALL_MESSAGE = "Couldn't install Herdr. Check this computer's internet connection, then press Try again.";
 const START_MESSAGE = "Herdr is installed but didn't start. Choose Try again.";
@@ -38,16 +37,8 @@ function userEnv() {
     return env;
 }
 
-function installedHerdrBin() {
-    return executable(join(env('HERDR_INSTALL_DIR') || join(home(), '.local', 'bin'), 'herdr'));
-}
-
-// The first compatible Herdr wins: a Herdr below the CLI's minimum counts as missing, so Install
-// puts the published one in the install folder even when an older one sits earlier on PATH.
 function findHerdr() {
-    const logLookup = (error) => process.stderr.write(`desktop: herdr lookup: ${detail(error)}\n`);
-    return [findHerdrBin(logLookup), pinnedHerdrBin(), installedHerdrBin()]
-        .find((binary) => binary !== undefined && herdrIsCompatible(binary));
+    return findHerdrBin((error) => process.stderr.write(`desktop: herdr lookup: ${detail(error)}\n`));
 }
 
 export function createHerdrSetup(onChange) {

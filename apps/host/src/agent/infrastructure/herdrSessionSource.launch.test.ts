@@ -768,7 +768,8 @@ describe('herdr installed in its own folder, off the host PATH', () => {
         const installDir = join(dir, 'bin');
         mkdirSync(installDir);
         const binary = join(installDir, 'herdr');
-        const saved = { PATH: process.env.PATH, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, HERDR_BIN: process.env.HERDR_BIN };
+        const saved = { HOME: process.env.HOME, PATH: process.env.PATH, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, HERDR_BIN: process.env.HERDR_BIN };
+        process.env.HOME = dir;
         process.env.PATH = join(dir, 'empty-path');
         mkdirSync(process.env.PATH);
         process.env.HERDR_INSTALL_DIR = installDir;
@@ -780,9 +781,9 @@ describe('herdr installed in its own folder, off the host PATH', () => {
                 artifactsDir: join(dir, 'attachments'), hostHttpPort: 0,
             });
             expect((await source.herdrTree()).missing).toBe(true);
-            writeFileSync(binary, '#!/bin/sh\necho "ran $0"\n', { mode: 0o755 });
+            writeFileSync(binary, '#!/bin/sh\ncase "$1" in --version) echo "herdr 0.9.1" ;; *) echo "ran $0" ;; esac\n', { mode: 0o755 });
             expect((await source.herdrTree()).missing).toBeUndefined();
-            expect((await source.herdrCli(['--version'])).stdout.trim()).toBe(`ran ${realpathSync(binary)}`);
+            expect((await source.herdrCli(['status'])).stdout.trim()).toBe(`ran ${realpathSync(binary)}`);
         } finally {
             await source?.dispose();
             for (const [name, value] of Object.entries(saved)) {
