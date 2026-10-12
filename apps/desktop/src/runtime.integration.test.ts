@@ -112,7 +112,13 @@ describe('desktop runtime self-host state', () => {
         listeningRelayFixture(relayEntry);
         const hostEntry = join(home, 'host-fixture.mjs');
         writeFileSync(hostEntry, [
-            "setTimeout(() => process.stdout.write('link relay: online\\n'), 1500);",
+            "import { mkdirSync, writeFileSync } from 'node:fs';",
+            "import { join } from 'node:path';",
+            'setTimeout(() => {',
+            "    mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
+            "    writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
+            "    process.stdout.write('link relay: online\\n');",
+            '}, 1500);',
             'setInterval(() => {}, 1000);',
             '',
         ].join('\n'));
