@@ -1,3 +1,4 @@
+import { create } from 'zustand';
 import type { Machine } from '@/catalog';
 import { machineSpawnNewSession } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
@@ -27,6 +28,20 @@ export type StartAgentFromDockCommand = {
 export type StartAgentFromDockResult =
     | { ok: true; agentRoute: string; promptFailed?: string }
     | { ok: false; reason: 'no-machine' | 'offline' | 'worktree-failed' | 'needs-directory' | 'failed'; message?: string; directory?: string };
+
+/**
+ * A Dock prompt the host is still delivering to the agent it just started, by
+ * Agent Route. The agent's screen shows it as queued until delivery, and takes
+ * the text back into its own draft when delivery fails.
+ */
+export const useQueuedFirstPrompts = create<Record<string, { text: string; failed?: true }>>(() => ({}));
+
+export function takeQueuedFirstPrompt(agentRoute: string): void {
+    useQueuedFirstPrompts.setState((queued) => {
+        const { [agentRoute]: _taken, ...rest } = queued;
+        return rest;
+    }, true);
+}
 
 /**
  * The agent is a TUI, so it reaches a file by having its path in the prompt.
@@ -87,21 +102,27 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
     await saveConnectionSettings(rememberSessionCwd(getCachedConnectionSettings(), command.directory));
 
     // machineSpawnNewSession already refreshed until the session was listed.
-    // The host holds the first prompt until the agent can accept it, which is
-    // seconds for some kinds. Show the session now instead of a dead Dock.
-    command.onRouteReady?.(result.sessionId);
-    if (command.prompt || command.attachments.length > 0) {
-        try {
-            const text = await promptWithAttachmentPaths(result.sessionId, command.prompt, command.attachments, connection);
-            if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
-            await sync.sendMessage(result.sessionId, text, { source: 'new_session' });
-        } catch (error) {
-            return {
-                ok: true,
-                agentRoute: result.sessionId,
-                promptFailed: error instanceof Error ? error.message : 'Failed to send the first message',
-            };
-        }
+    // The host holds the first prompt until the agent takes it, which is
+    // seconds for some kinds. Show the session now, with the prompt queued.
+    const agentRoute = result.sessionId;
+    if (!command.prompt && command.attachments.length === 0) {
+        command.onRouteReady?.(agentRoute);
+        return { ok: true, agentRoute };
     }
-    return { ok: true, agentRoute: result.sessionId };
+    useQueuedFirstPrompts.setState({ [agentRoute]: { text: command.prompt } });
+    command.onRouteReady?.(agentRoute);
+    try {
+        const text = await promptWithAttachmentPaths(agentRoute, command.prompt, command.attachments, connection);
+        if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
+        await sync.sendMessage(agentRoute, text, { source: 'new_session' });
+        takeQueuedFirstPrompt(agentRoute);
+        return { ok: true, agentRoute };
+    } catch (error) {
+        useQueuedFirstPrompts.setState({ [agentRoute]: { text: command.prompt, failed: true } });
+        return {
+            ok: true,
+            agentRoute,
+            promptFailed: error instanceof Error ? error.message : 'Failed to send the first message',
+        };
+    }
 }

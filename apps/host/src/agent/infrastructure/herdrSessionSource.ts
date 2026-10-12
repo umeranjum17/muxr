@@ -53,7 +53,7 @@ import type {
     PlanMoveOptions,
 } from '../application/sessionSource.js';
 import { KitHerdrClient, type HerdrCaller } from './herdrKitClient.js';
-import type { AgentStatus } from '@byokit/herdr';
+import type { AgentStatus, PromptReceipt } from '@byokit/herdr';
 import { agentInstallState } from '@byokit/herdr';
 import {
     AgentRouteStore,
@@ -96,6 +96,10 @@ const PROMPT_READY_TIMEOUT_MS = 30_000;
 const QUESTION_WAIT_MS = 3_000;
 const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
+/** How long a prompt the agent dropped is typed again before the send fails. */
+const PROMPT_DELIVERY_TIMEOUT_MS = 60_000;
+/** Outlasts Herdr's 5 s window for a submitted prompt to start a turn. */
+const PROMPT_RECEIPT_TIMEOUT_MS = 8_000;
 
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
 const HEADED_BROWSER = ' Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11.';
@@ -337,6 +341,16 @@ function promptNotSent(cause: unknown): Error {
 }
 
 /** Listed-agent gate. Omitted interactive_ready is ready when lifecycle is live. Starting stays closed. */
+/**
+ * Whether the start of a prompt shows on an agent's screen: its first words,
+ * short enough not to wrap at phone width, on one screen line.
+ */
+function promptOnScreen(screen: string, text: string): boolean {
+    const collapse = (value: string): string => value.replace(/\s+/g, ' ').trim();
+    const head = collapse(text.trim().split('\n')[0] ?? '').slice(0, 16).trim();
+    return head !== '' && screen.split('\n').some((line) => collapse(line).includes(head));
+}
+
 export function herdrAgentIsPromptable(
     agent: Pick<AgentRecord, 'interactive_ready' | 'launch_pending'>,
     lifecycle: AgentLifecycle,
@@ -2109,6 +2123,38 @@ export async function createHerdrSessionSource(
     }
 
     /**
+     * Herdr queues a prompt by typing it, and an agent that reports ready can
+     * still drop what is typed while it finishes starting: OpenCode lost a
+     * prompt typed 10 s after it reported idle. Herdr's wait names that case:
+     * no working or blocked state within 5 s is `agent_prompt_stalled`. Text
+     * that is not on the agent's screen after a stall never arrived, so type it
+     * again until the agent takes it; text that is on screen is never typed
+     * twice. Undefined means it arrived with no receipt.
+     */
+    async function deliverPrompt(paneId: string, text: string): Promise<PromptReceipt | undefined> {
+        const deadline = Date.now() + PROMPT_DELIVERY_TIMEOUT_MS;
+        for (;;) {
+            try {
+                return await client.kit.prompt({ paneId }, text, { wait: { until: ['working', 'blocked'], timeoutMs: PROMPT_RECEIPT_TIMEOUT_MS } });
+            } catch (error) {
+                const code = (error as { code?: unknown }).code;
+                // Accepted with no state seen in time: it reached the agent, as before this wait.
+                if (code === 'timeout') return undefined;
+                // The agent can flap out of promptable while it settles.
+                if (code !== 'agent_prompt_stalled' && code !== 'agent-not-ready') throw error;
+                if (code === 'agent_prompt_stalled') {
+                    const screen = await client.kit.read(paneId, { source: 'visible' }).catch(() => undefined);
+                    if (screen === undefined || promptOnScreen(screen.text, text)) return undefined;
+                }
+                if (Date.now() >= deadline) {
+                    throw code === 'agent-not-ready' ? error : promptNotSent(new Error('The agent did not take the prompt. Send it again.'));
+                }
+                await sleep(1_000);
+            }
+        }
+    }
+
+    /**
      * A just-started agent reports promptable a beat after it is listed, and it
      * can flap once more while it settles. Wait that out instead of losing the
      * message the phone already accepted.
@@ -2136,10 +2182,10 @@ export async function createHerdrSessionSource(
             throw promptNotSent(error);
         }
         const generation = sessionGenerationKey(session);
-        const receipt = await client.kit.prompt({ paneId: session.paneId }, text);
+        const receipt = await deliverPrompt(session.paneId, text);
         // Herdr names the conversation the prompt reached; a match needs no confirming read.
-        const reached = parseHerdrAgentSession(receipt.agentSession);
-        if (reached !== undefined && `${receipt.paneId}\u0000${herdrAgentSessionKey(reached)}` === generation) return;
+        const reached = parseHerdrAgentSession(receipt?.agentSession);
+        if (reached !== undefined && `${receipt?.paneId}\u0000${herdrAgentSessionKey(reached)}` === generation) return;
         try {
             await refreshSnapshotFresh();
             const current = currentSession(sessionId);

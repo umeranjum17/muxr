@@ -81,15 +81,18 @@ export async function startSessionFromDraft(options: {
             attachments: blank ? [] : draft.attachments,
             createCwd,
             ...(planAccount === undefined ? {} : { planAccount }),
+            // The prompt now belongs to the agent, whose screen shows it queued.
+            onRouteReady: (agentRoute) => {
+                if (!blank) {
+                    draft.setInput('');
+                    draft.setAttachments([]);
+                }
+                options.navigateToSession(agentRoute);
+            },
         });
         if (!samePlanConnection(connection)) return null;
         if (result.ok) {
-            if (!blank) {
-                draft.setInput('');
-                draft.setAttachments([]);
-            }
             if (result.promptFailed) Modal.alert(t('common.error'), result.promptFailed);
-            options.navigateToSession(result.agentRoute);
             if (planAccount !== undefined) void announceStartAccount(result.agentRoute, draft.agentType, planAccount, connection);
             return result.agentRoute;
         }
