@@ -1,8 +1,4 @@
-import type { AgentLifecycle, HerdrTreePane } from '@trymuxr/contract';
-
-export function terminalPaneStatus(pane: HerdrTreePane | undefined): AgentLifecycle {
-    return pane?.promptable === true ? pane.agentStatus : 'unknown';
-}
+import type { HerdrTreePane } from '@trymuxr/contract';
 
 export interface PendingChoice {
     /** What to type: the choice's own number, which selects and confirms it. */

@@ -40,9 +40,9 @@ import { agentBesideName, agentLabels, agentStatusColor, agentWhoLine, HERD_STAT
 import {
     terminalComposerText,
     terminalPaneCanSend,
-    terminalPaneStatus,
     undoSmartPunctuation,
 } from '../domain/promptAvailability';
+import { terminalPaneStatus } from '../domain/terminalAgentStatus';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { terminalGrid } from '../application/terminalAhead';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -1210,7 +1210,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const contextTitle = labels.title;
     const contextName = agentBesideName(labels);
     const identityKnown = currentPane !== undefined;
-    const headerLifecycle = terminalPaneStatus(currentPane);
+    const headerLifecycle = terminalPaneStatus(currentPane, session);
     const headerLifecycleLabel = headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
     return (
         <ScopedTheme name="dark"><DarkSurface>{(theme) => {
