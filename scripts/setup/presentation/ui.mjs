@@ -180,13 +180,15 @@ export function outro(text, kind = 'ok') {
 function wrap(text, indent) {
     const room = Math.max(20, (process.stdout.columns || 80) - indent - 1);
     if (text.length <= room) return [text];
+    // Continuation lines keep the line's own indent, so wrapped JSON stays JSON.
+    const lead = /^ */.exec(text)[0];
     const lines = [];
-    let line = '';
-    for (const word of text.split(' ')) {
-        if (line && line.length + 1 + word.length > room) {
+    let line = lead;
+    for (const word of text.slice(lead.length).split(' ')) {
+        if (line.trim() && line.length + 1 + word.length > room) {
             lines.push(line);
-            line = word;
-        } else line = line ? `${line} ${word}` : word;
+            line = `${lead}${word}`;
+        } else line = line.trim() ? `${line} ${word}` : `${line}${word}`;
     }
     return [...lines, line];
 }
