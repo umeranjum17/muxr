@@ -28,14 +28,21 @@ export function displayedAgentStatus(status: AgentLifecycle, pendingRequest = fa
     return agentNeedsYou(status, pendingRequest) && !statusNeedsYou(status) ? 'blocked' : status;
 }
 
+/** Whether an online agent is holding a request it has not answered yet. */
+export function sessionHoldsRequest(
+    session: Partial<Pick<Session, 'presence' | 'agentState'>>,
+): boolean {
+    const requests = session.agentState?.requests;
+    return session.presence === 'online' && requests != null && Object.keys(requests).length > 0;
+}
+
 /** Sessions an online agent is holding a request for: their agent needs you whatever its pane says. */
 export function pendingRequestSessionIds(
     sessions: readonly (Pick<Session, 'id'> & Partial<Pick<Session, 'presence' | 'agentState'>>)[],
 ): Set<string> {
     const pending = new Set<string>();
     for (const session of sessions) {
-        const requests = session.agentState?.requests;
-        if (session.presence === 'online' && requests != null && Object.keys(requests).length > 0) pending.add(session.id);
+        if (sessionHoldsRequest(session)) pending.add(session.id);
     }
     return pending;
 }
