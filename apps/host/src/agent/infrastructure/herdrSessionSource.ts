@@ -1669,8 +1669,6 @@ export async function createHerdrSessionSource(
      * agent.wait returns the moment a pane looks idle, which is earlier than
      * promptable. Kinds that skip screen detection never report
      * interactive_ready at all, so readiness uses the one promptable rule.
-     */
-    /**
      * `launched` also takes an agent Herdr shows blocked on a first-run question
      * (Claude Code's folder trust) as started: Herdr keeps it launch-pending until
      * the person answers, and that wait is theirs, not a failed launch. Prompts
