@@ -131,7 +131,9 @@ export class MuxrRuntime extends EventEmitter {
 
     async start() {
         this.emit('status', { phase: 'starting', message: 'Starting muxr on this computer' });
-        const stall = setTimeout(() => this.emit('status', { phase: 'stalled' }), this.#stallMs);
+        const stall = setTimeout(() => {
+            if (!this.#stopping) this.emit('status', { phase: 'stalled' });
+        }, this.#stallMs);
         try { await this.#start(); }
         catch (error) {
             // Try again stops a start that is still waiting; its own kill is not a failure.
