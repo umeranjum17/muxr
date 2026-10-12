@@ -125,6 +125,14 @@ function plainTerminalStatus(status: string): string {
  * shows at once, so the badge only ever appears when the trouble outlasted it.
  */
 const STATUS_GRACE_MS = 900;
+/**
+ * The fewest rows any pane is ever given. A program may not survive a short
+ * grid: OpenCode 1.18 dies (a bun panic) when its pty shrinks to 21 rows or
+ * fewer, and the keyboard on a 270 dp phone leaves 7. Below this the terminal
+ * keeps its rows and shows their bottom, where every agent's prompt is,
+ * instead of handing the pane a smaller grid.
+ */
+const MIN_TERMINAL_ROWS = 24;
 /** The pane tabs row: its chips and its + are all this tall. */
 const PANE_TABS_HEIGHT = 24;
 /** The air above the rails' first row. */
@@ -349,8 +357,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const terminalRowHeight = drawnRowHeight ?? (terminalBox !== undefined && grid !== undefined && grid.rows > 0
         ? terminalBox.height / grid.rows
         : undefined);
+    // Both renderers turn the box they are given into their grid, so the floor
+    // is a box at least this tall; the screen shows its bottom. A whole extra
+    // point keeps layout rounding from flooring it to one row fewer. Until a
+    // renderer reports its row height there is no grid to protect yet.
+    const terminalFloor = drawnRowHeight === undefined ? 0 : MIN_TERMINAL_ROWS * drawnRowHeight + 1;
+    const terminalSurfaceHeight = Math.max(terminalBox?.height ?? 0, terminalFloor);
     const terminalGridInset = drawnRowHeight !== undefined && terminalBox !== undefined && grid !== undefined && grid.rows > 0
-        ? Math.max(0, terminalBox.height - grid.rows * drawnRowHeight)
+        ? Math.max(0, terminalSurfaceHeight - grid.rows * drawnRowHeight)
         : 0;
     // How far the terminal's visible bottom sits from the one it was last
     // measured at: the rails ride the keyboard frame by frame, while the
@@ -1527,8 +1541,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             const touch = event.nativeEvent.touches[0];
                             if (touch !== undefined) terminalTouch.current = { x: touch.locationX, y: touch.locationY };
                         }}
-                        style={{ flex: 1 }}
+                        // Shorter than the floor, the surface overflows upward
+                        // and the box shows its bottom rows.
+                        style={{ flex: 1, overflow: 'hidden', justifyContent: 'flex-end' }}
                     >
+                        <View style={{ flexGrow: 1, minHeight: terminalFloor }}>
                         <AgentPager
                             key={props.id}
                             sessionId={props.id}
@@ -1543,7 +1560,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             <TerminalLinkMenu
                                 url={linkMenu.url}
                                 at={linkMenu.at}
-                                region={{ width: terminalBox.width, height: terminalBox.height }}
+                                region={{ width: terminalBox.width, height: terminalSurfaceHeight }}
                                 actions={linkActions}
                                 onClose={() => setLinkMenu(null)}
                             />
@@ -1561,6 +1578,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             columns={grid?.cols}
                         />
                         </AgentPager>
+                        </View>
                     </View>
 
                     {/* Everything below the terminal is one surface in the
