@@ -216,7 +216,7 @@ export const pl: TranslationStructure = {
     pairing: {
         busy: 'Parowanie…',
         connecting: 'Bezpieczne łączenie z twoim komputerem…',
-        compareWords: ({ name }: { name: string }) => `Sprawdź, czy ${name} pokazuje te dwa słowa, a następnie naciśnij y na komputerze.`,
+        compareWords: ({ name }: { name: string }) => `Sprawdź, czy ${name} pokazuje te dwa słowa, a następnie zatwierdź na komputerze.`,
         paired: ({ name }: { name: string }) => `Sparowano z ${name}.`,
     },
 

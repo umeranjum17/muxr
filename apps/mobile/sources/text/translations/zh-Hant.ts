@@ -206,7 +206,7 @@ export const zhHant: TranslationStructure = {
     pairing: {
         busy: '配對中…',
         connecting: '正在安全地連線到你的電腦…',
-        compareWords: ({ name }: { name: string }) => `確認 ${name} 顯示同樣的兩個詞，然後在電腦上按 y。`,
+        compareWords: ({ name }: { name: string }) => `確認 ${name} 顯示同樣的兩個詞，然後在電腦上核准。`,
         paired: ({ name }: { name: string }) => `已與 ${name} 配對。`,
     },
 
