@@ -8,7 +8,7 @@ import type { ServerResponse } from 'node:http';
  *  in-page nav, the page titles and the routing allowlist. */
 const DOCS: { slug: string; title: string; blurb: string }[] = [
     { slug: 'quickstart', title: 'Quickstart', blurb: 'Start here. Install, get the app, pair, and peek at your computer from your phone.' },
-    { slug: 'setup', title: 'Setup walkthrough', blurb: 'Read this to pick a connection: same Wi-Fi, mesh VPN, SSH only, your own server, or a browser.' },
+    { slug: 'setup', title: 'Setup walkthrough', blurb: 'Read this to pick a connection: Tailscale, SSH only, your own server, or a browser.' },
     { slug: 'plugins', title: 'Herdr plugins', blurb: 'Install Herdr plugins and run their actions from Applications in muxr.' },
     { slug: 'voice', title: 'Voice', blurb: 'On-device dictation and provider-neutral realtime voice, and exactly what each one sends where.' },
     { slug: 'privacy', title: 'Privacy and trust', blurb: 'What your phone, your computer, and an optional voice provider can each see. Also served verbatim at /privacy as the store-facing policy.' },

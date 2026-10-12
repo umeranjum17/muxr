@@ -34,11 +34,14 @@ Node itself.
 
 Run `muxr` with no arguments for the interactive setup and maintenance menu.
 The onboarding inspects the computer without changing it. Choose how your phone
-reaches this computer — an away-from-home route is recommended whenever one is
-available — then browser access, what to pair, and **Agent status updates**.
+reaches this computer — Tailscale is recommended; if it is missing or not
+signed in, setup says how to fix that and checks again in place. A first run
+shows the short plan under the routes, and Enter on a route applies it;
+changing an existing setup also asks about browser access, what to pair, and
+**Agent status updates**.
 See the [guided route picker](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone)
 for what each choice needs.
-Nothing changes before a final **Apply setup** confirmation. Setup
+Nothing changes before that Enter (or the final **Apply setup** of a later run). Setup
 then starts the selected relay and host, runs the pairing flow (scan the
 one-use QR from the phone app), and verifies the connection and managed
 services without printing credentials.
@@ -64,7 +67,7 @@ Automation equivalents are flags on `muxr self-host`:
 | Use muxr away from home (Tailscale) | Private HTTPS through `tailscale serve`; the relay stays on loopback. Install the free Tailscale app on both and sign in to the same account. |
 | `--tailscale-direct` (phone only) | Uses the Tailscale address directly when Serve is proven disabled or occupied. Phone app only, no browser. |
 | Detected private network | Existing NetBird, WireGuard, ZeroTier, or similar address. Phone must join the same private network. |
-| Works only on this Wi-Fi | Home network only — the phone stops working when it leaves this Wi-Fi. Never the default while a remote-reachable route exists. For access from anywhere, use Tailscale. |
+| Works only on this Wi-Fi | Offered only to a computer already set up on it; new setups use Tailscale. Home network only. |
 
 muxr never enables Tailscale Funnel.
 Restrict a Serve endpoint with a tailnet grant/ACL even though pairing and E2EE
