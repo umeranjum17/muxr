@@ -48,12 +48,11 @@ Read-only, always. You can also run this exact step non-interactively with `muxr
 
 The recommended path, and the only one a first run offers up front. Install the free Tailscale app on your phone and your computer and sign in to the same account. If Tailscale is missing or not connected on the computer, setup says so in one sentence and **Check again** looks once more, without leaving the screen. A private network you already run (NetBird, WireGuard) is under **Other ways**.
 
-1. Run `muxr`, choose **Set up or repair this machine**, then **Change networking and integrations**.
-2. Connectivity: **Tailscale Serve**. muxr asks Tailscale to serve the local relay over your tailnet's HTTPS name — it does not create users, change ACLs, or touch other services.
-3. Review the plan: it shows the exact `wss://your-machine.tail-scale.ts.net` relay URL that will be terminated by Tailscale Serve.
-4. **Apply setup**, scan the QR on the phone (which must have Tailscale on).
+1. Run `muxr` on the computer. Step 2 of 3 asks how your phone reaches it, with **Use muxr away from home (Tailscale)** already selected.
+2. Press Enter. muxr asks Tailscale to serve the local relay over your tailnet's HTTPS name (`wss://your-machine.tail-scale.ts.net`) — it does not create users, change ACLs, or touch other services. Nothing changes before that Enter.
+3. Scan the QR on the phone (which must have Tailscale on).
 
-Why Serve instead of the direct IP: its secure endpoint also qualifies for browser hosting later. Choose **Direct Tailscale IP** if you only ever want the native app.
+Why Serve instead of the direct IP: its secure endpoint also qualifies for browser hosting later. If Serve is unavailable here, setup recommends the phone-only Tailscale route instead; if you only ever want the native app, pick it under **Other ways**.
 
 ## Scenario 2: Temporary Cloudflare tunnel
 

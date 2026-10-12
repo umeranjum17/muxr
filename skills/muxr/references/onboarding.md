@@ -35,9 +35,10 @@ Node itself.
 Run `muxr` with no arguments for the interactive setup and maintenance menu.
 The onboarding inspects the computer without changing it. Choose how your phone
 reaches this computer — Tailscale is recommended; if it is missing or not
-signed in, setup says how to fix that and checks again in place. A first run shows the short plan under the routes, and Enter on a
-route applies it; changing an existing setup also asks about browser access,
-what to pair, and **Agent status updates**.
+signed in, setup says how to fix that and checks again in place. A first run
+shows the short plan under the routes, and Enter on a route applies it;
+changing an existing setup also asks about browser access, what to pair, and
+**Agent status updates**.
 See the [guided route picker](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone)
 for what each choice needs.
 Nothing changes before that Enter (or the final **Apply setup** of a later run). Setup
