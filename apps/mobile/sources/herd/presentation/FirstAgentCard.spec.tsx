@@ -1,6 +1,6 @@
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 
 // Only the link to the computer is faked: the host's catalog answer and
 // session.start. The card, the catalog reading, the offer and the start
@@ -9,6 +9,8 @@ const host = vi.hoisted(() => ({
     readiness: {} as Record<string, { signedIn: string }>,
     installed: [] as string[],
     started: [] as Array<Record<string, unknown>>,
+    startFails: false,
+    visibilityFails: false,
 }));
 const navigated = vi.hoisted(() => [] as string[]);
 const pushed = vi.hoisted(() => [] as string[]);
@@ -26,6 +28,7 @@ vi.mock('@/catalog/sync', () => ({
                 return { kinds: ['claude', 'codex', 'pi'], installed: [...host.installed], readiness: structuredClone(host.readiness) };
             }
             if (method === 'session.start') {
+                if (host.startFails) throw new Error('session.start failed');
                 host.started.push(params);
                 return { info: { id: 'agent-1' } };
             }
@@ -36,7 +39,11 @@ vi.mock('@/catalog/sync', () => ({
 vi.mock('react-native-mmkv', () => ({
     MMKV: class { getString() { return undefined; } set() {} delete() {} },
 }));
-vi.mock('@/catalog/ops', () => ({ refreshUntilSessionVisible: async () => {} }));
+vi.mock('@/catalog/ops', () => ({
+    refreshUntilSessionVisible: async () => {
+        if (host.visibilityFails) throw new Error('Connection lost');
+    },
+}));
 vi.mock('@/catalog/store', () => ({
     useLocalSettingMutable: (key: string) => {
         const [value, setValue] = React.useState<unknown>(settings.get(key) ?? false);
@@ -100,6 +107,15 @@ async function render(): Promise<Screen> {
     return screen;
 }
 
+beforeEach(() => {
+    host.startFails = false;
+    host.visibilityFails = false;
+    host.started.length = 0;
+    navigated.length = 0;
+    pushed.length = 0;
+    settings.clear();
+});
+
 it('starts a ready agent in one tap, with no picker', async () => {
     host.installed = ['claude', 'codex'];
     host.readiness = { claude: { signedIn: 'yes' }, codex: { signedIn: 'no' } };
@@ -131,4 +147,32 @@ it('says plainly what to do when no agent is ready, and recovers in place', asyn
     expect(pushed).toEqual(['/new-agent']);
     // Only a started agent or Not now retires the card; a look at the picker does not.
     expect(button(screen, 'Start Claude Code')).toBeTruthy();
+});
+
+it('a failed one-tap start re-reads readiness and never offers the same Start again', async () => {
+    host.installed = ['claude'];
+    host.readiness = { claude: { signedIn: 'yes' } };
+    const screen = await render();
+
+    host.startFails = true;
+    host.readiness = { claude: { signedIn: 'no' } };
+    await TestRenderer.act(async () => { button(screen, 'Start Claude Code').props.onPress(); });
+
+    expect(texts(screen)).toContain('session.start failed');
+    expect(texts(screen)).toContain('Sign in to Claude Code on your computer, then tap Check again.');
+    expect(() => button(screen, 'Start Claude Code')).toThrow();
+    expect(button(screen, 'Check again')).toBeTruthy();
+});
+
+it('a start that failed after its agent was created opens that agent, not a second Start', async () => {
+    host.installed = ['claude'];
+    host.readiness = { claude: { signedIn: 'yes' } };
+    host.visibilityFails = true;
+    const screen = await render();
+
+    await TestRenderer.act(async () => { button(screen, 'Start Claude Code').props.onPress(); });
+
+    expect(host.started).toHaveLength(1);
+    expect(navigated).toEqual(['agent-1']);
+    expect(texts(screen)).not.toContain('Connection lost');
 });
