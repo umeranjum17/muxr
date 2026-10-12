@@ -122,7 +122,7 @@ user-visible behavior, then exactly four H2 sections in this order:
   two-host lab (distinct UTS hostnames) driven on a release APK and the lab PWA:
   the Computers sheet lists the cloud row and each paired computer with its
   Online/Asleep/Offline state and the one in use; tapping another online computer
-  switches it after a confirmation and the next prompt runs there, dark at 393/270 px.
+  switches it after a confirmation and the next prompt runs there, dark and light at 393/270 px.
 - [Watch from a view-only browser that cannot type](./view-only-input.md) —
   a `--browser-view` PWA and a `--browser` PWA on one real Herdr lab host: the
   view one watches the pane but its typing, desktop and agent actions never

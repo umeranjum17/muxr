@@ -37,7 +37,7 @@ function WebAlertModalContent({ config, onClose, onConfirm, opaque }: WebAlertMo
     // that fills the screen edge to edge. Keep a plain side inset so it never
     // touches the edges, while wider screens keep the fixed 270 width.
     const dialogWidth = Math.min(270, Math.max(160, Math.round(windowWidth - 48)));
-    
+
     const handleButtonPress = (buttonIndex: number) => {
         if (isConfirm && onConfirm) {
             onConfirm(buttonIndex === 1);
