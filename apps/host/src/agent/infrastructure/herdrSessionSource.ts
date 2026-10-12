@@ -1479,7 +1479,7 @@ export async function createHerdrSessionSource(
     const client = new KitHerdrClient(herdrBin, socketPath, () => {
         routingEpoch += 1;
         void client.subscribeEvents(EVENT_KINDS).catch(() => {});
-        void refreshSnapshot().then(emitAllStates).catch(() => {});
+        void refreshSnapshot().then(emitAllStates).then(() => artifacts.rescanAll()).catch(() => {});
     });
     // The kit reads a blocked agent's question once its status flips; that releases the held alert.
     const stopBlockedWatch = client.kit.onBlocked((entry, change) => {
