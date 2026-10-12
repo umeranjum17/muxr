@@ -48,9 +48,12 @@ Interactive `muxr setup` shows all six routes together, each with an explanatory
 sentence and exactly one **Recommended** tag: Works only on this Wi-Fi, three
 away-from-home routes (Tailscale, your private network, a temporary link), and
 your own server. Unavailable routes explain what to install or connect before
-retrying.
+retrying. When setup is given an enrollment (`--enrollment` or
+`MUXR_ENROLLMENT`), it additionally offers **Works anywhere (muxr relay)**
+first and Recommended: this computer dials out to that relay, so nothing on it
+needs to be open — it works through firewalls and away from home.
 
-The connected Tailscale route is recommended first, using phone-only Tailscale
+Without an enrollment, the connected Tailscale route is recommended first, using phone-only Tailscale
 when Serve is proven disabled or occupied. Without connected Tailscale, the
 healthy current route is recommended if it is still selectable; setup then
 prefers a detected private network, then an installed Tailscale route that
