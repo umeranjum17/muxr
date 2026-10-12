@@ -88,6 +88,25 @@ export function findHerdrBin(onError) {
     catch (error) { onError?.(error); return undefined; }
 }
 
+/** The Herdr muxr's own service pins (HERDR_BIN in muxr.service or com.muxr.host.plist), if it still runs. */
+export function pinnedHerdrBin() {
+    const unit = platform() === 'darwin'
+        ? join(home(), 'Library', 'LaunchAgents', 'com.muxr.host.plist')
+        : join(home(), '.config', 'systemd', 'user', 'muxr.service');
+    let content;
+    try { content = readFileSync(unit, 'utf8'); }
+    catch { return undefined; }
+    const pinned = content.match(/^Environment=HERDR_BIN=(?:"([^"]+)"|(\S+))$/m)?.slice(1).find(Boolean)
+        ?? content.match(/<key>HERDR_BIN<\/key><string>([^<]+)<\/string>/)?.[1];
+    return pinned !== undefined && executable(pinned) ? realpathSync(resolve(pinned)) : undefined;
+}
+
+export function herdrIsCompatible(binary) {
+    const result = run(binary, ['--version'], { timeout: 5_000 });
+    const version = parseVersion(result.stdout);
+    return result.ok && version !== undefined && versionIsCompatible(version);
+}
+
 export function parseVersion(text) {
     const match = text.match(/(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\s|$)/);
     return match ? match.slice(1).map(Number) : undefined;

@@ -152,7 +152,7 @@ describe('desktop runtime self-host state', () => {
             `mkdir -p ${JSON.stringify(installDir)}`,
             `cat > ${JSON.stringify(join(installDir, 'herdr'))} <<'HERDR'`,
             '#!/bin/sh',
-            `case "$1" in server) : > ${JSON.stringify(join(home, 'server-up'))} ;; status) [ -e ${JSON.stringify(join(home, 'server-up'))} ] && echo '{"running":true}' || echo '{"running":false}' ;; esac`,
+            `case "$1" in --version) echo 'herdr 0.9.1' ;; server) : > ${JSON.stringify(join(home, 'server-up'))} ;; status) [ -e ${JSON.stringify(join(home, 'server-up'))} ] && echo '{"running":true}' || echo '{"running":false}' ;; esac`,
             'HERDR',
             `chmod +x ${JSON.stringify(join(installDir, 'herdr'))}`,
             '',
@@ -170,8 +170,8 @@ describe('desktop runtime self-host state', () => {
             '',
         ].join('\n'));
 
-        const saved = { PATH: process.env.PATH, HERDR_BIN: process.env.HERDR_BIN, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, MUXR_HERDR_INSTALLER: process.env.MUXR_HERDR_INSTALLER, MUXR_HOME: process.env.MUXR_HOME, MUXR_NO_SERVICE_COMMANDS: process.env.MUXR_NO_SERVICE_COMMANDS };
-        Object.assign(process.env, { PATH: emptyPath, HERDR_INSTALL_DIR: installDir, MUXR_HERDR_INSTALLER: installer, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1' });
+        const saved = { HOME: process.env.HOME, PATH: process.env.PATH, HERDR_BIN: process.env.HERDR_BIN, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, MUXR_HERDR_INSTALLER: process.env.MUXR_HERDR_INSTALLER, MUXR_HOME: process.env.MUXR_HOME, MUXR_NO_SERVICE_COMMANDS: process.env.MUXR_NO_SERVICE_COMMANDS };
+        Object.assign(process.env, { HOME: home, PATH: emptyPath, HERDR_INSTALL_DIR: installDir, MUXR_HERDR_INSTALLER: installer, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1' });
         delete process.env.HERDR_BIN;
         const shown: { status: string; step?: string; message?: string }[] = [];
         const herdr = createHerdrSetup((next: { status: string }) => shown.push(next));
@@ -204,11 +204,17 @@ describe('desktop runtime self-host state', () => {
         const installDir = join(root, 'bin');
         mkdirSync(installDir);
         const serverUp = join(root, 'server-up');
-        writeFileSync(join(installDir, 'herdr'), [
+        // Herdr sits outside PATH and the install folder; only the CLI service's pin reaches it.
+        const herdrPath = join(root, 'elsewhere', 'herdr');
+        mkdirSync(join(root, 'elsewhere'));
+        const fakeHerdr = (version: string) => writeFileSync(herdrPath, [
             '#!/bin/sh',
-            `case "$1" in server) : > ${JSON.stringify(serverUp)} ;; status) [ -e ${JSON.stringify(serverUp)} ] && echo '{"running":true}' || echo '{"running":false}' ;; esac`,
+            `case "$1" in --version) echo 'herdr ${version}' ;; server) : > ${JSON.stringify(serverUp)} ;; status) [ -e ${JSON.stringify(serverUp)} ] && echo '{"running":true}' || echo '{"running":false}' ;; esac`,
             '',
         ].join('\n'), { mode: 0o755 });
+        fakeHerdr('0.9.1');
+        mkdirSync(join(root, '.config', 'systemd', 'user'), { recursive: true });
+        writeFileSync(join(root, '.config', 'systemd', 'user', 'muxr.service'), `[Service]\nEnvironment=HERDR_BIN=${herdrPath}\n`);
         const cliHome = join(root, 'cli');
         const ownHome = join(root, 'own');
         mkdirSync(cliHome);
@@ -228,10 +234,10 @@ describe('desktop runtime self-host state', () => {
             '',
         ].join('\n'));
 
-        const saved = { PATH: process.env.PATH, HERDR_BIN: process.env.HERDR_BIN, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, MUXR_HOME: process.env.MUXR_HOME, MUXR_NO_SERVICE_COMMANDS: process.env.MUXR_NO_SERVICE_COMMANDS };
+        const saved = { HOME: process.env.HOME, PATH: process.env.PATH, HERDR_BIN: process.env.HERDR_BIN, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, MUXR_HOME: process.env.MUXR_HOME, MUXR_NO_SERVICE_COMMANDS: process.env.MUXR_NO_SERVICE_COMMANDS };
         const emptyPath = join(root, 'path');
         mkdirSync(emptyPath);
-        Object.assign(process.env, { PATH: emptyPath, HERDR_INSTALL_DIR: installDir, MUXR_NO_SERVICE_COMMANDS: '1' });
+        Object.assign(process.env, { HOME: root, PATH: emptyPath, HERDR_INSTALL_DIR: installDir, MUXR_NO_SERVICE_COMMANDS: '1' });
         delete process.env.HERDR_BIN;
         const shown: { status: string }[] = [];
         const herdr = createHerdrSetup((next: { status: string }) => shown.push(next));
@@ -242,7 +248,7 @@ describe('desktop runtime self-host state', () => {
             return pending;
         };
         try {
-            // A command-line computer: the launch check reads Herdr, and no status starts it.
+            // A command-line computer: the launch check reads the pinned Herdr, and no status starts it.
             process.env.MUXR_HOME = cliHome;
             herdr.check();
             const cli = collectingRuntime(cliHome, relayEntry, hostEntry).runtime;
@@ -253,6 +259,8 @@ describe('desktop runtime self-host state', () => {
             expect(existsSync(serverUp)).toBe(false);
             expect(shown).toEqual([]);
 
+            // A Herdr below the minimum counts as missing and is not started until a compatible one is there.
+            fakeHerdr('0.8.0');
             process.env.MUXR_HOME = ownHome;
             const { runtime, statuses } = collectingRuntime(ownHome, relayEntry, hostEntry);
             const starts = forward(runtime);
@@ -260,6 +268,11 @@ describe('desktop runtime self-host state', () => {
                 await runtime.start();
                 await Promise.all(starts);
                 expect(statuses.at(-1)?.phase).toBe('online');
+                expect(shown.at(-1)).toEqual({ status: 'missing' });
+                expect(existsSync(serverUp)).toBe(false);
+
+                fakeHerdr('0.9.1');
+                await herdr.observeRuntime({ phase: 'online' });
                 expect(existsSync(serverUp)).toBe(true);
                 expect(shown.at(-1)).toEqual({ status: 'ok' });
             } finally {

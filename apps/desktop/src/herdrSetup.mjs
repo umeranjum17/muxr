@@ -9,7 +9,7 @@
  * plain sentence; the raw cause goes to the log).
  */
 import { dirname } from 'node:path';
-import { ensureHerdrServer, findHerdrBin, runHerdrInstaller } from '../../../scripts/setup/infrastructure/herdr.mjs';
+import { ensureHerdrServer, findHerdrBin, herdrIsCompatible, pinnedHerdrBin, runHerdrInstaller } from '../../../scripts/setup/infrastructure/herdr.mjs';
 
 const INSTALL_MESSAGE = "Couldn't install Herdr. Check this computer's internet connection, then press Try again.";
 const START_MESSAGE = "Herdr is installed but didn't start. Choose Try again.";
@@ -37,8 +37,10 @@ function userEnv() {
     return env;
 }
 
+// A Herdr below the CLI's minimum counts as missing, so Install replaces it with the published one.
 function findHerdr() {
-    return findHerdrBin((error) => process.stderr.write(`desktop: herdr lookup: ${detail(error)}\n`));
+    const logLookup = (error) => process.stderr.write(`desktop: herdr lookup: ${detail(error)}\n`);
+    return [findHerdrBin(logLookup), pinnedHerdrBin()].find((binary) => binary !== undefined && herdrIsCompatible(binary));
 }
 
 export function createHerdrSetup(onChange) {
