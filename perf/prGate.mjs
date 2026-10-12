@@ -55,22 +55,12 @@ async function dump(name) {
     if (name) save(`${name}.xml`, xml);
     return xml;
 }
-async function requireScreen(name, pattern, timeout = 25_000, dismissStartup = false) {
+async function requireScreen(name, pattern, timeout = 25_000) {
     const start = Date.now();
     let xml;
     do {
         xml = await dump(name);
         if (pattern.test(xml)) return xml;
-        // This delayed app alert can arrive after the initial prompt sweep.
-        // Handle only its exact Cancel button before measurement, never mid-window.
-        if (dismissStartup && xml.includes('Show live agent updates?')) {
-            const cancel = parseUiNodes(xml).find((node) => node.text === 'CANCEL');
-            if (cancel) {
-                save(`${name}-startup-prompt.xml`, xml);
-                await adb('shell', 'input', 'tap', String(Math.round((cancel.l + cancel.r) / 2)), String(Math.round((cancel.t + cancel.b) / 2)));
-                (report.startupPrompts ??= []).push({ screen: name, at: new Date().toISOString(), action: 'CANCEL live updates alert' });
-            }
-        }
         await sleep(800);
     } while (Date.now() - start < timeout);
     throw new Error(`${name}: screen did not mount (expected ${pattern}); see ${name}.xml`);
@@ -119,49 +109,30 @@ async function maestro(flow, variables = {}) {
     return result;
 }
 async function stabilizeStartup() {
-    // Cancelling the background prompt clears a ref, not an effect dependency.
-    // A real foreground transition lets the deferred Live Updates prompt run
-    // before sampling. One full fake-agent status cycle bounds the fallback.
+    // A real foreground transition, then two quiet looks at a connected herd
+    // before sampling.
     const started = Date.now();
     const deadline = started + 65000;
-    const evidence = { startedAt: new Date(started).toISOString(), prompts: [], foregroundTransitions: 0, quietLooks: 0 };
+    const evidence = { startedAt: new Date(started).toISOString(), foregroundTransitions: 0, quietLooks: 0 };
     report.startupStabilization = evidence;
-    const foreground = async () => {
-        await adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
-        await sleep(1200);
-        await adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///', pkg);
-        evidence.foregroundTransitions++;
-    };
-    await foreground();
-    let lastPromptAt = started;
-    let promotionSeen = false;
+    await adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
+    await sleep(1200);
+    await adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///', pkg);
+    evidence.foregroundTransitions++;
     do {
         const xml = await dump('startup-settle');
-        const title = ['Keep muxr connected in the background?', 'Show live agent updates?'].find((text) => xml.includes(`text="${text}"`));
-        if (title) {
-            const cancel = parseUiNodes(xml).find((node) => node.text === 'CANCEL');
-            check(cancel && cancel.r > cancel.l && cancel.b > cancel.t, `Startup prompt has no Cancel control: ${title}`);
-            save(`startup-prompt-${evidence.prompts.length}.xml`, xml);
-            evidence.prompts.push({ title, at: new Date().toISOString(), action: 'CANCEL' });
-            await adb('shell', 'input', 'tap', String((cancel.l + cancel.r) / 2), String((cancel.t + cancel.b) / 2));
-            lastPromptAt = Date.now(); evidence.quietLooks = 0;
-            if (title === 'Show live agent updates?') promotionSeen = true;
-            else await foreground();
-        } else {
-            evidence.quietLooks = /text="connected"/.test(xml) ? evidence.quietLooks + 1 : 0;
-        }
-        if (promotionSeen && evidence.quietLooks >= 2 && Date.now() - lastPromptAt >= 4000) break;
+        evidence.quietLooks = /text="connected"/.test(xml) ? evidence.quietLooks + 1 : 0;
+        if (evidence.quietLooks >= 2) break;
         await sleep(1200);
     } while (Date.now() < deadline);
     check(evidence.quietLooks >= 2, 'Startup did not settle on a mounted connected herd');
     evidence.elapsedMs = Date.now() - started;
-    evidence.promotionPromptObserved = promotionSeen;
     await requireScreen('startup-ready', /text="connected"/);
 }
 
 async function phase(name, mounted, drive = false) {
     await dismissPrompts();
-    const beforeXml = await requireScreen(name, mounted, 25_000, true);
+    const beforeXml = await requireScreen(name, mounted);
     await capture(`${name}-before.png`);
     await resetGfx(pkg);
     const initialPid = (await adb('shell', 'pidof', pkg)).trim();
@@ -775,7 +746,7 @@ async function main() {
         report.proofPane = { paneId: proofPane().pane_id, header: proofHeader(), openedAt: new Date(openedAt).toISOString(), resizes: resizes.slice(-3) };
     });
     await feature('usage-switch-and-recency', async () => {
-        if (flow === 'usage') await requireScreen('usage-home', /text="LIVE"/, 25_000, true);
+        if (flow === 'usage') await requireScreen('usage-home', /text="LIVE"/);
         await herd(); await tapText('Usage');
         const selected = (xml, expected) => {
             for (const provider of ['OMP', 'OpenCode']) {
