@@ -53,7 +53,7 @@ body {
 .dot.online { background: var(--success); }
 .dot.approval { background: #ffab00; }
 .dot.paired { background: var(--success); }
-.dot.error { background: var(--destructive); }
+.dot.error { background: var(--destructive); margin: 0; }
 
 .bar-title {
     font-weight: 600;
