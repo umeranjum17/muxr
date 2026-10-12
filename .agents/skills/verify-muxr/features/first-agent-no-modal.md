@@ -1,0 +1,59 @@
+# Open the first agent with no notifications modal over it
+
+A newcomer who starts their first agent lands straight in it. No "Allow muxr
+notifications?" or "Show live agent updates?" modal covers the new agent: the
+Home card "Know when an agent needs you" is the one place that asks for the
+notification permission, and Settings > Notifications keeps the permission and
+Android's Live agent updates rows for anyone who said Not now.
+
+## Sub-features
+
+- `first-agent-no-modal` from a fresh install with notifications not granted,
+  Home's Start an agent -> Claude Code -> Start opens the agent and no modal
+  appears over it in the next 30 s.
+- `notifications-card-asks` Home still shows the "Know when an agent needs you"
+  card before the agent starts.
+- `live-updates-row` Settings > Notifications > Live agent updates still opens
+  Android's Live Updates setting (the modal's old Open settings target).
+
+## How to get to it (user POV)
+
+- Install, pair, then on Home tap `Start an agent`, pick `Claude Code`, tap
+  `Start Claude Code in …`, and watch the agent open.
+
+## Driving it with the private stack
+
+Preconditions:
+
+- `yarn build` and a release APK of the candidate (`perf/buildPrApk.mjs`, with
+  `-PreactNativeArchitectures=arm64-v8a` for a real phone) on an owned emulator
+  or the test phone under its keeper lock. A real Herdr lab
+  (`HERDR_LAB_HELPER`, `FM_HERDR_LAB_STATE_DIR`) and `claude` on PATH.
+
+1. Start the lab with no panes, from the repo root in its own shell, stdin
+   attached: `KINDS= EVIDENCE=$EVIDENCE node --input-type=module -e "$(< .agents/skills/verify-muxr/features/terminalLatestLab.mjs)"`.
+   Claude Code in the lab answers from the canned fixture, so no account is used.
+2. Fresh newcomer state for muxr only: install the APK, `pm clear
+   com.trymuxr.app`, `pm revoke com.trymuxr.app android.permission.POST_NOTIFICATIONS`.
+3. Enter `pair`, `adb reverse tcp:<relayPort> tcp:<relayPort>` (the port is
+   `relayPort` in the lab's `muxr/selfhost.json`), open the written
+   `muxr://pair#…` link with `am start`, tap `Pair`.
+4. On Home check the notifications card, then `Start an agent` -> `Claude Code`
+   -> `Start Claude Code in …`. From that tap take a screenshot every 0.5 s for
+   30 s (`adb exec-out screencap -p`; a phone that refuses `screenrecord` gets
+   only these) and, beside it, `uiautomator dump` every 0.3 s for either modal
+   title.
+5. Pass: the agent screen is the only thing on screen in every frame and no dump
+   holds `Allow muxr notifications?` or `Show live agent updates?`. Before the
+   fix the first modal covered the agent about 2 s after the tap.
+6. `quit` stops the lab and tears its Herdr session down.
+
+## Gotchas
+
+- The modal fired only on Android, only once the herd had a working or
+  waiting agent, so a Home with no agents never shows it; start a real agent.
+- Notifications already granted hides the old needs-permission modal but, on
+  Android 16 with Live Updates off, the old build still showed `Show live
+  agent updates?`; check both titles.
+- `pm clear` keeps the app installed; uninstall only when a signer clash with
+  an older lab build refuses `install -r`.

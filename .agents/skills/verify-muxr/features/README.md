@@ -150,6 +150,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [See pinned spaces on the phone's Spaces list](./spaces-pinned.md) —
   native app on an emulator over a private stack: pin, themes, tablet width,
   plus guarded two-computer pin isolation and legacy migration.
+- [Open the first agent with no notifications modal over it](./first-agent-no-modal.md) —
+  native release app over a real-Herdr lab with no panes: fresh install,
+  Home's Start an agent opens Claude Code and neither notifications modal
+  appears in 30 s of 0.5 s screenshots; the Home card still asks.
 - [Read the computer name in the Home header](./home-header-name.md) —
   native app over a named fake-Herdr stack: one line with an ellipsis, at
   270dp and font scale 2.0, light and dark.
