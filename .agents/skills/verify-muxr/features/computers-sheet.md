@@ -74,7 +74,7 @@ PWA (browser build with the lab flag, over `serveWebExport.mjs`):
 ## Gotchas
 
 - The sheet is a dark surface over the session (like the pane overview) and forces
-  `ScopedTheme dark` inside the body it renders, so its rows stay dark under either
+  `ScopedTheme dark` around its own render, so its rows stay dark under either
   app theme even when a later re-render mounts them. On native that scope also does
   not survive the RN modal boundary, so the sheet states its own text colours and
   the switch confirm re-applies the scope. Capture the PWA in both app themes; a

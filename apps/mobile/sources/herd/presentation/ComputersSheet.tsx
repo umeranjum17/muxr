@@ -205,8 +205,8 @@ export function ComputersSheet({ visible, sessionId, onClose }: { visible: boole
                 <Item
                     title="Cloud computer"
                     titleStyle={{ color: theme.colors.text }}
-                    detail="Coming soon"
-                    detailStyle={{ color: theme.colors.textSecondary }}
+                    subtitle="Coming soon"
+                    subtitleStyle={{ color: theme.colors.textSecondary }}
                     disabled
                     showChevron={false}
                     icon={<Ionicons name="cloud-outline" size={29} color={theme.colors.textSecondary} />}
