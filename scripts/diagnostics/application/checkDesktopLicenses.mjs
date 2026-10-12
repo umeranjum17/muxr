@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { assertPermissiveLicense } from '../../release/infrastructure/audit.mjs';
+import { assertPermissiveLicense } from '../../release/index.mjs';
 
 const target = process.argv[2];
 if (target === undefined) {
