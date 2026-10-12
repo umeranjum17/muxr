@@ -32,7 +32,8 @@ Preconditions:
 
 1. Start the lab with no panes, from the repo root in its own shell, stdin
    attached: `KINDS= EVIDENCE=$EVIDENCE node --input-type=module -e "$(< .agents/skills/verify-muxr/features/terminalLatestLab.mjs)"`.
-   Claude Code in the lab answers from the canned fixture, so no account is used.
+   Claude Code in the lab answers from the canned fixture, so no account is used;
+   the picker may still read `Needs sign-in`, and it starts all the same.
 2. Fresh newcomer state for muxr only: install the APK, then `pm clear
    com.trymuxr.app` (see Gotchas when the phone refuses it). Check
    `dumpsys package com.trymuxr.app` reads `POST_NOTIFICATIONS: granted=false`.
@@ -41,9 +42,9 @@ Preconditions:
    `muxr://pair#…` link with `am start`, tap `Pair`.
 4. On Home check the notifications card, then `Start an agent` -> `Claude Code`
    -> `Start Claude Code in …`. From that tap take a screenshot every 0.5 s for
-   30 s (`adb exec-out screencap -p`; a phone that refuses `screenrecord` gets
-   only these) and, beside it, `uiautomator dump` every 0.3 s for either modal
-   title.
+   30 s (a phone that refuses `screenrecord` gets only these; see Gotchas for
+   the fast capture) and, beside it, `uiautomator dump` every second for either
+   modal title.
 5. Pass: the agent screen is the only thing on screen in every frame and no dump
    holds `Allow muxr notifications?` or `Show live agent updates?`. Before the
    fix `Allow muxr notifications?` covered the agent 2.4-2.8 s after the tap
@@ -54,9 +55,8 @@ Preconditions:
 
 - The modal fired only on Android, only once the herd had a working or
   waiting agent, so a Home with no agents never shows it; start a real agent.
-- Notifications already granted hides the old needs-permission modal but, on
-  Android 16 with Live Updates off, the old build still showed `Show live
-  agent updates?`; check both titles.
+- With notifications already granted but Android Live Updates off, the old
+  code raised `Show live agent updates?` instead; check both titles.
 - Some phones refuse `pm clear` and `pm revoke` from the shell (OnePlus,
   Android 16: no `CLEAR_APP_USER_DATA`); there a fresh newcomer state is a
   reinstall of muxr itself, which also leaves notifications not granted.
