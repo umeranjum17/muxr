@@ -1,11 +1,11 @@
 import * as React from 'react';
-import { createMMKV } from 'react-native-mmkv';
+import { createStore } from '@/utils/mmkvStore';
 import type { RequestResult } from '@trymuxr/contract';
 import { sync } from '@/catalog/sync';
 import { getCachedConnectionSettings } from '@/connection';
 import { Modal } from '@/modal';
 
-const saved = createMMKV();
+const saved = createStore();
 const pending = new Set(['queued', 'updating', 'rolling-back']);
 /** Persist the plan before applying: the host may restart before its reply arrives. */
 export function useHostUpdate(appVersion: string) {

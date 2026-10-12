@@ -8,7 +8,7 @@ import {
     type DownloadPauseState,
     type DownloadProgressData,
 } from 'expo-file-system/legacy';
-import { createMMKV } from 'react-native-mmkv';
+import { createStore } from '@/utils/mmkvStore';
 
 export type DictationModel = {
     id: string;
@@ -24,7 +24,7 @@ export type DictationModel = {
 export const BUNDLED_DICTATION_MODEL_ID = 'base.en-q5_1';
 const MODEL_DIRECTORY_NAME = 'models';
 const DOWNLOAD_STATE_KEY = 'dictation-model-download-v1';
-const modelStorage = createMMKV();
+const modelStorage = createStore();
 const downloadOptions: DownloadOptions = { sessionType: FileSystemSessionType.BACKGROUND };
 
 export const DICTATION_MODELS: readonly DictationModel[] = [

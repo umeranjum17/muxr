@@ -1,6 +1,6 @@
-import { createMMKV } from 'react-native-mmkv';
+import { createStore } from '@/utils/mmkvStore';
 
-const mmkv = createMMKV();
+const mmkv = createStore();
 
 const LAST_VIEWED_KEY = 'changelog-last-viewed-release';
 /** What unread state was keyed on before releases were keyed by app version. */

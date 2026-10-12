@@ -647,11 +647,7 @@ function readStore(): string | undefined {
 }
 
 function writeStore(value: string): void {
-    try {
-        mmkv()?.set(STORAGE_KEY, value);
-    } catch {
-        // Tests and web without MMKV keep the in-memory trail only.
-    }
+    mmkv()?.set(STORAGE_KEY, value);
 }
 
 let store: import('react-native-mmkv').MMKV | undefined;
@@ -660,8 +656,8 @@ function mmkv(): import('react-native-mmkv').MMKV | undefined {
     try {
         // Lazy so vitest can record without a native store; one instance, since each
         // v4 instance registers its own app-state listener.
-        const { createMMKV } = require('react-native-mmkv') as typeof import('react-native-mmkv');
-        store ??= createMMKV();
+        const { createStore } = require('@/utils/mmkvStore') as typeof import('@/utils/mmkvStore');
+        store ??= createStore();
         return store;
     } catch {
         return undefined;
