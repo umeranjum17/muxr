@@ -24,8 +24,8 @@ const signature = (choices: readonly PendingChoice[]): string =>
  * The answers to the question a waiting agent is asking, as buttons along the
  * bottom of its terminal: the question stays readable above, and each answer
  * is one tap instead of a key hunted for in a scrolled row. A tap types the
- * answer's number through the same channel the key row writes to, which both
- * selects and confirms it. The screen is read with the passive `pane.read`,
+ * answer's number, or the arrow presses and Enter that reach it, through the
+ * same channel the key row writes to, which both selects and confirms it. The screen is read with the passive `pane.read`,
  * so reading it never moves the agent's viewport.
  */
 export const PendingChoices = React.memo(function PendingChoices({ sessionId, waiting, channel, onVisibilityChange, lineHeight, gridInset }: {
@@ -124,10 +124,10 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                     <Pressable
                         key={choice.key}
                         onPress={() => answer(choice)}
-                        onLongPress={() => Modal.alert(`Answer ${choice.key}`, choice.label)}
+                        onLongPress={() => Modal.alert(choice.number === undefined ? 'Answer' : `Answer ${choice.number}`, choice.label)}
                         accessibilityRole="button"
                         accessibilityLabel={`Answer ${choice.label}`}
-                        accessibilityHint={`Types ${choice.key}`}
+                        {...(choice.number === undefined ? {} : { accessibilityHint: `Types ${choice.number}` })}
                         style={({ pressed }) => ({
                             maxWidth: '100%',
                             minHeight: 36,
@@ -139,7 +139,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                             backgroundColor: pressed ? theme.colors.terminalChrome.clusterPressed : theme.colors.terminalChrome.cluster,
                         })}
                     >
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 11, ...Typography.mono() }}>{choice.key}</Text>
+                        {choice.number !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 11, ...Typography.mono() }}>{choice.number}</Text>}
                         <Text numberOfLines={2} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13 }}>{choice.label}</Text>
                     </Pressable>
                 ))}

@@ -96,3 +96,46 @@ describe('opaque answer-chip band over the terminal', () => {
         expect(painted.paddingTop).toBe(painted.paddingBottom);
     });
 });
+
+/** Claude Code's folder-trust question as Herdr reads it off the pane: no numbers, "No, exit" highlighted. */
+const TRUST_SCREEN = [
+    '─'.repeat(60),
+    ' Accessing workspace:',
+    '',
+    ' /home/umer/notes-app',
+    '',
+    ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source',
+    ' project, or work from your team). If not, take a moment to review what\'s in this folder first.',
+    '',
+    ' Security guide',
+    '',
+    ' \u276f No, exit',
+    '   Yes, I trust this folder',
+    '',
+    ' Enter to confirm \u00b7 Esc to cancel',
+    '',
+    '',
+].join('\n');
+
+describe('one-tap answers to a question with no numbers', () => {
+    it('answers the folder-trust question by moving to the tapped row, never by Enter on the highlighted Exit', async () => {
+        currentOverrides.value = {};
+        readText.value = TRUST_SCREEN;
+        const sent: string[] = [];
+        let renderer: any;
+        await TestRenderer.act(async () => {
+            renderer = TestRenderer.create(
+                <PendingChoices sessionId="s" waiting channel={{ sendText: (text) => sent.push(text) }} onVisibilityChange={() => undefined} />,
+            );
+        });
+        await TestRenderer.act(async () => { await Promise.resolve(); });
+
+        const chips = renderer.root.findAll((node: any) => node.type === 'Pressable');
+        expect(chips.map((chip: any) => chip.props.accessibilityLabel)).toEqual(['Answer No, exit', 'Answer Yes, I trust this folder']);
+        // No number badge: the agent shows none, and the bytes sent are not one.
+        expect(JSON.stringify(renderer.toJSON())).not.toContain('\\u001b');
+
+        await TestRenderer.act(async () => { chips[1].props.onPress(); });
+        expect(sent).toEqual(['\u001b[B\r']);
+    });
+});
