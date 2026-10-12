@@ -8,6 +8,7 @@
  * Status: 'ok', 'missing', 'installing' (with a step) or 'failed' (with one
  * plain sentence; the raw cause goes to the log).
  */
+import { dirname } from 'node:path';
 import { ensureHerdrServer, herdrBin, runHerdrInstaller } from '../../../scripts/setup/infrastructure/herdr.mjs';
 
 const OFFLINE_MESSAGE = "muxr couldn't reach herdr.dev to download Herdr. Check this computer's internet connection, then choose Try again.";
@@ -22,10 +23,11 @@ function detail(error) {
 /**
  * The AppImage runtime points PATH, LD_LIBRARY_PATH and XDG_DATA_DIRS into its
  * own mount. Herdr outlives this app and every terminal inherits its
- * environment, so it starts with the user's own.
+ * environment, so it starts with the user's own. An extracted AppImage's
+ * AppRun does not export APPDIR; there the app folder is the binary's own.
  */
 function userEnv() {
-    const appDir = process.env.APPDIR;
+    const appDir = process.env.APPDIR ?? (process.versions.electron ? dirname(process.execPath) : undefined);
     if (!appDir) return process.env;
     const env = { ...process.env };
     for (const key of ['APPDIR', 'APPIMAGE', 'ARGV0', 'OWD']) delete env[key];
