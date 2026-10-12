@@ -45,6 +45,7 @@ let tray;
 let runtime;
 let pairing;
 let reopenTimer;
+let pairingAttempt = 0;
 let retrying = false;
 let blockerId = null;
 let settings = { keepAwake: false, autostart: true };
@@ -171,11 +172,11 @@ function startPairing() {
     const previous = pairing;
     pairing = undefined;
     previous?.close();
-    const owner = runtime;
+    const attempt = ++pairingAttempt;
     const connect = () => {
         // The host opens pair.sock a moment after it reports online; retry until it
-        // is there, unless Try again has replaced this runtime meanwhile.
-        if (runtime !== owner) return;
+        // is there, unless a newer start (Try again, a reopen) has taken over.
+        if (attempt !== pairingAttempt || runtime === undefined) return;
         if (!existsSync(runtime.pairSocketPath)) { setTimeout(connect, 300); return; }
         let client;
         client = openPairingSocket(runtime.pairSocketPath, {
