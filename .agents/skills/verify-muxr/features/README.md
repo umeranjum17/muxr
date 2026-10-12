@@ -74,6 +74,13 @@ user-visible behavior, then exactly four H2 sections in this order:
   `webSecureStore`; the one supported path around the HTTPS-only pair screen,
   absent from production exports, used by the PWA features below.
 
+- [Start the first agent from Home in one tap](./home-first-agent.md) —
+  fresh release app paired to the fake-Herdr stack with no agents and a lab
+  `claude` stand-in: `Start Claude Code` opens the agent with no picker; signed
+  out, one plain sentence plus `Check again` turns into the one-tap offer in
+  place; timed Home-to-agent screenshots on main and the candidate; installed
+  PWA at 393 and 270 px, light and dark.
+
 - [Name agents on Home by kind and task, never a launch id](./home-agent-labels.md) —
   paired lab PWA over a real-Herdr lab with an unnamed Codex and pi agent: the
   `Ready · unseen` rows read the kind/task and never a `pp_*` id, and an agent
