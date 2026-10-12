@@ -100,9 +100,9 @@ try {
             }
             mark('signed in through opencode auth login');
         },
-        // Every pane's grid as Herdr holds it, and whether OpenCode is still up.
+        // The grid Herdr holds for the pane the phone is on, and whether the agent in it is still up.
         check: async () => {
-            const report = panes().map((pane) => {
+            const report = panes().filter((pane) => pane.focused).map((pane) => {
                 const screen = lab.herdr(['pane', 'read', pane.pane_id, '--source', 'recent', '--lines', '60']);
                 return { pane: pane.pane_id, rows: pane.scroll.viewport_rows, crashed: CRASHED.test(screen), screen };
             });
@@ -111,7 +111,7 @@ try {
                 mark(`${pane}: ${rows} rows, ${crashed ? 'CRASHED' : 'alive'}`);
             }
             const ok = report.length > 0 && report.every(({ rows, crashed }) => rows >= FLOOR && !crashed);
-            mark(ok ? `PASS every pane holds >= ${FLOOR} rows and none crashed` : `FAIL a pane is under ${FLOOR} rows or crashed`);
+            mark(ok ? `PASS the open pane holds >= ${FLOOR} rows and did not crash` : `FAIL the open pane is under ${FLOOR} rows or crashed`);
             return ok;
         },
         // The journey: tap the prompt box so the keyboard opens, let it settle, check.

@@ -41,8 +41,8 @@ Preconditions:
 3. On the phone: New agent -> OpenCode -> that folder -> Start. Wait for
    OpenCode's screen; its status line names the model.
 4. Start a screen recording, then enter `kbd`: the lab taps the prompt box,
-   waits for the keyboard and reads every pane's rows from Herdr. It writes
-   `PASS every pane holds >= 24 rows and none crashed` (or `FAIL …`) to
+   waits for the keyboard and reads the open pane's rows from Herdr. It writes
+   `PASS the open pane holds >= 24 rows and did not crash` (or `FAIL …`) to
    `$EVIDENCE/lab-timeline.log` and each pane's last screen next to it.
 5. Type `What does calc.py do?` and send. Capture the reply with the model name
    on screen. `check` again afterwards.
@@ -65,3 +65,12 @@ phone: that is the before capture.
   header until the keyboard closes. Nothing scrolls on its own.
 - The key must stay out of every recording and screenshot: stop recording
   before `signin`, and never `pane read` the sign-in pane.
+- At 270 dp the New agent Folder field scrolls under the sticky Start button;
+  scroll on until it clears, or the tap lands on `Start OpenCode in ~`.
+- An agent the phone starts in a folder under `/home/umer` meets mise's
+  "config files are not trusted" prompt (the lab HOME is not the real one);
+  `mise trust ~/.config/mise/config.toml` in a lab pane records the trust in
+  the lab's own state only.
+- With the keyboard up on a 270 dp phone only the grid's bottom rows show:
+  OpenCode's status line and its prompt, not the reply above them. Close the
+  keyboard to read the reply.
