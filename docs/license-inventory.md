@@ -70,7 +70,8 @@ under an earlier license keep the rights that accompanied those copies.
 `pack.mjs` bundles `apps/host` plus the muxr contract and crypto workspaces,
 and also bundles the relay entry (`apps/relay/dist/main.js`) so `muxr self-host`
 can run from the packed CLI. The external runtime dependency list is owned by
-[`runtimeDependencies` in pack.mjs](../scripts/release/application/pack.mjs).
+[`runtimeDependencies`](../scripts/release/application/runtimeDependencies.mjs),
+which packing and the desktop AppImage both derive from.
 Dependencies outside that selection are bundled when imported. Packing audits
 both bundled and external dependencies and generates
 `THIRD_PARTY_LICENSES.json` with their versions, licenses, distribution status

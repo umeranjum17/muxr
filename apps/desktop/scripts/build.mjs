@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bundleVoiceRuntime } from '../../../scripts/release/application/bundleVoiceRuntime.mjs';
+import { runtimeDependencies } from '../../../scripts/release/application/runtimeDependencies.mjs';
 
 const appDir = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const root = join(appDir, '..', '..');
@@ -20,18 +21,24 @@ const dist = join(appDir, 'dist');
 
 const desktopPackage = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'));
 
-// The host and relay bundle everything except these runtime dependencies. The
-// list is the desktop package's own dependencies: the same externalisation as
-// the packed @trymuxr/cli, kept in one place so packaging cannot drift.
-const external = ['electron', ...Object.keys(desktopPackage.dependencies)];
-
-rmSync(dist, { recursive: true, force: true });
-mkdirSync(dist, { recursive: true });
-
 function failure(label, error) {
     process.stderr.write(`desktop build: ${label} failed\n${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
     process.exit(1);
 }
+
+// The host, relay and Electron main leave these runtime dependencies external;
+// derived from the manifests packing uses so the packed CLI and this AppImage
+// cannot drift. The desktop manifest must declare exactly them for
+// electron-builder to ship the native runtimes.
+const runtimeDeps = runtimeDependencies(root);
+const declared = desktopPackage.dependencies ?? {};
+const drift = [...new Set([...Object.keys(runtimeDeps), ...Object.keys(declared)])]
+    .filter((name) => runtimeDeps[name] !== declared[name]);
+if (drift.length > 0) failure('runtime dependency drift', new Error(`apps/desktop/package.json must declare ${drift.join(', ')} exactly as the shared runtime dependencies`));
+const external = ['electron', ...Object.keys(runtimeDeps)];
+
+rmSync(dist, { recursive: true, force: true });
+mkdirSync(dist, { recursive: true });
 
 // 1. The muxr host: the repo's built entry, bundled to one file.
 try {
