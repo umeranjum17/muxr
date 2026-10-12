@@ -27,9 +27,10 @@ changes an existing setup keeps its extra questions and the final review.
   Enter to apply this setup. Nothing changes before then.`); Enter goes
   straight to step 3 `Install, start, and pair`.
 - `other-ways` `Other ways` redraws step 2 with the whole route list and the
-  same plan; Enter on a route there applies it.
-- `cancel` esc on either list prints `Cancelled. Nothing changed.` and writes
-  no `~/.muxr/selfhost.json`.
+  same plan; Enter on a route there applies it, and esc goes back to the
+  route screen (and its `Check again`).
+- `cancel` esc on the route screen prints `Cancelled. Nothing changed.` and
+  writes no `~/.muxr/selfhost.json`.
 - `wrap` at 80 columns route descriptions and notes wrap at spaces under their
   indent, never mid-word.
 - `requested-mode` `muxr setup --mode <route>` on a first run skips the picker,

@@ -201,17 +201,17 @@ async function checkWizard() {
         assert.deepEqual(calls, [], 'Planned Tailscale connected before Apply');
 
         // Without Tailscale the route screen says so in one sentence and
-        // checks again in place: install it, Enter, and Tailscale is the
-        // preselected route; one more Enter applies it with the first-run
-        // defaults and no second confirmation.
+        // checks again in place (Other ways goes back to it): install it,
+        // Enter, and Tailscale is the preselected route; one more Enter
+        // applies it with the first-run defaults and no second confirmation.
         tailscaleInstalled = false;
         lan = '192.168.1.8';
-        const installed = await run([() => { tailscaleInstalled = true; tailscaleConnected = true; return ''; }, '']);
+        const installed = await run(['2', 'b', () => { tailscaleInstalled = true; tailscaleConnected = true; return ''; }, '']);
         assert.match(installed, /Check again[\s\S]*Tailscale isn't on this computer yet\. Install it from https:\/\/tailscale\.com\/download and sign in, then press Enter to check again\.[\s\S]*Use muxr away from home \(Tailscale\) · Recommended/);
         recommended(installed, 'Use muxr away from home (Tailscale)');
         assert.doesNotMatch(installed, /Works only on this Wi-Fi|Apply this setup\?/);
         assert.deepEqual([...installed.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
-            ['1', '2', '2', '3'].map((step) => [step, '3']));
+            ['1', '2', '2', '2', '2', '3'].map((step) => [step, '3']));
         assert.deepEqual(calls.find(([name]) => name === 'start')[1].slice(0, 4), ['--port', '18792', '--connection-mode', 'tailscale']);
         tailscaleInstalled = false;
         tailscaleConnected = false;

@@ -401,7 +401,13 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         if (mode === 'other') {
             setupStep(2, totalSteps, 'Connect your phone');
             note(vpnNote);
-            mode = await select('Other ways', [recommended, ...connectionChoices.filter((choice) => choice !== recommended)].filter(Boolean), -1, undefined, summary);
+            mode = await select('Other ways', [recommended, ...connectionChoices.filter((choice) => choice !== recommended)].filter(Boolean), -1, 'go back', summary);
+            // Esc goes back to the route screen and its Check again, not out of setup.
+            if (mode === BACK) {
+                setupStep(2, totalSteps, 'Connect your phone');
+                mode = undefined;
+                continue;
+            }
         }
         break;
     }
