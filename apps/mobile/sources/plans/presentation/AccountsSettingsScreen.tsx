@@ -11,6 +11,7 @@ import { Modal } from '@/modal';
 import { addAccountLabel, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, usePlans, usePlansStore } from '../application/plansStore';
 import { planFailure, removeAccount, renameAccount } from '../application/plansApi';
+import { useNotice } from '../application/planNotices';
 import { Notice, useAccountFlows, useFlows } from './AccountFlows';
 import { Pill } from './accountParts';
 
@@ -115,7 +116,7 @@ export function AccountsSettingsScreen() {
     const autoOn = usePlansStore((state) => state.autoOn);
     const setAutoOn = usePlansStore((state) => state.setAutoOn);
     const landed = useFlows((state) => state.landed);
-    const notice = useFlows((state) => state.notice);
+    const notice = useNotice((state) => state.notice);
     const listRef = React.useRef<ScrollView>(null);
     // The notice is the first row of the list. After adding an account the list
     // is scrolled down to the "Add" row, so bring the notice into view; it then

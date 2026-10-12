@@ -13,6 +13,7 @@ import { navigateToSession } from '@/herd';
 import { Modal } from '@/modal';
 import { AUTO, nameSuggestions, providerEntry, providerForAgent, providerName, resolvedAccountNames, runningOn, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, refreshPlans, usePlansStore, type PlanConnection } from '../application/plansStore';
+import { clearNotice, dismissNotice, showNotice, useNotice } from '../application/planNotices';
 import { agentAccount, cancelSignIn, planFailure, renameAccount, signInState, startSignIn } from '../application/plansApi';
 import { GhostButton, Note, Pill, PrimaryButton, SheetLede, SheetTitle, Strong, styles as parts } from './accountParts';
 
@@ -27,28 +28,21 @@ interface FlowState {
     naming: { account: PlanAccount } | null;
     /** The account a sign-in just finished on: Accounts marks its row for a moment. */
     landed: string | null;
-    /** It stays up until it is tapped or another notice replaces it: a timer
-     *  owned a message the person still had to read, and one shorter than the
-     *  trip to Appearance meant it could never be seen in the other theme. */
-    notice: { title: string; detail: string } | null;
 }
 
-export const useFlows = create<FlowState>()(() => ({ adding: null, pending: null, naming: null, landed: null, notice: null }));
+export const useFlows = create<FlowState>()(() => ({ adding: null, pending: null, naming: null, landed: null }));
 
 let opening: { cancelled: boolean } | null = null;
 
 usePlansStore.subscribe((state, previous) => {
     if (state.connection === previous.connection) return;
     opening = null;
-    useFlows.setState({ adding: null, pending: null, naming: null, landed: null, notice: null });
+    useFlows.setState({ adding: null, pending: null, naming: null, landed: null });
+    clearNotice();
 });
 
 const seen = createStore();
 const termsKey = (provider: string) => `plans-terms-seen:${provider}`;
-
-export function showNotice(title: string, detail: string): void {
-    useFlows.setState({ notice: { title, detail } });
-}
 
 /** After Start, says which account the agent started on, as the host
  *  recorded it rather than as picked: Auto and a stale list can differ. */
@@ -419,15 +413,17 @@ const LANDED_MS = 4_000;
 /** A confirmation at the top: "Moved to Work", "Added Work", "Started on
  *  Work". It reads the app theme it is shown in, so changing the theme while it
  *  is up repaints it rather than leaving it in the palette it arrived with, and
- *  it stays up until a tap or the next notice. It carries its own surface and
- *  lets touches past its own corners, so it neither fights the screen under it
- *  nor hides one. `inline` puts it in the screen's own layout flow, so on the
+ *  it clears by itself after a few seconds; a tap or the next notice clears it
+ *  sooner. It carries its own surface and lets touches past everything but its
+ *  own text, so it neither fights the screen under it nor hides one: only the
+ *  text dismisses on tap, and every other tap falls through to the terminal
+ *  beneath. `inline` puts it in the screen's own layout flow, so on the
  *  Accounts list it pushes the rows down instead of floating over the first
  *  one; everywhere else it floats under the header. It wraps to the full
  *  message at any text size, never clipping the account name. */
 export function Notice({ top, inline = false }: { top?: number; inline?: boolean }) {
     const { theme } = useUnistyles();
-    const notice = useFlows((state) => state.notice);
+    const notice = useNotice((state) => state.notice);
     if (notice === null) return null;
     return (
         <Animated.View
@@ -437,8 +433,12 @@ export function Notice({ top, inline = false }: { top?: number; inline?: boolean
             pointerEvents="box-none"
             accessibilityLiveRegion="polite"
         >
-            <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
-            <Pressable style={parts.rowCopy} onPress={() => useFlows.setState({ notice: null })} accessibilityRole="button" accessibilityLabel={`${notice.title}. ${notice.detail}`}>
+            {/* The mark is paint, not a target: taps on it fall through to the
+              * terminal instead of dying on the banner. */}
+            <View pointerEvents="none">
+                <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
+            </View>
+            <Pressable style={parts.rowCopy} onPress={() => dismissNotice()} accessibilityRole="button" accessibilityLabel={`${notice.title}. ${notice.detail}`}>
                 <Text style={styles.bannerTitle}>{notice.title}</Text>
                 <Text style={parts.facts}>{notice.detail}</Text>
             </Pressable>

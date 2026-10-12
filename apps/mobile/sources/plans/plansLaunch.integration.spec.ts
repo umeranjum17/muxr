@@ -153,6 +153,39 @@ describe('which account a launch carries', () => {
     });
 });
 
+describe('account notices', () => {
+    it('clears itself after a few seconds, and a replacing notice owns its own timer', async () => {
+        vi.useFakeTimers();
+        try {
+            const { clearNotice, dismissNotice, showNotice, useNotice } = await import('./application/planNotices');
+            clearNotice();
+            showNotice('Added Demo', 'demo@example.com · OpenCode account');
+            expect(useNotice.getState().notice).toMatchObject({ title: 'Added Demo' });
+            await vi.advanceTimersByTimeAsync(3_999);
+            expect(useNotice.getState().notice).not.toBeNull();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(useNotice.getState().notice).toBeNull();
+
+            // A replacing notice is not cleared early by the first timer.
+            showNotice('First', 'one');
+            await vi.advanceTimersByTimeAsync(3_000);
+            showNotice('Second', 'two');
+            await vi.advanceTimersByTimeAsync(3_000);
+            expect(useNotice.getState().notice).toMatchObject({ title: 'Second' });
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(useNotice.getState().notice).toBeNull();
+
+            // A tap clears at once, and the timer then finds nothing to clear.
+            showNotice('Tapped', 'gone');
+            dismissNotice();
+            expect(useNotice.getState().notice).toBeNull();
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(useNotice.getState().notice).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
 describe('starting with no signed-in account', () => {
     it('names the state on the dock and stops Start before a silent launch', async () => {
         connection.machineId = 'computer-d';
