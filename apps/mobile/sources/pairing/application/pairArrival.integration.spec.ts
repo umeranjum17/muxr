@@ -9,6 +9,7 @@ const harness = vi.hoisted(() => ({
     declined: false,
     authenticated: false,
     initialUrl: null as string | null,
+    clipboard: '',
     params: {} as { offer?: string; source?: string },
     receive: undefined as ((event: { url: string }) => void) | undefined,
     router: { replace: vi.fn(), back: vi.fn() },
@@ -36,7 +37,7 @@ vi.mock('react-native-unistyles', () => ({
     } }) },
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
-vi.mock('expo-clipboard', () => ({ setStringAsync: async () => undefined }));
+vi.mock('expo-clipboard', () => ({ setStringAsync: async () => undefined, getStringAsync: async () => harness.clipboard }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: () => undefined }));
 vi.mock('@/herd/presentation/FirstRunConnection', () => ({ RouteSwitcher: () => null }));
 vi.mock('expo-router', () => ({ useRouter: () => harness.router, useLocalSearchParams: () => harness.params }));
@@ -383,6 +384,8 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     await mod.renderer.act(async () => { (field().props.onSubmitEditing as () => void)(); });
     await settle();
     expect(alerts()).toContain('This string is cut off. Copy all of it, or scan the QR.');
+    // The field empties, so the whole code pasted next is not joined onto the cut one.
+    expect(field().props.value).toBe('');
     const claims = harness.claims;
     await mod.renderer.act(async () => {
         (field().props.onChangeText as (next: string) => void)(whole);
@@ -393,5 +396,16 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     harness.declined = false;
     await press('Pair');
     expect(harness.claims).toBe(claims + 1);
+    await close();
+
+    // A code that ran out on its way to the phone says so the moment it is
+    // pasted, and one tap pastes the fresh code the computer shows by now.
+    await open({ source: 'settings' });
+    await type(machineOffer(12, { expires: Date.now() - 1_000 }));
+    expect(alerts()).toContain('That pairing code has run out. Show a new one on your computer.');
+    expect(field().props.value).toBe('');
+    harness.clipboard = machineOffer(13);
+    await press('Paste the new code');
+    expect(labels()).toContain('Pair');
     await close();
 });
