@@ -70,7 +70,11 @@ phone: that is the before capture.
 - An agent the phone starts in a folder under `/home/umer` meets mise's
   "config files are not trusted" prompt (the lab HOME is not the real one);
   `mise trust ~/.config/mise/config.toml` in a lab pane records the trust in
-  the lab's own state only.
+  the lab's own state only. Do it before `signin` too, or the sign-in waits
+  on that prompt and times out.
 - With the keyboard up on a 270 dp phone only the grid's bottom rows show:
   OpenCode's status line and its prompt, not the reply above them. Close the
   keyboard to read the reply.
+- On web at 270 dp, opening the keyboard can throw React error #185 (maximum
+  update depth) into "Something went wrong". main does the same with the
+  same stack (2026-10-12), so it is not the floor. Retry recovers.
