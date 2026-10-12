@@ -3,7 +3,7 @@
 On a macOS host, an agent pane runs `muxr preview claim <udid>` for a booted
 iOS Simulator. The phone then shows a simulator chip on that pane; opening it
 streams the simulator live (H.264 from the vendored idb `sim-video`), and taps,
-swipes and the Home key drive it through one long-lived idb HID session.
+swipes and the Home and Lock keys drive it through one long-lived idb HID session.
 
 ## Sub-features
 
@@ -18,7 +18,7 @@ swipes and the Home key drive it through one long-lived idb HID session.
   `desklink-host` down with it (no PPID-1 leftovers).
 - `ios-crash` killing either helper by its exact PID mid-stream restarts it
   without replacing the engine session: video recovers for `sim-video`, and
-  touch and Home recover for `idb_companion` (captures plus restart logs).
+  touch, Home and Lock recover for `idb_companion` (captures plus restart logs).
 - `ios-teardown` closing the last viewer takes `sim-video`, `idb_companion`
   and the mirror's `desklink-host` down with it (no helper PIDs remain).
 
@@ -78,7 +78,7 @@ Preconditions:
   on a loaded Mac). Capture the viewer plus `simctl io <udid> screenshot`
   before and after. Repeat with the exact `idb_companion` child PID: expect
   `idb companion exited (…) — restarting (1/3)` followed by `idb companion
-  accepting input again`, then drive a tap, swipe and Home through the viewer
+  accepting input again`, then drive a tap, swipe, Home and Lock through the viewer
   without closing the preview. Exercise repeated failures separately for
   each helper: its restart budget must be spent before the preview closes;
   restarting one helper must not reset the other's failure streak.
