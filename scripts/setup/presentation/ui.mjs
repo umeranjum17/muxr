@@ -1,6 +1,6 @@
 import { createInterface, emitKeypressEvents } from 'node:readline';
 
-export const interactive = () => Boolean(process.stdin.isTTY && process.stdout.isTTY);
+const interactive = () => Boolean(process.stdin.isTTY && process.stdout.isTTY);
 const ansi = (code, text) => interactive() && process.env.NO_COLOR === undefined && process.env.TERM !== 'dumb' ? `\x1b[${code}m${text}\x1b[0m` : text;
 const dim = (text) => ansi('2', text);
 const bold = (text) => ansi('1', text);

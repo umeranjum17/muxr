@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { homedir, networkInterfaces, userInfo } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { intro, heading, status, note, outro, prompt, select, withSpinner, withFullscreen, setupStep, completeFullscreen, interactive, BACK } from './ui.mjs';
+import { intro, heading, status, note, outro, prompt, select, withSpinner, withFullscreen, setupStep, completeFullscreen, BACK } from './ui.mjs';
 import { herdrServerIsReady, runLocalPrerequisites } from '../infrastructure/herdr.mjs';
 import { inspectSetup } from '../application/inspectSetup.mjs';
 import { pairDevice } from '../application/pairDevice.mjs';
@@ -304,10 +304,10 @@ const aborted = (value) => value === undefined || value === BACK;
 // connecting it remains behind Apply instead of becoming a preflight prompt.
 const tailscalePlannable = (found) => found.tailscale.installed && !found.tailscale.connected && found.tailscale.backend !== undefined;
 
-// One plain sentence: what is missing and how to fix it.
+// One plain sentence: what is missing and how to fix it; Enter checks again.
 function tailscaleMissing(found) {
-    if (!found.tailscale.installed) return `Tailscale isn't on this computer yet. Install it from ${TAILSCALE_INSTALL_URL} and sign in`;
-    return `Tailscale is on this computer but not connected: ${TAILSCALE_UP_HINT}`;
+    if (!found.tailscale.installed) return `Tailscale isn't on this computer yet. Install it from ${TAILSCALE_INSTALL_URL} and sign in, then press Enter to check again.`;
+    return `Tailscale is on this computer but not connected: ${TAILSCALE_UP_HINT}, then press Enter to check again.`;
 }
 
 // A first run reviews its plan on the route screen itself, so one Enter on a
@@ -383,16 +383,12 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         const vpnNote = 'Another VPN on your phone? A phone runs one VPN at a time, so pause it while you use muxr over Tailscale.';
         // Tailscale missing or not signed in: say so, and check again in place.
         const missing = !recommended && proposal.mode === 'tailscale';
-        if (missing && !interactive()) {
-            process.stderr.write(`${tailscaleMissing(found)}. To use another route, rerun with muxr setup --mode <route>.\n`);
-            return 1;
-        }
         const recheck = { value: 'recheck', title: 'Check again', description: 'once Tailscale is installed and signed in on this computer' };
         let connectionPrompt = connectionChoices;
         if (recommended) connectionPrompt = [recommended, otherWays];
         else if (missing) connectionPrompt = [recheck, otherWays];
         else note(vpnNote);
-        mode = await select('How will your phone reach this computer?', connectionPrompt, recommended || missing ? 0 : -1, undefined, missing ? [`${tailscaleMissing(found)}, then press Enter to check again.`] : summary);
+        mode = await select('How will your phone reach this computer?', connectionPrompt, recommended || missing ? 0 : -1, undefined, missing ? [tailscaleMissing(found)] : summary);
         if (mode === 'recheck') {
             // The whole probe, so a new tailnet address is not listed as a private network.
             Object.assign(found, await withSpinner('Checking Tailscale again', async () => probeMachine()));
