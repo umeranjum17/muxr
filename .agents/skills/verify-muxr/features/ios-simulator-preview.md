@@ -13,7 +13,7 @@ swipes and the Home key drive it through one long-lived idb HID session.
   the simulator is booted, including after agent lifecycle updates and reconnect replay.
 - `ios-stream` the preview goes Live and follows the simulator screen.
 - `ios-input` one tap opens an app, one swipe scrolls it, Home returns to
-  SpringBoard.
+  SpringBoard, and Lock puts the simulator on its lock screen.
 - `ios-shutdown` SIGTERM to the host takes `sim-video`, `idb_companion` and
   `desklink-host` down with it (no PPID-1 leftovers).
 - `ios-crash` killing either helper by its exact PID mid-stream restarts it
@@ -27,7 +27,7 @@ swipes and the Home key drive it through one long-lived idb HID session.
 - In an agent pane on the Mac: `muxr preview claim <udid>` for a simulator
   the agent booted.
 - On the phone, open that pane's terminal; tap the simulator chip; the
-  preview opens with a toolbar (Home only: iOS has no keyboard toggle, so a missing keyboard is not a failure).
+  preview opens with a toolbar (Home and Lock: iOS has no keyboard toggle, so a missing keyboard is not a failure).
 
 ## Driving it with the private stack
 
@@ -59,7 +59,10 @@ Preconditions:
   icon and swiping its list; the recording shows the app open and scroll.
   Latency: turn on `show_touches` and diff the touch dot frame against the
   first changed simulator frame; record an Android-emulator mirror the same
-  way for the baseline.
+  way for the baseline. The toolbar's **Home** (Ctrl+H) and **Lock** (Ctrl+L)
+  keys press the simulator's buttons: capture the toolbar with both keys, then
+  press Home and confirm `xcrun simctl io <udid> screenshot` shows SpringBoard,
+  and press Lock and confirm it shows the lock screen.
 - **iOS viewer.** An iPad or iPhone simulator on the same Mac can be the
   viewer: install a Release `iphonesimulator` build, pair it by opening the
   `muxr://pair#…` link with `xcrun simctl openurl`, and record it with
