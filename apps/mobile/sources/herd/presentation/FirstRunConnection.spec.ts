@@ -64,14 +64,13 @@ vi.mock('@/pairing/infrastructure/pairingPlatform', () => ({
     pairingDeviceNoun: () => platformOs === 'web' ? 'browser' : 'phone',
 }));
 vi.mock('@/connection', () => ({ sshTunnelAvailable: () => platformOs === 'android' }));
-vi.mock('@/modal', () => ({ Modal: { prompt: vi.fn(async () => undefined), alert: (...args: unknown[]) => pairingAlert(...args) } }));
+vi.mock('@/modal', () => ({ Modal: { alert: (...args: unknown[]) => pairingAlert(...args) } }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: vi.fn() }));
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => true) }));
 vi.mock('@/catalog', () => ({ loadAppConfig: () => ({}) }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 
 import { FirstRunConnection } from './FirstRunConnection';
-import { Modal } from '@/modal';
 import { offerText } from '@byokit/link';
 
 function freshOffer(): string {
@@ -191,7 +190,8 @@ describe('guided first-connection chooser', () => {
         expect(visible).not.toContain('Other ways to connect');
         press(renderer.root, 'Paste the browser link');
         await TestRenderer.act(async () => {});
-        expect(Modal.prompt).toHaveBeenCalledWith('Paste the pairing string', expect.stringContaining('muxr\u00A0pair\u00A0-\u2060-\u2060browser'), expect.any(Object));
+        // The same paste screen as every other entry, so Enter and a complete link connect there too.
+        expect(routerPush).toHaveBeenCalledWith('/pair');
         expect(scanQr).not.toHaveBeenCalled();
         TestRenderer.act(() => { renderer.unmount(); });
     });

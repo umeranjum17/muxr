@@ -76,19 +76,6 @@ export function FirstRunConnection() {
     // Offer Direct SSH only when this native build includes the transport.
     const sshAvailable = !browser && sshTunnelAvailable();
 
-    const promptForPairingString = React.useCallback(async () => {
-        const pasted = await Modal.prompt(
-            'Paste the pairing string',
-            // Non-breaking spaces keep the command's words together and word
-            // joiners bind both hyphens to the flag name, so narrow screens can
-            // only wrap before 'muxr' or after '--browser', never mid-flag.
-            'Paste the browser link shown by muxr\u00A0pair\u00A0-\u2060-\u2060browser on your computer.',
-            { placeholder: 'https://your-relay/pair#…' },
-        );
-        if (!pasted?.trim()) return;
-        await processPairLink(pasted.trim());
-    }, [processPairLink]);
-
     return (
         <View style={styles.section}>
             {browser ? <FirstRunSetupCard variant="command" /> : (
@@ -121,7 +108,7 @@ export function FirstRunConnection() {
                         hint="Run one command on your computer, then paste the browser pairing link."
                     >
                         <View style={styles.stepAction}>
-                            <ActionButton variant="primary" title="Paste the browser link" icon="keypad-outline" wrap action={promptForPairingString} />
+                            <ActionButton variant="primary" title="Paste the browser link" icon="keypad-outline" wrap onPress={() => router.push('/pair')} />
                         </View>
                     </SetupStep>
                 </View>

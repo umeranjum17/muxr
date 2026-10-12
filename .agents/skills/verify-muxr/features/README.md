@@ -119,7 +119,8 @@ user-visible behavior, then exactly four H2 sections in this order:
   `muxr pair` at normal/narrow widths and inside an isolated Herdr terminal.
 - [Lead every pair entry with Scan](./pair-scan-first.md) —
   which action leads on each way into pairing, Scan a new code after an expired
-  or refused code, and the paste-led page on a device that cannot scan.
+  or refused code, the paste-led page on a device that cannot scan, and a pasted
+  code connecting on Go or by itself with Connect above the keyboard.
 - [Read the pairing consent as short, plain bullets](./pairing-consent.md) —
   native release APK and PWA over a private stack: phone and browser control and
   view-only consent, plain copy, the words step saying its instruction once, and
@@ -135,8 +136,8 @@ user-visible behavior, then exactly four H2 sections in this order:
   view one watches the pane but its typing, desktop and agent actions never
   reach the computer; the control one runs the command.
 - [Land on the first-run browser pairing steps](./first-run-browser-steps.md) —
-  unpaired installed PWA: matching step badges, Step 2's paste button and prompt
-  with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the
+  unpaired installed PWA: matching step badges, Step 2's paste button opening the
+  `/pair` paste screen with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the
   unchanged native QR branch from a release APK.
 - [Read the whole install command on the native first run](./first-run-install-command.md) —
   unpaired release APK at 393/270 dp, font 1.0/2.0, both themes: the command
