@@ -19,8 +19,10 @@ the card is `FirstAgentCard` in `apps/mobile/sources/herd/presentation/HomeFirst
 - `sign-in-step` an installed but signed-out agent reads `Sign in to Claude
   Code on your computer, then tap Check again.`; after signing in on the
   computer, `Check again` turns the card into `Start Claude Code` in place.
-- `choose-step` an installed agent whose sign-in cannot be checked (Pi, OpenCode,
-  …) reads `Choose <agent> to start it, and sign in on your computer if it asks.`
+- `choose-step` an installed agent other than Pi whose sign-in cannot be checked
+  (OpenCode, …) reads `Choose <agent> to start it, and sign in on your computer
+  if it asks.` A computer whose only installed agent is Pi gets the plain
+  `Choose an agent` invitation and never a name.
 - `install-step` no coding agent at all reads `Install a coding agent such as
   Claude Code on your computer, then tap Check again.`
 - `picker-one-tap` `Choose another agent` / `Choose an agent` opens the picker
