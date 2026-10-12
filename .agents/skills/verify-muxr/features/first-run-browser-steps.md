@@ -12,8 +12,9 @@ owned by [pair-scan-first.md](./pair-scan-first.md).
 
 Install the muxr web build as a PWA (or serve the export) on a fresh profile
 with no stored grant and open it: the first-run screen appears. Press the Step
-2 button: the paste prompt opens with the `muxr pair --browser` command in its
-message, word-joined so the flag never breaks across lines.
+2 button: the same `/pair` paste screen every other entry uses opens, with the
+`muxr pair --browser` line word-joined so the flag never breaks across lines
+(its paste behavior is owned by [pair-scan-first.md](./pair-scan-first.md) `paste-connects`).
 
 ## Driving it with the private stack
 
@@ -38,11 +39,10 @@ profile keeps the client unpaired).
    stress, because react-native-web pins `fontScale` to 1 so browser zoom is
    the only faithful text-scale equivalent. Themes: light and dark.
 3. Press the Step 2 button (snapshot → click the "Paste the browser link"
-   button) and capture the open prompt; at 208 px also fill the input with a
-   long relay link and capture again. The button shows its label again after
-   Cancel.
+   button) and capture the `/pair` screen it opens; at 208 px also fill the
+   input with a long relay link and capture again.
 4. DOM checks beat pixels for wrap claims: `document.createRange()` over the
-   message text must keep `muxr pair --browser` on one client-rect line at
+   hint text must keep `muxr pair --browser` on one client-rect line at
    393, and the flag must not split across lines at 208 either;
    `document.documentElement.scrollWidth === window.innerWidth` proves no
    horizontal overflow.
@@ -57,9 +57,8 @@ profile keeps the client unpaired).
 ## Durable proof
 
 - before/after PNGs per width and theme, named `firstrun-steps-before/after-<width>-<theme>.png`
-  plus the paste-prompt and long-link extremes, and one
+  plus the paste-screen and long-link extremes, and one
   `firstrun-native-unchanged-branch.png`, all full-page, reviewed for clipped
   text, overlap, stray markup and wrong wording.
-- The paste prompt keeps the `--browser` flag unbroken (word joiners in the
-  message string; extend `FirstRunConnection.spec.ts`'s
-  `stringContaining(...)` expectation when the wording changes).
+- The paste screen keeps the `--browser` flag unbroken (word joiners in the
+  `pair.tsx` hint string).
