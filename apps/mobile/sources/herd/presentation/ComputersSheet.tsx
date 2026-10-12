@@ -136,6 +136,9 @@ function ComputersSheetBody({ visible, sessionId, onClose }: { visible: boolean;
                 void probeComputer(grant)
                     .then((online) => { if (!cancelled) setProbes((current) => ({ ...current, [grant.machineId]: online })); });
             }
+        }).catch((cause) => {
+            if (cancelled) return;
+            Modal.alert('Could not load computers', cause instanceof Error ? cause.message : String(cause));
         });
         return () => { cancelled = true; };
     }, [visible, activeMachineId]);
