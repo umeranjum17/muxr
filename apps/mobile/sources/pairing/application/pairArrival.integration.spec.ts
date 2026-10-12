@@ -85,7 +85,7 @@ vi.mock('@/text', () => ({
         const copy: Record<string, string> = {
             'pairing.busy': 'Pairing…',
             'pairing.connecting': 'Connecting securely to your computer…',
-            'pairing.compareWords': `Check that ${params?.name} shows these two words, then press y on the computer.`,
+            'pairing.compareWords': `Check that ${params?.name} shows these two words, then approve on your computer.`,
             'pairing.paired': `Paired with ${params?.name}.`,
         };
         return copy[key] ?? key;
