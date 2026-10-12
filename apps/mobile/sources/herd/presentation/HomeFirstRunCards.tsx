@@ -105,7 +105,7 @@ export function FirstAgentCard() {
                     <ActionButton title="Check again" icon="refresh-outline" action={() => check(true)} />
                 ) : null}
                 <ActionButton
-                    title={offer?.step === 'start' ? 'Choose another agent' : offer === undefined ? 'Start an agent' : 'Choose an agent'}
+                    title={startFailed ? 'Open agents' : offer?.step === 'start' ? 'Choose another agent' : offer === undefined ? 'Start an agent' : 'Choose an agent'}
                     icon="add-circle-outline"
                     variant={offer?.step === 'start' || checkable ? 'secondary' : 'primary'}
                     wrap

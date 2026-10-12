@@ -25,9 +25,10 @@ the card is `FirstAgentCard` in `apps/mobile/sources/herd/presentation/HomeFirst
   Claude Code on your computer, then tap Check again.`
 - `picker-one-tap` `Choose another agent` / `Choose an agent` opens the picker
   and does not retire the card; only `Not now` or a started agent does.
-- `start-error` a failed start shows the real cause under the sentence and the
-  card stays, so the user can try again in place; a failed `Check again` says
-  the computer could not be reached.
+- `start-error` a failed start shows the real cause under the sentence and
+  retires the one-tap `Start` for the rest of the card's life: the card offers
+  `Open agents` (the picker) and `Check again`, never a second `Start`. A failed
+  `Check again` says the computer could not be reached.
 
 ## How to get to it (user POV)
 
