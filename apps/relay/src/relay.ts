@@ -157,10 +157,12 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 const body = await readJsonBody(req).catch(() => undefined) as Record<string, unknown> | undefined;
                 const relayUrl = typeof body?.relay_url === 'string' ? body.relay_url.trim() : '';
                 let valid = false;
-                try { const parsed = new URL(relayUrl); valid = parsed.protocol === 'wss:' && parsed.hostname !== ''
+                // A ws:// relay is allowed only on loopback, where TLS adds nothing.
+                try { const parsed = new URL(relayUrl); valid = (parsed.protocol === 'wss:' && parsed.hostname !== ''
+                    || parsed.protocol === 'ws:' && ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname))
                     && !parsed.username && !parsed.password && parsed.pathname === '/' && !parsed.search && !parsed.hash; }
                 catch { /* invalid address */ }
-                if (!valid) { writeJsonError(res, 400, 'relay_url must be a root wss:// URL without credentials'); return; }
+                if (!valid) { writeJsonError(res, 400, 'relay_url must be a root wss:// URL (ws:// only on loopback) without credentials'); return; }
                 const webUrl = typeof body?.web_url === 'string' ? body.web_url.trim().replace(/\/$/, '') : undefined;
                 if (webUrl !== undefined) {
                     try { const parsed = new URL(webUrl); if (parsed.protocol !== 'https:' || parsed.origin !== webUrl) throw new Error('invalid'); }

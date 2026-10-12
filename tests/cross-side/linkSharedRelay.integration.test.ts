@@ -1,23 +1,22 @@
 /**
  * A machine that does not own its relay joins the byokit link through the
- * owner's enrolment (step 5).
+ * owner's enrolment (step 5): it dials out, so it needs no open port.
  *
  * One flow against the real relay and host: the relay owner mints both
- * enrolments; the machine runs without the owner secret, and `muxr pair` asks
+ * enrolments; the machine joins with `muxr connect` and runs without the owner
+ * secret, and `muxr pair` asks
  * that running machine to offer the QR over its owner-only local socket.
  * The paired phone dials the link; after a restart the spent enrolment token
  * is ignored because the host key is enough.
  */
-import { createHash } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hostId, unb64url } from '@byokit/link';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { hostMain, hostRoot, relayMain, waitForRelay } from './host.js';
+import { cliMain, hostMain, hostRoot, relayMain, waitForRelay } from './host.js';
 import { linkPair, machineIdentity, readSelfhostState } from './hostSetup.js';
-import { signDetached } from '@byokit/seal';
 
 const phone = { secure: new Map<string, string>(), local: new Map<string, string>() };
 
@@ -42,12 +41,16 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 import { pairOverLink, type StoredHostedGrant } from '../../apps/mobile/sources/pairing/application/linkPairing.js';
 import { LinkFirstClient } from '../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
 
-const home = mkdtempSync(join(tmpdir(), 'muxr-link-shared-relay-'));
+// The machine's own HOME, so `muxr connect` writes its service definition there
+// (service commands stay off) and never near the desk's muxr.service.
+const root = mkdtempSync(join(tmpdir(), 'muxr-link-shared-relay-'));
+const home = join(root, '.muxr');
+mkdirSync(home, { mode: 0o700 });
 process.env.MUXR_HOME = home;
 const children = new Set<ChildProcess>();
 
 function launch(args: string[], extra: NodeJS.ProcessEnv = {}): ChildProcess & { output: () => string } {
-    const env: NodeJS.ProcessEnv = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1', ...extra };
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: root, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1', ...extra };
     for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'DATA_DIR']) delete env[`MUXR_${key}`];
     if (extra.MUXR_RELAY_PORT === undefined) delete env.MUXR_RELAY_PORT;
     if (extra.MUXR_MODE === undefined) delete env.MUXR_MODE;
@@ -111,56 +114,38 @@ describe('a shared-relay machine joins the link through the owner enrolment', ()
     beforeAll(async () => {
         await startRelay();
         // The relay owner mints both enrolments; one string carries both claims.
-        // The recorded relay URL is a public wss address; this lab's machine
-        // dials the same relay on its loopback ws address.
-        const enrollRelay = 'wss://relay.shared.test';
+        // A loopback relay may be a plain ws:// address.
         const opened = await json(base, '/v1/selfhost/enrollments', {
-            method: 'POST', headers: { authorization: `Bearer ${mint}` }, body: JSON.stringify({ relay_url: enrollRelay }),
+            method: 'POST', headers: { authorization: `Bearer ${mint}` }, body: JSON.stringify({ relay_url: relayUrl() }),
         });
-        expect(opened.response.status).toBe(201);
+        expect(opened.response.status, JSON.stringify(opened.body)).toBe(201);
         const linkEnrolment = await json(base, '/relay/v1/enrolments', {
             method: 'POST', headers: { authorization: `Bearer ${mint}` },
         });
         expect(linkEnrolment.response.status).toBe(201);
-        const token = linkEnrolment.body.token;
-        if (typeof token !== 'string') throw new Error('relay returned no link enrolment token');
+        const enrollment = `muxr://enroll?payload=${Buffer.from(JSON.stringify({ v: 1, id: opened.body.enrollment_id,
+            claim: opened.body.claim, relay: opened.body.relay_url, expires: Date.now() + 300_000, link: linkEnrolment.body.token })).toString('base64url')}`;
 
-        // The machine claims the control-plane enrolment (what `muxr connect` does).
-        identity = machineIdentity(undefined);
-        const message = Buffer.from(`muxr-enroll-v2\n${String(opened.body.enrollment_id)}\n${enrollRelay}\n${identity.crypto.signingPublicKey}\n${identity.crypto.boxPublicKey}`, 'utf8');
-        const proof = Buffer.from(signDetached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
-        const claimed = await json(base, `/v1/selfhost/enrollments/${encodeURIComponent(String(opened.body.enrollment_id))}/claim`, {
-            method: 'POST',
-            body: JSON.stringify({ claim: opened.body.claim, relay_url: enrollRelay,
-                signing_public_key: identity.crypto.signingPublicKey, box_public_key: identity.crypto.boxPublicKey, proof, name: 'Laptop' }),
-        });
-        expect(claimed.response.status).toBe(201);
-
-        // The relay scopes the credential to the slug derived from the machine
-        // key (`muxr connect` renames the identity to it before writing state).
-        identity.id = `machine-${createHash('sha256').update('muxr-machine-v1\0').update(Buffer.from(identity.crypto.signingPublicKey, 'base64')).digest('hex').slice(0, 32)}`;
-        // selfhost.json with no mint secret: this machine does not own the relay.
-        writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({
-            version: 1,
-            relayLocation: 'remote',
-            relayUrl: relayUrl(),
-            connectionMode: 'remote',
-            machineCredential: claimed.body.machine_credential,
-            credentialExpiresAt: claimed.body.credential_expires_at,
-            webEnabled: false,
-            linkEnrolToken: token,
-            machine: identity,
-        }, null, 2)}\n`, { mode: 0o600 });
+        // The machine joins with `muxr connect`, as setup's relay route does. No
+        // service manager runs here, so the host starts once the state lands.
+        const connect = launch([cliMain, 'connect', '--enrollment', enrollment, '--no-pair']);
+        const joined = new Promise<number | null>((resolve) => connect.once('exit', resolve));
+        await until(() => (existsSync(join(home, 'selfhost.json')) || connect.exitCode !== null ? true : undefined), 'connect writes the machine state');
+        startMachine();
+        expect(await joined, connect.output()).toBe(0);
+        const state = readSelfhostState();
+        expect(state).toMatchObject({ relayLocation: 'remote', relayUrl: relayUrl(), connectionMode: 'remote' });
+        expect(state.mintSecret).toBeUndefined();
+        identity = state.machine;
     }, 90_000);
 
     afterAll(async () => {
         await Promise.all([...children].map((child) => stop(child)));
-        rmSync(home, { recursive: true, force: true });
+        rmSync(root, { recursive: true, force: true });
     });
 
     it('registers the host by its proof, carries the paired phone over the link, and survives a restart on the used token', async () => {
-        startMachine();
-await until(() => (host!.output().includes('link relay: online') ? true : undefined),
+        await until(() => (host!.output().includes('link relay: online') ? true : undefined),
             `host link registers on the shared relay; host said: ${JSON.stringify(host!.output().slice(-400))}`);
         const hostAddress = hostId(unb64url(Buffer.from(identity!.crypto.boxPublicKey, 'base64').toString('base64url')));
         const hosts = await json(base, '/relay/v1/hosts', { headers: { authorization: `Bearer ${mint}` } });
@@ -176,7 +161,6 @@ await until(() => (host!.output().includes('link relay: online') ? true : undefi
         const stored = await pairOverLink(text) as StoredHostedGrant;
         await pairing;
 
-        stored.relayUrl = relayUrl();
         const client = new LinkFirstClient({
             hostedGrant: stored,
             requestTimeoutMs: 5_000,
