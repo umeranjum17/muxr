@@ -70,7 +70,8 @@ under an earlier license keep the rights that accompanied those copies.
 `pack.mjs` bundles `apps/host` plus the muxr contract and crypto workspaces,
 and also bundles the relay entry (`apps/relay/dist/main.js`) so `muxr self-host`
 can run from the packed CLI. The external runtime dependency list is owned by
-[`runtimeDependencies` in pack.mjs](../scripts/release/application/pack.mjs).
+[`runtimeDependencies`](../scripts/release/application/runtimeDependencies.mjs),
+which packing and the desktop AppImage both derive from.
 Dependencies outside that selection are bundled when imported. Packing audits
 both bundled and external dependencies and generates
 `THIRD_PARTY_LICENSES.json` with their versions, licenses, distribution status
@@ -88,6 +89,19 @@ with Apache-2.0 Swift packages inside, pinned SHA-256) is the one native
 executable the artifact itself carries: a macOS host unpacks it to mirror and
 drive an iOS simulator an agent pane claimed. It is the unchanged upstream
 release asset and never runs on Linux; its notice lives in `NOTICE`.
+
+## Linux AppImage
+
+The Linux desktop app is a second distribution. An AppImage ships the
+Electron/Chromium runtime, the same bundled host, relay and voice runtime as
+the npm artifact, and the shared runtime dependencies installed as production
+`node_modules` under `resources/app/node_modules`. Its notices are the
+Electron/Chromium texts at the AppImage root beside the `muxr` binary
+(`LICENSE.electron.txt`, `LICENSES.chromium.html`), plus the `LICENSES/` copied
+from the npm package under `resources/app/LICENSES/` (`Apache-2.0.txt`,
+`MIT.txt`, `OFL-1.1.txt`, `Unlicense.txt`). `THIRD_PARTY_LICENSES.json` covers
+the npm CLI artifact only: this AppImage needs its own generated inventory
+before any public AppImage release.
 
 ## Mobile artifact
 

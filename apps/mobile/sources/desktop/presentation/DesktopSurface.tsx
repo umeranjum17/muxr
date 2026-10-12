@@ -79,9 +79,10 @@ const PREVIEW_KEYS: Record<PreviewKind, readonly { label: string; icon: Icon; na
         { label: 'Home', icon: 'ellipse-outline', character: 'h', modifiers: ['Control'] },
         { label: 'Recents', icon: 'square-outline', character: 'o', modifiers: ['Control'] },
     ],
-    // The simulator's Home button; the host maps the same chord.
+    // The simulator's device buttons; the host maps the same chords.
     ios: [
         { label: 'Home', icon: 'ellipse-outline', character: 'h', modifiers: ['Control'] },
+        { label: 'Lock', icon: 'lock-closed-outline', character: 'l', modifiers: ['Control'] },
     ],
 };
 
