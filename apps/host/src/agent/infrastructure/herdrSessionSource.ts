@@ -33,6 +33,7 @@ import type {
 } from '@trymuxr/contract';
 import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@trymuxr/contract';
 import { hostDesktopForPanes } from '../../desktop/index.js';
+import { opencodeGoSignedIn } from '../../plans/opencodeAccounts.js';
 import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
@@ -2025,10 +2026,10 @@ export async function createHerdrSessionSource(
                 ...(requestedLabel === undefined ? {} : { label: requestedLabel }),
             });
             rememberLaunch(paneId, kind, launchName);
-            // An OpenCode agent muxr starts on one of its own OpenCode (Go)
-            // accounts opens on the Go default model; every other kind, the
-            // sign-in shell, and a pane without a plan account keep today's launch.
-            const openCodeGoArgs = kind === 'opencode' && startOptions.planEnv !== undefined
+            // An OpenCode agent on an account signed in to OpenCode Go opens on
+            // the Go default model; every other kind, provider, and a pane without
+            // a plan account keep today's launch.
+            const openCodeGoArgs = kind === 'opencode' && opencodeGoSignedIn(startOptions.planEnv ?? {})
                 ? ['--model', OPENCODE_GO_DEFAULT_MODEL]
                 : undefined;
             await startManagedAgent(paneId, kind, launchName, openCodeGoArgs);

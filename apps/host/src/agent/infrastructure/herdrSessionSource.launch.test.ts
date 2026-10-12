@@ -917,6 +917,9 @@ describe('OpenCode account isolation', () => {
             hostHttpPort: 0,
         });
         try {
+            const authFile = (folder: string) => join(folder, '.local', 'share', 'opencode', 'auth.json');
+            mkdirSync(dirname(authFile(a.record.folder)), { recursive: true });
+            writeFileSync(authFile(a.record.folder), '{"opencode-go":{"type":"api","key":"test"}}');
             const launchA = planLaunchEnv(env, a.record);
             const go = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchA.set, planUnset: launchA.unset });
             expect('info' in go).toBe(true);
@@ -924,10 +927,17 @@ describe('OpenCode account isolation', () => {
             expect('info' in bare).toBe(true);
             const other = await source.start({ cwd: join(dir, 'repo'), kind: 'claude' });
             expect('info' in other).toBe(true);
-            expect(herdr.agents).toHaveLength(3);
+            const b = await preparePlanSignIn(env, 'opencode');
+            mkdirSync(dirname(authFile(b.record.folder)), { recursive: true });
+            writeFileSync(authFile(b.record.folder), '{"openai":{"type":"api","key":"test"}}');
+            const launchB = planLaunchEnv(env, b.record);
+            const otherProvider = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchB.set, planUnset: launchB.unset });
+            expect('info' in otherProvider).toBe(true);
+            expect(herdr.agents).toHaveLength(4);
             expect(herdr.agents[0]).toMatchObject({ args: ['--model', 'opencode-go/muse-spark-1.3-contributor'] });
             expect(herdr.agents[1]).not.toHaveProperty('args');
             expect(herdr.agents[2]).not.toHaveProperty('args');
+            expect(herdr.agents[3]).not.toHaveProperty('args');
         } finally {
             await source.dispose();
             herdr.close();
