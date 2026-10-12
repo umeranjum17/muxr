@@ -228,10 +228,10 @@ purpose, because nothing on the other side can be told to change:
   `attachmentId` param and the old `attachments` listing field. The current app
   can fall back to the list, fetch and read aliases after a
   `host-contract-mismatch`; this does not restore pre-cutover wire compatibility.
-- `attachments.update` is published beside `artifacts.update` from the same
-  publish site, carrying the same `total` and `truncated` under the old
-  `attachments` field for product-contract compatibility.
-  It stays out of `SESSION_EVENT_TYPES`: a canonical client never waits for it.
+- `attachments.update` is no longer published by any host. The phone still
+  folds it into the `artifacts.update` shape, but phones built before the
+  rename (before v0.1.29) listen only for it, so they get no live or reconnect
+  artifact updates from current hosts. It stays out of `SESSION_EVENT_TYPES`.
   Delete it with the request aliases above.
 - `~/.muxr/attachments/pane/` remains a contract with installed tooling. See
   [CONTEXT.md](../CONTEXT.md).

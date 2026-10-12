@@ -95,7 +95,7 @@ try {
     report.join = { existing: frames(firstEvents), joining: frames(secondEvents) };
     assert.deepEqual(report.join.existing, {}, 'joining client must not wake an existing client');
     assert.equal(report.join.joining['session.event/artifacts.update'], 300);
-    assert.equal(report.join.joining['session.event/attachments.update'], 300);
+    assert.equal(report.join.joining['session.event/attachments.update'] ?? 0, 0);
     assert.equal(report.join.joining['plugins.invalidated'], 1);
     assert(secondEvents.some(event => event.event?.artifacts?.some(entry => entry.name === 'verify.txt')));
     const unread = await request(first.link, 'unread.catalog');
@@ -111,6 +111,7 @@ try {
     report.reconnect = { existing: frames(firstEvents), returning: frames(secondEvents) };
     assert.deepEqual(report.reconnect.existing, {});
     assert.equal(report.reconnect.returning['session.event/artifacts.update'], 300);
+    assert.equal(report.reconnect.returning['session.event/attachments.update'] ?? 0, 0);
 
     firstEvents.length = 0;
     const changeAt = Date.now();
