@@ -30,7 +30,7 @@ import { registerArtifactUpdateHandler, sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog';
 import { recordAgentGate, recordTrackedRpc } from '@/catalog/diagnostics';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
-import { PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
+import { ComputersSheet, PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
 import type { HerdrTreeTab } from '@trymuxr/contract';
 import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { AgentPager } from './AgentPager';
@@ -633,10 +633,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // tab's real split); the workspace tree opens one tap further, from that
     // sheet's Spaces.
     const [treeOpen, setTreeOpen] = React.useState(false);
+    const [computersOpen, setComputersOpen] = React.useState(false);
     // A sheet or editor owns the screen; no floating control remains beneath it.
     React.useEffect(() => {
-        if (actionsOpen || overviewOpen || treeOpen || findOpen || controlGrid.open || menu !== null) ringRef.current?.close();
-    }, [actionsOpen, overviewOpen, treeOpen, findOpen, controlGrid.open, menu]);
+        if (actionsOpen || overviewOpen || treeOpen || computersOpen || findOpen || controlGrid.open || menu !== null) ringRef.current?.close();
+    }, [actionsOpen, overviewOpen, treeOpen, computersOpen, findOpen, controlGrid.open, menu]);
     const openControls = React.useCallback((category: ControlGridCategory) => { ringRef.current?.close(); setActionsOpen(false); setControlGrid({ open: true, category }); }, []);
     const editKeys = React.useCallback(() => openControls('keys'), [openControls]);
     // A tab tap goes straight to a pane; a tab with nothing to open yet asks
@@ -1557,6 +1558,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             onVisibilityChange={setChoicesVisible}
                             lineHeight={terminalRowHeight}
                             gridInset={terminalGridInset}
+                            columns={grid?.cols}
                         />
                         </AgentPager>
                     </View>
@@ -1847,6 +1849,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     />}
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} onOpenSpaces={() => setTreeOpen(true)} />
                     <WorkspaceTreeSheet visible={treeOpen} sessionId={props.id} onClose={() => setTreeOpen(false)} />
+                    <ComputersSheet visible={computersOpen} sessionId={props.id} onClose={() => setComputersOpen(false)} />
 
                     {/* Secondary actions belong to the header; view controls stay with the terminal. */}
                     {actionsOpen && (
@@ -1895,6 +1898,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
+                                    <Pressable onPress={() => { setActionsOpen(false); setComputersOpen(true); }} accessibilityRole="button" accessibilityLabel="Computers"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="layers-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computers</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
                                     {preview.row && <Pressable onPress={() => watchPreview()} disabled={!preview.openable} accessibilityRole="button"
                                         accessibilityLabel={t(preview.openable ? WATCH_LABEL[preview.row.kind] : 'preview.reconnecting')}
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: preview.openable ? 1 : 0.5 })}>

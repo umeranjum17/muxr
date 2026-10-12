@@ -1,25 +1,38 @@
 import type { HerdrTreePane } from '@trymuxr/contract';
 
 export interface PendingChoice {
-    /** What to type: the choice's own number, which selects and confirms it. */
+    /** What to type: the choice's own number, or the arrow presses that reach it and Enter. */
     key: string;
     label: string;
+    /** The number the agent shows beside the choice, when it numbers them. */
+    number?: string;
 }
 
 const CHOICE_LINE = /^\s*(?:[❯›]\s*)?(\d)\.\s+(\S.*?)\s*$/;
+/** The highlighted row of a menu with no numbers: Claude Code's folder-trust "❯ No, exit". */
+const CURSOR_LINE = /^(\s*)[❯›]\s+(\S.*?)\s*$/;
+const DOWN = '\u001b[B';
+const UP = '\u001b[A';
 /** Lines a question may show under its last choice: "Esc to cancel", "Press enter to continue". */
 const FOOTER_LINES = 6;
 /** Lines a long choice may wrap onto at phone width before the next one. */
 const WRAP_LINES = 4;
 
 /**
- * The numbered choices an agent is waiting on at the live edge of its screen:
- * Claude Code's "❯ 1. Yes / 2. … / 4. No", Codex's "› 1. Yes, continue".
- * Typing the number selects and confirms in both, so a choice's key is its
- * number. Only a run numbered 1..n at the bottom of the screen counts; a
- * numbered list higher up is the agent talking, not asking.
+ * The choices an agent is waiting on at the live edge of its screen.
+ * Numbered ones, Claude Code's "❯ 1. Yes / 2. … / 4. No" and Codex's
+ * "› 1. Yes, continue", answer to their number, which selects and confirms.
+ * Only a run numbered 1..n at the bottom of the screen counts; a numbered list
+ * higher up is the agent talking, not asking. A menu with no numbers, such as
+ * Claude Code's folder-trust question, answers to arrow presses from its
+ * highlighted row and Enter.
  */
-export function pendingChoices(screen: string): PendingChoice[] {
+export function pendingChoices(screen: string, columns?: number): PendingChoice[] {
+    const numbered = numberedChoices(screen);
+    return numbered.length > 0 ? numbered : unnumberedChoices(screen, columns);
+}
+
+function numberedChoices(screen: string): PendingChoice[] {
     const lines = screen.split('\n').filter((line) => line.trim() !== '');
     const found: PendingChoice[] = [];
     let gap: string[] = [];
@@ -36,7 +49,7 @@ export function pendingChoices(screen: string): PendingChoice[] {
             if (found.length > 0 && footer !== -1) return [];
             const continuation = found.length === 0 && footer !== -1 ? wrapLines.slice(0, footer) : wrapLines;
             if (continuation.length > WRAP_LINES || wrapLines.length - continuation.length > FOOTER_LINES) return [];
-            found.unshift({ key: match[1]!, label: [match[2]!, ...continuation.map((wrapped) => wrapped.trim())].join(' ') });
+            found.unshift({ key: match[1]!, number: match[1]!, label: [match[2]!, ...continuation.map((wrapped) => wrapped.trim())].join(' ') });
             if (match[1] === '1') break;
             gap = [];
             continue;
@@ -45,6 +58,63 @@ export function pendingChoices(screen: string): PendingChoice[] {
         if (gap.length > (found.length === 0 ? FOOTER_LINES + WRAP_LINES : WRAP_LINES)) return [];
     }
     return found.length >= 2 && found[0]!.key === '1' ? found : [];
+}
+
+/**
+ * A menu with no numbers: the highlighted row and the rows beside it at the
+ * label's own column, with no more than a footer ("Enter to confirm · Esc to
+ * cancel") below it. Each answer moves from the highlight to its row and
+ * presses Enter, so no answer depends on which row Enter alone would pick.
+ * A label wrapped at the pane width reads as two terminal rows, so the rows
+ * are rejoined before moves are counted: a visual line continues the logical
+ * row above it when that row's visual plus a space plus this line's first
+ * word would not fit in the grid width (word wrap). Without the width, or
+ * when a visual already exceeds it, there is no honest split, so there are
+ * no chips rather than a chip that answers another row.
+ */
+function unnumberedChoices(screen: string, columns?: number): PendingChoice[] {
+    if (columns === undefined || !Number.isFinite(columns) || columns <= 0) return [];
+    const lines = screen.split('\n').map((line) => line.trimEnd());
+    while (lines.length > 0 && lines.at(-1) === '') lines.pop();
+    let cursor = -1;
+    for (let index = lines.length - 1; index >= Math.max(0, lines.length - FOOTER_LINES - WRAP_LINES * 2); index--) {
+        if (CURSOR_LINE.test(lines[index]!)) { cursor = index; break; }
+    }
+    if (cursor === -1) return [];
+    const [, lead, highlighted] = CURSOR_LINE.exec(lines[cursor]!)!;
+    const column = lead!.length + 2;
+    const isRow = (line: string | undefined): boolean => line !== undefined && line.trim() !== ''
+        && line.length - line.trimStart().length === column && !CURSOR_LINE.test(line);
+    let first = cursor;
+    while (isRow(lines[first - 1])) first--;
+    let last = cursor;
+    while (isRow(lines[last + 1])) last++;
+    if (last === first || lines.slice(last + 1).filter((line) => line.trim() !== '').length > FOOTER_LINES) return [];
+    const visuals = lines.slice(first, last + 1);
+    if (visuals.some((visual) => visual.length > columns)) return [];
+    const firstWord = (visual: string): string => visual.trim().split(/\s+/)[0] ?? '';
+    const rows: string[] = [cursor === first ? highlighted! : visuals[0]!.trim()];
+    let cursorRow = 0;
+    for (let offset = 1; offset < visuals.length; offset++) {
+        const previous = lines[first + offset - 1]!;
+        const visual = visuals[offset]!;
+        const isCursor = offset + first === cursor;
+        const text = isCursor ? CURSOR_LINE.exec(visual)![2]! : visual.trim();
+        if (!isCursor) {
+            const word = firstWord(visual);
+            if (word !== '' && previous.length + 1 + word.length > columns) {
+                rows[rows.length - 1] += ` ${text}`;
+                continue;
+            }
+        }
+        rows.push(text);
+        if (isCursor) cursorRow = rows.length - 1;
+    }
+    if (rows.length < 2) return [];
+    return rows.map((label, row) => {
+        const moves = row > cursorRow ? DOWN.repeat(row - cursorRow) : UP.repeat(cursorRow - row);
+        return { key: `${moves}\r`, label };
+    });
 }
 
 /**

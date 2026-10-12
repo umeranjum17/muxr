@@ -1,6 +1,7 @@
 import type { Machine } from '@/catalog';
 import { machineSpawnNewSession } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
+import { getCachedConnectionSettings, rememberSessionCwd, saveConnectionSettings } from '@/connection';
 import { isMachineOnline } from '@/pairing';
 import { createWorktree } from './worktree';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
@@ -83,6 +84,7 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
     if (result.type !== 'success') {
         return { ok: false, reason: 'needs-directory', directory: result.directory, message: result.directory };
     }
+    await saveConnectionSettings(rememberSessionCwd(getCachedConnectionSettings(), command.directory));
 
     // machineSpawnNewSession already refreshed until the session was listed.
     // The host holds the first prompt until the agent can accept it, which is

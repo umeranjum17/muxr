@@ -30,7 +30,7 @@ export interface StatusChipRefresh {
 }
 
 /** Product copy and controls; BYOKit owns the notification's platform lifecycle. */
-export function refreshStatusChip(current: StatusChipRefresh): { active: boolean; attentionRoute: string | null } {
+export function refreshStatusChip(current: StatusChipRefresh): void {
     const { herd, voiceState, voiceName, muted, agents, voiceGeneration } = current;
     const visible = agents.filter((agent) => !agent.focused);
     const blocked = visible.filter((agent) => agent.status === 'blocked');
@@ -46,7 +46,7 @@ export function refreshStatusChip(current: StatusChipRefresh): { active: boolean
     const active = activeVoice || herd.mode === 'working' || herd.mode === 'attention';
     if (!active) {
         status.clear();
-        return { active, attentionRoute: null };
+        return;
     }
     const names = (suppressFocused ? shown.map((agent) => agent.name).join(', ') : herd.names).trim().replace(/\s+/g, ' ').slice(0, 160);
     const name = (suppressFocused ? shown[0]?.name ?? '' : names.split(',')[0]).trim().slice(0, 80) || 'An agent';
@@ -85,5 +85,4 @@ export function refreshStatusChip(current: StatusChipRefresh): { active: boolean
         };
     }
     status.show(options);
-    return { active, attentionRoute };
 }

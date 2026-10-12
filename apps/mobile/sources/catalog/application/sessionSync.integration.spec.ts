@@ -43,10 +43,24 @@ const voiceMocks = vi.hoisted(() => ({
     state: 'disconnected' as 'disconnected' | 'connected',
 }));
 
-vi.mock('@/connection', () => ({
-    getCachedConnectionSettings: () => ({ machineId: hostSync.machineId }),
-    DEFAULT_CONNECTION: {},
-}));
+vi.mock('@/pairing', async () => ({ isMachineOnline: (await vi.importActual<typeof import('@/pairing/domain/machineUtils')>('@/pairing/domain/machineUtils')).isMachineOnline }));
+vi.mock('@/catalog', async () => await import('@/catalog/application/persistence'));
+vi.mock('@/utils/readFileBytes', () => ({ readFileBytes: vi.fn() }));
+vi.mock('@/plans/ui', () => ({ announceStartAccount: vi.fn() }));
+vi.mock('@/pairing/secrets', () => ({ getWebSecret: vi.fn(), setWebSecret: vi.fn() }));
+const savedConnection = vi.hoisted(() => ({ lastSessionCwd: '', recentSessionCwds: [] as string[] }));
+vi.mock('@/connection', async () => {
+    const { rememberSessionCwd } = await vi.importActual<typeof import('@/connection/connectionSettings')>('@/connection/connectionSettings');
+    return {
+        getCachedConnectionSettings: () => ({ machineId: hostSync.machineId, ...savedConnection }),
+        rememberSessionCwd,
+        saveConnectionSettings: async (settings: typeof savedConnection) => {
+            savedConnection.lastSessionCwd = settings.lastSessionCwd;
+            savedConnection.recentSessionCwds = settings.recentSessionCwds;
+        },
+        DEFAULT_CONNECTION: {},
+    };
+});
 vi.mock('./sync', () => ({ sync: { request, refreshSessions } }));
 vi.mock('@/pairing/client', async () => {
     const real = await vi.importActual<typeof import('@/pairing/client')>('@/pairing/client');
@@ -103,6 +117,7 @@ vi.mock('@/conversation/session', () => ({
 vi.mock('react-native-mmkv', () => ({
     MMKV: class {
         getString(key: string) { return mmkvValues.get(key); }
+        getBoolean(key: string) { return mmkvValues.has(key) ? mmkvValues.get(key) === 'true' : undefined; }
         set(key: string, value: string) { mmkvValues.set(key, value); }
         delete(key: string) { mmkvValues.delete(key); }
     },
@@ -551,6 +566,36 @@ describe('session sync flow', () => {
         await expect(spawn({})).resolves.toEqual({
             type: 'error', errorMessage: 'Agent could not start.',
         });
+    });
+
+    it('starts the next agent from Home or New agent in the folder the last one started in', async () => {
+        savedConnection.lastSessionCwd = '';
+        savedConnection.recentSessionCwds = [];
+        let started = 0;
+        request.mockImplementation(async (method: string) => {
+            if (method !== 'session.start') throw new Error(`unexpected request: ${method}`);
+            const id = `s${++started}`;
+            storage.setState({ sessions: { ...storage.getState().sessions, [id]: {} as Session } });
+            return { info: { id }, status: { sessionId: id, isStreaming: false, tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 } } };
+        });
+        const { startAgent } = await import('@/spawn/application/StartAgent');
+        const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
+        const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
+        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/umer' } } as never;
+        const cwds = () => request.mock.calls.map(([, params]) => (params as { cwd: string }).cwd);
+
+        // New agent: the person picks their project folder.
+        await expect(startAgent({ directory: '/home/umer/notes-app', kinds: ['shell'], squad: false, worktree: false }))
+            .resolves.toMatchObject({ ok: true });
+        // Home's Start, with no folder picked there, goes to the same folder, not ~.
+        useNewSessionDraft.setState({ selectedPath: null, agentType: 'shell', input: '', attachments: [] });
+        await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
+        // A folder picked on Home is what New agent opens on next.
+        useNewSessionDraft.getState().setPath('/home/umer/api');
+        await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
+
+        expect(cwds()).toEqual(['/home/umer/notes-app', '/home/umer/notes-app', '/home/umer/api']);
+        expect(savedConnection.lastSessionCwd).toBe('/home/umer/api');
     });
 
     it('waits for a newly started session to become visible before routing', async () => {

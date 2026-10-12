@@ -22,8 +22,6 @@ export class RelayOwnedError extends Error {
     }
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 function lanIpv4Addresses() {
     const out = [];
     for (const entries of Object.values(networkInterfaces())) {
@@ -35,9 +33,13 @@ function lanIpv4Addresses() {
     return out;
 }
 
+// How long a quiet start runs before the window offers Try again. Only the
+// message waits on it: the relay's and host's own reports still win after it.
+const HOST_STALL_MS = 30_000;
+
 /**
  * Start the relay and host for `home`, then wait until the host is online.
- * Emits `status` events: 'starting', 'online', 'error'.
+ * Emits `status` events: 'starting', 'stalled', 'online', 'error'.
  */
 export class MuxrRuntime extends EventEmitter {
     #home;
@@ -47,15 +49,16 @@ export class MuxrRuntime extends EventEmitter {
     #port;
     #children = [];
     #stopping = false;
-    #hostReady;
+    #stallMs;
 
-    constructor({ home, node, relayEntry, hostEntry, port }) {
+    constructor({ home, node, relayEntry, hostEntry, port, stallMs = HOST_STALL_MS }) {
         super();
         this.#home = home;
         this.#node = node;
         this.#relayEntry = relayEntry;
         this.#hostEntry = hostEntry;
         this.#port = port;
+        this.#stallMs = stallMs;
     }
 
     get home() { return this.#home; }
@@ -104,7 +107,7 @@ export class MuxrRuntime extends EventEmitter {
         relay.stderr?.on('data', collect);
         const closed = new Promise((resolve) => relay.once('close', resolve));
         try {
-            return await waitForRelay(relay);
+            return await waitForRelay(relay, Infinity);
         } catch (error) {
             if (relay.exitCode !== null || relay.signalCode !== null) await closed;
             const message = error instanceof Error ? error.message : String(error);
@@ -117,7 +120,7 @@ export class MuxrRuntime extends EventEmitter {
                 this.emit('status', { phase: 'already-running', message: ownerMessage, canRetry: true });
                 throw new RelayOwnedError(ownerText, ownerPid === undefined ? undefined : Number(ownerPid));
             }
-            this.emit('status', { phase: 'error', message });
+            if (!this.#stopping) this.emit('status', { phase: 'error', message });
             throw error;
         } finally {
             relay.stdout?.off('data', collect);
@@ -128,6 +131,20 @@ export class MuxrRuntime extends EventEmitter {
 
     async start() {
         this.emit('status', { phase: 'starting', message: 'Starting muxr on this computer' });
+        const stall = setTimeout(() => {
+            if (!this.#stopping) this.emit('status', { phase: 'stalled' });
+        }, this.#stallMs);
+        try { await this.#start(); }
+        catch (error) {
+            // Try again stops a start that is still waiting; its own kill is not a failure.
+            if (this.#stopping) return;
+            throw error;
+        } finally { clearTimeout(stall); }
+        if (this.#stopping) return;
+        this.emit('status', { phase: 'online' });
+    }
+
+    async #start() {
         mkdirSync(this.#home, { recursive: true, mode: 0o700 });
         const relayDataDir = join(this.#home, 'relay');
 
@@ -176,34 +193,55 @@ export class MuxrRuntime extends EventEmitter {
             this.emit('log', 'runtime', `using the existing self-host state at ${statePath}\n`);
         }
 
+        if (this.#stopping) return;
         const host = this.#spawn(this.#hostEntry, {
             MUXR_MODE: 'selfhost',
             MUXR_HOME: this.#home,
             MUXR_DATA_DIR: join(this.#home, 'host'),
         }, 'host');
 
-        this.#hostReady = this.#waitForHost(host);
-        await this.#hostReady;
-        this.emit('status', { phase: 'online' });
+        await this.#hostOnline(host);
     }
 
-    async #waitForHost(host) {
-        const deadline = Date.now() + 20_000;
-        let out = '';
-        const collect = (chunk) => { out += chunk.toString(); };
-        host.stdout?.on('data', collect);
-        try {
-            while (Date.now() < deadline) {
-                if (host.pid === undefined) throw new Error('the muxr host could not be started');
-                if (host.exitCode !== null) throw new Error('the muxr host exited before it came online');
-                if (out.includes('link relay: online') && existsSync(this.pairSocketPath)) return;
-                await sleep(100);
-            }
-            throw new Error('the muxr host did not come online');
-        } finally {
-            host.stdout?.off('data', collect);
-            out = '';
-        }
+    /**
+     * Resolve when the host reports its link online and its pairing socket
+     * exists; the stall timer covers the wait. Reject when it exits or cannot
+     * start.
+     */
+    #hostOnline(host) {
+        return new Promise((resolve, reject) => {
+            let out = '';
+            let poll;
+            const settle = () => {
+                host.stdout?.off('data', collect);
+                host.off('exit', exited);
+                host.off('error', failed);
+                clearTimeout(poll);
+                out = '';
+            };
+            const awaitPairSocket = () => {
+                if (!existsSync(this.pairSocketPath)) { poll = setTimeout(awaitPairSocket, 300); return; }
+                settle();
+                resolve();
+            };
+            const collect = (chunk) => {
+                out += chunk.toString();
+                if (!out.includes('link relay: online')) return;
+                host.stdout?.off('data', collect);
+                out = '';
+                awaitPairSocket();
+            };
+            const ended = (reason) => () => {
+                settle();
+                if (this.#stopping) resolve();
+                else reject(new Error(reason));
+            };
+            const exited = ended('the muxr host exited before it came online');
+            const failed = ended('the muxr host could not be started');
+            host.stdout?.on('data', collect);
+            host.once('exit', exited);
+            host.once('error', failed);
+        });
     }
 
     stop() {

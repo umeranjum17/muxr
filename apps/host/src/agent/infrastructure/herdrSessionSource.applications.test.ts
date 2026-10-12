@@ -3,7 +3,7 @@ import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { SessionEventBody } from '@trymuxr/contract';
+import type { PluginsInvalidatedFrame, SessionEventBody } from '@trymuxr/contract';
 import { createHerdrSessionSource } from './herdrSessionSource.js';
 
 /**
@@ -14,9 +14,9 @@ import { createHerdrSessionSource } from './herdrSessionSource.js';
  * anchor unless the action already opened a pane. This is the host-owned
  * replacement for the old panes plugin's tools/launch RPCs.
  *
- * The second flow covers the same source's Shared Artifacts publish: a share
- * reaches a pre-rename app through the legacy event name beside the canonical
- * one.
+ * The second flow covers the same source's Shared Artifacts publish: one share
+ * emits exactly one canonical update, never the pre-rename duplicate. The third
+ * covers the reconnect resend: every hello re-sends the full artifact history.
  */
 type StatePane = { pane_id: string; tab_id: string; workspace_id: string; cwd: string };
 
@@ -169,12 +169,11 @@ writeFileSync(state, JSON.stringify(panes));
     }, 30_000);
 });
 
-describe('Shared Artifacts: a share reaches pre-rename clients live', () => {
-    it('publishes the legacy event beside the canonical one from one share', async () => {
-        const PIXEL_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-        const dir = mkdtempSync(join(tmpdir(), 'muxr-artifact-publish-'));
+describe('Shared Artifacts: one canonical publish per share, full state per reconnect', () => {
+    const PIXEL_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+    async function shareSource(dir: string) {
         mkdirSync(join(dir, 'work'));
-        mkdirSync(join(dir, 'attachments', 'shell-0'), { recursive: true });
         const herdr = fakeHerdr(dir, []);
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
@@ -182,6 +181,13 @@ describe('Shared Artifacts: a share reaches pre-rename clients live', () => {
             artifactsDir: join(dir, 'attachments'),
             hostHttpPort: 0,
         });
+        return { herdr, source };
+    }
+
+    it('publishes exactly one artifacts.update from one share and no legacy duplicate', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-artifact-publish-'));
+        mkdirSync(join(dir, 'attachments', 'shell-0'), { recursive: true });
+        const { herdr, source } = await shareSource(dir);
         const published: SessionEventBody[] = [];
         source.subscribe((sessionId, event) => {
             if (sessionId === 'shell:shell-0') published.push(event);
@@ -189,26 +195,67 @@ describe('Shared Artifacts: a share reaches pre-rename clients live', () => {
         try {
             writeFileSync(join(dir, 'attachments', 'shell-0', 'shared.png'), Buffer.from(PIXEL_B64, 'base64'));
             const deadline = Date.now() + 20_000;
-            while (Date.now() < deadline
-                && !(published.some((event) => event.type === 'artifacts.update')
-                    && published.some((event) => event.type === 'attachments.update'))) {
+            while (Date.now() < deadline && !published.some((event) => event.type === 'artifacts.update')) {
                 await new Promise((resolve) => setTimeout(resolve, 100));
             }
+            // Settle: the duplicate rode the same watcher pass, so anything
+            // extra would already have arrived.
+            await new Promise((resolve) => setTimeout(resolve, 1_500));
 
-            const canonical = published.find((event) => event.type === 'artifacts.update');
-            const legacy = published.find((event) => event.type === 'attachments.update');
-            if (canonical === undefined || canonical.type !== 'artifacts.update') {
-                throw new Error(`the host published no artifacts.update (saw ${published.map((event) => event.type).join(', ')})`);
+            const legacy = published.filter((event) => event.type === 'attachments.update');
+            expect(legacy).toEqual([]);
+            const canonical = published.filter((event) => event.type === 'artifacts.update');
+            expect(canonical).toHaveLength(1);
+            const event = canonical[0];
+            if (event === undefined || event.type !== 'artifacts.update') {
+                throw new Error(`the host published no artifacts.update (saw ${published.map((entry) => entry.type).join(', ')})`);
             }
-            if (legacy === undefined || legacy.type !== 'attachments.update') {
-                throw new Error(`the host published no attachments.update (saw ${published.map((event) => event.type).join(', ')})`);
+            expect(event.artifacts.map((artifact) => artifact.name)).toEqual(['shared.png']);
+            expect(event.total).toBe(1);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it('resends full artifact state on every hello, including a reconnect', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-artifact-resend-'));
+        mkdirSync(join(dir, 'attachments', 'shell-0'), { recursive: true });
+        mkdirSync(join(dir, 'attachments', 'shell-1'), { recursive: true });
+        writeFileSync(join(dir, 'attachments', 'shell-0', 'a.png'), Buffer.from(PIXEL_B64, 'base64'));
+        writeFileSync(join(dir, 'attachments', 'shell-1', 'b.png'), Buffer.from(PIXEL_B64, 'base64'));
+        const { herdr, source } = await shareSource(dir);
+        const delivered: Array<{ sessionId: string; event: SessionEventBody }> = [];
+        const machine: PluginsInvalidatedFrame[] = [];
+        const resend = async (): Promise<void> => {
+            await source.resendCumulativeState?.(
+                (sessionId, event) => delivered.push({ sessionId, event }),
+                (frame) => machine.push(frame),
+            );
+        };
+        const artifactUpdates = () => delivered.filter((entry) => entry.event.type === 'artifacts.update');
+        const expectFullState = () => {
+            expect(artifactUpdates()).toHaveLength(2);
+            expect(delivered.some((entry) => entry.event.type === 'attachments.update')).toBe(false);
+            for (const [sessionId, name] of [['shell:shell-0', 'a.png'], ['shell:shell-1', 'b.png']] as const) {
+                const update = artifactUpdates().find((entry) => entry.sessionId === sessionId);
+                if (update?.event.type !== 'artifacts.update') {
+                    throw new Error(`${sessionId} missed its artifact state (saw ${delivered.map((entry) => `${entry.sessionId}:${entry.event.type}`).join(', ')})`);
+                }
+                expect(update.event.artifacts.map((artifact) => artifact.name)).toEqual([name]);
             }
-            expect(canonical.artifacts.map((artifact) => artifact.name)).toEqual(['shared.png']);
-            expect(canonical.total).toBe(1);
-            // The pre-rename shape carries the same history under the old field.
-            expect(legacy.attachments).toEqual(canonical.artifacts);
-            expect(legacy.total).toBe(canonical.total);
-            expect(legacy.truncated).toBe(canonical.truncated);
+        };
+        try {
+            await resend();
+            expectFullState();
+            expect(machine).toHaveLength(1);
+
+            delivered.length = 0;
+            machine.length = 0;
+            await resend();
+            expectFullState();
+            expect(machine).toHaveLength(1);
         } finally {
             await source.dispose();
             herdr.close();

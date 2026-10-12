@@ -16,6 +16,7 @@
  */
 const LISTENING = /^relay listening on wss?:\/\/\S+:(\d+)\s*$/m;
 
+// `Infinity` waits for the relay's own report however long it takes.
 export function waitForRelay(child, timeoutMs = 10_000) {
     if (typeof child !== 'object' || child === null || typeof child.on !== 'function') {
         throw new TypeError('waitForRelay needs the spawned relay child process, not a port');
@@ -49,10 +50,10 @@ export function waitForRelay(child, timeoutMs = 10_000) {
             new Error(`relay exited before it was listening (code ${code}, signal ${signal})${tail()}`),
         );
         const onError = (cause) => settle(reject, new Error(`relay could not be started: ${cause.message}`));
-        const timer = setTimeout(
+        const timer = Number.isFinite(timeoutMs) ? setTimeout(
             () => settle(reject, new Error(`relay did not report a listening port within ${timeoutMs}ms${tail()}`)),
             timeoutMs,
-        );
+        ) : undefined;
 
         child.stdout.on('data', onOut);
         child.stderr?.on('data', onErr);

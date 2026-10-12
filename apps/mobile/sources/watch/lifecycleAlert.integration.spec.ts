@@ -368,7 +368,6 @@ describe('agent lifecycle alerts on the phone', () => {
             localSettings: {
                 ...storage.getState().localSettings,
                 backgroundConnectionPrompted: true,
-                promotedNotificationsPrompted: true,
                 lifecycleNotificationLevel: 'all',
             },
         });

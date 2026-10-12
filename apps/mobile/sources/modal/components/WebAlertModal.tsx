@@ -1,22 +1,43 @@
 import React from 'react';
-import { Platform, View, Text, Pressable } from 'react-native';
+import { Platform, View, Text, Pressable, useWindowDimensions } from 'react-native';
 import { BaseModal } from '@/modal/components/BaseModal';
 import { AlertModalConfig, ConfirmModalConfig } from '@/modal/types';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 
 interface WebAlertModalProps {
     config: AlertModalConfig | ConfirmModalConfig;
     onClose: () => void;
     onConfirm?: (value: boolean) => void;
+    /**
+     * Paint the dialog from a fixed theme. A sheet over the session forces
+     * `dark`, but on native the surrounding `ScopedTheme` does not survive the
+     * RN Modal boundary, so the dialog falls back to the app theme and clashes
+     * with the sheet. Re-apply the scope inside the modal content here.
+     */
+    surface?: 'dark' | 'light';
+    /**
+     * Render the dialog on a fully opaque solid surface instead of the
+     * translucent native glass. A confirm opened over a busy screen (the
+     * Computers switch confirm over a terminal) must not let text behind
+     * the dialog show through its body.
+     */
+    opaque?: boolean;
 }
 
-export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps) {
+type WebAlertModalContentProps = Omit<WebAlertModalProps, 'surface'>;
+
+function WebAlertModalContent({ config, onClose, onConfirm, opaque }: WebAlertModalContentProps) {
     const { theme } = useUnistyles();
+    const { width: windowWidth } = useWindowDimensions();
     const isConfirm = config.type === 'confirm';
-    
+    // The dialog is 270 wide, but on the narrowest phones (a 270 dp viewport)
+    // that fills the screen edge to edge. Keep a plain side inset so it never
+    // touches the edges, while wider screens keep the fixed 270 width.
+    const dialogWidth = Math.min(270, Math.max(160, Math.round(windowWidth - 48)));
+
     const handleButtonPress = (buttonIndex: number) => {
         if (isConfirm && onConfirm) {
             onConfirm(buttonIndex === 1);
@@ -35,14 +56,16 @@ export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps
 
     const styles = StyleSheet.create({
         container: {
-            backgroundColor: Platform.select({
-                web: theme.colors.surface,
-                ios: theme.colors.glass.overlay,
-                android: theme.colors.glass.backgroundStrong,
-                default: theme.colors.surface,
-            }),
+            backgroundColor: opaque
+                ? theme.colors.surface
+                : Platform.select({
+                    web: theme.colors.surface,
+                    ios: theme.colors.glass.overlay,
+                    android: theme.colors.glass.backgroundStrong,
+                    default: theme.colors.surface,
+                }),
             borderRadius: 14,
-            width: 270,
+            width: dialogWidth,
             overflow: 'hidden',
             borderWidth: Platform.OS === 'web' ? 0 : StyleSheet.hairlineWidth,
             borderColor: theme.colors.glass.border,
@@ -104,53 +127,73 @@ export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps
         }
     });
 
+    const body = (
+        <>
+            <View style={styles.content}>
+                <Text style={[styles.title, Typography.default('semiBold')]}>
+                    {config.title}
+                </Text>
+                {config.message && (
+                    <Text style={[styles.message, Typography.default()]}>
+                        {config.message}
+                    </Text>
+                )}
+            </View>
+
+            {/* Three or more choices stack, as a system alert does, so none is squeezed. */}
+            <View style={[styles.buttonContainer, buttons.length > 2 && { flexDirection: 'column' }]}>
+                {buttons.map((button, index) => (
+                    <React.Fragment key={index}>
+                        {index > 0 && <View style={buttons.length > 2 ? { height: 1, backgroundColor: theme.colors.divider } : styles.buttonSeparator} />}
+                        <Pressable
+                            style={({ pressed }) => [
+                                styles.button,
+                                buttons.length > 2 && { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
+                                pressed && styles.buttonPressed
+                            ]}
+                            onPress={() => handleButtonPress(index)}
+                        >
+                            <Text style={[
+                                styles.buttonText,
+                                button.style === 'cancel' && styles.cancelText,
+                                button.style === 'destructive' && styles.destructiveText,
+                                Typography.default(button.style === 'cancel' ? undefined : 'semiBold')
+                            ]}>
+                                {button.text}
+                            </Text>
+                        </Pressable>
+                    </React.Fragment>
+                ))}
+            </View>
+        </>
+    );
+
+    // An opaque dialog skips the glass entirely: a translucent blur layer over
+    // a busy screen lets the text behind show through the dialog body.
+    if (opaque) {
+        return <View style={styles.container}>{body}</View>;
+    }
+
+    return (
+        <MobileGlassSurface
+            enabled={Platform.OS !== 'web'}
+            nativeEffect
+            glassEffectStyle="regular"
+            intensity={88}
+            tintColor={theme.colors.glass.overlayTint}
+            style={styles.container}
+        >
+            {body}
+        </MobileGlassSurface>
+    );
+}
+
+export function WebAlertModal({ config, onClose, onConfirm, surface, opaque }: WebAlertModalProps) {
+    const content = <WebAlertModalContent config={config} onClose={onClose} onConfirm={onConfirm} opaque={opaque} />;
+
     return (
         <BaseModal visible={true} onClose={onClose} closeOnBackdrop={false}>
-            <MobileGlassSurface
-                enabled={Platform.OS !== 'web'}
-                nativeEffect
-                glassEffectStyle="regular"
-                intensity={88}
-                tintColor={theme.colors.glass.overlayTint}
-                style={styles.container}
-            >
-                <View style={styles.content}>
-                    <Text style={[styles.title, Typography.default('semiBold')]}>
-                        {config.title}
-                    </Text>
-                    {config.message && (
-                        <Text style={[styles.message, Typography.default()]}>
-                            {config.message}
-                        </Text>
-                    )}
-                </View>
-                
-                {/* Three or more choices stack, as a system alert does, so none is squeezed. */}
-                <View style={[styles.buttonContainer, buttons.length > 2 && { flexDirection: 'column' }]}>
-                    {buttons.map((button, index) => (
-                        <React.Fragment key={index}>
-                            {index > 0 && <View style={buttons.length > 2 ? { height: 1, backgroundColor: theme.colors.divider } : styles.buttonSeparator} />}
-                            <Pressable
-                                style={({ pressed }) => [
-                                    styles.button,
-                                    buttons.length > 2 && { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
-                                    pressed && styles.buttonPressed
-                                ]}
-                                onPress={() => handleButtonPress(index)}
-                            >
-                                <Text style={[
-                                    styles.buttonText,
-                                    button.style === 'cancel' && styles.cancelText,
-                                    button.style === 'destructive' && styles.destructiveText,
-                                    Typography.default(button.style === 'cancel' ? undefined : 'semiBold')
-                                ]}>
-                                    {button.text}
-                                </Text>
-                            </Pressable>
-                        </React.Fragment>
-                    ))}
-                </View>
-            </MobileGlassSurface>
+            {surface === undefined ? content : <ScopedTheme name={surface}>{content}</ScopedTheme>}
         </BaseModal>
     );
 }

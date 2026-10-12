@@ -19,6 +19,23 @@ export async function requestPairedMachine<T extends PeerRequestType>(
             throw cause;
         }
     }
+    const client = await openPairedMachine(grant);
+    try {
+        try {
+            return await client.request(type, params);
+        } catch (cause) {
+            if (cause instanceof MuxrRequestError) throw new PeerHostResponseError(cause.message, cause.code);
+            throw cause;
+        }
+    } finally {
+        client.close();
+    }
+}
+
+/** Open one paired machine's own link without touching the app's active
+ * connection. Rejects when the host refuses the pairing permanently or does
+ * not answer in time; the caller owns closing the returned client. */
+export async function openPairedMachine(grant: StoredHostedGrant): Promise<LinkFirstClient> {
     let permanentError: string | undefined;
     const client = new LinkFirstClient({
         hostedGrant: grant,
@@ -46,13 +63,9 @@ export async function requestPairedMachine<T extends PeerRequestType>(
             });
             client.connect();
         });
-        try {
-            return await client.request(type, params);
-        } catch (cause) {
-            if (cause instanceof MuxrRequestError) throw new PeerHostResponseError(cause.message, cause.code);
-            throw cause;
-        }
-    } finally {
+        return client;
+    } catch (cause) {
         client.close();
+        throw cause;
     }
 }
