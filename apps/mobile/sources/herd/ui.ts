@@ -4,6 +4,7 @@ export * from './presentation/EmptySessionsTablet';
 export * from './presentation/HerdView';
 export * from './presentation/FirstRunConnection';
 export * from './presentation/FirstRunSetupCard';
+export * from './presentation/TailscaleStep';
 export * from './presentation/HomeHeader';
 export * from './presentation/KernelNotifications';
 export * from './presentation/LiveTerminalsRow';

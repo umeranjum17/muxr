@@ -15,7 +15,8 @@ under it still hand over the exact one-line command.
 
 ## How to get to it (user POV)
 
-Install the native app and open it unpaired: the first screen shows Step 1
+Install the native app and open it unpaired, then tap **I have Tailscale**
+([tailscale-first-step.md](./tailscale-first-step.md)): the screen shows Step 1
 with the command, then Step 2 (scan the QR).
 
 ## Driving it with the private stack
@@ -24,9 +25,9 @@ Preconditions: follow `../SKILL.md` isolation. No relay or host is needed: the
 screen is the unpaired app. Build a release APK from the candidate
 (`node perf/buildPrApk.mjs <out>` under the gradle lock with
 `FM_MEM_JOB_GB=16`), boot a task-owned headless AVD, install, and open the app
-fresh (`pm clear` first).
+fresh (`pm clear` first), then tap **I have Tailscale**.
 
-1. Set the viewport and text size, then force-stop and reopen the app:
+1. Set the viewport and text size, then force-stop and reopen the app (tap **I have Tailscale** again):
    `adb -s $SERIAL shell wm size 1080x2376; wm density 640` (270 dp) or
    `wm density 440` (393 dp at 1080 px wide), and
    `settings put system font_scale 1.0|2.0`; `cmd uimode night yes|no` for theme.

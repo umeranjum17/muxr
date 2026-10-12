@@ -140,6 +140,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   a `--browser-view` PWA and a `--browser` PWA on one real Herdr lab host: the
   view one watches the pane but its typing, desktop and agent actions never
   reach the computer; the control one runs the command.
+- [Get Tailscale before pairing your own computer](./tailscale-first-step.md) —
+  the unpaired first screen's one Tailscale card on a release APK (Play Store AVD)
+  and the PWA: Get Tailscale opens the store, Back, I have Tailscale shows the
+  unchanged pairing steps, at 393/270 dp font 1.0/2.0 and 393/270/208 px, both themes.
 - [Land on the first-run browser pairing steps](./first-run-browser-steps.md) —
   unpaired installed PWA: matching step badges, Step 2's paste button opening the
   `/pair` paste screen with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the
