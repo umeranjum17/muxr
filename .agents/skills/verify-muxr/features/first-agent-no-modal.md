@@ -33,8 +33,9 @@ Preconditions:
 1. Start the lab with no panes, from the repo root in its own shell, stdin
    attached: `KINDS= EVIDENCE=$EVIDENCE node --input-type=module -e "$(< .agents/skills/verify-muxr/features/terminalLatestLab.mjs)"`.
    Claude Code in the lab answers from the canned fixture, so no account is used.
-2. Fresh newcomer state for muxr only: install the APK, `pm clear
-   com.trymuxr.app`, `pm revoke com.trymuxr.app android.permission.POST_NOTIFICATIONS`.
+2. Fresh newcomer state for muxr only: install the APK, then `pm clear
+   com.trymuxr.app` (see Gotchas when the phone refuses it). Check
+   `dumpsys package com.trymuxr.app` reads `POST_NOTIFICATIONS: granted=false`.
 3. Enter `pair`, `adb reverse tcp:<relayPort> tcp:<relayPort>` (the port is
    `relayPort` in the lab's `muxr/selfhost.json`), open the written
    `muxr://pair#…` link with `am start`, tap `Pair`.
@@ -45,7 +46,8 @@ Preconditions:
    title.
 5. Pass: the agent screen is the only thing on screen in every frame and no dump
    holds `Allow muxr notifications?` or `Show live agent updates?`. Before the
-   fix the first modal covered the agent about 2 s after the tap.
+   fix `Allow muxr notifications?` covered the agent 2.4-2.8 s after the tap
+   (Android 16 test phone, three runs).
 6. `quit` stops the lab and tears its Herdr session down.
 
 ## Gotchas
@@ -55,5 +57,10 @@ Preconditions:
 - Notifications already granted hides the old needs-permission modal but, on
   Android 16 with Live Updates off, the old build still showed `Show live
   agent updates?`; check both titles.
-- `pm clear` keeps the app installed; uninstall only when a signer clash with
-  an older lab build refuses `install -r`.
+- Some phones refuse `pm clear` and `pm revoke` from the shell (OnePlus,
+  Android 16: no `CLEAR_APP_USER_DATA`); there a fresh newcomer state is a
+  reinstall of muxr itself, which also leaves notifications not granted.
+- `screencap -p` over adb took ~2.4 s a frame on that phone; for 0.5 s
+  frames run `screencap` (raw) on the phone in a loop, stamp each file with
+  the phone's `date +%s%3N`, pull afterwards and encode with ffmpeg (skip the
+  16-byte header, `rgba`).
