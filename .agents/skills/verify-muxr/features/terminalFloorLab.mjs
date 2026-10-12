@@ -74,19 +74,30 @@ try {
             const { workspace, root_pane: { pane_id: pane } } = JSON.parse(lab.herdr(['workspace', 'create', '--cwd', workdir, '--label', 'signin', '--no-focus'])).result;
             const send = (text) => lab.herdr(['pane', 'send-text', pane, text]);
             const keys = (key) => lab.herdr(['pane', 'send-keys', pane, key]);
-            send('opencode auth login\n');
-            await sleep(6000);
-            send('OpenCode Go');
-            await sleep(1500);
-            keys('enter');
-            await sleep(3000);
-            send(readFileSync(GO_KEY_FILE, 'utf8').trim());
-            keys('enter');
-            await sleep(4000);
-            send('exit\n');
-            await sleep(1000);
-            // The pane held the key; nothing may read it later.
-            try { lab.herdr(['workspace', 'close', workspace.workspace_id]); } catch { /* the shell's exit closed it */ }
+            // Each step waits for OpenCode's own prompt (the first run may still be
+            // installing it), so the key can only ever land in its masked field.
+            const until = async (prompt) => {
+                for (let tries = 0; !lab.herdr(['pane', 'read', pane, '--source', 'visible']).includes(prompt); tries++) {
+                    if (tries === 120) throw new Error(`OpenCode never asked "${prompt}"`);
+                    await sleep(1000);
+                }
+            };
+            try {
+                send('opencode auth login\n');
+                await until('Select provider');
+                send('OpenCode Go');
+                await until('(1 match)');
+                keys('enter');
+                await until('Enter your API key');
+                send(readFileSync(GO_KEY_FILE, 'utf8').trim());
+                keys('enter');
+                await sleep(4000);
+                send('exit\n');
+                await sleep(1000);
+            } finally {
+                // The pane held the key; nothing may read it later.
+                try { lab.herdr(['workspace', 'close', workspace.workspace_id]); } catch { /* the shell's exit closed it */ }
+            }
             mark('signed in through opencode auth login');
         },
         // Every pane's grid as Herdr holds it, and whether OpenCode is still up.
