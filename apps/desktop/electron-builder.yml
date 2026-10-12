@@ -1,0 +1,36 @@
+appId: com.trymuxr.desktop
+productName: muxr
+copyright: Copyright © 2026 muxr
+
+directories:
+  output: release
+  buildResources: build
+
+# The renderer and the two bundled entries are the whole app. Production
+# dependencies (the native link, relay and desklink runtimes the host needs)
+# are copied by electron-builder from node_modules automatically.
+files:
+  - dist/**/*
+  - src/renderer/**/*
+  - build/icon.png
+  - build/tray.png
+  - package.json
+  - LICENSES/**/*
+
+extraMetadata:
+  main: dist/main.mjs
+
+# Asar is off on purpose: the host and relay run as separate Node processes
+# (ELECTRON_RUN_AS_NODE) and resolve their dependencies from node_modules, which
+# a plain Node process cannot read from inside an asar archive.
+asar: false
+
+# Native modules are shipped as Node-API prebuilds; nothing needs compiling.
+npmRebuild: false
+
+linux:
+  target:
+    - AppImage
+  category: Network
+  icon: build/icon.png
+  executableName: muxr

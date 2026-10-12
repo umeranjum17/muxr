@@ -17,9 +17,9 @@ import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/audit.mjs';
 import { releaseCompatibility } from './repairHost.mjs';
-import { desktopHostOfSource } from './requireDesktopEngine.mjs';
 import { distribution } from '../domain/channel.mjs';
 import { bundleVoiceRuntime } from './bundleVoiceRuntime.mjs';
+import { runtimeDependencies as deriveRuntimeDependencies } from './runtimeDependencies.mjs';
 
 const require = createRequire(import.meta.url);
 const root = process.cwd();
@@ -35,17 +35,8 @@ const releaseMetadata = { ...release, commit, sourceTree, sourceDirty };
 // The desktop engine is a dependency, not inlined: installing muxr installs
 // @desklink/host, whose optional platform package carries the prebuilt engine.
 const desklinkHost = require(join(root, 'node_modules', '@desklink', 'host', 'package.json'));
-const desklinkPin = desktopHostOfSource(root);
-if (desklinkHost.version !== desklinkPin) {
-    throw new Error(`@desklink/host installed version ${desklinkHost.version} differs from apps/host/package.json pin ${desklinkPin}; reinstall dependencies before packing`);
-}
-const hostPackage = require(join(root, 'apps', 'host', 'package.json'));
 // The link loads libsodium's native addon, which cannot be bundled: install it.
-const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', '@byokit/seal': rootPackage.dependencies['@byokit/seal'], '@byokit/ui-core': rootPackage.dependencies['@byokit/ui-core'], '@desklink/host': desklinkHost.version,
-    '@byokit/accounts': hostPackage.dependencies['@byokit/accounts'],
-    '@byokit/realtime': hostPackage.dependencies['@byokit/realtime'],
-    '@byokit/link': hostPackage.dependencies['@byokit/link'], '@byokit/relay': hostPackage.dependencies['@byokit/relay'],
-    '@byokit/reach': rootPackage.dependencies['@byokit/reach'] };
+const runtimeDependencies = deriveRuntimeDependencies(root);
 const external = Object.keys(runtimeDependencies);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
