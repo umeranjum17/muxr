@@ -10,7 +10,7 @@ under it still hand over the exact one-line command.
 ## Sub-features
 
 - `command-wraps` at 270 dp and font scale 2.0 the whole command is visible, wrapped, inside the screen.
-- `command-default` at 393 dp and font scale 1.0 the command reads in two lines or fewer, centred under the step line.
+- `command-default` at 393 dp and font scale 1.0 the command reads in two lines, centred under the step line.
 - `command-copy` one tap on Copy puts the exact single-line command on the clipboard and the button reads Copied.
 
 ## How to get to it (user POV)
@@ -34,15 +34,15 @@ fresh (`pm clear` first).
 3. Repro check (fails on the old sideways-scrolling row, passes when wrapped):
    dump `uiautomator`, find the node whose text is the command, and require its
    bounds inside `wm size` width with no `HorizontalScrollView` ancestor.
-4. Tap Copy: the button reads Copied. The clipboard is the `INSTALL_COMMAND`
-   constant the row renders, so a paste into any field shows the one-line
-   command; `cmd clipboard` is absent on stock emulator images.
+4. Tap Copy: the button reads Copied and Android 13+ shows its clipboard
+   preview chip starting `npm instal…` (`cmd clipboard` is absent on stock
+   emulator images, so the chip is the readback).
 5. Undo: `wm size reset; wm density reset; settings put system font_scale 1.0; cmd uimode night no`.
 
 ## Gotchas
 
 - The browser/PWA branch shows the setup card instead (`first-run-browser-steps.md`); its command already wraps.
-- At font scale 2.0 and 270 dp the package name `@trymuxr/cli@latest` is wider than the line, so Android breaks it after the slash; that is the wrap working, not a cut.
+- Android may break the package name before its slash (`@trymuxr` / `/cli@latest`), at 393 dp as well as at large text; that is the wrap working, not a cut. Word joiners would stop it but would ride along in a long-press copy and break the npm name, so the text stays plain and Copy/Share hand over the exact command.
 - At font scale 2.0 the hero pushes Step 1 to the bottom edge of the first screenful: swipe it into view (read its `uiautomator` bounds first) before the screenshot and the repro check, or the shot shows only the command's first line.
 - Each `perf/buildPrApk.mjs` out dir mints its own test keystore, so the
   before and after APKs carry different signers and `adb install -r` of one
