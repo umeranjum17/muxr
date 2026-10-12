@@ -46,15 +46,18 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
     const [stackHeight, setStackHeight] = React.useState(0);
     const answered = React.useRef<{ signature: string; at: number } | null>(null);
     const answering = React.useRef(false);
+    const answeringSignature = React.useRef<string | null>(null);
 
     React.useEffect(() => {
         if (!waiting) {
             answering.current = false;
+            answeringSignature.current = null;
             answered.current = null;
             setChoices([]);
             return;
         }
         answering.current = false;
+        answeringSignature.current = null;
         let alive = true;
         let timer: ReturnType<typeof setTimeout>;
         const read = async (): Promise<void> => {
@@ -65,7 +68,10 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                 const nextSignature = signature(next);
                 const last = answered.current;
                 if (last !== null && last.signature === nextSignature && Date.now() - last.at < ANSWER_SETTLE_MS) return;
-                if (next.length > 0) answering.current = false;
+                if (next.length > 0 && nextSignature !== answeringSignature.current) {
+                    answering.current = false;
+                    answeringSignature.current = null;
+                }
                 setChoices((current) => (signature(current) === nextSignature ? current : next));
             } catch {
                 if (alive) setChoices([]);
@@ -88,15 +94,15 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
 
     const answer = (choice: PendingChoice): void => {
         if (answering.current) return;
+        answering.current = true;
+        answeringSignature.current = signature(choices);
         if (choice.number !== undefined) {
-            answering.current = true;
             answered.current = { signature: signature(choices), at: Date.now() };
             setChoices([]);
             hapticsSelection();
             channel.sendText(choice.key);
             return;
         }
-        answering.current = true;
         void (async () => {
             try {
                 const { text } = await sync.request('pane.read', { sessionId, source: 'visible' });
@@ -104,15 +110,18 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                 const match = fresh.find((candidate) => candidate.number === undefined && candidate.label === choice.label);
                 if (match === undefined) {
                     answering.current = false;
+                    answeringSignature.current = null;
                     setChoices(fresh);
                     return;
                 }
                 answered.current = { signature: signature(fresh), at: Date.now() };
+                answeringSignature.current = signature(fresh);
                 setChoices([]);
                 hapticsSelection();
                 channel.sendText(match.key);
             } catch {
                 answering.current = false;
+                answeringSignature.current = null;
                 return;
             }
         })();
