@@ -64,9 +64,9 @@ setInterval(tickExpiry, 1000);
 
 const HERDR_MISSING_MESSAGE = "muxr runs your agents in Herdr, which isn't installed on this computer.";
 
-// Herdr is said above the card, and pairing never waits for it. An approval, an
-// error or the command-line install still speaks for itself, so the notice shows
-// only where the pairing offer or the paired state is on screen.
+// Herdr is said above the card, and pairing never waits for it. An approval or an
+// error still speaks for itself, so the notice shows only where the pairing offer,
+// the paired state or the already-running card is on screen.
 function showHerdrNotice(herdr) {
     herdrNotice.hidden = herdr === undefined;
     if (herdr === undefined) return;
@@ -81,7 +81,7 @@ function showHerdrNotice(herdr) {
 }
 
 window.muxr.onState((state) => {
-    const herdr = state.herdr !== undefined && state.herdr.status !== 'ok' && ['starting', 'online', 'paired'].includes(state.phase) ? state.herdr : undefined;
+    const herdr = state.herdr !== undefined && state.herdr.status !== 'ok' && ['starting', 'online', 'paired', 'already-running'].includes(state.phase) ? state.herdr : undefined;
     showHerdrNotice(herdr);
     dot.className = `dot ${herdr === undefined ? state.phase : herdr.status === 'installing' ? 'starting' : 'error'}`;
     title.textContent = herdr === undefined ? (TITLES[state.phase] ?? 'muxr') : herdr.status === 'installing' ? 'Setting up Herdr…' : 'Needs attention';

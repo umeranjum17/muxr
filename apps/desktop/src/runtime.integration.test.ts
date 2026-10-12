@@ -165,7 +165,6 @@ describe('desktop runtime self-host state', () => {
             "import { join } from 'node:path';",
             "mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
             "writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
-            "writeFileSync(join(process.env.MUXR_HOME, 'host-path'), process.env.PATH);",
             "process.stdout.write('link relay: online\\n');",
             'setInterval(() => {}, 1000);',
             '',
@@ -182,8 +181,6 @@ describe('desktop runtime self-host state', () => {
             await Promise.all([runtime.start(), herdr.check()]);
             expect(statuses.at(-1)?.phase).toBe('online');
             expect(shown).toEqual([{ status: 'missing' }]);
-            // A Herdr installed later lands on the running host's PATH, so no restart is needed.
-            expect(readFileSync(join(home, 'host-path'), 'utf8').split(':')).toContain(installDir);
 
             await herdr.install();
             expect(shown.at(-1)).toEqual({ status: 'failed', message: "Couldn't install Herdr. Check this computer's internet connection, then press Try again." });

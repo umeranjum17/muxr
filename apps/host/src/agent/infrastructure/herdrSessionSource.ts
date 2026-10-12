@@ -1480,9 +1480,10 @@ export async function createHerdrSessionSource(
         for (const session of currentSessions()) emitState(session.sessionId);
     }
 
-    // The kit spawns `bin` directly for CLI and terminal verbs, so it needs
-    // the same resolved binary setup finds, not a PATH lookup.
-    const client = new KitHerdrClient(options.herdrBin ?? herdrBinary() ?? 'herdr', socketPath, () => {
+    // Resolved at each use, so a Herdr installed after the host started is
+    // found without a restart; the kit spawns that exact path for CLI and terminal verbs.
+    const resolvedHerdrBin = (): string | undefined => options.herdrBin ?? herdrBinary();
+    const client = new KitHerdrClient(() => resolvedHerdrBin() ?? 'herdr', socketPath, () => {
         routingEpoch += 1;
         void client.subscribeEvents(EVENT_KINDS).catch(() => {});
         void refreshSnapshot().then(emitAllStates).then(() => artifacts.rescanAll()).catch(() => {});
@@ -2580,7 +2581,7 @@ export async function createHerdrSessionSource(
                     tabs,
                 });
             }
-            return { workspaces, connected: client.connected, ...(client.connected || (options.herdrBin ?? herdrBinary()) !== undefined ? {} : { missing: true as const }) };
+            return { workspaces, connected: client.connected, ...(client.connected || resolvedHerdrBin() !== undefined ? {} : { missing: true as const }) };
         },
 
         async applicationsList(): Promise<{ items: ApplicationLauncher[] }> {

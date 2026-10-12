@@ -763,26 +763,28 @@ it('bounds workspace tokens: known keys only, capped count, sanitized capped val
 });
 
 describe('herdr installed in its own folder, off the host PATH', () => {
-    it('is not reported missing, and the host runs that exact binary', async () => {
+    it('is found and run at its exact path, including one installed after the host started', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-herdr-folder-'));
         const installDir = join(dir, 'bin');
         mkdirSync(installDir);
         const binary = join(installDir, 'herdr');
-        writeFileSync(binary, '#!/bin/sh\necho "ran $0"\n', { mode: 0o755 });
         const saved = { PATH: process.env.PATH, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, HERDR_BIN: process.env.HERDR_BIN };
         process.env.PATH = join(dir, 'empty-path');
         mkdirSync(process.env.PATH);
         process.env.HERDR_INSTALL_DIR = installDir;
         delete process.env.HERDR_BIN;
-        const source = await createHerdrSessionSource({
-            socketPath: join(dir, 'no-herdr.sock'), dataDir: join(dir, 'data'),
-            artifactsDir: join(dir, 'attachments'), hostHttpPort: 0,
-        });
+        let source: Awaited<ReturnType<typeof createHerdrSessionSource>> | undefined;
         try {
+            source = await createHerdrSessionSource({
+                socketPath: join(dir, 'no-herdr.sock'), dataDir: join(dir, 'data'),
+                artifactsDir: join(dir, 'attachments'), hostHttpPort: 0,
+            });
+            expect((await source.herdrTree()).missing).toBe(true);
+            writeFileSync(binary, '#!/bin/sh\necho "ran $0"\n', { mode: 0o755 });
             expect((await source.herdrTree()).missing).toBeUndefined();
             expect((await source.herdrCli(['--version'])).stdout.trim()).toBe(`ran ${realpathSync(binary)}`);
         } finally {
-            await source.dispose();
+            await source?.dispose();
             for (const [name, value] of Object.entries(saved)) {
                 if (value === undefined) delete process.env[name];
                 else process.env[name] = value;
