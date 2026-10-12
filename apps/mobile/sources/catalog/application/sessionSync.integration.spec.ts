@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as React from 'react';
 import TestRenderer from 'react-test-renderer';
-import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent, SessionEvent, SessionInfo } from '@trymuxr/contract';
+import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent, SessionEvent, SessionInfo, SessionStatus } from '@trymuxr/contract';
 import type { Session } from '../domain/sessionTypes';
 import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
@@ -733,6 +733,45 @@ describe('session sync flow', () => {
         expect(normalizeRequestFailure('plugin.call', 'handler is not a function').message).not.toContain('handler is not a function');
         expect(['plugin.approve', 'plugin.invoke', 'plugin.call', 'herdr.cli'].every(requestRequiresE2ee)).toBe(true);
         expect(requestRequiresE2ee('session.list')).toBe(false);
+    });
+
+    it('drops the terminal header Needs you when an answer clears the session, before the tree resnapshot', async () => {
+        const { sync: realSync } = await vi.importActual<typeof import('./sync')>('./sync');
+        const agentRoute = 'answer-agent';
+        const tree = (agentStatus: AgentLifecycle): HerdrTreeWorkspace[] => [{
+            workspaceId: 'answer-workspace', focused: true, agentStatus,
+            tabs: [{ tabId: 'answer-tab', focused: true, agentStatus,
+                panes: [{
+                    paneId: 'answer-pane', tabId: 'answer-tab', sessionId: agentRoute,
+                    focused: true, agentKind: 'codex', agentStatus, promptable: true,
+                }],
+            }],
+        }];
+        const status = (agentStatus: AgentLifecycle): SessionStatus => ({
+            sessionId: agentRoute, agentStatus, promptable: true,
+            isStreaming: agentStatus === 'working',
+            tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 },
+        });
+        hostSync.request.mockImplementation(async (method: string) => {
+            if (method === 'herdr.tree') return { workspaces: tree('blocked'), connected: true };
+            throw new Error(`unexpected request: ${method}`);
+        });
+        storage.setState({ sessionErrors: {}, herdrWorkspaces: [], sessionsLoaded: false });
+        storage.getState().applySessions([sessionInfoToSession({
+            id: agentRoute, paneId: 'answer-pane', cwd: '/work', messageCount: 0, firstMessage: '',
+            agentKind: 'codex', agentStatus: 'blocked', promptable: true,
+        }, status('blocked'))]);
+        await realSync.refreshHerdTree();
+        const pane = storage.getState().herdrWorkspaces[0]!.tabs[0]!.panes[0]!;
+        expect(terminalPaneStatus(pane, storage.getState().sessions[agentRoute]!)).toBe('blocked');
+
+        // The user answers; the host reports the agent working. The herd tree is
+        // not resnapshotted, so its pane still reads blocked, but the header must
+        // drop Needs you the way Home does.
+        hostSync.event!(agentRoute, { type: 'status.update', seq: 1, status: status('working') });
+        expect(storage.getState().sessions[agentRoute]!.metadata?.agentStatus).toBe('working');
+        expect(pane.agentStatus).toBe('blocked');
+        expect(terminalPaneStatus(pane, storage.getState().sessions[agentRoute]!)).toBe('working');
     });
 
     it('persists lifecycle notification levels without changing recent activity', () => {

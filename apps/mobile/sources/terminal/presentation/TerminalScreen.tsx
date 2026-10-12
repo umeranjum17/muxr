@@ -1210,7 +1210,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const contextTitle = labels.title;
     const contextName = agentBesideName(labels);
     const identityKnown = currentPane !== undefined;
-    const headerLifecycle = terminalPaneStatus(currentPane);
+    const headerLifecycle = terminalPaneStatus(currentPane, session);
     const headerLifecycleLabel = headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
     return (
         <ScopedTheme name="dark"><DarkSurface>{(theme) => {
