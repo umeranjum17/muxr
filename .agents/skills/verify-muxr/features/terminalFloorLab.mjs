@@ -21,15 +21,15 @@ const mark = (line) => {
 };
 const adb = (...args) => execFileSync('adb', ['-s', SERIAL, ...args], { encoding: 'utf8' });
 
-// The host's owner socket offers one native pairing and approves the device that takes it.
+// The host's owner socket offers one pairing and approves the device that takes it.
 let offering;
-const mintNativePairing = async (path) => {
+const mintPairing = async (path, kind) => {
     if (offering && !offering.destroyed) { offering.destroy(); await sleep(500); }
     return new Promise((resolve, reject) => {
         const socket = offering = createConnection(path);
         let pending = '';
         socket.on('error', reject);
-        socket.on('connect', () => socket.write('{"intent":{"kind":"native","authority":"control","personal":false}}\n'));
+        socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind, authority: 'control', personal: false } })}\n`));
         socket.on('data', (chunk) => {
             pending += String(chunk);
             for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
@@ -56,16 +56,22 @@ try {
     const panes = () => JSON.parse(lab.herdr(['pane', 'list'])).result.panes;
     const commands = {
         pair: async () => {
-            const pairing = await mintNativePairing(join(root, 'host', 'pair.sock'));
+            const pairing = await mintPairing(join(root, 'host', 'pair.sock'), 'native');
             adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
             adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', `'muxr://pair#${pairing.code}'`, process.env.APP_ID ?? 'com.trymuxr.app');
             mark('pairing link opened on the device; tap Pair');
+        },
+        // An installed PWA pairs with `window.__MUXR_LAB_PAIR__(<link>)` (lab-browser-pairing.md).
+        browser: async () => {
+            const pairing = await mintPairing(join(root, 'host', 'pair.sock'), 'browser');
+            writeFileSync(join(root, 'browser-link'), pairing.code, { mode: 0o600 });
+            mark(`browser link written to ${join(root, 'browser-link')}; relay port ${lab.port}`);
         },
         // OpenCode's own sign-in, in the lab's account home. The key goes from
         // its file to the pane; it is never printed, logged or shown on the phone.
         signin: async () => {
             if (!GO_KEY_FILE) throw new Error('Set GO_KEY_FILE');
-            const pane = JSON.parse(lab.herdr(['pane', 'split', '--direction', 'down', '--cwd', workdir])).result.pane.pane_id;
+            const { workspace, root_pane: { pane_id: pane } } = JSON.parse(lab.herdr(['workspace', 'create', '--cwd', workdir, '--label', 'signin', '--no-focus'])).result;
             const send = (text) => lab.herdr(['pane', 'send-text', pane, text]);
             const keys = (key) => lab.herdr(['pane', 'send-keys', pane, key]);
             send('opencode auth login\n');
@@ -78,13 +84,16 @@ try {
             keys('enter');
             await sleep(4000);
             send('exit\n');
+            await sleep(1000);
+            // The pane held the key; nothing may read it later.
+            try { lab.herdr(['workspace', 'close', workspace.workspace_id]); } catch { /* the shell's exit closed it */ }
             mark('signed in through opencode auth login');
         },
         // Every pane's grid as Herdr holds it, and whether OpenCode is still up.
         check: async () => {
             const report = panes().map((pane) => {
                 const screen = lab.herdr(['pane', 'read', pane.pane_id, '--source', 'recent', '--lines', '60']);
-                return { pane: pane.pane_id, rows: pane.viewport_rows ?? pane.rows, crashed: CRASHED.test(screen), screen };
+                return { pane: pane.pane_id, rows: pane.scroll.viewport_rows, crashed: CRASHED.test(screen), screen };
             });
             for (const { pane, rows, crashed, screen } of report) {
                 writeFileSync(join(EVIDENCE, `screen-${pane.replace(/\W/g, '_')}.txt`), screen);
@@ -107,12 +116,12 @@ try {
             return commands.check();
         },
     };
-    mark('ready; enter: pair | signin | kbd | check | quit');
+    mark('ready; enter: pair | browser | signin | kbd | check | quit');
     const input = createInterface({ input: process.stdin });
     for await (const line of input) {
         const [name, ...args] = line.trim().split(/\s+/);
         if (name === 'quit') break;
-        if (!(name in commands)) { console.error('commands: pair | signin | kbd | check | quit'); continue; }
+        if (!(name in commands)) { console.error('commands: pair | browser | signin | kbd | check | quit'); continue; }
         await commands[name](...args).catch((error) => mark(`${name} failed: ${error.message}`));
     }
 } finally {
