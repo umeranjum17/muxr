@@ -35,10 +35,12 @@ Node itself.
 Run `muxr` with no arguments for the interactive setup and maintenance menu.
 The onboarding inspects the computer without changing it. Choose how your phone
 reaches this computer — an away-from-home route is recommended whenever one is
-available — then browser access, what to pair, and **Agent status updates**.
+available. A first run shows the short plan under the routes, and Enter on a
+route applies it; changing an existing setup also asks about browser access,
+what to pair, and **Agent status updates**.
 See the [guided route picker](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone)
 for what each choice needs.
-Nothing changes before a final **Apply setup** confirmation. Setup
+Nothing changes before that Enter (or the final **Apply setup** of a later run). Setup
 then starts the selected relay and host, runs the pairing flow (scan the
 one-use QR from the phone app), and verifies the connection and managed
 services without printing credentials.

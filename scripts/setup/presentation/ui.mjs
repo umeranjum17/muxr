@@ -163,7 +163,9 @@ export function status(label, detail, kind = 'ok') {
 }
 
 export function note(lines) {
-    const values = Array.isArray(lines) ? lines : [lines];
+    const given = Array.isArray(lines) ? lines : [lines];
+    // Only a terminal has a width to wrap to; piped output keeps whole lines.
+    const values = process.stdout.columns ? given.flatMap((line) => wrap(line, 4)) : given;
     process.stdout.write(`  ${dim('│')}\n`);
     for (const line of values) process.stdout.write(`  ${dim('│')} ${line}\n`);
     process.stdout.write(`  ${dim('└')}\n`);
@@ -174,18 +176,36 @@ export function outro(text, kind = 'ok') {
     process.stdout.write(`\n${kind === 'ok' ? green('◆') : yellow('◆')} ${bold(text)}\n\n`);
 }
 
+// Wraps at spaces to fit under an indent, so a long description never splits a word.
+function wrap(text, indent) {
+    const room = Math.max(20, (process.stdout.columns || 80) - indent - 1);
+    if (text.length <= room) return [text];
+    const lines = [];
+    let line = '';
+    for (const word of text.split(' ')) {
+        if (line && line.length + 1 + word.length > room) {
+            lines.push(line);
+            line = word;
+        } else line = line ? `${line} ${word}` : word;
+    }
+    return [...lines, line];
+}
+
 // Returned by select() on escape/left so callers can go up one level;
 // ctrl-c still resolves undefined and means quit.
 export const BACK = Symbol('muxr.back');
 
-export async function select(message, choices, initial = 0, backHint) {
+// `details` is a short summary drawn under the choices, in the note() style,
+// for a picker whose Enter also applies what the summary says.
+export async function select(message, choices, initial = 0, backHint, details = []) {
     if (!interactive()) return choices[initial]?.value;
     if (!richInteractive()) {
         process.stdout.write(`${bold(`◆ ${message}`)}\n`);
         choices.forEach((choice, index) => {
             process.stdout.write(`  ${index + 1}. ${choice.disabled ? dim(choice.title) : choice.title}${choice.recommended ? ` ${green('· Recommended')}` : ''}${choice.disabled ? ` ${dim('(unavailable)')}` : ''}\n`);
-            if (choice.description) process.stdout.write(`     ${dim(choice.description)}\n`);
+            if (choice.description) for (const line of wrap(choice.description, 5)) process.stdout.write(`     ${dim(line)}\n`);
         });
+        if (details.length) note(details);
         for (;;) {
             const reader = createInterface({ input: process.stdin, output: process.stdout });
             const hint = initial >= 0 ? ` (${initial + 1})` : '';
@@ -213,6 +233,7 @@ export async function select(message, choices, initial = 0, backHint) {
     while (!selectable[selected]) selected = (selected + 1) % choices.length;
     // Long descriptions (e.g. detection reasons with remedies) wrap; count the
     // wrapped rows or the cursor-up redraw smears the frame.
+    const summary = details.flatMap((line) => wrap(line, 4));
     const frameRows = () => {
         const width = process.stdout.columns || 80;
         const wrapped = (length) => Math.max(1, Math.ceil(length / width));
@@ -223,8 +244,9 @@ export async function select(message, choices, initial = 0, backHint) {
                 const recommendation = choice.recommended ? 14 : 0;
                 return total
                 + wrapped(4 + choice.title.length + unavailable + cursor + recommendation)
-                + (choice.description ? wrapped(6 + choice.description.length) : 0);
+                + (choice.description ? wrap(choice.description, 6).reduce((rows, line) => rows + wrapped(6 + line.length), 0) : 0);
             }, 0)
+            + (summary.length ? 2 + summary.reduce((total, line) => total + wrapped(4 + line.length), 0) : 0)
             + 1;
     };
     const draw = (first = false) => {
@@ -239,8 +261,13 @@ export async function select(message, choices, initial = 0, backHint) {
             if (choice.disabled) label = dim(`${choice.title} · unavailable`);
             else if (active) label = inverse(` ${choice.title} `);
             process.stdout.write(`  ${marker} ${label}${choice.recommended ? ` ${green('· Recommended')}` : ''}\x1b[K\n`);
-            if (choice.description) process.stdout.write(`      ${dim(choice.description)}\x1b[K\n`);
+            if (choice.description) for (const line of wrap(choice.description, 6)) process.stdout.write(`      ${dim(line)}\x1b[K\n`);
         });
+        if (summary.length) {
+            process.stdout.write(`  ${dim('│')}\x1b[K\n`);
+            for (const line of summary) process.stdout.write(`  ${dim('│')} ${line}\x1b[K\n`);
+            process.stdout.write(`  ${dim('└')}\x1b[K\n`);
+        }
         process.stdout.write(`  ${dim(`esc ${backHint ?? (setupSession ? 'cancel setup' : 'back')} · ctrl-c quit`)}\x1b[K\n`);
         lastRows = frameRows();
     };

@@ -314,6 +314,19 @@ export function recommendedConnection(found, current, tailscalePlanned, serveRoo
 
 const aborted = (value) => value === undefined || value === BACK;
 
+// A first run reviews its plan on the route screen itself, so one Enter on a
+// route applies it. The route-specific cost is in each route's description.
+function firstRunSummary(found) {
+    return [
+        found.herdr.installed
+            ? 'We will use the Herdr already on this computer.'
+            : 'We will install Herdr during setup.',
+        'Your phone pairs next with a short code.',
+        'You can add a browser or change status updates later from the muxr menu.',
+        'Press Enter to apply this setup. Nothing changes before then.',
+    ];
+}
+
 export function continueWithDirectTailscale(plan) {
     const browserPair = plan.pairing === 'browser' || plan.pairing === 'browser-view' || plan.pairing === 'both';
     return {
@@ -355,8 +368,13 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     }
     const plannedPort = requestedPort === undefined ? current?.relayPort ?? envPort ?? 8792 : Number(requestedPort);
     const serveRoot = await serveRootFor(found, plannedPort);
+    const isFirstRun = current === undefined;
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
+    // The route picker is the first run's Apply; a mode given on the command
+    // line still goes through the Apply confirmation.
+    const confirmed = isFirstRun && !mode;
+    const summary = confirmed ? firstRunSummary(found) : [];
     if (!mode) {
         const proposal = recommendedConnection(found, current, tailscalePlanned, serveRoot);
         const connectionChoices = choices(found, tailscalePlanned, serveRoot).map((choice) => ({
@@ -370,15 +388,16 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         if (!recommended) note(vpnNote);
         const connectionPrompt = recommended ? [recommended, otherWays] : connectionChoices;
         const connectionInitial = recommended ? 0 : -1;
-        mode = await select('How will your phone reach this computer?', connectionPrompt, connectionInitial);
+        mode = await select('How will your phone reach this computer?', connectionPrompt, connectionInitial, undefined, summary);
         if (mode === 'other') {
+            setupStep(2, totalSteps, 'Connect your phone');
             note(vpnNote);
-            mode = await select('Other ways', [recommended, ...connectionChoices.filter((choice) => choice !== recommended)], -1);
+            mode = await select('Other ways', [recommended, ...connectionChoices.filter((choice) => choice !== recommended)], -1, undefined, summary);
         }
 
     }
     if (aborted(mode)) return undefined;
-    if (mode === 'lan') {
+    if (mode === 'lan' && !confirmed) {
         note('WARNING: this route works only while the phone stays on this home network — it will NOT work away from home. To use muxr away from home, rerun `muxr setup` and choose an away-from-home route.');
         note('Nearby discovery can help a previously paired native app find this relay again on the same LAN. A new device still needs the one-time QR or pairing string.');
     }
@@ -408,7 +427,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         process.stderr.write('the relay route needs an enrollment; pass --enrollment <muxr://enroll?...>\n');
         return 1;
     }
-    if (mode === 'relay') return { mode, port: plannedPort, endpoint: found.relay.relay, web: false, pairing: 'phone', syncIntegrations: false };
+    if (mode === 'relay') return { mode, port: plannedPort, endpoint: found.relay.relay, web: false, pairing: 'phone', syncIntegrations: false, confirmed };
 
     const port = plannedPort;
     if (!Number.isInteger(port) || port < 1024 || port > 65535) {
@@ -435,8 +454,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     // the browser-client, pairing, and status-updates questions stay
     // available when changing the connection later, and browser pairing
     // stays in the devices menu.
-    const isFirstRun = current === undefined;
-    if (isFirstRun) return { mode, port, endpoint, web: false, pairing: 'phone', syncIntegrations: false };
+    if (isFirstRun) return { mode, port, endpoint, web: false, pairing: 'phone', syncIntegrations: false, confirmed };
     setupStep(3, totalSteps, 'Choose app access');
     let web = false;
     if (modeAllowsBrowserHosting(mode)) {
@@ -609,7 +627,7 @@ export async function applyMachineSetup(args = []) {
     // answered to no effect. A failed availability check keeps the question:
     // sync may still succeed when the check itself is what broke.
     const asksIntegrations = !found.agents.checked || found.agents.available.length > 0;
-    const totalSteps = isFirstRun ? 4 : 6;
+    const totalSteps = isFirstRun ? 3 : 6;
     setupStep(1, totalSteps, 'Check this computer');
     renderInspection(found);
     // A disconnected Tailscale installation is proposed as one reviewed route;
@@ -629,21 +647,9 @@ export async function applyMachineSetup(args = []) {
     else if (current !== undefined) existingConnections = 'keep working; restart only if a reviewed runtime setting changed';
 
     if (isFirstRun) {
-        setupStep(3, totalSteps, 'Review setup');
-        note([
+        if (!plan.confirmed) note([
             `Your phone will reach this computer over ${connectionLabel(plan.mode, plan.endpoint, plan.port)}.`,
-            found.herdr.installed
-                ? 'We will use the Herdr already on this computer.'
-                : 'We will install Herdr during setup.',
-            'Your phone pairs next with a short code.',
-            'You can add a browser or change status updates later from the muxr menu.',
-            ...(plan.mode === 'lan'
-                ? ['This works only on this Wi-Fi and stops working when you leave home.']
-                : []),
-            ...(plan.mode === 'relay'
-                ? ['This computer dials out to the relay, so nothing on it needs to be open. It works through firewalls and away from home.']
-                : []),
-            'No change is made until you choose Apply setup.',
+            ...firstRunSummary(found),
         ]);
     } else {
     setupStep(5, totalSteps, 'Review setup');
@@ -662,7 +668,7 @@ export async function applyMachineSetup(args = []) {
         'No change is made until you choose Apply setup.',
     ]);
     }
-    const apply = await select('Apply this setup?', [
+    const apply = plan.confirmed || await select('Apply this setup?', [
         { value: false, title: 'Cancel', description: 'leave this machine unchanged' },
         { value: true, title: 'Apply setup', description: 'make the reviewed changes and verify health; pair a new device if selected' },
     ], 1);

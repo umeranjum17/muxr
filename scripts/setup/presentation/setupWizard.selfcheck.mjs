@@ -176,35 +176,34 @@ async function checkWizard() {
         serveStatus = 'free';
         currentSummary = undefined;
 
-        // Accept the picker default, then cancel at review: an installed
-        // Tailscale that connects during Apply beats ready Wi-Fi, so the
-        // Wi-Fi-only route is the default only when nothing remote-reachable
-        // exists.
+        // A first run reviews on the route screen: the plan sits under the
+        // routes and cancelling there changes nothing. An installed Tailscale
+        // that connects during Apply beats ready Wi-Fi, so the Wi-Fi-only
+        // route is the default only when nothing remote-reachable exists.
         lan = '192.168.1.8';
-        const firstCancel = await run(['', '1']);
+        const firstCancel = await run(['b']);
         recommended(firstCancel, 'Use muxr away from home (Tailscale)');
         // First run skips the browser-client, pairing, and status-updates
-        // questions: check, route, review — three steps of four.
+        // questions and the separate review: check, then route.
         assert.deepEqual([...firstCancel.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
-            ['1', '2', '3'].map((step) => [step, '4']));
-        assert.match(firstCancel, /Your phone will reach this computer over/);
-        assert.doesNotMatch(firstCancel, /Host the browser client too/);
+            ['1', '2'].map((step) => [step, '3']));
+        assert.match(firstCancel, /Other ways[\s\S]*We will use the Herdr already on this computer\.[\s\S]*Press Enter to apply this setup\.[\s\S]*Choose 1-2 \(1\)/);
+        assert.doesNotMatch(firstCancel, /Review setup|Apply this setup\?|Host the browser client too/);
         assert.deepEqual(calls, [], 'Cancellation mutated setup');
         lan = undefined;
-        const plannedCancel = await run(['', '1']);
+        const plannedCancel = await run(['b']);
         recommended(plannedCancel, 'Use muxr away from home (Tailscale)');
-        assert.deepEqual([...plannedCancel.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
-            ['1', '2', '3'].map((step) => [step, '4']));
         assert.deepEqual(calls, [], 'Planned Tailscale connected before Apply');
 
-        // With no local route, accept the recommended external server and
-        // complete Apply with the first-run defaults (phone pairing), then
-        // the plain final receipt.
+        // With no local route, Enter on the recommended external server and
+        // its address applies with the first-run defaults (phone pairing),
+        // with no second confirmation, then the plain final receipt.
         tailscaleInstalled = false;
-        const completed = await run(['', 'wss://relay.example', '2']);
+        const completed = await run(['', 'wss://relay.example']);
         recommended(completed, 'Use muxr away from home (your own server)');
         assert.deepEqual([...completed.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
-            ['1', '2', '3', '4'].map((step) => [step, '4']));
+            ['1', '2', '3'].map((step) => [step, '3']));
+        assert.doesNotMatch(completed, /Apply this setup\?/);
         assert.match(completed, /Setup complete/);
         assert.match(completed, /Your phone reaches this computer over/);
         assert.match(completed, /Open muxr on your phone and tap Start/);

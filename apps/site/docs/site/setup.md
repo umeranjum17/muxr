@@ -1,6 +1,6 @@
 # Setup walkthrough
 
-Every path through muxr setup has the same shape: **inspect → choose → review → apply**. The wizard never changes your machine during inspection, the final plan lists everything it is about to touch, and **Cancel** is the default until you explicitly pick **Apply setup**.
+Every path through muxr setup has the same shape: **inspect → choose → review → apply**. The wizard never changes your machine during inspection. A first run shows its short plan under the route choice, and Enter on a route applies it; changing an existing setup lists everything it is about to touch and waits for **Apply setup**.
 
 This page shows what that actually looks like, for each kind of machine.
 

@@ -14,10 +14,11 @@ muxr
 
 See [CLI startup guidance](../README.md#install) for first-time and later launches.
 Local interactive setup inspects the computer without changing it. Choose
-how your phone connects in the [route picker](#reaching-the-relay-from-your-phone),
-then whether to host the control/view-only web client, what to pair, and whether
-to set up **Agent status updates**.
-After a final **Apply setup** confirmation, muxr
+how your phone connects in the [route picker](#reaching-the-relay-from-your-phone);
+on a first run the short plan sits under the routes and Enter on a route applies
+it. Changing an existing setup also asks whether to host the control/view-only
+web client, what to pair, and whether to set up **Agent status updates**, then
+waits for a final **Apply setup** confirmation. muxr then
 starts the selected relay and host, then:
 
 1. Stores machine authority and link state under `~/.muxr`.

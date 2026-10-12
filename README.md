@@ -73,7 +73,7 @@ npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
 
-muxr opens guided setup on a new computer and installs [Herdr](https://herdr.dev) if needed. Choose how your phone reaches it—including a route that works away from home—review the plan, then choose **Apply setup**.
+muxr opens guided setup on a new computer and installs [Herdr](https://herdr.dev) if needed. Choose how your phone reaches it—including a route that works away from home—with the short plan shown under the routes; Enter applies it.
 
 **Prefer a desktop app?** On Linux the same setup runs in one window: it starts the host, starts at login, can keep the computer awake, and pairs with your phone by QR or by two words. Build the AppImage with `yarn desktop:build:linux`, then run `apps/desktop/release/muxr-*.AppImage`. A signed download ships with the phone's "Add your computer" step in a later release.
 
