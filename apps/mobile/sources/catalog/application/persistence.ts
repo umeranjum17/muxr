@@ -9,6 +9,14 @@ import { agentLabels, isShellLabels } from '@/herd/labels';
 type PermissionModeKey = string;
 
 const mmkv = createMMKV();
+
+function write(key: string, value: string): void {
+    try {
+        mmkv.set(key, value);
+    } catch (e) {
+        console.error(`Failed to save ${key}`, e);
+    }
+}
 const NEW_SESSION_DRAFT_KEY = 'new-session-draft-v1';
 const REGISTERED_PUSH_TOKEN_KEY = 'registered-push-token-v1';
 const HOME_SNAPSHOT_KEY = 'home-snapshot-v2';
@@ -55,7 +63,7 @@ export function loadSettings(): { settings: Settings, version: number | null } {
         const parsedSettings = settingsParse(parsed.settings);
         const version = typeof parsed.version === 'number' ? parsed.version : null;
         if (settingsBlobHasUnknownKeys(parsed.settings)) {
-            mmkv.set('settings', JSON.stringify({ settings: parsedSettings, version }));
+            write('settings', JSON.stringify({ settings: parsedSettings, version }));
         }
         return { settings: parsedSettings, version };
     } catch {
@@ -65,7 +73,7 @@ export function loadSettings(): { settings: Settings, version: number | null } {
 }
 
 export function saveSettings(settings: Settings, version: number) {
-    mmkv.set('settings', JSON.stringify({ settings, version }));
+    write('settings', JSON.stringify({ settings, version }));
 }
 
 export function loadPendingSettings(): Partial<Settings> {
@@ -89,7 +97,7 @@ export function loadPendingSettings(): Partial<Settings> {
             if (key in parsed) (overlay as Record<string, unknown>)[key] = parsed[key];
         }
         if (hadUnknownFields) {
-            mmkv.set('pending-settings', JSON.stringify(overlay));
+            write('pending-settings', JSON.stringify(overlay));
         }
         return overlay;
     } catch (e) {
@@ -100,7 +108,7 @@ export function loadPendingSettings(): Partial<Settings> {
 }
 
 export function savePendingSettings(settings: Partial<Settings>) {
-    mmkv.set('pending-settings', JSON.stringify(settings));
+    write('pending-settings', JSON.stringify(settings));
 }
 
 export function loadLocalSettings(): LocalSettings {
@@ -110,7 +118,7 @@ export function loadLocalSettings(): LocalSettings {
             const raw = JSON.parse(localSettings);
             const parsed = localSettingsParse(raw);
             if (raw !== null && typeof raw === 'object' && 'terminalAutoShowKeyboard' in raw) {
-                mmkv.set('local-settings', JSON.stringify(parsed));
+                write('local-settings', JSON.stringify(parsed));
             }
             return parsed;
         } catch (e) {
@@ -122,7 +130,7 @@ export function loadLocalSettings(): LocalSettings {
 }
 
 export function saveLocalSettings(settings: LocalSettings) {
-    mmkv.set('local-settings', JSON.stringify(settings));
+    write('local-settings', JSON.stringify(settings));
 }
 
 const OLD_SPACES_PINS_KEY = 'spaces-pins-v1';
@@ -146,11 +154,11 @@ export function loadSpacePins(machineId: string): string[] {
 export function saveSpacePins(machineId: string, pins: string[], workspaceId: string) {
     if (!machineId) throw new Error('Pair a computer before pinning a space');
     const legacy = legacySpacePins();
-    mmkv.set(SPACES_PINS_KEY, JSON.stringify({ ...spacePinsByMachine(), [machineId]: pins }));
+    write(SPACES_PINS_KEY, JSON.stringify({ ...spacePinsByMachine(), [machineId]: pins }));
     if (legacy === undefined) return;
     const remaining = legacy.filter((id) => id !== workspaceId);
     if (remaining.length === 0) mmkv.remove(OLD_SPACES_PINS_KEY);
-    else mmkv.set(OLD_SPACES_PINS_KEY, JSON.stringify(remaining));
+    else write(OLD_SPACES_PINS_KEY, JSON.stringify(remaining));
 }
 
 function legacySpacePins(): string[] | undefined {
@@ -178,10 +186,10 @@ export function migrateSpacePins(machineId: string, workspaces: readonly HerdrTr
     if (matched.length === 0) return;
     const pins = spacePinsByMachine();
     pins[machineId] = [...new Set([...(pins[machineId] ?? []), ...matched])];
-    mmkv.set(SPACES_PINS_KEY, JSON.stringify(pins));
+    write(SPACES_PINS_KEY, JSON.stringify(pins));
     const remaining = legacy.filter((id) => !matched.includes(id));
     if (remaining.length === 0) mmkv.remove(OLD_SPACES_PINS_KEY);
-    else mmkv.set(OLD_SPACES_PINS_KEY, JSON.stringify(remaining));
+    else write(OLD_SPACES_PINS_KEY, JSON.stringify(remaining));
 }
 
 const SPACES_LAYOUT_KEY = 'spaces-layout-v1';
@@ -218,7 +226,7 @@ export function loadSpacesLayouts(): Record<string, SpacesLayout> {
 }
 
 export function saveSpacesLayouts(layouts: Record<string, SpacesLayout>) {
-    mmkv.set(SPACES_LAYOUT_KEY, JSON.stringify(layouts));
+    write(SPACES_LAYOUT_KEY, JSON.stringify(layouts));
 }
 
 export function loadThemePreference(): 'light' | 'dark' | 'adaptive' {
@@ -243,7 +251,7 @@ export function loadSessionDrafts(): Record<string, string> {
 }
 
 export function saveSessionDrafts(drafts: Record<string, string>) {
-    mmkv.set('session-drafts', JSON.stringify(drafts));
+    write('session-drafts', JSON.stringify(drafts));
 }
 
 export function loadNewSessionDraft(): NewSessionDraft | null {
@@ -292,7 +300,7 @@ export function loadNewSessionDraft(): NewSessionDraft | null {
 }
 
 export function saveNewSessionDraft(draft: NewSessionDraft) {
-    mmkv.set(NEW_SESSION_DRAFT_KEY, JSON.stringify(draft));
+    write(NEW_SESSION_DRAFT_KEY, JSON.stringify(draft));
 }
 
 export function clearNewSessionDraft() {
@@ -304,7 +312,7 @@ export function loadRegisteredPushToken(): string | null {
 }
 
 export function saveRegisteredPushToken(token: string) {
-    mmkv.set(REGISTERED_PUSH_TOKEN_KEY, token);
+    write(REGISTERED_PUSH_TOKEN_KEY, token);
 }
 
 export function clearRegisteredPushToken() {
@@ -325,7 +333,7 @@ export function loadSessionLastMessageSentAt(): Record<string, number> {
 }
 
 export function saveSessionLastMessageSentAt(timestamps: Record<string, number>) {
-    mmkv.set('session-last-message-sent-at', JSON.stringify(timestamps));
+    write('session-last-message-sent-at', JSON.stringify(timestamps));
 }
 
 /**
@@ -410,7 +418,7 @@ export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspa
                 ? null : { lifecycleStateSince: session.metadata.lifecycleStateSince },
         }])),
     };
-    mmkv.set(HOME_SNAPSHOT_KEY, JSON.stringify(snapshot));
+    write(HOME_SNAPSHOT_KEY, JSON.stringify(snapshot));
 }
 
 /** Forgetting a machine forgets what its Home looked like. */
@@ -434,13 +442,13 @@ export function loadProfile(): Profile {
 }
 
 export function saveProfile(profile: Profile) {
-    mmkv.set('profile', JSON.stringify(profile));
+    write('profile', JSON.stringify(profile));
 }
 
 // Simple temporary text storage for passing large strings between screens
 export function storeTempText(content: string): string {
     const id = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    mmkv.set(`temp_text_${id}`, content);
+    write(`temp_text_${id}`, content);
     return id;
 }
 
