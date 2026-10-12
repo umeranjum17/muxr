@@ -7,7 +7,7 @@ bullets. It carries no raw backticks, no internal vocabulary ("machine keys",
 control grant reads "can see and change things"; a browser view-only grant
 reads "can watch …, but can't type, click or run anything"; the browser line states the
 eight-hour (or 30-day personal) lifetime, and the phone line states "until you
-remove it". The last bullet always keeps "Only continue if you just ran muxr…"
+remove it". The last bullet always keeps "Only continue if you just…" (a phone: "…started pairing in muxr on that computer", true for the desktop app and `muxr pair`; a browser: the command it ran)
 so an unexpected card can never be waved through.
 
 ## Sub-features
@@ -15,7 +15,7 @@ so an unexpected card can never be waved through.
 - `consent-control` a phone or control-browser grant states see-and-change.
 - `consent-view` a `--browser-view` grant states see-only, never see-and-change.
 - `consent-duration` browser states the eight-hour/30-day life; phone states until removal.
-- `consent-safety` the last bullet names the command the person just ran.
+- `consent-safety` the last bullet names what the person just did on the computer: a browser names the command it ran; a phone says "started pairing in muxr", which fits the desktop app and the CLI.
 - `consent-plain` no backticks, no "machine keys", no "access shown on the pairing screen" anywhere in the pairing hints or errors.
 - `consent-pairs-through` tapping Pair on the card actually pairs: a browser `https://…/pair#` link and a native code each reach the paired session list, never a refusal.
 - `words-once` the words step after consent says its instruction exactly once: the two words shown large under one plain line ("Check that <computer> shows these two words, then approve on your computer."), never a title and a hint repeating it (the pre-fix card printed the compare title, a waiting title and a hint beside a spinner).
