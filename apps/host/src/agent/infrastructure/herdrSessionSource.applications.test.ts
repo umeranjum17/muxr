@@ -16,10 +16,7 @@ import { createHerdrSessionSource } from './herdrSessionSource.js';
  *
  * The second flow covers the same source's Shared Artifacts publish: one share
  * emits exactly one canonical update, never the pre-rename duplicate. The third
- * covers the reconnect resend: a client that says hello after a real disconnect
- * gets the full artifact history, one flapping client's immediate re-hellos
- * skip only its artifact push, and any other client's hello in between still
- * resends fully.
+ * covers the reconnect resend: every hello re-sends the full artifact history.
  */
 type StatePane = { pane_id: string; tab_id: string; workspace_id: string; cwd: string };
 
@@ -222,7 +219,7 @@ describe('Shared Artifacts: one canonical publish per share, full state per reco
         }
     }, 30_000);
 
-    it('resends full artifact state after a real disconnect and coalesces a flapping link', async () => {
+    it('resends full artifact state on every hello, including a reconnect', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-artifact-resend-'));
         mkdirSync(join(dir, 'attachments', 'shell-0'), { recursive: true });
         mkdirSync(join(dir, 'attachments', 'shell-1'), { recursive: true });
@@ -231,11 +228,10 @@ describe('Shared Artifacts: one canonical publish per share, full state per reco
         const { herdr, source } = await shareSource(dir);
         const delivered: Array<{ sessionId: string; event: SessionEventBody }> = [];
         const machine: PluginsInvalidatedFrame[] = [];
-        const resend = async (clientKey: string): Promise<void> => {
+        const resend = async (): Promise<void> => {
             await source.resendCumulativeState?.(
                 (sessionId, event) => delivered.push({ sessionId, event }),
                 (frame) => machine.push(frame),
-                { clientKey },
             );
         };
         const artifactUpdates = () => delivered.filter((entry) => entry.event.type === 'artifacts.update');
@@ -250,37 +246,20 @@ describe('Shared Artifacts: one canonical publish per share, full state per reco
                 expect(update.event.artifacts.map((artifact) => artifact.name)).toEqual([name]);
             }
         };
-        const clear = () => { delivered.length = 0; machine.length = 0; };
         try {
-            // A hello after a real disconnect carries the full history: one
-            // canonical update per pane, never the legacy duplicate.
-            await resend('phone-a');
+            await resend();
             expectFullState();
             expect(machine).toHaveLength(1);
 
-            // One flapping client's immediate re-hello skips only its artifact
-            // push, but the cache invalidation still goes out on every hello.
-            clear();
-            await resend('phone-a');
-            expect(artifactUpdates()).toEqual([]);
-            expect(machine).toHaveLength(1);
-
-            // Any other client's hello in between still resends fully, so a
-            // reconnecting phone never waits out another client's flap window.
-            clear();
-            await resend('phone-b');
+            delivered.length = 0;
+            machine.length = 0;
+            await resend();
             expectFullState();
             expect(machine).toHaveLength(1);
-
-            // ...while a hello past the quiet window resends everything again.
-            await new Promise((resolve) => setTimeout(resolve, 11_000));
-            clear();
-            await resend('phone-a');
-            expectFullState();
         } finally {
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });
         }
-    }, 60_000);
+    }, 30_000);
 });

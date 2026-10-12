@@ -231,10 +231,7 @@ purpose, because nothing on the other side can be told to change:
 - `attachments.update` stays a protocol alias beside `artifacts.update` for
   product-contract compatibility: hosts that predate the rename still publish
   it under the old `attachments` field, and the phone folds it into the same
-  shape. Current hosts publish only the canonical event, and one flapping
-  client's re-hellos inside the resend quiet window skip only its artifact
-  push (launch errors and the plugin invalidation still go out on every hello;
-  any other client still resends fully). It stays out of
+  shape. Current hosts publish only the canonical event. It stays out of
   `SESSION_EVENT_TYPES`: a canonical client never waits for it.
   Delete it with the request aliases above.
 - `~/.muxr/attachments/pane/` remains a contract with installed tooling. See

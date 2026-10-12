@@ -244,7 +244,6 @@ export function startHost(options: HostOptions): Host {
                 await source.resendCumulativeState?.(
                     (sessionId, body) => deliverSessionEvent(sessionId, body, authenticatedSenderId),
                     (event) => broadcast(event, authenticatedSenderId),
-                    { clientKey: authenticatedSenderId },
                 );
             }
             return response;

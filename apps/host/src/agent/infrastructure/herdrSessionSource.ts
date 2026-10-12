@@ -95,16 +95,6 @@ const PROMPT_READY_TIMEOUT_MS = 30_000;
 const QUESTION_WAIT_MS = 3_000;
 const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
-/**
- * Quiet window after a client's full artifact resend during which that same
- * client's hello skips only the artifact push (launch errors and the plugin
- * invalidation still go out on every hello). The link says hello on every
- * transport reconnect and a flapping link re-hellos about once a second, so
- * ten seconds bounds one flapping phone to one full resend per ten hellos,
- * while any real disconnect outlasts it. Keyed per client: a phone that never
- * got a push (or whose push is older than the window) always resends fully.
- */
-const RESEND_ARTIFACT_DEBOUNCE_MS = 10_000;
 
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
 const HEADED_BROWSER = ' Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11.';
@@ -988,9 +978,6 @@ export async function createHerdrSessionSource(
         publish(session.sessionId, { type: 'artifacts.update', artifacts: entries, total, truncated });
     }, undefined, () => currentSessions().map((session) => session.paneId));
     artifacts.start();
-
-    /** When each helloing client last got a full artifact resend; stamps resendCumulativeState's flap debounce. */
-    const artifactResendAtByClient = new Map<string, number>();
 
     /** One-time tickets + byte streaming for downloads too big for the ws link. */
     const artifactDownloadServer = new ArtifactDownloadServer(artifactsDir, options.hostHttpPort ?? 8793, artifacts);
@@ -3178,7 +3165,6 @@ export async function createHerdrSessionSource(
         async resendCumulativeState(
             deliver: (sessionId: string, event: SessionEventBody) => void,
             deliverMachine: (frame: PluginsInvalidatedFrame) => void,
-            options?: { clientKey?: string },
         ): Promise<void> {
             reconcileLaunchFailures();
             for (const failure of launchFailureByPane.values()) {
@@ -3186,28 +3172,6 @@ export async function createHerdrSessionSource(
             }
             // One cache reconciliation for this client, not one per pane.
             deliverMachine({ type: 'plugins.invalidated', reason: 'changed', pluginIds: [] });
-            // The link says hello on every transport reconnect, and a flapping
-            // link re-hellos about once a second; each hello used to
-            // force-re-emit the whole artifact history for every pane (300
-            // panes of updates per hello). A hello from a client whose last
-            // full resend is inside the quiet window skips only the artifact
-            // push: the phone re-pulls artifact state when a timeline is
-            // focused (artifactList) and re-opens its sessions on every
-            // reconnect, so nothing it shows can stay stale past its next
-            // focus. Launch errors and the invalidation above still go out on
-            // every hello, a client without a recent push always resends
-            // fully, and a hello after a real disconnect (older than the
-            // window) resends the full history. Pruning is safe in either
-            // direction: a dropped entry only means the next hello resends.
-            const now = Date.now();
-            for (const [key, at] of artifactResendAtByClient) {
-                if (now - at >= RESEND_ARTIFACT_DEBOUNCE_MS) artifactResendAtByClient.delete(key);
-            }
-            const clientKey = options?.clientKey;
-            if (clientKey !== undefined) {
-                if (artifactResendAtByClient.has(clientKey)) return;
-                artifactResendAtByClient.set(clientKey, now);
-            }
             await artifacts.resendAll(currentSessions().map((session) => session.paneId), (paneId, entries, total, truncated) => {
                 const session = currentSessionByPane(paneId);
                 if (session === undefined) return;
