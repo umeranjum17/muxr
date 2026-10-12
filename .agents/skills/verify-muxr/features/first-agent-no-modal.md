@@ -47,8 +47,8 @@ Preconditions:
    modal title.
 5. Pass: the agent screen is the only thing on screen in every frame and no dump
    holds `Allow muxr notifications?` or `Show live agent updates?`. Before the
-   fix `Allow muxr notifications?` covered the agent 2.4-2.8 s after the tap
-   (Android 16 test phone, three runs).
+   fix `Allow muxr notifications?` was on screen 0.6 s after the tap, over the
+   screen transition, and stayed (Android 16 test phone).
 6. `quit` stops the lab and tears its Herdr session down.
 
 ## Gotchas
