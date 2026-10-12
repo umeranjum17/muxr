@@ -639,8 +639,7 @@ function persist(next: readonly ConnectionDiagnosticEvent[]): void {
 
 function readStore(): string | undefined {
     try {
-        const store = mmkv();
-        const raw = store?.getString(STORAGE_KEY);
+        const raw = mmkv()?.getString(STORAGE_KEY);
         return typeof raw === 'string' ? raw : undefined;
     } catch {
         return undefined;
@@ -648,18 +647,18 @@ function readStore(): string | undefined {
 }
 
 function writeStore(value: string): void {
-    try {
-        mmkv()?.set(STORAGE_KEY, value);
-    } catch {
-        // Tests and web without MMKV keep the in-memory trail only.
-    }
+    mmkv()?.set(STORAGE_KEY, value);
 }
 
-function mmkv(): { getString(key: string): string | undefined; set(key: string, value: string): void } | undefined {
+let store: import('react-native-mmkv').MMKV | undefined;
+
+function mmkv(): import('react-native-mmkv').MMKV | undefined {
     try {
-        // Lazy so vitest can record without a native store.
-        const { MMKV } = require('react-native-mmkv') as { MMKV: new () => { getString(key: string): string | undefined; set(key: string, value: string): void } };
-        return new MMKV();
+        // Lazy so vitest can record without a native store; one instance, since each
+        // v4 instance registers its own app-state listener.
+        const { createStore } = require('@/utils/mmkvStore') as typeof import('@/utils/mmkvStore');
+        store ??= createStore();
+        return store;
     } catch {
         return undefined;
     }

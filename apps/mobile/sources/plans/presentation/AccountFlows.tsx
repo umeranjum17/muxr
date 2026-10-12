@@ -3,7 +3,7 @@ import { Pressable, Text, TextInput, useWindowDimensions, View } from 'react-nat
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
 import Animated, { FadeInDown, FadeInUp, FadeOutDown, FadeOutUp, ReduceMotion } from 'react-native-reanimated';
-import { MMKV } from 'react-native-mmkv';
+import { createStore } from '@/utils/mmkvStore';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { create } from 'zustand';
 import { OptionSheet } from '@/components/OptionSheet';
@@ -43,7 +43,7 @@ usePlansStore.subscribe((state, previous) => {
     useFlows.setState({ adding: null, pending: null, naming: null, landed: null, notice: null });
 });
 
-const seen = new MMKV();
+const seen = createStore();
 const termsKey = (provider: string) => `plans-terms-seen:${provider}`;
 
 export function showNotice(title: string, detail: string): void {

@@ -1,13 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const mmkvValues = vi.hoisted(() => new Map<string, string>());
+const mmkvState = vi.hoisted(() => ({ values: new Map<string, string>(), failSaves: false }));
+const mmkvValues = mmkvState.values;
 vi.mock('react-native-mmkv', () => ({
-    MMKV: class {
-        getString(key: string) { return mmkvValues.get(key); }
-        set(key: string, value: string) { mmkvValues.set(key, value); }
-        delete(key: string) { mmkvValues.delete(key); }
+    createMMKV: () => new class {
+        getString(key: string) { return mmkvState.values.get(key); }
+        set(key: string, value: string) {
+            // v4 native store throws when a value cannot be saved.
+            if (mmkvState.failSaves) throw new Error('MMKV: cannot save value');
+            mmkvState.values.set(key, value);
+        }
+        remove(key: string) { mmkvValues.delete(key); }
         clearAll() { mmkvValues.clear(); }
-    },
+    }(),
 }));
 import {
     directBillingUrl,
@@ -56,5 +61,23 @@ describe('open-source mobile onboarding flow', () => {
         mmkvValues.set('settings', '{corrupt settings');
         persistence.loadSettings();
         expect(mmkvValues.has('settings')).toBe(false);
+    });
+
+    it('logs a failed save without throwing into the caller, and sign-out clears the store', async () => {
+        const persistence = await import('@/catalog/application/persistence');
+        const profile = persistence.loadProfile();
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        mmkvState.failSaves = true;
+        expect(() => persistence.saveProfile(profile)).not.toThrow();
+        expect(consoleError).toHaveBeenCalledWith(expect.stringMatching(/^Failed to save profile/), expect.any(Error));
+        expect(mmkvValues.has('profile')).toBe(false);
+        consoleError.mockRestore();
+
+        mmkvState.failSaves = false;
+        persistence.saveProfile(profile);
+        expect(mmkvValues.has('profile')).toBe(true);
+        expect(() => persistence.clearPersistence()).not.toThrow();
+        expect(mmkvValues.size).toBe(0);
     });
 });

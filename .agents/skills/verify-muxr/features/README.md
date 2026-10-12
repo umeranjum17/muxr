@@ -140,6 +140,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   a `--browser-view` PWA and a `--browser` PWA on one real Herdr lab host: the
   view one watches the pane but its typing, desktop and agent actions never
   reach the computer; the control one runs the command.
+- [Get Tailscale before pairing your own computer](./tailscale-first-step.md) —
+  the unpaired first screen's one Tailscale card on a release APK (Play Store AVD)
+  and the PWA: Get Tailscale opens the store, Back, I have Tailscale shows the
+  unchanged pairing steps, at 393/270 dp font 1.0/2.0 and 393/270/208 px, both themes.
 - [Land on the first-run browser pairing steps](./first-run-browser-steps.md) —
   unpaired installed PWA: matching step badges, Step 2's paste button opening the
   `/pair` paste screen with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the
@@ -191,6 +195,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.
+- [OpenCode agents start on Muse Spark 1.3 Contributor](./opencode-go-default-model.md) —
+  release APK on an emulator over a real lab host with an OpenCode Go
+  sign-in: new agents open on the Go default model before/after one build,
+  footer plus one real reply each.
 - [See what runs your sessions from Settings](./settings-herdr-info.md) —
   Settings `Herdr` row and sheet with the `herdr agent list` command, Copy
   feedback, and the real-Herdr lab log proving the command lists the host's
@@ -236,3 +244,6 @@ user-visible behavior, then exactly four H2 sections in this order:
   native release app and PWA over a fake-Herdr stack whose pane reads empty:
   a calm placeholder and a plain line, themes and 270dp/360dp, live output
   unchanged.
+- [Keep pairing and settings across an app upgrade](./upgrade-keeps-state.md) —
+  main release APK paired with settings changed, `install -r` of the
+  candidate, then pairing, theme and text size read back; fresh pair after.

@@ -22,7 +22,7 @@ open.
 
 ## How to get to it (user POV)
 
-- First run: open the app unpaired and tap **Step 2 · Scan the QR it shows**.
+- First run: open the app unpaired, tap **I have Tailscale** ([tailscale-first-step.md](./tailscale-first-step.md)), then **Step 2 · Scan the QR it shows**.
 - Already paired: Settings → Pair another machine, the recovery card's Pair again, or the command palette's Connect Device.
 - A code that ran out: open an old pairing link, or scan an old QR, and press **Scan a new code**.
 

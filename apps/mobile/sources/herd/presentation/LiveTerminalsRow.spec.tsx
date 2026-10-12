@@ -36,7 +36,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     default: { getItem: async () => JSON.stringify(herd.seen), setItem: async () => undefined },
 }));
 vi.mock('react-native-mmkv', () => ({
-    MMKV: class { getString() { return undefined; } set() {} delete() {} contains() { return false; } getAllKeys() { return []; } },
+    createMMKV: () => new class { getString() { return undefined; } set() {} remove() {} contains() { return false; } getAllKeys() { return []; } }(),
 }));
 vi.mock('expo-localization', () => ({ getLocales: () => [{ languageCode: 'en' }] }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));

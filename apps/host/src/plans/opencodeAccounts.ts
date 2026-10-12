@@ -82,6 +82,18 @@ export function opencodeSignedIn(record: PlanAccountRecord): boolean {
     }
 }
 
+/** Whether an account's launch env points at an OpenCode store with a Go
+ *  credential. Same store and key the usage reader uses. */
+export function opencodeGoSignedIn(env: Record<string, string | undefined>): boolean {
+    if (env.XDG_DATA_HOME === undefined) return false;
+    try {
+        const auth: unknown = JSON.parse(readFileSync(join(env.XDG_DATA_HOME, 'opencode', 'auth.json'), 'utf8'));
+        return typeof auth === 'object' && auth !== null && 'opencode-go' in auth;
+    } catch {
+        return false;
+    }
+}
+
 /** A fresh account id with its own private root. */
 export function addOpencodeAccount(env: NodeJS.ProcessEnv): PlanAccountRecord {
     mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
