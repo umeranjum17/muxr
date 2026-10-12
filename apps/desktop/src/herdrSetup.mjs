@@ -45,14 +45,21 @@ export function createHerdrSetup(onChange) {
     let current = { status: 'ok' };
     const set = (next) => { current = next; onChange(next); };
 
-    async function startServer(binary) {
-        try {
-            await ensureHerdrServer(binary, false, true, userEnv());
-            set({ status: 'ok' });
-        } catch (error) {
-            process.stderr.write(`desktop: herdr server: ${detail(error)}\n`);
-            set({ status: 'failed', message: START_MESSAGE });
-        }
+    // One start at a time: an Install pressed while the online start runs joins it.
+    let starting;
+    function startServer(binary) {
+        starting ??= (async () => {
+            try {
+                await ensureHerdrServer(binary, false, true, userEnv());
+                set({ status: 'ok' });
+            } catch (error) {
+                process.stderr.write(`desktop: herdr server: ${detail(error)}\n`);
+                set({ status: 'failed', message: START_MESSAGE });
+            } finally {
+                starting = undefined;
+            }
+        })();
+        return starting;
     }
 
     /** Install and Try again: install when missing, then start the server. */
@@ -82,9 +89,9 @@ export function createHerdrSetup(onChange) {
         check() {
             if (findHerdr() === undefined) set({ status: 'missing' });
         },
-        /** Once the host is online the desktop owns this computer, so make sure Herdr runs. */
-        async start() {
-            if (current.status === 'installing') return;
+        /** Every runtime status goes here. Only 'online' means this desktop owns the computer, so only then is Herdr started. */
+        async observeRuntime(event) {
+            if (event.phase !== 'online' || current.status === 'installing') return;
             const binary = findHerdr();
             if (binary === undefined) set({ status: 'missing' });
             else await startServer(binary);

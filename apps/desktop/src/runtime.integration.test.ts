@@ -235,21 +235,31 @@ describe('desktop runtime self-host state', () => {
         delete process.env.HERDR_BIN;
         const shown: { status: string }[] = [];
         const herdr = createHerdrSetup((next: { status: string }) => shown.push(next));
+        // Every status the real runtime emits goes into the window's Herdr rule, as main.mjs does.
+        const forward = (runtime: MuxrRuntime) => {
+            const pending: Promise<void>[] = [];
+            runtime.on('status', (event) => { pending.push(herdr.observeRuntime(event)); });
+            return pending;
+        };
         try {
-            // A command-line computer: the launch check reads Herdr, and nothing starts it.
+            // A command-line computer: the launch check reads Herdr, and no status starts it.
             process.env.MUXR_HOME = cliHome;
             herdr.check();
-            await expect(collectingRuntime(cliHome, relayEntry, hostEntry).runtime.start()).rejects.toThrow(RelayOwnedError);
+            const cli = collectingRuntime(cliHome, relayEntry, hostEntry).runtime;
+            const cliStarts = forward(cli);
+            await expect(cli.start()).rejects.toThrow(RelayOwnedError);
+            await Promise.all(cliStarts);
             await new Promise((resolve) => setTimeout(resolve, 600));
             expect(existsSync(serverUp)).toBe(false);
             expect(shown).toEqual([]);
 
             process.env.MUXR_HOME = ownHome;
             const { runtime, statuses } = collectingRuntime(ownHome, relayEntry, hostEntry);
+            const starts = forward(runtime);
             try {
                 await runtime.start();
+                await Promise.all(starts);
                 expect(statuses.at(-1)?.phase).toBe('online');
-                await herdr.start();
                 expect(existsSync(serverUp)).toBe(true);
                 expect(shown.at(-1)).toEqual({ status: 'ok' });
             } finally {

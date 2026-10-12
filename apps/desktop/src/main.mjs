@@ -198,11 +198,12 @@ async function startRuntime() {
     send({ phase: 'starting' });
     runtime = new MuxrRuntime({ home: MUXR_HOME, node: process.execPath, relayEntry: RELAY_ENTRY, hostEntry: HOST_ENTRY, port: RELAY_PORT });
     runtime.on('status', (event) => {
+        void herdr.observeRuntime(event);
         if (event.phase === 'error') reportFailure('runtime error', event.message, RUNTIME_EXIT_MESSAGE);
         else if (event.phase === 'starting') send({ phase: 'starting' });
         else if (event.phase === 'stalled') reportFailure('host still starting', 'no online report yet', STALLED_MESSAGE);
         else if (event.phase === 'already-running') send({ phase: 'already-running', message: event.message, canRetry: event.canRetry === true });
-        else if (event.phase === 'online') { send({ phase: 'online', message: 'Ready to pair' }); startPairing(); void herdr.start(); }
+        else if (event.phase === 'online') { send({ phase: 'online', message: 'Ready to pair' }); startPairing(); }
     });
     runtime.on('log', (_label, chunk) => process.stdout.write(chunk));
     try { await runtime.start(); }

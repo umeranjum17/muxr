@@ -1476,7 +1476,7 @@ export async function createHerdrSessionSource(
 
     // Resolved at each use, so a Herdr installed after the host started is
     // found without a restart; the kit spawns that exact path for CLI and terminal verbs.
-    const resolvedHerdrBin = (): string | undefined => options.herdrBin ?? findHerdrBin();
+    const resolvedHerdrBin = (): string | undefined => options.herdrBin || process.env.HERDR_BIN || findHerdrBin();
     const client = new KitHerdrClient(() => resolvedHerdrBin() ?? 'herdr', socketPath, () => {
         routingEpoch += 1;
         void client.subscribeEvents(EVENT_KINDS).catch(() => {});
