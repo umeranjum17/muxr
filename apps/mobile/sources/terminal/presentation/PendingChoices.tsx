@@ -45,13 +45,16 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
     const [choices, setChoices] = React.useState<PendingChoice[]>([]);
     const [stackHeight, setStackHeight] = React.useState(0);
     const answered = React.useRef<{ signature: string; at: number } | null>(null);
+    const answering = React.useRef(false);
 
     React.useEffect(() => {
         if (!waiting) {
+            answering.current = false;
             answered.current = null;
             setChoices([]);
             return;
         }
+        answering.current = false;
         let alive = true;
         let timer: ReturnType<typeof setTimeout>;
         const read = async (): Promise<void> => {
@@ -62,6 +65,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                 const nextSignature = signature(next);
                 const last = answered.current;
                 if (last !== null && last.signature === nextSignature && Date.now() - last.at < ANSWER_SETTLE_MS) return;
+                if (next.length > 0) answering.current = false;
                 setChoices((current) => (signature(current) === nextSignature ? current : next));
             } catch {
                 if (alive) setChoices([]);
@@ -83,19 +87,23 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
     if (!visible) return null;
 
     const answer = (choice: PendingChoice): void => {
+        if (answering.current) return;
         if (choice.number !== undefined) {
+            answering.current = true;
             answered.current = { signature: signature(choices), at: Date.now() };
             setChoices([]);
             hapticsSelection();
             channel.sendText(choice.key);
             return;
         }
+        answering.current = true;
         void (async () => {
             try {
                 const { text } = await sync.request('pane.read', { sessionId, source: 'visible' });
                 const fresh = pendingChoices(text);
                 const match = fresh.find((candidate) => candidate.number === undefined && candidate.label === choice.label);
                 if (match === undefined) {
+                    answering.current = false;
                     setChoices(fresh);
                     return;
                 }
@@ -104,6 +112,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                 hapticsSelection();
                 channel.sendText(match.key);
             } catch {
+                answering.current = false;
                 return;
             }
         })();
