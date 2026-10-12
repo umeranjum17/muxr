@@ -90,6 +90,9 @@ export function FirstAgentCard() {
     if (offer?.step === 'install') body = 'Install a coding agent such as Claude Code on your computer, then tap Check again.';
     const oneTap = offer?.step === 'start' && !startFailed;
     const checkable = offer?.step === 'sign-in' || offer?.step === 'install' || startFailed;
+    let pickerTitle = offer === undefined ? 'Start an agent' : 'Choose an agent';
+    if (offer?.step === 'start') pickerTitle = 'Choose another agent';
+    if (startFailed) pickerTitle = 'Open agents';
     return (
         <View style={[styles.card, cardStyle(theme)]}>
             <View style={styles.row}>
@@ -105,7 +108,7 @@ export function FirstAgentCard() {
                     <ActionButton title="Check again" icon="refresh-outline" action={() => check(true)} />
                 ) : null}
                 <ActionButton
-                    title={startFailed ? 'Open agents' : offer?.step === 'start' ? 'Choose another agent' : offer === undefined ? 'Start an agent' : 'Choose an agent'}
+                    title={pickerTitle}
                     icon="add-circle-outline"
                     variant={offer?.step === 'start' || checkable ? 'secondary' : 'primary'}
                     wrap

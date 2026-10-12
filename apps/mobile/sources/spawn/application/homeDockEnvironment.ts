@@ -121,14 +121,20 @@ function installedAgents(options: readonly AgentCatalogOption[]): AgentCatalogOp
     return options.filter((option) => option.availability === 'installed' && option.kind !== 'shell');
 }
 
+/** Installed agents that the card may name: Shell and Pi are never the automatic offer. */
+function offerCandidates(options: readonly AgentCatalogOption[]): AgentCatalogOption[] {
+    return installedAgents(options).filter((option) => option.kind !== 'pi');
+}
+
 export function defaultAgentKind(options: readonly AgentCatalogOption[], preferred?: string): string | null {
-    const signedIn = installedAgents(options).filter((option) => option.signedIn === 'yes' && option.kind !== 'pi');
+    const signedIn = offerCandidates(options).filter((option) => option.signedIn === 'yes');
     return signedIn.find((option) => option.kind === preferred)?.kind ?? signedIn[0]?.kind ?? null;
 }
 
 /**
  * What Home's first-agent card offers: one tap to start a ready agent, else
- * the next step for the best candidate. Shell is never the offer.
+ * the next step for the best candidate. Shell is never the offer. Undefined
+ * when the only installed agent is Pi: the card keeps its plain invitation.
  */
 export type FirstAgentOffer =
     | { step: 'start'; kind: string }
@@ -136,14 +142,14 @@ export type FirstAgentOffer =
     | { step: 'choose'; kind: string }
     | { step: 'install' };
 
-export function firstAgentOffer(options: readonly AgentCatalogOption[]): FirstAgentOffer {
+export function firstAgentOffer(options: readonly AgentCatalogOption[]): FirstAgentOffer | undefined {
     const ready = defaultAgentKind(options);
     if (ready !== null) return { step: 'start', kind: ready };
-    const installed = installedAgents(options);
-    const signIn = installed.find((option) => option.signedIn === 'no');
+    const candidates = offerCandidates(options);
+    const signIn = candidates.find((option) => option.signedIn === 'no');
     if (signIn !== undefined) return { step: 'sign-in', kind: signIn.kind };
-    if (installed[0] !== undefined) return { step: 'choose', kind: installed[0].kind };
-    return { step: 'install' };
+    if (candidates[0] !== undefined) return { step: 'choose', kind: candidates[0].kind };
+    return installedAgents(options).length === 0 ? { step: 'install' } : undefined;
 }
 
 export function visibleDockAgents(options: readonly AgentCatalogOption[] | null, more = false): DockOption[] {
