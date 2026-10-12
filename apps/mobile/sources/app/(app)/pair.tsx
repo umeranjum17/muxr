@@ -104,13 +104,18 @@ export default function PairScreen() {
     const routeParams = useLocalSearchParams();
     const browser = Platform.OS === 'web';
     const PairScrollView = browser ? ScrollView : KeyboardAwareScrollView;
-    const ConnectBar = Platform.OS === 'ios' ? KeyboardStickyView : View;
+    // Rides on the keyboard on both native platforms: Android's window does
+    // not resize under the keyboard provider, so a plain bar sat behind it.
+    const ConnectBar = browser ? View : KeyboardStickyView;
+    // The open keyboard already covers the bottom inset; keeping it would
+    // lift the bar and cut that much off a 270dp viewport.
+    const connectBarOffset = browser ? {} : { offset: { opened: insets.bottom } };
     const openedFromSettings = routeParams.source === 'settings';
     const sshRoute = !browser && routeParams.route === 'ssh' && sshTunnelAvailable();
     // pairArrival.ts owns intent restoration; typed, pasted and scanned input
     // stays on the normal consent/error path.
-    const reviewPairing = React.useCallback((raw: string, source: PairArrivalSource = 'user') => {
-        void resolvePairArrival(raw, { authenticated: auth.isAuthenticated, source }).then((target) => {
+    const reviewPairing = React.useCallback((raw: string, source: PairArrivalSource = 'user') =>
+        resolvePairArrival(raw, { authenticated: auth.isAuthenticated, source }).then((target) => {
             if (target === 'home') {
                 router.replace('/');
                 return;
@@ -127,8 +132,7 @@ export default function PairScreen() {
             void linkPairMachineName(link).then((name) => {
                 if (name !== undefined) setState((current) => current?.url === link ? { ...current, machineName: name } : current);
             }).catch(() => undefined);
-        }).catch(() => undefined);
-    }, [auth.isAuthenticated, router]);
+        }).catch(() => undefined), [auth.isAuthenticated, router]);
     // Scan leads every native entry and error; a device with no camera
     // scanner leads with paste instead of a button that cannot open.
     const canScan = usePairQrScannerAvailable();
@@ -227,15 +231,27 @@ export default function PairScreen() {
         });
     }, [state, pair, sshInput]);
 
-    const connectManual = React.useCallback(() => {
+    // A complete code pasted and Connect tapped at once must review it once.
+    const submitting = React.useRef(false);
+    const submitManual = React.useCallback((raw: string) => {
+        if (submitting.current) return;
         setSshError(undefined);
         const parsedInput = sshInput();
         if (!parsedInput.ok) {
             setSshError(parsedInput.error);
             return;
         }
-        reviewPairing(pairingValue);
-    }, [pairingValue, sshInput, reviewPairing]);
+        submitting.current = true;
+        Keyboard.dismiss();
+        void reviewPairing(raw).finally(() => { submitting.current = false; });
+    }, [sshInput, reviewPairing]);
+    const connectManual = React.useCallback(() => submitManual(pairingValue), [submitManual, pairingValue]);
+    // A complete code goes straight to review; a partial one waits for Connect,
+    // which names what is wrong. SSH waits: its fields are not filled yet.
+    const changePairingValue = React.useCallback((next: string) => {
+        setPairingValue(next);
+        if (!sshRoute && decidePairingInput(next).ok) submitManual(next);
+    }, [sshRoute, submitManual]);
 
     const cancel = React.useCallback(() => {
         if (openedFromSettings) router.back();
@@ -394,7 +410,7 @@ export default function PairScreen() {
                             returnKeyType="go"
                             style={styles.input}
                             value={pairingValue}
-                            onChangeText={setPairingValue}
+                            onChangeText={changePairingValue}
                             onSubmitEditing={connectManual}
                         />
                         <Text style={styles.routeHint}>{browser
@@ -411,17 +427,17 @@ export default function PairScreen() {
             </View>
         </PairScrollView>
         {sshRoute && manualForm && (
-            // Anchored below the scroll: Android resizes the window and
-            // iOS's bar follows the keyboard without shrinking the aware scroll.
-            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
+            // Anchored below the scroll; on native it follows the keyboard
+            // without shrinking the aware scroll.
+            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
                 {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
                 <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
-        {!sshRoute && manualForm && !browser && (
+        {!sshRoute && manualForm && (
             // Same anchored bar as the SSH route: the manual Connect must stay
             // above the keyboard on short viewports.
-            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
+            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
                 <ActionButton title="Connect" icon="link-outline" variant={canScan ? 'secondary' : 'primary'} disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}

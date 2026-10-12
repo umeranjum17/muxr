@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { Platform, Pressable, Share, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -76,27 +76,12 @@ export function FirstRunConnection() {
     // Offer Direct SSH only when this native build includes the transport.
     const sshAvailable = !browser && sshTunnelAvailable();
 
-    const promptForPairingString = React.useCallback(async () => {
-        const pasted = await Modal.prompt(
-            'Paste the pairing string',
-            // Non-breaking spaces keep the command's words together and word
-            // joiners bind both hyphens to the flag name, so narrow screens can
-            // only wrap before 'muxr' or after '--browser', never mid-flag.
-            'Paste the browser link shown by muxr\u00A0pair\u00A0-\u2060-\u2060browser on your computer.',
-            { placeholder: 'https://your-relay/pair#…' },
-        );
-        if (!pasted?.trim()) return;
-        await processPairLink(pasted.trim());
-    }, [processPairLink]);
-
     return (
         <View style={styles.section}>
             {browser ? <FirstRunSetupCard variant="command" /> : (
                 <View style={styles.otherWaysBody}>
                     <Text style={styles.routeHint}>Step 1 · On your computer, run:</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        <Text style={styles.installCommand} numberOfLines={1} selectable>{INSTALL_COMMAND}</Text>
-                    </ScrollView>
+                    <Text style={styles.installCommand} selectable>{INSTALL_COMMAND}</Text>
                     <View style={styles.commandActions}>
                         <ActionButton variant="quiet" title={copied ? 'Copied' : 'Copy'} action={async () => {
                             try {
@@ -123,7 +108,7 @@ export function FirstRunConnection() {
                         hint="Run one command on your computer, then paste the browser pairing link."
                     >
                         <View style={styles.stepAction}>
-                            <ActionButton variant="primary" title="Paste the browser link" icon="keypad-outline" wrap action={promptForPairingString} />
+                            <ActionButton variant="primary" title="Paste the browser link" icon="keypad-outline" wrap onPress={() => router.push('/pair')} />
                         </View>
                     </SetupStep>
                 </View>
@@ -264,6 +249,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         fontSize: 12,
         lineHeight: 18,
         color: theme.colors.text,
+        textAlign: 'center',
     },
     commandActions: {
         flexDirection: 'row',
