@@ -99,7 +99,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                     setChoices(fresh);
                     return;
                 }
-                answered.current = { signature: signature(choices), at: Date.now() };
+                answered.current = { signature: signature(fresh), at: Date.now() };
                 setChoices([]);
                 hapticsSelection();
                 channel.sendText(match.key);
