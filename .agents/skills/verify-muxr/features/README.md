@@ -118,6 +118,11 @@ user-visible behavior, then exactly four H2 sections in this order:
   view-only consent, plain copy, the words step saying its instruction once, and
   the spinner giving way to a check mark naming the computer, at 360dp/270dp font 1.3
   and 393/270 px, dark and light.
+- [Pick which computer an agent runs on](./computers-sheet.md) —
+  two-host lab (distinct UTS hostnames) driven on a release APK and the lab PWA:
+  the Computers sheet lists the cloud row and each paired computer with its
+  Online/Asleep/Offline state and the one in use; tapping another online computer
+  switches it after a confirmation and the next prompt runs there, dark and light at 393/270 px.
 - [Watch from a view-only browser that cannot type](./view-only-input.md) —
   a `--browser-view` PWA and a `--browser` PWA on one real Herdr lab host: the
   view one watches the pane but its typing, desktop and agent actions never

@@ -12,6 +12,9 @@ export type PairMachineResult =
     | { ok: false; reason: 'voice-pinned'; grant: StoredHostedGrant }
     | { ok: false; reason: 'failed'; message?: string };
 
+/** Make a paired Machine the active connection. Switching to a Machine that
+ * does not carry the current SSH route drops that route and its credential, so
+ * the rebuild never dials the wrong computer through the old tunnel. */
 async function activateGrant(grant: StoredHostedGrant, endVoiceIfPinned: boolean): Promise<PairMachineResult> {
     const guard = realtimeMachineSwitchGuard(grant.machineId);
     if (!guard.allowed && !endVoiceIfPinned) {
