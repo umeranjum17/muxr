@@ -95,7 +95,7 @@ try {
     report.join = { existing: frames(firstEvents), joining: frames(secondEvents) };
     assert.deepEqual(report.join.existing, {}, 'joining client must not wake an existing client');
     assert.equal(report.join.joining['session.event/artifacts.update'], 300);
-    assert.equal(report.join.joining['session.event/attachments.update'], 300);
+    assert.equal(report.join.joining['session.event/attachments.update'] ?? 0, 0);
     assert.equal(report.join.joining['plugins.invalidated'], 1);
     assert(secondEvents.some(event => event.event?.artifacts?.some(entry => entry.name === 'verify.txt')));
     const unread = await request(first.link, 'unread.catalog');
@@ -108,9 +108,24 @@ try {
     await until(() => returning.status === 'online', 'returning client');
     await request(returning, 'machine.hello');
     await sleep(1000);
+    report.reconnectFlap = { existing: frames(firstEvents), returning: frames(secondEvents) };
+    assert.deepEqual(report.reconnectFlap.existing, {});
+    // An immediate re-hello from the same client coalesces: no artifact push,
+    // but the cache invalidation still goes out on every hello.
+    assert.equal(report.reconnectFlap.returning['session.event/artifacts.update'] ?? 0, 0);
+    assert.equal(report.reconnectFlap.returning['session.event/attachments.update'] ?? 0, 0);
+    assert.equal(report.reconnectFlap.returning['plugins.invalidated'], 1);
+    // A hello after a real disconnect (past the resend quiet window) resends
+    // the full history again.
+    await sleep(11_000);
+    firstEvents.length = 0; secondEvents.length = 0;
+    await request(returning, 'machine.hello');
+    await sleep(1000);
     report.reconnect = { existing: frames(firstEvents), returning: frames(secondEvents) };
     assert.deepEqual(report.reconnect.existing, {});
     assert.equal(report.reconnect.returning['session.event/artifacts.update'], 300);
+    assert.equal(report.reconnect.returning['session.event/attachments.update'] ?? 0, 0);
+    assert.equal(report.reconnect.returning['session.event/attachments.update'] ?? 0, 0);
 
     firstEvents.length = 0;
     const changeAt = Date.now();

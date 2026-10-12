@@ -242,6 +242,8 @@ export interface SessionSource {
     resendCumulativeState?(
         deliver: (sessionId: string, event: SessionEventBody) => void,
         deliverMachine: (frame: PluginsInvalidatedFrame) => void,
+        /** Stable id of the helloing client (device id); lets the source coalesce one flapping client's hellos without withholding full state from any other client. */
+        options?: { clientKey?: string },
     ): void | Promise<void>;
     dispose(): Promise<void>;
     /** Lab-script spelling of dispose: closing the source releases every
