@@ -40,9 +40,9 @@ import { agentBesideName, agentLabels, agentStatusColor, agentWhoLine, HERD_STAT
 import {
     terminalComposerText,
     terminalPaneCanSend,
-    terminalPaneStatus,
     undoSmartPunctuation,
 } from '../domain/promptAvailability';
+import { terminalPaneStatus } from '../domain/terminalAgentStatus';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { terminalGrid } from '../application/terminalAhead';
 import { useImagePicker } from '@/hooks/useImagePicker';

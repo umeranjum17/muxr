@@ -11,7 +11,8 @@ import { buildSpaceRows, moveSpace, workspaceName, workspaceNames } from '@/herd
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 import { herdPanes } from '../../herd/domain/herd';
 import { agentLabels } from '../../herd/domain/agentPresentation';
-import { terminalPaneCanSend, terminalPaneStatus } from '../../terminal/domain/promptAvailability';
+import { terminalPaneCanSend } from '../../terminal/domain/promptAvailability';
+import { terminalPaneStatus } from '../../terminal/domain/terminalAgentStatus';
 import { unseenActivityRows } from '../../herd/domain/recentActivity';
 import { loadLocalSettings, loadSpacePins, loadSpacesLayouts, migrateSpacePins } from './persistence';
 
