@@ -44,7 +44,7 @@ automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
 
 ## Reaching the relay from your phone
 
-Interactive `muxr setup` shows all six routes together, each with an explanatory
+Interactive `muxr setup` shows all six local routes together, each with an explanatory
 sentence and exactly one **Recommended** tag: Works only on this Wi-Fi, three
 away-from-home routes (Tailscale, your private network, a temporary link), and
 your own server. Unavailable routes explain what to install or connect before
