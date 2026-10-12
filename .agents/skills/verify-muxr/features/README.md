@@ -237,3 +237,6 @@ user-visible behavior, then exactly four H2 sections in this order:
   native release app and PWA over a fake-Herdr stack whose pane reads empty:
   a calm placeholder and a plain line, themes and 270dp/360dp, live output
   unchanged.
+- [Keep pairing and settings across an app upgrade](./upgrade-keeps-state.md) —
+  main release APK paired with settings changed, `install -r` of the
+  candidate, then pairing, theme and text size read back; fresh pair after.
