@@ -45,12 +45,10 @@ export type SessionEventBody =
       }
     /**
      * Pre-unification name of `artifacts.update`, with the pre-unification
-     * `attachments` field. Hosts that predate the rename publish it beside
-     * the canonical event so a pre-rename app's open timeline still updates
-     * live; the handler folds it into the same shape. Current hosts publish
-     * only the canonical event. Deliberately absent from
-     * SESSION_EVENT_TYPES: it is an alias a canonical client never has to
-     * wait for.
+     * `attachments` field. No current host publishes it; the phone still folds
+     * it into the canonical shape for reads. Phones built before the rename
+     * listen only for this name, so they no longer get live or reconnect
+     * artifact updates. Deliberately absent from SESSION_EVENT_TYPES.
      * @deprecated Read `artifacts.update`.
      */
     | {

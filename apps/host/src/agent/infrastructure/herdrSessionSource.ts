@@ -966,15 +966,15 @@ export async function createHerdrSessionSource(
     /** Agent-dropped artifacts in the pane's durable Shared Artifacts history. */
     const artifactsDir = options.artifactsDir ?? join(homedir(), '.muxr', 'attachments', 'pane');
     const artifacts = new ArtifactWatcher(artifactsDir, (paneId, entries, total = entries.length, truncated = false) => {
-        // Released phones re-read on plugins.invalidated; an empty id list
-        // tells them to clear. The session event itself is metadata-only.
+        // An empty id list tells the phone to clear its cached plugins. The
+        // session event carries the artifact state itself.
         const frame: PluginsInvalidatedFrame = { type: 'plugins.invalidated', reason: 'changed', pluginIds: [] };
         for (const listener of machineListeners) listener(frame);
         const session = currentSessionByPane(paneId);
         if (session === undefined) return;
-        // One publish per change on the canonical name. The phone folds the
-        // pre-rename `attachments.update` only for hosts that predate the
-        // rename (sync.ts); this host no longer emits the legacy duplicate.
+        // One publish per change on the canonical name. Phones built before
+        // the rename (before v0.1.29) listen only for `attachments.update`, so
+        // they no longer get live artifact updates from this host.
         publish(session.sessionId, { type: 'artifacts.update', artifacts: entries, total, truncated });
     }, undefined, () => currentSessions().map((session) => session.paneId));
     artifacts.start();
