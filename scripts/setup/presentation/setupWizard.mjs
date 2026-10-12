@@ -382,13 +382,9 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         const otherWays = { value: 'other', title: 'Other ways', description: 'choose another network or your own server' };
         const vpnNote = 'Another VPN on your phone? A phone runs one VPN at a time, so pause it while you use muxr over Tailscale.';
         // Tailscale missing or not signed in: say so, and check again in place.
-        const missing = !recommended && proposal.mode === 'tailscale';
         const recheck = { value: 'recheck', title: 'Check again', description: 'once Tailscale is installed and signed in on this computer' };
-        let connectionPrompt = connectionChoices;
-        if (recommended) connectionPrompt = [recommended, otherWays];
-        else if (missing) connectionPrompt = [recheck, otherWays];
-        else note(vpnNote);
-        mode = await select('How will your phone reach this computer?', connectionPrompt, recommended || missing ? 0 : -1, undefined, missing ? [tailscaleMissing(found)] : summary);
+        const connectionPrompt = recommended ? [recommended, otherWays] : [recheck, otherWays];
+        mode = await select('How will your phone reach this computer?', connectionPrompt, 0, undefined, recommended ? summary : [tailscaleMissing(found)]);
         if (mode === 'recheck') {
             // The whole probe, so a new tailnet address is not listed as a private network.
             Object.assign(found, await withSpinner('Checking Tailscale again', async () => probeMachine()));
