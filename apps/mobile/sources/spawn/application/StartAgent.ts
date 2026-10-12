@@ -18,7 +18,7 @@ export type StartAgentCommand = {
 
 export type StartAgentResult =
     | { ok: true; agentRoute: string }
-    | { ok: false; reason: 'rejected' | 'needs-directory' | 'failed'; message?: string };
+    | { ok: false; reason: 'rejected' | 'needs-directory' | 'failed'; message?: string; agentRoute?: string };
 
 /** Start one Agent or a squad on the paired Machine. */
 export async function startAgent(command: StartAgentCommand): Promise<StartAgentResult> {
@@ -31,6 +31,7 @@ export async function startAgent(command: StartAgentCommand): Promise<StartAgent
     const rejected = request.rejection();
     if (rejected) return { ok: false, reason: 'rejected', message: rejected.message };
 
+    let agentRoute: string | undefined;
     try {
         const params = request.startParams(command.createCwd === true) as RequestParams<'session.start'>;
         const snapshot = await sync.request('session.start', params);
@@ -41,14 +42,15 @@ export async function startAgent(command: StartAgentCommand): Promise<StartAgent
                 message: 'Agent could not start.',
             };
         }
+        agentRoute = snapshot.info.id;
         await saveConnectionSettings(rememberSessionCwd(getCachedConnectionSettings(), command.directory));
-        await refreshUntilSessionVisible(snapshot.info.id);
-        return { ok: true, agentRoute: snapshot.info.id };
+        await refreshUntilSessionVisible(agentRoute);
+        return { ok: true, agentRoute };
     } catch (caught: unknown) {
         const message = caught instanceof Error ? caught.message : String(caught);
         if (command.createCwd !== true && message.includes(MISSING_CWD_ERROR_PREFIX)) {
             return { ok: false, reason: 'needs-directory' };
         }
-        return { ok: false, reason: 'failed', message };
+        return { ok: false, reason: 'failed', message, agentRoute };
     }
 }

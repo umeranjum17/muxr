@@ -65,6 +65,10 @@ export async function startNewAgent(input: {
             navigateToSession(router, result.agentRoute);
             return {};
         }
+        if (result.agentRoute !== undefined) {
+            navigateToSession(router, result.agentRoute);
+            return {};
+        }
         if (result.reason === 'needs-directory' && !createCwd) {
             createCwd = await Modal.confirm(
                 'Create directory?',

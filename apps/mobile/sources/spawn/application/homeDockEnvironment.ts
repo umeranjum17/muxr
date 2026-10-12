@@ -116,8 +116,13 @@ export function agentInstallPhase(option: AgentCatalogOption | undefined): strin
     return agentReadinessLabel(option, true);
 }
 
+/** Installed agents, Shell excluded: what a one-tap offer can be. */
+function installedAgents(options: readonly AgentCatalogOption[]): AgentCatalogOption[] {
+    return options.filter((option) => option.availability === 'installed' && option.kind !== 'shell');
+}
+
 export function defaultAgentKind(options: readonly AgentCatalogOption[], preferred?: string): string | null {
-    const signedIn = options.filter((option) => option.availability === 'installed' && option.signedIn === 'yes' && option.kind !== 'pi');
+    const signedIn = installedAgents(options).filter((option) => option.signedIn === 'yes' && option.kind !== 'pi');
     return signedIn.find((option) => option.kind === preferred)?.kind ?? signedIn[0]?.kind ?? null;
 }
 
@@ -131,10 +136,10 @@ export type FirstAgentOffer =
     | { step: 'choose'; kind: string }
     | { step: 'install' };
 
-export function firstAgentOffer(options: readonly AgentCatalogOption[], preferred?: string): FirstAgentOffer {
-    const ready = defaultAgentKind(options, preferred);
+export function firstAgentOffer(options: readonly AgentCatalogOption[]): FirstAgentOffer {
+    const ready = defaultAgentKind(options);
     if (ready !== null) return { step: 'start', kind: ready };
-    const installed = options.filter((option) => option.availability === 'installed' && option.kind !== 'shell');
+    const installed = installedAgents(options);
     const signIn = installed.find((option) => option.signedIn === 'no');
     if (signIn !== undefined) return { step: 'sign-in', kind: signIn.kind };
     if (installed[0] !== undefined) return { step: 'choose', kind: installed[0].kind };
