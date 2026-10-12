@@ -118,6 +118,11 @@ user-visible behavior, then exactly four H2 sections in this order:
   view-only consent, plain copy, the words step saying its instruction once, and
   the spinner giving way to a check mark naming the computer, at 360dp/270dp font 1.3
   and 393/270 px, dark and light.
+- [Pick which computer an agent runs on](./computers-sheet.md) —
+  two-host lab (distinct UTS hostnames) driven on a release APK and the lab PWA:
+  the Computers sheet lists the cloud row and each paired computer with its
+  Online/Asleep/Offline state and the one in use; tapping another online computer
+  switches it after a confirmation and the next prompt runs there, dark and light at 393/270 px.
 - [Watch from a view-only browser that cannot type](./view-only-input.md) —
   a `--browser-view` PWA and a `--browser` PWA on one real Herdr lab host: the
   view one watches the pane but its typing, desktop and agent actions never
@@ -199,6 +204,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   native app over a private stack: every key stays reachable and the prompt
   placeholder stays in the rail at Android font scale 2.0, normal scale
   unchanged.
+- [Answer an agent's folder-trust question in one tap](./agent-trust-answers.md) —
+  release APK and PWA over a guarded real-Herdr lab with a real, untrusted
+  Claude Code: unnumbered choices as chips, timed trust step before/after, and
+  Home and New agent sharing the last start folder.
 - [Read a Live preview with no output](./live-preview-empty.md) —
   native release app and PWA over a fake-Herdr stack whose pane reads empty:
   a calm placeholder and a plain line, themes and 270dp/360dp, live output

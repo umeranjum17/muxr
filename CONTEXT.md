@@ -85,7 +85,7 @@ The daily bound on how much history a pane keeps: the newest 50 files, nothing y
 _Avoid_: cleanup job, cache eviction, garbage collection
 
 **Frozen names**:
-`~/.muxr/attachments/pane/`, the `attachments.update` session event with its `attachments` field, and the plugin `muxr.attachments` / plugin action `type: "attachment"` keep their pre-rename spelling. They are contracts with tooling and approved plugin manifests. Everything else about this subsystem says artifact.
+`~/.muxr/attachments/pane/` and the plugin `muxr.attachments` / plugin action `type: "attachment"` keep their pre-rename spelling. They are contracts with tooling and approved plugin manifests. Everything else about this subsystem says artifact, including the session event: hosts publish only `artifacts.update`.
 _Avoid_: treating them as leftovers, "fixing" them in a rename
 
 ## Realtime voice

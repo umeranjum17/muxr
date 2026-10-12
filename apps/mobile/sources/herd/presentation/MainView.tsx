@@ -35,14 +35,14 @@ import { MOBILE_GLASS_HEADER_HEIGHT } from '@/components/navigation/headerMetric
 import { useNewSessionDraft } from '@/spawn';
 import { useStartSessionFromDraft } from '@/spawn';
 import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
-import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
+import { getCachedConnectionSettings } from '@/connection';
 import { describeRoute } from '@byokit/ui-core/route';
-import { useDeviceAuthority } from '@/pairing';
+import { pairMachine, useDeviceAuthority } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { useVisibleSessionListViewData } from '../application/useVisibleSessionListViewData';
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
-import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
+import { realtimeMachineSwitchGuard } from '@/conversation/session';
 import { herdrPaneForSession, navigateToSession } from '@/herd';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 import { hasAgent } from '../domain/herdTree';
@@ -215,25 +215,19 @@ const HeaderTitle = React.memo(({ large = false, linkDown = false }: { large?: b
         if (option.key === activeMachineId) return;
         const grant = pairedGrants.find((entry) => entry.machineId === option.key);
         if (grant === undefined) return;
-        if (!realtimeMachineSwitchGuard(grant.machineId).allowed) {
+        const voiceActive = !realtimeMachineSwitchGuard(grant.machineId).allowed;
+        if (voiceActive) {
             const confirmed = await Modal.confirm(
                 'End voice and switch?',
                 'Realtime voice stays pinned to the computer where it started.',
                 { confirmText: 'End voice and switch', destructive: true },
             );
             if (!confirmed) return;
-            stopRealtimeSession();
         }
         try {
-            await saveConnectionSettings({
-                ...getCachedConnectionSettings(),
-                mode: 'hosted',
-                relayUrl: grant.relayUrl,
-                machineId: grant.machineId,
-                token: '',
-                selfhost: grant.source === 'selfhost' ? true : undefined,
-            });
-            await auth.login(grant.credential, grant.deviceKey.secretKey);
+            const activated = await pairMachine({ grant, endVoiceIfPinned: voiceActive });
+            if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer');
+            await auth.login(activated.credential, activated.secretKey);
             setActiveMachineId(grant.machineId);
         } catch (cause) {
             Modal.alert('Could not switch machine', cause instanceof Error ? cause.message : String(cause));

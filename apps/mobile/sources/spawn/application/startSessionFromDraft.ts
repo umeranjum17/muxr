@@ -6,14 +6,9 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { startAgentFromDock } from './StartAgentFromDock';
+import { dockStartPath } from './startFolder';
 import { planConnection, samePlanConnection, waitForPlanDiscovery, acknowledgeAutoTerms, planAccountForLaunch, planLaunchQuestion, unseenAutoTerms, type LaunchQuestion } from '@/plans';
 import { announceStartAccount } from '@/plans/ui';
-
-function pathForeignToHome(path: string, homeDir: string): boolean {
-    if (path === '~' || (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path))) return false;
-    const home = homeDir.replace(/[/\\]+$/, '');
-    return path !== home && !path.startsWith(`${home}/`) && !path.startsWith(`${home}\\`);
-}
 
 /** One question before Start; resolves to the choice to launch on, or null to stop. */
 function askBeforeLaunch(question: LaunchQuestion, choice: string): Promise<string | null> {
@@ -38,11 +33,8 @@ export async function startSessionFromDraft(options: {
     const machine = options.machines.find((candidate) => candidate.id === machineId);
     const blank = options.blank === true;
     const homeDir = machine?.metadata?.homeDir;
-    let selectedPath = draft.selectedPath?.trim() || '~';
-    if (homeDir && pathForeignToHome(selectedPath, homeDir)) {
-        selectedPath = '~';
-        draft.setPath(null);
-    }
+    const selectedPath = dockStartPath(draft.selectedPath, homeDir);
+    if (draft.selectedPath && selectedPath !== draft.selectedPath.trim()) draft.setPath(null);
     const absolutePath = resolveAbsolutePath(selectedPath, homeDir);
     const worktree = WorktreeSelection.fromPickerKey(
         draft.sessionType === 'worktree' ? draft.worktreeKey ?? '__new__' : '__none__',
