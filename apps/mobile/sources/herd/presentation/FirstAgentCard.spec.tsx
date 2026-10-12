@@ -39,7 +39,7 @@ vi.mock('react-native-mmkv', () => ({
 vi.mock('@/catalog/ops', () => ({ refreshUntilSessionVisible: async () => {} }));
 vi.mock('@/catalog/store', () => ({
     useLocalSettingMutable: (key: string) => {
-        const [value, setValue] = React.useState(settings.get(key) ?? false);
+        const [value, setValue] = React.useState<unknown>(settings.get(key) ?? false);
         return [value, (next: unknown) => { settings.set(key, next); setValue(next); }];
     },
     useHerdrTree: () => ({ workspaces: [] }), useSessions: () => [], useSocketStatus: () => ({ status: 'connected' }),
@@ -84,16 +84,18 @@ vi.mock('@/text', () => ({ t: (key: string) => key }));
 
 import { FirstAgentCard } from './HomeFirstRunCards';
 
-function texts(screen: TestRenderer.ReactTestRenderer): string[] {
-    return screen.root.findAllByType('Text' as never).map((node) => [node.props.children].flat().join(''));
+type Screen = ReturnType<typeof TestRenderer.create>;
+
+function texts(screen: Screen): string[] {
+    return (screen.root as any).findAllByType('Text' as never).map((node: any) => [node.props.children].flat().join(''));
 }
 
-function button(screen: TestRenderer.ReactTestRenderer, label: string) {
-    return screen.root.find((node) => (node.type as unknown) === 'Pressable' && node.props.accessibilityLabel === label);
+function button(screen: Screen, label: string) {
+    return (screen.root as any).find((node: any) => (node.type as unknown) === 'Pressable' && node.props.accessibilityLabel === label);
 }
 
-async function render(): Promise<TestRenderer.ReactTestRenderer> {
-    let screen!: TestRenderer.ReactTestRenderer;
+async function render(): Promise<Screen> {
+    let screen!: Screen;
     await TestRenderer.act(async () => { screen = TestRenderer.create(<FirstAgentCard />); });
     return screen;
 }
