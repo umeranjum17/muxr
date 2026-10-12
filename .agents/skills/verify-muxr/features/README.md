@@ -195,6 +195,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.
+- [OpenCode agents start on Muse Spark 1.3 Contributor](./opencode-go-default-model.md) —
+  release APK on an emulator over a real lab host with an OpenCode Go
+  sign-in: new agents open on the Go default model before/after one build,
+  footer plus one real reply each.
 - [See what runs your sessions from Settings](./settings-herdr-info.md) —
   Settings `Herdr` row and sheet with the `herdr agent list` command, Copy
   feedback, and the real-Herdr lab log proving the command lists the host's
