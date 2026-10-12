@@ -131,6 +131,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   unpaired installed PWA: matching step badges, Step 2's paste button and prompt
   with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the
   unchanged native QR branch from a release APK.
+- [Read the whole install command on the native first run](./first-run-install-command.md) —
+  unpaired release APK at 393/270 dp, font 1.0/2.0, both themes: the command
+  wraps inside the screen (uiautomator bounds, no sideways scroller) and Copy
+  still hands over the one-line command.
 - [Check the self-host](./selfhost-health.md) — relay `/health`, version
   identity, and the owner-only hosts listing.
 - [Keep a shell request's backgrounded child from outliving it](./host-shell-process-group.md) —
