@@ -60,12 +60,15 @@ export function connectionStatusSubtitle(input: {
     latestFailure?: string;
     hostRefresh: 'loading' | 'ready' | 'failed';
     herdrRuntime: boolean | undefined;
+    herdrMissing?: boolean;
 }): string {
     if (input.status === 'connected') {
         if (input.hostRefresh === 'loading') return 'Relay connected; checking the computer…';
         if (input.hostRefresh === 'failed') return 'Relay connected; the computer did not answer. Try Reconnect now or muxr doctor there.';
         if (summarizeConnection({ status: input.status }, input.herdrRuntime).runtimeDown) {
-            return 'Relay connected; the agent runtime is not answering. See Home for the restart command.';
+            return input.herdrMissing
+                ? 'Relay connected; Herdr is missing on the computer. See Home for how to install it.'
+                : 'Relay connected; the agent runtime is not answering. See Home for the restart command.';
         }
         return 'Relay connected; the computer answered the last check.';
     }

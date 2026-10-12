@@ -47,13 +47,18 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 - [Pair the phone from the installable desktop app](./linux-desktop-app.md) —
   a Linux AppImage wrapping the relay and host: launch→Ready timing with and
-  without Herdr, QR and two-word pairing with a release APK on an emulator,
+  without Herdr, Install Herdr from the window, QR and two-word pairing with a
+  release APK on an emulator,
   Paired and Needs-attention states, and keep-awake/start-at-login persistence.
 - [Connect an older phone without optional UI plugins](./retired-ui-compatibility.md) —
   all five legacy replies over a real paired host, then released Android Home/session acceptance.
 - [Open agent pages on the normal desktop](./agent-desktop.md) —
   guarded real-Herdr launch environment evidence; all launch families,
   plan-account moves and headless device mirrors stay isolated.
+- [Install a missing Herdr without a terminal](./home-herdr-missing.md) —
+  desktop app with Herdr hidden: one plain sentence on the window and the
+  paired phone's Home, offline Try again, real published install, Home
+  recovers and lists the agent with no restart.
 - [Read a plain Computer failure](./computer-failure.md) —
   real native release app against a guarded Linux lab without ScreenCast:
   plain cause and next step, Try again, themes and 270dp/font 1.3.
@@ -119,7 +124,8 @@ user-visible behavior, then exactly four H2 sections in this order:
   `muxr pair` at normal/narrow widths and inside an isolated Herdr terminal.
 - [Lead every pair entry with Scan](./pair-scan-first.md) —
   which action leads on each way into pairing, Scan a new code after an expired
-  or refused code, and the paste-led page on a device that cannot scan.
+  or refused code, the paste-led page on a device that cannot scan, and a pasted
+  code connecting on Go or by itself with Connect above the keyboard.
 - [Read the pairing consent as short, plain bullets](./pairing-consent.md) —
   native release APK and PWA over a private stack: phone and browser control and
   view-only consent, plain copy, the words step saying its instruction once, and
@@ -139,9 +145,13 @@ user-visible behavior, then exactly four H2 sections in this order:
   and the PWA: Get Tailscale opens the store, Back, I have Tailscale shows the
   unchanged pairing steps, at 393/270 dp font 1.0/2.0 and 393/270/208 px, both themes.
 - [Land on the first-run browser pairing steps](./first-run-browser-steps.md) —
-  unpaired installed PWA: matching step badges, Step 2's paste button and prompt
-  with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the
+  unpaired installed PWA: matching step badges, Step 2's paste button opening the
+  `/pair` paste screen with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the
   unchanged native QR branch from a release APK.
+- [Read the whole install command on the native first run](./first-run-install-command.md) —
+  unpaired release APK at 393/270 dp, font 1.0/2.0, both themes: the command
+  wraps inside the screen (uiautomator bounds, no sideways scroller) and Copy
+  still hands over the one-line command.
 - [Check the self-host](./selfhost-health.md) — relay `/health`, version
   identity, and the owner-only hosts listing.
 - [Keep a shell request's backgrounded child from outliving it](./host-shell-process-group.md) —

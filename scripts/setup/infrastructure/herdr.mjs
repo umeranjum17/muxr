@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
     existsSync,
     lstatSync,
@@ -12,7 +12,7 @@ import {
     statSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
     HERDR_INSTALL_HINT,
@@ -75,12 +75,61 @@ export function productPanePack() {
 
 export function herdrBin() {
     const configured = env('HERDR_BIN');
-    const selected = configured ? executable(configured) : executable('herdr') || [
+    if (configured) {
+        const selected = executable(configured);
+        if (selected === undefined) throw new Error(`HERDR_BIN does not resolve to an executable: ${configured}`);
+        return realpathSync(resolve(selected));
+    }
+    const dirs = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
+    const candidates = [
+        pinnedHerdrBin(),
+        ...dirs.map((dir) => join(dir, 'herdr')),
         join(env('HERDR_INSTALL_DIR') || join(home(), '.local', 'bin'), 'herdr'),
         '/usr/local/bin/herdr',
-    ].find((candidate) => executable(candidate));
-    if (configured && selected === undefined) throw new Error(`HERDR_BIN does not resolve to an executable: ${configured}`);
+    ];
+    const selected = candidates.find((candidate) => candidate !== undefined && executable(candidate) !== undefined && compatibleHerdr(candidate));
     return selected === undefined ? undefined : realpathSync(resolve(selected));
+}
+
+export function findHerdrBin(onError) {
+    try { return herdrBin(); }
+    catch (error) { onError?.(error); return undefined; }
+}
+
+/** The HERDR_BIN a service unit or LaunchAgent pins for the host, undecoded for the path itself. */
+function unitHerdrBin(content) {
+    const systemd = content.match(/^Environment=HERDR_BIN=(?:"([^"]+)"|(\S+))$/m);
+    const plist = content.match(/<key>HERDR_BIN<\/key><string>([^<]+)<\/string>/)?.[1]
+        ?.replaceAll('&quot;', '"').replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&amp;', '&');
+    return systemd?.[1] ?? systemd?.[2] ?? plist;
+}
+
+/** The Herdr muxr's own service pins (HERDR_BIN in muxr.service or com.muxr.host.plist), if it still exists. */
+export function pinnedHerdrBin() {
+    const unit = platform() === 'darwin'
+        ? join(home(), 'Library', 'LaunchAgents', 'com.muxr.host.plist')
+        : join(home(), '.config', 'systemd', 'user', 'muxr.service');
+    let content;
+    try { content = readFileSync(unit, 'utf8'); }
+    catch { return undefined; }
+    const pinned = unitHerdrBin(content);
+    return pinned !== undefined && executable(pinned) ? realpathSync(resolve(pinned)) : undefined;
+}
+
+function herdrIsCompatible(binary) {
+    const result = run(binary, ['--version'], { timeout: 5_000 });
+    const version = parseVersion(result.stdout);
+    return result.ok && version !== undefined && versionIsCompatible(version);
+}
+
+const compatibleByBinary = new Map();
+
+// Keyed by the binary's own mtime and size, so an installer that replaces it in place is re-probed.
+function compatibleHerdr(binary) {
+    const { mtimeMs, size } = statSync(binary);
+    const key = `${binary}:${mtimeMs}:${size}`;
+    if (!compatibleByBinary.has(key)) compatibleByBinary.set(key, herdrIsCompatible(binary));
+    return compatibleByBinary.get(key);
 }
 
 export function parseVersion(text) {
@@ -113,7 +162,19 @@ export function detectedLifecycleTargets(statuses, all = false) {
     });
 }
 
-export function runHerdrInstaller() {
+/**
+ * Run one installer step with the given environment. Its output and stderr go
+ * to this process's streams, so the raw cause lands in the log.
+ */
+function runInstallerStep(command, args, timeout, env) {
+    return new Promise((resolveStep) => {
+        const child = spawn(command, args, { stdio: 'inherit', timeout, env });
+        child.once('error', (cause) => { process.stderr.write(`${command}: ${cause.message}\n`); resolveStep(false); });
+        child.once('close', (code) => resolveStep(code === 0));
+    });
+}
+
+export async function runHerdrInstaller(env = process.env) {
     const localInstaller = process.env.MUXR_HERDR_INSTALLER?.trim();
     if (localInstaller) {
         const info = lstatSync(localInstaller);
@@ -121,8 +182,7 @@ export function runHerdrInstaller() {
             throw new Error('MUXR_HERDR_INSTALLER must be an executable regular file');
         }
         print(`  run reviewed local Herdr installer: ${localInstaller}`);
-        const installed = spawnSync(localInstaller, [], { stdio: 'inherit', timeout: 300_000 });
-        if (installed.status !== 0) throw new Error('local Herdr installation failed');
+        if (!await runInstallerStep(localInstaller, [], 300_000, env)) throw new Error('local Herdr installation failed');
         return;
     }
 
@@ -130,10 +190,10 @@ export function runHerdrInstaller() {
     const installer = join(scratch, 'install.sh');
     try {
         print(`  download Herdr installer: ${HERDR_INSTALL_URL}`);
-        const downloaded = spawnSync('curl', ['-fsSL', '--connect-timeout', '10', '--max-time', '60', HERDR_INSTALL_URL, '-o', installer], { stdio: 'inherit', timeout: 65_000 });
-        if (downloaded.status !== 0) throw new Error('Herdr installer download failed');
-        const installed = spawnSync('sh', [installer], { stdio: 'inherit', timeout: 300_000 });
-        if (installed.status !== 0) throw new Error('Herdr installation failed');
+        if (!await runInstallerStep('curl', ['-fsSL', '--connect-timeout', '10', '--max-time', '60', HERDR_INSTALL_URL, '-o', installer], 65_000, env)) {
+            throw new Error('Herdr installer download failed');
+        }
+        if (!await runInstallerStep('sh', [installer], 300_000, env)) throw new Error('Herdr installation failed');
     } finally {
         rmSync(scratch, { recursive: true, force: true });
     }
@@ -148,7 +208,7 @@ export async function ensureHerdr({ dryRun, noInstall, installRequested }) {
             print(`  would install Herdr from ${process.env.MUXR_HERDR_INSTALLER?.trim() || HERDR_INSTALL_URL}`);
             return undefined;
         }
-        runHerdrInstaller();
+        await runHerdrInstaller();
         binary = herdrBin();
         if (!binary) throw new Error('herdr installed but is not on PATH; restart the shell and rerun setup');
     }
@@ -274,10 +334,7 @@ export function staleUnitPaths(unitPath) {
         ? [...execStart.matchAll(/"([^"]+)"|(\S+)/g)].map((match) => match[1] ?? match[2])
         : [...(content.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/)?.[1] ?? '')
             .matchAll(/<string>([^<]+)<\/string>/g)].map((match) => match[1]);
-    const systemdHerdr = content.match(/^Environment=HERDR_BIN=(?:"([^"]+)"|(\S+))$/m);
-    const plistHerdr = content.match(/<key>HERDR_BIN<\/key><string>([^<]+)<\/string>/)?.[1]
-        ?.replaceAll('&quot;', '"').replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&amp;', '&');
-    return [...tokens, systemdHerdr?.[1] ?? systemdHerdr?.[2], plistHerdr]
+    return [...tokens, unitHerdrBin(content)]
         .filter((token) => typeof token === 'string')
         // Undo systemd %% escaping so a path containing % is not a false FAIL.
         .map((token) => token.replaceAll('%%', '%').replaceAll('\\"', '"').replaceAll('\\\\', '\\'))
@@ -374,8 +431,10 @@ export function herdrServerIsReady(binary) {
 /**
  * Make sure the herdr server is running: repair a stale service path first,
  * then start it. Idempotent — host-up calls this on every service start.
+ * `serverEnv` is the environment a directly spawned server (and so every
+ * terminal in it) inherits.
  */
-export async function ensureHerdrServer(binary = herdrBin(), dryRun = false, quiet = false) {
+export async function ensureHerdrServer(binary = herdrBin(), dryRun = false, quiet = false, serverEnv = process.env) {
     if (!binary) throw new Error(`herdr is missing; ${HERDR_INSTALL_HINT}`);
     const repaired = repairHerdrServiceUnits(binary, dryRun);
     if (!dryRun && repaired.length > 0 && env('MUXR_NO_SERVICE_COMMANDS') !== '1' && platform() === 'darwin') {
@@ -398,7 +457,7 @@ export async function ensureHerdrServer(binary = herdrBin(), dryRun = false, qui
                 logPath = join(stateDir(), 'logs', 'herdr.log');
                 ensurePrivateDir(dirname(logPath));
                 const out = openSync(logPath, 'a', 0o600);
-                const server = spawn(binary, ['server'], { detached: true, stdio: ['ignore', out, out] });
+                const server = spawn(binary, ['server'], { detached: true, stdio: ['ignore', out, out], env: serverEnv });
                 server.once('error', (cause) => { spawnError = cause; });
                 server.unref();
             }

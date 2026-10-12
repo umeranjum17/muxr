@@ -11,12 +11,21 @@ without a terminal.
   for approval (the phone's two words), Paired, Needs attention (retry), and
   Already running — a command-line install that manages this computer (Quit
   only) or an orphaned desktop relay (Try again and Quit).
-- A computer with no Herdr still reaches Ready to pair: the window follows the
+- A computer with no Herdr still starts the relay and host: the window follows the
   relay's and host's own reports (`link relay: online`) and shows Ready to pair
   only once the host's pairing socket exists; the 30-second stall timer only
   offers Try again. A host that stays quiet for 30 seconds shows Needs attention
   with "taking longer than usual" and Try again, and still flips to Ready to
   pair if it comes up after that.
+- A computer with no Herdr shows one sentence ("muxr runs your agents in Herdr,
+  which isn't installed on this computer.") with Install Herdr above the
+  pairing offer; the QR stays on screen and pairing never waits for Herdr.
+  Install runs the published herdr.dev installer into the user's own folder
+  (where `herdrBin()` looks, `~/.local/bin` by default; no root),
+  with the user's own environment (AppImage paths stripped), shows Downloading
+  Herdr… then Starting Herdr…, starts the server and clears the notice; the host
+  picks Herdr up without a restart. A failed install reads "Couldn't install
+  Herdr. Check this computer's internet connection, then press Try again."
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.
 - Closing the window keeps the relay and host running in the tray.
@@ -39,15 +48,24 @@ APK.
 1. Launch the AppImage and time launch→`Ready to pair`: record the X display
    at 2 fps with an elapsed-time overlay, or read the window's title over CDP.
    Repeat with Herdr hidden from PATH (a symlink farm of `/usr/bin` minus
-   `herdr`, kept outside `/tmp`) and no lab socket: it must still reach Ready
-   to pair, within a few seconds of the with-Herdr run.
+   `herdr`, kept outside `/tmp`) and no lab socket: the relay and host still
+   come up within a few seconds of the with-Herdr run, and the window shows the
+   Herdr notice above the pairing offer (step 5).
 2. Read the offer out of the window's QR, render a crisp QR into the emulator's
    camera image, and scan it in the app.
 3. Confirm the same two words show on the phone's consent and the window's
    approval card; approve in the window.
 4. The window reads Paired and the phone reaches Home with live machine stats;
    send one prompt from the phone and read the agent's reply.
-5. Toggle keep-awake and start-at-login and read `settings.json` and the XDG
+5. No-Herdr install: launch with Herdr hidden and `MUXR_HERDR_INSTALLER`
+   pointing at a lab script that runs the real `https://herdr.dev/install.sh`
+   into a lab folder and leaves a `~/.local/bin/herdr` shim routing every call
+   through the lab helper's named session. Read the Herdr notice on the window
+   and the paired phone's Home. With a dead `https_proxy` in the installer,
+   Install reads the "Couldn't install Herdr" sentence and Try again; clear it, choose Try
+   again, and time click→window normal and click→phone Home (≈3 s and ≈6 s on
+   2026-10-12), then report an agent in the lab session and see it on Home.
+6. Toggle keep-awake and start-at-login and read `settings.json` and the XDG
    autostart file back.
 
 ## Gotchas
@@ -71,5 +89,12 @@ APK.
 - Keep the lab `TMPDIR` short. Chromium puts its singleton socket under it, and
   a socket path past the 108-byte limit kills the app at launch with SIGTRAP
   and an empty log (`coredumpctl list` shows it).
+- The no-Herdr shim must call the lab helper with
+  `FM_HERDR_LAB_FLEET_HOME=$HOME_REAL`, the system `herdr` on PATH and no lab
+  `XDG_*`; under the lab HOME the helper's fleet tripwire refuses `provision`
+  and the window reads "Herdr is installed but didn't start".
+- An extracted AppImage's AppRun does not export `APPDIR`; the window then
+  strips the AppImage paths by the app binary's own folder. Read the running
+  app's `/proc/<pid>/environ` to see what a Herdr started from it would inherit.
 - A live paid-model reply stays unproven where the lab credential is expired; a
   local echo provider proves the round trip, not the model.

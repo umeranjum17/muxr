@@ -62,7 +62,7 @@ export class KitHerdrClient implements HerdrCaller {
     private down = false;
 
     constructor(
-        bin: string,
+        resolveBin: () => string,
         private readonly socketPath: string,
         private readonly onReconnect: () => void,
     ) {
@@ -78,7 +78,7 @@ export class KitHerdrClient implements HerdrCaller {
         };
         this.kit = new HerdrKit({
             mode: 'adopt',
-            bin,
+            get bin() { return resolveBin(); },
             socketPath,
             env: kitEnv,
             path: (process.env.PATH ?? '').split(delimiter).filter((dir) => dir !== ''),

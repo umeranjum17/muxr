@@ -19,7 +19,7 @@ vi.mock('react-native', () => ({
     AppState: { currentState: 'active' },
     Platform: { OS: 'android' },
     ActivityIndicator: 'ActivityIndicator',
-    Keyboard: { addListener: () => ({ remove: () => undefined }) },
+    Keyboard: { addListener: () => ({ remove: () => undefined }), dismiss: () => undefined },
     Pressable: 'Pressable',
     ScrollView: 'ScrollView',
     Text: 'Text',
@@ -365,5 +365,33 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     await press('Scan the QR');
     expect(labels()).not.toContain('Scan the QR');
     expect(cantScan()).toHaveLength(1);
+    await close();
+
+    // Paste: a cut-off code waits, and the keyboard's Go says why; the whole
+    // code reaches consent by itself, and a Connect tap in the same moment
+    // does not start a second review.
+    await open({ source: 'settings' });
+    const field = () => nodes((node) => node.type === 'TextInput' && node.props.accessibilityLabel === 'Pairing string')[0]!;
+    const type = async (value: string) => {
+        await mod.renderer.act(async () => { (field().props.onChangeText as (next: string) => void)(value); });
+        await settle();
+    };
+    const whole = machineOffer(11);
+    await type(whole.slice(0, -8));
+    expect(labels()).not.toContain('Pair');
+    expect(labels()).toContain('Connect');
+    await mod.renderer.act(async () => { (field().props.onSubmitEditing as () => void)(); });
+    await settle();
+    expect(alerts()).toContain('This string is cut off. Copy all of it, or scan the QR.');
+    const claims = harness.claims;
+    await mod.renderer.act(async () => {
+        (field().props.onChangeText as (next: string) => void)(whole);
+        (buttons().find((node) => node.props.accessibilityLabel === 'Connect')!.props.onPress as () => void)();
+    });
+    await settle();
+    expect(labels().filter((label) => label === 'Pair')).toHaveLength(1);
+    harness.declined = false;
+    await press('Pair');
+    expect(harness.claims).toBe(claims + 1);
     await close();
 });
