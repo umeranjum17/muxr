@@ -171,8 +171,11 @@ function startPairing() {
     const previous = pairing;
     pairing = undefined;
     previous?.close();
+    const owner = runtime;
     const connect = () => {
-        // The host opens pair.sock a moment after it reports online; retry until it is there.
+        // The host opens pair.sock a moment after it reports online; retry until it
+        // is there, unless Try again has replaced this runtime meanwhile.
+        if (runtime !== owner) return;
         if (!existsSync(runtime.pairSocketPath)) { setTimeout(connect, 300); return; }
         let client;
         client = openPairingSocket(runtime.pairSocketPath, {

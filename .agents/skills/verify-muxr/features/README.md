@@ -46,7 +46,8 @@ user-visible behavior, then exactly four H2 sections in this order:
 ## Features
 
 - [Pair the phone from the installable desktop app](./linux-desktop-app.md) —
-  a Linux AppImage wrapping the relay and host: launch→Ready timing, QR and
+  a Linux AppImage wrapping the relay and host: launch→Ready timing with and
+  without Herdr, QR and
   two-word pairing with a release APK on an emulator, Paired and Needs-attention
   states, and keep-awake/start-at-login persistence.
 - [Connect an older phone without optional UI plugins](./retired-ui-compatibility.md) —

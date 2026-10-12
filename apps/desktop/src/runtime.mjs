@@ -33,8 +33,8 @@ function lanIpv4Addresses() {
     return out;
 }
 
-// How long a quiet host start runs before the window offers Try again. Only
-// the message waits on it: the host's own online report still wins after it.
+// How long a quiet start runs before the window offers Try again. Only the
+// message waits on it: the relay's and host's own reports still win after it.
 const HOST_STALL_MS = 60_000;
 
 /**
@@ -107,7 +107,7 @@ export class MuxrRuntime extends EventEmitter {
         relay.stderr?.on('data', collect);
         const closed = new Promise((resolve) => relay.once('close', resolve));
         try {
-            return await waitForRelay(relay);
+            return await waitForRelay(relay, Infinity);
         } catch (error) {
             if (relay.exitCode !== null || relay.signalCode !== null) await closed;
             const message = error instanceof Error ? error.message : String(error);
@@ -120,7 +120,7 @@ export class MuxrRuntime extends EventEmitter {
                 this.emit('status', { phase: 'already-running', message: ownerMessage, canRetry: true });
                 throw new RelayOwnedError(ownerText, ownerPid === undefined ? undefined : Number(ownerPid));
             }
-            this.emit('status', { phase: 'error', message });
+            if (!this.#stopping) this.emit('status', { phase: 'error', message });
             throw error;
         } finally {
             relay.stdout?.off('data', collect);
@@ -131,6 +131,18 @@ export class MuxrRuntime extends EventEmitter {
 
     async start() {
         this.emit('status', { phase: 'starting', message: 'Starting muxr on this computer' });
+        const stall = setTimeout(() => this.emit('status', { phase: 'stalled' }), this.#stallMs);
+        try { await this.#start(); }
+        catch (error) {
+            // Try again stops a start that is still waiting; its own kill is not a failure.
+            if (this.#stopping) return;
+            throw error;
+        } finally { clearTimeout(stall); }
+        if (this.#stopping) return;
+        this.emit('status', { phase: 'online' });
+    }
+
+    async #start() {
         mkdirSync(this.#home, { recursive: true, mode: 0o700 });
         const relayDataDir = join(this.#home, 'relay');
 
@@ -179,6 +191,7 @@ export class MuxrRuntime extends EventEmitter {
             this.emit('log', 'runtime', `using the existing self-host state at ${statePath}\n`);
         }
 
+        if (this.#stopping) return;
         const host = this.#spawn(this.#hostEntry, {
             MUXR_MODE: 'selfhost',
             MUXR_HOME: this.#home,
@@ -186,8 +199,6 @@ export class MuxrRuntime extends EventEmitter {
         }, 'host');
 
         await this.#hostOnline(host);
-        if (this.#stopping) return;
-        this.emit('status', { phase: 'online' });
     }
 
     /**
@@ -198,9 +209,7 @@ export class MuxrRuntime extends EventEmitter {
     #hostOnline(host) {
         return new Promise((resolve, reject) => {
             let out = '';
-            const stall = setTimeout(() => this.emit('status', { phase: 'stalled' }), this.#stallMs);
             const settle = () => {
-                clearTimeout(stall);
                 host.stdout?.off('data', collect);
                 host.off('exit', exited);
                 host.off('error', failed);

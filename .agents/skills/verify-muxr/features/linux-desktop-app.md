@@ -11,6 +11,10 @@ without a terminal.
   for approval (the phone's two words), Paired, Needs attention (retry), and
   Already running — a command-line install that manages this computer (Quit
   only) or an orphaned desktop relay (Try again and Quit).
+- A computer with no Herdr still reaches Ready to pair: the window follows the
+  host's own `link relay: online` report, not a timer. A host that stays quiet
+  for a minute shows Needs attention with "taking longer than usual" and Try
+  again, and still flips to Ready to pair if it comes up after that.
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.
 - Closing the window keeps the relay and host running in the tray.
@@ -31,7 +35,10 @@ under a software-GL X display. Pair a task-owned emulator running the release
 APK.
 
 1. Launch the AppImage and read the window's title over CDP until it says
-   `Ready to pair`. Record launch→Ready seconds.
+   `Ready to pair`. Record launch→Ready seconds. Repeat with Herdr hidden from
+   PATH (a symlink farm of `/usr/bin` minus `herdr`, kept outside `/tmp`) and
+   no lab socket: it must still reach Ready to pair, within a few seconds of
+   the with-Herdr run.
 2. Read the offer out of the window's QR, render a crisp QR into the emulator's
    camera image, and scan it in the app.
 3. Confirm the same two words show on the phone's consent and the window's
@@ -53,7 +60,12 @@ APK.
   that does not parse is refused (Needs attention) rather than overwritten,
   because it may be a command-line identity.
 - An inherited `HERDR_SOCKET_PATH` from an agent pane makes the wrapped host
-  fail; unset every `HERDR_*` variable before launching.
+  fail; unset every `HERDR_*` variable before launching. For the with-Herdr timing, set
+  `HERDR_SOCKET_PATH` to the lab session's own socket (from the lab helper's
+  `session list --json`), never the default one.
+- Without libfuse2 the AppImage cannot mount; extract it once with
+  `--appimage-extract` and launch its `muxr` binary, so extraction never lands
+  inside the launch→Ready timing.
 - The window paints late under software GL, so Starting… is only visible
   through the renderer (CDP), not the root capture.
 - A live paid-model reply stays unproven where the lab credential is expired; a
