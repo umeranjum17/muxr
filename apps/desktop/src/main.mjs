@@ -135,7 +135,6 @@ function createWindow(show = !startHidden || tray === undefined) {
         if (show) win.show();
     });
     win.on('closed', () => { win = undefined; });
-    win.on('focus', () => void herdr.recheck());
     win.webContents.setWindowOpenHandler(({ url }) => { void shell.openExternal(url); return { action: 'deny' }; });
 }
 
@@ -203,7 +202,7 @@ async function startRuntime() {
         else if (event.phase === 'starting') send({ phase: 'starting' });
         else if (event.phase === 'stalled') reportFailure('host still starting', 'no online report yet', STALLED_MESSAGE);
         else if (event.phase === 'already-running') send({ phase: 'already-running', message: event.message, canRetry: event.canRetry === true });
-        else if (event.phase === 'online') { send({ phase: 'online', message: 'Ready to pair' }); startPairing(); }
+        else if (event.phase === 'online') { send({ phase: 'online', message: 'Ready to pair' }); startPairing(); void herdr.start(); }
     });
     runtime.on('log', (_label, chunk) => process.stdout.write(chunk));
     try { await runtime.start(); }
@@ -243,7 +242,7 @@ if (!app.requestSingleInstanceLock()) {
         try { tray = new Tray(nativeImage.createFromPath(asset('tray.png'))); tray.on('click', showWindow); updateTray(); }
         catch (error) { process.stderr.write(`tray unavailable: ${error instanceof Error ? error.message : String(error)}\n`); }
         createWindow();
-        void herdr.check();
+        herdr.check();
         await startRuntime();
     });
 

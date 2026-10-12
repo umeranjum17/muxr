@@ -14,7 +14,7 @@ import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { herdrBin as resolveHerdrBin } from '../../../../../scripts/setup/infrastructure/herdr.mjs';
+import { findHerdrBin } from '../../../../../scripts/setup/infrastructure/herdr.mjs';
 import type {
     AgentLifecycle,
     ApplicationLauncher,
@@ -206,12 +206,6 @@ function executableOnPath(command: string): boolean {
         }
     }
     return false;
-}
-
-/** The Herdr binary setup resolves (the same lookup `muxr setup` uses), or undefined when none is installed. */
-function herdrBinary(): string | undefined {
-    try { return resolveHerdrBin(); }
-    catch { return undefined; }
 }
 
 /**
@@ -1482,7 +1476,7 @@ export async function createHerdrSessionSource(
 
     // Resolved at each use, so a Herdr installed after the host started is
     // found without a restart; the kit spawns that exact path for CLI and terminal verbs.
-    const resolvedHerdrBin = (): string | undefined => options.herdrBin ?? herdrBinary();
+    const resolvedHerdrBin = (): string | undefined => options.herdrBin ?? findHerdrBin();
     const client = new KitHerdrClient(() => resolvedHerdrBin() ?? 'herdr', socketPath, () => {
         routingEpoch += 1;
         void client.subscribeEvents(EVENT_KINDS).catch(() => {});

@@ -9,7 +9,7 @@
  * plain sentence; the raw cause goes to the log).
  */
 import { dirname } from 'node:path';
-import { ensureHerdrServer, herdrBin, runHerdrInstaller } from '../../../scripts/setup/infrastructure/herdr.mjs';
+import { ensureHerdrServer, findHerdrBin, runHerdrInstaller } from '../../../scripts/setup/infrastructure/herdr.mjs';
 
 const INSTALL_MESSAGE = "Couldn't install Herdr. Check this computer's internet connection, then press Try again.";
 const START_MESSAGE = "Herdr is installed but didn't start. Choose Try again.";
@@ -38,15 +38,14 @@ function userEnv() {
 }
 
 function findHerdr() {
-    try { return herdrBin(); }
-    catch (error) { process.stderr.write(`desktop: herdr lookup: ${detail(error)}\n`); return undefined; }
+    return findHerdrBin((error) => process.stderr.write(`desktop: herdr lookup: ${detail(error)}\n`));
 }
 
 export function createHerdrSetup(onChange) {
     let current = { status: 'ok' };
     const set = (next) => { current = next; onChange(next); };
 
-    async function start(binary) {
+    async function startServer(binary) {
         try {
             await ensureHerdrServer(binary, false, true, userEnv());
             set({ status: 'ok' });
@@ -73,21 +72,22 @@ export function createHerdrSetup(onChange) {
             }
         }
         set({ status: 'installing', step: 'Starting Herdr…' });
-        await start(binary);
+        await startServer(binary);
     }
 
     return {
         get state() { return current; },
         install,
-        /** At launch: offer the install when Herdr is missing, else quietly make sure it runs. */
-        async check() {
+        /** At launch, before the runtime knows whether this desktop owns the computer: say Herdr is missing, start nothing. */
+        check() {
+            if (findHerdr() === undefined) set({ status: 'missing' });
+        },
+        /** Once the host is online the desktop owns this computer, so make sure Herdr runs. */
+        async start() {
+            if (current.status === 'installing') return;
             const binary = findHerdr();
             if (binary === undefined) set({ status: 'missing' });
-            else await start(binary);
-        },
-        /** Herdr installed some other way (a terminal) while the window waited. */
-        async recheck() {
-            if (current.status === 'missing' && findHerdr() !== undefined) await install();
+            else await startServer(binary);
         },
     };
 }

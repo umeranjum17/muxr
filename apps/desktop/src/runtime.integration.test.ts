@@ -198,6 +198,71 @@ describe('desktop runtime self-host state', () => {
         }
     }, 30_000);
 
+    it('starts an installed Herdr only once the desktop owns the computer', async () => {
+        // The fake Herdr leaves a marker when its server starts, so a start is observable.
+        const root = mkdtempSync(join(tmpdir(), 'muxr-desktop-herdr-owner-'));
+        const installDir = join(root, 'bin');
+        mkdirSync(installDir);
+        const serverUp = join(root, 'server-up');
+        writeFileSync(join(installDir, 'herdr'), [
+            '#!/bin/sh',
+            `case "$1" in server) : > ${JSON.stringify(serverUp)} ;; status) [ -e ${JSON.stringify(serverUp)} ] && echo '{"running":true}' || echo '{"running":false}' ;; esac`,
+            '',
+        ].join('\n'), { mode: 0o755 });
+        const cliHome = join(root, 'cli');
+        const ownHome = join(root, 'own');
+        mkdirSync(cliHome);
+        mkdirSync(ownHome);
+        writeFileSync(join(cliHome, 'selfhost.json'), `${JSON.stringify({ version: 1, machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
+        writeFileSync(join(ownHome, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
+        const relayEntry = join(root, 'relay-fixture.mjs');
+        listeningRelayFixture(relayEntry);
+        const hostEntry = join(root, 'host-fixture.mjs');
+        writeFileSync(hostEntry, [
+            "import { mkdirSync, writeFileSync } from 'node:fs';",
+            "import { join } from 'node:path';",
+            "mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
+            "writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
+            "process.stdout.write('link relay: online\\n');",
+            'setInterval(() => {}, 1000);',
+            '',
+        ].join('\n'));
+
+        const saved = { PATH: process.env.PATH, HERDR_BIN: process.env.HERDR_BIN, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, MUXR_HOME: process.env.MUXR_HOME, MUXR_NO_SERVICE_COMMANDS: process.env.MUXR_NO_SERVICE_COMMANDS };
+        const emptyPath = join(root, 'path');
+        mkdirSync(emptyPath);
+        Object.assign(process.env, { PATH: emptyPath, HERDR_INSTALL_DIR: installDir, MUXR_NO_SERVICE_COMMANDS: '1' });
+        delete process.env.HERDR_BIN;
+        const shown: { status: string }[] = [];
+        const herdr = createHerdrSetup((next: { status: string }) => shown.push(next));
+        try {
+            // A command-line computer: the launch check reads Herdr, and nothing starts it.
+            process.env.MUXR_HOME = cliHome;
+            herdr.check();
+            await expect(collectingRuntime(cliHome, relayEntry, hostEntry).runtime.start()).rejects.toThrow(RelayOwnedError);
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            expect(existsSync(serverUp)).toBe(false);
+            expect(shown).toEqual([]);
+
+            process.env.MUXR_HOME = ownHome;
+            const { runtime, statuses } = collectingRuntime(ownHome, relayEntry, hostEntry);
+            try {
+                await runtime.start();
+                expect(statuses.at(-1)?.phase).toBe('online');
+                await herdr.start();
+                expect(existsSync(serverUp)).toBe(true);
+                expect(shown.at(-1)).toEqual({ status: 'ok' });
+            } finally {
+                await runtime.stop();
+            }
+        } finally {
+            for (const [name, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+        }
+    }, 30_000);
+
     it('keeps the stored advertised relay url across a relaunch', async () => {
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-relaunch-'));
         const stored = `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792, relayUrl: 'wss://relay.example.test', bindHost: '127.0.0.1' })}\n`;

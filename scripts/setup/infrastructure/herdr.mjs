@@ -83,6 +83,11 @@ export function herdrBin() {
     return selected === undefined ? undefined : realpathSync(resolve(selected));
 }
 
+export function findHerdrBin(onError) {
+    try { return herdrBin(); }
+    catch (error) { onError?.(error); return undefined; }
+}
+
 export function parseVersion(text) {
     const match = text.match(/(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\s|$)/);
     return match ? match.slice(1).map(Number) : undefined;
