@@ -10,15 +10,15 @@ by itself and lists the agents; nobody restarts anything.
 
 - `missing-signal` the host's `herdr.tree` reply carries `missing: true` only
   when its Herdr socket is down and no `herdr` binary is on its PATH,
-  `HERDR_INSTALL_DIR` or `~/.local/bin`; a Herdr that is installed but stopped
+  `HERDR_INSTALL_DIR`, `~/.local/bin` or `/usr/local/bin` (the lookup setup
+  uses, `herdrBin()`); a Herdr that is installed but stopped
   keeps the older "Agent runtime unavailable" restart card.
 - `phone-card` Home's recovery card titles "Herdr is missing on your computer",
   names the desktop app's Install Herdr, and offers `muxr doctor` with a copy
   button; Settings → Connection reads "Herdr is missing on the computer".
 - `desktop-install` the window's Install Herdr runs the published installer,
   starts the server, and returns to the normal window (see
-  `linux-desktop-app.md`); offline and checksum failures read one sentence with
-  Try again.
+  `linux-desktop-app.md`); a failed install reads one sentence with Try again.
 - `recover` the host keeps retrying the socket, so Home drops the card and
   shows the agents on its next tree poll, with no tap.
 

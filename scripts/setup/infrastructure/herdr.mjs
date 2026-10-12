@@ -114,24 +114,18 @@ export function detectedLifecycleTargets(statuses, all = false) {
 }
 
 /**
- * Run one installer step. Its output still reaches the terminal; stderr is kept
- * too, so a failure names its real cause (offline, a checksum mismatch) instead
- * of a bare "failed".
+ * Run one installer step with the given environment. Its output and stderr go
+ * to this process's streams, so the raw cause lands in the log.
  */
-function runInstallerStep(command, args, timeout) {
+function runInstallerStep(command, args, timeout, env) {
     return new Promise((resolveStep) => {
-        let stderr = '';
-        const child = spawn(command, args, { stdio: ['ignore', 'inherit', 'pipe'], timeout });
-        child.stderr.on('data', (chunk) => { stderr += chunk; process.stderr.write(chunk); });
-        child.once('error', (cause) => resolveStep({ ok: false, detail: cause.message }));
-        child.once('close', (code, signal) => resolveStep({
-            ok: code === 0,
-            detail: stderr.trim().split('\n').at(-1) || (signal ? `stopped by ${signal}` : `exit ${code}`),
-        }));
+        const child = spawn(command, args, { stdio: 'inherit', timeout, env });
+        child.once('error', (cause) => { process.stderr.write(`${command}: ${cause.message}\n`); resolveStep(false); });
+        child.once('close', (code) => resolveStep(code === 0));
     });
 }
 
-export async function runHerdrInstaller() {
+export async function runHerdrInstaller(env = process.env) {
     const localInstaller = process.env.MUXR_HERDR_INSTALLER?.trim();
     if (localInstaller) {
         const info = lstatSync(localInstaller);
@@ -139,8 +133,7 @@ export async function runHerdrInstaller() {
             throw new Error('MUXR_HERDR_INSTALLER must be an executable regular file');
         }
         print(`  run reviewed local Herdr installer: ${localInstaller}`);
-        const installed = await runInstallerStep(localInstaller, [], 300_000);
-        if (!installed.ok) throw new Error(`local Herdr installation failed: ${installed.detail}`);
+        if (!await runInstallerStep(localInstaller, [], 300_000, env)) throw new Error('local Herdr installation failed');
         return;
     }
 
@@ -148,10 +141,10 @@ export async function runHerdrInstaller() {
     const installer = join(scratch, 'install.sh');
     try {
         print(`  download Herdr installer: ${HERDR_INSTALL_URL}`);
-        const downloaded = await runInstallerStep('curl', ['-fsSL', '--connect-timeout', '10', '--max-time', '60', HERDR_INSTALL_URL, '-o', installer], 65_000);
-        if (!downloaded.ok) throw new Error(`Herdr installer download failed: ${downloaded.detail}`);
-        const installed = await runInstallerStep('sh', [installer], 300_000);
-        if (!installed.ok) throw new Error(`Herdr installation failed: ${installed.detail}`);
+        if (!await runInstallerStep('curl', ['-fsSL', '--connect-timeout', '10', '--max-time', '60', HERDR_INSTALL_URL, '-o', installer], 65_000, env)) {
+            throw new Error('Herdr installer download failed');
+        }
+        if (!await runInstallerStep('sh', [installer], 300_000, env)) throw new Error('Herdr installation failed');
     } finally {
         rmSync(scratch, { recursive: true, force: true });
     }

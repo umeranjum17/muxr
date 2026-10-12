@@ -186,7 +186,7 @@ describe('desktop runtime self-host state', () => {
             expect(readFileSync(join(home, 'host-path'), 'utf8').split(':')).toContain(installDir);
 
             await herdr.install();
-            expect(shown.at(-1)).toEqual({ status: 'failed', message: expect.stringContaining("couldn't reach herdr.dev") });
+            expect(shown.at(-1)).toEqual({ status: 'failed', message: "Couldn't install Herdr. Check this computer's internet connection, then press Try again." });
 
             rmSync(offline);
             await herdr.install();

@@ -11,9 +11,7 @@
 import { dirname } from 'node:path';
 import { ensureHerdrServer, herdrBin, runHerdrInstaller } from '../../../scripts/setup/infrastructure/herdr.mjs';
 
-const OFFLINE_MESSAGE = "muxr couldn't reach herdr.dev to download Herdr. Check this computer's internet connection, then choose Try again.";
-const CHECKSUM_MESSAGE = "The Herdr download didn't match its published checksum, so nothing was installed. Choose Try again.";
-const INSTALL_MESSAGE = "Herdr couldn't be installed on this computer. Choose Try again.";
+const INSTALL_MESSAGE = "Couldn't install Herdr. Check this computer's internet connection, then press Try again.";
 const START_MESSAGE = "Herdr is installed but didn't start. Choose Try again.";
 
 function detail(error) {
@@ -32,7 +30,7 @@ function userEnv() {
     const env = { ...process.env };
     for (const key of ['APPDIR', 'APPIMAGE', 'ARGV0', 'OWD']) delete env[key];
     for (const key of ['PATH', 'LD_LIBRARY_PATH', 'XDG_DATA_DIRS', 'GSETTINGS_SCHEMA_DIR']) {
-        const kept = (env[key] ?? '').split(':').filter((entry) => entry !== '' && !entry.startsWith(appDir));
+        const kept = (env[key] ?? '').split(':').filter((entry) => entry !== '' && entry !== appDir && !entry.startsWith(`${appDir}/`));
         if (kept.length > 0) env[key] = kept.join(':');
         else delete env[key];
     }
@@ -65,17 +63,12 @@ export function createHerdrSetup(onChange) {
         if (binary === undefined) {
             set({ status: 'installing', step: 'Downloading Herdr…' });
             try {
-                await runHerdrInstaller();
+                await runHerdrInstaller(userEnv());
                 binary = findHerdr();
                 if (binary === undefined) throw new Error('the installer finished but no herdr binary was found');
             } catch (error) {
-                const cause = detail(error);
-                process.stderr.write(`desktop: herdr install: ${cause}\n`);
-                set({
-                    status: 'failed',
-                    message: /checksum/i.test(cause) ? CHECKSUM_MESSAGE
-                        : /download failed|can't reach|could not resolve|failed to connect/i.test(cause) ? OFFLINE_MESSAGE : INSTALL_MESSAGE,
-                });
+                process.stderr.write(`desktop: herdr install: ${detail(error)}\n`);
+                set({ status: 'failed', message: INSTALL_MESSAGE });
                 return;
             }
         }

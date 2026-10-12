@@ -17,12 +17,14 @@ without a terminal.
   offers Try again. A host that stays quiet for 30 seconds shows Needs attention
   with "taking longer than usual" and Try again, and still flips to Ready to
   pair if it comes up after that.
-- A computer with no Herdr shows "Herdr is missing" with Install Herdr over
-  the pairing states. Install runs the published herdr.dev installer into
-  `~/.local/bin` (no root), shows Downloading Herdr… then Starting Herdr…, starts
-  the server with the user's own environment (AppImage paths stripped) and
-  returns to the normal window; the host picks Herdr up without a restart. An
-  offline or checksum failure reads one plain sentence with Try again. Focusing
+- A computer with no Herdr shows one sentence ("muxr runs your agents in Herdr,
+  which isn't installed on this computer.") with Install Herdr above the
+  pairing offer; the QR stays on screen and pairing never waits for Herdr.
+  Install runs the published herdr.dev installer into `~/.local/bin` (no root),
+  with the user's own environment (AppImage paths stripped), shows Downloading
+  Herdr… then Starting Herdr…, starts the server and clears the notice; the host
+  picks Herdr up without a restart. A failed install reads "Couldn't install
+  Herdr. Check this computer's internet connection, then press Try again." Focusing
   the window re-checks, so a Herdr installed from a terminal is picked up too.
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.
@@ -47,8 +49,8 @@ APK.
    at 2 fps with an elapsed-time overlay, or read the window's title over CDP.
    Repeat with Herdr hidden from PATH (a symlink farm of `/usr/bin` minus
    `herdr`, kept outside `/tmp`) and no lab socket: the relay and host still
-   come up within a few seconds of the with-Herdr run, and the window reads
-   Herdr is missing (step 5).
+   come up within a few seconds of the with-Herdr run, and the window shows the
+   Herdr notice above the pairing offer (step 5).
 2. Read the offer out of the window's QR, render a crisp QR into the emulator's
    camera image, and scan it in the app.
 3. Confirm the same two words show on the phone's consent and the window's
@@ -58,9 +60,9 @@ APK.
 5. No-Herdr install: launch with Herdr hidden and `MUXR_HERDR_INSTALLER`
    pointing at a lab script that runs the real `https://herdr.dev/install.sh`
    into a lab folder and leaves a `~/.local/bin/herdr` shim routing every call
-   through the lab helper's named session. Read "Herdr is missing" on the window
+   through the lab helper's named session. Read the Herdr notice on the window
    and the paired phone's Home. With a dead `https_proxy` in the installer,
-   Install reads the offline sentence and Try again; clear it, choose Try
+   Install reads the "Couldn't install Herdr" sentence and Try again; clear it, choose Try
    again, and time click→window normal and click→phone Home (≈3 s and ≈6 s on
    2026-10-12), then report an agent in the lab session and see it on Home.
 6. Toggle keep-awake and start-at-login and read `settings.json` and the XDG

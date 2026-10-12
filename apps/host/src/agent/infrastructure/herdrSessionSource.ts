@@ -14,6 +14,7 @@ import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { herdrBin as resolveHerdrBin } from '../../../../../scripts/setup/infrastructure/herdr.mjs';
 import type {
     AgentLifecycle,
     ApplicationLauncher,
@@ -207,22 +208,10 @@ function executableOnPath(command: string): boolean {
     return false;
 }
 
-/**
- * Whether a Herdr binary exists where setup looks for one: `bin` itself when it
- * is a path, else PATH, the installer's folder and /usr/local/bin. A host that
- * cannot reach Herdr says when it is missing, because that fix is an install,
- * not a restart.
- */
-function herdrInstalled(bin: string): boolean {
-    const candidates = isAbsolute(bin) ? [bin] : [
-        ...(process.env.PATH ?? '').split(delimiter).filter(Boolean).map((directory) => join(directory, bin)),
-        join(process.env.HERDR_INSTALL_DIR || join(homedir(), '.local', 'bin'), 'herdr'),
-        '/usr/local/bin/herdr',
-    ];
-    return candidates.some((candidate) => {
-        try { accessSync(candidate, constants.X_OK); return statSync(candidate).isFile(); }
-        catch { return false; }
-    });
+/** The Herdr binary setup resolves (the same lookup `muxr setup` uses), or undefined when none is installed. */
+function herdrBinary(): string | undefined {
+    try { return resolveHerdrBin(); }
+    catch { return undefined; }
 }
 
 /**
@@ -1492,9 +1481,8 @@ export async function createHerdrSessionSource(
     }
 
     // The kit spawns `bin` directly for CLI and terminal verbs, so it needs
-    // the same resolved binary the host would exec, not a PATH lookup.
-    const herdrBin = options.herdrBin ?? process.env.HERDR_BIN ?? 'herdr';
-    const client = new KitHerdrClient(herdrBin, socketPath, () => {
+    // the same resolved binary setup finds, not a PATH lookup.
+    const client = new KitHerdrClient(options.herdrBin ?? herdrBinary() ?? 'herdr', socketPath, () => {
         routingEpoch += 1;
         void client.subscribeEvents(EVENT_KINDS).catch(() => {});
         void refreshSnapshot().then(emitAllStates).then(() => artifacts.rescanAll()).catch(() => {});
@@ -2592,7 +2580,7 @@ export async function createHerdrSessionSource(
                     tabs,
                 });
             }
-            return { workspaces, connected: client.connected, ...(client.connected || herdrInstalled(herdrBin) ? {} : { missing: true as const }) };
+            return { workspaces, connected: client.connected, ...(client.connected || (options.herdrBin ?? herdrBinary()) !== undefined ? {} : { missing: true as const }) };
         },
 
         async applicationsList(): Promise<{ items: ApplicationLauncher[] }> {

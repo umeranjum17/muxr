@@ -1,6 +1,6 @@
 import { createHook } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -760,6 +760,36 @@ it('bounds workspace tokens: known keys only, capped count, sanitized capped val
     expect(boundedWorkspaceTokens({ parent: 'a\u000Bb\uFEFFc' })).toEqual({ parent: 'abc' });
     expect(boundedWorkspaceTokens(undefined)).toBeUndefined();
     expect(boundedWorkspaceTokens(['not', 'an', 'object'])).toBeUndefined();
+});
+
+describe('herdr installed in its own folder, off the host PATH', () => {
+    it('is not reported missing, and the host runs that exact binary', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-herdr-folder-'));
+        const installDir = join(dir, 'bin');
+        mkdirSync(installDir);
+        const binary = join(installDir, 'herdr');
+        writeFileSync(binary, '#!/bin/sh\necho "ran $0"\n', { mode: 0o755 });
+        const saved = { PATH: process.env.PATH, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, HERDR_BIN: process.env.HERDR_BIN };
+        process.env.PATH = join(dir, 'empty-path');
+        mkdirSync(process.env.PATH);
+        process.env.HERDR_INSTALL_DIR = installDir;
+        delete process.env.HERDR_BIN;
+        const source = await createHerdrSessionSource({
+            socketPath: join(dir, 'no-herdr.sock'), dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'), hostHttpPort: 0,
+        });
+        try {
+            expect((await source.herdrTree()).missing).toBeUndefined();
+            expect((await source.herdrCli(['--version'])).stdout.trim()).toBe(`ran ${realpathSync(binary)}`);
+        } finally {
+            await source.dispose();
+            for (const [name, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
 });
 
 describe('isolated pi agent home', () => {

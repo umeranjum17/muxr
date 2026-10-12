@@ -6,9 +6,9 @@ const cards = {
     paired: document.getElementById('card-paired'),
     error: document.getElementById('card-error'),
     'already-running': document.getElementById('card-already-running'),
-    herdr: document.getElementById('card-herdr'),
     note: document.getElementById('card-note'),
 };
+const herdrNotice = document.getElementById('herdr-notice');
 const dot = document.getElementById('status-dot');
 const title = document.getElementById('status-title');
 const canvas = document.getElementById('qr');
@@ -64,29 +64,28 @@ setInterval(tickExpiry, 1000);
 
 const HERDR_MISSING_MESSAGE = "muxr runs your agents in Herdr, which isn't installed on this computer.";
 
-// Herdr stands in for the starting, ready and paired cards until it runs; an
-// approval, an error or the command-line install still speaks for itself.
-function showHerdr(herdr) {
+// Herdr is said above the card, and pairing never waits for it. An approval, an
+// error or the command-line install still speaks for itself, so the notice shows
+// only where the pairing offer or the paired state is on screen.
+function showHerdrNotice(herdr) {
+    herdrNotice.hidden = herdr === undefined;
+    if (herdr === undefined) return;
     const installing = herdr.status === 'installing';
-    dot.className = `dot ${installing ? 'starting' : 'error'}`;
-    title.textContent = installing ? 'Setting up Herdr…' : 'Needs attention';
     document.getElementById('herdr-spinner').hidden = !installing;
-    document.getElementById('herdr-title').textContent = installing ? 'Setting up Herdr'
-        : herdr.status === 'failed' ? "Herdr isn't ready" : 'Herdr is missing';
     const message = document.getElementById('herdr-message');
     message.className = herdr.status === 'failed' ? 'error' : 'muted';
     message.textContent = installing ? herdr.step : herdr.status === 'failed' ? herdr.message : HERDR_MISSING_MESSAGE;
     const button = document.getElementById('install-herdr');
     button.hidden = installing;
     button.textContent = herdr.status === 'failed' ? 'Try again' : 'Install Herdr';
-    show('herdr');
 }
 
 window.muxr.onState((state) => {
-    dot.className = `dot ${state.phase}`;
-    title.textContent = TITLES[state.phase] ?? 'muxr';
-    if (state.herdr !== undefined && state.herdr.status !== 'ok' && ['starting', 'online', 'paired'].includes(state.phase)) { showHerdr(state.herdr); }
-    else if (state.phase === 'starting') { show('starting'); }
+    const herdr = state.herdr !== undefined && state.herdr.status !== 'ok' && ['starting', 'online', 'paired'].includes(state.phase) ? state.herdr : undefined;
+    showHerdrNotice(herdr);
+    dot.className = `dot ${herdr === undefined ? state.phase : herdr.status === 'installing' ? 'starting' : 'error'}`;
+    title.textContent = herdr === undefined ? (TITLES[state.phase] ?? 'muxr') : herdr.status === 'installing' ? 'Setting up Herdr…' : 'Needs attention';
+    if (state.phase === 'starting') { show('starting'); }
     else if (state.phase === 'online') {
         if (state.code !== undefined) {
             currentCode = state.code;
