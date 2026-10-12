@@ -55,6 +55,7 @@ let state = { phase: 'starting' };
 // detail (which host/relay exited and why) goes to the log, never to the window.
 const START_FAILED_MESSAGE = 'muxr could not start on this computer. Choose Try again to start it again.';
 const RUNTIME_EXIT_MESSAGE = 'muxr stopped unexpectedly. Choose Try again to start it again.';
+const STALLED_MESSAGE = 'muxr is taking longer than usual to start on this computer. Choose Try again to start it again.';
 function reportFailure(what, error, message) {
     process.stderr.write(`desktop: ${what}: ${error instanceof Error ? error.message : String(error)}\n`);
     send({ phase: 'error', message });
@@ -192,6 +193,7 @@ async function startRuntime() {
     runtime.on('status', (event) => {
         if (event.phase === 'error') reportFailure('runtime error', event.message, RUNTIME_EXIT_MESSAGE);
         else if (event.phase === 'starting') send({ phase: 'starting' });
+        else if (event.phase === 'stalled') reportFailure('host still starting', 'no online report yet', STALLED_MESSAGE);
         else if (event.phase === 'already-running') send({ phase: 'already-running', message: event.message, canRetry: event.canRetry === true });
         else if (event.phase === 'online') { send({ phase: 'online', message: 'Ready to pair' }); startPairing(); }
     });

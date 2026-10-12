@@ -22,8 +22,6 @@ export class RelayOwnedError extends Error {
     }
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 function lanIpv4Addresses() {
     const out = [];
     for (const entries of Object.values(networkInterfaces())) {
@@ -35,9 +33,13 @@ function lanIpv4Addresses() {
     return out;
 }
 
+// How long a quiet host start runs before the window offers Try again. Only
+// the message waits on it: the host's own online report still wins after it.
+const HOST_STALL_MS = 60_000;
+
 /**
  * Start the relay and host for `home`, then wait until the host is online.
- * Emits `status` events: 'starting', 'online', 'error'.
+ * Emits `status` events: 'starting', 'stalled', 'online', 'error'.
  */
 export class MuxrRuntime extends EventEmitter {
     #home;
@@ -47,15 +49,16 @@ export class MuxrRuntime extends EventEmitter {
     #port;
     #children = [];
     #stopping = false;
-    #hostReady;
+    #stallMs;
 
-    constructor({ home, node, relayEntry, hostEntry, port }) {
+    constructor({ home, node, relayEntry, hostEntry, port, stallMs = HOST_STALL_MS }) {
         super();
         this.#home = home;
         this.#node = node;
         this.#relayEntry = relayEntry;
         this.#hostEntry = hostEntry;
         this.#port = port;
+        this.#stallMs = stallMs;
     }
 
     get home() { return this.#home; }
@@ -182,28 +185,44 @@ export class MuxrRuntime extends EventEmitter {
             MUXR_DATA_DIR: join(this.#home, 'host'),
         }, 'host');
 
-        this.#hostReady = this.#waitForHost(host);
-        await this.#hostReady;
+        await this.#hostOnline(host);
+        if (this.#stopping) return;
         this.emit('status', { phase: 'online' });
     }
 
-    async #waitForHost(host) {
-        const deadline = Date.now() + 20_000;
-        let out = '';
-        const collect = (chunk) => { out += chunk.toString(); };
-        host.stdout?.on('data', collect);
-        try {
-            while (Date.now() < deadline) {
-                if (host.pid === undefined) throw new Error('the muxr host could not be started');
-                if (host.exitCode !== null) throw new Error('the muxr host exited before it came online');
-                if (out.includes('link relay: online') && existsSync(this.pairSocketPath)) return;
-                await sleep(100);
-            }
-            throw new Error('the muxr host did not come online');
-        } finally {
-            host.stdout?.off('data', collect);
-            out = '';
-        }
+    /**
+     * Resolve when the host reports its link online; that is the host's own
+     * readiness, however long it takes. Reject when it exits or cannot start. The
+     * pairing socket opens a moment later and the window waits for it there.
+     */
+    #hostOnline(host) {
+        return new Promise((resolve, reject) => {
+            let out = '';
+            const stall = setTimeout(() => this.emit('status', { phase: 'stalled' }), this.#stallMs);
+            const settle = () => {
+                clearTimeout(stall);
+                host.stdout?.off('data', collect);
+                host.off('exit', exited);
+                host.off('error', failed);
+                out = '';
+            };
+            const collect = (chunk) => {
+                out += chunk.toString();
+                if (!out.includes('link relay: online')) return;
+                settle();
+                resolve();
+            };
+            const ended = (reason) => () => {
+                settle();
+                if (this.#stopping) resolve();
+                else reject(new Error(reason));
+            };
+            const exited = ended('the muxr host exited before it came online');
+            const failed = ended('the muxr host could not be started');
+            host.stdout?.on('data', collect);
+            host.once('exit', exited);
+            host.once('error', failed);
+        });
     }
 
     stop() {

@@ -28,9 +28,9 @@ function listeningRelayFixture(path: string) {
     ].join('\n'));
 }
 
-function collectingRuntime(home: string, relayEntry: string, hostEntry: string, node = process.execPath) {
+function collectingRuntime(home: string, relayEntry: string, hostEntry: string, node = process.execPath, stallMs?: number) {
     const statuses: { phase: string; message?: string; canRetry?: boolean }[] = [];
-    const runtime = new MuxrRuntime({ home, node, relayEntry, hostEntry, port: 8792 });
+    const runtime = new MuxrRuntime({ home, node, relayEntry, hostEntry, port: 8792, ...(stallMs === undefined ? {} : { stallMs }) });
     runtime.on('status', (event) => statuses.push(event));
     return { runtime, statuses };
 }
@@ -101,6 +101,30 @@ describe('desktop runtime self-host state', () => {
         }
 
         expect(statuses.at(-1)?.phase).toBe('online');
+    }, 30_000);
+
+    it('offers Try again while a slow host starts, then follows it online', async () => {
+        // A computer with no Herdr brings its host up late. The window must
+        // follow the host's own online report, not give up on a timer.
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-slow-'));
+        writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
+        const relayEntry = join(home, 'relay-fixture.mjs');
+        listeningRelayFixture(relayEntry);
+        const hostEntry = join(home, 'host-fixture.mjs');
+        writeFileSync(hostEntry, [
+            "setTimeout(() => process.stdout.write('link relay: online\\n'), 1500);",
+            'setInterval(() => {}, 1000);',
+            '',
+        ].join('\n'));
+
+        const { runtime, statuses } = collectingRuntime(home, relayEntry, hostEntry, process.execPath, 300);
+        try {
+            await runtime.start();
+        } finally {
+            await runtime.stop();
+        }
+
+        expect(statuses.map((status) => status.phase)).toEqual(['starting', 'stalled', 'online']);
     }, 30_000);
 
     it('keeps the stored advertised relay url across a relaunch', async () => {
