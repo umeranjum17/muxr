@@ -14,7 +14,7 @@ import { enrollMachine } from '../application/enrollMachine.mjs';
 import { listMachines } from '../application/listMachines.mjs';
 import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
-import { inspectTailscaleServeRoot, reachTailscaleOptions, selfhostPath, tailscaleBin } from '../infrastructure/selfhost.mjs';
+import { inspectTailscaleServeRoot, readSelfhostState, reachTailscaleOptions, selfhostPath, tailscaleBin } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting, parseEnrollment } from '../domain/dist/index.js';
 import { env, relayPortFromEnv } from '../infrastructure/runtime.mjs';
 
@@ -404,6 +404,10 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
     }
     // The relay route has no local port, browser or pairing choices: the
     // enrollment names the relay, and the phone pairs right after it joins.
+    if (mode === 'relay' && !found.relay) {
+        process.stderr.write('the relay route needs an enrollment; pass --enrollment <muxr://enroll?...>\n');
+        return 1;
+    }
     if (mode === 'relay') return { mode, port: plannedPort, endpoint: found.relay.relay, web: false, pairing: 'phone', syncIntegrations: false };
 
     const port = plannedPort;
@@ -570,9 +574,10 @@ export async function applyMachineSetup(args = []) {
         outro('Inspection complete. Nothing changed.');
         return 0;
     }
-    // An enrollment (from the flag, or handed over by the installer) makes the
-    // dial-out relay route available and the default.
-    const enrollment = value(args, '--enrollment') ?? env('MUXR_ENROLLMENT');
+    // An enrollment makes the dial-out relay route available and the default.
+    // The installer's hand-off is for a computer with no muxr yet; it is
+    // one-use, so a later run on a set-up computer ignores it.
+    const enrollment = value(args, '--enrollment') ?? (readSelfhostState() === undefined ? env('MUXR_ENROLLMENT') : undefined);
     let relay;
     if (enrollment !== undefined) {
         const parsed = parseEnrollment(enrollment);
@@ -583,7 +588,11 @@ export async function applyMachineSetup(args = []) {
     if (scripted) {
         const prerequisites = await runLocalPrerequisites(args);
         if (prerequisites !== 0) return prerequisites;
-        if (relay !== undefined) return connectEnrollment(['--enrollment', relay.raw, ...args.filter((arg) => arg === '--no-pair')]);
+        if (relay !== undefined && args.includes('--dry-run')) {
+            process.stdout.write(`  would join the muxr relay at ${new URL(relay.relay).host}\n`);
+            return 0;
+        }
+        if (relay !== undefined) return connectEnrollment(['--enrollment', relay.raw, ...args]);
         return startSelfHost(args);
     }
 
