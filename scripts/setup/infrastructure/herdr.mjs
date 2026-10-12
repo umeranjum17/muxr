@@ -392,8 +392,10 @@ export function herdrServerIsReady(binary) {
 /**
  * Make sure the herdr server is running: repair a stale service path first,
  * then start it. Idempotent — host-up calls this on every service start.
+ * `serverEnv` is the environment a directly spawned server (and so every
+ * terminal in it) inherits.
  */
-export async function ensureHerdrServer(binary = herdrBin(), dryRun = false, quiet = false) {
+export async function ensureHerdrServer(binary = herdrBin(), dryRun = false, quiet = false, serverEnv = process.env) {
     if (!binary) throw new Error(`herdr is missing; ${HERDR_INSTALL_HINT}`);
     const repaired = repairHerdrServiceUnits(binary, dryRun);
     if (!dryRun && repaired.length > 0 && env('MUXR_NO_SERVICE_COMMANDS') !== '1' && platform() === 'darwin') {
@@ -416,7 +418,7 @@ export async function ensureHerdrServer(binary = herdrBin(), dryRun = false, qui
                 logPath = join(stateDir(), 'logs', 'herdr.log');
                 ensurePrivateDir(dirname(logPath));
                 const out = openSync(logPath, 'a', 0o600);
-                const server = spawn(binary, ['server'], { detached: true, stdio: ['ignore', out, out] });
+                const server = spawn(binary, ['server'], { detached: true, stdio: ['ignore', out, out], env: serverEnv });
                 server.once('error', (cause) => { spawnError = cause; });
                 server.unref();
             }

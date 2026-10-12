@@ -19,6 +19,24 @@ function detail(error) {
     return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * The AppImage runtime points PATH, LD_LIBRARY_PATH and XDG_DATA_DIRS into its
+ * own mount. Herdr outlives this app and every terminal inherits its
+ * environment, so it starts with the user's own.
+ */
+function userEnv() {
+    const appDir = process.env.APPDIR;
+    if (!appDir) return process.env;
+    const env = { ...process.env };
+    for (const key of ['APPDIR', 'APPIMAGE', 'ARGV0', 'OWD']) delete env[key];
+    for (const key of ['PATH', 'LD_LIBRARY_PATH', 'XDG_DATA_DIRS', 'GSETTINGS_SCHEMA_DIR']) {
+        const kept = (env[key] ?? '').split(':').filter((entry) => entry !== '' && !entry.startsWith(appDir));
+        if (kept.length > 0) env[key] = kept.join(':');
+        else delete env[key];
+    }
+    return env;
+}
+
 function findHerdr() {
     try { return herdrBin(); }
     catch (error) { process.stderr.write(`desktop: herdr lookup: ${detail(error)}\n`); return undefined; }
@@ -30,7 +48,7 @@ export function createHerdrSetup(onChange) {
 
     async function start(binary) {
         try {
-            await ensureHerdrServer(binary, false, true);
+            await ensureHerdrServer(binary, false, true, userEnv());
             set({ status: 'ok' });
         } catch (error) {
             process.stderr.write(`desktop: herdr server: ${detail(error)}\n`);
