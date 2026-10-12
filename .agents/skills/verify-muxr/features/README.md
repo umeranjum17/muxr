@@ -144,6 +144,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   native release app over a guarded lab: device chips still work, the retired
   Browser presence/URL stays unavailable, and Computer reads `Computer` from
   shell and agent entry.
+- [Keep the mirror view up for a preview kind the client does not know](./unknown-preview-kind.md) —
+  lab PWA over a throwaway unknown-kind injection: the header, help popup
+  (general gestures) and toolbar (no device keys) all stay up, at 393/270 px.
 - [See pinned spaces on the phone's Spaces list](./spaces-pinned.md) —
   native app on an emulator over a private stack: pin, themes, tablet width,
   plus guarded two-computer pin isolation and legacy migration.

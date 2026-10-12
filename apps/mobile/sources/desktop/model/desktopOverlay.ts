@@ -1,6 +1,6 @@
 import type { SessionSnapshot } from '@desklink/react-native';
 
-import { desktopCopy, previewCopy } from './desktopCopy';
+import { desktopCopy, previewCopy, unknownPreviewCopy, type PreviewKindCopy } from './desktopCopy';
 
 export interface DesktopOverlay {
     title: string;
@@ -98,6 +98,20 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
 
 export type PreviewKind = 'android' | 'ios';
 
+/** The preview kind this build can render, or null for a kind a newer host announced. */
+export function knownPreviewKind(kind: string | undefined): PreviewKind | null {
+    return kind === 'android' || kind === 'ios' ? kind : null;
+}
+
+/**
+ * The words for a preview kind. A kind this build does not know still gets
+ * generic words rather than an index into a table that lacks it, so the view
+ * stays up when a newer host names a device this build cannot.
+ */
+export function previewKindCopy(kind: PreviewKind | null): PreviewKindCopy {
+    return kind === null ? unknownPreviewCopy : previewCopy[kind];
+}
+
 export interface PreviewOverlay {
     title: string;
     detail?: string;
@@ -114,8 +128,8 @@ const TAKEN = new Set(['replaced by a new session', 'another device opened this 
  * keep the last frame). A target the host no longer has is "closed": the
  * agent finished with it, and the only way on is back.
  */
-export function describePreviewOverlay(snapshot: SessionSnapshot, kind: PreviewKind, closed: boolean): PreviewOverlay | null {
-    const copy = previewCopy[kind];
+export function describePreviewOverlay(snapshot: SessionSnapshot, kind: PreviewKind | null, closed: boolean): PreviewOverlay | null {
+    const copy = previewKindCopy(kind);
     const gone = { title: copy.closedTitle, detail: previewCopy.closedBody, spinner: false, action: { label: previewCopy.closedAction, exit: true } };
     if (closed) return gone;
     const failure = snapshot.failure?.message ?? '';
