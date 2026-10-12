@@ -1,8 +1,9 @@
 # Distribution and license inventory
 
-Scope: the `muxr` npm CLI/host artifact produced by `node scripts/release/application/pack.mjs`.
-The mobile app, development fixtures, APKs, and repository-only tooling are
-not included in that artifact.
+Scope: the `muxr` npm CLI/host artifact produced by `node scripts/release/application/pack.mjs`
+and the Linux AppImage described under [Linux AppImage](#linux-appimage). The
+mobile app, development fixtures, APKs, and repository-only tooling are not
+included in either artifact.
 
 ## Desktop engine
 
@@ -97,8 +98,8 @@ Electron/Chromium runtime, the same bundled host, relay and voice runtime as
 the npm artifact, and the shared runtime dependencies installed as production
 `node_modules` under `resources/app/node_modules`. Its notices are the
 Electron/Chromium texts at the AppImage root beside the `muxr` binary
-(`LICENSE.electron.txt`, `LICENSES.chromium.html`), plus the `LICENSES/` copied
-from the npm package under `resources/app/LICENSES/` (`Apache-2.0.txt`,
+(`LICENSE.electron.txt`, `LICENSES.chromium.html`), plus the repository's `LICENSES/`
+copied under `resources/app/LICENSES/` (`Apache-2.0.txt`,
 `MIT.txt`, `OFL-1.1.txt`, `Unlicense.txt`). The desktop build
 (`apps/desktop/scripts/build.mjs`) audits everything the AppImage ships
 through the same generator as the npm packer
@@ -120,7 +121,7 @@ still applies. The shared allow-list is permissive SPDX ids (`0BSD`, `Apache-2.0
 dependency of the desktop closure. The build fails on a copyleft or unknown/non-approved license
 before packaging, and the generated `THIRD_PARTY_LICENSES.json` ships at
 `resources/app/` beside `LICENSES/`, with each dependency's exact license text
-under `resources/app/LICENSES/npm/`. After packaging, the build runs
+under `resources/app/LICENSES/npm/`. With `--package`, the build runs
 `scripts/diagnostics/application/checkDesktopLicenses.mjs` on the packaged
 `release/linux-unpacked` layout, so the gate checks the artifact's own inventory,
 notices and license texts, and fails when any is missing or a listed dependency
@@ -145,7 +146,9 @@ Every package build asks esbuild for an in-memory metafile, resolves each
 `node_modules` input to the exact package copy that supplied it (including nested
 copies), and audits both inlined and external runtime dependencies. Packaging
 fails when a dependency has a missing, unknown/non-approved, GPL, LGPL, or AGPL
-license, or when its license text cannot be found. The published output contains:
+license, or (npm packer only) when its license text cannot be found; the AppImage
+records such a package as declared-only ([Linux AppImage](#linux-appimage)). The
+published npm output contains:
 
 - `THIRD_PARTY_LICENSES.json` — package names, consumer-facing declared semver ranges, concrete locally audited install versions, licenses, and bundle status, without repository source paths;
 - `LICENSES/npm/` — exact license text copied from each audited dependency.
