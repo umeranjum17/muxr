@@ -1,7 +1,5 @@
-import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { bundleVoiceRuntime } from './bundleVoiceRuntime.mjs';
 import { runtimeDependencies } from './runtimeDependencies.mjs';
 import { licenseInventory, writeThirdPartyInventory } from './licenseInventory.mjs';
 
@@ -90,6 +88,11 @@ function desktopBundleJobs({ root, appDir, dist, external }) {
 
 /** Bundle every desktop entry and return the esbuild metafiles for the audit. */
 export async function bundleDesktopEntries({ root, appDir, dist, external }) {
+    // esbuild and the voice bundler load lazily: this module is reachable
+    // from the packed CLI's release index, where build-time-only imports
+    // must never resolve at user runtime.
+    const { build } = await import('esbuild');
+    const { bundleVoiceRuntime } = await import('./bundleVoiceRuntime.mjs');
     const bundles = [];
     for (const job of desktopBundleJobs({ root, appDir, dist, external })) {
         try {
