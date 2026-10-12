@@ -6,12 +6,11 @@ This page shows what that actually looks like, for each kind of machine.
 
 ## Pick your connection
 
-- **Phone and computer on the same Wi-Fi:** Scenario 1.
-- **Both already on a private mesh VPN:** Scenario 2.
-- **A quick public address, no domain:** Scenario 3.
-- **Several computers behind one server you own:** Scenario 4.
+- **Most people: Tailscale on the phone and the computer, signed in to the same account:** Scenario 1.
+- **A quick public address, no domain:** Scenario 2.
+- **Several computers behind one server you own:** Scenario 3.
 - **A cloud server you reach only over SSH:** in the app, open Settings → **Connect over SSH**. Only port 22 has to be reachable, and the server gets a virtual display for remote desktop.
-- **A browser instead of the app:** Scenario 5.
+- **A browser instead of the app:** Scenario 4.
 
 ## The inspection
 
@@ -45,22 +44,9 @@ The first thing you see is the inspection. Real output (from a machine with Herd
 
 Read-only, always. You can also run this exact step non-interactively with `muxr setup --inspect`.
 
-## Scenario 1: Same Wi-Fi (local network)
+## Scenario 1: Tailscale (the default)
 
-The simplest path. Your phone and computer are on the same LAN.
-
-1. Run `muxr`, choose **Set up or repair this machine**, then **Change networking and integrations**.
-2. For connectivity, choose **Local network**.
-3. Client type: **Native app only**, then **Phone**.
-4. Review the plan: relay + host services, the LAN endpoint (`ws://192.168.1.20:8892`), Herdr.
-5. Choose **Apply setup**.
-6. Scan the QR with the Android app. Done.
-
-The phone talks directly to your computer over Wi-Fi. Nothing leaves the house; no account, no cloud.
-
-## Scenario 2: You already run Tailscale
-
-The recommended remote path. Your phone and computer are both on your tailnet.
+The recommended path, and the only one a first run offers up front. Install the free Tailscale app on your phone and your computer and sign in to the same account. If Tailscale is missing or not connected on the computer, setup says so in one sentence and **Check again** looks once more, without leaving the screen. A private network you already run (NetBird, WireGuard) is under **Other ways**.
 
 1. Run `muxr`, choose **Set up or repair this machine**, then **Change networking and integrations**.
 2. Connectivity: **Tailscale Serve**. muxr asks Tailscale to serve the local relay over your tailnet's HTTPS name — it does not create users, change ACLs, or touch other services.
@@ -69,7 +55,7 @@ The recommended remote path. Your phone and computer are both on your tailnet.
 
 Why Serve instead of the direct IP: its secure endpoint also qualifies for browser hosting later. Choose **Direct Tailscale IP** if you only ever want the native app.
 
-## Scenario 3: Temporary Cloudflare tunnel
+## Scenario 2: Temporary Cloudflare tunnel
 
 For quick public access without configuring a domain.
 
@@ -80,7 +66,7 @@ For quick public access without configuring a domain.
 
 The wizard does not detect or adopt named Cloudflare tunnels. For a stable domain, configure the named tunnel or reverse proxy yourself, then choose the external WSS option and enter its `wss://` origin. Quick tunnels are deliberately excluded from shared-relay setups because their changing URL would strand enrolled machines.
 
-## Scenario 4: Your own VPS as a shared relay
+## Scenario 3: Your own VPS as a shared relay
 
 Several computers, one relay you own, phone pairs once per machine. The relay routes encrypted envelopes and can never read them.
 
@@ -99,7 +85,7 @@ Several computers, one relay you own, phone pairs once per machine. The relay ro
 
 Enrolled machines are isolated from each other; revoking one never touches the others. Each phone pairs to each machine independently — one phone, many machines; one machine, many phones.
 
-## Scenario 5: Read-only browser
+## Scenario 4: Read-only browser
 
 Any scenario that ends in `https://`/`wss://` (Tailscale Serve, Cloudflare, or your own reverse proxy) can also host the web client. LAN `ws://` cannot — browsers require a secure origin.
 

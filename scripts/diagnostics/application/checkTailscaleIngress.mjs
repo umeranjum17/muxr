@@ -61,13 +61,13 @@ try {
         utun5: [{ family: 'IPv4', internal: false, address: '10.20.0.2' }],
     }, '100.64.0.1').private, { address: '10.20.0.2', interface: 'utun5', provider: 'private network' });
     const found = { tailscale: { connected: false }, private: routes.private, lan: routes.lan, cloudflared: { ok: false } };
-    assert.equal(recommendedConnection(found, undefined, false, { status: 'inconclusive' }).mode, 'private');
-    assert.equal(recommendedConnection(found, undefined, true, { status: 'inconclusive' }).mode, 'private');
-    // An away-from-home route always beats the Wi-Fi-only route: it stops
-    // working when the phone leaves home, so it is only the default when
-    // nothing remote-reachable exists.
-    assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'cloudflare');
-    assert.equal(recommendedConnection({ ...found, private: undefined }, undefined, false, { status: 'inconclusive' }).mode, 'lan');
+    // Tailscale is the default route, even beside a private network, a
+    // temporary link or Wi-Fi: when it is missing the route screen asks for it
+    // and checks again, and the others wait behind Other ways.
+    assert.equal(recommendedConnection(found, undefined, false, { status: 'inconclusive' }).mode, 'tailscale');
+    assert.equal(recommendedConnection(found, undefined, true, { status: 'inconclusive' }).mode, 'tailscale');
+    assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'tailscale');
+    assert.equal(recommendedConnection({ ...found, private: undefined }, undefined, false, { status: 'inconclusive' }).mode, 'tailscale');
     const privateArgs = selfhostArgsFromSetupPlan({ mode: 'private', port: 8792, web: false, pairing: 'phone', found });
     assert.deepEqual(privateArgs.slice(-2), ['--advertise', 'ws://100.90.0.4:8792']);
     assert.equal((await resolveAdvertise(privateArgs, 8792)).url, 'ws://100.90.0.4:8792');

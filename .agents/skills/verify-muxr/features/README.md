@@ -189,11 +189,12 @@ user-visible behavior, then exactly four H2 sections in this order:
   Settings > Connection names the route as `muxr setup` does: dev client on
   an emulator over a real lab host, themes and 270dp/font 1.3.
 - [Pair a computer that dials out to the muxr relay](./dial-out-relay.md) —
-  setup's `Works anywhere` route with an enrollment, a computer with no
+  setup's `your muxr server` route with an enrollment, a computer with no
   inbound network (bwrap), phone pairs through a lab relay, agent answers.
 - [Set up a computer in one screen](./setup-one-screen.md) — first-run
-  `muxr` in a private tmux at 80 and 120 columns: route and plan on step 2
-  of 3, one Enter applies, timed against the base commit.
+  `muxr` in a private tmux at 80 and 120 columns: Tailscale by default, no
+  Wi-Fi only for new setups, missing/signed-out Tailscale rechecked in place,
+  route and plan on step 2 of 3, one Enter applies.
 - [Keep a terminal pane alive across a reconnect](./terminal-reconnect.md) —
   native app over a private stack: relay and host restarts under an
   open pane, last frame kept, recovery with no tap, plain words.

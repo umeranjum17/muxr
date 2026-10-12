@@ -1,19 +1,20 @@
 # Pair a computer that dials out to the muxr relay
 
 When setup is given an enrollment (`--enrollment` or `MUXR_ENROLLMENT`),
-its first route is `Works anywhere · Recommended`: the computer joins that
-relay and dials out to it, so nothing on the computer listens on the
+its first route is `Use muxr away from home (your muxr server) · Recommended`:
+the computer joins that relay and dials out to it, so nothing on the computer listens on the
 network. The phone pairs and works through the relay from any network.
 
 ## Sub-features
 
-- `route-default` with an enrollment, step 2 offers `Works anywhere` first
+- `route-default` with an enrollment, step 2 offers `your muxr server` first
   and recommended; its description says nothing on this computer needs to be
   open, and on a first run Enter on it applies (see
-  [setup-one-screen](./setup-one-screen.md)). Without one, the route list is
-  unchanged.
-- `other-ways` `Other ways` still lists Wi-Fi, Tailscale, private network,
-  temporary link and your own server.
+  [setup-one-screen](./setup-one-screen.md)). Without one, Tailscale is the
+  default.
+- `other-ways` `Other ways` still lists Tailscale, private network,
+  temporary link and your own server (Wi-Fi only just for a computer already
+  on it).
 - `apply-joins` Apply claims the enrollment (`muxr connect`), starts the
   host, waits for it to come online at the relay and shows the QR and
   pairing string; the menu then reads `relay shared relay in the cloud
@@ -26,8 +27,8 @@ network. The phone pairs and works through the relay from any network.
 
 ## How to get to it (user POV)
 
-- Computer: run `muxr` with the enrollment from the installer -> Enter on
-  `Works anywhere` -> QR.
+- Computer: run `muxr` with the enrollment from your muxr server -> Enter on
+  `your muxr server` -> QR.
 - Phone: Scan the QR (or Paste the pairing string) -> Pair -> compare the
   words, press `y` on the computer -> Home shows the computer `connected`.
 
