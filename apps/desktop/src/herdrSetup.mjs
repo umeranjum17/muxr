@@ -72,7 +72,7 @@ export function createHerdrSetup(onChange) {
                 set({
                     status: 'failed',
                     message: /checksum/i.test(cause) ? CHECKSUM_MESSAGE
-                        : /download failed|can't reach/i.test(cause) ? OFFLINE_MESSAGE : INSTALL_MESSAGE,
+                        : /download failed|can't reach|could not resolve|failed to connect/i.test(cause) ? OFFLINE_MESSAGE : INSTALL_MESSAGE,
                 });
                 return;
             }
