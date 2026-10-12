@@ -12,9 +12,10 @@ without a terminal.
   Already running — a command-line install that manages this computer (Quit
   only) or an orphaned desktop relay (Try again and Quit).
 - A computer with no Herdr still reaches Ready to pair: the window follows the
-  relay's and host's own reports (`link relay: online`), not a timer. A host that stays quiet
-  for a minute shows Needs attention with "taking longer than usual" and Try
-  again, and still flips to Ready to pair if it comes up after that.
+  relay's and host's own reports (`link relay: online`), not a timer, and shows
+  Ready to pair only once the host's pairing socket exists. A host that stays
+  quiet for 30 seconds shows Needs attention with "taking longer than usual" and
+  Try again, and still flips to Ready to pair if it comes up after that.
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.
 - Closing the window keeps the relay and host running in the tray.

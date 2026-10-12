@@ -35,7 +35,7 @@ function lanIpv4Addresses() {
 
 // How long a quiet start runs before the window offers Try again. Only the
 // message waits on it: the relay's and host's own reports still win after it.
-const HOST_STALL_MS = 60_000;
+const HOST_STALL_MS = 30_000;
 
 /**
  * Start the relay and host for `home`, then wait until the host is online.

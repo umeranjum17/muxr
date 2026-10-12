@@ -1770,7 +1770,7 @@ export async function createHerdrSessionSource(
 
     // A dead herdr must not take the host down with it: the phone needs this
     // process alive to see connected:false instead of a healthy-looking ghost.
-    // start() already retried with backoff and left the reconnect loop armed;
+    // start() makes one attempt and leaves the reconnect loop armed;
     // onReconnect resubscribes and resnapshots when herdr comes back.
     try {
         await client.start();

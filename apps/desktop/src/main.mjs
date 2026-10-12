@@ -167,7 +167,7 @@ function reopenPairingSoon() {
     }, PAIRING_REOPEN_MS);
 }
 
-function startPairing() {
+function startPairing(announce = false) {
     if (reopenTimer !== undefined) { clearTimeout(reopenTimer); reopenTimer = undefined; }
     const previous = pairing;
     pairing = undefined;
@@ -178,6 +178,7 @@ function startPairing() {
         // is there, unless a newer start (Try again, a reopen) has taken over.
         if (attempt !== pairingAttempt || runtime === undefined) return;
         if (!existsSync(runtime.pairSocketPath)) { setTimeout(connect, 300); return; }
+        if (announce) send({ phase: 'online', message: 'Ready to pair' });
         let client;
         client = openPairingSocket(runtime.pairSocketPath, {
             onOffer: (offer) => send(offerState(offer)),
@@ -199,7 +200,7 @@ async function startRuntime() {
         else if (event.phase === 'starting') send({ phase: 'starting' });
         else if (event.phase === 'stalled') reportFailure('host still starting', 'no online report yet', STALLED_MESSAGE);
         else if (event.phase === 'already-running') send({ phase: 'already-running', message: event.message, canRetry: event.canRetry === true });
-        else if (event.phase === 'online') { send({ phase: 'online', message: 'Ready to pair' }); startPairing(); }
+        else if (event.phase === 'online') startPairing(true);
     });
     runtime.on('log', (_label, chunk) => process.stdout.write(chunk));
     try { await runtime.start(); }
