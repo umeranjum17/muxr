@@ -53,10 +53,11 @@ export function FirstAgentCard() {
     const [dismissed, setDismissed] = useLocalSettingMutable('firstAgentCardDismissed');
     const [offer, setOffer] = React.useState<FirstAgentOffer | undefined>();
     const [error, setError] = React.useState<string | undefined>();
+    const [startFailed, setStartFailed] = React.useState(false);
     const check = React.useCallback(async (refresh: boolean) => {
         try {
-            const { options } = resolveAgentCatalog(await sync.request('herdr.agentKinds', { refresh }));
-            setOffer(firstAgentOffer(options));
+            const { options, authoritative } = resolveAgentCatalog(await sync.request('herdr.agentKinds', { refresh }));
+            setOffer(authoritative ? firstAgentOffer(options) : undefined);
             setError(undefined);
         } catch {
             // Without a catalog the card keeps its plain invitation to the picker;
@@ -77,6 +78,7 @@ export function FirstAgentCard() {
             worktree: false,
         });
         if (result.error === undefined) return;
+        setStartFailed(true);
         await check(true);
         setError(result.error);
     };
@@ -86,7 +88,8 @@ export function FirstAgentCard() {
     if (offer?.step === 'sign-in') body = `Sign in to ${name} on your computer, then tap Check again.`;
     if (offer?.step === 'choose') body = `Choose ${name} to start it, and sign in on your computer if it asks.`;
     if (offer?.step === 'install') body = 'Install a coding agent such as Claude Code on your computer, then tap Check again.';
-    const needsCheck = offer?.step === 'sign-in' || offer?.step === 'install' || error !== undefined;
+    const oneTap = offer?.step === 'start' && !startFailed;
+    const checkable = offer?.step === 'sign-in' || offer?.step === 'install' || startFailed;
     return (
         <View style={[styles.card, cardStyle(theme)]}>
             <View style={styles.row}>
@@ -96,15 +99,15 @@ export function FirstAgentCard() {
             <Text style={styles.body}>{body}</Text>
             {error !== undefined && <Text style={[styles.body, { color: theme.colors.deleteAction }]}>{error}</Text>}
             <View style={styles.actions}>
-                {needsCheck ? (
-                    <ActionButton title="Check again" icon="refresh-outline" action={() => check(true)} />
-                ) : offer?.step === 'start' ? (
+                {oneTap ? (
                     <ActionButton title={`Start ${name}`} icon="play-circle-outline" wrap action={() => start(offer.kind)} />
+                ) : checkable ? (
+                    <ActionButton title="Check again" icon="refresh-outline" action={() => check(true)} />
                 ) : null}
                 <ActionButton
                     title={offer?.step === 'start' ? 'Choose another agent' : offer === undefined ? 'Start an agent' : 'Choose an agent'}
                     icon="add-circle-outline"
-                    variant={offer?.step === 'start' || needsCheck ? 'secondary' : 'primary'}
+                    variant={offer?.step === 'start' || checkable ? 'secondary' : 'primary'}
                     wrap
                     onPress={choose}
                 />

@@ -61,15 +61,11 @@ export async function startNewAgent(input: {
     let createCwd = false;
     for (;;) {
         const result = await startAgent({ ...input, createCwd });
-        if (result.ok) {
-            navigateToSession(router, result.agentRoute);
-            return {};
-        }
         if (result.agentRoute !== undefined) {
             navigateToSession(router, result.agentRoute);
             return {};
         }
-        if (result.reason === 'needs-directory' && !createCwd) {
+        if (!result.ok && result.reason === 'needs-directory' && !createCwd) {
             createCwd = await Modal.confirm(
                 'Create directory?',
                 `${input.directory} does not exist. Create it?`,
@@ -78,6 +74,6 @@ export async function startNewAgent(input: {
             if (createCwd) continue;
             return { cancelled: true };
         }
-        return { error: result.message };
+        return { error: result.ok ? undefined : result.message };
     }
 }

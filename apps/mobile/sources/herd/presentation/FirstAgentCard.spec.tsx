@@ -162,6 +162,11 @@ it('a failed one-tap start re-reads readiness and never offers the same Start ag
     expect(texts(screen)).toContain('Sign in to Claude Code on your computer, then tap Check again.');
     expect(() => button(screen, 'Start Claude Code')).toThrow();
     expect(button(screen, 'Check again')).toBeTruthy();
+
+    host.readiness = { claude: { signedIn: 'yes' } };
+    await TestRenderer.act(async () => { button(screen, 'Check again').props.onPress(); });
+    expect(() => button(screen, 'Start Claude Code')).toThrow();
+    expect(button(screen, 'Check again')).toBeTruthy();
 });
 
 it('a start that failed after its agent was created opens that agent, not a second Start', async () => {
