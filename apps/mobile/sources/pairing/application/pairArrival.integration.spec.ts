@@ -85,7 +85,7 @@ vi.mock('@/text', () => ({
         const copy: Record<string, string> = {
             'pairing.busy': 'Pairing…',
             'pairing.connecting': 'Connecting securely to your computer…',
-            'pairing.compareWords': `Check that ${params?.name} shows these two words, then press y on the computer.`,
+            'pairing.compareWords': `Check that ${params?.name} shows these two words, then approve on your computer.`,
             'pairing.paired': `Paired with ${params?.name}.`,
         };
         return copy[key] ?? key;
@@ -349,7 +349,7 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
 
     // No camera scanner (a simulator), or one that failed to open (an older
     // iPad): paste leads and the page says why.
-    const cantScan = () => nodes((node) => node.type === 'Text' && node.props.children === "This phone can't scan a QR, so paste the pairing string from muxr pair.");
+    const cantScan = () => nodes((node) => node.type === 'Text' && node.props.children === "This phone can't scan a QR, so paste the pairing string muxr shows on your computer.");
     harness.camera.available = false;
     await open({});
     expect(labels()).not.toContain('Scan the QR');

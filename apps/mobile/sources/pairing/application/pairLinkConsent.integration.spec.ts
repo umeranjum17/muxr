@@ -89,7 +89,7 @@ describe('pairLinkOffer consent', () => {
         expect(declined).toBe(false);
         expect(harness.confirms).toHaveLength(1);
         expect(harness.confirms[0]?.body).toContain('This iPhone can see and change things on Desk');
-        expect(harness.confirms[0]?.body).toContain('Only continue if you just ran muxr on that computer');
+        expect(harness.confirms[0]?.body).toContain('Only continue if you just started pairing in muxr on that computer');
     });
 });
 

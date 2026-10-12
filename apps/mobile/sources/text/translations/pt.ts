@@ -205,7 +205,7 @@ export const pt: TranslationStructure = {
     pairing: {
         busy: 'Emparelhando…',
         connecting: 'Conectando com segurança ao seu computador…',
-        compareWords: ({ name }: { name: string }) => `Verifique se ${name} mostra estas duas palavras e depois pressione y no computador.`,
+        compareWords: ({ name }: { name: string }) => `Verifique se ${name} mostra estas duas palavras e depois aprove no computador.`,
         paired: ({ name }: { name: string }) => `Emparelhado com ${name}.`,
     },
 
