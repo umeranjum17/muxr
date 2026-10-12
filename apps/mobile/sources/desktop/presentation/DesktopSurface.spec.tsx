@@ -544,3 +544,42 @@ it('lets a watch-paired phone see the emulator but never drive it', async () => 
 
     await TestRenderer.act(async () => view.unmount());
 });
+
+it('keeps the mirror view up when the host announces a preview kind this build does not know', async () => {
+    available = false;
+    keyboardVisible = false;
+    session.snapshot.status = 'live';
+    inputEnabled = false;
+    hostRequests.length = 0;
+    session.connect.mockClear();
+    session.close.mockClear();
+    const onExit = vi.fn();
+    let view!: ReturnType<typeof TestRenderer.create>;
+    const root = () => view.root as Rendered;
+    const has = (label: string) => root().findAllByProps({ accessibilityLabel: label }).length > 0;
+
+    // A newer host announces a device this build cannot name. The view must
+    // stay up rather than index a gesture, key or copy table this build lacks.
+    requestDesktop('computer', 'W', true);
+    await TestRenderer.act(async () => {
+        view = TestRenderer.create(
+            <DesktopSurface sessionId="W" onExit={onExit} target={{ sessionId: 'W', kind: 'web' as unknown as 'android', title: 'Chromium' }} />,
+        );
+    });
+    expect(session.connect).toHaveBeenCalledTimes(1);
+    expect(has('Back to the conversation')).toBe(true);
+    expect(has('Device preview, Chromium, Live')).toBe(true);
+
+    // Help falls back to the general desktop gestures, not a device's.
+    await TestRenderer.act(async () => root().findAllByProps({ accessibilityLabel: 'Device preview actions' }).at(-1)!.props.onPress());
+    await TestRenderer.act(async () => root().findAllByProps({ accessibilityLabel: 'Gestures' }).at(-1)!.props.onPress());
+    expect(has('Double-tap: Double-click')).toBe(true);
+    expect(has('Two fingers: Scroll')).toBe(true);
+
+    // The toolbar shows no device keys: no Android Back/Home/Recents, no iOS Home.
+    expect(has('Back')).toBe(false);
+    expect(has('Home')).toBe(false);
+    expect(has('Recents')).toBe(false);
+
+    await TestRenderer.act(async () => view.unmount());
+});

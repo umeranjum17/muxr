@@ -20,7 +20,7 @@ import { hapticsSelection } from '@/components/haptics';
 import { claimDesktopRequest, peekDesktopRequest, previewDocks, requestDesktop } from '../request';
 import { createDesktopSignaling } from '../application/desktopSignaling';
 import { desktopCopy, previewCopy, previewIcon } from '../model/desktopCopy';
-import { describeDesktopFailureDetail, describeDesktopOverlay, describeInputRejection, describePreviewOverlay, type PreviewKind } from '../model/desktopOverlay';
+import { describeDesktopFailureDetail, describeDesktopOverlay, describeInputRejection, describePreviewOverlay, knownPreviewKind, previewKindCopy, type PreviewKind } from '../model/desktopOverlay';
 import { DESKTOP_KEY_ROW_HEIGHT, DesktopKeyRow } from './DesktopKeyRow';
 
 /** Request smoother motion than the engine's default; still frames are not repeated. */
@@ -84,6 +84,8 @@ const PREVIEW_KEYS: Record<PreviewKind, readonly { label: string; icon: Icon; na
         { label: 'Home', icon: 'ellipse-outline', character: 'h', modifiers: ['Control'] },
     ],
 };
+
+type PreviewKey = (typeof PREVIEW_KEYS)[PreviewKind][number];
 
 /** The toolbar's discs and the band they sit in, above the home indicator. */
 const DISC = 40;
@@ -162,8 +164,10 @@ export function DesktopSurface(props: DesktopSurfaceProps) {
 function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked }: DesktopSurfaceProps & { docked: boolean }) {
     const { theme } = useUnistyles();
     const preview = target !== undefined;
-    // Only read on the preview path, where the target always names its kind.
-    const kind: PreviewKind = target?.kind ?? 'android';
+    // Resolve the host's kind once. A kind this build does not know still
+    // renders the preview — the general gestures, no device keys — rather than
+    // indexing a gesture, key or copy table that lacks it.
+    const kind: PreviewKind | null = target === undefined ? null : knownPreviewKind(target.kind);
     const closed = target?.closed === true;
     const targetSession = target?.sessionId;
     // A phone paired to watch sees an agent's device preview but never drives it.
@@ -535,7 +539,11 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
         ? Math.ceil((openSentAt + DESKTOP_CONSENT_WAIT_MS - now) / 1000)
         : null;
     const described = describeDesktopOverlay(snapshot, openedBefore, consentSecondsLeft);
-    const copy = previewCopy[kind];
+    const copy = previewKindCopy(kind);
+    // A kind this build does not know gets the general gestures and no device
+    // keys, so a newer host's unnamed device never blanks the view.
+    const helpGestures: readonly [gesture: string, effect: string][] = kind === null ? GESTURES : PREVIEW_GESTURES[kind];
+    const toolbarKeys: readonly PreviewKey[] = kind === null ? [] : PREVIEW_KEYS[kind];
     // A device preview the app put back on its own waits for Watch, like the desktop.
     const previewStatus = !preview ? null
         : !started && !closed ? { title: copy.name, detail: target?.title, spinner: false, action: { label: 'Watch', exit: false } }
@@ -820,7 +828,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
 
                 {menu === 'help' && popupReady && (
                     <Animated.View entering={popIn} exiting={popOut} style={[card, styles.topCard, { width: Math.min(windowWidth - 16, 320) }]}>
-                        {(preview ? PREVIEW_GESTURES[kind] : GESTURES).map(([gesture, effect]) => (
+                        {helpGestures.map(([gesture, effect]) => (
                             <View key={gesture} style={[styles.helpRow, compact && styles.compactHelpRow]} accessible accessibilityLabel={`${gesture}: ${effect}`}>
                                 <Text style={[styles.helpGesture, { color: theme.colors.textSecondary }]}>{gesture}</Text>
                                 <Text style={[styles.helpEffect, { color: theme.colors.text }]}>{effect}</Text>
@@ -865,7 +873,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                                 </View>
                             </View>
                         )}
-                        {PREVIEW_KEYS[kind].map((key) => (
+                        {toolbarKeys.map((key) => (
                             <Pressable key={key.label} onPress={() => pressToolbarKey(key)} disabled={!live || viewOnly} accessibilityRole="button" accessibilityLabel={key.label} style={({ pressed }) => [disc(pressed), (!live || viewOnly) && styles.disabled]}>
                                 <Ionicons name={key.icon} size={18} color={theme.colors.text} />
                             </Pressable>
