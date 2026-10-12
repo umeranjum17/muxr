@@ -889,6 +889,19 @@ export async function createHerdrSessionSource(
         };
     }
 
+    /**
+     * A working pane's terminal title animates about twice a second
+     * (`Pi 1 · 14`). The trailing counter names no work, but once it reaches
+     * two digits it survives agentTask's noise filter (a single digit drops
+     * as too short) and flips this session's emit signature on every
+     * snapshot, re-emitting session.updated for panes that did not change.
+     * Strip the tick so an unchanged session stays silent.
+     */
+    function stripTitleTick(title: string | null | undefined): string | null | undefined {
+        if (title === null || title === undefined) return title;
+        return title.replace(/\s+[-\u2013\u2014|\u00b7]\s+\d+\s*$/u, '');
+    }
+
     /** What the agent is working on, by the shared rule in `agentTask`. */
     function taskTitleForSession(session: CurrentSession): string | undefined {
         const workspaceId = session.agent?.workspace_id ?? session.pane.workspace_id;
@@ -897,7 +910,7 @@ export async function createHerdrSessionSource(
             && [...agentsByPane.values()].filter((agent) => agent.workspace_id === workspaceId).length === 1;
         return agentTask({
             label: session.pane.label,
-            terminalTitle: session.pane.terminal_title_stripped,
+            terminalTitle: stripTitleTick(session.pane.terminal_title_stripped),
             title: session.agent?.title,
             workspaceLabel: soleAgent ? workspacesById.get(workspaceId)?.label : undefined,
             agentName: session.agent?.name,
