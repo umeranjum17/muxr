@@ -11,8 +11,8 @@ a simulator an agent pane claimed with `muxr preview claim`:
 
 - `sim-video stream` carries the simulator's framebuffer as Annex-B H.264 (and
   takes `{"method":"force_keyframe"}` on stdin).
-- `idb_companion` holds one long-lived HID stream for touch and the Home
-  button. It needs the archive's Swift bundles, which is why the whole
+- `idb_companion` holds one long-lived HID stream for touch and the Home and
+  Lock buttons. It needs the archive's Swift bundles, which is why the whole
   archive ships rather than `sim-video` alone.
 
 Nothing here runs on Linux.

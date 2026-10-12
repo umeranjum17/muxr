@@ -314,7 +314,10 @@ export function spsSize(stream: Buffer): { width: number; height: number } | und
 
 // Hand-encoded idb.proto (v1.6.5): HIDEvent{press=1}, HIDPress{action=1,
 // direction=2 (DOWN=0, UP=1)}, HIDPressAction{touch=1, button=2},
-// HIDTouch{point=1}, Point{x=1, y=2 doubles}, HIDButton{button=1, HOME=1}.
+// HIDTouch{point=1}, Point{x=1, y=2 doubles}, HIDButton{button=1}, and
+// HIDButtonType HOME=1, LOCK=2.
+const HOME_BUTTON = 1;
+const LOCK_BUTTON = 2;
 const varint = (value: number): Buffer => {
     const out: number[] = [];
     while (value > 127) {
@@ -343,8 +346,8 @@ export function hidTouch(down: boolean, x: number, y: number): Buffer {
     return grpcFrame(field(1, Buffer.concat([field(1, field(1, field(1, point))), enumField(2, down ? 0 : 1)])));
 }
 
-export function hidHomeButton(down: boolean): Buffer {
-    return grpcFrame(field(1, Buffer.concat([field(1, field(2, enumField(1, 1))), enumField(2, down ? 0 : 1)])));
+export function hidButton(button: number, down: boolean): Buffer {
+    return grpcFrame(field(1, Buffer.concat([field(1, field(2, enumField(1, button))), enumField(2, down ? 0 : 1)])));
 }
 
 const COMPANION_START_TIMEOUT_MS = 15_000;
@@ -870,14 +873,26 @@ export class IosMirrors implements DeviceMirrors {
                 return;
             }
             case 'key': {
-                // The toolbar's Home (Ctrl+H, as on Android); other keys wait for a keyboard slice.
-                const control = (input.modifiers ?? []).some((modifier) => modifier.toLowerCase() === 'control');
-                if (control && input.character === 'h') hid?.send(hidHomeButton(input.down));
+                const frame = this.deviceKey(input);
+                if (frame !== undefined) hid?.send(frame);
                 return;
             }
             default:
                 return;
         }
+    }
+
+    /**
+     * The preview toolbar's device keys, the same chord surface the Android
+     * mirror maps: Ctrl+H is Home and Ctrl+L is Lock. Anything else is not a
+     * device key and is ignored in v1.
+     */
+    deviceKey(input: Extract<EncodedInput, { kind: 'key' }>): Buffer | undefined {
+        const control = (input.modifiers ?? []).some((modifier) => modifier.toLowerCase() === 'control');
+        if (!control) return undefined;
+        if (input.character === 'h') return hidButton(HOME_BUTTON, input.down);
+        if (input.character === 'l') return hidButton(LOCK_BUTTON, input.down);
+        return undefined;
     }
 
     engineFor(udid: string): EncodedEngine | undefined {
