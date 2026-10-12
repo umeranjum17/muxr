@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, View, Text, Pressable } from 'react-native';
+import { Platform, View, Text, Pressable, useWindowDimensions } from 'react-native';
 import { BaseModal } from '@/modal/components/BaseModal';
 import { AlertModalConfig, ConfirmModalConfig } from '@/modal/types';
 import { Typography } from '@/constants/Typography';
@@ -31,7 +31,12 @@ type WebAlertModalContentProps = Omit<WebAlertModalProps, 'surface'>;
 
 function WebAlertModalContent({ config, onClose, onConfirm, opaque }: WebAlertModalContentProps) {
     const { theme } = useUnistyles();
+    const { width: windowWidth } = useWindowDimensions();
     const isConfirm = config.type === 'confirm';
+    // The dialog is 270 wide, but on the narrowest phones (a 270 dp viewport)
+    // that fills the screen edge to edge. Keep a plain side inset so it never
+    // touches the edges, while wider screens keep the fixed 270 width.
+    const dialogWidth = Math.min(270, Math.max(160, Math.round(windowWidth - 48)));
     
     const handleButtonPress = (buttonIndex: number) => {
         if (isConfirm && onConfirm) {
@@ -60,7 +65,7 @@ function WebAlertModalContent({ config, onClose, onConfirm, opaque }: WebAlertMo
                     default: theme.colors.surface,
                 }),
             borderRadius: 14,
-            width: 270,
+            width: dialogWidth,
             overflow: 'hidden',
             borderWidth: Platform.OS === 'web' ? 0 : StyleSheet.hairlineWidth,
             borderColor: theme.colors.glass.border,
