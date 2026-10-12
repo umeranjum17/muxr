@@ -372,7 +372,8 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     // code reaches consent by itself, and a Connect tap in the same moment
     // does not start a second review.
     await open({ source: 'settings' });
-    const field = () => nodes((node) => node.type === 'TextInput' && node.props.accessibilityLabel === 'Pairing string')[0]!;
+    const fields = () => nodes((node) => node.type === 'TextInput' && node.props.accessibilityLabel === 'Pairing string');
+    const field = () => fields()[0]!;
     const type = async (value: string) => {
         await mod.renderer.act(async () => { (field().props.onChangeText as (next: string) => void)(value); });
         await settle();
@@ -384,7 +385,11 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     await mod.renderer.act(async () => { (field().props.onSubmitEditing as () => void)(); });
     await settle();
     expect(alerts()).toContain('This string is cut off. Copy all of it, or scan the QR.');
-    // The field empties, so the whole code pasted next is not joined onto the cut one.
+    // After a failed code the one paste path is Paste the new code; the field
+    // comes back, empty, only when the clipboard holds no code.
+    expect(fields()).toHaveLength(0);
+    harness.clipboard = 'not a pairing code';
+    await press('Paste the new code');
     expect(field().props.value).toBe('');
     const claims = harness.claims;
     await mod.renderer.act(async () => {
@@ -403,7 +408,7 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     await open({ source: 'settings' });
     await type(machineOffer(12, { expires: Date.now() - 1_000 }));
     expect(alerts()).toContain('That pairing code has run out. Show a new one on your computer.');
-    expect(field().props.value).toBe('');
+    expect(fields()).toHaveLength(0);
     harness.clipboard = machineOffer(13);
     await press('Paste the new code');
     expect(labels()).toContain('Pair');

@@ -75,6 +75,9 @@ export default function PairScreen() {
     const [state, setState] = React.useState<PairState | undefined>(undefined);
     const [progress, setProgress] = React.useState<PairingProgress>();
     const [pairingValue, setPairingValue] = React.useState('');
+    // After a failed code the one way on is Paste the new code; the field comes
+    // back only when that paste fails (no clipboard access, or no code on it).
+    const [pasteFailed, setPasteFailed] = React.useState(false);
     // The SSH-fluent route from the first-run chooser: the existing Direct SSH
     // fields open immediately, before any QR. Pairing itself is unchanged —
     // these details only decide which route the bytes take afterwards.
@@ -261,10 +264,15 @@ export default function PairScreen() {
     // One tap after a failed code: the computer already shows a fresh one.
     const pasteNewCode = React.useCallback(() => {
         void Clipboard.getStringAsync().then((text) => {
+            if (!decidePairingInput(text).ok) setPasteFailed(true);
             setPairingValue(text);
             submitManual(text);
-        }, (cause: unknown) => setState({ phase: 'error', message: `Couldn't read the clipboard: ${cause instanceof Error ? cause.message : String(cause)}` }));
+        }, (cause: unknown) => {
+            setPasteFailed(true);
+            setState({ phase: 'error', message: `Couldn't read the clipboard: ${cause instanceof Error ? cause.message : String(cause)}` });
+        });
     }, [submitManual]);
+    React.useEffect(() => { if (state?.phase !== 'error') setPasteFailed(false); }, [state?.phase]);
 
     const cancel = React.useCallback(() => {
         if (openedFromSettings) router.back();
@@ -279,6 +287,7 @@ export default function PairScreen() {
     }, [openedFromSettings, router]);
 
     const manualForm = state === undefined || state.phase === 'error' && state.url === undefined;
+    const showField = state?.phase !== 'error' || sshRoute || pasteFailed;
     // An error leads the card, a screen above the field at a large font on a short phone: bring it into view
     // once the keyboard has closed, or the scroll view's own keyboard adjustment moves it away again.
     const scrollRef = React.useRef<KeyboardAwareScrollViewRef>(null);
@@ -420,32 +429,35 @@ export default function PairScreen() {
                         {!browser && !canScan && !sshRoute && (
                             <Text style={styles.routeHint}>{`This ${pairingDeviceNoun()} can't scan a QR, so paste the pairing string muxr shows on your computer.`}</Text>
                         )}
-                        {/* A browser's paste lands in the field below without a clipboard prompt, so it keeps only that. */}
-                        {state?.phase === 'error' && !sshRoute && !browser && (
+                        {state?.phase === 'error' && !sshRoute && (
                             <ActionButton title="Paste the new code" icon="clipboard-outline" variant={canScan ? 'secondary' : 'primary'} wrap onPress={pasteNewCode} />
                         )}
-                        <Text style={styles.inputLabel}>{browser ? 'Pairing code' : sshRoute ? 'Pairing string from muxr pair' : canScan ? 'Or paste the pairing string' : 'Paste the pairing string'}</Text>
-                        <TextInput
-                            accessibilityLabel="Pairing string"
-                            testID={sshRoute ? "ssh-pairing-offer" : undefined}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                            keyboardType="url"
-                            placeholder="Paste it here"
-                            placeholderTextColor={styles.inputPlaceholder.color}
-                            returnKeyType="go"
-                            style={styles.input}
-                            value={pairingValue}
-                            onChangeText={changePairingValue}
-                            onSubmitEditing={connectManual}
-                        />
-                        <Text style={styles.routeHint}>{browser
-                            ? 'Paste the pairing code from muxr on your computer.'
-                            : sshRoute
-                                ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
-                                : canScan
-                                    ? `If you can't point this ${pairingDeviceNoun()} at that screen, copy the pairing string shown there.`
-                                    : 'Copy it from muxr on your computer.'}</Text>
+                        {showField && (
+                            <>
+                                <Text style={styles.inputLabel}>{browser ? 'Pairing code' : sshRoute ? 'Pairing string from muxr pair' : canScan ? 'Or paste the pairing string' : 'Paste the pairing string'}</Text>
+                                <TextInput
+                                    accessibilityLabel="Pairing string"
+                                    testID={sshRoute ? "ssh-pairing-offer" : undefined}
+                                    autoCapitalize="none"
+                                    autoCorrect={false}
+                                    keyboardType="url"
+                                    placeholder="Paste it here"
+                                    placeholderTextColor={styles.inputPlaceholder.color}
+                                    returnKeyType="go"
+                                    style={styles.input}
+                                    value={pairingValue}
+                                    onChangeText={changePairingValue}
+                                    onSubmitEditing={connectManual}
+                                />
+                                <Text style={styles.routeHint}>{browser
+                                    ? 'Paste the pairing code from muxr on your computer.'
+                                    : sshRoute
+                                        ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
+                                        : canScan
+                                            ? `If you can't point this ${pairingDeviceNoun()} at that screen, copy the pairing string shown there.`
+                                            : 'Copy it from muxr on your computer.'}</Text>
+                            </>
+                        )}
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
                 )}
@@ -459,7 +471,7 @@ export default function PairScreen() {
                 <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
-        {!sshRoute && manualForm && (
+        {!sshRoute && manualForm && showField && (
             // Same anchored bar as the SSH route: the manual Connect must stay
             // above the keyboard on short viewports.
             <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
