@@ -105,7 +105,7 @@ describe('desktop runtime self-host state', () => {
 
     it('offers Try again while a slow host starts, then follows it online', async () => {
         // A computer with no Herdr brings its host up late. The window must
-        // follow the host's own online report, not give up on a timer.
+        // follow the host's own online report, and Ready waits for its pairing socket too.
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-slow-'));
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
         const relayEntry = join(home, 'relay-fixture.mjs');
@@ -114,10 +114,10 @@ describe('desktop runtime self-host state', () => {
         writeFileSync(hostEntry, [
             "import { mkdirSync, writeFileSync } from 'node:fs';",
             "import { join } from 'node:path';",
+            'setTimeout(() => process.stdout.write(\'link relay: online\\n\'), 100);',
             'setTimeout(() => {',
             "    mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
             "    writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
-            "    process.stdout.write('link relay: online\\n');",
             '}, 1500);',
             'setInterval(() => {}, 1000);',
             '',
