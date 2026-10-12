@@ -14,9 +14,9 @@ import { enrollMachine } from '../application/enrollMachine.mjs';
 import { listMachines } from '../application/listMachines.mjs';
 import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
-import { inspectTailscaleServeRoot, reachTailscaleOptions, selfhostPath, tailscaleBin } from '../infrastructure/selfhost.mjs';
-import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting } from '../domain/dist/index.js';
-import { relayPortFromEnv } from '../infrastructure/runtime.mjs';
+import { inspectTailscaleServeRoot, readSelfhostState, reachTailscaleOptions, selfhostPath, tailscaleBin } from '../infrastructure/selfhost.mjs';
+import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting, parseEnrollment } from '../domain/dist/index.js';
+import { env, relayPortFromEnv } from '../infrastructure/runtime.mjs';
 
 function command(name, args = []) {
     const result = spawnSync(name, args, { encoding: 'utf8', timeout: 15_000 });
@@ -214,6 +214,8 @@ const herdr = () => process.env.HERDR_BIN?.trim() || 'herdr';
 
 // Plain-words name for a connection mode, used anywhere the topology is stated.
 const RELAY_KIND = {
+    relay: 'Works anywhere (muxr relay)',
+    remote: 'Works anywhere (muxr relay)',
     tailscale: 'Away from home (Tailscale)',
     'tailscale-direct': 'Away from home — phone only (Tailscale)',
     private: 'Away from home (private network)',
@@ -237,6 +239,12 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
     else if (tailscalePlanned) tailscaleSentence = 'Sign-in happens next; your phone also needs the Tailscale app, signed in to the same account.';
     else if (!tailscaleAvailable) tailscaleSentence = `Install the free Tailscale app on this computer and your phone and sign in on both, so your phone reaches this computer from anywhere, then rerun setup: ${TAILSCALE_INSTALL_URL}.`;
     return [
+        // Offered only with an enrollment in hand: the relay is reached by
+        // dialing out, so nothing on this computer needs to be open.
+        ...(found.relay ? [{
+            value: 'relay', title: 'Works anywhere',
+            description: 'Your phone reaches this computer through the muxr relay, on any network. Nothing to open or install on this computer.',
+        }] : []),
         {
             value: 'lan', title: 'Works only on this Wi-Fi',
             description: found.lan
@@ -275,6 +283,7 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
 }
 
 export function recommendedConnection(found, current, tailscalePlanned, serveRoot) {
+    if (found.relay) return { mode: 'relay', title: 'Works anywhere', description: 'through the muxr relay; nothing to open on this computer' };
     if (found.tailscale.connected) {
         const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
         return direct
@@ -373,7 +382,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         note('WARNING: this route works only while the phone stays on this home network — it will NOT work away from home. To use muxr away from home, rerun `muxr setup` and choose an away-from-home route.');
         note('Nearby discovery can help a previously paired native app find this relay again on the same LAN. A new device still needs the one-time QR or pairing string.');
     }
-    if (!['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(mode)) {
+    if (!['relay', 'tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(mode)) {
         process.stderr.write(`unknown setup mode: ${mode}\n`);
         return 1;
     }
@@ -393,6 +402,13 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         process.stderr.write(`cloudflared is unavailable: ${found.cloudflared.detail}; pick a different relay\n`);
         return 1;
     }
+    // The relay route has no local port, browser or pairing choices: the
+    // enrollment names the relay, and the phone pairs right after it joins.
+    if (mode === 'relay' && !found.relay) {
+        process.stderr.write('the relay route needs an enrollment; pass --enrollment <muxr://enroll?...>\n');
+        return 1;
+    }
+    if (mode === 'relay') return { mode, port: plannedPort, endpoint: found.relay.relay, web: false, pairing: 'phone', syncIntegrations: false };
 
     const port = plannedPort;
     if (!Number.isInteger(port) || port < 1024 || port > 65535) {
@@ -558,14 +574,31 @@ export async function applyMachineSetup(args = []) {
         outro('Inspection complete. Nothing changed.');
         return 0;
     }
+    // An enrollment makes the dial-out relay route available and the default.
+    // The installer's hand-off is for a computer with no muxr yet; it is
+    // one-use, so a later run on a set-up computer ignores it.
+    const enrollment = value(args, '--enrollment') ?? (readSelfhostState() === undefined ? env('MUXR_ENROLLMENT') : undefined);
+    let relay;
+    if (enrollment !== undefined) {
+        const parsed = parseEnrollment(enrollment);
+        if (parsed.ok) relay = { ...parsed.value, raw: enrollment.trim() };
+        else if (scripted) { process.stderr.write(`${parsed.reason}\n`); return 1; }
+        else status('muxr relay', `${parsed.reason}; choose another way below`, 'warn');
+    }
     if (scripted) {
         const prerequisites = await runLocalPrerequisites(args);
         if (prerequisites !== 0) return prerequisites;
+        if (relay !== undefined && args.includes('--dry-run')) {
+            process.stdout.write(`  would join the muxr relay at ${new URL(relay.relay).host}\n`);
+            return 0;
+        }
+        if (relay !== undefined) return connectEnrollment(['--enrollment', relay.raw, ...args]);
         return startSelfHost(args);
     }
 
     return withFullscreen(async () => {
     const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => probeMachine());
+    found.relay = relay;
     const current = await selfhostPublicSummary();
     // A first run skips the browser-client, pairing, and status-updates
     // questions and keeps their defaults; they stay reachable from the
@@ -607,6 +640,9 @@ export async function applyMachineSetup(args = []) {
             ...(plan.mode === 'lan'
                 ? ['This works only on this Wi-Fi and stops working when you leave home.']
                 : []),
+            ...(plan.mode === 'relay'
+                ? ['This computer dials out to the relay, so nothing on it needs to be open. It works through firewalls and away from home.']
+                : []),
             'No change is made until you choose Apply setup.',
         ]);
     } else {
@@ -644,16 +680,21 @@ export async function applyMachineSetup(args = []) {
     ];
     const prerequisites = await runLocalPrerequisites(prerequisiteArgs);
     if (prerequisites !== 0) return prerequisites;
-    status('Network', 'checking Tailscale Serve ownership and local relay port', 'off');
-    let result = 1;
-    for (;;) {
-        const recovered = await recoverTailscaleServe({ plan, found });
-        if (recovered === undefined) return stoppedAfterApply();
-        plan = recovered;
-        result = await startSelfHost(selfhostArgsFromSetupPlan({ ...plan, found }));
-        if (result === 0) break;
-        const failedServe = plan.mode === 'tailscale' ? (await serveRootFor(found, plan.port)).status : undefined;
-        if (failedServe !== 'occupied' && failedServe !== 'disabled') return result;
+    if (plan.mode === 'relay') {
+        // Joins the relay, starts the host and shows the pairing code.
+        const joined = await connectEnrollment(['--enrollment', found.relay.raw, ...(current === undefined ? [] : ['--force'])]);
+        if (joined !== 0) return joined;
+    } else {
+        status('Network', 'checking Tailscale Serve ownership and local relay port', 'off');
+        for (;;) {
+            const recovered = await recoverTailscaleServe({ plan, found });
+            if (recovered === undefined) return stoppedAfterApply();
+            plan = recovered;
+            const result = await startSelfHost(selfhostArgsFromSetupPlan({ ...plan, found }));
+            if (result === 0) break;
+            const failedServe = plan.mode === 'tailscale' ? (await serveRootFor(found, plan.port)).status : undefined;
+            if (failedServe !== 'occupied' && failedServe !== 'disabled') return result;
+        }
     }
     const { mode, endpoint, port, pairing } = plan;
     await approveScreenSharing({ pairingDone: pairing !== 'none' });
@@ -669,13 +710,16 @@ export async function applyMachineSetup(args = []) {
             ...(mode === 'lan'
                 ? ['This works only on this Wi-Fi and stops working when you leave home.']
                 : []),
+            ...(mode === 'relay'
+                ? ['Nothing on this computer is open to the network; it works through firewalls and away from home.']
+                : []),
         ]);
     } else {
     note([
         `Your host runs here. Phones reach it over ${relayKind(mode)}.${pairing === 'none' ? ' Pair with `muxr pair` when ready.' : ''}`,
         `Connection: ${connectionLabel(mode, endpoint, port)}`,
         `Selected route: ${relayKind(mode)}`,
-        'Relay location: this machine',
+        `Relay location: ${mode === 'relay' ? 'the muxr relay; this computer dials out to it' : 'this machine'}`,
         `Relay URL: ${summary?.relayUrl ?? 'unavailable'}`,
         `Web URL: ${summary?.webUrl ?? 'off'}`,
         `Relay service: ${summary?.relayHealthy ? 'running' : 'check required'}`,
@@ -821,13 +865,9 @@ export async function hostSharedRelay() {
 }
 
 function describeEnrollment(raw) {
-    try {
-        const parsed = new URL(raw.trim());
-        const payload = JSON.parse(Buffer.from(parsed.searchParams.get('payload') ?? '', 'base64url').toString('utf8'));
-        if (parsed.protocol !== 'muxr:' || parsed.hostname !== 'enroll' || payload.v !== 1 || !String(payload.relay).startsWith('wss://')
-            || typeof payload.expires === 'number' && payload.expires <= Date.now()) throw new Error('invalid');
-        return { relay: new URL(payload.relay).origin, web: typeof payload.web === 'string' ? new URL(payload.web).origin : undefined };
-    } catch { throw new Error('paste the complete muxr://enroll string from the shared relay server'); }
+    const parsed = parseEnrollment(raw);
+    if (!parsed.ok) throw new Error(parsed.reason);
+    return { relay: parsed.value.relay, web: parsed.value.web };
 }
 
 export async function connectRemoteRelay() {
