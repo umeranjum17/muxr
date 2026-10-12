@@ -340,17 +340,26 @@ function promptNotSent(cause: unknown): Error {
     return Object.assign(new Error(detail), { code: 'prompt-not-sent', cause });
 }
 
-/** Listed-agent gate. Omitted interactive_ready is ready when lifecycle is live. Starting stays closed. */
-/**
- * Whether the start of a prompt shows on an agent's screen: its first words,
- * short enough not to wrap at phone width, on one screen line.
- */
-function promptOnScreen(screen: string, text: string): boolean {
-    const collapse = (value: string): string => value.replace(/\s+/g, ' ').trim();
-    const head = collapse(text.trim().split('\n')[0] ?? '').slice(0, 16).trim();
-    return head !== '' && screen.split('\n').some((line) => collapse(line).includes(head));
+/** The prompt may have reached the agent, so sending it again could queue it twice. */
+function promptOutcomeUnknown(cause: unknown): Error {
+    return Object.assign(new Error('The prompt outcome could not be confirmed.'), { code: 'prompt-outcome-unknown', cause });
 }
 
+/**
+ * Screen lines that start a prompt: its first words, short enough not to wrap
+ * at phone width, standing as words of their own so `hi` is not in `which`.
+ */
+function promptLines(screen: string, text: string): number {
+    const collapse = (value: string): string => value.replace(/\s+/g, ' ').trim();
+    const first = collapse(text.trim().split('\n')[0] ?? '');
+    const head = first.slice(0, 16).trim();
+    if (head === '') return 0;
+    const escaped = head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`(^|\\W)${escaped}${first.length <= 16 ? '($|\\W)' : ''}`);
+    return screen.split('\n').filter((line) => pattern.test(collapse(line))).length;
+}
+
+/** Listed-agent gate. Omitted interactive_ready is ready when lifecycle is live. Starting stays closed. */
 export function herdrAgentIsPromptable(
     agent: Pick<AgentRecord, 'interactive_ready' | 'launch_pending'>,
     lifecycle: AgentLifecycle,
@@ -2126,14 +2135,18 @@ export async function createHerdrSessionSource(
      * Herdr queues a prompt by typing it, and an agent that reports ready can
      * still drop what is typed while it finishes starting: OpenCode lost a
      * prompt typed 10 s after it reported idle. Herdr's wait names that case:
-     * no working or blocked state within 5 s is `agent_prompt_stalled`. Text
-     * that is not on the agent's screen after a stall never arrived, so type it
-     * again until the agent takes it; text that is on screen is never typed
-     * twice. Undefined means it arrived with no receipt.
+     * no working or blocked state within 5 s is `agent_prompt_stalled`. A
+     * prompt that added no line to the agent's screen never arrived, so type it
+     * again until the agent takes it; one that did is never typed twice.
+     * Undefined means it arrived with no receipt.
      */
     async function deliverPrompt(paneId: string, text: string): Promise<PromptReceipt | undefined> {
         const deadline = Date.now() + PROMPT_DELIVERY_TIMEOUT_MS;
+        // A command can open a dialog instead of a turn; typing it again would run it again.
+        const retype = !text.trimStart().startsWith('/');
+        const linesOnScreen = async (): Promise<number> => promptLines((await client.kit.read(paneId, { source: 'visible' })).text, text);
         for (;;) {
+            const before = retype ? await linesOnScreen().catch((error: unknown) => { throw promptNotSent(error); }) : 0;
             try {
                 return await client.kit.prompt({ paneId }, text, { wait: { until: ['working', 'blocked'], timeoutMs: PROMPT_RECEIPT_TIMEOUT_MS } });
             } catch (error) {
@@ -2143,8 +2156,9 @@ export async function createHerdrSessionSource(
                 // The agent can flap out of promptable while it settles.
                 if (code !== 'agent_prompt_stalled' && code !== 'agent-not-ready') throw error;
                 if (code === 'agent_prompt_stalled') {
-                    const screen = await client.kit.read(paneId, { source: 'visible' }).catch(() => undefined);
-                    if (screen === undefined || promptOnScreen(screen.text, text)) return undefined;
+                    if (!retype) return undefined;
+                    const after = await linesOnScreen().catch((cause: unknown) => { throw promptOutcomeUnknown(cause); });
+                    if (after > before) return undefined;
                 }
                 if (Date.now() >= deadline) {
                     throw code === 'agent-not-ready' ? error : promptNotSent(new Error('The agent did not take the prompt. Send it again.'));
@@ -2193,9 +2207,7 @@ export async function createHerdrSessionSource(
                 throw new Error('The prompt generation changed before its receipt could be confirmed.');
             }
         } catch (cause) {
-            throw Object.assign(new Error('The prompt outcome could not be confirmed.'), {
-                code: 'prompt-outcome-unknown', cause,
-            });
+            throw promptOutcomeUnknown(cause);
         }
     }
 

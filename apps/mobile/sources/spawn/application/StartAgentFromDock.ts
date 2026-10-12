@@ -1,4 +1,3 @@
-import { create } from 'zustand';
 import type { Machine } from '@/catalog';
 import { machineSpawnNewSession } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
@@ -11,6 +10,7 @@ import type { AttachmentPreview } from '@/catalog';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 import { planConnection, samePlanConnection } from '@/plans';
+import { takeQueuedFirstPrompt, useQueuedFirstPrompts } from '@/terminal';
 
 export type StartAgentFromDockCommand = {
     machine: Machine | undefined;
@@ -28,20 +28,6 @@ export type StartAgentFromDockCommand = {
 export type StartAgentFromDockResult =
     | { ok: true; agentRoute: string; promptFailed?: string }
     | { ok: false; reason: 'no-machine' | 'offline' | 'worktree-failed' | 'needs-directory' | 'failed'; message?: string; directory?: string };
-
-/**
- * A Dock prompt the host is still delivering to the agent it just started, by
- * Agent Route. The agent's screen shows it as queued until delivery, and takes
- * the text back into its own draft when delivery fails.
- */
-export const useQueuedFirstPrompts = create<Record<string, { text: string; failed?: true }>>(() => ({}));
-
-export function takeQueuedFirstPrompt(agentRoute: string): void {
-    useQueuedFirstPrompts.setState((queued) => {
-        const { [agentRoute]: _taken, ...rest } = queued;
-        return rest;
-    }, true);
-}
 
 /**
  * The agent is a TUI, so it reaches a file by having its path in the prompt.

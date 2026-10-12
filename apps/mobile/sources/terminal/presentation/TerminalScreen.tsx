@@ -72,7 +72,7 @@ import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
 import { TerminalFailure } from './TerminalFailure';
 import { DictateAction, DictationStrip, useComposerDictation } from '@/components/ComposerDictation';
 import { getCachedConnectionSettings } from '@/connection';
-import { takeQueuedFirstPrompt, useQueuedFirstPrompts } from '@/spawn';
+import { takeQueuedFirstPrompt, useQueuedFirstPrompts } from '../application/queuedFirstPrompts';
 import { displayLink } from '../domain/TerminalLink';
 import { TerminalLinkMenu, terminalLinkCardFits, type LinkAction } from './TerminalLinkMenu';
 import { isTerminalPath, openTerminalLink, safeTerminalLinkUrl } from '../domain/safeTerminalLink';
