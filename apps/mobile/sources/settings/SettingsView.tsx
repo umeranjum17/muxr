@@ -137,9 +137,13 @@ export const SettingsView = React.memo(function SettingsView({
             { confirmText: voiceActive ? 'End voice and switch' : 'Switch', destructive: voiceActive },
         );
         if (!confirmed) return;
-        const activated = await pairMachine({ grant, endVoiceIfPinned: voiceActive });
-        if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer');
-        await auth.login(activated.credential, activated.secretKey);
+        try {
+            const activated = await pairMachine({ grant, endVoiceIfPinned: voiceActive });
+            if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer');
+            await auth.login(activated.credential, activated.secretKey);
+        } catch (cause) {
+            Modal.alert('Could not switch machine', cause instanceof Error ? cause.message : String(cause));
+        }
     }, [auth, router]);
 
     const forgetMachine = React.useCallback(async (machineId: string, name: string) => {
@@ -176,9 +180,14 @@ export const SettingsView = React.memo(function SettingsView({
             await auth.logout();
             return;
         }
-        const activated = await pairMachine({ grant: next, endVoiceIfPinned: true });
-        if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer');
-        await auth.login(activated.credential, activated.secretKey);
+        try {
+            const activated = await pairMachine({ grant: next, endVoiceIfPinned: true });
+            if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer');
+            await auth.login(activated.credential, activated.secretKey);
+        } catch (cause) {
+            Modal.alert('Could not switch machine', cause instanceof Error ? cause.message : String(cause));
+            return;
+        }
         if (pushAction === 'rebind-endpoint') {
             await updateWebPushNotificationLevel(storage.getState().localSettings.lifecycleNotificationLevel);
         }
