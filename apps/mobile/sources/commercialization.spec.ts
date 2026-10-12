@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 const mmkvValues = vi.hoisted(() => new Map<string, string>());
 vi.mock('react-native-mmkv', () => ({
-    MMKV: class {
+    createMMKV: () => new class {
         getString(key: string) { return mmkvValues.get(key); }
         set(key: string, value: string) { mmkvValues.set(key, value); }
-        delete(key: string) { mmkvValues.delete(key); }
+        remove(key: string) { mmkvValues.delete(key); }
         clearAll() { mmkvValues.clear(); }
-    },
+    }(),
 }));
 import {
     directBillingUrl,

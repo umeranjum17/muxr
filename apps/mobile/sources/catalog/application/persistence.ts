@@ -1,4 +1,4 @@
-import { MMKV } from 'react-native-mmkv';
+import { createMMKV } from 'react-native-mmkv';
 import { Settings, settingsDefaults, settingsParse, SettingsSchema } from './settings';
 import { LocalSettings, localSettingsDefaults, localSettingsParse } from './localSettings';
 import { Profile, profileDefaults, profileParse } from '../domain/profile';
@@ -8,7 +8,7 @@ import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import { agentLabels, isShellLabels } from '@/herd/labels';
 type PermissionModeKey = string;
 
-const mmkv = new MMKV();
+const mmkv = createMMKV();
 const NEW_SESSION_DRAFT_KEY = 'new-session-draft-v1';
 const REGISTERED_PUSH_TOKEN_KEY = 'registered-push-token-v1';
 const HOME_SNAPSHOT_KEY = 'home-snapshot-v2';
@@ -59,7 +59,7 @@ export function loadSettings(): { settings: Settings, version: number | null } {
         }
         return { settings: parsedSettings, version };
     } catch {
-        mmkv.delete('settings');
+        mmkv.remove('settings');
         return { settings: { ...settingsDefaults }, version: null };
     }
 }
@@ -94,7 +94,7 @@ export function loadPendingSettings(): Partial<Settings> {
         return overlay;
     } catch (e) {
         console.error('Failed to parse pending settings', e);
-        mmkv.delete('pending-settings');
+        mmkv.remove('pending-settings');
         return {};
     }
 }
@@ -149,7 +149,7 @@ export function saveSpacePins(machineId: string, pins: string[], workspaceId: st
     mmkv.set(SPACES_PINS_KEY, JSON.stringify({ ...spacePinsByMachine(), [machineId]: pins }));
     if (legacy === undefined) return;
     const remaining = legacy.filter((id) => id !== workspaceId);
-    if (remaining.length === 0) mmkv.delete(OLD_SPACES_PINS_KEY);
+    if (remaining.length === 0) mmkv.remove(OLD_SPACES_PINS_KEY);
     else mmkv.set(OLD_SPACES_PINS_KEY, JSON.stringify(remaining));
 }
 
@@ -161,7 +161,7 @@ function legacySpacePins(): string[] | undefined {
         throw new Error('Invalid saved legacy space pins');
     }
     if (parsed.length === 0) {
-        mmkv.delete(OLD_SPACES_PINS_KEY);
+        mmkv.remove(OLD_SPACES_PINS_KEY);
         return;
     }
     return parsed as string[];
@@ -180,7 +180,7 @@ export function migrateSpacePins(machineId: string, workspaces: readonly HerdrTr
     pins[machineId] = [...new Set([...(pins[machineId] ?? []), ...matched])];
     mmkv.set(SPACES_PINS_KEY, JSON.stringify(pins));
     const remaining = legacy.filter((id) => !matched.includes(id));
-    if (remaining.length === 0) mmkv.delete(OLD_SPACES_PINS_KEY);
+    if (remaining.length === 0) mmkv.remove(OLD_SPACES_PINS_KEY);
     else mmkv.set(OLD_SPACES_PINS_KEY, JSON.stringify(remaining));
 }
 
@@ -212,7 +212,7 @@ export function loadSpacesLayouts(): Record<string, SpacesLayout> {
             return [machineId, { order: ids(entry.order), favourites: ids(entry.favourites) }];
         }));
     } catch {
-        mmkv.delete(SPACES_LAYOUT_KEY);
+        mmkv.remove(SPACES_LAYOUT_KEY);
         return {};
     }
 }
@@ -296,7 +296,7 @@ export function saveNewSessionDraft(draft: NewSessionDraft) {
 }
 
 export function clearNewSessionDraft() {
-    mmkv.delete(NEW_SESSION_DRAFT_KEY);
+    mmkv.remove(NEW_SESSION_DRAFT_KEY);
 }
 
 export function loadRegisteredPushToken(): string | null {
@@ -308,7 +308,7 @@ export function saveRegisteredPushToken(token: string) {
 }
 
 export function clearRegisteredPushToken() {
-    mmkv.delete(REGISTERED_PUSH_TOKEN_KEY);
+    mmkv.remove(REGISTERED_PUSH_TOKEN_KEY);
 }
 
 export function loadSessionLastMessageSentAt(): Record<string, number> {
@@ -348,7 +348,7 @@ export interface HomeSnapshot {
 }
 
 export function loadHomeSnapshot(machineId: string): HomeSnapshot | null {
-    mmkv.delete(OLD_HOME_SNAPSHOT_KEY);
+    mmkv.remove(OLD_HOME_SNAPSHOT_KEY);
     const raw = mmkv.getString(HOME_SNAPSHOT_KEY);
     if (!raw) return null;
     try {
@@ -369,7 +369,7 @@ function snapshotTitle(pane: HerdrTreePane): { taskTitle?: string } {
 }
 
 export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspace[], sessions: Session[], names: ReadonlyMap<string, string>, parents: ReadonlyMap<string, string>): void {
-    mmkv.delete(OLD_HOME_SNAPSHOT_KEY);
+    mmkv.remove(OLD_HOME_SNAPSHOT_KEY);
     const snapshot: HomeSnapshot = {
         machineId,
         workspaces: workspaces.map((workspace) => ({
@@ -415,8 +415,8 @@ export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspa
 
 /** Forgetting a machine forgets what its Home looked like. */
 export function clearHomeSnapshot(machineId?: string): void {
-    mmkv.delete(OLD_HOME_SNAPSHOT_KEY);
-    if (machineId === undefined || loadHomeSnapshot(machineId) !== null) mmkv.delete(HOME_SNAPSHOT_KEY);
+    mmkv.remove(OLD_HOME_SNAPSHOT_KEY);
+    if (machineId === undefined || loadHomeSnapshot(machineId) !== null) mmkv.remove(HOME_SNAPSHOT_KEY);
 }
 
 export function loadProfile(): Profile {
@@ -448,7 +448,7 @@ export function retrieveTempText(id: string): string | null {
     const content = mmkv.getString(`temp_text_${id}`);
     if (content) {
         // Auto-delete after retrieval
-        mmkv.delete(`temp_text_${id}`);
+        mmkv.remove(`temp_text_${id}`);
         return content;
     }
     return null;

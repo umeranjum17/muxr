@@ -9,11 +9,11 @@ const keyboardHandler = vi.hoisted(() => ({ current: null as null | {
 const scrollToEnd = vi.hoisted(() => vi.fn());
 const values = vi.hoisted(() => new Map<string, string>());
 vi.mock('react-native-mmkv', () => ({
-    MMKV: class {
+    createMMKV: () => new class {
         getString(key: string) { return values.get(key); }
         set(key: string, value: string) { values.set(key, value); }
-        delete(key: string) { values.delete(key); }
-    },
+        remove(key: string) { values.delete(key); }
+    }(),
 }));
 const socketStatus = vi.hoisted(() => ({ status: 'disconnected' as string }));
 const catalogResult = vi.hoisted(() => ({ options: [] as Array<{ kind: string; availability: string; signedIn: string }> }));

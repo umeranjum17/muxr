@@ -57,11 +57,11 @@ vi.mock('react-native', () => ({
     Platform: { OS: 'android' },
 }));
 vi.mock('react-native-mmkv', () => ({
-    MMKV: class {
+    createMMKV: () => new class {
         getString(key: string) { return harness.mmkv.get(key); }
         set(key: string, value: string) { harness.mmkv.set(key, value); }
-        delete(key: string) { harness.mmkv.delete(key); }
-    },
+        remove(key: string) { harness.mmkv.delete(key); }
+    }(),
 }));
 vi.mock('@/modal', () => ({ Modal: { confirm: async () => false } }));
 vi.mock('@/account/ui', () => ({ useAuth: () => ({ isAuthenticated: true }) }));

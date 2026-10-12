@@ -1,5 +1,5 @@
 import * as StoreReview from 'expo-store-review';
-import { MMKV } from 'react-native-mmkv';
+import { createMMKV } from 'react-native-mmkv';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { AsyncLock } from '@/utils/lock';
@@ -7,7 +7,7 @@ import { sync } from '@/catalog/sync';
 import { storage as syncStorage } from '@/catalog/store';
 import { Platform } from 'react-native';
 
-const localStorage = new MMKV();
+const localStorage = createMMKV();
 
 const LOCAL_KEYS = {
     STORE_REVIEW_LAST_SHOWN: 'review_store_last_shown',
@@ -118,8 +118,8 @@ export function requestReview() {
 
 // Optional: Reset review state for testing
 export function resetReviewState(): void {
-    localStorage.delete(LOCAL_KEYS.DECLINED_AT);
-    localStorage.delete(LOCAL_KEYS.STORE_REVIEW_LAST_SHOWN);
+    localStorage.remove(LOCAL_KEYS.DECLINED_AT);
+    localStorage.remove(LOCAL_KEYS.STORE_REVIEW_LAST_SHOWN);
 
     // Reset sync settings
     sync.applySettings({

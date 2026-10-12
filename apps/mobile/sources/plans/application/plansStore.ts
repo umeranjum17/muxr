@@ -1,12 +1,12 @@
 import * as React from 'react';
 import { create } from 'zustand';
-import { MMKV } from 'react-native-mmkv';
+import { createMMKV } from 'react-native-mmkv';
 import { storage, useSocketStatus } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
 import { AUTO, effectiveChoice, launchAccount, launchQuestion, providerEntry, providerForAgent, type LaunchQuestion, type PlanProviderAccounts, type PlansList } from '../domain/planAccounts';
 import { sync } from '@/catalog/sync';
 
-const saved = new MMKV();
+const saved = createMMKV();
 // Account ids are per computer, so a pick made for another one is simply
 // never pickable here and reads as Auto.
 const CHOICE_KEY = 'plans-choice';

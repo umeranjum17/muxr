@@ -1,4 +1,4 @@
-import { MMKV } from 'react-native-mmkv';
+import { createMMKV } from 'react-native-mmkv';
 import {
     lifecycleNotificationAllowed,
     type LifecycleCatalog,
@@ -20,7 +20,7 @@ export type { VoiceAdmission };
 export const isTrustedVoiceAgentName = agentNameIsTrusted;
 export { sanitizePersistedVoiceReport };
 
-const mmkv = new MMKV();
+const mmkv = createMMKV();
 const NOTIFICATIONS_KEY = 'lifecycle-notifications-v1';
 const VOICE_REPORTS_KEY = 'lifecycle-voice-reports-v1';
 const MAX_EVENTS = 50;

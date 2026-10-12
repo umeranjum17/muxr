@@ -9,11 +9,11 @@ const stored = vi.hoisted(() => new Map<string, string | boolean>());
 vi.mock('@/catalog/sync', () => ({ sync: { request } }));
 vi.mock('@/catalog/store', () => ({ storage: { subscribe: () => () => {} }, useSocketStatus: () => ({ status: 'connected' }) }));
 vi.mock('react-native-mmkv', () => ({
-    MMKV: class {
+    createMMKV: () => new class {
         getString(key: string) { return stored.get(key) as string | undefined; }
         getBoolean(key: string) { return stored.get(key) as boolean | undefined; }
         set(key: string, value: string | boolean) { stored.set(key, value); }
-    },
+    }(),
 }));
 
 const { planConnection, planAccountForLaunch, planLaunchQuestion, refreshPlans, waitForPlanDiscovery, usePlansStore } = await import('./application/plansStore');

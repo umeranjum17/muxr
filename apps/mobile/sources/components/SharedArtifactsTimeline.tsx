@@ -4,7 +4,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { MMKV } from 'react-native-mmkv';
+import { createMMKV } from 'react-native-mmkv';
 import type { RequestResult, SessionArtifact } from '@trymuxr/contract';
 
 import { sync, registerArtifactUpdateHandler } from '@/catalog/sync';
@@ -27,7 +27,7 @@ type TimelineRow = SharedArtifactTimelineRow<SessionArtifact>;
 
 const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 const EMPTY_ARTIFACTS: SessionArtifact[] = [];
-const savedListings = new MMKV();
+const savedListings = createMMKV();
 
 // The last listing is kept so a page cached on the phone still opens offline.
 function listingKey(sessionId: string): string {
