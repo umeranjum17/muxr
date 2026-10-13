@@ -2,7 +2,7 @@ import * as React from 'react';
 import * as Linking from 'expo-linking';
 import * as Clipboard from 'expo-clipboard';
 import { ActivityIndicator, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
+import { KeyboardAwareScrollView, KeyboardEvents, KeyboardStickyView, type KeyboardAwareScrollViewRef } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
@@ -75,6 +75,9 @@ export default function PairScreen() {
     const [state, setState] = React.useState<PairState | undefined>(undefined);
     const [progress, setProgress] = React.useState<PairingProgress>();
     const [pairingValue, setPairingValue] = React.useState('');
+    // After a failed code the one way on is Paste the new code; the field comes
+    // back only when that paste fails (no clipboard access, or no code on it).
+    const [pasteFailed, setPasteFailed] = React.useState(false);
     // The SSH-fluent route from the first-run chooser: the existing Direct SSH
     // fields open immediately, before any QR. Pairing itself is unchanged —
     // these details only decide which route the bytes take afterwards.
@@ -93,11 +96,12 @@ export default function PairScreen() {
     React.useEffect(() => () => { if (successTimer.current !== undefined) clearTimeout(successTimer.current); }, []);
     // The hero icon has no room once the keyboard takes half the screen: it
     // renders cut off under the header. Hide it while the keyboard is open
-    // instead of showing a clipped badge.
+    // instead of showing a clipped badge. Closed is the scroll view's own hide
+    // event: it lands after its last scroll restore, React Native's lands before.
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
     React.useEffect(() => {
         const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
-        const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false));
+        const hide = KeyboardEvents.addListener('keyboardDidHide', () => setKeyboardOpen(false));
         return () => { show.remove(); hide.remove(); };
     }, []);
     // Native intent routes the offer into this screen's query param before Expo Router handles the URL.
@@ -122,6 +126,9 @@ export default function PairScreen() {
             }
             const decided = decidePairingInput(raw);
             if (!decided.ok) {
+                // Empty the field: a new code pasted after the dead one would
+                // join onto it and read as cut off.
+                setPairingValue('');
                 setState({ phase: 'error', message: decided.message });
                 return;
             }
@@ -223,6 +230,7 @@ export default function PairScreen() {
         setState({ phase: 'working', url, machineName: machineName ?? 'this machine' });
         void pair(url, parsedInput.input).catch((cause) => {
             // A spent code drops to the new-code form; anything else keeps Try again on this code.
+            if (cause instanceof PairingNeedsNewCode) setPairingValue('');
             setState({
                 phase: 'error',
                 message: cause instanceof Error ? cause.message : String(cause),
@@ -246,12 +254,26 @@ export default function PairScreen() {
         void reviewPairing(raw).finally(() => { submitting.current = false; });
     }, [sshInput, reviewPairing]);
     const connectManual = React.useCallback(() => submitManual(pairingValue), [submitManual, pairingValue]);
-    // A complete code goes straight to review; a partial one waits for Connect,
-    // which names what is wrong. SSH waits: its fields are not filled yet.
+    // A complete code goes straight to review, and so does one that has run
+    // out, which says so at once; a partial one waits for Connect, which names
+    // what is wrong. SSH waits: its fields are not filled yet.
     const changePairingValue = React.useCallback((next: string) => {
         setPairingValue(next);
-        if (!sshRoute && decidePairingInput(next).ok) submitManual(next);
+        const decided = decidePairingInput(next);
+        if (!sshRoute && (decided.ok || decided.expired)) submitManual(next);
     }, [sshRoute, submitManual]);
+    // One tap after a failed code: the computer already shows a fresh one.
+    const pasteNewCode = React.useCallback(() => {
+        void Clipboard.getStringAsync().then((text) => {
+            if (!decidePairingInput(text).ok) setPasteFailed(true);
+            setPairingValue(text);
+            submitManual(text);
+        }, (cause: unknown) => {
+            setPasteFailed(true);
+            setState({ phase: 'error', message: `Couldn't read the clipboard: ${cause instanceof Error ? cause.message : String(cause)}` });
+        });
+    }, [submitManual]);
+    React.useEffect(() => { if (state?.phase !== 'error') setPasteFailed(false); }, [state?.phase]);
 
     const cancel = React.useCallback(() => {
         if (openedFromSettings) router.back();
@@ -266,9 +288,20 @@ export default function PairScreen() {
     }, [openedFromSettings, router]);
 
     const manualForm = state === undefined || state.phase === 'error' && state.url === undefined;
+    const showField = state?.phase !== 'error' || sshRoute || pasteFailed;
+    // An error leads the card, a screen above the field at a large font on a short phone: bring it into view
+    // each time the keyboard closes, since the scroll view's own keyboard adjustment moves it away again (the
+    // keyboard can open after the error lands). With the field back, only once, so closing it does not jump.
+    const scrollRef = React.useRef<KeyboardAwareScrollViewRef>(null);
+    const shownError = React.useRef<PairState>(undefined);
+    React.useEffect(() => {
+        if (state?.phase !== 'error' || keyboardOpen || (showField && shownError.current === state)) return;
+        shownError.current = state;
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
+    }, [state, keyboardOpen, showField]);
     return (
         <View style={styles.screenWrap}>
-        <PairScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
+        <PairScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" {...(browser ? {} : { bottomOffset: 120 })}>
             <View style={styles.hero}>
                 {!keyboardOpen && (
@@ -276,7 +309,7 @@ export default function PairScreen() {
                         <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
                     </View>
                 )}
-                <Text style={styles.machineName} numberOfLines={2}>
+                <Text style={styles.machineName}>
                     {state === undefined
                         ? 'Securely pair this device'
                         : state.machineName ?? 'Securely pair this device'}
@@ -398,29 +431,35 @@ export default function PairScreen() {
                         {!browser && !canScan && !sshRoute && (
                             <Text style={styles.routeHint}>{`This ${pairingDeviceNoun()} can't scan a QR, so paste the pairing string muxr shows on your computer.`}</Text>
                         )}
-                        <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : sshRoute ? 'Pairing string from muxr pair' : canScan ? 'Or paste the pairing string' : 'Paste the pairing string'}</Text>
-                        <TextInput
-                            accessibilityLabel="Pairing string"
-                            testID={sshRoute ? "ssh-pairing-offer" : undefined}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                            keyboardType="url"
-                            placeholder={browser ? 'https://your-relay/pair#…' : 'Paste it here'}
-                            placeholderTextColor={styles.inputPlaceholder.color}
-                            returnKeyType="go"
-                            style={styles.input}
-                            value={pairingValue}
-                            onChangeText={changePairingValue}
-                            onSubmitEditing={connectManual}
-                        />
-                        <Text style={styles.routeHint}>{browser
-                            // No-break joiners keep the command whole on a narrow screen.
-                            ? 'Browsers pair by link, not QR. Copy it from muxr\u00A0pair\u00A0-\u2060-\u2060browser.'
-                            : sshRoute
-                                ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
-                                : canScan
-                                    ? `If you can't point this ${pairingDeviceNoun()} at that screen, copy the pairing string shown there.`
-                                    : 'Copy it from muxr on your computer.'}</Text>
+                        {state?.phase === 'error' && !sshRoute && (
+                            <ActionButton title="Paste the new code" icon="clipboard-outline" variant={canScan ? 'secondary' : 'primary'} wrap onPress={pasteNewCode} />
+                        )}
+                        {showField && (
+                            <>
+                                <Text style={styles.inputLabel}>{browser ? 'Pairing code' : sshRoute ? 'Pairing string from muxr pair' : canScan ? 'Or paste the pairing string' : 'Paste the pairing string'}</Text>
+                                <TextInput
+                                    accessibilityLabel="Pairing string"
+                                    testID={sshRoute ? "ssh-pairing-offer" : undefined}
+                                    autoCapitalize="none"
+                                    autoCorrect={false}
+                                    keyboardType="url"
+                                    placeholder="Paste it here"
+                                    placeholderTextColor={styles.inputPlaceholder.color}
+                                    returnKeyType="go"
+                                    style={styles.input}
+                                    value={pairingValue}
+                                    onChangeText={changePairingValue}
+                                    onSubmitEditing={connectManual}
+                                />
+                                <Text style={styles.routeHint}>{browser
+                                    ? 'Paste the pairing code from muxr on your computer.'
+                                    : sshRoute
+                                        ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
+                                        : canScan
+                                            ? `If you can't point this ${pairingDeviceNoun()} at that screen, copy the pairing string shown there.`
+                                            : 'Copy it from muxr on your computer.'}</Text>
+                            </>
+                        )}
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
                 )}
@@ -434,7 +473,7 @@ export default function PairScreen() {
                 <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
-        {!sshRoute && manualForm && (
+        {!sshRoute && manualForm && showField && (
             // Same anchored bar as the SSH route: the manual Connect must stay
             // above the keyboard on short viewports.
             <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
@@ -477,6 +516,9 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.text,
     },
     machineName: {
+        // Stretch so the whole title wraps inside the hero at the largest text,
+        // never an ellipsized line measured wider than the screen.
+        alignSelf: 'stretch',
         ...Typography.default('semiBold'),
         fontSize: 26,
         lineHeight: 32,

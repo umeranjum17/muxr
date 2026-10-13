@@ -167,16 +167,18 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
                     (grantId, deviceId) => endpoint.admitPairedDevice(grantId, deviceId));
                 const offerOptions = pairingOfferOptions(intent, state);
                 let offer = endpoint.offerPairing(session, relayUrl, offerOptions);
+                let refreshAt = halfLife(offer);
                 send({ offer });
                 const stopped = aborted(controller.signal);
                 for (;;) {
-                    const wake = approve === undefined ? Math.min(1000, Math.max(offerExpires(offer) - Date.now(), 0)) : 1000;
+                    const wake = approve === undefined ? Math.min(1000, Math.max(refreshAt - Date.now(), 0)) : 1000;
                     const outcome = await Promise.race([done.promise, stopped, sleep(wake)]);
                     if (outcome !== undefined) { completed = outcome; await sleep(250); return; }
                     if (controller.signal.aborted) return;
-                    if (approve === undefined && (offerExpires(offer) <= Date.now() || burned)) {
+                    if (approve === undefined && (refreshAt <= Date.now() || burned)) {
                         burned = false;
                         offer = endpoint.offerPairing(session, relayUrl, offerOptions);
+                        refreshAt = halfLife(offer);
                         send({ offer });
                     }
                 }
@@ -375,6 +377,13 @@ async function servePairing(state, req, device, claims, done, intent, admit) {
 /** The earliest moment either offer this host may show lapses: a refresh must land before the one on screen does. */
 function offerExpires(offer) {
     return Math.min(offer.expires, offer.compactExpires ?? offer.expires);
+}
+
+/** When to show the next code: halfway through this one's life, so a code copied off the screen
+ *  always has half its life left to reach the phone. Earlier codes stay open until they run out. */
+function halfLife(offer) {
+    const now = Date.now();
+    return now + (offerExpires(offer) - now) / 2;
 }
 
 const ALT_SCREEN_ON = '\x1b[?1049h';

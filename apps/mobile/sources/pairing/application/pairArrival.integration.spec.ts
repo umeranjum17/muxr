@@ -9,6 +9,7 @@ const harness = vi.hoisted(() => ({
     declined: false,
     authenticated: false,
     initialUrl: null as string | null,
+    clipboard: '',
     params: {} as { offer?: string; source?: string },
     receive: undefined as ((event: { url: string }) => void) | undefined,
     router: { replace: vi.fn(), back: vi.fn() },
@@ -26,7 +27,7 @@ vi.mock('react-native', () => ({
     TextInput: 'TextInput',
     View: 'View',
 }));
-vi.mock('react-native-keyboard-controller', () => ({ KeyboardAwareScrollView: 'ScrollView', KeyboardStickyView: 'View' }));
+vi.mock('react-native-keyboard-controller', () => ({ KeyboardAwareScrollView: 'ScrollView', KeyboardStickyView: 'View', KeyboardEvents: { addListener: () => ({ remove: () => undefined }) } }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: { create: (styles: (theme: unknown) => unknown) => styles({ colors: {
@@ -36,7 +37,7 @@ vi.mock('react-native-unistyles', () => ({
     } }) },
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
-vi.mock('expo-clipboard', () => ({ setStringAsync: async () => undefined }));
+vi.mock('expo-clipboard', () => ({ setStringAsync: async () => undefined, getStringAsync: async () => harness.clipboard }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: () => undefined }));
 vi.mock('@/herd/presentation/FirstRunConnection', () => ({ RouteSwitcher: () => null }));
 vi.mock('expo-router', () => ({ useRouter: () => harness.router, useLocalSearchParams: () => harness.params }));
@@ -371,7 +372,8 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     // code reaches consent by itself, and a Connect tap in the same moment
     // does not start a second review.
     await open({ source: 'settings' });
-    const field = () => nodes((node) => node.type === 'TextInput' && node.props.accessibilityLabel === 'Pairing string')[0]!;
+    const fields = () => nodes((node) => node.type === 'TextInput' && node.props.accessibilityLabel === 'Pairing string');
+    const field = () => fields()[0]!;
     const type = async (value: string) => {
         await mod.renderer.act(async () => { (field().props.onChangeText as (next: string) => void)(value); });
         await settle();
@@ -383,6 +385,12 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     await mod.renderer.act(async () => { (field().props.onSubmitEditing as () => void)(); });
     await settle();
     expect(alerts()).toContain('This string is cut off. Copy all of it, or scan the QR.');
+    // After a failed code the one paste path is Paste the new code; the field
+    // comes back, empty, only when the clipboard holds no code.
+    expect(fields()).toHaveLength(0);
+    harness.clipboard = 'not a pairing code';
+    await press('Paste the new code');
+    expect(field().props.value).toBe('');
     const claims = harness.claims;
     await mod.renderer.act(async () => {
         (field().props.onChangeText as (next: string) => void)(whole);
@@ -393,5 +401,16 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     harness.declined = false;
     await press('Pair');
     expect(harness.claims).toBe(claims + 1);
+    await close();
+
+    // A code that ran out on its way to the phone says so the moment it is
+    // pasted, and one tap pastes the fresh code the computer shows by now.
+    await open({ source: 'settings' });
+    await type(machineOffer(12, { expires: Date.now() - 1_000 }));
+    expect(alerts()).toContain('That pairing code has run out. Show a new one on your computer.');
+    expect(fields()).toHaveLength(0);
+    harness.clipboard = machineOffer(13);
+    await press('Paste the new code');
+    expect(labels()).toContain('Pair');
     await close();
 });
