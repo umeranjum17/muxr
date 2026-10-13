@@ -3,6 +3,7 @@ import { constants, chmodSync, closeSync, fstatSync, lstatSync, mkdirSync, openS
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { atomicWrite, print } from '../infrastructure/runtime.mjs';
+import { readSelfhostState } from '../infrastructure/selfhost.mjs';
 import { linkPair } from './linkPair.mjs';
 
 const LIMIT = 64 * 1024;
@@ -10,6 +11,9 @@ const WAIT_MS = 120_000;
 
 /** BYOKit deliver atomically writes raw bytes to <workDir>/.byokit/inbox/<file>. */
 export async function pairHandoff(state) {
+    const devices = readSelfhostState()?.machine?.crypto?.devices;
+    if (!Array.isArray(devices)) throw new Error('could not read this computer\'s paired devices; handoff pairing refused');
+    if (devices.length > 0) throw new Error('Handoff pairing is only for the first device. Pair more devices from an already paired phone.');
     const root = join(process.cwd(), '.byokit');
     const outbox = join(root, 'outbox');
     const inbox = join(root, 'inbox');
@@ -55,7 +59,7 @@ export async function pairHandoff(state) {
                             return true;
                         } finally { closeSync(fd); }
                     }
-                    await sleep(100, undefined, { signal: controller.signal });
+                    await sleep(100, undefined, { signal: controller.signal }).catch(() => {});
                 }
                 throw new Error('pairing handoff timed out or was cancelled');
             },

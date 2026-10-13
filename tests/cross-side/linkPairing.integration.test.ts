@@ -258,6 +258,54 @@ describe('native pairing over the byokit link', () => {
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     });
 
+    it('pairs the first phone without a TTY through the kit files, refuses mismatched words, and refuses a second handoff', async () => {
+        const workDir = join(home, 'kit-work');
+        mkdirSync(workDir);
+        const outbox = join(workDir, '.byokit', 'outbox');
+        for (const matches of [false, true]) {
+            const before = readSelfhostState().machine.crypto.devices.length;
+            const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
+            const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
+            let shownWords = '';
+            try {
+                const file = await until(() => {
+                    if (command.exitCode !== null) throw new Error(command.output());
+                    return existsSync(outbox) ? readdirSync(outbox).find((name) => name.endsWith('.json')) : undefined;
+                }, 'handoff offer');
+                const offerPath = join(outbox, file);
+                const offered = JSON.parse(readFileSync(offerPath, 'utf8'));
+                expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
+                expect(offered.version).toBe(1);
+                const pairing = runPhonePairing(offered.offer, { onWords: (words) => {
+                    shownWords = words;
+                    const wordsPath = join(workDir, '.byokit', 'inbox', offered.wordsFile);
+                    // Same raw-byte, private, atomic rename contract as kit deliver.
+                    writeFileSync(`${wordsPath}.tmp`, matches ? words : 'wrong words', { mode: 0o600 });
+                    renameSync(`${wordsPath}.tmp`, wordsPath);
+                } });
+                if (matches) await pairing;
+                else await expect(pairing).rejects.toThrow();
+                expect(await exited).toBe(matches ? 0 : 1);
+                expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
+                expect(existsSync(offerPath)).toBe(false);
+                expect(existsSync(join(workDir, '.byokit', 'inbox', offered.wordsFile))).toBe(false);
+                expect(command.output()).not.toContain(offered.offer);
+                expect(shownWords).not.toBe('');
+                expect(command.output()).not.toContain(shownWords);
+                if (!matches) expect(command.output()).toContain('two words did not match');
+            } finally { await stop(command); }
+        }
+
+        const second = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
+        const secondExited = new Promise<number | null>((resolve) => second.once('exit', resolve));
+        try {
+            expect(await secondExited).toBe(1);
+            expect(second.output()).toContain('Handoff pairing is only for the first device');
+            expect(readSelfhostState().machine.crypto.devices.length).toBe(1);
+            expect(existsSync(outbox) ? readdirSync(outbox) : []).toEqual([]);
+        } finally { await stop(second); }
+    }, 60_000);
+
     it('re-pairs an older phone with matching words and carries all events and RPC over the link', async () => {
         const machineId = readSelfhostState().machine.id;
         phone.secure.set('muxr.grants.index', JSON.stringify([machineId]));
@@ -579,45 +627,6 @@ describe('native pairing over the byokit link', () => {
         } finally {
             await stop(child);
             await phonePairing?.catch(() => undefined);
-        }
-    }, 60_000);
-
-    it('pairs without a TTY through the kit files and refuses mismatched words without enrolling', async () => {
-        const workDir = join(home, 'kit-work');
-        mkdirSync(workDir);
-        const outbox = join(workDir, '.byokit', 'outbox');
-        for (const matches of [true, false]) {
-            const before = readSelfhostState().machine.crypto.devices.length;
-            const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
-            const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
-            let shownWords = '';
-            try {
-                const file = await until(() => {
-                    if (command.exitCode !== null) throw new Error(command.output());
-                    return existsSync(outbox) ? readdirSync(outbox).find((name) => name.endsWith('.json')) : undefined;
-                }, 'handoff offer');
-                const offerPath = join(outbox, file);
-                const offered = JSON.parse(readFileSync(offerPath, 'utf8'));
-                expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
-                expect(offered.version).toBe(1);
-                const pairing = runPhonePairing(offered.offer, { onWords: (words) => {
-                    shownWords = words;
-                    const wordsPath = join(workDir, '.byokit', 'inbox', offered.wordsFile);
-                    // Same raw-byte, private, atomic rename contract as kit deliver.
-                    writeFileSync(`${wordsPath}.tmp`, matches ? words : 'wrong words', { mode: 0o600 });
-                    renameSync(`${wordsPath}.tmp`, wordsPath);
-                } });
-                if (matches) await pairing;
-                else await expect(pairing).rejects.toThrow();
-                expect(await exited).toBe(matches ? 0 : 1);
-                expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
-                expect(existsSync(offerPath)).toBe(false);
-                expect(existsSync(join(workDir, '.byokit', 'inbox', offered.wordsFile))).toBe(false);
-                expect(command.output()).not.toContain(offered.offer);
-                expect(shownWords).not.toBe('');
-                expect(command.output()).not.toContain(shownWords);
-                if (!matches) expect(command.output()).toContain('two words did not match');
-            } finally { await stop(command); }
         }
     }, 60_000);
 

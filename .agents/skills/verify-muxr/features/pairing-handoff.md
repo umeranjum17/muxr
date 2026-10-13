@@ -7,6 +7,7 @@ A cloud computer can pair without a terminal: `muxr pair --handoff` publishes an
 - Native handoff uses the running host's existing pairing socket and approval path.
 - Matching words complete enrollment only after the phone proves its machine link.
 - Wrong words, cancellation, and the two-minute deadline leave no new device and remove the offer and words files.
+- Handoff works only while the computer has no paired device; a second handoff is refused before any offer is written.
 - `muxr up` in self-host mode names `muxr setup` when configuration is missing.
 
 ## How to get to it (user POV)
@@ -20,7 +21,7 @@ Preconditions: the baseline private relay and fake host from `../SKILL.md`; a se
 1. Record `muxr status` and `muxr devices list` before pairing. Run the public CLI `node <repo>/scripts/cli.mjs pair --handoff` with stdin ignored, cwd a private kit work directory, and the lab `MUXR_HOME`. Never print the offer JSON.
 2. Read the only outbox JSON, assert its byte size is at most 65536 and `version` is 1. Pass `offer` to `pairWithOffer`. In `onWords`, write the returned words to `.byokit/inbox/<wordsFile>` using BYOKit's delivery contract: private temporary file, raw stdin bytes, atomic rename, mode 0600. Do not print words.
 3. Once approved, open a `DeviceLink` with the grant, request `pair.complete`, open the returned machine link with the same secret key, wait until online, then request `pair.verified` on the pairing link. Expect the CLI to exit 0. Read `status` and `devices list` again: the new phone appears. Both handoff files must be absent, and CLI output must contain neither words nor offer.
-4. Repeat with a fresh phone key but deliver `wrong words`. Expect a refused phone claim, CLI exit 1 with `the two words did not match`, unchanged device count, and both handoff files absent.
+4. On a computer with no paired phone, repeat with a fresh phone key but deliver `wrong words`. Expect a refused phone claim, CLI exit 1 with `the two words did not match`, unchanged device count, and both handoff files absent. With one phone paired, a new handoff must exit 1 with `Handoff pairing is only for the first device` and write no offer.
 5. Repeat without returning words (or without dialing at all). After two minutes expect CLI exit 1, unchanged devices and removed offer. For cancellation, send SIGTERM to only the CLI PID and check the same cleanup.
 6. In a clean, task-owned container, not on the desktop, run:
 

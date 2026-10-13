@@ -87,7 +87,8 @@ if (mode === 'selfhost' || mode === 'relay') {
     try { state = JSON.parse(readFileSync(join(root, 'selfhost.json'), 'utf8')); }
     catch (cause) {
         if (cause.code !== 'ENOENT') throw cause;
-        throw new Error('This computer is not set up yet. Run `muxr setup` first.');
+        process.stderr.write('This computer is not set up yet. Run `muxr setup` first.\n');
+        process.exit(1);
     }
     if (mode === 'relay' || state.relayLocation !== 'remote') {
         const port = Number(state.relayPort);
