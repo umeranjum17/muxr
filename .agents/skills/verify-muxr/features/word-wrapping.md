@@ -1,9 +1,12 @@
 # Read whole words at large text
 
 Drive the real unpaired app; no relay or Herdr is needed. The shared
-`WordWrappingText` keeps the pair title, comparison words and ActionButton
-labels intact by measuring words with the same font and fitting only a word
-that exceeds the available line. A single-line button fits the whole label.
+`WordWrappingText` keeps the pair title, comparison words, the pair card's
+field label and hint, and ActionButton labels intact by measuring words with
+the same font and fitting only a word that exceeds the available line. A
+single-line button fits the whole label. Under ~200 text-scaled dp (208 dp at
+font 2.0) the pair screen tightens its padding so words fit at a readable size
+instead of shrinking.
 
 1. Capture the original and candidate installed PWA exports with the Visual
    check recipe in `../SKILL.md`: `/` (the Tailscale step) and `/pair`.
@@ -15,7 +18,7 @@ that exceeds the available line. A single-line button fits the whole label.
    through `visualCheck.mjs <serial> <dir> <name> [--end]`.
 3. PWA: run `visualCheck.mjs pwa-check <shot>.png <name>` on the same page
    immediately after every shot. `word split across lines: "Securely"`,
-   `"Tailscale"` and `"Connect"` identify the reported regressions. Their
+   `"Tailscale"`, `"Connect"`, `"Pairing"` and `"computer"` identify the reported regressions. Their
    candidate words must remain on one line; multi-word titles can wrap
    between words. Review every screenshot too, especially small text.
 4. Native requires Tesseract on PATH in addition to ImageMagick. The checker
