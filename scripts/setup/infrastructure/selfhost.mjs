@@ -151,6 +151,15 @@ export async function cleanupManagedIngress(state) {
     await unserve(ingress, reachTailscaleOptions());
 }
 
+export function ownedRelayPid() {
+    const pidPath = join(stateDir(), 'relay', 'relay.pid');
+    const pid = Number(existsSync(pidPath) ? readFileSync(pidPath, 'utf8').trim() : '');
+    if (!Number.isSafeInteger(pid) || pid <= 1) return undefined;
+    const command = run(env('MUXR_PS_BIN') || 'ps', ['-ww', '-p', String(pid), '-o', 'command=']);
+    const relayCommand = command.ok ? command.stdout.trim() : '';
+    return /(?:^|\s)\S*\/relay\.js(?:\s|$)/.test(relayCommand) || relayCommand.includes(relayEntry()) ? pid : undefined;
+}
+
 export async function stopOwnedSelfhostRelay() {
     const state = readSelfhostState();
     if (state === undefined || state.relayLocation === 'remote') return undefined;
@@ -161,14 +170,8 @@ export async function stopOwnedSelfhostRelay() {
         return response.json();
     }).catch(() => undefined);
     if (health?.ok !== true) return undefined;
-    const pidPath = join(stateDir(), 'relay', 'relay.pid');
-    const pid = Number(existsSync(pidPath) ? readFileSync(pidPath, 'utf8').trim() : '');
-    if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error('running relay has no valid pid file; leaving it untouched');
-    const command = run(env('MUXR_PS_BIN') || 'ps', ['-ww', '-p', String(pid), '-o', 'command=']);
-    const relayCommand = command.ok ? command.stdout.trim() : '';
-    if (!/(?:^|\s)\S*\/relay\.js(?:\s|$)/.test(relayCommand) && !relayCommand.includes(relayEntry())) {
-        throw new Error('relay pid does not belong to a muxr relay process; leaving it untouched');
-    }
+    const pid = ownedRelayPid();
+    if (pid === undefined) throw new Error('running relay is not a muxr relay with a valid pid file; leaving it untouched');
     try { process.kill(pid, 'SIGTERM'); }
     catch (cause) {
         if (cause?.code === 'ESRCH') return { state, health, port };

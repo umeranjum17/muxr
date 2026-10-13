@@ -78,6 +78,9 @@ export async function startSelfHost(args = []) {
             return 0;
         }
         let state = readSelfhostState();
+        if (isTailnetIPv4(state?.bindHost)) {
+            throw new Error(`this computer runs headless on Tailscale (${state.bindHost}) under MUXR_MODE=selfhost muxr up; to change it run \`muxr self-host --configure-only --advertise ws://<name>:<port> --port <port>\``);
+        }
         if (hostOnly) {
             if (state === undefined) throw new Error('no self-host state yet; run `muxr self-host` first');
             await startMuxrDaemon('selfhost', args);
@@ -89,13 +92,6 @@ export async function startSelfHost(args = []) {
         }
         const hostWasRunning = daemonIsRunning();
         const explicitAdvertise = flagValue(args, '--advertise')?.replace(/\/$/, '');
-        if (isTailnetIPv4(state.bindHost)) {
-            const transport = ['--tunnel', '--bind-loopback', '--tailscale-direct', '--connection-mode']
-                .find((flag) => args.some((arg) => arg === flag || arg.startsWith(`${flag}=`)));
-            if (transport !== undefined || (explicitAdvertise !== undefined && explicitAdvertise !== state.relayUrl)) {
-                throw new Error(`this computer is set up for Tailscale only at ${state.relayUrl}; ${transport ?? '--advertise'} cannot be used with it. Keep the recorded address by rerunning without it, or move ${selfhostPath()} aside to choose another connection`);
-            }
-        }
         const connection = parseConnection(state);
         const sameConfiguration = connection.ok && connection.value.sameAs({ port, connectionMode, web, explicitAdvertise });
         if (!sameConfiguration && reconfigure) {
@@ -109,11 +105,9 @@ export async function startSelfHost(args = []) {
         // Missing Tailscale is fine. Broken/unsafe Tailscale status must fail
         // closed; another transport is chosen explicitly, never as a guess.
         print('  … checking network connection and ingress');
-        const recordedTailnet = isTailnetIPv4(state.bindHost);
-        const tailscale = recordedTailnet ? undefined : await tailscaleIngress(args);
+        const tailscale = await tailscaleIngress(args);
         const advertise = sameConfiguration && connectionMode === 'cloudflare' && typeof state.relayUrl === 'string' && cloudflaredAlive(state.ingress)
             ? { url: state.relayUrl, note: 'existing Cloudflare quick tunnel', ingress: state.ingress }
-            : recordedTailnet ? { url: state.relayUrl, note: 'recorded Tailscale address' }
             : await resolveAdvertise(args, port, tailscale);
         pendingIngress = advertise.ingress?.kind === 'cloudflare-quick' ? advertise.ingress : undefined;
         if (advertise.ingress?.kind === 'tailscale-serve') state = persistOwnedServeIngress(state, advertise.ingress);
@@ -123,8 +117,7 @@ export async function startSelfHost(args = []) {
             writeSelfhostState(state);
         }
         if (web && !advertise.url.startsWith('wss://')) throw new Error('--web requires HTTPS (Tailscale Serve, a named HTTPS tunnel, or --advertise wss://...)');
-        const bindHost = args.includes('--bind-loopback') || tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1'
-            : recordedTailnet ? state.bindHost : '0.0.0.0';
+        const bindHost = args.includes('--bind-loopback') || tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1' : '0.0.0.0';
         const webOrigin = web ? advertise.url.replace(/^wss/, 'https') : undefined;
         print(`  … checking local relay port ${port}`);
         await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin, {

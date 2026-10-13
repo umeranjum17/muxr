@@ -95,8 +95,11 @@ try {
     assert.throws(() => configure(['--advertise', 'https://cloud.example.ts.net', '--port', String(port)]), /root ws:\/\/ or wss:\/\//);
     assert.throws(() => configure(['--advertise', `ws://100.127.255.253:${port}`, '--port', String(port)]), /cannot replace an existing connection/);
     assert.throws(() => configure(['--advertise', `ws://192.0.2.1:${port}`, '--port', String(port)]), /Tailscale IPv4 address/);
-    assert.throws(() => execFileSync(process.execPath, [cli, 'self-host', '--tunnel'], { env: environment, encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] }), /set up for Tailscale only/);
+    for (const extra of [[], ['--tunnel'], ['--relay-only']]) {
+        assert.throws(() => execFileSync(process.execPath, [cli, 'self-host', ...extra], { env: environment, encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] }), /runs headless on Tailscale/);
+    }
     assert.equal(readFileSync(path, 'utf8') === before, true, 'refused commands modified pairing state');
+    assert.equal(existsSync(join(configuredHome, 'relay', 'relay.pid')), false, 'refused self-host started a relay');
 
     // The foreground unit stays alive with no relay while its persisted
     // tailnet address is absent; stopping it must not leave a child behind.
