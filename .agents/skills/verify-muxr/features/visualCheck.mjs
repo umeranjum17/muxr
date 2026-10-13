@@ -27,6 +27,21 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const pwaLeads = () => {
     const out = [];
     const shown = (e) => e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && !e.closest('[aria-hidden="true"]') && getComputedStyle(e).pointerEvents !== 'none';
+    const paints = (c) => /^(IMG|SVG|CANVAS|VIDEO)$/.test(c.tagName.toUpperCase()) || getComputedStyle(c).backgroundImage !== 'none';
+    const inHorizontalScroller = (e) => {
+        for (let a = e.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+            const ps = getComputedStyle(a);
+            if ((ps.overflowX === 'auto' || ps.overflowX === 'scroll') && a.scrollWidth > a.clientWidth + 1) return true;
+        }
+        return false;
+    };
+    // A picture painted over the text whatever its pointer-events (elementFromPoint skips pointer-events:none).
+    const artOver = (el, x, y) => [...document.querySelectorAll('*')].find((c) => {
+        if (c === el || el.contains(c) || c.contains(el) || !(el.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+        const cr = c.getBoundingClientRect();
+        if (x < cr.left || x > cr.right || y < cr.top || y > cr.bottom || !c.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false;
+        return paints(c);
+    });
     if (!document.body.innerText.trim()) return 'blank page: nothing rendered (retake the shot)';
     const de = document.documentElement;
     if (de.scrollWidth > innerWidth) out.push(`off-screen: page ${de.scrollWidth}px wide in a ${innerWidth}px viewport`);
@@ -34,7 +49,7 @@ const pwaLeads = () => {
         const cs = getComputedStyle(el), r = el.getBoundingClientRect();
         if (!el.innerText?.trim() || r.width === 0 || !shown(el)) continue;
         if (cs.overflow !== 'visible' && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)) out.push(`clipped text: "${el.innerText.slice(0, 40)}"`);
-        if (r.right > innerWidth + 1 || r.left < -1) out.push(`text off-screen: "${el.innerText.slice(0, 40)}"`);
+        if ((r.right > innerWidth + 1 || r.left < -1) && !inHorizontalScroller(el)) out.push(`text off-screen: "${el.innerText.slice(0, 40)}"`);
         const box = el.closest('[role="button"], button')?.getBoundingClientRect();
         if (box && (r.left < box.left - 1 || r.right > box.right + 1)) out.push(`text spills out of its button: "${el.innerText.slice(0, 40)}"`);
         // An ancestor that clips (overflow hidden, not a scroller) cuts any text
@@ -60,13 +75,13 @@ const pwaLeads = () => {
             const x = r.left + r.width * fx, y = r.top + r.height * fy;
             if (x < 0 || x >= innerWidth || y < 0 || y >= innerHeight) continue;
             const hit = document.elementFromPoint(x, y);
-            if (!hit || hit === el || el.contains(hit) || hit.contains(el)) continue;
-            if (typeof hit.closest === 'function' && hit.closest('[aria-hidden="true"]')) continue;
-            const hitText = (hit.innerText || '').trim();
-            const hitName = `${hit.tagName}${hitText ? ` "${hitText.slice(0, 30)}"` : ''}`;
-            if (hitText && hit.tagName !== 'BODY' && hit.tagName !== 'HTML') { out.push(`text over text: "${el.innerText.slice(0, 40)}" under ${hitName}`); break; }
-            const hitBg = getComputedStyle(hit).backgroundImage;
-            if (/^(IMG|SVG|CANVAS|VIDEO)$/.test(hit.tagName) || (hitBg && hitBg !== 'none')) { out.push(`text over image: "${el.innerText.slice(0, 40)}" under ${hitName}`); break; }
+            if (hit?.closest('[aria-hidden="true"]')) continue;
+            const over = hit && hit !== el && !el.contains(hit) && !hit.contains(el) ? hit : artOver(el, x, y);
+            if (!over) continue;
+            const overText = (over.innerText || '').trim();
+            const overName = `${over.tagName}${overText ? ` "${overText.slice(0, 30)}"` : ''}`;
+            if (overText && over.tagName !== 'BODY' && over.tagName !== 'HTML') { out.push(`text over text: "${el.innerText.slice(0, 40)}" under ${overName}`); break; }
+            if (paints(over)) { out.push(`text over image: "${el.innerText.slice(0, 40)}" under ${overName}`); break; }
         }
     }
     for (const b of document.querySelectorAll('[role="button"], button, input, textarea')) {
@@ -78,7 +93,7 @@ const pwaLeads = () => {
     }
     for (const m of document.querySelectorAll('img, svg, canvas')) {
         const r = m.getBoundingClientRect();
-        if (r.width > 1 && shown(m) && (r.left < -1 || r.right > innerWidth + 1)) out.push(`image off-screen: ${m.tagName} ${Math.round(r.left)}..${Math.round(r.right)} in ${innerWidth}px`);
+        if (r.width > 1 && shown(m) && (r.left < -1 || r.right > innerWidth + 1) && !inHorizontalScroller(m)) out.push(`image off-screen: ${m.tagName} ${Math.round(r.left)}..${Math.round(r.right)} in ${innerWidth}px`);
     }
     // react-native-web draws an Image as its parent's background over an invisible <img>. A filled image (object-fit fill, or background-size with two explicit sizes) must keep its source aspect; cover and contain crops keep it by design.
     for (const img of document.images) {
@@ -128,9 +143,7 @@ const imageDefects = (cand, ref) => {
 
 const isImageNode = (n) => /Image/.test(n.at.class);
 
-const scrolls = (n, horizontal) => n.up.some((a) => a.at.scrollable === 'true' && /Horizontal/.test(a.at.class) === horizontal);
-const inHorizontalScroller = (n) => scrolls(n, true);
-const inVerticalScroller = (n) => scrolls(n, false);
+const inHorizontalScroller = (n) => n.up.some((a) => a.at.scrollable === 'true' && /Horizontal/.test(a.at.class));
 
 // Images with no text, content-desc or clickable flag are invisible to the
 // content filter, so they get their own off-screen and overlap checks. A
@@ -157,9 +170,8 @@ const imageCoversLeads = (ordered, imagery) => {
 
 // Content under the navigation/gesture bar. Scrolled to the end (--end) any
 // of it is stuck there. At rest, a text or button box whose bottom edge sits
-// more than 4px into the bar is the pair-screen miss, unless it lies inside a
-// vertical scroller, where scrolling can bring it clear (--end shows whether
-// it does). Content fully below the screen is not under the bar.
+// more than 4px into the bar is the pair-screen miss, whether or not a scroller
+// holds it. Content fully below the screen is not under the bar.
 const navLeads = (watched, nav, H, end, scrollable) => {
     if (!nav) {
         if (scrollable || end) return [];
@@ -169,7 +181,7 @@ const navLeads = (watched, nav, H, end, scrollable) => {
     return watched.flatMap((n) => {
         if (n.box.b <= nav[1]) return [];
         if (end) return [`under the navigation bar: "${n.label}" ${n.at.bounds} (bar starts at y=${nav[1]})`];
-        if (!(n.at.text || n.at.clickable === 'true') || inVerticalScroller(n)) return [];
+        if (!(n.at.text || n.at.clickable === 'true')) return [];
         if (Math.min(n.box.b, H) - Math.max(n.box.t, nav[1]) <= 4) return [];
         return [`under the navigation bar on the unscrolled screen: "${n.label}" ${n.at.bounds} (bar starts at y=${nav[1]})`];
     });
@@ -177,10 +189,10 @@ const navLeads = (watched, nav, H, end, scrollable) => {
 
 // Text touching the screen edge is likely cut. A button box past the edge is
 // cut even when its text fits; containers may legitimately fill the width,
-// so a box without text only fails strictly past the edge, and a button inside
-// a horizontal scroller is reached by swipe rather than cut.
+// so a box without text only fails strictly past the edge, and a node inside a
+// horizontal scroller is reached by swipe rather than cut.
 const edgeLeads = (watched, W) => watched.flatMap((n) => {
-    if (n.at.text && (n.box.l <= 0 || n.box.r >= W)) return [`text touches the screen edge, likely cut: "${n.label}" ${n.at.bounds}`];
+    if (n.at.text && !inHorizontalScroller(n) && (n.box.l <= 0 || n.box.r >= W)) return [`text touches the screen edge, likely cut: "${n.label}" ${n.at.bounds}`];
     if (!n.at.text && n.at.clickable === 'true' && (n.box.l < 0 || n.box.r > W) && !inHorizontalScroller(n)) return [`button runs past the screen edge: "${n.label}" ${n.at.bounds}`];
     return [];
 });
@@ -212,11 +224,7 @@ const pwaEvalDefects = (text) => {
     // line, followed by `help` chatter.
     const line = text.split('\n').find((l) => l.startsWith('result:'));
     if (line === undefined) return ['no DOM eval result: the leads did not run'];
-    const raw = line.slice('result:'.length).trim();
-    let body;
-    try { body = JSON.parse(raw); }
-    catch { body = raw; }
-    const leads = String(body).replace(/^"|"$/g, '').split('\n').map((l) => l.trim()).filter(Boolean);
+    const leads = JSON.parse(line.slice('result:'.length).trim()).split('\n').map((l) => l.trim()).filter(Boolean);
     if (!leads.length) return ['no DOM eval result: the leads did not run'];
     return leads.filter((l) => l !== 'clean');
 };
@@ -284,11 +292,13 @@ const selfTest = () => {
     expect('image behind the button (earlier in draw order) is not flagged', imageCoversLeads(under, under.filter((n) => isImageNode(n) && !n.at.text && !n.at['content-desc'])).length === 0);
     expect('button box past the screen edge is flagged', edgeLeads(nodesOf(button('[100,100][1200,200]')), W).length === 1);
     expect('full-width button box exactly on the edge is not flagged', edgeLeads(nodesOf(button('[0,100][1080,200]')), W).length === 0);
+    expect('text chip past the edge inside a horizontal scroller is not flagged', edgeLeads(nodesOf(scroller('com.facebook.react.views.scroll.ReactHorizontalScrollView', label('Chip', '[1000,100][1100,160]'))), W).length === 0);
+    expect('text chip past the edge outside a scroller is flagged', edgeLeads(nodesOf(label('Chip', '[1000,100][1100,160]')), W).length === 1);
     // The pair-screen miss at 270dp: button text whose bottom sits in the
     // gesture-bar band, with no scroller around it.
     const pairCutoff = nodesOf(clickLabel('Paste the new code', '[100,2300][980,2360]'));
     expect('button text under the gesture bar at rest, outside any scroller, is flagged', navLeads(pairCutoff, NAV, H, false, false).length === 1);
-    expect('content spanning the bar inside a vertical scroller is not flagged at rest', navLeads(nodesOf(scroller('com.facebook.react.views.scroll.ReactScrollView', label('On your computer, open muxr', '[100,2000][980,2500]'))), NAV, H, false, true).length === 0);
+    expect('text spanning the bar inside a vertical scroller is flagged at rest', navLeads(nodesOf(scroller('com.facebook.react.views.scroll.ReactScrollView', label('On your computer, open muxr', '[100,2000][980,2500]'))), NAV, H, false, true).length === 1);
     expect('content fully below the fold on a scrolling screen is not flagged', navLeads(nodesOf(label('Back', '[100,2400][980,2470]')), NAV, H, false, true).length === 0);
     expect('content under the bar scrolled to the end is still flagged', navLeads(pairCutoff, NAV, H, true, true).length === 1);
     process.exitCode = failed ? 1 : 0;
@@ -306,6 +316,9 @@ const pwaSelfTest = () => {
 <span style="position:absolute;left:10px;top:200px">buried caption</span><span style="position:absolute;left:10px;top:200px">covering caption</span>
 <span style="position:absolute;left:10px;top:260px">caption under art</span><img src="wide.svg" style="position:absolute;left:10px;top:260px;width:100px;height:30px;object-fit:none">
 <span style="position:absolute;left:240px;top:260px">caption beside art</span>
+<span style="position:absolute;left:10px;top:440px">under decorative art</span><img src="wide.svg" style="position:absolute;left:10px;top:440px;width:100px;height:30px;object-fit:none;pointer-events:none">
+<div style="position:absolute;left:600px;top:500px;width:150px;height:40px;overflow-x:auto;overflow-y:hidden"><div style="position:relative;width:400px;height:40px"><span style="position:absolute;left:300px;top:0">chip inside a scroller</span><img src="wide.svg" style="position:absolute;left:300px;top:20px;width:60px;height:60px;object-fit:cover"></div></div>
+<span style="position:absolute;left:820px;top:560px">chip past the edge</span>
 <div style="position:absolute;left:10px;top:320px;width:200px;height:20px;overflow:hidden"><div dir="auto">two lines of text that wrap well beyond twenty pixels of height</div></div>
 <div style="position:absolute;left:240px;top:320px;width:200px;height:100px;overflow:hidden"><div dir="auto">fits</div></div>
 <div style="position:absolute;left:10px;top:380px;width:120px;height:60px;overflow:hidden"><div style="height:60px;overflow-y:auto"><div style="height:200px"></div><div dir="auto">below the fold but reachable by scroll</div></div></div>
@@ -322,6 +335,9 @@ const pwaSelfTest = () => {
     expect('text sticking out of an overflow-hidden ancestor is flagged', leads.some((l) => l.startsWith('text clipped by overflow-hidden ancestor: "two lines of text')), leads.join(' | '));
     expect('text fitting its overflow-hidden ancestor is not flagged', !leads.some((l) => l.includes('"fits"')), leads.join(' | '));
     expect('text below the fold inside a real scroller is not flagged', !leads.some((l) => l.includes('"below the fold but reachable by scroll"')), leads.join(' | '));
+    expect('text under a pointer-events:none image is flagged', leads.some((l) => l.startsWith('text over image: "under decorative art"')), leads.join(' | '));
+    expect('text and image inside a horizontal scroller past the edge are not flagged', !leads.some((l) => l.includes('"chip inside a scroller"') || l.startsWith('image off-screen')), leads.join(' | '));
+    expect('text past the edge outside any scroller is flagged', leads.some((l) => l.startsWith('text off-screen: "chip past the edge"')), leads.join(' | '));
     // The driver: eval output plus screenshot through one exit code.
     // The driver runs the eval itself: a stub chrome-devtools-axi on PATH prints the case's eval output.
     const self = fileURLToPath(import.meta.url);

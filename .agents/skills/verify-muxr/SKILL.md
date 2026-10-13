@@ -207,16 +207,16 @@ node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>-s
 
 It saves the PNG and the uiautomator dump and prints `DEFECT …` lines for
 what a machine can see (text under the status bar; text or a button box under
-the navigation bar: at rest, one whose bottom edge sits more than 4px into the
-bar and that no vertical scroller holds; with `--end`, any of it still under
-the bar; text touching the screen edge; a button box past the edge even when
-its text fits, unless it sits in a horizontal scroller and swipes into view;
-clipped text (an ellipsis, or running past its parent); overlapping elements;
-an unlabelled image off-screen or painted over a control; a covered control; a
-squashed image or an image with no reference twin; flat edge strips). Any
-DEFECT line fails the cell (exit 1). On a screen that scrolls, the `--end` run
-is required, not optional: content inside a vertical scroller is excused at
-rest only, and its `--end` shot must show it clear of the bar.
+the navigation bar: at rest, any text or button box whose bottom edge sits more
+than 4px into the bar, inside a scroller or not; with `--end`, any of it still
+under the bar; text touching the screen edge, or a button box past it even when
+its text fits, unless the node sits in a horizontal scroller that swipe
+reaches; clipped text (an ellipsis, or running past its parent); overlapping
+elements; an unlabelled image off-screen or painted over a control; a covered
+control; a squashed image or an image with no reference twin; flat edge
+strips). Any DEFECT line fails the cell (exit 1). `--end` runs on every screen
+that scrolls, as well as the at-rest shot: its scrolled-to-end shot must show
+the content clear of the bar.
 `--ref` is the dump of the same cell from the main run (on main itself, omit
 it; the line `image geometry not compared` says so). The eye still judges every
 shot too. A DEFECT that is a false positive is overridden only by a named line
@@ -244,7 +244,8 @@ any DEFECT:
 node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-check "$DIR/<name>.png" <name>
 ```
 
-They report off-screen text and images, clipped text (including text cut by
+They report off-screen text and images (a part inside a horizontal overflow
+scroller is excused, as on native, since swipe reaches it), clipped text (including text cut by
 an overflow-hidden ancestor), text spilling out of its button, text painted
 over by another text or an image, a control covered by another element, and a
 stretched image; the driver adds a blank-strip read of the screenshot itself.
@@ -285,15 +286,16 @@ Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
   out of its button, or an ellipsis where the mock shows the whole text
   (an ellipsis the feature file names as intended is not a defect).
 - **Overlap** — text or a control under the status bar or clock at any scroll
-  position; under the gesture or navigation bar once the screen can scroll no
-  further, or at rest when no vertical scroller holds it (content passing under
-  the translucent gesture bar inside a scroller is fine mid-scroll, and `--end`
-  must show it clear); under the keyboard, a toast, or another element; text
-  painted over by another text or an image; an image painted over a control.
+  position; under the gesture or navigation bar: any text or button box more
+  than 4px into it at rest, and any content still under it once scrolled to the
+  end (`--end`); content passing under the translucent bar mid-scroll is fine;
+  under the keyboard, a toast, or another element; text painted over by another
+  text or an image (including a picture with `pointer-events: none`); an image
+  painted over a control.
 - **Off-screen or unreachable** — any part beyond the screen edge (a button
   box as well as its text; a labelled or unlabelled image), except a part
-  inside a horizontal scroller, which swipe reaches; or a control no scroll
-  brings fully into view.
+  inside a horizontal scroller, which swipe reaches, on native and PWA alike;
+  or a control no scroll brings fully into view.
 - **Blank or black strip** — a flat band along an edge or between sections
   that the mock does not have (e.g. a black left strip), on native and PWA
   screenshots alike.
