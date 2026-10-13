@@ -12,7 +12,8 @@ export function WordWrappingText({ children, style, fontSize, lineHeight, availa
     // A parent's budget can still be narrowed by borders or flex layout.
     const lineWidth = Math.min(availableWidth ?? width, width);
     const ready = lineWidth > 0 && measured.every((word) => wordWidths[word] > 0);
-    const scale = widest > lineWidth ? lineWidth / (widest + 1) : 1;
+    // Before the first layout lineWidth is 0: a 0 font size crashes Android.
+    const scale = ready && widest > lineWidth ? lineWidth / (widest + 1) : 1;
     React.useEffect(() => { onWordWidth?.(widest); }, [widest, onWordWidth]);
     return (
         <View style={[styles.container, availableWidth !== undefined && { width: Math.min(availableWidth, wordWidths[children] ?? availableWidth) }]}
