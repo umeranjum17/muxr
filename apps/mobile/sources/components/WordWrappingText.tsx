@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ScrollView, StyleSheet, Text, View, type TextProps } from 'react-native';
+import { ScrollView, Text, View, type TextProps } from 'react-native';
 
 /** Wrap whole words; shrink only an oversized word (or a single-line label). */
 export function WordWrappingText({ children, style, fontSize, lineHeight, availableWidth, onWordWidth, ...props }:
@@ -42,8 +42,9 @@ export function WordWrappingText({ children, style, fontSize, lineHeight, availa
     );
 }
 
-const styles = StyleSheet.create({
+// Plain objects: jest/vitest react-native mocks used by screen tests carry no StyleSheet.
+const styles = {
     container: { alignSelf: 'stretch', flexShrink: 1, minWidth: 0 },
     measure: { position: 'absolute', height: 0, opacity: 0 },
     word: { alignSelf: 'flex-start', flexShrink: 0 },
-});
+} as const;
