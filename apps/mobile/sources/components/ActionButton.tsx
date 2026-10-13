@@ -111,9 +111,12 @@ const stylesheet = StyleSheet.create((theme) => ({
     // The row itself wraps: on a very narrow screen the icon keeps its size
     // and the label flows onto its own line at the pill's full width instead
     // of squeezing beside the icon into two-character lines that stack the
-    // button taller than the viewport. Single-line buttons measure exactly
-    // as before.
-    wrapRow: { flexWrap: 'wrap', justifyContent: 'center' },
+    // button taller than the viewport. The row spans the pill so the label
+    // measures the full width, not the longest word: without it the row
+    // shrink-wraps to the longest word and the label breaks inside that.
+    // Single-line buttons measure exactly as before: the row already spans
+    // its content, and centering content in a full-width row draws the same.
+    wrapRow: { width: '100%', flexWrap: 'wrap', justifyContent: 'center' },
     wrapText: { flexShrink: 1, minWidth: 0, textAlign: 'center' },
     primary: {
         backgroundColor: theme.colors.button.primary.background,
