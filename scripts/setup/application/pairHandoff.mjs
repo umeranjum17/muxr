@@ -39,7 +39,7 @@ export async function pairHandoff(state) {
                 const text = `${JSON.stringify({ version: 1, offer: offer.text, expiresAt: offer.expires, wordsFile })}\n`;
                 if (Buffer.byteLength(text) > LIMIT) throw new Error('pairing offer exceeds the 64 KB handoff limit');
                 atomicWrite(offerPath, text);
-                print('Pairing offer ready in the kit outbox. Waiting for the phone’s two words.');
+                print(`Pairing offer ready in the kit outbox: ${offerPath}. Waiting for the phone’s two words.`);
             },
             approve: async ({ words }) => {
                 while (!controller.signal.aborted) {
@@ -65,6 +65,7 @@ export async function pairHandoff(state) {
             },
         });
     } finally {
+        controller.abort();
         clearTimeout(timer);
         process.off('SIGINT', cancel);
         process.off('SIGTERM', cancel);
