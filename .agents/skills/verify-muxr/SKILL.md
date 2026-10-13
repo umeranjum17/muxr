@@ -207,13 +207,16 @@ node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>-s
 
 It saves the PNG and the uiautomator dump and prints `DEFECT …` lines for
 what a machine can see (text under the status bar; text or a button box under
-the navigation bar, including a node fully inside the bar band on an
-unscrolled screen, which fails without `--end`; text touching the screen
-edge; a button box past the edge even when its text fits; clipped text (an
-ellipsis, or running past its parent); overlapping elements; an unlabelled
-image off-screen or painted over a control; a covered control; a squashed
-image or an image with no reference twin; flat edge strips). Any DEFECT line
-fails the cell (exit 1).
+the navigation bar: at rest, one whose bottom edge sits more than 4px into the
+bar and that no vertical scroller holds; with `--end`, any of it still under
+the bar; text touching the screen edge; a button box past the edge even when
+its text fits, unless it sits in a horizontal scroller and swipes into view;
+clipped text (an ellipsis, or running past its parent); overlapping elements;
+an unlabelled image off-screen or painted over a control; a covered control; a
+squashed image or an image with no reference twin; flat edge strips). Any
+DEFECT line fails the cell (exit 1). On a screen that scrolls, the `--end` run
+is required, not optional: content inside a vertical scroller is excused at
+rest only, and its `--end` shot must show it clear of the bar.
 `--ref` is the dump of the same cell from the main run (on main itself, omit
 it; the line `image geometry not compared` says so). The eye still judges every
 shot too. A DEFECT that is a false positive is overridden only by a named line
@@ -234,11 +237,11 @@ reload, wait until `document.body.innerText` is non-empty (a shot taken
 earlier is a blank page, not a pass), `emulate` again (a reload drops it),
 `screenshot`, then set every scrollable element's `scrollTop` to its
 `scrollHeight` and shoot `-scrolled`. After each shot save the DOM leads and
-run them through the driver, which exits 1 on any DEFECT:
+run the driver on the same page, which runs the DOM leads itself and exits 1 on
+any DEFECT:
 
 ```sh
-chrome-devtools-axi eval "$(node .agents/skills/verify-muxr/features/visualCheck.mjs pwa)" | tee "$DIR/<name>.leads"
-node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-check "$DIR/<name>.png" "$DIR/<name>.leads" <name>
+node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-check "$DIR/<name>.png" <name>
 ```
 
 They report off-screen text and images, clipped text (including text cut by
@@ -257,8 +260,9 @@ native: avatar geometry, clipped text, edge strips, unlabelled images
 button boxes, and the navigation-bar overlap with and without `--end`
 (including the pair-screen cutoff shape); PWA: squashed img/background vs
 cover, text over text or an image vs text beside one, overflow-hidden
-clipping vs fitting text, and the `pwa-check` driver exit codes on DEFECT,
-clean, and strip shots; they need ImageMagick and `chromium`:
+clipping vs fitting text, and the `pwa-check` driver exit codes on a DEFECT,
+a clean page, a page with no eval result, and a strip shot; they need
+ImageMagick and `chromium`:
 
 ```sh
 node .agents/skills/verify-muxr/features/visualCheck.mjs selftest      # native: avatar geometry, clipped text, edge strip
@@ -282,13 +286,14 @@ Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
   (an ellipsis the feature file names as intended is not a defect).
 - **Overlap** — text or a control under the status bar or clock at any scroll
   position; under the gesture or navigation bar once the screen can scroll no
-  further, or fully inside the bar band on an unscrolled screen (content
-  passing under the translucent gesture bar mid-scroll is fine); under the
-  keyboard, a toast, or another element; text painted over by another text or
-  an image; an image painted over a control.
+  further, or at rest when no vertical scroller holds it (content passing under
+  the translucent gesture bar inside a scroller is fine mid-scroll, and `--end`
+  must show it clear); under the keyboard, a toast, or another element; text
+  painted over by another text or an image; an image painted over a control.
 - **Off-screen or unreachable** — any part beyond the screen edge (a button
-  box as well as its text; a labelled or unlabelled image), or a control no
-  scroll brings fully into view.
+  box as well as its text; a labelled or unlabelled image), except a part
+  inside a horizontal scroller, which swipe reaches; or a control no scroll
+  brings fully into view.
 - **Blank or black strip** — a flat band along an edge or between sections
   that the mock does not have (e.g. a black left strip), on native and PWA
   screenshots alike.

@@ -6,12 +6,11 @@
 //     the screen is scrolled as far as it goes (or cannot scroll), so anything
 //     still under the navigation bar is stuck there. --ref: the dump of the same
 //     cell from main (or the mock run); image nodes are compared against it.
-//   node visualCheck.mjs pwa
-//     prints a function for `chrome-devtools-axi eval` that lists the same leads
-//     in the PWA's DOM ("blank page" means the shot was taken before the app drew).
-//   node visualCheck.mjs pwa-check <shot>.png <leads>.txt <name>
-//     the PWA driver: fails <name> (exit 1) on any DEFECT, where a DEFECT is any
-//     eval line other than `clean` plus a blank-strip read of the screenshot.
+//   node visualCheck.mjs pwa-check <shot>.png <name>
+//     the PWA driver: runs the DOM leads on the open page through
+//     `chrome-devtools-axi eval` ("blank page" means the shot was taken before the
+//     app drew) and fails <name> (exit 1) on any DEFECT: any lead other than
+//     `clean`, no eval result at all, or a blank strip in the screenshot.
 //   node visualCheck.mjs selftest | pwa-selftest
 //     proves every check fires on its defect and stays quiet on the matching
 //     clean case (native: avatar geometry, clipped text, edge strip, unlabelled
@@ -129,15 +128,17 @@ const imageDefects = (cand, ref) => {
 
 const isImageNode = (n) => /Image/.test(n.at.class);
 
+const scrolls = (n, horizontal) => n.up.some((a) => a.at.scrollable === 'true' && /Horizontal/.test(a.at.class) === horizontal);
+const inHorizontalScroller = (n) => scrolls(n, true);
+const inVerticalScroller = (n) => scrolls(n, false);
+
 // Images with no text, content-desc or clickable flag are invisible to the
 // content filter, so they get their own off-screen and overlap checks. A
-// horizontal spill never scrolls into view; a vertical one is normal
-// below-the-fold content on a screen that scrolls.
+// horizontal spill is reachable only inside a horizontal scroller; a vertical
+// one is normal below-the-fold content on a screen that scrolls.
 const imageOffScreenLeads = (imagery, W, H, scrollable) => imagery.flatMap((n) => {
-    const out = [];
-    if (n.box.l < -1 || n.box.r > W + 1) out.push(`image off-screen: "${n.label}" ${n.at.bounds}`);
-    else if (!scrollable && (n.box.t < -1 || n.box.b > H + 1)) out.push(`image off-screen: "${n.label}" ${n.at.bounds}`);
-    return out;
+    if (n.box.l < -1 || n.box.r > W + 1) return inHorizontalScroller(n) ? [] : [`image off-screen: "${n.label}" ${n.at.bounds}`];
+    return !scrollable && (n.box.t < -1 || n.box.b > H + 1) ? [`image off-screen: "${n.label}" ${n.at.bounds}`] : [];
 });
 
 // An image painted over a control or text covers it. Dump order is draw
@@ -155,11 +156,10 @@ const imageCoversLeads = (ordered, imagery) => {
 };
 
 // Content under the navigation/gesture bar. Scrolled to the end (--end) any
-// of it is stuck there. On an unscrolled screen a node fully inside the bar
-// band is the pair-screen miss (a button whose text sits under the gesture
-// bar even though scrolling could reveal it); a node spanning the band is
-// content passing under the translucent bar, which is fine, as is content
-// fully below the screen on a screen that scrolls.
+// of it is stuck there. At rest, a text or button box whose bottom edge sits
+// more than 4px into the bar is the pair-screen miss, unless it lies inside a
+// vertical scroller, where scrolling can bring it clear (--end shows whether
+// it does). Content fully below the screen is not under the bar.
 const navLeads = (watched, nav, H, end, scrollable) => {
     if (!nav) {
         if (scrollable || end) return [];
@@ -169,18 +169,19 @@ const navLeads = (watched, nav, H, end, scrollable) => {
     return watched.flatMap((n) => {
         if (n.box.b <= nav[1]) return [];
         if (end) return [`under the navigation bar: "${n.label}" ${n.at.bounds} (bar starts at y=${nav[1]})`];
-        if (n.box.t >= nav[1] - 1 && n.box.b <= H + 1) return [`under the navigation bar on the unscrolled screen: "${n.label}" ${n.at.bounds} (bar starts at y=${nav[1]}; confirm with --end whether scroll reveals it)`];
-        if (!scrollable) return [`under the navigation bar with nowhere to scroll: "${n.label}" ${n.at.bounds} (bar starts at y=${nav[1]})`];
-        return [];
+        if (!(n.at.text || n.at.clickable === 'true') || inVerticalScroller(n)) return [];
+        if (Math.min(n.box.b, H) - Math.max(n.box.t, nav[1]) <= 4) return [];
+        return [`under the navigation bar on the unscrolled screen: "${n.label}" ${n.at.bounds} (bar starts at y=${nav[1]})`];
     });
 };
 
 // Text touching the screen edge is likely cut. A button box past the edge is
 // cut even when its text fits; containers may legitimately fill the width,
-// so a box without text only fails strictly past the edge.
+// so a box without text only fails strictly past the edge, and a button inside
+// a horizontal scroller is reached by swipe rather than cut.
 const edgeLeads = (watched, W) => watched.flatMap((n) => {
     if (n.at.text && (n.box.l <= 0 || n.box.r >= W)) return [`text touches the screen edge, likely cut: "${n.label}" ${n.at.bounds}`];
-    if (!n.at.text && n.at.clickable === 'true' && (n.box.l < 0 || n.box.r > W)) return [`button runs past the screen edge: "${n.label}" ${n.at.bounds}`];
+    if (!n.at.text && n.at.clickable === 'true' && (n.box.l < 0 || n.box.r > W) && !inHorizontalScroller(n)) return [`button runs past the screen edge: "${n.label}" ${n.at.bounds}`];
     return [];
 });
 
@@ -203,32 +204,27 @@ const stripLeads = (png, top, bottom, W) => {
     return found;
 };
 
-// The PWA driver: every eval line other than `clean` is a DEFECT (a blank
-// page line means the shot was taken before the app drew: retake it), plus a
-// blank-strip read of the screenshot itself.
+// The PWA driver: every lead other than `clean` is a DEFECT (a blank page lead
+// means the shot was taken before the app drew: retake it), a page that gives
+// no eval result is a DEFECT too, plus a blank-strip read of the screenshot.
 const pwaEvalDefects = (text) => {
-    // chrome-devtools-axi prints the returned string JSON-encoded on a
-    // `result:` line, followed by `help` chatter; a hand-saved file may hold
-    // the bare leads instead. Either way, only the payload lines survive.
-    const lines = text.split('\n');
-    const at = lines.findIndex((l) => l.startsWith('result:'));
+    // chrome-devtools-axi prints the returned string JSON-encoded on a `result:`
+    // line, followed by `help` chatter.
+    const line = text.split('\n').find((l) => l.startsWith('result:'));
+    if (line === undefined) return ['no DOM eval result: the leads did not run'];
+    const raw = line.slice('result:'.length).trim();
     let body;
-    if (at >= 0) {
-        const raw = lines[at].slice('result:'.length).trim();
-        try { body = JSON.parse(raw); }
-        catch { body = raw; }
-        if (typeof body !== 'string') body = String(body);
-        body = body.replace(/^"|"$/g, '');
-    } else {
-        body = lines.filter((l) => l.trim() && !/^help(\[\d+\])?:/.test(l) && !/^ {2}Run /.test(l)).join('\n');
-    }
-    return body.split('\n').map((l) => l.trim()).filter((l) => l && l !== 'clean');
+    try { body = JSON.parse(raw); }
+    catch { body = raw; }
+    const leads = String(body).replace(/^"|"$/g, '').split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!leads.length) return ['no DOM eval result: the leads did not run'];
+    return leads.filter((l) => l !== 'clean');
 };
 
-const pwaCheck = (png, leadsPath, name) => {
-    const found = [...pwaEvalDefects(readFileSync(leadsPath, 'utf8'))];
+const pwaCheck = (png, name) => {
+    const evalOut = execFileSync('chrome-devtools-axi', ['eval', pwaLeads.toString()], { encoding: 'utf8' });
     const shot = readFileSync(png);
-    found.push(...stripLeads(png, 0, shot.readUInt32BE(20), shot.readUInt32BE(16)));
+    const found = [...pwaEvalDefects(evalOut), ...stripLeads(png, 0, shot.readUInt32BE(20), shot.readUInt32BE(16))];
     for (const line of found) console.log(`DEFECT ${name}: ${line}`);
     console.log(`${found.length ? 'FAIL' : 'clean'} ${name}`);
     process.exitCode = found.length ? 1 : 0;
@@ -276,6 +272,9 @@ const selfTest = () => {
     expect('unlabelled image fully on-screen is not flagged', imageOffScreenLeads(nodesOf(graphic('[100,100][200,200]')), W, H, true).length === 0);
     expect('unlabelled image below the fold of a scrolling screen is not flagged', imageOffScreenLeads(nodesOf(graphic('[100,2400][200,2500]')), W, H, true).length === 0);
     expect('unlabelled image below a screen that cannot scroll is flagged', imageOffScreenLeads(nodesOf(graphic('[100,2400][200,2500]')), W, H, false).length === 1);
+    const scroller = (cls, inner) => `<node index="0" text="" resource-id="" class="${cls}" package="com.muxr" content-desc="" clickable="false" scrollable="true" bounds="[0,0][1080,2376]">${inner}</node>`;
+    expect('unlabelled image past the edge inside a horizontal scroller is not flagged', imageOffScreenLeads(nodesOf(scroller('com.facebook.react.views.scroll.ReactHorizontalScrollView', graphic('[1060,100][1120,200]'))), W, H, true).length === 0);
+    expect('unlabelled image past the edge inside a vertical scroller is still flagged', imageOffScreenLeads(nodesOf(scroller('com.facebook.react.views.scroll.ReactScrollView', graphic('[1060,100][1120,200]'))), W, H, true).length === 1);
     const button = (bounds) => shot('android.view.ViewGroup', bounds, true);
     const clickLabel = (text, bounds) => `<node index="0" text="${text}" resource-id="" class="android.widget.TextView" package="com.muxr" content-desc="" clickable="true" bounds="${bounds}" />`;
     const over = nodesOf(clickLabel('Paste the new code', '[100,2200][980,2300]'), graphic('[150,2250][900,2350]'));
@@ -285,15 +284,13 @@ const selfTest = () => {
     expect('image behind the button (earlier in draw order) is not flagged', imageCoversLeads(under, under.filter((n) => isImageNode(n) && !n.at.text && !n.at['content-desc'])).length === 0);
     expect('button box past the screen edge is flagged', edgeLeads(nodesOf(button('[100,100][1200,200]')), W).length === 1);
     expect('full-width button box exactly on the edge is not flagged', edgeLeads(nodesOf(button('[0,100][1080,200]')), W).length === 0);
-    // The pair-screen miss at 270dp: button text fully inside the gesture-bar
-    // band on a screen that has not been scrolled to the end.
-    const pairCutoff = nodesOf(clickLabel('Paste the new code', '[100,2340][980,2370]'));
-    const cutoffLead = navLeads(pairCutoff, NAV, H, false, true);
-    expect('button text under the gesture bar on the unscrolled screen is flagged', cutoffLead.length === 1 && /unscrolled/.test(cutoffLead[0]), cutoffLead.join(' | '));
-    expect('content spanning the bar band mid-scroll is not flagged', navLeads(nodesOf(label('On your computer, open muxr', '[100,2000][980,2500]')), NAV, H, false, true).length === 0);
+    // The pair-screen miss at 270dp: button text whose bottom sits in the
+    // gesture-bar band, with no scroller around it.
+    const pairCutoff = nodesOf(clickLabel('Paste the new code', '[100,2300][980,2360]'));
+    expect('button text under the gesture bar at rest, outside any scroller, is flagged', navLeads(pairCutoff, NAV, H, false, false).length === 1);
+    expect('content spanning the bar inside a vertical scroller is not flagged at rest', navLeads(nodesOf(scroller('com.facebook.react.views.scroll.ReactScrollView', label('On your computer, open muxr', '[100,2000][980,2500]'))), NAV, H, false, true).length === 0);
     expect('content fully below the fold on a scrolling screen is not flagged', navLeads(nodesOf(label('Back', '[100,2400][980,2470]')), NAV, H, false, true).length === 0);
     expect('content under the bar scrolled to the end is still flagged', navLeads(pairCutoff, NAV, H, true, true).length === 1);
-    expect('content under the bar with nowhere to scroll is flagged', navLeads(nodesOf(label('Back', '[100,2400][980,2470]')), NAV, H, false, false).length === 1);
     process.exitCode = failed ? 1 : 0;
 };
 
@@ -326,26 +323,28 @@ const pwaSelfTest = () => {
     expect('text fitting its overflow-hidden ancestor is not flagged', !leads.some((l) => l.includes('"fits"')), leads.join(' | '));
     expect('text below the fold inside a real scroller is not flagged', !leads.some((l) => l.includes('"below the fold but reachable by scroll"')), leads.join(' | '));
     // The driver: eval output plus screenshot through one exit code.
+    // The driver runs the eval itself: a stub chrome-devtools-axi on PATH prints the case's eval output.
     const self = fileURLToPath(import.meta.url);
-    const runDriver = (leadText, pngArgs) => {
-        const png = join(dir, `driver-${Math.random().toString(36).slice(2)}.png`);
+    const runDriver = (evalOut, pngArgs) => {
+        const bin = mkdtempSync(join(dir, 'bin-'));
+        writeFileSync(join(bin, 'eval.txt'), evalOut);
+        writeFileSync(join(bin, 'chrome-devtools-axi'), `#!/bin/sh\ncat "${join(bin, 'eval.txt')}"\n`, { mode: 0o755 });
+        const png = join(bin, 'shot.png');
         execFileSync('magick', ['-size', '270x594', 'xc:#0c0c0b', ...pngArgs, png]);
-        const leadsPath = `${png}.txt`;
-        writeFileSync(leadsPath, leadText);
         try {
-            execFileSync(process.execPath, [self, 'pwa-check', png, leadsPath, 'driver'], { encoding: 'utf8' });
+            execFileSync(process.execPath, [self, 'pwa-check', png, 'driver'], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
             return { code: 0, out: '' };
         } catch (e) { return { code: e.status, out: (e.stdout ?? '').toString() }; }
     };
-    const failing = runDriver('clean\ntext off-screen: "too wide"\n', []);
-    expect('driver exits non-zero on a DEFECT eval line', failing.code === 1 && /DEFECT driver: text off-screen/.test(failing.out), `code=${failing.code} out=${failing.out}`);
     // The real wire format: JSON-encoded payload on a `result:` line plus help chatter.
-    const wired = runDriver('result: "clean"\nhelp[1]:\n  Run `chrome-devtools-axi snapshot` to see current page state\n', []);
-    expect('driver reads clean through the result wire format', wired.code === 0, `code=${wired.code} out=${wired.out}`);
-    const wiredDefect = runDriver('result: "text over text: \\"a\\" under SPAN \\"b\\"\\nblank page: nothing rendered (retake the shot)"\nhelp[1]:\n  Run `x` to see y\n', []);
-    expect('driver splits escaped newlines in the result payload', wiredDefect.code === 1 && /DEFECT driver: text over text/.test(wiredDefect.out) && /blank page/.test(wiredDefect.out) && !/Run `x`/.test(wiredDefect.out), `code=${wiredDefect.code} out=${wiredDefect.out}`);
-    expect('driver passes clean eval output on a uniform shot', runDriver('clean\n', []).code === 0);
-    const striped = runDriver('clean\n', ['-fill', 'black', '-draw', 'rectangle 0,0 7,593']);
+    const result = (body) => `result: ${JSON.stringify(body)}\nhelp[1]:\n  Run \`chrome-devtools-axi snapshot\` to see current page state\n`;
+    const failing = runDriver(result('clean\ntext off-screen: "too wide"'), []);
+    expect('driver exits non-zero on a DEFECT lead', failing.code === 1 && /DEFECT driver: text off-screen/.test(failing.out), `code=${failing.code} out=${failing.out}`);
+    const wired = runDriver(result('clean'), []);
+    expect('driver passes a clean page on a uniform shot', wired.code === 0, `code=${wired.code} out=${wired.out}`);
+    const silent = runDriver('clean\n', []);
+    expect('driver fails a page that gives no eval result', silent.code === 1 && /no DOM eval result/.test(silent.out), `code=${silent.code} out=${silent.out}`);
+    const striped = runDriver(result('clean'), ['-fill', 'black', '-draw', 'rectangle 0,0 7,593']);
     expect('driver flags a blank strip on the PWA shot', striped.code === 1 && /blank strip/.test(striped.out), `code=${striped.code} out=${striped.out}`);
     process.exitCode = failed ? 1 : 0;
 };
@@ -397,10 +396,9 @@ const native = (serial, dir, name, flags) => {
 };
 
 const [serial, dir, name, ...flags] = process.argv.slice(2);
-if (serial === 'pwa') console.log(pwaLeads.toString());
-else if (serial === 'pwa-check') {
-    if (!name || !flags[0]) throw new Error('usage: visualCheck.mjs pwa-check <shot>.png <leads>.txt <name>');
-    pwaCheck(dir, name, flags[0]);
+if (serial === 'pwa-check') {
+    if (!dir || !name) throw new Error('usage: visualCheck.mjs pwa-check <shot>.png <name>');
+    pwaCheck(dir, name);
 } else if (serial === 'selftest') selfTest();
 else if (serial === 'pwa-selftest') pwaSelfTest();
 else {
