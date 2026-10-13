@@ -220,6 +220,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   native app over a real Herdr lab with long canned output: a finger drag moves
   the pane about as far as the finger in every kind, and Latest reaches the
   newest line, also while the agent is still printing and in a split width.
+- [Type and send prompts in the web app without a crash](./web-prompt-typing.md) —
+  web export on an Android emulator at 270 dp with Gboard: five sends to a
+  real OpenCode agent, each reply shown, no React #185 screen.
 - [Stay connected to a busy computer](./busy-computer.md) —
   homeLoad at 300 panes / 150 agents, then a frozen lab host on an emulator:
   busy card through the offline grace, explanation only after it.

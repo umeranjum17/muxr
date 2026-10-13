@@ -97,14 +97,18 @@ export function useDraft(
         };
     }, [sessionId, value, saveDraft]);
 
-    // Save on unmount
+    // Save on unmount only. Keyed on `value`, this cleanup ran on every
+    // keystroke and wrote the store from a passive effect each time; on a slow
+    // phone that chained into React's "Maximum update depth exceeded".
+    const valueRef = useRef(value);
+    valueRef.current = value;
     useEffect(() => {
         return () => {
-            if (sessionId && value !== lastSavedValue.current) {
-                saveDraft(value);
+            if (sessionId && valueRef.current !== lastSavedValue.current) {
+                saveDraft(valueRef.current);
             }
         };
-    }, [sessionId, value, saveDraft]);
+    }, [sessionId, saveDraft]);
 
     // Clear draft (used after message is sent)
     const clearDraft = useCallback(() => {
