@@ -236,9 +236,9 @@ chrome-devtools-axi eval "$(node .agents/skills/verify-muxr/features/visualCheck
 ```
 
 They report off-screen text and images, clipped text, text spilling out of
-its button, a control covered by another element, and a stretched image. Any
-line other than `clean` is a DEFECT and fails the cell, with the same
-`false lead:` override as native.
+its button, a control covered by another element, and a stretched image. Paste
+the eval output into the PR's `## Checks` block. Any line other than `clean` is
+a DEFECT and fails the cell, with the same `false lead:` override as native.
 
 Self-tests (run once per change to the checks, not per cell). They prove the
 checks fire on a squashed image, an unmatched image, clipped text and a black
@@ -276,6 +276,13 @@ Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
 - **Button or field hidden under a sticky element** — a header, footer,
   composer, tab bar or floating button covering a control at any scroll
   position, including the end.
+
+### Eye-only (the machine does not check these)
+
+Look at these by eye in every cell: blank strips on the PWA; text over text or
+over an image on the PWA; clipping on the PWA by an ancestor with `overflow`
+hidden; native images that are off-screen or overlap something and have no
+label; a button whose box, not its text, runs past the screen edge.
 
 ### Compare and report
 
