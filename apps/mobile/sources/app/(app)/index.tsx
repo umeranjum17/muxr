@@ -66,11 +66,11 @@ function NotAuthenticated() {
                             <Wordmark width={148 * markScale} />
                         </View>
                     </View>
-                <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : `Run your agents from your ${pairingDeviceNoun()}.`}</Text>
-                <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
-            </View>
-            {hasTailscale ? <FirstRunConnection /> : <TailscaleStep onReady={() => setHasTailscale(true)} />}
-            <HomeWebInstallInvite variant="firstRun" />
+                    <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : `Run your agents from your ${pairingDeviceNoun()}.`}</Text>
+                    <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
+                </View>
+                {hasTailscale ? <FirstRunConnection /> : <TailscaleStep onReady={() => setHasTailscale(true)} />}
+                <HomeWebInstallInvite variant="firstRun" />
             </ScrollView>
         </View>
     );

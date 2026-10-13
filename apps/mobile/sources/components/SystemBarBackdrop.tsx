@@ -10,7 +10,7 @@ import { useUnistyles } from 'react-native-unistyles';
  * scrolled headings end up under the transparent status bar and the clock.
  * This band lives outside the scroll view, so scrolled content slides under
  * paint: the screen background at the top, the same at the bottom above the
- * gesture bar. Every full-bleed scrolling screen renders it instead of
+ * gesture bar. A full-bleed scrolling screen should render it instead of
  * padding its scroll content with the top inset.
  *
  * Screens whose scroll view starts below a header do not need it: their
