@@ -246,15 +246,15 @@ const layoutLeads = (app, { W, H, status, nav, end, ref }) => {
     // Unlabelled images join the bar and overlap watches; labelled ones are
     // already in content through their description.
     const imagery = app.filter((n) => isImageNode(n) && !content.includes(n));
-    const watched = [...content, ...imagery];
+    const watched = app.filter((n) => content.includes(n) || imagery.includes(n));
     const scrollable = app.some((n) => n.at.scrollable === 'true' && !/Horizontal/.test(n.at.class));
     const cut = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
     const found = [];
-    for (const n of watched) {
+    for (const n of content) {
         if (status && n.box.t < status[3]) found.push(`under the status bar: "${n.label}" ${n.at.bounds} (bar ends at y=${status[3]})`);
     }
     found.push(...edgeLeads(watched, W));
-    found.push(...navLeads(watched, nav, H, end));
+    found.push(...navLeads(content, nav, H, end));
     found.push(...belowLeads(content, H, scrollable, end));
     found.push(...imageOffScreenLeads(imagery, W, H, scrollable));
     found.push(...imageCoversLeads(watched, imagery));
@@ -293,6 +293,16 @@ const selfTest = () => {
         el('com.facebook.react.views.scroll.ReactHorizontalScrollView', '[0,1900][1080,2000]', { scrollable: true },
             el('com.facebook.react.views.image.ReactImageView', '[1060,1910][1120,1990]')));
     expect('clean pair entry raises no leads (horizontal carousel past the edge is reachable by swipe)', layout(clean).length === 0, layout(clean).join(' | '));
+    const title = el('android.widget.TextView', '[100,500][600,560]', { text: 'Title' });
+    const wallpaper = el('com.facebook.react.views.image.ReactImageView', '[0,400][1080,1000]');
+    expect('image dumped before its label, behind it, is not flagged', !layout(nodesOf(wallpaper, title)).some((l) => l.startsWith('image covers')), layout(nodesOf(wallpaper, title)).join(' | '));
+    expect('image dumped after its label, painted over it, is flagged', layout(nodesOf(title, wallpaper)).some((l) => l.startsWith('image covers "Title"')), layout(nodesOf(title, wallpaper)).join(' | '));
+    const bleed = el('com.facebook.react.views.image.ReactImageView', '[0,0][1080,2376]');
+    const headline = el('android.widget.TextView', '[100,50][600,100]', { text: 'Headline' });
+    const status = [0, 0, 1080, 145];
+    expect('full-bleed image under the status bar is not flagged', layout(nodesOf(bleed), { status }).length === 0, layout(nodesOf(bleed), { status }).join(' | '));
+    expect('text under the status bar is flagged', layout(nodesOf(headline), { status }).some((l) => l.startsWith('under the status bar: "Headline"')), layout(nodesOf(headline), { status }).join(' | '));
+    expect('full-bleed wallpaper under the nav bar scrolled to the end is not flagged', layout(nodesOf(bleed), { end: true }).length === 0, layout(nodesOf(bleed), { end: true }).join(' | '));
     const pngOf = (name, args) => {
         const png = join(dir, `${name}.png`);
         execFileSync('magick', ['-size', '1080x2376', 'xc:#0c0c0b', ...args, png]);
