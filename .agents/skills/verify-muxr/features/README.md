@@ -151,22 +151,23 @@ user-visible behavior, then exactly four H2 sections in this order:
   view one watches the pane but its typing, desktop and agent actions never
   reach the computer; the control one runs the command.
 - [Read whole pairing and first-run words at large text](./word-wrapping.md) —
-  unpaired pair title, comparison words and Connect/Tailscale button labels:
+  unpaired pair title, comparison words and Connect button labels:
   installed PWA at 393/270/208 dp, font 1.0/2.0, both themes, and native at 270 dp
   font 2.0; DOM ranges and screenshot OCR lead on words split across lines.
-  `Tailscale` at 208 dp font 2.0 is a known follow-up.
-- [Get Tailscale before pairing your own computer](./tailscale-first-step.md) —
-  the unpaired first screen's one Tailscale card on a release APK (Play Store AVD)
-  and the PWA: Get Tailscale opens the store, Back, I have Tailscale shows the
-  unchanged pairing steps, at 393/270 dp font 1.0/2.0 and 393/270/208 px, both themes.
+- [Tailscale is a fallback route, not a first-run gate](./tailscale-first-step.md) —
+  the unpaired first screen's link-first card on a release APK (Play Store AVD)
+  and the PWA: no gate stands in front of the connect link, "More ways & timing"
+  names Tailscale among the fallback routes; use the Visual check's native
+  and installed-PWA matrix at 393/270 dp, font 1.0/2.0, both themes.
 - [Say which end to fix when pairing can't reach the computer over Tailscale](./pair-tailscale-unreachable.md) —
   a Tailscale-address offer whose first dial fails: one sentence naming this phone (no Tailscale
   address here) or the computer, on main and candidate release APKs at 393/270 dp both themes, a
   root-staged tun for the Tailscale-on case, the good case over this desktop's tailnet address, and the PWA.
-- [Land on the first-run browser pairing steps](./first-run-browser-steps.md) —
-  unpaired installed PWA: matching step badges, Step 2's paste button opening the
-  `/pair` paste screen with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the
-  unchanged native QR branch from a release APK.
+- [Land on the first-run link-first shell](./first-run-browser-steps.md) —
+  unpaired release APK and installed PWA: ready-link field → Connect →
+  existing consent, disabled Cloud account, unchanged native SSH login and
+  expandable setup details; 393/270 dp, font 1.0/2.0, both themes and scrolled,
+  plus a link-to-consent recording.
 - [Read the whole install command on the native first run](./first-run-install-command.md) —
   unpaired release APK at 393/270 dp, font 1.0/2.0, both themes: the command
   wraps inside the screen (uiautomator bounds, no sideways scroller) and Copy

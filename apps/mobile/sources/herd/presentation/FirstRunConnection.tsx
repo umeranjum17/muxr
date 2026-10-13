@@ -1,17 +1,13 @@
 import * as React from 'react';
-import { Platform, Pressable, Share, Text, View } from 'react-native';
+import { Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { Modal } from '@/modal';
 import { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner } from '@/pairing';
 import { sshTunnelAvailable } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
-import * as Clipboard from 'expo-clipboard';
-import { FirstRunSetupCard, SetupStep } from './FirstRunSetupCard';
-
-const INSTALL_COMMAND = 'npm install -g --ignore-scripts @trymuxr/cli@latest && muxr';
+import { FirstRunSetupCard } from './FirstRunSetupCard';
 
 /**
  * Segmented Fast pairing / Direct SSH switcher. Rendered at the top of the
@@ -37,115 +33,117 @@ export function RouteSwitcher(props: { onFastPairing: () => void }) {
     );
 }
 
-function RouteTile(props: {
-    title: string;
-    badge?: string;
-    preview: string;
-    onPress: () => void;
-}) {
-    const styles = stylesheet;
-    return (
-        <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${props.title}${props.badge === undefined ? '' : `. ${props.badge}`}. Steps: ${props.preview}`}
-            style={({ pressed }) => [styles.routeTile, pressed && styles.routeTilePressed]}
-            onPress={props.onPress}
-        >
-            <View style={styles.routeTitleRow}>
-                <Text style={styles.routeTitle}>{props.title}</Text>
-                {props.badge !== undefined && (
-                    <View style={styles.routeBadge}>
-                        <Text style={styles.routeBadgeText}>{props.badge}</Text>
-                    </View>
-                )}
-            </View>
-            <Text style={styles.routePreview}>{props.preview}</Text>
-        </Pressable>
-    );
-}
-
+// Paste and Scan share the existing validator and consent route; this shell
+// does not claim an offer or store a grant.
 export function FirstRunConnection() {
     const router = useRouter();
     const styles = stylesheet;
-    const [setupDetailsOpen, setSetupDetailsOpen] = React.useState(false);
-    const [copied, setCopied] = React.useState(false);
+    const { fontScale } = useWindowDimensions();
+    const [linkValue, setLinkValue] = React.useState('');
+    const [moreWaysOpen, setMoreWaysOpen] = React.useState(false);
     const browser = Platform.OS === 'web';
     const processPairLink = useHostedPairing();
     const canScan = usePairQrScannerAvailable();
     const scanPairQr = usePairQrScanner(processPairLink, canScan);
     // Offer Direct SSH only when this native build includes the transport.
     const sshAvailable = !browser && sshTunnelAvailable();
+    const connectLink = React.useCallback(() => {
+        void processPairLink(linkValue.trim());
+    }, [processPairLink, linkValue]);
 
     return (
         <View style={styles.section}>
-            {browser ? <FirstRunSetupCard variant="command" /> : (
-                <View style={styles.otherWaysBody}>
-                    <Text style={styles.routeHint}>Step 1 · On your computer, run:</Text>
-                    <Text style={styles.installCommand} selectable>{INSTALL_COMMAND}</Text>
-                    <View style={styles.commandActions}>
-                        <ActionButton variant="quiet" title={copied ? 'Copied' : 'Copy'} action={async () => {
-                            try {
-                                const ok = await Clipboard.setStringAsync(INSTALL_COMMAND);
-                                if (ok === false) throw new Error('Could not copy');
-                                setCopied(true);
-                            } catch {
-                                Modal.alert('Copy failed', 'Enter the command shown above on your computer.');
-                            }
-                        }} />
-                        <ActionButton variant="quiet" title="Share" action={async () => {
-                            try { await Share.share({ message: INSTALL_COMMAND }); }
-                            catch { Modal.alert('Share failed', 'Copy the command instead.'); }
-                        }} />
+            <View style={styles.intro}>
+                <Text style={styles.eyebrow}>Your machine. No new account.</Text>
+                <Text style={styles.title}>Let’s connect</Text>
+                <Text style={styles.subtitle}>Use the machine you already have.</Text>
+            </View>
+            <View style={styles.card}>
+                <View style={styles.cardHead}>
+                    <Text style={styles.cardTitle}>Have a connect link?</Text>
+                    <View style={styles.badge}>
+                        <Text style={styles.badgeText}>Fastest · 20–60 sec*</Text>
                     </View>
                 </View>
-            )}
-            {browser ? (
-                <View style={styles.stepCard}>
-                    <SetupStep
-                        number={2}
-                        title="Paste the browser link"
-                        tag="Recommended"
-                        hint="Run one command on your computer, then paste the browser pairing link."
+                <Text style={styles.inputLabel}>Private link or pairing code</Text>
+                <TextInput
+                    accessibilityLabel="Private link or pairing code"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="url"
+                    returnKeyType="go"
+                    placeholder="Paste link"
+                    placeholderTextColor={styles.inputPlaceholder.color}
+                    style={styles.input}
+                    value={linkValue}
+                    onChangeText={setLinkValue}
+                    onSubmitEditing={connectLink}
+                />
+                <ActionButton title="Connect" icon="link-outline" wrap onPress={connectLink} />
+                {canScan ? (
+                    <>
+                        <ActionButton variant="secondary" title="Scan the QR" icon="qr-code-outline" wrap onPress={() => { void scanPairQr(); }} />
+                        <Text style={styles.hint}>Or scan its QR in the app. You’ll compare two words before access is granted.</Text>
+                    </>
+                ) : (
+                    <Text style={styles.hint}>{browser
+                        ? 'Paste the browser link from muxr on your computer. You’ll compare two words before access is granted.'
+                        : `This ${pairingDeviceNoun()} can't scan a QR, so paste the pairing string muxr shows on your computer.`}</Text>
+                )}
+            </View>
+            <View style={styles.alternatives}>
+                <Text style={styles.alternativesLabel}>Not set up yet?</Text>
+                <View style={styles.alternativeRow}>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Cloud account. Coming soon, no action yet."
+                        accessibilityState={{ disabled: true }}
+                        disabled
+                        style={[styles.wayTile, { flexBasis: 112 * fontScale }, styles.wayTileDisabled]}
                     >
-                        <View style={styles.stepAction}>
-                            <ActionButton variant="primary" title="Paste the browser link" icon="keypad-outline" wrap onPress={() => router.push('/pair')} />
+                        <Ionicons name="cloud-outline" size={22} color={styles.wayIcon.color} />
+                        <Text style={styles.wayTitle}>Cloud account</Text>
+                        <Text style={styles.waySub}>Boat · 2–5 min</Text>
+                        <View style={styles.soonBadge}>
+                            <Text style={styles.soonText}>Soon</Text>
                         </View>
-                    </SetupStep>
+                    </Pressable>
+                    {sshAvailable && (
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="SSH login. Any server, 3 to 7 minutes."
+                            style={({ pressed }) => [styles.wayTile, { flexBasis: 112 * fontScale }, pressed && styles.wayTilePressed]}
+                            onPress={() => router.push('/pair?route=ssh')}
+                        >
+                            <Ionicons name="terminal-outline" size={22} color={styles.wayIcon.color} />
+                            <Text style={styles.wayTitle}>SSH login</Text>
+                            <Text style={styles.waySub}>Any server · 3–7 min</Text>
+                        </Pressable>
+                    )}
                 </View>
-            ) : canScan ? (
-                <RouteTile
-                    title="Step 2 · Scan the QR it shows"
-                    badge="Recommended"
-                    preview={`Point this ${pairingDeviceNoun()} at the QR shown by muxr on your computer.`}
-                    onPress={() => { void scanPairQr(); }}
-                />
-            ) : (
-                <RouteTile
-                    title="Step 2 · Paste the pairing string"
-                    preview={`This ${pairingDeviceNoun()} can't scan a QR. Copy the string muxr shows on your computer.`}
-                    onPress={() => router.push('/pair')}
-                />
-            )}
-            {!browser && <>
-                <Pressable accessibilityRole="button" accessibilityState={{ expanded: setupDetailsOpen }}
-                    style={styles.setupDetailsToggle} onPress={() => setSetupDetailsOpen((open) => !open)}>
-                    <Text style={styles.otherWaysText}>Setup details and guide</Text>
+            </View>
+            <View style={styles.footer}>
+                <View style={styles.trustRow}>
+                    <Ionicons name="lock-closed-outline" size={14} color={styles.trust.color} />
+                    <Text style={styles.trust}>Encrypted after verified pairing</Text>
+                </View>
+                <Text style={styles.footerSub}>Your infrastructure. No muxr-hosted relay.</Text>
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: moreWaysOpen }}
+                    accessibilityLabel="More ways and timing"
+                    style={styles.moreWaysToggle}
+                    onPress={() => setMoreWaysOpen((open) => !open)}
+                >
+                    <Text style={styles.moreWaysText}>More ways &amp; timing</Text>
                 </Pressable>
-                {setupDetailsOpen && <FirstRunSetupCard variant="command" />}
-                <Text style={styles.otherWaysText}>Other ways to connect</Text>
-                <View style={styles.otherWaysBody}>
-                    {canScan && <>
-                        <ActionButton variant="secondary" title="Paste the pairing string" icon="keypad-outline" wrap
-                            action={async () => { router.push('/pair'); }} />
-                        <Text style={styles.routeHint}>{`Use this if you can't point this ${pairingDeviceNoun()} at that screen.`}</Text>
-                    </>}
-                    {sshAvailable && <>
-                        <ActionButton variant="secondary" title="Connect over SSH" icon="terminal-outline" onPress={() => router.push('/pair?route=ssh')} />
-                        <Text style={styles.routeHint}>Use this if you already SSH into that computer; no QR needed.</Text>
-                    </>}
-                </View>
-            </>}
-            <Text style={styles.footer}>End-to-end encrypted</Text>
+                {moreWaysOpen && (
+                    <View style={styles.moreWaysBody}>
+                        <FirstRunSetupCard variant="command" />
+                        <Text style={styles.hint}>Your own HTTPS endpoint, user-owned tunnel, Tailscale or local network also work. *Estimated; a ready link excludes setup. Setup still needs your consent on the computer.</Text>
+                    </View>
+                )}
+            </View>
         </View>
     );
 }
@@ -154,59 +152,192 @@ const stylesheet = StyleSheet.create((theme) => ({
     section: {
         alignSelf: 'center',
         width: '100%',
-        maxWidth: 360,
-        gap: 12,
+        maxWidth: 380,
+        flexGrow: 1,
+        gap: 18,
     },
-    routeTile: {
+    intro: {
+        alignSelf: 'stretch',
+        gap: 8,
+    },
+    eyebrow: {
+        ...Typography.default('semiBold'),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+    },
+    title: {
+        ...Typography.default('semiBold'),
+        fontSize: 25,
+        lineHeight: 29,
+        color: theme.colors.text,
+    },
+    subtitle: {
+        ...Typography.default(),
+        fontSize: 14,
+        lineHeight: 20,
+        color: theme.colors.textSecondary,
+    },
+    card: {
         width: '100%',
-        borderRadius: 16,
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: theme.colors.divider,
         backgroundColor: theme.colors.surfaceHigh,
-        padding: 18,
-        gap: 6,
+        padding: 14,
+        gap: 10,
     },
-    routeTilePressed: {
-        opacity: 0.85,
-    },
-    stepCard: {
-        width: '100%',
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        backgroundColor: theme.colors.surfaceHigh,
-        padding: 16,
-    },
-    stepAction: {
-        marginTop: 8,
-    },
-    routeTitleRow: {
+    cardHead: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
         flexWrap: 'wrap',
     },
-    routeTitle: {
+    cardTitle: {
         ...Typography.default('semiBold'),
+        flexGrow: 1,
+        flexShrink: 1,
         fontSize: 17,
         color: theme.colors.text,
     },
-    routeBadge: {
+    badge: {
+        maxWidth: '100%',
         borderRadius: 999,
         backgroundColor: theme.colors.accentSubtle,
         paddingHorizontal: 8,
         paddingVertical: 2,
     },
-    routeBadgeText: {
+    badgeText: {
         ...Typography.default('semiBold'),
         fontSize: 11,
         color: theme.colors.text,
     },
-    routePreview: {
+    inputLabel: {
+        ...Typography.default('semiBold'),
+        fontSize: 14,
+        color: theme.colors.text,
+    },
+    input: {
+        ...Typography.default(),
+        minHeight: 50,
+        paddingVertical: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surfaceHighest,
+        color: theme.colors.text,
+        paddingHorizontal: 14,
+        fontSize: 16,
+    },
+    inputPlaceholder: {
+        color: theme.colors.textSecondary,
+    },
+    hint: {
         ...Typography.default(),
         fontSize: 13,
         lineHeight: 18,
         color: theme.colors.textSecondary,
+    },
+    alternatives: {
+        gap: 8,
+    },
+    alternativesLabel: {
+        ...Typography.default('semiBold'),
+        fontSize: 13,
+        color: theme.colors.textSecondary,
+    },
+    alternativeRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    wayTile: {
+        flexGrow: 1,
+        flexShrink: 1,
+        maxWidth: '100%',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surfaceHigh,
+        padding: 12,
+        gap: 6,
+        alignItems: 'flex-start',
+    },
+    wayTilePressed: {
+        opacity: 0.85,
+    },
+    wayTileDisabled: {
+        opacity: 0.7,
+    },
+    wayIcon: {
+        color: theme.colors.textSecondary,
+    },
+    wayTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 15,
+        alignSelf: 'stretch',
+        color: theme.colors.text,
+    },
+    waySub: {
+        ...Typography.default(),
+        fontSize: 12,
+        lineHeight: 16,
+        alignSelf: 'stretch',
+        color: theme.colors.textSecondary,
+    },
+    soonBadge: {
+        borderRadius: 999,
+        backgroundColor: theme.colors.surfaceHighest,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        marginTop: 2,
+    },
+    soonText: {
+        ...Typography.default('semiBold'),
+        fontSize: 11,
+        color: theme.colors.textSecondary,
+    },
+    footer: {
+        marginTop: 'auto',
+        paddingTop: 8,
+        alignItems: 'center',
+        gap: 8,
+    },
+    trustRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    trust: {
+        ...Typography.default(),
+        flexShrink: 1,
+        textAlign: 'center',
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+    },
+    footerSub: {
+        ...Typography.default(),
+        fontSize: 12,
+        lineHeight: 16,
+        color: theme.colors.textSecondary,
+        textAlign: 'center',
+    },
+    moreWaysToggle: {
+        minHeight: 44,
+        alignSelf: 'stretch',
+        borderTopWidth: 1,
+        borderColor: theme.colors.divider,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    moreWaysText: {
+        ...Typography.default('semiBold'),
+        fontSize: 13,
+        color: theme.colors.textSecondary,
+    },
+    moreWaysBody: {
+        width: '100%',
+        gap: 10,
+        alignItems: 'center',
     },
     switcher: {
         flexDirection: 'row',
@@ -233,45 +364,5 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     switcherTextActive: {
         color: theme.colors.text,
-    },
-    setupDetailsToggle: {
-        minHeight: 36,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    otherWaysText: {
-        ...Typography.default('semiBold'),
-        fontSize: 13,
-        color: theme.colors.textSecondary,
-    },
-    installCommand: {
-        ...Typography.mono(),
-        fontSize: 12,
-        lineHeight: 18,
-        color: theme.colors.text,
-        textAlign: 'center',
-    },
-    commandActions: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-    },
-    otherWaysBody: {
-        gap: 8,
-        alignItems: 'center',
-    },
-    footer: {
-        ...Typography.default(),
-        fontSize: 13,
-        lineHeight: 18,
-        color: theme.colors.textSecondary,
-        textAlign: 'center',
-        marginTop: 8,
-    },
-    routeHint: {
-        ...Typography.default(),
-        fontSize: 13,
-        lineHeight: 18,
-        color: theme.colors.textSecondary,
-        textAlign: 'center',
     },
 }));

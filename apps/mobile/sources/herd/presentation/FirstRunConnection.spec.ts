@@ -27,8 +27,10 @@ vi.mock('react-native', () => ({
     AppState: { currentState: 'active' },
     Share: { share: vi.fn(async () => undefined) },
     Platform: { get OS() { return platformOs; } },
+    useWindowDimensions: () => ({ fontScale: 1 }),
     View: 'View',
     Text: 'Text',
+    TextInput: 'TextInput',
     Pressable: 'Pressable',
     ScrollView: 'ScrollView',
     ActivityIndicator: 'ActivityIndicator',
@@ -100,7 +102,12 @@ function press(root: any, label: string): void {
     TestRenderer.act(() => { target.props.onPress(); });
 }
 
-describe('guided first-connection chooser', () => {
+function typeLink(root: any, value: string): void {
+    const field = root.findByType('TextInput');
+    TestRenderer.act(() => { field.props.onChangeText(value); });
+}
+
+describe('link-first connect shell', () => {
     beforeEach(() => {
         platformOs = 'android';
         routerPush.mockClear();
@@ -109,89 +116,111 @@ describe('guided first-connection chooser', () => {
         pairingAlert.mockClear();
     });
 
-    it('opens Scan directly, rejects old codes, routes current offers to consent, and keeps manual and SSH entry visible', async () => {
+    it('leads with the connect link, validates pasted input like a scan, keeps SSH entry and parks Cloud', async () => {
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
         const visible = texts(renderer.root);
-        expect(visible).toContain('Recommended');
-        expect(visible).toContain('npm install -g --ignore-scripts @trymuxr/cli@latest && muxr');
-        expect(visible).toContain('Paste the pairing string');
-        expect(visible).toContain('Connect over SSH');
-        // Step 1 (run the command) renders before step 2 (scan the QR it shows).
-        expect(visible.indexOf('Step 1 · On your computer, run:')).toBeGreaterThanOrEqual(0);
-        expect(visible.indexOf('Step 2 · Scan the QR it shows')).toBeGreaterThan(visible.indexOf('Step 1 · On your computer, run:'));
+        expect(visible).toContain('Your machine. No new account.');
+        expect(visible).toContain('Let’s connect');
+        expect(visible).toContain('Use the machine you already have.');
+        expect(visible).toContain('Have a connect link?');
+        expect(visible).toContain('Fastest · 20–60 sec*');
+        expect(visible).toContain('Private link or pairing code');
+        expect(visible).toContain('Not set up yet?');
+        expect(visible).toContain('Cloud account');
+        expect(visible).toContain('Boat · 2–5 min');
+        expect(visible).toContain('Soon');
+        expect(visible).toContain('SSH login');
+        expect(visible).toContain('Any server · 3–7 min');
+        expect(visible).toContain('Encrypted after verified pairing');
+        expect(visible).toContain('Your infrastructure. No muxr-hosted relay.');
+        // The link field leads; the setup command stays one tap away under More ways.
+        expect(renderer.root.findByType('TextInput').props.placeholder).toBe('Paste link');
+        expect(visible.some((text) => text.includes('npm install'))).toBe(false);
         // No raw backticks or kit jargon in user-visible copy.
         for (const text of visible) {
             expect(text).not.toContain('`');
             expect(text).not.toContain('byokit-link');
         }
-        press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        // An empty Connect never routes: the same alert a bad scan shows.
+        press(renderer.root, 'Connect');
         await TestRenderer.act(async () => {});
-        expect(scanQr).toHaveBeenCalledTimes(1);
-        await TestRenderer.act(async () => { scanOnScanned!({ data: 'wss://relay?pair=abc' }); });
-        expect(dismissScanner).toHaveBeenCalledTimes(1);
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', "That isn't a muxr pairing string.");
         expect(routerPush).not.toHaveBeenCalled();
+        pairingAlert.mockClear();
+        // A legacy code names the old version, like a scan does.
+        typeLink(renderer.root, 'wss://relay?pair=abc');
+        press(renderer.root, 'Connect');
+        await TestRenderer.act(async () => {});
         expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('muxr 0.2.0 or older'));
-        expect(pairingAlert).toHaveBeenCalledTimes(1);
-        pairingAlert.mockClear();
-        // A cut-off current code names the cut, never the version.
-        press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
-        await TestRenderer.act(async () => {});
-        await TestRenderer.act(async () => { scanOnScanned!({ data: 'byokit-link:1:not-valid!!' }); });
         expect(routerPush).not.toHaveBeenCalled();
-        expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('cut off'));
         pairingAlert.mockClear();
-        // An expired current code opens the pair screen's expired state, which leads with Scan a new code.
-        press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        // A cut-off code names the cut, never the version.
+        typeLink(renderer.root, 'byokit-link:1:not-valid!!');
+        press(renderer.root, 'Connect');
         await TestRenderer.act(async () => {});
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('cut off'));
+        expect(routerPush).not.toHaveBeenCalled();
+        pairingAlert.mockClear();
+        // An expired pasted code opens the pair screen's expired state.
         const expired = expiredOffer();
-        await TestRenderer.act(async () => { scanOnScanned!({ data: expired }); });
+        typeLink(renderer.root, expired);
+        press(renderer.root, 'Connect');
+        await TestRenderer.act(async () => {});
         expect(pairingAlert).not.toHaveBeenCalled();
         expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: expired } });
         routerPush.mockClear();
-        // A wrapped valid offer still pairs: inner whitespace is stripped.
-        press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
-        await TestRenderer.act(async () => {});
+        // A wrapped valid offer still pairs: surrounding whitespace is trimmed.
         const whole = freshOffer();
-        await TestRenderer.act(async () => { scanOnScanned!({ data: `  ${whole.slice(0, 60)}\n${whole.slice(60)}  ` }); });
+        typeLink(renderer.root, `  ${whole.slice(0, 60)}\n${whole.slice(60)}  `);
+        press(renderer.root, 'Connect');
+        await TestRenderer.act(async () => {});
         expect(pairingAlert).not.toHaveBeenCalled();
         expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: whole } });
-        pairingAlert.mockClear();
         routerPush.mockClear();
-        press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        // Scan stays one tap away on a device with a camera.
+        press(renderer.root, 'Scan the QR');
         await TestRenderer.act(async () => {});
-        const offer = freshOffer();
-        await TestRenderer.act(async () => { scanOnScanned!({ data: offer }); });
-        expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer } });
+        expect(scanQr).toHaveBeenCalledTimes(1);
+        await TestRenderer.act(async () => { scanOnScanned!({ data: whole }); });
+        expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: whole } });
         expect(pairingAlert).not.toHaveBeenCalled();
-        press(renderer.root, 'Paste the pairing string');
-        expect(routerPush).toHaveBeenCalledWith('/pair');
-        press(renderer.root, 'Connect over SSH');
+        routerPush.mockClear();
+        // SSH login opens the existing SSH flow unchanged.
+        press(renderer.root, 'SSH login. Any server, 3 to 7 minutes.');
         expect(routerPush).toHaveBeenCalledWith('/pair?route=ssh');
+        routerPush.mockClear();
+        // Cloud account is visibly disabled with no action behind it.
+        const cloud = buttons(renderer.root).find((node) => node.props.accessibilityLabel === 'Cloud account. Coming soon, no action yet.');
+        expect(cloud).toBeDefined();
+        expect(cloud.props.disabled).toBe(true);
+        expect(cloud.props.onPress).toBeUndefined();
+        expect(routerPush).not.toHaveBeenCalled();
+        // More ways holds the computer setup command and the fallback routes.
+        press(renderer.root, 'More ways and timing');
+        const expanded = texts(renderer.root);
+        expect(expanded).toContain('On your computer');
+        expect(expanded.some((text) => text.includes('Tailscale'))).toBe(true);
         TestRenderer.act(() => { renderer.unmount(); });
     });
 
-    it('offers browser pairing as a numbered step with its own paste button, and no scan hint', async () => {
+    it('browser leads with paste, hides scan and SSH, and keeps Cloud parked', async () => {
         platformOs = 'web';
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
         const visible = texts(renderer.root);
-        // Step 2 is a numbered step (badge 2), like step 1, not inline "Step 2 ·" text.
-        const badges = renderer.root.findAllByType('Text')
-            .map((node: any) => node.props.children)
-            .filter((child: any) => typeof child === 'number');
-        expect(badges).toContain(1);
-        expect(badges).toContain(2);
-        expect(visible).toContain('Paste the browser link');
-        expect(visible).toContain('Run one command on your computer, then paste the browser pairing link.');
-        expect(visible.some((text) => text.includes('Step 2 ·'))).toBe(false);
-        // The camera/scan hint and the duplicate paste route are gone in browser mode.
-        expect(visible.some((text) => text.includes("can't point this phone"))).toBe(false);
-        expect(visible).not.toContain('Other ways to connect');
-        press(renderer.root, 'Paste the browser link');
+        expect(visible).toContain('Have a connect link?');
+        expect(visible.some((text) => text.includes('Paste the browser link from muxr on your computer.'))).toBe(true);
+        expect(visible).toContain('Cloud account');
+        expect(visible).not.toContain('SSH login');
+        expect(visible.some((text) => text.includes("can't scan"))).toBe(false);
+        expect(buttons(renderer.root).some((node) => node.props.accessibilityLabel === 'Scan the QR')).toBe(false);
+        const whole = freshOffer();
+        typeLink(renderer.root, whole);
+        press(renderer.root, 'Connect');
         await TestRenderer.act(async () => {});
-        // The same paste screen as every other entry, so Enter and a complete link connect there too.
-        expect(routerPush).toHaveBeenCalledWith('/pair');
+        expect(pairingAlert).not.toHaveBeenCalled();
+        expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: whole } });
         expect(scanQr).not.toHaveBeenCalled();
         TestRenderer.act(() => { renderer.unmount(); });
     });
