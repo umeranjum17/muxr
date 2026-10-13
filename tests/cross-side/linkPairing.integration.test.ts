@@ -516,16 +516,22 @@ describe('native pairing over the byokit link', () => {
     }, 120_000);
 
     it('pairs nothing when the person at the computer declines', async () => {
+        const before = readSelfhostState().machine.crypto.devices.length;
         const { pairing, offer, abort } = await showPairingQr({ approve: async () => false });
-        await expect(runPhonePairing(offer)).rejects.toThrow('Your computer said no to this device.');
-        // The computer has replaced the spent code; the old one says to use the new one.
-        const superseded = runPhonePairing(offer);
-        await expect(superseded).rejects.toBeInstanceOf(PairingNeedsNewCode);
-        await expect(superseded).rejects.toThrow('That pairing code has run out. Show a new one on your computer.');
-        const state = readSelfhostState();
-        expect(state.machine.crypto.devices).toHaveLength(5); // phone, browser, forwarded, and two lost-acknowledgement pairings
-        await abort();
-        await expect(pairing).rejects.toThrow('cancelled');
+        try {
+            await expect(runPhonePairing(offer)).rejects.toThrow('Your computer said no to this device.');
+            // The computer has replaced the spent code; the old one says to use the new one.
+            const superseded = runPhonePairing(offer);
+            await expect(superseded).rejects.toBeInstanceOf(PairingNeedsNewCode);
+            await expect(superseded).rejects.toThrow('That pairing code has run out. Show a new one on your computer.');
+            expect(readSelfhostState().machine.crypto.devices).toHaveLength(before);
+            await abort();
+            await expect(pairing).rejects.toThrow('cancelled');
+        } catch (error) {
+            // A failed step must not hold the computer's one pairing slot.
+            await abort();
+            throw error;
+        }
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     }, 90_000);
 
@@ -541,30 +547,36 @@ describe('native pairing over the byokit link', () => {
     });
 
     it('completes a pairing for a phone that died between approval and the machine details', async () => {
-        const { pairing, offer } = await showPairingQr({ approve: async () => true });
-        // The phone claims and is approved, then the app process dies before
-        // `pair.complete`: exactly the pending state `pairOverLink` persists.
-        const kp = keyPair();
-        phone.secure.set(PENDING_LINK_KEY, JSON.stringify({
-            scanned: offer,
-            name: 'Android phone',
-            secretKey: b64url(kp.secretKey),
-            startedAt: Date.now(),
-        }));
-        await pairWithOffer(offer, { name: 'Android phone', key: kp, onWords: () => undefined });
+        const { pairing, offer, abort } = await showPairingQr({ approve: async () => true });
+        try {
+            // The phone claims and is approved, then the app process dies before
+            // `pair.complete`: exactly the pending state `pairOverLink` persists.
+            const kp = keyPair();
+            phone.secure.set(PENDING_LINK_KEY, JSON.stringify({
+                scanned: offer,
+                name: 'Android phone',
+                secretKey: b64url(kp.secretKey),
+                startedAt: Date.now(),
+            }));
+            await pairWithOffer(offer, { name: 'Android phone', key: kp, onWords: () => undefined });
 
-        // Restart: the resume reconnects by key alone and finishes the pairing.
-        const stored = await resumePendingHostedPairing(false);
-        expect(stored?.machineId).toBe(readSelfhostState().machine.id);
-        expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
-        expect(await pairing).toBeDefined();
+            // Restart: the resume reconnects by key alone and finishes the pairing.
+            const stored = await resumePendingHostedPairing(false);
+            expect(stored?.machineId).toBe(readSelfhostState().machine.id);
+            expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
+            expect(await pairing).toBeDefined();
+        } catch (error) {
+            // A failed step must not hold the computer's one pairing slot.
+            await abort();
+            throw error;
+        }
     }, 90_000);
 
 
     it('lists and revokes a link-paired phone from the host record', async () => {
         const state = readSelfhostState();
         const paired = state.machine.crypto.devices;
-        expect(paired).toHaveLength(6);
+        expect(paired).toHaveLength(7);
         const target = paired[0]!;
         const listing = launch([cliMain, 'devices', 'list']);
         await until(() => (listing.exitCode === null ? undefined : listing.exitCode), 'devices list finishes');
