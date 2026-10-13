@@ -80,9 +80,9 @@ keyboard up, and at font 20 its top rows could not be reached.
   `mise trust ~/.config/mise/config.toml` in a lab pane records the trust in
   the lab's own state only. Do it before `signin` too, or the sign-in waits
   on that prompt and times out.
-- On web at 270 dp, opening the keyboard can throw React error #185 (maximum
-  update depth) into "Something went wrong". main does the same with the
-  same stack (2026-10-12), so it is not the floor. Retry recovers.
+- On web at 270 dp, typing used to throw React error #185 (maximum update
+  depth) into "Something went wrong". Not the floor: the per-keystroke draft
+  write is gone (see `web-prompt-typing.md`). If it shows again, Retry recovers.
 - A slow drag (600 ms) pans about one row on native; `pan` uses quick strokes.
   Android's font scale does not change the terminal font; only Text size does.
 - A renderer keeps the grid it attached at, so after a font change the grid can

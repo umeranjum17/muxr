@@ -230,6 +230,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   native app over a real Herdr lab with long canned output: a finger drag moves
   the pane about as far as the finger in every kind, and Latest reaches the
   newest line, also while the agent is still printing and in a split width.
+- [Type and send prompts in the web app without a crash](./web-prompt-typing.md) —
+  web export on an Android emulator at 270 dp with Gboard: five sends to a
+  real OpenCode agent, each reply shown, no React #185 screen.
 - [Keep an agent's grid tall enough when the keyboard opens](./terminal-keyboard-floor.md) —
   native app at 270 dp over a real Herdr lab: the keyboard leaves the pane at
   24 rows or more, OpenCode stays up and answers on OpenCode Go; the box follows
