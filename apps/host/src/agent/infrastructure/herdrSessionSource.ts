@@ -33,6 +33,7 @@ import type {
 } from '@trymuxr/contract';
 import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@trymuxr/contract';
 import { hostDesktopForPanes } from '../../desktop/index.js';
+import { opencodeGoSignedIn } from '../../plans/opencodeAccounts.js';
 import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
@@ -137,6 +138,14 @@ function paneEnvironment(): Record<string, string> {
 
 /** Outlasts kit startAgent plus confirmLaunch's two readiness gates. */
 const ACTIVE_LAUNCH_MS = 200_000;
+
+/**
+ * OpenCode Go agents start on Muse Spark 1.3 Contributor: without an explicit
+ * model OpenCode falls back to its own default (gpt-5.6-luna), which costs the
+ * first reply a manual model switch. Passed as `opencode --model`, OpenCode
+ * 1.18.x's own way to choose a model at start.
+ */
+const OPENCODE_GO_DEFAULT_MODEL = 'opencode-go/muse-spark-1.3-contributor';
 
 function publicAgentKind(kind: string | undefined): string | undefined {
     return kind === undefined || kind === 'shell' ? undefined : kind;
@@ -2040,7 +2049,13 @@ export async function createHerdrSessionSource(
                 ...(requestedLabel === undefined ? {} : { label: requestedLabel }),
             });
             rememberLaunch(paneId, kind, launchName);
-            await startManagedAgent(paneId, kind, launchName);
+            // An OpenCode agent on an account signed in to OpenCode Go opens on
+            // the Go default model; every other kind, provider, and a pane without
+            // a plan account keep today's launch.
+            const openCodeGoArgs = kind === 'opencode' && opencodeGoSignedIn(startOptions.planEnv ?? {})
+                ? ['--model', OPENCODE_GO_DEFAULT_MODEL]
+                : undefined;
+            await startManagedAgent(paneId, kind, launchName, openCodeGoArgs);
             const session = bindListedPane(paneId) ?? await waitForListedAgent(paneId, 5_000);
             const publishedKind = publicAgentKind(kind);
             options.onAgentLaunchDiagnostic?.('ok', {
