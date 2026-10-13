@@ -18,6 +18,8 @@ import { loadLocalSettings, loadSpacePins, loadSpacesLayouts, migrateSpacePins }
 
 const request = vi.fn();
 const refreshSessions = vi.fn();
+const sendMessage = vi.fn(async (..._args: unknown[]): Promise<unknown> => undefined);
+const modalAlert = vi.fn();
 const hostSync = vi.hoisted(() => ({
     publicLink: false,
     machineId: 'machine',
@@ -61,7 +63,7 @@ vi.mock('@/connection', async () => {
         DEFAULT_CONNECTION: {},
     };
 });
-vi.mock('./sync', () => ({ sync: { request, refreshSessions } }));
+vi.mock('./sync', () => ({ sync: { request, refreshSessions, sendMessage } }));
 vi.mock('@/pairing/client', async () => {
     const real = await vi.importActual<typeof import('@/pairing/client')>('@/pairing/client');
     return { LinkFirstClient: function (options: ConstructorParameters<typeof real.LinkFirstClient>[0]) {
@@ -85,7 +87,7 @@ vi.mock('@/terminal/presentation/TerminalScreen', () => ({
     TerminalScreen: ({ id }: { id: string }) => React.createElement('terminal-screen', { id }),
 }));
 vi.mock('../infrastructure/encryption/encryption', () => ({ Encryption: {} }));
-vi.mock('@/modal', () => ({ Modal: {} }));
+vi.mock('@/modal', () => ({ Modal: { alert: modalAlert } }));
 vi.mock('@/watch/lifecycleAlert', () => ({ alertAgent: vi.fn(), dismissAgentAlert: vi.fn(), agentOnScreen: () => () => undefined }));
 vi.mock('@/../modules/voice-overlay', () => ({
     startVoiceService: () => true,
@@ -596,6 +598,78 @@ describe('session sync flow', () => {
 
         expect(cwds()).toEqual(['/home/umer/notes-app', '/home/umer/notes-app', '/home/umer/api']);
         expect(savedConnection.lastSessionCwd).toBe('/home/umer/api');
+    });
+
+    it('frees Home right after the spawn while the first prompt delivers', async () => {
+        const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
+        const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
+        const { isFirstPromptQueued, useQueuedFirstPrompts } = await import('@/terminal/application/queuedFirstPrompts');
+        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/umer' } } as never;
+        request.mockImplementation(async (method: string) => {
+            if (method === 'plans.list') return { providers: [], autoTermsAcknowledged: true, autoTermsNote: '' };
+            if (method !== 'session.start') throw new Error(`unexpected request: ${method}`);
+            storage.setState({ sessions: { ...storage.getState().sessions, spawned: {} as Session } });
+            return {
+                info: { id: 'spawned' },
+                status: { sessionId: 'spawned', isStreaming: false, tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 } },
+            };
+        });
+        // The host holds the first prompt; delivery hangs well past the spawn.
+        let releaseDelivery!: () => void;
+        sendMessage.mockReset().mockImplementationOnce(() => new Promise<void>((resolve) => { releaseDelivery = resolve; }));
+        useQueuedFirstPrompts.setState({});
+        useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'opencode', input: 'queued hello', attachments: [] });
+        let routed: string | undefined;
+        const started = await startSessionFromDraft({ machines: [machine], navigateToSession: (id) => { routed = id; } });
+        // Home is gated on the spawn alone: this returns while delivery hangs.
+        expect(started).toBe('spawned');
+        expect(routed).toBe('spawned');
+        expect(sendMessage).toHaveBeenCalledTimes(1);
+        expect(sendMessage.mock.calls[0]).toEqual(['spawned', 'queued hello', { firstPrompt: true }]);
+        expect(useNewSessionDraft.getState().input).toBe('');
+        expect(isFirstPromptQueued('spawned')).toBe(true);
+        releaseDelivery();
+        await vi.waitFor(() => expect(isFirstPromptQueued('spawned')).toBe(false));
+    });
+
+    it('returns a failed first prompt to Home and to the agent draft', async () => {
+        const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
+        const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
+        const { useQueuedFirstPrompts } = await import('@/terminal/application/queuedFirstPrompts');
+        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/umer' } } as never;
+        request.mockImplementation(async (method: string) => {
+            if (method === 'plans.list') return { providers: [], autoTermsAcknowledged: true, autoTermsNote: '' };
+            if (method !== 'session.start') throw new Error(`unexpected request: ${method}`);
+            storage.setState({ sessions: { ...storage.getState().sessions, doomed: {} as Session } });
+            return {
+                info: { id: 'doomed' },
+                status: { sessionId: 'doomed', isStreaming: false, tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 } },
+            };
+        });
+        let failDelivery!: (error: Error) => void;
+        sendMessage.mockReset().mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { failDelivery = reject; }));
+        modalAlert.mockClear();
+        useQueuedFirstPrompts.setState({});
+        useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'shell', input: 'hello again', attachments: [] });
+        expect(await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined })).toBeNull();
+        expect(request).not.toHaveBeenCalled();
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(useNewSessionDraft.getState().input).toBe('hello again');
+        expect(modalAlert).toHaveBeenCalledWith(expect.any(String), 'Shell has no agent. Choose an agent to send this prompt, or start Shell without a prompt.');
+        modalAlert.mockClear();
+        useNewSessionDraft.getState().setAgentType('opencode');
+        const started = await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined });
+        expect(started).toBe('doomed');
+        // Home is already free; a failure must not replace the newer work typed there.
+        useNewSessionDraft.getState().setInput('new work');
+        failDelivery(new Error('The agent did not take the prompt. Send it again.'));
+        await vi.waitFor(() => expect(modalAlert).toHaveBeenCalledTimes(1));
+        expect(modalAlert).toHaveBeenCalledWith(expect.any(String), 'The agent did not take the prompt. Send it again.');
+        // The agent screen takes this back into its own draft on mount, even
+        // when the person already went back to Home.
+        expect(useQueuedFirstPrompts.getState().doomed).toEqual({ text: 'hello again', failed: true });
+        // Home uses this shared draft, including after the screen remounts.
+        expect(useNewSessionDraft.getState().input).toBe('new work hello again');
     });
 
     it('waits for a newly started session to become visible before routing', async () => {

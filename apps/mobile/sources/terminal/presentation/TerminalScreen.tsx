@@ -74,7 +74,7 @@ import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
 import { TerminalFailure } from './TerminalFailure';
 import { DictateAction, DictationStrip, useComposerDictation } from '@/components/ComposerDictation';
 import { getCachedConnectionSettings } from '@/connection';
-import { takeQueuedFirstPrompt, useQueuedFirstPrompts } from '../application/queuedFirstPrompts';
+import { isFirstPromptQueued, isQueuedFirstPrompt, takeQueuedFirstPrompt, useQueuedFirstPrompts } from '../application/queuedFirstPrompts';
 import { displayLink } from '../domain/TerminalLink';
 import { TerminalLinkMenu, terminalLinkCardFits, type LinkAction } from './TerminalLinkMenu';
 import { isTerminalPath, openTerminalLink, safeTerminalLinkUrl } from '../domain/safeTerminalLink';
@@ -422,7 +422,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // A prompt sent from Home before this agent could take it: queued until the
     // host delivers it, and back in this draft if it never arrives.
     const queuedPrompt = useQueuedFirstPrompts((queued) => queued[props.id]);
-    const firstPromptQueued = queuedPrompt !== undefined && queuedPrompt.failed !== true;
+    const firstPromptQueued = isQueuedFirstPrompt(queuedPrompt);
     React.useEffect(() => {
         if (queuedPrompt?.failed !== true) return;
         takeQueuedFirstPrompt(props.id);
@@ -716,6 +716,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const sendCommand = React.useCallback((command: string) => {
         if (currentPaneRef.current?.agentKind === undefined) {
             showGestureHintRef.current('No agent in this pane');
+            return;
+        }
+        // Nothing overtakes a queued prompt: a ring command waits like the
+        // composer does, so it never reaches the agent ahead of it. Read at
+        // tap time, so a stale render never sends past the lock.
+        if (isFirstPromptQueued(props.id)) {
+            showGestureHintRef.current('Prompt queued');
             return;
         }
         markScrolledAway(props.id, false);
