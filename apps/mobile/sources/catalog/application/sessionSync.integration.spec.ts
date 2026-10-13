@@ -1246,7 +1246,10 @@ describe('session sync flow', () => {
         await TestRenderer.act(async () => send());
         expect(storage.getState().sessions.agent?.draft ?? null).toBeNull();
 
-        // Leaving with an unsent prompt still keeps it.
+        // Leaving with an unsent prompt still keeps it. The first character
+        // saves at once; the rest sits in the debounce window, so only the
+        // unmount flush can write the final text.
+        await TestRenderer.act(async () => type('half'));
         await TestRenderer.act(async () => type('half a thought'));
         await TestRenderer.act(async () => screen?.unmount());
         expect(storage.getState().sessions.agent?.draft).toBe('half a thought');

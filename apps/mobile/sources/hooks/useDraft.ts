@@ -101,7 +101,9 @@ export function useDraft(
     // keystroke and wrote the store from a passive effect each time; on a slow
     // phone that chained into React's "Maximum update depth exceeded".
     const valueRef = useRef(value);
-    valueRef.current = value;
+    useEffect(() => {
+        valueRef.current = value;
+    }, [value]);
     useEffect(() => {
         return () => {
             if (sessionId && valueRef.current !== lastSavedValue.current) {
