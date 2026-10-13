@@ -114,6 +114,21 @@ try {
             mark(ok ? `PASS the open pane holds >= ${FLOOR} rows and did not crash` : `FAIL the open pane is under ${FLOOR} rows or crashed`);
             return ok;
         },
+        // Drag the terminal: `pan down` reaches the grid's top rows, `pan up` its bottom ones.
+        pan: async (direction = 'down') => {
+            const dump = adb('exec-out', 'uiautomator', 'dump', '/dev/tty');
+            const nodes = [...dump.matchAll(/content-desc="([^"]*)"[^>]*bounds="\[\d+,(\d+)\]\[\d+,(\d+)\]"/g)];
+            const find = (pattern) => nodes.find((match) => pattern.test(match[1]));
+            // The surface is taller than its box; drag inside what shows, between the header and the tabs row.
+            const header = find(/^Back$/);
+            const tabs = find(/^Current tab /);
+            if (!header || !tabs) throw new Error('no terminal on screen; open the agent first');
+            const [top, bottom] = [Number(header[3]) + 40, Number(tabs[2]) - 40];
+            const [from, to] = direction === 'up' ? [bottom, top] : [top, bottom];
+            // A slow drag pans about a row; a quick one carries the whole stroke.
+            for (let stroke = 0; stroke < 3; stroke++) adb('shell', 'input', 'swipe', '540', String(from), '540', String(to), '250');
+            mark(`dragged the terminal ${direction}`);
+        },
         // The journey: tap the prompt box so the keyboard opens, let it settle, check.
         kbd: async () => {
             const dump = adb('exec-out', 'uiautomator', 'dump', '/dev/tty');
@@ -130,12 +145,12 @@ try {
             return commands.check();
         },
     };
-    mark('ready; enter: pair | browser | signin | kbd | check | quit');
+    mark('ready; enter: pair | browser | signin | kbd | check | pan [down|up] | quit');
     const input = createInterface({ input: process.stdin });
     for await (const line of input) {
         const [name, ...args] = line.trim().split(/\s+/);
         if (name === 'quit') break;
-        if (!(name in commands)) { console.error('commands: pair | browser | signin | kbd | check | quit'); continue; }
+        if (!(name in commands)) { console.error('commands: pair | browser | signin | kbd | check | pan [down|up] | quit'); continue; }
         await commands[name](...args).catch((error) => mark(`${name} failed: ${error.message}`));
     }
 } finally {

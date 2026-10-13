@@ -369,8 +369,10 @@ difference to 8/255. The strip additionally requires the first visible
 card label to change (or the pixel diff if no label is exposed), the document requires the
 first gutter line number to change, and a terminal fling requires
 `terminal.scroll-rows` > 0 with at least one scroll request, and
-`terminal.scroll-clamped` = 0. There is no scroll-to-write latency: a terminal
-stream repaints itself whether or not anything was scrolled, so no arriving
+`terminal.scroll-clamped` = 0. A drag on a grid that overflows its box pans that box first, so the
+fling leftover only reaches `terminal.scroll-rows` once the overflow is spent; the text fixture must
+not overflow its box, or the fling must be longer than the overflow. There is no scroll-to-write
+latency: a terminal stream repaints itself whether or not anything was scrolled, so no arriving
 frame can be attributed to a particular scroll, and a duration measured against
 one that cannot be attributed is not a latency. The phone keeps the in-flight
 gate purely as flow control and counts the scrolls that went unanswered inside

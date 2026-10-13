@@ -235,7 +235,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   real OpenCode agent, each reply shown, no React #185 screen.
 - [Keep an agent's grid tall enough when the keyboard opens](./terminal-keyboard-floor.md) —
   native app at 270 dp over a real Herdr lab: the keyboard leaves the pane at
-  24 rows or more, OpenCode stays up and answers on OpenCode Go.
+  24 rows or more, OpenCode stays up and answers on OpenCode Go; the box follows
+  the cursor so the reply shows with the keyboard up, and a drag pans to every
+  row of a grid taller than the box (font 20).
 - [Stay connected to a busy computer](./busy-computer.md) —
   homeLoad at 300 panes / 150 agents, then a frozen lab host on an emulator:
   busy card through the offline grace, explanation only after it.
