@@ -49,7 +49,9 @@ function fakeHerdr(dir: string, cwd: string) {
         prompts: string[];
         /** Prompts the agent loses while it finishes starting; Herdr's wait reports each as stalled. */
         losePrompts: number;
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0 };
+        /** Screen reads that still find the agent drawing; it reads no keys until they are used up. */
+        drawingReads: number;
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0 };
     const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
@@ -76,8 +78,8 @@ function fakeHerdr(dir: string, cwd: string) {
         if (state.failSnapshotAfterPrompt) state.failSnapshot = true;
         const text = String(params.text ?? '');
         state.prompts.push(text);
-        const lost = state.losePrompts > 0;
-        if (lost) state.losePrompts -= 1;
+        const lost = state.losePrompts > 0 || state.drawingReads > 0;
+        if (state.losePrompts > 0) state.losePrompts -= 1;
         else state.paneText += `${text}\n`;
         // Like Herdr, only a caller that waits learns the prompt started no turn.
         if (params.wait !== undefined && lost) {
@@ -222,6 +224,10 @@ function fakeHerdr(dir: string, cwd: string) {
                         break;
                     }
                     case 'pane.read':
+                        if (state.drawingReads > 0) {
+                            state.drawingReads -= 1;
+                            state.paneText += 'drawing\n';
+                        }
                         reply = { id, result: { read: { text: state.paneText } } };
                         break;
                     case 'pane.send_text':
@@ -733,7 +739,7 @@ describe('realtime prompt boundary', () => {
 });
 
 describe('first prompt to a just-started agent', () => {
-    it('types it once and reports one the agent drops as not sent', async () => {
+    it('types it once the screen settles and reports one the agent drops as not sent', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-first-prompt-'));
         const cwd = join(dir, 'repo');
         const herdr = fakeHerdr(dir, cwd);
@@ -753,7 +759,8 @@ describe('first prompt to a just-started agent', () => {
             herdr.emit('pane.agent_detected', { pane_id: 'w1:p1' });
             await source.refreshHerdr();
 
-            // The first prompt is typed once and delivered once the agent takes it.
+            // The first prompt waits out an agent still drawing, is typed once and delivered.
+            herdr.state.drawingReads = 3;
             await expect(source.prompt({ sessionId: started.info.id, text: 'What does calc.py do?', firstPrompt: true })).resolves.toBeUndefined();
             expect(herdr.state.prompts).toEqual(['What does calc.py do?']);
             expect(herdr.state.paneText).toContain('What does calc.py do?');

@@ -4,8 +4,9 @@ Sending a prompt from Home's composer starts a new agent and delivers the first
 prompt once the agent is ready; if it cannot, the text returns to the agent's
 input marked not sent. The agent's screen opens as soon as the agent exists and
 shows `Prompt queued` beside the pane tabs until the agent has taken it; its own
-Send waits until then. The host waits for the agent to be promptable, types the
-prompt once and waits for Herdr's receipt that it started a turn
+Send waits until then. The host waits for the agent to be promptable and for its
+screen to hold still, types the prompt once and waits for Herdr's receipt that
+it started a turn
 (`deliverFirstPrompt` in `apps/host/src/agent/infrastructure/herdrSessionSource.ts`).
 
 ## Sub-features
