@@ -10,6 +10,7 @@ There is no `services/` folder. A use case is one camelCase module that exports 
 |---|---|---|---|
 | Set up this computer | `applyMachineSetup` | Pairing Intent, Connection | `muxr setup`, interactive menu; `scripts/setup/presentation/setupWizard.mjs` |
 | Pair a phone or browser | `pairDevice` | Pairing Intent, Device Id, Device Authority | `muxr pair`, devices menu |
+| Pair a first phone without a terminal | `pairHandoff` | Pairing Intent, Device Id | `muxr pair --handoff` (cloud computer) |
 | List paired devices | `listDevices` | Device Id | `muxr devices list` |
 | Revoke a device | `revokeDevice` | Device Id, Machine crypto | `muxr devices revoke` |
 | Start Self-host relay and host | `startSelfHost` | Connection, Machine | `muxr self-host` |
