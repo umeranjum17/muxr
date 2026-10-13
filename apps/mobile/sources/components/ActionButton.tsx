@@ -104,7 +104,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     wrap: { height: undefined, minHeight: 52, paddingVertical: 8, paddingHorizontal: 12 },
     wrapContent: { maxWidth: '100%' },
-    wrapText: { flexShrink: 1, textAlign: 'center' },
+    // A row child that may not shrink below its longest word on web
+    // (min-width: auto), so the label spills out of the pill instead of
+    // wrapping; native measures shrunk text by wrapping already.
+    wrapText: { flexShrink: 1, minWidth: 0, textAlign: 'center' },
     primary: {
         backgroundColor: theme.colors.button.primary.background,
     },

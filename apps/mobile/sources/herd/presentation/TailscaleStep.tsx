@@ -36,7 +36,7 @@ export function TailscaleStep(props: { onReady: () => void }) {
         <View style={styles.section}>
             <View style={styles.card}>
                 <Text style={styles.title}>Start with Tailscale</Text>
-                <Text style={styles.body}>{`You need the free Tailscale app on this ${device} and on your computer, signed in to the same account.`}</Text>
+                <Text style={styles.body}>{`You need the free Tailscale app on this ${device} and on your computer. Sign in to the same account on both.`}</Text>
                 <View style={styles.actions}>
                     <ActionButton title="Get Tailscale" icon="download-outline" wrap action={openTailscaleStore} />
                     <ActionButton variant="secondary" title="I have Tailscale" wrap onPress={props.onReady} />
