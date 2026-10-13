@@ -90,7 +90,7 @@ export async function startSessionFromDraft(options: {
                 options.navigateToSession(agentRoute);
             },
         });
-        if (!samePlanConnection(connection)) return null;
+        if (!samePlanConnection(connection)) return result.ok ? result.agentRoute : null;
         if (result.ok) {
             if (result.promptFailed) Modal.alert(t('common.error'), result.promptFailed);
             if (planAccount !== undefined) void announceStartAccount(result.agentRoute, draft.agentType, planAccount, connection);

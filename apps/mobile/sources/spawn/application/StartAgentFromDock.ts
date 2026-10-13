@@ -100,7 +100,7 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
     try {
         const text = await promptWithAttachmentPaths(agentRoute, command.prompt, command.attachments, connection);
         if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
-        await sync.sendMessage(agentRoute, text, { source: 'new_session' });
+        await sync.sendMessage(agentRoute, text, { firstPrompt: true });
         takeQueuedFirstPrompt(agentRoute);
         return { ok: true, agentRoute };
     } catch (error) {

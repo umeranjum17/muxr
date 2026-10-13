@@ -71,6 +71,8 @@ export interface SessionPromptOptions {
     text: string;
     attachments?: PromptAttachment[];
     streamingBehavior?: StreamingBehavior;
+    /** The first prompt to an agent the phone just started; the host holds it until the agent takes it. */
+    firstPrompt?: boolean;
 }
 
 export interface SessionShellOptions {

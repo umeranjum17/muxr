@@ -144,7 +144,7 @@ export interface ShellOutcome {
 
 type SendMessageOptions = {
     displayText?: string;
-    source?: string;
+    firstPrompt?: boolean;
     attachments?: AttachmentPreview[];
 };
 
@@ -747,7 +747,8 @@ class MuxrSync {
                     text: prompt,
                     streamingBehavior,
                     ...(attachments === undefined || attachments.length === 0 ? {} : { attachments }),
-                }, PROMPT_REQUEST_TIMEOUT_MS),
+                    ...(options?.firstPrompt === true ? { firstPrompt: true } : {}),
+                }, options?.firstPrompt === true ? PROMPT_REQUEST_TIMEOUT_MS : undefined),
             },
         );
     }

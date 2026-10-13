@@ -97,7 +97,7 @@ const PROMPT_READY_TIMEOUT_MS = 30_000;
 const QUESTION_WAIT_MS = 3_000;
 const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
-/** How long a prompt the agent dropped is typed again before the send fails. */
+/** How long a just-started agent may stay not ready before the first prompt fails. */
 const PROMPT_DELIVERY_TIMEOUT_MS = 60_000;
 /** Outlasts Herdr's 5 s window for a submitted prompt to start a turn. */
 const PROMPT_RECEIPT_TIMEOUT_MS = 8_000;
@@ -354,18 +354,23 @@ function promptOutcomeUnknown(cause: unknown): Error {
     return Object.assign(new Error('The prompt outcome could not be confirmed.'), { code: 'prompt-outcome-unknown', cause });
 }
 
+/** The placeholder an agent folds a long paste into, such as OpenCode's `[Pasted ~12 lines]`. */
+const PASTE_PLACEHOLDER = /\[Pasted ~\d+ lines?\]/;
+
 /**
- * Screen lines that start a prompt: its first words, short enough not to wrap
- * at phone width, standing as words of their own so `hi` is not in `which`.
+ * Whether the screen shows a prompt: its first words, short enough not to wrap
+ * at phone width, standing as words of their own so `hi` is not in `which`,
+ * or the placeholder a long paste becomes.
  */
-function promptLines(screen: string, text: string): number {
+function promptOnScreen(screen: string, text: string): boolean {
+    if (PASTE_PLACEHOLDER.test(screen)) return true;
     const collapse = (value: string): string => value.replace(/\s+/g, ' ').trim();
-    const first = collapse(text.trim().split('\n')[0] ?? '');
-    const head = first.slice(0, 16).trim();
-    if (head === '') return 0;
+    const first = [...collapse(text.trim().split('\n')[0] ?? '')];
+    const head = collapse(first.slice(0, 16).join(''));
+    if (head === '') return false;
     const escaped = head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const pattern = new RegExp(`(^|\\W)${escaped}${first.length <= 16 ? '($|\\W)' : ''}`);
-    return screen.split('\n').filter((line) => pattern.test(collapse(line))).length;
+    return screen.split('\n').some((line) => pattern.test(collapse(line)));
 }
 
 /** Listed-agent gate. Omitted interactive_ready is ready when lifecycle is live. Starting stays closed. */
@@ -2149,36 +2154,36 @@ export async function createHerdrSessionSource(
     /**
      * Herdr queues a prompt by typing it, and an agent that reports ready can
      * still drop what is typed while it finishes starting: OpenCode lost a
-     * prompt typed 10 s after it reported idle. Herdr's wait names that case:
-     * no working or blocked state within 5 s is `agent_prompt_stalled`. A
-     * prompt that added no line to the agent's screen never arrived, so type it
-     * again until the agent takes it; one that did is never typed twice.
-     * Undefined means it arrived with no receipt.
+     * prompt typed 10 s after it reported idle. Herdr names that case
+     * `agent_prompt_stalled`: no working or blocked state within 5 s. Type it
+     * again once, and only when neither the prompt nor a paste placeholder is on
+     * the agent's screen. Otherwise fail as not delivered, so the phone keeps the
+     * prompt in the agent's draft to send again. Undefined means it arrived with
+     * no receipt.
      */
-    async function deliverPrompt(paneId: string, text: string): Promise<PromptReceipt | undefined> {
+    async function deliverFirstPrompt(paneId: string, text: string): Promise<PromptReceipt | undefined> {
         const deadline = Date.now() + PROMPT_DELIVERY_TIMEOUT_MS;
         // A command can open a dialog instead of a turn; typing it again would run it again.
-        const retype = !text.trimStart().startsWith('/');
-        const linesOnScreen = async (): Promise<number> => promptLines((await client.kit.read(paneId, { source: 'visible' })).text, text);
+        const retypable = !text.trimStart().startsWith('/');
+        let retyped = false;
         for (;;) {
-            const before = retype ? await linesOnScreen().catch((error: unknown) => { throw promptNotSent(error); }) : 0;
             try {
                 return await client.kit.prompt({ paneId }, text, { wait: { until: ['working', 'blocked'], timeoutMs: PROMPT_RECEIPT_TIMEOUT_MS } });
             } catch (error) {
                 const code = (error as { code?: unknown }).code;
-                // Accepted with no state seen in time: it reached the agent, as before this wait.
+                // Accepted with no state seen in time: it reached the agent.
                 if (code === 'timeout') return undefined;
                 // The agent can flap out of promptable while it settles.
-                if (code !== 'agent_prompt_stalled' && code !== 'agent-not-ready') throw error;
-                if (code === 'agent_prompt_stalled') {
-                    if (!retype) return undefined;
-                    const after = await linesOnScreen().catch((cause: unknown) => { throw promptOutcomeUnknown(cause); });
-                    if (after > before) return undefined;
+                if (code === 'agent-not-ready' && Date.now() < deadline) {
+                    await sleep(1_000);
+                    continue;
                 }
-                if (Date.now() >= deadline) {
-                    throw code === 'agent-not-ready' ? error : promptNotSent(new Error('The agent did not take the prompt. Send it again.'));
-                }
-                await sleep(1_000);
+                if (code !== 'agent_prompt_stalled') throw error;
+                const notTaken = () => promptNotSent(new Error('The agent did not take the prompt. Send it again.'));
+                if (!retypable || retyped) throw notTaken();
+                const screen = await client.kit.read(paneId, { source: 'visible' }).catch((cause: unknown) => { throw promptOutcomeUnknown(cause); });
+                if (promptOnScreen(screen.text, text)) throw notTaken();
+                retyped = true;
             }
         }
     }
@@ -2188,7 +2193,7 @@ export async function createHerdrSessionSource(
      * can flap once more while it settles. Wait that out instead of losing the
      * message the phone already accepted.
      */
-    async function promptSession(sessionId: string, text: string): Promise<void> {
+    async function promptSession(sessionId: string, text: string, firstPrompt = false): Promise<void> {
         let session: CurrentSession;
         try {
             session = await resolvePane(sessionId, true);
@@ -2211,7 +2216,9 @@ export async function createHerdrSessionSource(
             throw promptNotSent(error);
         }
         const generation = sessionGenerationKey(session);
-        const receipt = await deliverPrompt(session.paneId, text);
+        const receipt = firstPrompt
+            ? await deliverFirstPrompt(session.paneId, text)
+            : await client.kit.prompt({ paneId: session.paneId }, text);
         // Herdr names the conversation the prompt reached; a match needs no confirming read.
         const reached = parseHerdrAgentSession(receipt?.agentSession);
         if (reached !== undefined && `${receipt?.paneId}\u0000${herdrAgentSessionKey(reached)}` === generation) return;
@@ -3113,7 +3120,7 @@ export async function createHerdrSessionSource(
         },
 
         async prompt(promptOptions: SessionPromptOptions): Promise<void> {
-            await promptSession(promptOptions.sessionId, promptOptions.text);
+            await promptSession(promptOptions.sessionId, promptOptions.text, promptOptions.firstPrompt === true);
         },
 
 

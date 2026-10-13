@@ -78,15 +78,14 @@ function fakeHerdr(dir: string, cwd: string) {
         if (state.failSnapshotAfterPrompt) state.failSnapshot = true;
         const text = String(params.text ?? '');
         state.prompts.push(text);
-        let stalled = false;
-        if (state.losePrompts > 0) state.losePrompts -= 1;
-        else {
-            state.paneText += `${text}\n`;
-            stalled = state.stallLandedPrompts > 0;
-            if (stalled) state.stallLandedPrompts -= 1;
-        }
+        const lost = state.losePrompts > 0;
+        if (lost) state.losePrompts -= 1;
+        // A multi-line paste shows as a placeholder, like OpenCode's, not its text.
+        else state.paneText += `${text.includes('\n') ? `[Pasted ~${text.split('\n').length} lines]` : text}\n`;
+        const stalled = !lost && state.stallLandedPrompts > 0;
+        if (stalled) state.stallLandedPrompts -= 1;
         // Like Herdr, only a caller that waits learns the prompt started no turn.
-        if (params.wait !== undefined && (stalled || !state.paneText.includes(text))) {
+        if (params.wait !== undefined && (lost || stalled)) {
             return { error: { code: 'agent_prompt_stalled', message: 'agent prompt produced no observed working or blocked state within 5000 ms' } };
         }
         return {
@@ -739,7 +738,7 @@ describe('realtime prompt boundary', () => {
 });
 
 describe('first prompt to a just-started agent', () => {
-    it('types it again until the agent takes it, and never twice once it is on screen', async () => {
+    it('types it again once when the agent drops it, and never when it is on screen', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-first-prompt-'));
         const cwd = join(dir, 'repo');
         const herdr = fakeHerdr(dir, cwd);
@@ -759,16 +758,24 @@ describe('first prompt to a just-started agent', () => {
             herdr.emit('pane.agent_detected', { pane_id: 'w1:p1' });
             await source.refreshHerdr();
 
-            // OpenCode reports ready, then loses what is typed while it finishes starting.
-            herdr.state.losePrompts = 2;
-            await expect(source.prompt({ sessionId: started.info.id, text: 'What does calc.py do?' })).resolves.toBeUndefined();
-            expect(herdr.state.prompts).toEqual(['What does calc.py do?', 'What does calc.py do?', 'What does calc.py do?']);
+            // OpenCode reports ready, then drops what is typed while it finishes starting: typed again once.
+            herdr.state.losePrompts = 1;
+            await expect(source.prompt({ sessionId: started.info.id, text: 'What does calc.py do?', firstPrompt: true })).resolves.toBeUndefined();
+            expect(herdr.state.prompts).toEqual(['What does calc.py do?', 'What does calc.py do?']);
             expect(herdr.state.paneText).toContain('What does calc.py do?');
 
-            // On screen with no turn seen: it arrived, so it is not typed a second time.
+            // Dropped twice: the second loss fails as not delivered, so the phone keeps it in the draft.
+            herdr.state.losePrompts = 2;
+            await expect(source.prompt({ sessionId: started.info.id, text: 'Run the tests', firstPrompt: true }))
+                .rejects.toMatchObject({ code: 'prompt-not-sent' });
+            expect(herdr.state.prompts.filter((text) => text === 'Run the tests')).toHaveLength(2);
+
+            // Landed as a paste placeholder with no turn seen: it is on screen, so it is never typed again.
             herdr.state.stallLandedPrompts = 1;
-            await expect(source.prompt({ sessionId: started.info.id, text: 'Run the tests' })).resolves.toBeUndefined();
-            expect(herdr.state.prompts.filter((text) => text === 'Run the tests')).toHaveLength(1);
+            await expect(source.prompt({ sessionId: started.info.id, text: 'Summarise the log\nsecond line\nthird line', firstPrompt: true }))
+                .rejects.toMatchObject({ code: 'prompt-not-sent' });
+            expect(herdr.state.prompts.filter((text) => text.startsWith('Summarise the log'))).toHaveLength(1);
+            expect(herdr.state.paneText).toContain('[Pasted ~3 lines]');
         } finally {
             await source.dispose();
             herdr.close();
