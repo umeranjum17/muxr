@@ -117,15 +117,16 @@ try {
         // Drag the terminal: `pan down` reaches the grid's top rows, `pan up` its bottom ones.
         pan: async (direction = 'down') => {
             const dump = adb('exec-out', 'uiautomator', 'dump', '/dev/tty');
-            const bounds = /content-desc="Terminal surface"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(dump);
-            if (!bounds) throw new Error('no terminal on screen; open the agent first');
-            const [x1, y1, x2, y2] = bounds.slice(1).map(Number);
-            // The surface can be taller than the screen; drag inside what shows.
-            const top = Math.max(y1, 300);
-            const bottom = Math.min(y2, Number(/(\d+)$/.exec(adb('shell', 'wm', 'size').trim())?.[1] ?? y2) - 300);
-            const x = String((x1 + x2) >> 1);
-            const [from, to] = direction === 'up' ? [bottom - 40, top + 40] : [top + 40, bottom - 40];
-            adb('shell', 'input', 'swipe', x, String(from), x, String(to), '600');
+            const nodes = [...dump.matchAll(/content-desc="([^"]*)"[^>]*bounds="\[\d+,(\d+)\]\[\d+,(\d+)\]"/g)];
+            const find = (pattern) => nodes.find((match) => pattern.test(match[1]));
+            // The surface is taller than its box; drag inside what shows, between the header and the tabs row.
+            const header = find(/^Back$/);
+            const tabs = find(/^Current tab /);
+            if (!header || !tabs) throw new Error('no terminal on screen; open the agent first');
+            const [top, bottom] = [Number(header[3]) + 40, Number(tabs[2]) - 40];
+            const [from, to] = direction === 'up' ? [bottom, top] : [top, bottom];
+            // A slow drag pans about a row; a quick one carries the whole stroke.
+            for (let stroke = 0; stroke < 3; stroke++) adb('shell', 'input', 'swipe', '540', String(from), '540', String(to), '250');
             mark(`dragged the terminal ${direction}`);
         },
         // The journey: tap the prompt box so the keyboard opens, let it settle, check.

@@ -48,9 +48,10 @@ Preconditions:
    `$EVIDENCE/lab-timeline.log` and each pane's last screen next to it.
 5. Type `What does calc.py do?` and send, keyboard still up. Capture the reply
    above OpenCode's prompt. `check` again afterwards.
-6. Close the keyboard, Zoom in three times (font 20) and capture; `pan down`
-   (a drag on the terminal surface) and capture the top rows; `pan up` and
-   capture the bottom ones.
+6. Close the keyboard, set Settings -> Appearance -> Text size -> 20 pt (on
+   native, Terminal controls -> Appearance zooms the same setting) and capture;
+   `pan down` (quick drags inside the visible box) and capture the top rows;
+   `pan up` and capture the bottom ones.
 7. Repeat at density 420 (`adb shell wm density 420`), and in light and dark.
 8. `quit` stops the panes, the host and the relay, and tears the lab down.
 
@@ -82,3 +83,11 @@ keyboard up, and at font 20 its top rows could not be reached.
 - On web at 270 dp, opening the keyboard can throw React error #185 (maximum
   update depth) into "Something went wrong". main does the same with the
   same stack (2026-10-12), so it is not the floor. Retry recovers.
+- A slow drag (600 ms) pans about one row on native; `pan` uses quick strokes.
+  Android's font scale does not change the terminal font; only Text size does.
+- A renderer keeps the grid it attached at, so after a font change the grid can
+  stay taller than the floor asks for; the pan covers every row it drew.
+- On web, emulate the phone at DPR 1: at DPR 4 xterm draws giant glyphs. The
+  PWA's service worker keeps a stale bundle across a rebuild: unregister it and
+  clear its caches before reloading.
+- The terminal screen is dark in the light theme too.
