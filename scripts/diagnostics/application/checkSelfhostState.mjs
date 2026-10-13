@@ -180,6 +180,11 @@ try {
             assert.equal(readFileSync(rerunState, 'utf8'), tailnetState, 'enrollment rewrote tailnet state');
             assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'enrollment replaced the running relay');
             assert.equal((await rerunHealth()).ok, true, 'enrollment stopped the running relay');
+            assert.throws(() => execFileSync(process.execPath, [cli, 'self-host'], {
+                env: process.env, encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'],
+            }), /runs headless on Tailscale/);
+            assert.equal(readFileSync(rerunState, 'utf8'), tailnetState, 'self-host rewrote tailnet state');
+            assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'self-host replaced the owned relay');
         } finally {
             writeFileSync(rerunState, loopbackState, { mode: 0o600 });
         }

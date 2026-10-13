@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runBootstrap, daemonIsRunning, daemonMode, githubPluginSource, herdrBin, panePackManagingThisCli, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
+import { runBootstrap, daemonIsRunning, daemonMode, githubPluginSource, herdrBin, isTailnetIPv4, panePackManagingThisCli, readSelfhostState, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
 import { compareVersions, channelTags, releaseVersion, resolveChannel } from '../domain/channel.mjs';
 
 const PACKAGE = '@trymuxr/cli';
@@ -168,6 +168,9 @@ export async function updateCli(command = {}) {
     if (managed === undefined && !activePackageUsesCurrentNpmPrefix()) return 1;
     const restart = daemonIsRunning();
     const restartMode = installedMode;
+    // A tailnet-recorded relay belongs to the foreground `muxr up`; an update never stops, restarts or respawns it.
+    const headless = isTailnetIPv4(readSelfhostState()?.bindHost);
+    const relayMode = !headless && (restartMode === 'selfhost' || restartMode === 'relay');
     const install = managed === undefined
         ? npm(['install', '--global', '--ignore-scripts', `${PACKAGE}@${latest}`], 'inherit')
         : reinstallPlugin(managed, `v${latest}`);
@@ -189,9 +192,12 @@ export async function updateCli(command = {}) {
             if ((await runDaemon(['install', ...(restartMode === undefined ? [] : ['--mode', restartMode])])) !== 0) {
                 process.stderr.write('warn: service re-registration was skipped (unit drifted?); run `muxr doctor` before the next reboot\n');
             }
-            if (restartMode === 'selfhost' || restartMode === 'relay') relayRestarted = await stopSelfhostRelayIfRunning();
+            if (relayMode) relayRestarted = await stopSelfhostRelayIfRunning();
             if ((await runDaemon(['start'])) !== 0) throw new Error('host service did not start');
-            relayRestarted = restartMode === 'selfhost' || restartMode === 'relay';
+            relayRestarted = relayMode;
+        } else if (headless) {
+            process.stdout.write('Updated. Restart your muxr service to use the new version.\n');
+            return 0;
         } else {
             relayRestarted = await restartSelfhostRelayIfRunning();
         }
