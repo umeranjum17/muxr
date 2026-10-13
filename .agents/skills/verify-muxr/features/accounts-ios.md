@@ -10,7 +10,8 @@ first one.
 ## Sub-features
 
 - `accounts-add` Add a Claude account › Open Claude sign-in › name sheet › Save.
-- `accounts-added-notice` the notice names only the added account, and at the
+- `accounts-added-notice` the notice names only the added account, clears by
+  itself after about 4 s (a tap or the next notice clears it sooner), and at the
   largest text size it wraps to the full name in the flow above the list, which
   stays fully visible below it.
 - `accounts-rows-distinct` at the largest text size, rows of one provider that
@@ -59,12 +60,13 @@ Preconditions:
   Clear the `Account name` field
   and enter `Umer` so the name collides with the found account: the hint must
   preview the resolved names (`Umer and Umer 2`), as the list will show them. Start
-  `xcrun simctl io <udid> recordVideo`, tap `Save`,
-  and screenshot at leisure: the notice stays up until it is tapped (no timer).
-  On builds before PR #680 it dismissed after 3.2 s, so capture within a second
-  there. Stop the recording with SIGINT after the list capture. `axe describe-ui`
-  reads both surfaces as text: the notice is one button labelled
-  `Added Umer. umer.work@example.com`, each row `<name>, <email>, …`.
+  `xcrun simctl io <udid> recordVideo`, tap `Save`, and screenshot within a
+  second or two: the notice clears by itself after about 4 s, and a tap or the
+  next notice clears it sooner. On builds before the auto-dismiss fix it stayed
+  up until tapped, so capture at leisure there. Stop the recording with SIGINT
+  after the list capture. `axe describe-ui` reads both surfaces as text: the
+  notice is one button labelled `Added Umer. umer.work@example.com`, each row
+  `<name>, <email>, …`.
 - **Largest text size.** Repeat the add with the simulator at the largest
   accessibility content size (`xcrun simctl ui <udid> content_size
   accessibility-extra-extra-extra-large`, the AX5 slot) and a long account name

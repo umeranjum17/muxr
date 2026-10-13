@@ -17,7 +17,7 @@ vi.mock('react-native-mmkv', () => ({
 }));
 
 const { planConnection, planAccountForLaunch, planLaunchQuestion, refreshPlans, waitForPlanDiscovery, usePlansStore } = await import('./application/plansStore');
-const { choiceLine, providerEntry } = await import('./domain/planAccounts');
+const { AUTO, choiceLine, providerEntry } = await import('./domain/planAccounts');
 
 const claude = (overrides: Partial<Record<'work' | 'side', { signedIn: boolean }>> = {}): PlanProviderAccounts => ({
     provider: 'claude',
@@ -153,6 +153,53 @@ describe('which account a launch carries', () => {
     });
 });
 
+describe('account notices', () => {
+    it('clears itself after a few seconds, and a replacing notice owns its own timer', async () => {
+        vi.useFakeTimers();
+        try {
+            const { dismissNotice, showNotice, useNotice } = await import('./application/planNotices');
+            dismissNotice();
+            showNotice('Added Demo', 'demo@example.com · OpenCode account');
+            expect(useNotice.getState().notice).toMatchObject({ title: 'Added Demo' });
+            await vi.advanceTimersByTimeAsync(3_999);
+            expect(useNotice.getState().notice).not.toBeNull();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(useNotice.getState().notice).toBeNull();
+
+            // A replacing notice is not cleared early by the first timer.
+            showNotice('First', 'one');
+            await vi.advanceTimersByTimeAsync(3_000);
+            showNotice('Second', 'two');
+            await vi.advanceTimersByTimeAsync(3_000);
+            expect(useNotice.getState().notice).toMatchObject({ title: 'Second' });
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(useNotice.getState().notice).toBeNull();
+
+            // A tap clears at once, and the timer then finds nothing to clear.
+            showNotice('Tapped', 'gone');
+            dismissNotice();
+            expect(useNotice.getState().notice).toBeNull();
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(useNotice.getState().notice).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps a failed account check off the toast, for the agent header to say so', async () => {
+        const { announceStartAccount } = await import('./application/announceStart');
+        const { planFailure } = await import('./application/plansApi');
+        const { useNotice, dismissNotice } = await import('./application/planNotices');
+        const { useUnknownAccounts } = await import('./application/plansStore');
+        dismissNotice();
+        request.mockResolvedValueOnce({ providers: [claude()] });
+        await refreshPlans();
+        request.mockRejectedValueOnce(new Error('host busy'));
+        await announceStartAccount('agent-s1', 'claude', AUTO, planConnection());
+        expect(useNotice.getState().notice).toBeNull();
+        expect(useUnknownAccounts.getState().reasons['agent-s1']).toBe(planFailure(new Error('host busy')));
+    });
+});
 describe('starting with no signed-in account', () => {
     it('names the state on the dock and stops Start before a silent launch', async () => {
         connection.machineId = 'computer-d';
