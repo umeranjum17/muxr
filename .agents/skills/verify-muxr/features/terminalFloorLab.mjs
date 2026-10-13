@@ -1,0 +1,144 @@
+// A real Herdr lab and OpenCode for the keyboard row floor, paired to a native app.
+// See terminal-keyboard-floor.md.
+import { execFileSync, spawn } from 'node:child_process';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createConnection } from 'node:net';
+import { join } from 'node:path';
+import { createInterface } from 'node:readline';
+import { linkHerdrLab } from './scripts/diagnostics/application/linkHerdrLab.mjs';
+
+const { EVIDENCE, SERIAL, GO_KEY_FILE } = process.env;
+if (!EVIDENCE) throw new Error('Set EVIDENCE to the run evidence directory');
+const MODEL = process.env.MODEL ?? 'opencode-go/muse-spark-1.3-contributor';
+// The floor the app holds, read from the app so the check cannot drift from it.
+const FLOOR = Number(/const MIN_TERMINAL_ROWS = (\d+);/.exec(readFileSync('apps/mobile/sources/terminal/domain/terminalFloor.ts', 'utf8'))?.[1]);
+const CRASHED = /Illegal instruction|bun\.report|panic\(main thread\)|command not found/;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const mark = (line) => {
+    const stamped = `${new Date().toISOString()} lab: ${line}`;
+    console.log(stamped);
+    appendFileSync(join(EVIDENCE, 'lab-timeline.log'), `${stamped}\n`);
+};
+const adb = (...args) => execFileSync('adb', ['-s', SERIAL, ...args], { encoding: 'utf8' });
+
+// The host's owner socket offers one pairing and approves the device that takes it.
+let offering;
+const mintPairing = async (path, kind) => {
+    if (offering && !offering.destroyed) { offering.destroy(); await sleep(500); }
+    return new Promise((resolve, reject) => {
+        const socket = offering = createConnection(path);
+        let pending = '';
+        socket.on('error', reject);
+        socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind, authority: 'control', personal: false } })}\n`));
+        socket.on('data', (chunk) => {
+            pending += String(chunk);
+            for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
+                const event = JSON.parse(pending.slice(0, end));
+                pending = pending.slice(end + 1);
+                if (event.offer) resolve({ code: event.offer.text });
+                if (event.approval) { socket.write('{"yes":true}\n'); mark('device paired'); }
+                if (event.error) reject(new Error(event.error));
+            }
+        });
+    });
+};
+
+const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'floor-'));
+const workdir = join(root, 'calc');
+mkdirSync(workdir);
+writeFileSync(join(workdir, 'calc.py'), 'def add(a, b):\n    return a + b\n');
+// The model the reply must come from; OpenCode names it in its own status line.
+writeFileSync(join(workdir, 'opencode.json'), JSON.stringify({ $schema: 'https://opencode.ai/config.json', model: MODEL }));
+let lab;
+try {
+    lab = await linkHerdrLab(root, 'kf');
+    mark(`herdr session ${lab.session}; floor ${FLOOR} rows; OpenCode works in ${workdir}`);
+    const panes = () => JSON.parse(lab.herdr(['pane', 'list'])).result.panes;
+    const commands = {
+        pair: async () => {
+            const pairing = await mintPairing(join(root, 'host', 'pair.sock'), 'native');
+            adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
+            adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', `'muxr://pair#${pairing.code}'`, process.env.APP_ID ?? 'com.trymuxr.app');
+            mark('pairing link opened on the device; tap Pair');
+        },
+        // An installed PWA pairs with `window.__MUXR_LAB_PAIR__(<link>)` (lab-browser-pairing.md).
+        browser: async () => {
+            const pairing = await mintPairing(join(root, 'host', 'pair.sock'), 'browser');
+            writeFileSync(join(root, 'browser-link'), pairing.code, { mode: 0o600 });
+            mark(`browser link written to ${join(root, 'browser-link')}; relay port ${lab.port}`);
+        },
+        // OpenCode's own sign-in, in the lab's account home. The key goes from
+        // its file to the pane; it is never printed, logged or shown on the phone.
+        signin: async () => {
+            if (!GO_KEY_FILE) throw new Error('Set GO_KEY_FILE');
+            const { workspace, root_pane: { pane_id: pane } } = JSON.parse(lab.herdr(['workspace', 'create', '--cwd', workdir, '--label', 'signin', '--no-focus'])).result;
+            const send = (text) => lab.herdr(['pane', 'send-text', pane, text]);
+            const keys = (key) => lab.herdr(['pane', 'send-keys', pane, key]);
+            // Each step waits for OpenCode's own prompt (the first run may still be
+            // installing it), so the key can only ever land in its masked field.
+            const until = async (prompt) => {
+                for (let tries = 0; !lab.herdr(['pane', 'read', pane, '--source', 'visible']).includes(prompt); tries++) {
+                    if (tries === 120) throw new Error(`OpenCode never asked "${prompt}"`);
+                    await sleep(1000);
+                }
+            };
+            try {
+                send('opencode auth login\n');
+                await until('Select provider');
+                send('OpenCode Go');
+                await until('(1 match)');
+                keys('enter');
+                await until('Enter your API key');
+                send(readFileSync(GO_KEY_FILE, 'utf8').trim());
+                keys('enter');
+                await sleep(4000);
+                send('exit\n');
+                await sleep(1000);
+            } finally {
+                // The pane held the key; nothing may read it later.
+                try { lab.herdr(['workspace', 'close', workspace.workspace_id]); } catch { /* the shell's exit closed it */ }
+            }
+            mark('signed in through opencode auth login');
+        },
+        // The grid Herdr holds for the pane the phone is on, and whether the agent in it is still up.
+        check: async () => {
+            const report = panes().filter((pane) => pane.focused).map((pane) => {
+                const screen = lab.herdr(['pane', 'read', pane.pane_id, '--source', 'recent', '--lines', '60']);
+                return { pane: pane.pane_id, rows: pane.scroll.viewport_rows, crashed: CRASHED.test(screen), screen };
+            });
+            for (const { pane, rows, crashed, screen } of report) {
+                writeFileSync(join(EVIDENCE, `screen-${pane.replace(/\W/g, '_')}.txt`), screen);
+                mark(`${pane}: ${rows} rows, ${crashed ? 'CRASHED' : 'alive'}`);
+            }
+            const ok = report.length > 0 && report.every(({ rows, crashed }) => rows >= FLOOR && !crashed);
+            mark(ok ? `PASS the open pane holds >= ${FLOOR} rows and did not crash` : `FAIL the open pane is under ${FLOOR} rows or crashed`);
+            return ok;
+        },
+        // The journey: tap the prompt box so the keyboard opens, let it settle, check.
+        kbd: async () => {
+            const dump = adb('exec-out', 'uiautomator', 'dump', '/dev/tty');
+            const bounds = /content-desc="Prompt"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(dump);
+            if (!bounds) throw new Error('no Prompt field on screen; open the agent first');
+            const [x1, y1, x2, y2] = bounds.slice(1).map(Number);
+            adb('shell', 'input', 'tap', String((x1 + x2) >> 1), String((y1 + y2) >> 1));
+            mark('tapped the prompt box');
+            await sleep(5000);
+            if (!/mInputShown=true|mIsInputViewShown=true/.test(adb('shell', 'dumpsys', 'input_method'))) {
+                mark('FAIL the keyboard did not open, so the floor was not exercised');
+                return false;
+            }
+            return commands.check();
+        },
+    };
+    mark('ready; enter: pair | browser | signin | kbd | check | quit');
+    const input = createInterface({ input: process.stdin });
+    for await (const line of input) {
+        const [name, ...args] = line.trim().split(/\s+/);
+        if (name === 'quit') break;
+        if (!(name in commands)) { console.error('commands: pair | browser | signin | kbd | check | quit'); continue; }
+        await commands[name](...args).catch((error) => mark(`${name} failed: ${error.message}`));
+    }
+} finally {
+    await lab?.stop();
+    process.stdin.destroy();
+}

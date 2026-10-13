@@ -43,6 +43,7 @@ import {
     undoSmartPunctuation,
 } from '../domain/promptAvailability';
 import { terminalPaneStatus } from '../domain/terminalAgentStatus';
+import { terminalLineHeight, terminalSurfaceHeight } from '../domain/terminalFloor';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { terminalGrid } from '../application/terminalAhead';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -347,11 +348,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // a whole multiple of the row height), which shifts where the last line ends.
     const grid = terminalGrid();
     const [drawnRowHeight, setDrawnRowHeight] = React.useState<number>();
-    const terminalRowHeight = drawnRowHeight ?? (terminalBox !== undefined && grid !== undefined && grid.rows > 0
-        ? terminalBox.height / grid.rows
-        : undefined);
+    const [fontIndex] = useLocalSettingMutable('terminalFontIndex');
+    const terminalRowHeight = terminalLineHeight({ fontIndex, drawnRowHeight });
+    const surfaceHeight = terminalSurfaceHeight({ boxHeight: terminalBox?.height ?? 0, cols: grid?.cols, fontIndex, drawnRowHeight });
     const terminalGridInset = drawnRowHeight !== undefined && terminalBox !== undefined && grid !== undefined && grid.rows > 0
-        ? Math.max(0, terminalBox.height - grid.rows * drawnRowHeight)
+        ? Math.max(0, surfaceHeight - grid.rows * drawnRowHeight)
         : 0;
     // How far the terminal's visible bottom sits from the one it was last
     // measured at: the rails ride the keyboard frame by frame, while the
@@ -1543,8 +1544,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             const touch = event.nativeEvent.touches[0];
                             if (touch !== undefined) terminalTouch.current = { x: touch.locationX, y: touch.locationY };
                         }}
-                        style={{ flex: 1 }}
+                        // Shorter than the floor, the surface overflows upward
+                        // and the box shows its bottom rows.
+                        style={{ flex: 1, overflow: 'hidden', justifyContent: 'flex-end' }}
                     >
+                        <View style={{ flexGrow: 1, minHeight: surfaceHeight }}>
                         <AgentPager
                             key={props.id}
                             sessionId={props.id}
@@ -1559,7 +1563,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             <TerminalLinkMenu
                                 url={linkMenu.url}
                                 at={linkMenu.at}
-                                region={{ width: terminalBox.width, height: terminalBox.height }}
+                                region={{ width: terminalBox.width, height: surfaceHeight }}
                                 actions={linkActions}
                                 onClose={() => setLinkMenu(null)}
                             />
@@ -1577,6 +1581,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             columns={grid?.cols}
                         />
                         </AgentPager>
+                        </View>
                     </View>
 
                     {/* Everything below the terminal is one surface in the
