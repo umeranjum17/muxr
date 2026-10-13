@@ -1465,8 +1465,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 gives way first. */}
                             {identityKnown && contextName !== undefined && <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: '40%', color: theme.colors.textSecondary, fontSize: 13 }}>{contextName}</Text>}
                             {/* The plan account it runs on, only when there is a choice of
-                                account. In this row, not a new one: chrome that appears late
-                                would re-attach the terminal. */}
+                                account, or "Account unknown" when its check failed (the
+                                reason opens on tap). In this row, not a new one: chrome that
+                                appears late would re-attach the terminal. */}
                             {identityKnown && (currentPane?.planAccount !== undefined || unknownAccount !== undefined) && <Text numberOfLines={1} accessibilityRole={currentPane?.planAccount === undefined ? 'button' : undefined} onPress={currentPane?.planAccount === undefined ? () => Modal.alert("Couldn't check which account it is on", unknownAccount) : undefined} style={{ flexShrink: 0, maxWidth: '30%', color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>{currentPane?.planAccount ?? 'Account unknown'}</Text>}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
