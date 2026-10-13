@@ -41,7 +41,6 @@ import {
     versionIsCompatible,
 } from '../infrastructure/herdr.mjs';
 import {
-    daemonDefinition,
     daemonIsRunning,
     daemonMode,
     runDaemon,
@@ -57,10 +56,9 @@ import {
     selfhostStateUnreadable,
 } from '../infrastructure/selfhost.mjs';
 import {
-    ensureSelfhostRelay,
     hasPendingRemoteConnect,
     remoteHostOnline,
-    relayDiscovery,
+    repairSelfhostRelay,
 } from '../infrastructure/selfhostRelay.mjs';
 
 const FULL_UNINSTALL_ENTRIES = [
@@ -436,12 +434,7 @@ export async function inspectSetup() {
     }
     const relayRepair = selfhost !== undefined && !relayReady && selfhost.relayLocation !== 'remote'
         ? { label: 'restart the self-host relay', run: async () => {
-            const definition = daemonDefinition();
-            if (existsSync(definition.path)) {
-                if ((await runDaemon(['restart'])) !== 0) throw new Error('muxr daemon restart failed');
-            } else {
-                await ensureSelfhostRelay(selfhost.relayPort, selfhost.webRoot, selfhost.bindHost, selfhost.webOrigin, relayDiscovery(selfhost));
-            }
+            if ((await repairSelfhostRelay(selfhost)) !== 0) throw new Error('muxr daemon restart failed');
         } }
         : undefined;
     add(relayLevel, 'self-host relay', relayDetailText, relayRepair);

@@ -33,7 +33,8 @@ muxr guidance only when you explicitly load the self-contained output of
 reporting only.
 
 The registered user service supervises the relay and host together, so both
-return after login or reboot and `muxr update` restarts them as one managed unit.
+return after login or reboot and `muxr update` restarts them as one managed unit
+(not for a headless Tailscale setup; see [Updating](#updating)).
 Unchanged setup choices keep existing devices paired; changing the endpoint
 requires and displays a fresh pairing step.
 
@@ -70,6 +71,7 @@ Automation uses:
 | `--tunnel` | Spawns `cloudflared` for a public `trycloudflare.com` URL. The URL is ephemeral; use a named tunnel for permanence. |
 | *(choose Use muxr away from home (Tailscale))* | Uses private HTTPS through `tailscale serve`; the relay stays on loopback. |
 | `--tailscale-direct` | Uses the tailnet IP directly. |
+| `--configure-only --advertise <ws-url>` | Writes Tailscale-only headless state without starting anything; see [Headless cloud machine](#headless-cloud-machine-tailscale-only). |
 | *(detected private network)* | Uses the address on an existing NetBird, WireGuard, ZeroTier, or similar interface. The phone must join that same private network. |
 | *(Works only on this Wi-Fi)* | Kept only for a computer already set up on it. Home network only. |
 | *(choose Direct SSH in the native app)* | Pair through the host's loopback relay over SSH; see [Direct SSH](#direct-ssh). |
@@ -136,6 +138,23 @@ limits key on real client IPs. The relay keeps at most 10,000 active per-IP
 rate-limit windows across HTTP and WebSocket requests. Once full, it rejects
 rate-limited requests with new keys until a window expires; existing windows
 keep their quotas rather than having them reset.
+
+## Headless cloud machine (Tailscale only)
+
+For a cloud machine with Herdr and Tailscale already installed and signed in, configure without starting anything, then run the host in the foreground:
+
+```bash
+muxr self-host --configure-only --advertise ws://cloud.example.ts.net:38742 --port 38742
+MUXR_MODE=selfhost muxr up
+# In another shell, using the same HOME and MUXR_HOME:
+muxr pair
+```
+
+`--configure-only` writes owner-only `selfhost.json` and relay authority under `MUXR_HOME` (default `~/.muxr`). It asks no prompts and opens no ingress, starts no relay and installs no service. Repeating the same command keeps the files and pairing identity. The port defaults to 8792 or `MUXR_RELAY_PORT`, and a plain `ws://` advertise must use that port. The advertise name must resolve to a Tailscale IPv4 address (`100.64.0.0/10`), or be that address. `muxr up` owns its relay child and binds only that address. While the address is not yet assigned, startup logs `waiting for Tailscale address …` and retries, with no restart loop and no public-bind fallback. Keep the machine firewall as a second guard. This command does not install Herdr or Tailscale.
+
+A configured tailnet address and port cannot be changed yet. `muxr self-host`, `muxr setup` and enrollment refuse to replace the state. When the relay is not up, `muxr pair` and `muxr doctor` refuse to start one on the tailnet address and tell you to start `MUXR_MODE=selfhost muxr up`.
+
+Under systemd, keep `ExecStart=muxr up` and add `Environment=MUXR_MODE=selfhost`, running as the same user with the same `MUXR_HOME` used for configuration.
 
 ## Pairing, security model
 
@@ -239,3 +258,7 @@ Run `muxr` and choose **Update muxr**, or use `muxr update --yes` in automation.
 The updater installs the latest npm release, retracts retired plugin registrations, and
 restarts a running local relay and host. Source checkouts can instead pull, run
 `yarn install --frozen-lockfile && yarn build`, and restart the relay and host.
+
+On a headless Tailscale setup, `muxr update` installs the release and only prints
+`Updated. Restart your muxr service to use the new version.` It stops, restarts and
+starts nothing; restart the foreground `muxr up` unit yourself.

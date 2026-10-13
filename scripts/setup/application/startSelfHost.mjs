@@ -17,6 +17,7 @@ import {
     cloudflaredAlive,
     persistOwnedServeIngress,
     readSelfhostState,
+    refuseTailnetState,
     selfhostPath,
     selfhostStateUnreadable,
     stopOwnedSelfhostRelay,
@@ -29,8 +30,10 @@ import {
     resolveAdvertise,
 } from '../infrastructure/selfhostRelay.mjs';
 import { mintDeviceGrant } from './pairDevice.mjs';
+import { configureSelfHost } from './configureSelfHost.mjs';
 
 export async function startSelfHost(args = []) {
+    if (args.includes('--configure-only')) return configureSelfHost(args);
     let pendingIngress;
     let envPort;
     try {
@@ -75,6 +78,7 @@ export async function startSelfHost(args = []) {
             return 0;
         }
         let state = readSelfhostState();
+        refuseTailnetState(state);
         if (hostOnly) {
             if (state === undefined) throw new Error('no self-host state yet; run `muxr self-host` first');
             await startMuxrDaemon('selfhost', args);

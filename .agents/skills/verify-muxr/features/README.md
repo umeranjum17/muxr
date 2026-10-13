@@ -126,6 +126,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
   versioned page shares and their refusals, and the retention view of the
   same timeline.
+- [Pair a phone through the kit files](./pairing-handoff.md) —
+  non-TTY `--handoff`, raw two-word kit delivery, verified enrollment,
+  mismatch/deadline/cancellation cleanup, and missing-setup startup in a container.
 - [Scan a pairing QR from the terminal](./pairing-qr.md) —
   `muxr pair` at normal/narrow widths and inside an isolated Herdr terminal.
 - [Lead every pair entry with Scan](./pair-scan-first.md) —
@@ -163,7 +166,8 @@ user-visible behavior, then exactly four H2 sections in this order:
   wraps inside the screen (uiautomator bounds, no sideways scroller) and Copy
   still hands over the one-line command.
 - [Check the self-host](./selfhost-health.md) — relay `/health`, version
-  identity, and the owner-only hosts listing.
+  identity, the owner-only hosts listing, and clean-container configure-only
+  foreground startup with native tailnet pairing.
 - [Keep a shell request's backgrounded child from outliving it](./host-shell-process-group.md) —
   real `machine.shell` over a fake-Herdr stack: prompt reply, backgrounded child
   reaped, and the host unit's memory and process count flat across the run.

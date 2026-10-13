@@ -19,6 +19,7 @@ import { daemonIsRunning, runDaemon, startMuxrDaemon } from '../infrastructure/d
 import {
     cleanupManagedIngress,
     readSelfhostState,
+    refuseTailnetState,
     selfhostControlBase,
     stopOwnedSelfhostRelay,
     writeSelfhostState,
@@ -63,6 +64,7 @@ export async function resumeRemoteConnect(args = []) {
 
 export async function connectEnrollment(args = []) {
     try {
+        refuseTailnetState(readSelfhostState());
         if (args.includes('--resume')) return await resumeRemoteConnect(args);
         const raw = flagValue(args, '--enrollment') ?? args.find((arg) => !arg.startsWith('--'));
         if (!raw) throw new Error('paste the enrollment with `muxr connect --enrollment <muxr://enroll?...>`');

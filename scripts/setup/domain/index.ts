@@ -25,6 +25,7 @@ export {
     advertisedUrlForMode,
     connectionLabel,
     ingressPlan,
+    localRelayBase,
     modeAllowsBrowserHosting,
     parseConnection,
     publicRelayUrl,

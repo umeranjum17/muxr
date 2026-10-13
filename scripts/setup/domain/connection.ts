@@ -11,6 +11,11 @@ export function publicRelayUrl(value: unknown): string | undefined {
     }
 }
 
+export function localRelayBase(port: unknown, bindHost?: unknown): string {
+    const host = typeof bindHost === 'string' && bindHost !== '' && bindHost !== '0.0.0.0' && bindHost !== '::' ? bindHost : '127.0.0.1';
+    return `http://${host.includes(':') ? `[${host}]` : host}:${port}`;
+}
+
 export type RelayLocation = 'local' | 'remote';
 export type RelayRole = 'shared' | 'single-machine';
 
@@ -91,7 +96,7 @@ export function parseConnection(state: unknown): Result<Connection> {
             if (location === 'remote' && relayUrl !== undefined) {
                 return relayUrl.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:');
             }
-            return `http://127.0.0.1:${record.relayPort}`;
+            return localRelayBase(record.relayPort, record.bindHost);
         },
         credential() {
             return typeof record.mintSecret === 'string' ? record.mintSecret : record.machineCredential;

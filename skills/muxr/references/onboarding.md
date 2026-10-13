@@ -87,7 +87,10 @@ data plane; the relay routes ciphertext it cannot read.
 - Pairing needs the person at this computer's terminal. A non-TTY `muxr pair`
   or `muxr setup` (an agent or script) never approves — it exits 2 saying the
   pairing needs the person. Ask them to run `muxr pair` themselves, then
-  continue once it reports the device paired and verified.
+  continue once it reports the device paired and verified. The one exception
+  is `muxr pair --handoff` on a cloud computer with no paired device yet: it
+  approves only when the phone returns the two words it shows (see
+  `muxr pair --help`).
 - The phone proves itself once and receives a device credential that becomes
   durable when pairing completes. It stays paired until explicit revocation;
   calendar time never forces another QR.
@@ -131,7 +134,7 @@ verification exception). Plugin and agent changes sync live.
 ## Maintenance
 
 ```bash
-muxr update                    # check, confirm, update, and restart
+muxr update                    # check, confirm, update, and restart (not on headless Tailscale setups)
 muxr update --check            # check without changing anything
 muxr doctor                    # current setup health and checked repairs
 muxr diagnostics               # bounded redacted host/client history

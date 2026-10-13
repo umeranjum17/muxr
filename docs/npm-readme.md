@@ -60,7 +60,21 @@ muxr state lives under `~/.muxr` unless `MUXR_HOME` is set. Use `muxr setup --dr
 ```text
 muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]
                [--port <n>] [--relay-only|--host-only] [--web] [--yes]
+muxr self-host --configure-only --advertise <ws-url> [--port <n>]
 ```
+
+For a headless cloud machine with Herdr and Tailscale already set up, configure
+without starting anything, then run the host in the foreground:
+
+```bash
+muxr self-host --configure-only --advertise ws://cloud.example.ts.net:38742 --port 38742
+MUXR_MODE=selfhost muxr up
+# In another shell, using the same HOME and MUXR_HOME:
+muxr pair
+```
+
+Details, including the systemd unit and what waits or refuses, are in the
+[headless cloud machine guide](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#headless-cloud-machine-tailscale-only).
 
 See the [self-hosting guide](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone) for route requirements and the recommendation policy. The relay cannot read session or terminal content; see the [pairing and security model](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#pairing-security-model) for transport details.
 

@@ -1,10 +1,12 @@
 /** Run the user-operated host bridge. In self-host mode this process also owns the relay child. */
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { ensureHerdrServer } from '../infrastructure/herdr.mjs';
 import { hostEntry, relayEntry } from '../infrastructure/paths.mjs';
+import { isTailnetIPv4 } from '../infrastructure/selfhost.mjs';
+import { localRelayBase } from '../domain/dist/index.js';
 
 const hostPath = hostEntry();
 const relayPath = relayEntry();
@@ -63,9 +65,10 @@ function start(entry, env = process.env, args = []) {
     return child;
 }
 
-async function waitForRelay(port) {
+async function waitForRelay(port, bindHost) {
+    const base = localRelayBase(port, bindHost);
     for (let attempt = 0; attempt < 30; attempt += 1) {
-        const ready = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) }).then((response) => response.ok).catch(() => false);
+        const ready = await fetch(`${base}/health`, { signal: AbortSignal.timeout(500) }).then((response) => response.ok).catch(() => false);
         if (ready) return;
         await new Promise((resolve) => setTimeout(resolve, 250));
     }
@@ -80,10 +83,22 @@ process.on('exit', () => {
 const mode = process.env.MUXR_MODE;
 if (mode === 'selfhost' || mode === 'relay') {
     const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
-    const state = JSON.parse(readFileSync(join(root, 'selfhost.json'), 'utf8'));
+    let state;
+    try { state = JSON.parse(readFileSync(join(root, 'selfhost.json'), 'utf8')); }
+    catch (cause) {
+        if (cause.code !== 'ENOENT') throw cause;
+        process.stderr.write('This computer is not set up yet. Run `muxr setup` first.\n');
+        process.exit(1);
+    }
     if (mode === 'relay' || state.relayLocation !== 'remote') {
         const port = Number(state.relayPort);
         if (!Number.isInteger(port)) throw new Error('self-host relay state has no valid port');
+        const addressPresent = () => Object.values(networkInterfaces()).flat().some((entry) => entry?.address === state.bindHost);
+        if (isTailnetIPv4(state.bindHost) && !addressPresent()) {
+            process.stderr.write(`waiting for Tailscale address ${state.bindHost}; no relay started\n`);
+            while (!stopping && !addressPresent()) await new Promise((resolve) => setTimeout(resolve, 1000));
+            if (stopping) process.exit(0);
+        }
         const relay = start(relayPath, {
             ...process.env,
             MUXR_RELAY_LOCAL_AUTHORITY: '1',
@@ -98,7 +113,7 @@ if (mode === 'selfhost' || mode === 'relay') {
             ...(state.webRoot ? { MUXR_WEB_ROOT: state.webRoot } : {}),
             ...(state.webOrigin ? { MUXR_ALLOWED_ORIGINS: state.webOrigin } : {}),
         });
-        try { await waitForRelay(port); }
+        try { await waitForRelay(port, state.bindHost); }
         catch (cause) {
             stopping = true;
             relay.kill('SIGTERM');

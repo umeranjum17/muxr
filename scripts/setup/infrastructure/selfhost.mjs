@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isIP } from 'node:net';
 import {
     inspectServe,
     serve,
@@ -7,7 +8,7 @@ import {
     tailscaleName,
     unserve,
 } from '@byokit/reach';
-import { parseConnection, publicRelayUrl } from '../domain/dist/index.js';
+import { localRelayBase, parseConnection, publicRelayUrl } from '../domain/dist/index.js';
 import { relayEntry } from './paths.mjs';
 import {
     atomicWrite,
@@ -29,6 +30,18 @@ export function tailscaleBin() {
         join(home(), 'Applications', 'Tailscale.app', 'Contents', 'MacOS', 'Tailscale'),
         '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
     ].find((candidate) => executable(candidate));
+}
+
+export function isTailnetIPv4(address) {
+    if (typeof address !== 'string' || isIP(address) !== 4) return false;
+    const [first, second] = address.split('.').map(Number);
+    return first === 100 && second >= 64 && second <= 127;
+}
+
+/** A tailnet-recorded state is final for now: no setup path may replace, restart or re-register it. */
+export function refuseTailnetState(state) {
+    if (!isTailnetIPv4(state?.bindHost)) return;
+    throw new Error(`this computer runs headless on Tailscale (${state.bindHost}) under MUXR_MODE=selfhost muxr up; it is already set up, and changing its address or port is not supported yet`);
 }
 
 export const selfhostPath = () => join(stateDir(), 'selfhost.json');
@@ -64,7 +77,7 @@ export function selfhostConfigured() { return readSelfhostState() !== undefined;
 
 export function selfhostControlBase(state) {
     const parsed = parseConnection(state);
-    if (!parsed.ok) return `http://127.0.0.1:${state?.relayPort}`;
+    if (!parsed.ok) return localRelayBase(state?.relayPort, state?.bindHost);
     return parsed.value.controlBase(state?.relayLocation === 'remote' ? env('MUXR_REMOTE_CONTROL_BASE') : undefined);
 }
 
@@ -92,7 +105,7 @@ export function writeSelfhostState(state) {
     atomicWrite(selfhostPath(), `${JSON.stringify(state, null, 2)}\n`);
 }
 
-export { SERVE_OWNED_ERROR };
+export { localRelayBase, SERVE_OWNED_ERROR };
 
 /** The Tailscale options reach shares with the rest of setup: setup owns where the CLI lives (MUXR_TAILSCALE_BIN, the macOS app). */
 export function reachTailscaleOptions() {
@@ -144,30 +157,34 @@ export async function cleanupManagedIngress(state) {
     await unserve(ingress, reachTailscaleOptions());
 }
 
+export function ownedRelayPid() {
+    const pidPath = join(stateDir(), 'relay', 'relay.pid');
+    const pid = Number(existsSync(pidPath) ? readFileSync(pidPath, 'utf8').trim() : '');
+    if (!Number.isSafeInteger(pid) || pid <= 1) return undefined;
+    const command = run(env('MUXR_PS_BIN') || 'ps', ['-ww', '-p', String(pid), '-o', 'command=']);
+    const relayCommand = command.ok ? command.stdout.trim() : '';
+    return /(?:^|\s)\S*\/relay\.js(?:\s|$)/.test(relayCommand) || relayCommand.includes(relayEntry()) ? pid : undefined;
+}
+
 export async function stopOwnedSelfhostRelay() {
     const state = readSelfhostState();
     if (state === undefined || state.relayLocation === 'remote') return undefined;
     const port = Number(state.relayPort);
-    const health = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) }).then((response) => {
+    const base = selfhostControlBase(state);
+    const health = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2_000) }).then((response) => {
         if (!response.ok) return undefined;
         return response.json();
     }).catch(() => undefined);
     if (health?.ok !== true) return undefined;
-    const pidPath = join(stateDir(), 'relay', 'relay.pid');
-    const pid = Number(existsSync(pidPath) ? readFileSync(pidPath, 'utf8').trim() : '');
-    if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error('running relay has no valid pid file; leaving it untouched');
-    const command = run(env('MUXR_PS_BIN') || 'ps', ['-ww', '-p', String(pid), '-o', 'command=']);
-    const relayCommand = command.ok ? command.stdout.trim() : '';
-    if (!/(?:^|\s)\S*\/relay\.js(?:\s|$)/.test(relayCommand) && !relayCommand.includes(relayEntry())) {
-        throw new Error('relay pid does not belong to a muxr relay process; leaving it untouched');
-    }
+    const pid = ownedRelayPid();
+    if (pid === undefined) throw new Error('relay pid does not belong to a muxr relay process; leaving it untouched');
     try { process.kill(pid, 'SIGTERM'); }
     catch (cause) {
         if (cause?.code === 'ESRCH') return { state, health, port };
         throw cause;
     }
     for (let attempt = 0; attempt < 30; attempt += 1) {
-        const stopped = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) })
+        const stopped = await fetch(`${base}/health`, { signal: AbortSignal.timeout(500) })
             .then(() => false)
             .catch((cause) => cause?.name !== 'TimeoutError');
         if (stopped) return { state, health, port };

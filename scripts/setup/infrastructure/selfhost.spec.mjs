@@ -2,7 +2,7 @@
  * The CLI must only stop a relay it recognizes as its own. The desktop app's
  * relay runs as relay.mjs, so the CLI refuses it and leaves the process alone.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,6 +46,16 @@ afterEach(() => {
 });
 
 describe('stopping a self-host relay', () => {
+    it('explains an unconfigured computer before up starts anything', () => {
+        const result = spawnSync('docker', ['run', '--rm', '--network', 'none', '-v', `${process.cwd()}:/app:ro`,
+            '-w', '/app', '-e', 'MUXR_MODE=selfhost', '-e', 'MUXR_HOME=/tmp/muxr-empty',
+            'node:22', 'node', 'scripts/cli.mjs', 'up'], { encoding: 'utf8', timeout: 60_000 });
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('This computer is not set up yet. Run `muxr setup` first.');
+        expect(result.stderr).not.toContain('ENOENT');
+    }, 65_000);
+
     it('refuses to stop a relay the desktop app owns', async () => {
         const home = mkdtempSync(join(tmpdir(), 'muxr-selfhost-spec-'));
         homes.push(home);
