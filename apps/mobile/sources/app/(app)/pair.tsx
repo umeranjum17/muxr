@@ -73,8 +73,8 @@ export default function PairScreen() {
     const auth = useAuth();
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    // Narrow when width/fontScale < 200, which covers 270 dp and 208 dp at font
-    // 2.0: the card's padding left a word no room, so tighten it rather than shrink the words.
+    // Narrow when width/fontScale < 200: covers 270 dp and 208 dp at font 2.0,
+    // and a 393 dp phone at font 2.0 (196.5), which is intended.
     const { width, fontScale } = useWindowDimensions();
     const narrow = width / fontScale < 200;
     const [state, setState] = React.useState<PairState | undefined>(undefined);
@@ -473,7 +473,7 @@ export default function PairScreen() {
         {sshRoute && manualForm && (
             // Anchored below the scroll; on native it follows the keyboard
             // without shrinking the aware scroll.
-            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
+            <ConnectBar style={[styles.ctaBar, narrow && styles.narrowCtaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
                 {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
                 <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" wrap disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
@@ -481,7 +481,7 @@ export default function PairScreen() {
         {!sshRoute && manualForm && showField && (
             // Same anchored bar as the SSH route: the manual Connect must stay
             // above the keyboard on short viewports.
-            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
+            <ConnectBar style={[styles.ctaBar, narrow && styles.narrowCtaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
                 <ActionButton title="Connect" icon="link-outline" variant={canScan ? 'secondary' : 'primary'} wrap disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
@@ -508,6 +508,7 @@ const styles = StyleSheet.create((theme) => ({
         paddingHorizontal: 16,
     },
     narrowHero: { paddingHorizontal: 0 },
+    narrowCtaBar: { paddingHorizontal: 8 },
     iconBadge: {
         width: 64,
         height: 64,

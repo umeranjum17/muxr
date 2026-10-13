@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { WordWrappingText } from './WordWrappingText';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
@@ -27,13 +26,6 @@ export const ActionButton = React.memo((props: {
     const styles = stylesheet;
     const [busy, setBusy] = React.useState(false);
     const variant = props.variant ?? 'primary';
-    const labelStyle = [
-        styles.text,
-        variant === 'primary' && styles.primaryText,
-        variant === 'secondary' && styles.secondaryText,
-        variant === 'quiet' && styles.quietText,
-        props.wrap && styles.wrapText,
-    ];
     const run = React.useCallback(() => {
         hapticsLight();
         if (props.onPress) {
@@ -83,20 +75,18 @@ export const ActionButton = React.memo((props: {
                             color={variant === 'primary' ? styles.primaryText.color : variant === 'quiet' ? styles.quietText.color : styles.secondaryText.color}
                         />
                     )}
-                    {props.wrap ? (
-                        <View style={styles.wrapLabel}>
-                            <WordWrappingText
-                                fontSize={variant === 'quiet' ? 15 : 17}
-                                style={labelStyle}
-                            >
-                                {props.title}
-                            </WordWrappingText>
-                        </View>
-                    ) : (
-                        <Text style={labelStyle} numberOfLines={1}>
-                            {props.title}
-                        </Text>
-                    )}
+                    <Text
+                        style={[
+                            styles.text,
+                            variant === 'primary' && styles.primaryText,
+                            variant === 'secondary' && styles.secondaryText,
+                            variant === 'quiet' && styles.quietText,
+                            props.wrap && styles.wrapText,
+                        ]}
+                        numberOfLines={props.wrap ? undefined : 1}
+                    >
+                        {props.title}
+                    </Text>
                 </View>
             )}
         </Pressable>
@@ -127,7 +117,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     // Single-line buttons measure exactly as before: the row already spans
     // its content, and centering content in a full-width row draws the same.
     wrapRow: { width: '100%', flexWrap: 'wrap', justifyContent: 'center' },
-    wrapLabel: { flexGrow: 1, flexBasis: 0, minWidth: 0 },
     wrapText: { flexShrink: 1, minWidth: 0, textAlign: 'center' },
     primary: {
         backgroundColor: theme.colors.button.primary.background,
