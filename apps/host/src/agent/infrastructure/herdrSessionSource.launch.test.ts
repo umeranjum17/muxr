@@ -1,6 +1,6 @@
 import { createHook } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -961,7 +961,7 @@ describe('OpenCode account isolation', () => {
         }
     }, 20_000);
 
-    it('starts OpenCode Go agents on Muse Spark 1.3 Contributor and leaves other launches alone', async () => {
+    it('starts OpenCode Go agents on Muse Spark 1.3 Contributor through the account config and leaves other launches alone', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-model-'));
         const bin = join(dir, 'bin');
         mkdirSync(bin);
@@ -986,9 +986,20 @@ describe('OpenCode account isolation', () => {
             const authFile = (folder: string) => join(folder, '.local', 'share', 'opencode', 'auth.json');
             mkdirSync(dirname(authFile(a.record.folder)), { recursive: true });
             writeFileSync(authFile(a.record.folder), '{"opencode-go":{"type":"api","key":"test"}}');
+            // OpenCode seeds its own opencode.jsonc on first run; the model joins it.
+            const config = (folder: string, name = 'opencode.jsonc') => join(folder, '.config', 'opencode', name);
+            mkdirSync(dirname(config(a.record.folder)), { recursive: true });
+            writeFileSync(config(a.record.folder), '{"$schema": "https://opencode.ai/config.json"}');
             const launchA = planLaunchEnv(env, a.record);
             const go = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchA.set, planUnset: launchA.unset });
             expect('info' in go).toBe(true);
+            expect(JSON.parse(readFileSync(config(a.record.folder), 'utf8'))).toEqual({
+                $schema: 'https://opencode.ai/config.json', model: 'opencode-go/muse-spark-1.3-contributor',
+            });
+            // A model the user set there stands.
+            writeFileSync(config(a.record.folder), '{"model": "opencode-go/glm-flash-5.3"}');
+            expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchA.set, planUnset: launchA.unset })).toBe(true);
+            expect(readFileSync(config(a.record.folder), 'utf8')).toBe('{"model": "opencode-go/glm-flash-5.3"}');
             const bare = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode' });
             expect('info' in bare).toBe(true);
             const other = await source.start({ cwd: join(dir, 'repo'), kind: 'claude' });
@@ -999,11 +1010,11 @@ describe('OpenCode account isolation', () => {
             const launchB = planLaunchEnv(env, b.record);
             const otherProvider = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchB.set, planUnset: launchB.unset });
             expect('info' in otherProvider).toBe(true);
-            expect(herdr.agents).toHaveLength(4);
-            expect(herdr.agents[0]).toMatchObject({ args: ['--model', 'opencode-go/muse-spark-1.3-contributor'] });
-            expect(herdr.agents[1]).not.toHaveProperty('args');
-            expect(herdr.agents[2]).not.toHaveProperty('args');
-            expect(herdr.agents[3]).not.toHaveProperty('args');
+            expect(existsSync(config(b.record.folder, 'opencode.json'))).toBe(false);
+            expect(existsSync(config(b.record.folder))).toBe(false);
+            // No launch passes `--model`: OpenCode 2.x has no such flag and exits on it.
+            expect(herdr.agents).toHaveLength(5);
+            for (const agent of herdr.agents) expect(agent).not.toHaveProperty('args');
         } finally {
             await source.dispose();
             herdr.close();
