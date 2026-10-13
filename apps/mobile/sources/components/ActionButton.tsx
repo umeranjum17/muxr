@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { WordWrappingText } from './WordWrappingText';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet } from 'react-native-unistyles';
@@ -26,14 +26,14 @@ export const ActionButton = React.memo((props: {
 }) => {
     const styles = stylesheet;
     const [busy, setBusy] = React.useState(false);
-    const [width, setWidth] = React.useState(0);
-    const [wordWidth, setWordWidth] = React.useState(0);
     const variant = props.variant ?? 'primary';
-    const fontSize = variant === 'quiet' ? 15 : 17;
-    const padding = Math.min(props.wrap ? 8 : 24, width / 8);
-    const contentWidth = Math.max(0, width - 2 * padding);
-    const stacked = props.icon !== undefined && wordWidth + 27 > contentWidth;
-    const labelWidth = Math.max(0, contentWidth - (props.icon !== undefined && !stacked ? 27 : 0));
+    const labelStyle = [
+        styles.text,
+        variant === 'primary' && styles.primaryText,
+        variant === 'secondary' && styles.secondaryText,
+        variant === 'quiet' && styles.quietText,
+        props.wrap && styles.wrapText,
+    ];
     const run = React.useCallback(() => {
         hapticsLight();
         if (props.onPress) {
@@ -54,7 +54,6 @@ export const ActionButton = React.memo((props: {
     return (
         <Pressable
             testID={props.testID}
-            onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
             disabled={props.disabled || busy}
             accessibilityRole="button"
             accessibilityLabel={props.accessibilityLabel ?? props.title}
@@ -62,7 +61,6 @@ export const ActionButton = React.memo((props: {
             style={(p) => [
                 styles.base,
                 props.wrap && styles.wrap,
-                { paddingHorizontal: padding },
                 variant === 'primary' && styles.primary,
                 variant === 'secondary' && styles.secondary,
                 variant === 'quiet' && styles.quiet,
@@ -77,7 +75,7 @@ export const ActionButton = React.memo((props: {
                     color={variant === 'primary' ? styles.primaryText.color : styles.secondaryText.color}
                 />
             ) : (
-                <View style={[styles.content, stacked && styles.stackedContent]}>
+                <View style={[styles.content, props.wrap && styles.wrapContent, props.wrap && styles.wrapRow]}>
                     {props.icon !== undefined && (
                         <Ionicons
                             name={props.icon}
@@ -85,18 +83,18 @@ export const ActionButton = React.memo((props: {
                             color={variant === 'primary' ? styles.primaryText.color : variant === 'quiet' ? styles.quietText.color : styles.secondaryText.color}
                         />
                     )}
-                    <WordWrappingText fontSize={fontSize} availableWidth={labelWidth} onWordWidth={setWordWidth}
-                        style={[
-                            styles.text,
-                            variant === 'primary' && styles.primaryText,
-                            variant === 'secondary' && styles.secondaryText,
-                            variant === 'quiet' && styles.quietText,
-                            props.wrap && styles.wrapText,
-                        ]}
-                        numberOfLines={props.wrap ? undefined : 1}
-                    >
-                        {props.title}
-                    </WordWrappingText>
+                    {props.wrap ? (
+                        <WordWrappingText
+                            fontSize={variant === 'quiet' ? 15 : 17}
+                            style={labelStyle}
+                        >
+                            {props.title}
+                        </WordWrappingText>
+                    ) : (
+                        <Text style={labelStyle} numberOfLines={1}>
+                            {props.title}
+                        </Text>
+                    )}
                 </View>
             )}
         </Pressable>
@@ -113,7 +111,20 @@ const stylesheet = StyleSheet.create((theme) => ({
         alignSelf: 'stretch',
     },
     wrap: { height: undefined, minHeight: 52, paddingVertical: 8, paddingHorizontal: 8 },
-    stackedContent: { flexDirection: 'column', gap: 4 },
+    wrapContent: { maxWidth: '100%' },
+    // A row child that may not shrink below its longest word on web
+    // (min-width: auto), so the label spills out of the pill instead of
+    // wrapping; native measures shrunk text by wrapping already.
+    //
+    // The row itself wraps: on a very narrow screen the icon keeps its size
+    // and the label flows onto its own line at the pill's full width instead
+    // of squeezing beside the icon into two-character lines that stack the
+    // button taller than the viewport. The row spans the pill so the label
+    // measures the full width, not the longest word: without it the row
+    // shrink-wraps to the longest word and the label breaks inside that.
+    // Single-line buttons measure exactly as before: the row already spans
+    // its content, and centering content in a full-width row draws the same.
+    wrapRow: { width: '100%', flexWrap: 'wrap', justifyContent: 'center' },
     wrapText: { flexShrink: 1, minWidth: 0, textAlign: 'center' },
     primary: {
         backgroundColor: theme.colors.button.primary.background,
@@ -130,12 +141,10 @@ const stylesheet = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-        width: '100%',
-        justifyContent: 'center',
     },
     text: {
         ...Typography.default('semiBold'),
-        textAlign: 'center',
+        fontSize: 17,
         includeFontPadding: false,
     },
     primaryText: {
@@ -146,5 +155,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     quietText: {
         color: theme.colors.textSecondary,
+        fontSize: 15,
     },
 }));

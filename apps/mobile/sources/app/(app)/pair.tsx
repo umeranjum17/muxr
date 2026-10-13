@@ -73,8 +73,8 @@ export default function PairScreen() {
     const auth = useAuth();
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    // Under ~200 text-scaled dp (208 dp at font 2.0) the card's padding left a
-    // word no room at a readable size; tighten it rather than shrink the words.
+    // Narrow when width/fontScale < 200, which covers 270 dp and 208 dp at font
+    // 2.0: the card's padding left a word no room, so tighten it rather than shrink the words.
     const { width, fontScale } = useWindowDimensions();
     const narrow = width / fontScale < 200;
     const [state, setState] = React.useState<PairState | undefined>(undefined);
