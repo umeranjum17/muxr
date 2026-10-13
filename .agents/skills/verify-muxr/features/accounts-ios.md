@@ -63,9 +63,10 @@ Preconditions:
   `xcrun simctl io <udid> recordVideo`, tap `Save`, and screenshot within a
   second or two: the notice clears by itself after about 4 s, and a tap or the
   next notice clears it sooner. On builds before the auto-dismiss fix it stayed
-  up until tapped, so capture at leisure there. Stop the recording with SIGINT after the list capture. `axe describe-ui`
-  reads both surfaces as text: the notice is one button labelled
-  `Added Umer. umer.work@example.com`, each row `<name>, <email>, …`.
+  up until tapped, so capture at leisure there. Stop the recording with SIGINT
+  after the list capture. `axe describe-ui` reads both surfaces as text: the
+  notice is one button labelled `Added Umer. umer.work@example.com`, each row
+  `<name>, <email>, …`.
 - **Largest text size.** Repeat the add with the simulator at the largest
   accessibility content size (`xcrun simctl ui <udid> content_size
   accessibility-extra-extra-extra-large`, the AX5 slot) and a long account name
