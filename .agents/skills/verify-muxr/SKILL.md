@@ -246,10 +246,12 @@ node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-check "$DIR/<name>.
 ```
 
 They report off-screen text and images (a part inside a horizontal overflow
-scroller is excused, as on native, since swipe reaches it), clipped text (including text cut by
-an overflow-hidden ancestor), text spilling out of its button, text painted
-over by another text or an image, a control covered by another element, and a
-stretched image; the driver adds a blank-strip read of the screenshot itself.
+scroller is excused, as on native, since swipe reaches it), clipped text
+(including text cut by an overflow-hidden ancestor), text spilling out of its
+button, text painted over by another text or an image, a control covered by
+another element, and a stretched image; the driver adds a blank-strip read of
+the screenshot itself. Known blind spot: text under a `pointer-events: none`
+image or background is not flagged, because the hit test skips such layers.
 Paste the driver output into the PR's `## Checks` block. Any line other than
 `clean` is a DEFECT and fails the cell, with the same `false lead:` override
 as native. A `blank page` line means the shot was taken before the app drew:
@@ -287,10 +289,10 @@ Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
 - **Overlap** — text or a control under the status bar or clock at any scroll
   position; under the gesture or navigation bar: any text or leaf button box
   more than 4px into it at rest (a clickable box over a quarter of the screen
-  height is judged by its children instead), and any content still under it once scrolled to the
-  end (`--end`); content passing under the translucent bar mid-scroll is fine;
-  under the keyboard, a toast, or another element; text painted over by another
-  text or an image; an image painted over a control.
+  height is judged by its children instead), and any content still under it
+  once scrolled to the end (`--end`); content passing under the translucent bar
+  mid-scroll is fine; under the keyboard, a toast, or another element; text
+  painted over by another text or an image; an image painted over a control.
 - **Off-screen or unreachable** — any part beyond the screen edge (a button
   box as well as its text; a labelled or unlabelled image), except a part
   inside a horizontal scroller, which swipe reaches, on native and PWA alike;
@@ -302,8 +304,8 @@ Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
   composer, tab bar or floating button covering a control at any scroll
   position, including the end.
 
-Every defect class above has a machine check; the eye still judges every shot
-too, against the mock or the main shot of the same cell.
+Each defect class above has a machine lead, not a guarantee; the eye still
+judges every shot too, against the mock or the main shot of the same cell.
 
 ### Compare and report
 
