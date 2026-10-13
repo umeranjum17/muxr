@@ -3,7 +3,8 @@
 When the phone's first dial of the computer's Tailscale address (a `*.ts.net`
 name or a 100.64.0.0/10 address in the pairing code) gets no answer, the pair
 screen says in one sentence what to fix, instead of the kit's generic "Can't
-reach your computer. Check it's on and connected." It keeps **Try again** on
+reach your computer. Check it's on and connected." or "Your computer didn't
+answer in time." It keeps **Try again** on
 the same code, since nothing was claimed.
 
 - Android, no Tailscale address on this phone (Tailscale off or signed out
@@ -54,13 +55,14 @@ or sign out this desktop's Tailscale; `tailscale ip -4` is read-only.
    and tap **Pair** on the consent card.
 3. Bad case on each build (main, candidate) at 393 dp (`wm size 1080x2424; wm
    density 440`) and 270 dp (`wm size 1080x2376; wm density 640`) light, plus
-   270 dp dark at `font_scale 1.3`: wait for "Can't reach" (about 8 s, the
-   kit's dial timeout) and capture. Main shows the generic kit sentence; the
-   candidate on a plain emulator shows the "turn on Tailscale on this phone"
-   sentence, because the emulator holds no Tailscale address.
+   270 dp dark at `font_scale 1.3`: wait for "Try again" (about 8 s, the
+   kit's dial timeout) and capture. Main shows "Your computer didn't answer in
+   time."; the candidate on a plain emulator shows the "turn on Tailscale on
+   this phone" sentence, because the emulator holds no Tailscale address.
 4. Tailscale-on variant: `adb root`, then
-   `ip tuntap add dev tun7 mode tun && ip addr add 100.101.7.7/32 dev tun7 && ip link set tun7 up`;
-   the same bad offer now names the computer end. Delete `tun7` after.
+   `ip link add tun8 type dummy && ip addr add 100.101.7.7/32 dev tun8 && ip link set tun8 up`
+   (`ip addr show tun8` must say `LOWER_UP`); the same bad offer now names the
+   computer end. Delete `tun8` after.
 5. Good case: advertise this desktop's Tailscale address and pair; the words
    step, the check mark and Home follow as before.
 6. PWA: `yarn web:export` per build, serve with `serveWebExport.mjs`, open
@@ -68,9 +70,9 @@ or sign out this desktop's Tailscale; `tailscale ip -4` is read-only.
    (`KIND=browser` mint, wrapped as `https://<any>/pair#byokit-link:…`) whose
    URLs name the unused tailnet address, press Pair, and capture at 393 and
    270 px light and dark: the candidate shows the "on this device and the
-   computer" sentence.
+   computer" sentence; main shows "Your computer didn't answer in time.".
 7. Pass: each sentence is whole at every size and theme, Try again stays on
-   the code, the good case pairs, and main shows the old generic sentence.
+   the code, the good case pairs, and main shows its old timeout sentence.
 - Repeatable check: `npx vitest run tests/cross-side/linkPairing.integration.test.ts -t 'which end to fix'` (repo root, after `yarn build`).
 
 ## Gotchas
@@ -82,3 +84,12 @@ or sign out this desktop's Tailscale; `tailscale ip -4` is read-only.
   network stack, without a Tailscale address of its own, which is why the
   signal is read only after a failed dial: reading it first would refuse a
   pairing that works.
+- A bare `ip tuntap` interface has no process behind it, so it reports
+  `NO-CARRIER` and Android's `NetworkInterface.isUp()` calls it down: the
+  Tailscale-on variant then shows the Tailscale-off sentence. Stage a dummy
+  link named `tun*` instead; a live Tailscale tun is up and running.
+- At 270 dp and `font_scale 1.3` the consent card's Pair button and the
+  failure actions sit below the fold; swipe up before tapping, and capture a
+  scrolled shot to show every action is reachable.
+- On the PWA a pasted browser offer goes straight to the consent card; the
+  button to press is Pair, not Connect.
