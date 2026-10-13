@@ -9,7 +9,8 @@ export function WordWrappingText({ children, style, fontSize, lineHeight, availa
     const words = props.numberOfLines === 1 ? [children] : [...new Set(children.split(/\s+/).filter(Boolean))];
     const measured = [...new Set([...words, children])];
     const widest = Math.max(0, ...words.map((word) => wordWidths[word] ?? 0));
-    const lineWidth = availableWidth ?? width;
+    // A parent's budget can still be narrowed by borders or flex layout.
+    const lineWidth = Math.min(availableWidth ?? width, width);
     const ready = lineWidth > 0 && measured.every((word) => wordWidths[word] > 0);
     const scale = widest > lineWidth ? lineWidth / (widest + 1) : 1;
     React.useEffect(() => { onWordWidth?.(widest); }, [widest, onWordWidth]);
