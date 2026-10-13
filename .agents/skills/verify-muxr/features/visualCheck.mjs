@@ -255,7 +255,7 @@ const layoutLeads = (app, { W, H, status, nav, end, ref }) => {
     // already in content through their description.
     const imagery = app.filter((n) => isImageNode(n) && !content.includes(n));
     const watched = app.filter((n) => content.includes(n) || imagery.includes(n));
-    const judged = content.filter((n) => n.at.clickable === 'true' ? n.box.b - n.box.t <= H * 0.25 : n.at.text);
+    const judged = content.filter((n) => n.at.text || (n.at.clickable === 'true' && (n.box.b - n.box.t <= H * 0.25 || !content.some((m) => m.up.includes(n)))));
     const scrollable = app.some((n) => n.at.scrollable === 'true' && !/Horizontal/.test(n.at.class));
     const cut = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
     const found = [];
@@ -318,6 +318,10 @@ const selfTest = () => {
     expect('full-screen clickable container with fitting children is not flagged', layout(nodesOf(card)).length === 0, layout(nodesOf(card)).join(' | '));
     const ctrl = el('android.view.ViewGroup', '[100,2250][980,2370]', { clickable: true }, el('android.widget.TextView', '[400,2280][680,2330]', { text: 'Continue' }));
     expect('button-sized clickable box under the gesture bar is flagged by its own box', layout(nodesOf(ctrl)).some((l) => l.startsWith('under the navigation bar') && l.includes('android.view.ViewGroup')), layout(nodesOf(ctrl)).join(' | '));
+    const tall = el('android.widget.TextView', '[100,1500][980,2400]', { text: 'Read the full terms', clickable: true });
+    expect('tall clickable text under the gesture bar at rest is flagged', layout(nodesOf(tall)).some((l) => l.startsWith('under the navigation bar on the unscrolled screen') && l.includes('"Read the full terms"')), layout(nodesOf(tall)).join(' | '));
+    const tallAbove = el('android.widget.TextView', '[100,1500][980,2300]', { text: 'Read the full terms', clickable: true });
+    expect('tall clickable text that ends above the gesture bar is not flagged', layout(nodesOf(tallAbove)).length === 0, layout(nodesOf(tallAbove)).join(' | '));
     const labelled = el('android.view.ViewGroup', '[0,200][1080,2376]', { desc: 'list', scrollable: true });
     expect('labelled non-clickable container past the bar at the end of the scroll is not flagged', layout(nodesOf(labelled), { end: true }).length === 0, layout(nodesOf(labelled), { end: true }).join(' | '));
     const pngOf = (name, args) => {
