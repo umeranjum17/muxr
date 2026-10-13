@@ -15,7 +15,7 @@
  * a Tailscale address that does not answer naming which end to fix.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -81,10 +81,10 @@ const { getCachedConnectionSettings, saveConnectionSettings } = await import('..
 
 const PENDING_LINK_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
 
-function launch(args: string[], extra: NodeJS.ProcessEnv = {}): ChildProcess & { output: () => string } {
+function launch(args: string[], extra: NodeJS.ProcessEnv = {}, cwd = hostRoot): ChildProcess & { output: () => string } {
     const env: NodeJS.ProcessEnv = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1', ...extra };
     for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'DATA_DIR']) delete env[`MUXR_${key}`];
-    const child = spawn(process.execPath, args, { cwd: hostRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout!.on('data', (chunk) => { out += chunk; });
     child.stderr!.on('data', (chunk) => { out += chunk; });
@@ -579,6 +579,45 @@ describe('native pairing over the byokit link', () => {
         } finally {
             await stop(child);
             await phonePairing?.catch(() => undefined);
+        }
+    }, 60_000);
+
+    it('pairs without a TTY through the kit files and refuses mismatched words without enrolling', async () => {
+        const workDir = join(home, 'kit-work');
+        mkdirSync(workDir);
+        const outbox = join(workDir, '.byokit', 'outbox');
+        for (const matches of [true, false]) {
+            const before = readSelfhostState().machine.crypto.devices.length;
+            const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
+            const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
+            let shownWords = '';
+            try {
+                const file = await until(() => {
+                    if (command.exitCode !== null) throw new Error(command.output());
+                    return existsSync(outbox) ? readdirSync(outbox).find((name) => name.endsWith('.json')) : undefined;
+                }, 'handoff offer');
+                const offerPath = join(outbox, file);
+                const offered = JSON.parse(readFileSync(offerPath, 'utf8'));
+                expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
+                expect(offered.version).toBe(1);
+                const pairing = runPhonePairing(offered.offer, { onWords: (words) => {
+                    shownWords = words;
+                    const wordsPath = join(workDir, '.byokit', 'inbox', offered.wordsFile);
+                    // Same raw-byte, private, atomic rename contract as kit deliver.
+                    writeFileSync(`${wordsPath}.tmp`, matches ? words : 'wrong words', { mode: 0o600 });
+                    renameSync(`${wordsPath}.tmp`, wordsPath);
+                } });
+                if (matches) await pairing;
+                else await expect(pairing).rejects.toThrow();
+                expect(await exited).toBe(matches ? 0 : 1);
+                expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
+                expect(existsSync(offerPath)).toBe(false);
+                expect(existsSync(join(workDir, '.byokit', 'inbox', offered.wordsFile))).toBe(false);
+                expect(command.output()).not.toContain(offered.offer);
+                expect(shownWords).not.toBe('');
+                expect(command.output()).not.toContain(shownWords);
+                if (!matches) expect(command.output()).toContain('two words did not match');
+            } finally { await stop(command); }
         }
     }, 60_000);
 

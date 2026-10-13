@@ -63,7 +63,7 @@ export function machineLinkUrl(relayUrl, machineBoxPublicKeyBase64) {
  * the paired device record once the phone has proven itself, or throws when
  * pairing was declined, failed, or never completed.
  */
-export async function linkPair(state, { approve, signal, intent = pairingIntent({ kind: 'native' }) } = {}) {
+export async function linkPair(state, { approve, signal, presentOffer, intent = pairingIntent({ kind: 'native' }) } = {}) {
     if (typeof selfhostCredential(state) !== 'string') throw new Error('muxr is not set up yet; run `muxr setup` first');
     const socketPath = join(process.env.MUXR_HOME ?? join(homedir(), '.muxr'), 'host', 'pair.sock');
     // `muxr setup` starts the service and pairs immediately, but the new host
@@ -79,7 +79,7 @@ export async function linkPair(state, { approve, signal, intent = pairingIntent(
                 print('Pairing needs you at this computer\'s terminal: run `muxr pair` yourself');
                 process.exit(2);
             }
-            const running = await pairOnRunningHost(socketPath, approve ?? showApproval, signal, intent);
+            const running = await pairOnRunningHost(socketPath, approve ?? showApproval, signal, intent, presentOffer);
             if (running !== undefined) return running;
         } catch (error) {
             if (error?.code !== 'ECONNREFUSED' && error?.code !== 'ENOENT') throw error;
@@ -215,7 +215,7 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
     } };
 }
 
-export async function pairOnRunningHost(socketPath, approve = showApproval, signal, intent = pairingIntent({ kind: 'native' })) {
+export async function pairOnRunningHost(socketPath, approve = showApproval, signal, intent = pairingIntent({ kind: 'native' }), presentOffer) {
     if (!existsSync(socketPath)) return undefined;
     const info = lstatSync(socketPath);
     if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0) throw new Error('unsafe pairing socket');
@@ -238,6 +238,7 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     };
     const showOffer = async (offer) => {
         latest = offer;
+        if (presentOffer !== undefined) return presentOffer(offer);
         const code = offerCode(offer, intent);
         const shown = code ?? (richTerminal() ? compactOffer(offer, intent) : undefined) ?? { text: offer.text, expires: offer.expires };
         if (page === undefined && richTerminal() && code === undefined) page = await startPairingPage(intent);
@@ -259,7 +260,10 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
         else if (event.result) settle.resolve(event.result);
     };
     const onResize = () => { if (altScreen) enqueue(() => showOffer(latest)); };
-    const onInterrupt = () => process.exit(130);
+    const onInterrupt = () => {
+        if (presentOffer === undefined) process.exit(130);
+        settle.reject(new Error('pairing cancelled'));
+    };
     process.on('exit', leaveAltScreen);
     process.on('SIGINT', onInterrupt);
     process.stdout.on('resize', onResize);
