@@ -12,7 +12,8 @@ no manual model switch. The phone shows no picker for this; the footer reads
   a signed-in OpenCode Go account opens on
   `opencode-go/muse-spark-1.3-contributor`, set as `model` in the account's own
   OpenCode config (`<account>/.config/opencode/opencode.jsonc` or
-  `opencode.json`) when no config there names a model. Its footer names Muse
+  `opencode.json`) when no config there names a model; a config muxr cannot
+  parse (for example JSONC with comments) is left untouched. Its footer names Muse
   Spark 1.3 Contributor and its first reply comes from that model, on OpenCode
   1.19 and 2.x alike (2.x has no `--model` flag and exits on it).
 - `opencode-go-user-model-kept` a model the user set in that config stands.
