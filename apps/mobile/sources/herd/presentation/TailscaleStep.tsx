@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Linking, Platform, View } from 'react-native';
+import { Linking, Platform, View, useWindowDimensions } from 'react-native';
 import { WordWrappingText } from '@/components/WordWrappingText';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
@@ -12,6 +12,8 @@ const PLAY_STORE_APP = 'market://details?id=com.tailscale.ipn';
 const PLAY_STORE_WEB = 'https://play.google.com/store/apps/details?id=com.tailscale.ipn';
 const APP_STORE = 'https://apps.apple.com/app/id1470499037';
 const DOWNLOAD_PAGE = 'https://tailscale.com/download';
+// The reference 270 dp phone (and the PWA at font 2.0, 135 css px).
+const NARROW_WIDTH = 300;
 
 // ponytail: always shown on first run; Android could skip it when com.tailscale.ipn
 // is installed, but that needs a native PackageManager call plus a <queries> entry.
@@ -32,12 +34,13 @@ async function openTailscaleStore(): Promise<void> {
  */
 export function TailscaleStep(props: { onReady: () => void }) {
     const styles = stylesheet;
+    const { width } = useWindowDimensions();
     const device = Platform.OS === 'web' ? 'device' : pairingDeviceNoun();
     return (
         <View style={styles.section}>
-            <View style={styles.card}>
+            <View style={[styles.card, width < NARROW_WIDTH && styles.cardNarrow]}>
                 <WordWrappingText fontSize={17} style={styles.title}>Start with Tailscale</WordWrappingText>
-                <WordWrappingText fontSize={15} lineHeight={21} style={styles.body}>{`You need the free Tailscale app on this ${device} and on your computer, signed in to the same account.`}</WordWrappingText>
+                <WordWrappingText fontSize={15} lineHeight={21} style={styles.body}>{`You need the free Tailscale app on this ${device} and on your computer. Sign in to the same account on both.`}</WordWrappingText>
                 <View style={styles.actions}>
                     <ActionButton title="Get Tailscale" icon="download-outline" wrap action={openTailscaleStore} />
                     <ActionButton variant="secondary" title="I have Tailscale" wrap onPress={props.onReady} />
@@ -61,6 +64,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         padding: 18,
         gap: 6,
     },
+    // At 270 dp the 18 dp side padding leaves the button too narrow for "Tailscale" whole.
+    cardNarrow: { paddingHorizontal: 6 },
     title: {
         ...Typography.default('semiBold'),
         color: theme.colors.text,

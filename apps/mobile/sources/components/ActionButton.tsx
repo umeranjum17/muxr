@@ -30,7 +30,7 @@ export const ActionButton = React.memo((props: {
     const [wordWidth, setWordWidth] = React.useState(0);
     const variant = props.variant ?? 'primary';
     const fontSize = variant === 'quiet' ? 15 : 17;
-    const padding = Math.min(props.wrap ? 12 : 24, width / 8);
+    const padding = Math.min(props.wrap ? 8 : 24, width / 8);
     const contentWidth = Math.max(0, width - 2 * padding);
     const stacked = props.icon !== undefined && wordWidth + 27 > contentWidth;
     const labelWidth = Math.max(0, contentWidth - (props.icon !== undefined && !stacked ? 27 : 0));
@@ -112,9 +112,9 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 24,
         alignSelf: 'stretch',
     },
-    wrap: { height: undefined, minHeight: 52, paddingVertical: 8, paddingHorizontal: 12 },
+    wrap: { height: undefined, minHeight: 52, paddingVertical: 8, paddingHorizontal: 8 },
     stackedContent: { flexDirection: 'column', gap: 4 },
-    wrapText: { flexShrink: 1, textAlign: 'center' },
+    wrapText: { flexShrink: 1, minWidth: 0, textAlign: 'center' },
     primary: {
         backgroundColor: theme.colors.button.primary.background,
     },

@@ -2,8 +2,9 @@
 
 An unpaired app opens on one Tailscale card under the hero: "Start with
 Tailscale", one line saying the free Tailscale app is needed on this phone (or
-iPad/iPhone, or "device" in a browser) and on the computer, signed in to the
-same account, a primary **Get Tailscale** and a secondary **I have Tailscale**.
+iPad/iPhone, or "device" in a browser) and on the computer, then "Sign in to the
+same account on both.", a primary **Get Tailscale** and a secondary **I have Tailscale**.
+The card's text and buttons must stay whole at 270 dp and font 2.0.
 Get Tailscale opens Tailscale's store page: the Play Store app on Android (its
 web page when the device has no Play Store), the App Store on iOS,
 tailscale.com/download on the web/PWA. I have Tailscale shows the pairing
