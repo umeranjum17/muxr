@@ -74,6 +74,7 @@ import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
 import { TerminalFailure } from './TerminalFailure';
 import { DictateAction, DictationStrip, useComposerDictation } from '@/components/ComposerDictation';
 import { getCachedConnectionSettings } from '@/connection';
+import { takeQueuedFirstPrompt, useQueuedFirstPrompts } from '../application/queuedFirstPrompts';
 import { displayLink } from '../domain/TerminalLink';
 import { TerminalLinkMenu, terminalLinkCardFits, type LinkAction } from './TerminalLinkMenu';
 import { isTerminalPath, openTerminalLink, safeTerminalLinkUrl } from '../domain/safeTerminalLink';
@@ -416,6 +417,18 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     }, []);
 
     insertDraftRef.current = insertDraft;
+
+    // A prompt sent from Home before this agent could take it: queued until the
+    // host delivers it, and back in this draft if it never arrives.
+    const queuedPrompt = useQueuedFirstPrompts((queued) => queued[props.id]);
+    const firstPromptQueued = queuedPrompt !== undefined && queuedPrompt.failed !== true;
+    React.useEffect(() => {
+        if (queuedPrompt?.failed !== true) return;
+        takeQueuedFirstPrompt(props.id);
+        const next = appendToDraft(draftRef.current, queuedPrompt.text);
+        draftRef.current = next;
+        setDraft(next);
+    }, [queuedPrompt, props.id]);
 
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
@@ -1008,7 +1021,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         }
         // A booting agent is not a refusal: the host holds the prompt until it
         // can accept it, so let the composer stay live and let the host answer.
-        if (attaching || selectedImages.length > 0 || dictationActive) return;
+        if (firstPromptQueued || attaching || selectedImages.length > 0 || dictationActive) return;
         const text = terminalComposerText(draftRef.current, attachedPaths, typing !== undefined);
         if (text === '') return;
         if (typing !== undefined) {
@@ -1048,7 +1061,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, markScrolledAway, selectedImages.length, props.id]);
+    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, firstPromptQueued, markScrolledAway, selectedImages.length, props.id]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft((previous) =>
         Platform.OS === 'ios' && currentPaneRef.current?.agentKind === undefined ? undoSmartPunctuation(previous, text) : text), []);
@@ -1140,7 +1153,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             });
     }, [located, props.id, siblings, shell]);
 
-    const canSend = !dictationActive && !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0, canControl && channel !== undefined);
+    // Nothing overtakes a queued prompt.
+    const canSend = !firstPromptQueued && !dictationActive && !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0, canControl && channel !== undefined);
     // The ring needs at least one slot to be worth its control; view-only
     // keeps what it can still run, so nothing that was reachable is lost.
     const hasTools = viewControls.commands.length > 0 || canControl;
@@ -1377,6 +1391,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const noticeText = { flexShrink: 1, color: theme.colors.textSecondary, fontSize: 11 };
             const terminalNotice = gestureHint !== null
                 ? <View pointerEvents="none" style={noticeChip}><Text numberOfLines={1} style={noticeText}>{gestureHint}</Text></View>
+                : firstPromptQueued
+                    ? <View pointerEvents="none" accessibilityLabel="Prompt queued until the agent is ready" style={noticeChip}><ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} /><Text numberOfLines={1} style={noticeText}>Prompt queued</Text></View>
                 : showConnectingStatus
                     ? <View pointerEvents="none" style={noticeChip}><ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} /><Text numberOfLines={1} style={noticeText}>{statusText}</Text></View>
                     : showUnconfirmedStatus

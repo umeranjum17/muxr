@@ -442,8 +442,8 @@ export const MainView = React.memo(({ liveCardBadge }: {
         }
         useNewSessionDraft.getState().setInput(prompt);
         Keyboard.dismiss();
-        const sessionId = await startHomeSession();
-        if (sessionId) setHomePrompt('');
+        // Home lets go of the prompt once the agent holds it; until then a failed start leaves it here.
+        const sessionId = await startHomeSession({ onRouteReady: () => setHomePrompt('') });
         return sessionId !== null;
     }, [homePrompt, startHomeSession]);
 

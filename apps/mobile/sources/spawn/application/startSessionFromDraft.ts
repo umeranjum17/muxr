@@ -26,6 +26,7 @@ export async function startSessionFromDraft(options: {
     machines: Machine[];
     navigateToSession: (sessionId: string) => void;
     blank?: boolean;
+    onRouteReady?: (agentRoute: string) => void;
 }): Promise<string | null> {
     const connection = planConnection();
     const draft = useNewSessionDraft.getState();
@@ -81,15 +82,19 @@ export async function startSessionFromDraft(options: {
             attachments: blank ? [] : draft.attachments,
             createCwd,
             ...(planAccount === undefined ? {} : { planAccount }),
+            // The prompt now belongs to the agent, whose screen shows it queued.
+            onRouteReady: (agentRoute) => {
+                if (!blank) {
+                    draft.setInput('');
+                    draft.setAttachments([]);
+                }
+                options.navigateToSession(agentRoute);
+                options.onRouteReady?.(agentRoute);
+            },
         });
-        if (!samePlanConnection(connection)) return null;
+        if (!samePlanConnection(connection)) return result.ok ? result.agentRoute : null;
         if (result.ok) {
-            if (!blank) {
-                draft.setInput('');
-                draft.setAttachments([]);
-            }
             if (result.promptFailed) Modal.alert(t('common.error'), result.promptFailed);
-            options.navigateToSession(result.agentRoute);
             if (planAccount !== undefined) void announceStartAccount(result.agentRoute, draft.agentType, planAccount, connection);
             return result.agentRoute;
         }

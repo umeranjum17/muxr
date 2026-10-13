@@ -45,7 +45,13 @@ function fakeHerdr(dir: string, cwd: string) {
         sentTexts: string[];
         /** Fields the next started agent carries, e.g. a first-run question Herdr reports. */
         startAgentAs: Record<string, unknown>;
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {} };
+        /** Every agent.prompt text, delivered or not. */
+        prompts: string[];
+        /** Prompts the agent loses while it finishes starting; Herdr's wait reports each as stalled. */
+        losePrompts: number;
+        /** Screen reads that still find the agent drawing; it reads no keys until they are used up. */
+        drawingReads: number;
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0 };
     const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
@@ -70,6 +76,15 @@ function fakeHerdr(dir: string, cwd: string) {
     });
     const handleAgentPrompt = (params: Record<string, unknown>) => {
         if (state.failSnapshotAfterPrompt) state.failSnapshot = true;
+        const text = String(params.text ?? '');
+        state.prompts.push(text);
+        const lost = state.losePrompts > 0 || state.drawingReads > 0;
+        if (state.losePrompts > 0) state.losePrompts -= 1;
+        else state.paneText += `${text}\n`;
+        // Like Herdr, only a caller that waits learns the prompt started no turn.
+        if (params.wait !== undefined && lost) {
+            return { error: { code: 'agent_prompt_stalled', message: 'agent prompt produced no observed working or blocked state within 5000 ms' } };
+        }
         return {
             type: 'agent_prompted',
             agent: {
@@ -203,10 +218,16 @@ function fakeHerdr(dir: string, cwd: string) {
                         }
                         break;
                     }
-                    case 'agent.prompt':
-                        reply = { id, result: handleAgentPrompt(p) };
+                    case 'agent.prompt': {
+                        const answer = handleAgentPrompt(p);
+                        reply = 'error' in answer ? { id, ...answer } : { id, result: answer };
                         break;
+                    }
                     case 'pane.read':
+                        if (state.drawingReads > 0) {
+                            state.drawingReads -= 1;
+                            state.paneText += 'drawing\n';
+                        }
                         reply = { id, result: { read: { text: state.paneText } } };
                         break;
                     case 'pane.send_text':
@@ -709,6 +730,51 @@ describe('realtime prompt boundary', () => {
             herdr.state.failSnapshotAfterPrompt = true;
             await expect(source.prompt({ sessionId: started.info.id, text: 'again' }))
                 .rejects.toMatchObject({ code: 'prompt-outcome-unknown' });
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+});
+
+describe('first prompt to a just-started agent', () => {
+    it('types it once the screen settles and reports one the agent drops as not sent', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-first-prompt-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const started = await source.start({ cwd, kind: 'opencode' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            Object.assign(herdr.agents[0]!, {
+                agent: 'opencode',
+                agent_session: { source: 'herdr', agent: 'opencode', kind: 'id', value: 'opencode-1' },
+            });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p1' });
+            await source.refreshHerdr();
+
+            // The first prompt waits out an agent still drawing, is typed once and delivered.
+            herdr.state.drawingReads = 3;
+            await expect(source.prompt({ sessionId: started.info.id, text: 'What does calc.py do?', firstPrompt: true })).resolves.toBeUndefined();
+            expect(herdr.state.prompts).toEqual(['What does calc.py do?']);
+            expect(herdr.state.paneText).toContain('What does calc.py do?');
+
+            // A first prompt the agent drops is reported as not sent and never typed again.
+            herdr.state.losePrompts = 1;
+            await expect(source.prompt({ sessionId: started.info.id, text: 'Run the tests', firstPrompt: true }))
+                .rejects.toMatchObject({ code: 'prompt-not-sent' });
+            expect(herdr.state.prompts.filter((text) => text === 'Run the tests')).toHaveLength(1);
+
+            // An ordinary send takes the single-call path: no receipt wait, so a dropped one is not reported.
+            herdr.state.losePrompts = 1;
+            await expect(source.prompt({ sessionId: started.info.id, text: 'Ordinary send' })).resolves.toBeUndefined();
+            expect(herdr.state.prompts.filter((text) => text === 'Ordinary send')).toHaveLength(1);
         } finally {
             await source.dispose();
             herdr.close();

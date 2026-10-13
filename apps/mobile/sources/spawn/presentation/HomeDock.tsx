@@ -913,6 +913,7 @@ export const HomeDock = React.memo(({
                     <TextInput
                         ref={ref}
                         value={prompt}
+                        editable={!isSubmitting}
                         onChangeText={onPromptChange}
                         onSubmitEditing={() => canSubmit && onSend()}
                         onFocus={onFocus}
@@ -989,6 +990,7 @@ export const HomeDock = React.memo(({
                         <TextInput
                             ref={focusedInputRef}
                             value={prompt}
+                            editable={!isSubmitting}
                             onChangeText={onPromptChange}
                             onFocus={() => setIsFocused(true)}
                             placeholder={currentAgent.key === 'shell' ? t('homeDock.runCommandPlaceholder') : t('homeDock.askPlaceholder', { name: currentAgent.name })}
