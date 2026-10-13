@@ -114,6 +114,20 @@ try {
             mark(ok ? `PASS the open pane holds >= ${FLOOR} rows and did not crash` : `FAIL the open pane is under ${FLOOR} rows or crashed`);
             return ok;
         },
+        // Drag the terminal: `pan down` reaches the grid's top rows, `pan up` its bottom ones.
+        pan: async (direction = 'down') => {
+            const dump = adb('exec-out', 'uiautomator', 'dump', '/dev/tty');
+            const bounds = /content-desc="Terminal surface"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(dump);
+            if (!bounds) throw new Error('no terminal on screen; open the agent first');
+            const [x1, y1, x2, y2] = bounds.slice(1).map(Number);
+            // The surface can be taller than the screen; drag inside what shows.
+            const top = Math.max(y1, 300);
+            const bottom = Math.min(y2, Number(/(\d+)$/.exec(adb('shell', 'wm', 'size').trim())?.[1] ?? y2) - 300);
+            const x = String((x1 + x2) >> 1);
+            const [from, to] = direction === 'up' ? [bottom - 40, top + 40] : [top + 40, bottom - 40];
+            adb('shell', 'input', 'swipe', x, String(from), x, String(to), '600');
+            mark(`dragged the terminal ${direction}`);
+        },
         // The journey: tap the prompt box so the keyboard opens, let it settle, check.
         kbd: async () => {
             const dump = adb('exec-out', 'uiautomator', 'dump', '/dev/tty');
@@ -130,12 +144,12 @@ try {
             return commands.check();
         },
     };
-    mark('ready; enter: pair | browser | signin | kbd | check | quit');
+    mark('ready; enter: pair | browser | signin | kbd | check | pan [down|up] | quit');
     const input = createInterface({ input: process.stdin });
     for await (const line of input) {
         const [name, ...args] = line.trim().split(/\s+/);
         if (name === 'quit') break;
-        if (!(name in commands)) { console.error('commands: pair | browser | signin | kbd | check | quit'); continue; }
+        if (!(name in commands)) { console.error('commands: pair | browser | signin | kbd | check | pan [down|up] | quit'); continue; }
         await commands[name](...args).catch((error) => mark(`${name} failed: ${error.message}`));
     }
 } finally {
