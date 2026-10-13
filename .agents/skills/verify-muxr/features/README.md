@@ -86,6 +86,12 @@ user-visible behavior, then exactly four H2 sections in this order:
   place; timed Home-to-agent screenshots on main and the candidate; installed
   PWA at 393 and 270 px, light and dark.
 
+- [Deliver the Home composer's prompt to the agent it starts](./home-composer-first-prompt.md) —
+  release app on a task-owned emulator paired to a real-Herdr lab: a prompt
+  sent from Home opens the new OpenCode agent at once with `Prompt queued`;
+  the prompt is delivered once the agent is ready, and if it cannot be, the
+  text returns to the agent's input marked not sent.
+
 - [Name agents on Home by kind and task, never a launch id](./home-agent-labels.md) —
   paired lab PWA over a real-Herdr lab with an unnamed Codex and pi agent: the
   `Ready · unseen` rows read the kind/task and never a `pp_*` id, and an agent
@@ -144,6 +150,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   the unpaired first screen's one Tailscale card on a release APK (Play Store AVD)
   and the PWA: Get Tailscale opens the store, Back, I have Tailscale shows the
   unchanged pairing steps, at 393/270 dp font 1.0/2.0 and 393/270/208 px, both themes.
+- [Say which end to fix when pairing can't reach the computer over Tailscale](./pair-tailscale-unreachable.md) —
+  a Tailscale-address offer whose first dial fails: one sentence naming this phone (no Tailscale
+  address here) or the computer, on main and candidate release APKs at 393/270 dp both themes, a
+  root-staged tun for the Tailscale-on case, the good case over this desktop's tailnet address, and the PWA.
 - [Land on the first-run browser pairing steps](./first-run-browser-steps.md) —
   unpaired installed PWA: matching step badges, Step 2's paste button opening the
   `/pair` paste screen with an unbroken `--browser` flag, at 393/270/208 px in both themes, plus the

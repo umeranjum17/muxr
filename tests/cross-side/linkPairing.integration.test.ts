@@ -11,7 +11,8 @@
  * Covered: a successful pairing (the same two words on both screens, the
  * device record durable, the machine link serving the new phone), a declined
  * approval, a phone that resumes by key after dying between approval and
- * completion, and each lost acknowledgement settled by retrying the same code.
+ * completion, each lost acknowledgement settled by retrying the same code, and
+ * a Tailscale address that does not answer naming which end to fix.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -47,13 +48,14 @@ const home = mkdtempSync(join(tmpdir(), 'muxr-link-pairing-'));
 process.env.MUXR_HOME = home;
 const children = new Set<ChildProcess>();
 
-const phone = vi.hoisted(() => ({ secure: new Map<string, string>(), web: new Map<string, string>(), local: new Map<string, string>(), platform: 'android' as 'android' | 'web' }));
+const phone = vi.hoisted(() => ({ secure: new Map<string, string>(), web: new Map<string, string>(), local: new Map<string, string>(), platform: 'android' as 'android' | 'web', tailscale: undefined as boolean | undefined }));
 
 vi.mock('react-native', () => ({
     Platform: { get OS() { return phone.platform; } },
     AppState: { currentState: 'active', addEventListener: () => ({ remove: () => undefined }) },
 }));
 vi.mock('expo-device', () => ({ isDevice: true }));
+vi.mock('../../apps/mobile/modules/tailnet-address', () => ({ hasTailnetAddress: () => phone.tailscale }));
 vi.mock('expo-secure-store', () => ({
     getItemAsync: async (key: string) => phone.secure.get(key) ?? null,
     setItemAsync: async (key: string, value: string) => { phone.secure.set(key, value); },
@@ -381,6 +383,32 @@ describe('native pairing over the byokit link', () => {
         await pairing;
         expect(stored.credential).toBe('');
         expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
+    }, 90_000);
+
+    it('says which end to fix when the computer\'s Tailscale address does not answer', async () => {
+        const cases = [
+            { tailscale: false, says: "Can't reach Desk: turn on Tailscale on this phone and sign in, then try again." },
+            { tailscale: true, says: "Can't reach Desk: check it's awake and Tailscale is on there, signed in to the same account as this phone." },
+            { tailscale: undefined, says: "Can't reach Desk. Is it awake and is Tailscale connected on this phone and the computer?" },
+        ];
+        for (const { tailscale, says } of cases) {
+            const { pairing, offer, abort } = await showPairingQr({ approve: () => true });
+            phone.tailscale = tailscale;
+            try {
+                // The computer advertises a MagicDNS name nothing answers on.
+                const payload = JSON.parse(Buffer.from(offer.slice('byokit-link:1:'.length), 'base64url').toString('utf8')) as { urls: string[] };
+                payload.urls = payload.urls.map((url) => url.replace(`${advertisedAddress}:${port}`, 'desk.tail-unused.ts.net:1'));
+                const unreachable = runPhonePairing(`byokit-link:1:${Buffer.from(JSON.stringify(payload)).toString('base64url')}`);
+                await expect(unreachable).rejects.toThrow(says);
+                // Nothing was claimed, so Try again stays on this code.
+                await expect(unreachable).rejects.not.toBeInstanceOf(PairingNeedsNewCode);
+                expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
+            } finally {
+                phone.tailscale = undefined;
+                await abort();
+                await pairing.catch(() => undefined);
+            }
+        }
     }, 90_000);
 
     it('settles every lost pairing acknowledgement by retrying the same code, never by claiming it again', async () => {

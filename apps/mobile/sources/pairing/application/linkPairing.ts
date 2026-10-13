@@ -1,7 +1,7 @@
 import { probeDiscoveredRelay } from '../infrastructure/linkGrant';
 import { cachedGrant, clearGrants, deleteGrant, loadGrants, storeGrant } from '../infrastructure/grantStore';
 import { PairingNeedsNewCode } from '../domain/pairingString';
-import { assertSupportedOffer, pairingDeviceName } from '../infrastructure/pairingPlatform';
+import { assertSupportedOffer, pairingDeviceName, tailscaleUnreachableHere } from '../infrastructure/pairingPlatform';
 import {
     type DeviceGrant,
     type KeyPair,
@@ -12,6 +12,7 @@ import {
     newPairingSecretKey,
     pairingFailure,
     provenLinkGrant,
+    unreachedTailscaleName,
 } from '../infrastructure/linkPairClient';
 import { clearPairingSecrets, deletePendingPair, readPendingPair, writePendingPair, type PendingLinkPair } from '../infrastructure/hostedSecretStore';
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
@@ -150,7 +151,10 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
     } catch (cause) {
         // An unclaimed key was never granted; a spent or rolled-back pairing cannot resume.
         if (cause instanceof PairingNeedsNewCode || (options.mode === 'claim' && current.claimed !== true)) await deletePendingPair();
-        throw cause instanceof PairingNeedsNewCode ? cause : new Error(pairingFailure(cause));
+        if (cause instanceof PairingNeedsNewCode) throw cause;
+        // The first dial of a Tailscale address says which end to fix. An SSH tunnel carries its own route.
+        const computer = options.mode === 'claim' && options.tunnelPort === undefined ? unreachedTailscaleName(current.scanned, cause) : undefined;
+        throw new Error(computer === undefined ? pairingFailure(cause) : await tailscaleUnreachableHere(computer));
     }
     const stored = provenLinkGrant(result, result.key);
     await storeGrant(stored);

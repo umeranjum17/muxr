@@ -15,6 +15,7 @@ import {
     type SessionEvent,
 } from '@trymuxr/contract';
 import { deriveLinkGrant } from './linkGrant';
+import { tailscaleUnreachableMessage } from '../domain/pairingString';
 import { sshRelayUrl, stopSshTunnel, SshConnectionError } from '@/connection/sshTunnel';
 import type { SshTarget } from '@/connection';
 import type { StoredHostedGrant } from '../application/linkPairing';
@@ -86,8 +87,7 @@ function protocolMismatchMessage(reason: 'host-too-old' | 'host-too-new', hostVe
  *  `describeRoute` labels name the transport ("Local or private network")
  *  but never form a sentence, so they must not be interpolated into one. */
 export function hostUnreachableMessage(route: string | undefined, computer: string): string {
-    if (route === 'Tailscale')
-        return `Can't reach ${computer}. Is it awake and is Tailscale connected on this phone and the computer?`;
+    if (route === 'Tailscale') return tailscaleUnreachableMessage(computer, 'phone');
     if (route === 'Private network')
         return `Can't reach ${computer}. Is it awake and on the same private network as this phone?`;
     if (route === 'Cloudflare tunnel')

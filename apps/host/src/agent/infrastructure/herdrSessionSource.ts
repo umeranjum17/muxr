@@ -97,6 +97,12 @@ const PROMPT_READY_TIMEOUT_MS = 30_000;
 const QUESTION_WAIT_MS = 3_000;
 const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
+/** Outlasts Herdr's 5 s window for a prompt to start a turn. */
+const PROMPT_RECEIPT_TIMEOUT_MS = 8_000;
+/** How long a just-started agent's screen must hold still before it is read as ready for keys. */
+const PROMPT_SETTLE_MS = 1_500;
+/** Keeps the whole first-prompt hold (ready 30 s, rebind 10 s, settle, receipt 8 s) inside the phone's 75 s. */
+const PROMPT_SETTLE_CAP_MS = 20_000;
 
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
 const HEADED_BROWSER = ' Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11.';
@@ -2124,11 +2130,45 @@ export async function createHerdrSessionSource(
     }
 
     /**
+     * Herdr reports a TUI agent idle while it is still drawing, and keys sent
+     * then are lost (OpenCode for 10-15 s). Wait until its screen has drawn and
+     * held still; at the cap the prompt goes anyway and a drop reports not sent.
+     */
+    async function waitForQuietScreen(paneId: string): Promise<void> {
+        const deadline = Date.now() + PROMPT_SETTLE_CAP_MS;
+        let last = '';
+        let since = Date.now();
+        while (Date.now() < deadline) {
+            const screen = (await client.kit.read(paneId, { source: 'visible', ansi: false }).catch(() => ({ text: '' }))).text;
+            if (screen.trim() === '' || screen !== last) {
+                last = screen;
+                since = Date.now();
+            } else if (Date.now() - since >= PROMPT_SETTLE_MS) return;
+            await sleep(250);
+        }
+    }
+
+    /**
+     * The first prompt to an agent just started from the phone is typed once.
+     * Herdr names a prompt that starts no working or blocked state within 5 s
+     * `agent_prompt_stalled`; that is reported as not sent, so the phone keeps
+     * the text in the agent's draft and it is never typed a second time.
+     */
+    async function deliverFirstPrompt(paneId: string, text: string): Promise<void> {
+        await waitForQuietScreen(paneId);
+        await client.kit.prompt({ paneId }, text, { wait: { until: ['working', 'blocked'], timeoutMs: PROMPT_RECEIPT_TIMEOUT_MS } })
+            .catch((error: unknown) => {
+                if ((error as { code?: unknown }).code !== 'agent_prompt_stalled') throw error;
+                throw promptNotSent(new Error('The agent did not take the prompt. Send it again.'));
+            });
+    }
+
+    /**
      * A just-started agent reports promptable a beat after it is listed, and it
      * can flap once more while it settles. Wait that out instead of losing the
      * message the phone already accepted.
      */
-    async function promptSession(sessionId: string, text: string): Promise<void> {
+    async function promptSession(sessionId: string, text: string, firstPrompt = false): Promise<void> {
         let session: CurrentSession;
         try {
             session = await resolvePane(sessionId, true);
@@ -2151,6 +2191,11 @@ export async function createHerdrSessionSource(
             throw promptNotSent(error);
         }
         const generation = sessionGenerationKey(session);
+        // Herdr's wait returned only once the agent went working or blocked: that is the confirmation.
+        if (firstPrompt) {
+            await deliverFirstPrompt(session.paneId, text);
+            return;
+        }
         const receipt = await client.kit.prompt({ paneId: session.paneId }, text);
         // Herdr names the conversation the prompt reached; a match needs no confirming read.
         const reached = parseHerdrAgentSession(receipt.agentSession);
@@ -3055,7 +3100,7 @@ export async function createHerdrSessionSource(
         },
 
         async prompt(promptOptions: SessionPromptOptions): Promise<void> {
-            await promptSession(promptOptions.sessionId, promptOptions.text);
+            await promptSession(promptOptions.sessionId, promptOptions.text, promptOptions.firstPrompt === true);
         },
 
 
