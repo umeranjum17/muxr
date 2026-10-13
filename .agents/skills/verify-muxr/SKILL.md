@@ -237,9 +237,8 @@ px (393 x 864 and 270 x 594 at 1.0; 196 x 432 and 135 x 297 at 2.0). Per cell:
 reload, wait until `document.body.innerText` is non-empty (a shot taken
 earlier is a blank page, not a pass), `emulate` again (a reload drops it),
 `screenshot`, then set every scrollable element's `scrollTop` to its
-`scrollHeight` and shoot `-scrolled`. After each shot save the DOM leads and
-run the driver on the same page, which runs the DOM leads itself and exits 1 on
-any DEFECT:
+`scrollHeight` and shoot `-scrolled`. After each shot, run the driver on the
+same page; it runs the DOM leads itself and exits 1 on any DEFECT:
 
 ```sh
 node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-check "$DIR/<name>.png" <name>
