@@ -1,65 +1,63 @@
-# First-run browser pairing steps (installed PWA)
+# First-run link-first shell
 
-The first screen an unpaired browser-mode client shows (`FirstRunConnection`,
-browser branch): two numbered step cards in one style — Step 1 "On your
-computer" with the copyable install command, Step 2 "Paste the browser link"
-with a "Recommended" tag and a primary paste button inside the card — and no
-"Other ways" duplicate or camera/scan hint. The native branch (QR scan step,
-setup details, paste/SSH routes) is a different surface; its pair-entry rule is
-owned by [pair-scan-first.md](./pair-scan-first.md).
+An unpaired native app and installed PWA open directly on **Have a connect
+link?**, with a private-link/code field and **Connect**. Native also offers
+**Scan the QR** where the scanner is available, and **SSH login** where the
+existing SSH transport is available. **Cloud account** is disabled with no
+handler until the BYOKit cloud seams ship. No provider client or enrolment
+runs here. **More ways & timing** reveals the existing computer setup card
+and optional HTTPS, tunnel, Tailscale and local-network routes.
 
-## How to get to it (user POV)
+## Sub-features
 
-Install the muxr web build as a PWA (or serve the export) on a fresh profile
-with no stored grant and open it: the first-run screen appears; press **I have
-Tailscale** ([tailscale-first-step.md](./tailscale-first-step.md)). Press the Step
-2 button: the same `/pair` paste screen every other entry uses opens, with the
-`muxr pair --browser` line word-joined so the flag never breaks across lines
-(its paste behavior is owned by [pair-scan-first.md](./pair-scan-first.md) `paste-connects`).
+- `link-first`: the field and Connect precede setup alternatives; no Tailscale
+  gate or oversized marketing hero precedes them.
+- `existing-consent`: Connect and keyboard Go use the same `useHostedPairing`
+  validator and `/pair` consent route as Scan. There is no automatic claim,
+  grant storage or second consent flow in the shell.
+- `ssh-entry`: native SSH login opens `/pair?route=ssh`, unchanged. The browser
+  has no SSH transport and does not offer an actionable SSH entry.
+- `cloud-parked`: Cloud account is visibly disabled, labelled Soon, and
+  cannot navigate or call a provider.
+- `setup-details`: More ways reveals the existing copyable command and its
+  effects disclosure; a ready-link timing estimate explicitly excludes setup.
 
-## Driving it with the private stack
+## Driving it
 
-Preconditions: follow `../SKILL.md` isolation contract. Build the export from
-the candidate commit (`yarn web:export`), serve it with
-`MUXR_WEB_EXPORT_DIR=<task dir> MUXR_WEB_PORT=<free port>
-node scripts/diagnostics/application/serveWebExport.mjs` (never 8792), and
-drive it with chrome-devtools-axi against a standalone Chromium app window
-(`--app=<origin>`, own user-data-dir, remote debugging port; a task-owned
-profile keeps the client unpaired).
+Follow `../SKILL.md` isolation and **Visual check** on main and candidate:
+release APK on a task-owned emulator and installed PWA with a private profile,
+393/270 dp, font 1.0/2.0, light/dark, including end-of-scroll captures. Build
+from the candidate, verify the APK provenance and served web chunk before
+capturing, and confirm PWA `display-mode: standalone`. Capture with
+`visualCheck.mjs` (native) and its PWA DOM leads; inspect every shot.
 
-1. Verify the served bundle is the candidate build before trusting any
-   capture: `grep -o 'index-[a-f0-9]*\.js' dist/index.html`, then confirm the
-   chunk contains the branch's new strings (e.g. the paste-button icon) and
-   none of the removed ones (`Use this if you can't point`). A stale dist or
-   service-worker cache shows the old screen; clear the profile's service
-   worker and caches (`navigator.serviceWorker` + `caches`) before recapturing.
-2. Emulate `--viewport "<w>x<h>x2,mobile,touch" --color-scheme <theme>` in ONE
-   call per shot: a scheme-only `emulate` call resets the viewport override,
-   and a `location.reload()` drops device emulation entirely. Then screenshot
-   `--full-page`. Widths: 393 and 270; also 208 (= 270/1.3) as the large-text
-   stress, because react-native-web pins `fontScale` to 1 so browser zoom is
-   the only faithful text-scale equivalent. Themes: light and dark.
-3. Press the Step 2 button (snapshot → click the "Paste the browser link"
-   button) and capture the `/pair` screen it opens; at 208 px also fill the
-   input with a long relay link and capture again.
-4. DOM checks beat pixels for wrap claims: `document.createRange()` over the
-   hint text must keep `muxr pair --browser` on one client-rect line at
-   393, and the flag must not split across lines at 208 either;
-   `document.documentElement.scrollWidth === window.innerWidth` proves no
-   horizontal overflow.
-5. Native branch unchanged: build the release APK from the same commit
-   (throwaway keystore is fine; `FM_MEM_JOB_GB=16` under the gradle lock),
-   boot a task-owned AVD headless, and — because a fresh emulator can still
-   auto-pair to a lab relay reachable at 10.0.2.2 — `adb root`, drop OUTPUT to
-   10.0.2.2/10.0.2.3, `pm clear` the app, relaunch, tap I have Tailscale, and capture
-   the first-run screen showing the QR-scan step, setup details and Other-ways routes.
-   Kill the emulator by exact serial (`adb -s <serial> emu kill`).
+1. Open with no stored grant. The ready-link card is first, with no
+   Tailscale prerequisite. Ensure the field, Connect, alternatives and footer
+   wrap without overlap at the narrow/largest-text extremes.
+2. Tap Cloud account: it remains disabled with no navigation or request.
+   Tap native SSH login: the existing SSH form opens. Return to the shell.
+3. Expand More ways & timing, scroll to the end, and capture the command,
+   effects disclosure and optional routes. Copy must retain the exact command
+   ([first-run-install-command.md](./first-run-install-command.md)).
+4. With the private stack and pair socket described in
+   [pairing-consent.md](./pairing-consent.md), obtain a fresh offer for the
+   actual device kind (native or browser). Paste it into the shell and press
+   Connect (also exercise Go). Record **link → existing consent**; the
+   screen states the machine, authority and duration before any claim.
+   Do not publish the offer or grant in logs or evidence. Stop at consent
+   unless the lab journey explicitly includes approval.
+5. A wrong/cut-off link shows the existing useful validator error and never
+   claims a grant. Scan, where available, uses the same consent route.
 
-## Durable proof
+## Proof
 
-- before/after PNGs per width and theme, named `firstrun-steps-before/after-<width>-<theme>.png`
-  plus the paste-screen and long-link extremes, and one
-  `firstrun-native-unchanged-branch.png`, all full-page, reviewed for clipped
-  text, overlap, stray markup and wrong wording.
-- The paste screen keeps the `--browser` flag unbroken (word joiners in the
-  `pair.tsx` hint string).
+Save before/after PNGs under `$EVIDENCE/visual/<native|pwa>/<main|candidate>/`
+using the Visual check's `<screen>-<width>-<font>-<theme>[-scrolled].png`
+names, plus a short `link-to-consent.mp4`, SSH entry and expanded-details
+captures. Record commands, candidate/APK/web identities, visual lead verdicts
+and cleanup in the evidence log. Put absolute paths and limitations in the
+PR's `## Checks`. A build or component spec alone is not this proof.
+
+The existing FirstRunConnection spec exercises the shell through the real
+pairing-input validator; [pair-scan-first.md](./pair-scan-first.md) owns
+subsequent pairing-page scan, expiry and paste recovery behavior.
