@@ -6,7 +6,7 @@
  * launch descriptor opens its sign-in tab and starts its agents. No kit: no
  * folderVar, no move, no readiness probe, billing unknown.
  */
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -123,7 +123,12 @@ export function defaultOpencodeGoModel(env: Record<string, string | undefined>):
         config = parsed as Record<string, unknown>;
     }
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    writeFileSync(target, `${JSON.stringify({ ...config, model: OPENCODE_GO_DEFAULT_MODEL }, null, 2)}\n`, { mode: 0o600 });
+    // Temp file then rename: a failed write leaves the user's config intact, not truncated.
+    const temp = `${target}.${randomBytes(4).toString('hex')}.tmp`;
+    try {
+        writeFileSync(temp, `${JSON.stringify({ ...config, model: OPENCODE_GO_DEFAULT_MODEL }, null, 2)}\n`, { mode: 0o600 });
+        renameSync(temp, target);
+    } catch (error) { rmSync(temp, { force: true }); throw error; }
 }
 
 /** A fresh account id with its own private root. */
