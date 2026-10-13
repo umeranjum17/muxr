@@ -214,11 +214,20 @@ const stripLeads = (png, top, bottom, W) => {
 // means the shot was taken before the app drew: retake it), a page that gives
 // no eval result is a DEFECT too, plus a blank-strip read of the screenshot.
 const pwaEvalDefects = (text) => {
-    // chrome-devtools-axi prints the returned string JSON-encoded on a `result:`
-    // line, followed by `help` chatter.
+    // chrome-devtools-axi prints the eval result JSON-encoded on a `result:`
+    // line, followed by `help` chatter — and it encodes twice, so the payload
+    // parses to a string that is itself a JSON string literal (`"clean"`,
+    // never bare `clean`). Parse that second layer when present; anything
+    // else fails closed.
     const line = text.split('\n').find((l) => l.startsWith('result:'));
     if (line === undefined) return ['no DOM eval result: the leads did not run'];
-    const leads = JSON.parse(line.slice('result:'.length).trim()).split('\n').map((l) => l.trim()).filter(Boolean);
+    let body = JSON.parse(line.slice('result:'.length).trim());
+    if (typeof body !== 'string') return ['no DOM eval result: the leads did not run'];
+    try {
+        const inner = JSON.parse(body);
+        if (typeof inner === 'string') body = inner;
+    } catch { /* single-encoded payload: keep it as is */ }
+    const leads = body.split('\n').map((l) => l.trim()).filter(Boolean);
     if (!leads.length) return ['no DOM eval result: the leads did not run'];
     return leads.filter((l) => l !== 'clean');
 };
@@ -366,6 +375,13 @@ const pwaSelfTest = () => {
     expect('driver exits non-zero on a DEFECT lead', failing.code === 1 && /DEFECT driver: text off-screen/.test(failing.out), `code=${failing.code} out=${failing.out}`);
     const wired = runDriver(result('clean'), []);
     expect('driver passes a clean page on a uniform shot', wired.code === 0, `code=${wired.code} out=${wired.out}`);
+    // The live tool double-encodes the payload; a single parse leaves a
+    // quoted `"clean"` that must not become a DEFECT.
+    const twice = (body) => result(JSON.stringify(body));
+    const wired2 = runDriver(twice('clean'), []);
+    expect('driver passes a double-encoded clean page', wired2.code === 0, `code=${wired2.code} out=${wired2.out}`);
+    const failing2 = runDriver(twice('text off-screen: "too wide"'), []);
+    expect('driver exits non-zero on a double-encoded DEFECT and prints it unescaped', failing2.code === 1 && /DEFECT driver: text off-screen: "too wide"/.test(failing2.out), `code=${failing2.code} out=${failing2.out}`);
     const silent = runDriver('clean\n', []);
     expect('driver fails a page that gives no eval result', silent.code === 1 && /no DOM eval result/.test(silent.out), `code=${silent.code} out=${silent.out}`);
     const striped = runDriver(result('clean'), ['-fill', 'black', '-draw', 'rectangle 0,0 7,593']);
