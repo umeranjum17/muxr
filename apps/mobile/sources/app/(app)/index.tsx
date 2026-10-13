@@ -1,5 +1,5 @@
 import { useAuth } from '@/account/ui';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as React from 'react';
 import { StyleSheet } from 'react-native-unistyles';
@@ -21,6 +21,7 @@ export default function Home() {
 function NotAuthenticated() {
     const auth = useAuth();
     const insets = useSafeAreaInsets();
+    const { width, fontScale } = useWindowDimensions();
     const pairing = React.useRef(false);
 
     React.useEffect(() => {
@@ -47,7 +48,7 @@ function NotAuthenticated() {
             <Header title={<Text style={styles.headerTitle}>Connect a machine</Text>} />
             <ScrollView
                 style={styles.screen}
-                contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+                contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24, paddingHorizontal: width / fontScale < 200 ? 8 : 16 }]}
                 keyboardShouldPersistTaps="handled"
             >
                 <FirstRunConnection />
@@ -64,7 +65,6 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         gap: 20,
         paddingTop: 22,
-        paddingHorizontal: 16,
     },
     headerTitle: {
         ...Typography.default('semiBold'),
