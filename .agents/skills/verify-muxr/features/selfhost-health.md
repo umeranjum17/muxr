@@ -69,8 +69,10 @@ commands below run inside the container, never on the desktop.
 4. **Foreground runtime:** run `MUXR_MODE=selfhost muxr up` in a dedicated
    shell pane inside the container. Keep any host HTTP/naming ports private
    too. Record the owned relay child's startup port and require the matching
-   `/health` to report `bindHost: "0.0.0.0"`, the candidate version, and an
-   online machine. Observe the same foreground process and child for two
+   `/health` to report the candidate version and an online machine through
+   the tailnet address. Correlate the child's socket inode with an IPv4
+   `0.0.0.0:<port>` LISTEN row in `/proc/net/tcp` (or `ss`); health does not
+   expose the bind address. Observe the same foreground process and child for two
    minutes, with no restart log or restart-loop; no detached relay exists.
 5. **Native pairing:** hold the shared emulator lock for the whole bounded
    journey (`flock -o -w <seconds> /tmp/fm-muxr-emulator.lock <command>`, at
