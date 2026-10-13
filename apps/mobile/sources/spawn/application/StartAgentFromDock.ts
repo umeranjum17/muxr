@@ -79,6 +79,9 @@ function restoreFailedFirstPrompt(agentRoute: string, prompt: string, attachment
 
 /** Spawn from the Dock: Machine, directory, Worktree, and Agent Kind are already chosen. */
 export async function startAgentFromDock(command: StartAgentFromDockCommand): Promise<StartAgentFromDockResult> {
+    if (command.providerKind === 'shell' && (command.prompt.trim() !== '' || command.attachments.length > 0)) {
+        return { ok: false, reason: 'failed', message: 'Shell has no agent. Choose an agent to send this prompt, or start Shell without a prompt.' };
+    }
     const connection = planConnection();
     const machine = command.machine;
     if (!machine) return { ok: false, reason: 'no-machine', message: 'Please select a machine' };

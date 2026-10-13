@@ -12,8 +12,11 @@ it started a turn
 
 ## Sub-features
 
-- `first-prompt-delivered` a prompt sent from Home is typed once the new agent
-  is ready and the agent answers it, with no second send (checked on OpenCode).
+- `first-prompt-delivered` a prompt sent from Home is visible in the real new
+  agent's TUI, with no second send (checked on OpenCode). A provider quota error
+  after delivery is recorded separately, not mistaken for a delivery failure.
+- `first-prompt-shell-guard` Shell with a prompt does not spawn or send it:
+  Home keeps the text and explains to choose an agent or start Shell without it.
 - `first-prompt-queued` the agent screen opens at once and shows `Prompt queued`
   (accessibility label `Prompt queued until the agent is ready`) until the
   agent starts its turn; the chip sits in the pane-tabs row, so the terminal
@@ -40,33 +43,36 @@ task-owned emulator under the emulator lock, a real Herdr lab
 `OPENCODE_DISABLE_AUTOUPDATE=1`. For Go Muse, sign in through muxr's published
 BYOKit route `opencode:plan_key:opencode-go`; never read or copy a raw key file.
 The host selects `opencode-go/muse-spark-1.3-contributor` from that account's
-config. An exhausted account pauses the real reply proof; another model or a
-stub cannot substitute for it.
+config. Delivery proof does not need a successful model reply: seeing the
+prompt in the real Go TUI qualifies delivery even if Go then reports exhausted
+quota. Another model or a stub cannot substitute for that real receipt.
 
 1. Start the lab with a shell pane in a project folder so Home offers that
    folder, pair the device (the native offer from the host's `pair.sock`, as in
    `terminalLatestLab.mjs`), and record the screen.
-2. On Home pick OpenCode, type a prompt with a checkable answer (`Say the word
-   pelican backwards in capital letters, nothing else.`) and send.
-3. Poll the lab's panes with `pane read --source visible`: time when the prompt
-   shows in the OpenCode pane and when `NACILEP` arrives. Capture the agent
-   screen with `Prompt queued`, then with the reply and the model line.
+2. First pick Shell and try a prompt. Confirm no session.start/session.prompt
+   reaches the lab, the text stays in Home, and the plain reason is visible.
+   Then pick OpenCode, type a unique diagnostic prompt and send once.
+3. Poll the lab's panes with `pane read --source visible`: record when that exact
+   prompt appears in OpenCode's TUI. Capture the queued state and the real
+   delivered text/model line; record any later Go quota error honestly.
 4. Go back to Home as soon as the agent opens. Confirm its composer is free
    while delivery remains pending. For failure, stop only this lab agent before
    delivery through the guarded lab helper. Confirm the failed text returns on
    Home, then reopen the agent and confirm its draft also contains it. Keep any
    text entered on Home since spawn. Capture both screens and a short recording.
-5. Run the skill's Visual check on native and installed-PWA captures in light
-   and dark at 270 dp, including the largest text size; repeat on the exact
-   published candidate head. A quota-paused reply is not a passing reply proof.
+5. Capture the installed PWA at 270 and 393 dp in light and dark. Also capture
+   one native 270 dp / font-scale 2.0 cell for draft retention and Shell's guard.
+   Run the skill's Visual check; repeat on the exact published candidate head.
+   A delivered prompt followed by a quota error is not a successful reply.
 
 ## Gotchas
 
 - Choose OpenCode explicitly in Home's agent picker and verify the host's
   start snapshot says `agentKind: opencode`. Adding an OpenCode plan account
-  does not auto-select it: its catalog sign-in state is unknown. A Shell
-  start followed by `session.prompt` fails with `Agent is not ready yet` and
-  is not evidence that an OpenCode process died.
+  does not auto-select it: its catalog sign-in state is unknown. Older builds
+  sent a Shell first prompt and failed with `Agent is not ready yet`; that was
+  not an OpenCode crash. Current builds refuse it before spawning/sending.
 - Do not enlarge the reference viewport to hide a 270 dp failure. Record the
   private OpenCode version and the exact terminal grid when diagnosing it.
 - A prompt sent seconds after OpenCode reports idle is the case that drops; a

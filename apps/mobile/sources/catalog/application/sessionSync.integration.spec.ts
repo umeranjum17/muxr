@@ -606,6 +606,7 @@ describe('session sync flow', () => {
         const { isFirstPromptQueued, useQueuedFirstPrompts } = await import('@/terminal/application/queuedFirstPrompts');
         const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/umer' } } as never;
         request.mockImplementation(async (method: string) => {
+            if (method === 'plans.list') return { providers: [], autoTermsAcknowledged: true, autoTermsNote: '' };
             if (method !== 'session.start') throw new Error(`unexpected request: ${method}`);
             storage.setState({ sessions: { ...storage.getState().sessions, spawned: {} as Session } });
             return {
@@ -617,7 +618,7 @@ describe('session sync flow', () => {
         let releaseDelivery!: () => void;
         sendMessage.mockReset().mockImplementationOnce(() => new Promise<void>((resolve) => { releaseDelivery = resolve; }));
         useQueuedFirstPrompts.setState({});
-        useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'shell', input: 'queued hello', attachments: [] });
+        useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'opencode', input: 'queued hello', attachments: [] });
         let routed: string | undefined;
         const started = await startSessionFromDraft({ machines: [machine], navigateToSession: (id) => { routed = id; } });
         // Home is gated on the spawn alone: this returns while delivery hangs.
@@ -637,6 +638,7 @@ describe('session sync flow', () => {
         const { useQueuedFirstPrompts } = await import('@/terminal/application/queuedFirstPrompts');
         const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/umer' } } as never;
         request.mockImplementation(async (method: string) => {
+            if (method === 'plans.list') return { providers: [], autoTermsAcknowledged: true, autoTermsNote: '' };
             if (method !== 'session.start') throw new Error(`unexpected request: ${method}`);
             storage.setState({ sessions: { ...storage.getState().sessions, doomed: {} as Session } });
             return {
@@ -649,6 +651,13 @@ describe('session sync flow', () => {
         modalAlert.mockClear();
         useQueuedFirstPrompts.setState({});
         useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'shell', input: 'hello again', attachments: [] });
+        expect(await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined })).toBeNull();
+        expect(request).not.toHaveBeenCalled();
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(useNewSessionDraft.getState().input).toBe('hello again');
+        expect(modalAlert).toHaveBeenCalledWith(expect.any(String), 'Shell has no agent. Choose an agent to send this prompt, or start Shell without a prompt.');
+        modalAlert.mockClear();
+        useNewSessionDraft.getState().setAgentType('opencode');
         const started = await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined });
         expect(started).toBe('doomed');
         // Home is already free; a failure must not replace the newer work typed there.
