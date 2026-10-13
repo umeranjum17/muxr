@@ -2,13 +2,21 @@ import { Platform } from 'react-native';
 import type { StoredHostedGrant } from '../application/linkPairing';
 import { cachedGrant, loadGrants } from './grantStore';
 import { isBrowserLinkOffer } from './linkPairClient';
-import { decidePairingInput, PairingNeedsNewCode } from '../domain/pairingString';
+import { decidePairingInput, PairingNeedsNewCode, tailscaleUnreachableMessage } from '../domain/pairingString';
 
 /** What this device calls itself in pairing copy: an iPad is never "this phone". */
 export function pairingDeviceNoun(): 'browser' | 'iPad' | 'iPhone' | 'phone' {
     if (Platform.OS === 'web') return 'browser';
     if (Platform.OS === 'ios') return Platform.isPad ? 'iPad' : 'iPhone';
     return 'phone';
+}
+
+/** What to fix when this device could not reach `computer` over Tailscale. */
+export async function tailscaleUnreachableHere(computer: string): Promise<string> {
+    const noun = pairingDeviceNoun();
+    // Loaded on use, so code that never pairs needs no native bridge.
+    const onTailscale = (await import('@/../modules/tailnet-address')).hasTailnetAddress();
+    return tailscaleUnreachableMessage(computer, noun === 'browser' ? 'device' : noun, onTailscale);
 }
 
 export function pairingDeviceName(): string {

@@ -12,7 +12,7 @@ import {
     unb64url,
     type DeviceGrant as LinkDeviceGrant,
 } from '@byokit/link';
-import { linkOfferExpired, PairingNeedsNewCode, readOffer } from '../domain/pairingString';
+import { isTailscaleAddress, linkOfferExpired, PairingNeedsNewCode, readOffer } from '../domain/pairingString';
 
 /**
  * The byokit pairing protocol, behind one port: application code asks this
@@ -58,6 +58,12 @@ const NOT_FINISHED = "This pairing didn't finish on your computer. Get a new cod
 /** The computer revoked this key mid-request: it rolled the pairing back. */
 const rolledBack = (cause: unknown): boolean => cause instanceof LinkError && cause.code === 'removed';
 const lost = (cause: unknown): boolean => cause instanceof LinkError && (cause.code === 'unreachable' || cause.code === 'timeout');
+/** The computer's name when a claim never reached it at a Tailscale address. */
+export function unreachedTailscaleName(scanned: string, cause: unknown): string | undefined {
+    if (!lost(cause)) return undefined;
+    const offer = readOffer(scanned);
+    return offer?.urls.some(isTailscaleAddress) === true ? offer.name : undefined;
+}
 /** The computer answers this once its pairing has closed, whether it kept this device or rolled it back. */
 const pairingClosed = (cause: unknown): boolean => cause instanceof LinkError && (cause.code === 'not-allowed' || cause.code === 'view-only');
 
