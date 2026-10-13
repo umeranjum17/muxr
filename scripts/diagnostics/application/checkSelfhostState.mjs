@@ -7,15 +7,19 @@
  * promptly instead of leaving setup waiting forever.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-selfhost-state-'));
 process.env.MUXR_HOME = scratch;
 process.env.MUXR_NO_SERVICE_COMMANDS = '1';
-const { ensureSelfhostRelay, inspectSetup, selfhostConfigured, selfhostStateUnreadable, startSelfHost } = await import('../../setup/index.mjs');
+const { ensureSelfhostRelay, inspectSetup, readSelfhostState, repairSelfhostRelay, selfhostConfigured, selfhostStateUnreadable, selfhostControlBase, startSelfHost, stopOwnedSelfhostRelay } = await import('../../setup/index.mjs');
 
 assert.equal(selfhostConfigured(), false);
 assert.equal(selfhostStateUnreadable(), false);
@@ -46,4 +50,165 @@ try {
     await new Promise((resolve) => blackhole.close(resolve));
 }
 
-process.stdout.write('selfhost state and stalled relay checks passed\n');
+// A headless operator configures while the port is occupied, then hands the
+// private state to a foreground host. Configuration must never probe or spawn
+// the relay, and repeat invocations must preserve bytes, mtimes and identity.
+const configuredHome = join(scratch, 'headless');
+mkdirSync(configuredHome, { mode: 0o700 });
+const cli = fileURLToPath(new URL('../../cli.mjs', import.meta.url));
+const environment = { ...process.env, HOME: configuredHome, MUXR_HOME: configuredHome };
+delete environment.MUXR_RELAY_PORT;
+const configure = (args) => execFileSync(process.execPath, [cli, 'self-host', '--configure-only', ...args], {
+    env: environment, encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'],
+});
+const occupied = createServer((socket) => socket.destroy());
+await new Promise((resolve) => occupied.listen(0, '127.0.0.1', resolve));
+try {
+    const port = occupied.address().port;
+    const args = ['--advertise', `ws://100.127.255.254:${port}`, '--port', String(port)];
+    const output = configure(args);
+    assert.match(output, /no relay or service started/);
+    assert.match(output, /MUXR_MODE=selfhost muxr up/);
+    assert.match(output, /muxr pair/);
+    const path = join(configuredHome, 'selfhost.json');
+    const mintPath = join(configuredHome, 'relay', 'mint-secret');
+    const before = readFileSync(path, 'utf8');
+    const state = JSON.parse(before);
+    assert.equal(state.bindHost, '100.127.255.254');
+    assert.equal(state.connectionMode, 'private');
+    assert.equal(state.relayPort, port);
+    assert.equal(state.relayUrl, `ws://100.127.255.254:${port}`);
+    assert.ok(state.machine.id && state.machine.crypto.signingSecretKey);
+    assert.equal(state.mintSecret === JSON.parse(readFileSync(mintPath, 'utf8')), true, 'authority mismatch');
+    assert.equal(selfhostControlBase(state), `http://100.127.255.254:${port}`);
+    const stateStat = statSync(path);
+    const mintStat = statSync(mintPath);
+    assert.equal(stateStat.mode & 0o777, 0o600);
+    assert.equal(mintStat.mode & 0o777, 0o600);
+    configure(args);
+    assert.equal(readFileSync(path, 'utf8') === before, true, 'configuration bytes changed');
+    assert.equal(statSync(path).mtimeMs, stateStat.mtimeMs);
+    assert.equal(statSync(mintPath).mtimeMs, mintStat.mtimeMs);
+    assert.equal(existsSync(join(configuredHome, 'logs')), false, 'configuration started a relay');
+    assert.equal(existsSync(join(configuredHome, '.config', 'systemd')), false, 'configuration installed a service');
+    assert.throws(() => configure(['--port', String(port)]), /requires --advertise/);
+    assert.throws(() => configure(['--advertise', 'https://cloud.example.ts.net', '--port', String(port)]), /root ws:\/\/ or wss:\/\//);
+    assert.throws(() => configure(['--advertise', `ws://100.127.255.253:${port}`, '--port', String(port)]), /cannot replace an existing connection/);
+    assert.throws(() => configure(['--advertise', `ws://192.0.2.1:${port}`, '--port', String(port)]), /Tailscale IPv4 address/);
+    for (const extra of [[], ['--tunnel'], ['--relay-only']]) {
+        assert.throws(() => execFileSync(process.execPath, [cli, 'self-host', ...extra], { env: environment, encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] }), /runs headless on Tailscale/);
+    }
+    assert.equal(readFileSync(path, 'utf8') === before, true, 'refused commands modified pairing state');
+    assert.equal(existsSync(join(configuredHome, 'relay', 'relay.pid')), false, 'refused self-host started a relay');
+
+    // The foreground unit stays alive with no relay while its persisted
+    // tailnet address is absent; stopping it must not leave a child behind.
+    const up = spawn(process.execPath, [cli, 'up'], { env: { ...environment, MUXR_MODE: 'relay' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const closed = once(up, 'exit');
+    let diagnostic = '';
+    up.stderr.setEncoding('utf8').on('data', (chunk) => { diagnostic += chunk; });
+    try {
+        for (let attempt = 0; attempt < 40 && !diagnostic.includes('waiting for Tailscale address'); attempt += 1) {
+            assert.equal(up.exitCode, null, diagnostic);
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        assert.match(diagnostic, /waiting for Tailscale address 100\.127\.255\.254/);
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        assert.equal(up.exitCode, null, 'address absence exited the foreground unit');
+        assert.equal(diagnostic.match(/waiting for Tailscale address/g)?.length, 1, 'wait flooded the log');
+        assert.equal(existsSync(join(configuredHome, 'relay', 'relay.pid')), false, 'wait started a relay before its address existed');
+    } finally {
+        up.kill('SIGTERM');
+        let forced = false;
+        const forceStop = setTimeout(() => { forced = true; up.kill('SIGKILL'); }, 10000);
+        try { await closed; }
+        finally { clearTimeout(forceStop); }
+        assert.equal(forced, false, 'waiting foreground process ignored stop');
+    }
+
+    // Configure-only serves plain ws:// on the tailnet; a wss:// advertise has no TLS behind it.
+    const secureHome = join(scratch, 'secure-headless');
+    mkdirSync(secureHome, { mode: 0o700 });
+    assert.throws(() => execFileSync(process.execPath, [cli, 'self-host', '--configure-only', '--advertise', 'wss://100.127.255.254', '--port', String(port)], {
+        env: { ...environment, HOME: secureHome, MUXR_HOME: secureHome }, timeout: 5000, stdio: 'pipe',
+    }), /serves plain ws:\/\/ on the tailnet address/);
+    assert.equal(existsSync(join(secureHome, 'selfhost.json')), false, 'a refused wss advertise wrote state');
+
+    // A recorded non-public bind is reused by its owned relay: no second spawn.
+    // 127.0.0.2 stands in for a tailnet address, which CI hosts do not have, and
+    // a foreign listener on another loopback address must not be trusted.
+    const rerunHome = join(scratch, 'private-rerun');
+    mkdirSync(rerunHome, { mode: 0o700 });
+    const rerunProbe = createServer();
+    await new Promise((resolve) => rerunProbe.listen(0, '127.0.0.1', resolve));
+    const rerunPort = rerunProbe.address().port;
+    await new Promise((resolve) => rerunProbe.close(resolve));
+    const rerunState = join(rerunHome, 'selfhost.json');
+    execFileSync(process.execPath, [cli, 'self-host', '--configure-only', '--advertise', `ws://100.127.255.254:${rerunPort}`, '--port', String(rerunPort)], {
+        env: { ...environment, HOME: rerunHome, MUXR_HOME: rerunHome }, timeout: 5_000, stdio: 'pipe',
+    });
+    const recorded = JSON.parse(readFileSync(rerunState, 'utf8'));
+    writeFileSync(rerunState, `${JSON.stringify({ ...recorded, bindHost: '127.0.0.2', relayUrl: `ws://127.0.0.2:${rerunPort}` }, null, 2)}\n`, { mode: 0o600 });
+    process.env.MUXR_HOME = rerunHome;
+    const rerunHealth = async () => (await fetch(`http://127.0.0.2:${rerunPort}/health`, { signal: AbortSignal.timeout(2_000) })).json();
+    try {
+        await ensureSelfhostRelay(rerunPort, undefined, '127.0.0.2');
+        const ownerPidFile = join(rerunHome, 'relay', 'relay.pid');
+        const ownerPid = readFileSync(ownerPidFile, 'utf8');
+        await ensureSelfhostRelay(rerunPort, undefined, '127.0.0.2');
+        assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'setup spawned a second relay');
+        const foreign = createHttpServer((request, response) => response.end(JSON.stringify({ ok: true })));
+        await new Promise((resolve) => foreign.listen(rerunPort, '127.0.0.3', resolve));
+        try {
+            await assert.rejects(ensureSelfhostRelay(rerunPort, undefined, '127.0.0.3'), /is not a running muxr relay/);
+        } finally {
+            await new Promise((resolve) => foreign.close(resolve));
+        }
+        assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'foreign listener replaced the owned relay');
+        assert.equal(JSON.parse(readFileSync(rerunState, 'utf8')).bindHost, '127.0.0.2');
+
+        // Tailnet records are final: --enrollment (scripted setup and the relay
+        // plan both route through connect) refuses before touching state or the
+        // running relay. The loopback record is restored so the cleanup stops it.
+        const loopbackState = readFileSync(rerunState, 'utf8');
+        const tailnetState = `${JSON.stringify({ ...JSON.parse(loopbackState), bindHost: '100.127.255.254', relayUrl: `ws://100.127.255.254:${rerunPort}` }, null, 2)}\n`;
+        writeFileSync(rerunState, tailnetState, { mode: 0o600 });
+        try {
+            assert.throws(() => execFileSync(process.execPath, [cli, 'connect', '--enrollment', 'muxr://enroll?id=x', '--force'], {
+                env: process.env, encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'],
+            }), /runs headless on Tailscale/);
+            assert.equal(readFileSync(rerunState, 'utf8'), tailnetState, 'enrollment rewrote tailnet state');
+            assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'enrollment replaced the running relay');
+            assert.equal((await rerunHealth()).ok, true, 'enrollment stopped the running relay');
+            assert.throws(() => execFileSync(process.execPath, [cli, 'self-host'], {
+                env: process.env, encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'],
+            }), /runs headless on Tailscale/);
+            assert.equal(readFileSync(rerunState, 'utf8'), tailnetState, 'self-host rewrote tailnet state');
+            assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'self-host replaced the owned relay');
+            // Pair and doctor repair must not spawn or restart a relay on a
+            // tailnet record whose foreground owner is down; they name the unit.
+            const downPort = await new Promise((resolve) => {
+                const probe = createServer();
+                probe.listen(0, '127.0.0.1', () => {
+                    const { port } = probe.address();
+                    probe.close(() => resolve(port));
+                });
+            });
+            writeFileSync(rerunState, `${JSON.stringify({ ...JSON.parse(tailnetState), relayPort: downPort, relayUrl: `ws://100.127.255.254:${downPort}` }, null, 2)}\n`, { mode: 0o600 });
+            const downState = readFileSync(rerunState, 'utf8');
+            await assert.rejects(repairSelfhostRelay(readSelfhostState()), /MUXR_MODE=selfhost muxr up/);
+            assert.equal(readFileSync(rerunState, 'utf8'), downState, 'repair rewrote tailnet state');
+            assert.equal(await fetch(`http://127.0.0.1:${downPort}/health`, { signal: AbortSignal.timeout(1_000) }).then(() => true, () => false), false, 'repair spawned a relay on the tailnet record');
+            assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'repair replaced the running relay');
+        } finally {
+            writeFileSync(rerunState, loopbackState, { mode: 0o600 });
+        }
+    } finally {
+        await stopOwnedSelfhostRelay();
+        process.env.MUXR_HOME = scratch;
+    }
+} finally {
+    await new Promise((resolve) => occupied.close(resolve));
+    rmSync(scratch, { recursive: true, force: true });
+}
+process.stdout.write('selfhost state, stalled relay and headless configuration checks passed\n');

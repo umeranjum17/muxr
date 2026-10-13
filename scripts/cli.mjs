@@ -36,6 +36,7 @@ import {
     runIntegrations,
     runPeers,
     select,
+    selfhostRelayHealthy,
     startSelfHost,
     status,
     uninstallMuxr,
@@ -103,7 +104,7 @@ Use “muxr help <command>” for command options.
 
 const COMMAND_HELP = {
     setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>] [--enrollment <muxr://enroll?...>]\n\nInteractive setup checks this computer and recommends Tailscale (your own tailnet): if Tailscale is missing or not signed in, it says how to fix that and checks again. Other ways lists private networks, a temporary link and your own server. With an enrollment from your muxr server (--enrollment or MUXR_ENROLLMENT), it recommends that server: this computer dials out to it, so nothing on it needs to be open. It installs Herdr when missing, shows its plan under the route (on a first run one Enter applies it), then displays a short-lived pairing QR or string. It never installs agent skills or edits prompt files.\n`,
-    'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n`,
+    'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\nmuxr self-host --configure-only --advertise <ws-url> [--port <n>]\n\n--configure-only writes private self-host state without prompts, ingress, a relay process, or a service. The port defaults to 8792 (or MUXR_RELAY_PORT); a ws:// URL must advertise that port. Repeating the same configuration preserves identity and files; a different existing connection is refused. Start with MUXR_MODE=selfhost muxr up, then run muxr pair in another shell. Herdr must already be installed. The advertise name must resolve to a Tailscale IPv4 address (100.64.0.0/10). The relay binds only that address; if absent, startup waits and retries without a public-bind fallback.\n`,
     config: `muxr config init [--dry-run] [--yes]\nmuxr config check\n\ninit walks through machine name, mode, relay URL, and host port, shows the JSON it will write to $MUXR_HOME/config.json, and asks before overwriting. Without a terminal it prints what it would do and exits. check validates a hand-edited file and reports the path and offending key. Absent or partial files fall back per key; malformed files refuse to start. Precedence per setting: explicit flag beats environment beats config file beats default.\n`,
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\nmuxr devices rotate-keys --unpair-all [--data-dir <dir>]   replace the machine signing, box and data keys; every device pairs again\n`,
@@ -264,8 +265,7 @@ async function printState() {
     const local = state.relayLocation !== 'remote';
     let relayHealthy;
     if (local && Number.isInteger(state.relayPort)) {
-        relayHealthy = await fetch(`http://127.0.0.1:${state.relayPort}/health`, { signal: AbortSignal.timeout(1500) })
-            .then((response) => response.ok).catch(() => false);
+        relayHealthy = await selfhostRelayHealthy(state, 1500);
     }
     const kind = local
         ? (RELAY_KIND[state.connectionMode] ?? state.connectionMode)

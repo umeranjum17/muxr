@@ -6,6 +6,7 @@ import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, labHerdrSocket, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
+import { localRelayBase } from '../../../scripts/setup/infrastructure/selfhost.mjs';
 import { startHost } from './host.js';
 import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
@@ -147,6 +148,7 @@ function validMachineCrypto(value: unknown): value is MachineCryptoState {
 interface SelfhostState {
     version: 1;
     relayPort?: number;
+    bindHost?: string;
     relayUrl?: string;
     mintSecret?: string;
     machineCredential?: string;
@@ -198,7 +200,8 @@ function readSelfhostAuth(): SelfhostState | undefined {
     if (parsed.version !== 1 || typeof parsed.machine?.id !== 'string' || !validMachineCrypto(parsed.machine.crypto)
         || typeof parsed.mintSecret !== 'string' && typeof parsed.machineCredential !== 'string'
         || parsed.relayLocation === 'remote' && typeof parsed.relayUrl !== 'string'
-        || parsed.relayLocation !== 'remote' && typeof parsed.relayPort !== 'number') {
+        || parsed.relayLocation !== 'remote' && typeof parsed.relayPort !== 'number'
+        || parsed.bindHost !== undefined && typeof parsed.bindHost !== 'string') {
         throw new NonRecoverableAuthError(`${path} has an unsupported or incomplete schema`);
     }
     if (parsed.credentialExpiresAt !== undefined) {
@@ -242,7 +245,7 @@ try {
 }
 function defaultRelayUrl(): string {
     if (selfhostAuth?.relayLocation === 'remote' && selfhostAuth.relayUrl !== undefined) return selfhostAuth.relayUrl;
-    if (selfhostAuth?.relayPort !== undefined) return `ws://127.0.0.1:${selfhostAuth.relayPort}/relay`;
+    if (selfhostAuth?.relayPort !== undefined) return `${localRelayBase(selfhostAuth.relayPort, selfhostAuth.bindHost).replace(/^http:/, 'ws:')}/relay`;
     return 'ws://127.0.0.1:8792';
 }
 let hostConfig: ResolvedHostConfig;

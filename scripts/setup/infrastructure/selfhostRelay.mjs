@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { relayEntry as packedRelayEntry } from './paths.mjs';
-import { parseConnection, parseEnrollment } from '../domain/dist/index.js';
+import { localRelayBase, parseConnection, parseEnrollment } from '../domain/dist/index.js';
 import {
     api,
     env,
@@ -22,10 +22,12 @@ import {
     publicRelayUrl,
     stateDir,
 } from './runtime.mjs';
-import { daemonIsRunning } from './daemon.mjs';
+import { daemonDefinition, daemonIsRunning, runDaemon } from './daemon.mjs';
 import {
     advertisedRelayHealthy,
     cloudflaredAlive,
+    isTailnetIPv4,
+    ownedRelayPid,
     reachTailscaleOptions,
     readSelfhostState,
     selfhostControlBase,
@@ -167,10 +169,16 @@ export function relayDiscovery(state) {
     } : undefined;
 }
 
+function ownedRelayAt(port, host) {
+    const state = readSelfhostState();
+    return state?.bindHost === host && state.relayPort === port && ownedRelayPid() !== undefined;
+}
+
 export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOrigin, discovery) {
+    const base = localRelayBase(port, host);
     let health;
     try {
-        health = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) })
+        health = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2_000) })
             .then((response) => response.ok ? response.json() : undefined);
     } catch (cause) {
         if (cause?.name === 'TimeoutError') {
@@ -179,13 +187,19 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
     }
     const healthy = health?.ok === true;
     const dataDir = join(stateDir(), 'relay');
+    if (healthy && base !== localRelayBase(port) && !ownedRelayAt(port, host)) {
+        throw new Error(`port ${port} on ${host} answers but is not a running muxr relay for this state; stop the process using it or rerun setup with --port <free-port>`);
+    }
     if (healthy) {
         // A ghost relay (old process, deleted dataDir) answers health but has no
         // mint secret on disk — refuse rather than failing mysteriously later.
         if (!existsSync(join(dataDir, 'mint-secret'))) {
             throw new Error(`port ${port} answers but is not this relay's state; stop the stale relay on :${port} first`);
         }
-        if (health.webEnabled !== (webRoot !== undefined) || health.bindHost !== host) {
+        // A probe from a non-loopback peer (a tailnet-bound relay) gets no bind or
+        // web fields, so the recorded state is the relay's own report.
+        const reported = health.bindHost === undefined ? readSelfhostState() : health;
+        if ((reported?.webEnabled === true) !== (webRoot !== undefined) || reported?.bindHost !== host) {
             throw new Error(`relay on :${port} is already running with different web/bind settings; stop it, then rerun setup`);
         }
         return;
@@ -216,7 +230,7 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
     proc.unref();
     for (let i = 0; i < 25; i++) {
         await new Promise((resolve) => setTimeout(resolve, 400));
-        if (await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) })
+        if (await fetch(`${base}/health`, { signal: AbortSignal.timeout(500) })
             .then((response) => response.ok).catch(() => false)) return;
     }
     proc.kill('SIGTERM');
@@ -224,8 +238,8 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
 }
 
 export function persistRelayRuntimeState({ state, health }) {
-    state.bindHost = health.bindHost === '127.0.0.1' ? '127.0.0.1' : '0.0.0.0';
-    state.webEnabled = health.webEnabled === true;
+    if (typeof health.bindHost === 'string') state.bindHost = health.bindHost;
+    if (typeof health.webEnabled === 'boolean') state.webEnabled = health.webEnabled;
     state.webRoot = state.webEnabled ? join(dirname(realpathSync(process.argv[1])), 'web') : undefined;
     state.webOrigin = state.webEnabled && typeof state.relayUrl === 'string' ? state.relayUrl.replace(/^wss/, 'https') : undefined;
     writeSelfhostState(state);
@@ -245,6 +259,15 @@ export async function restartSelfhostRelayIfRunning() {
     const { state, port } = previous;
     await ensureSelfhostRelay(port, state.webRoot, state.bindHost, state.webOrigin, relayDiscovery(state));
     return true;
+}
+
+export async function repairSelfhostRelay(state) {
+    if (isTailnetIPv4(state.bindHost)) {
+        throw new Error(`this computer's relay runs on Tailscale (${state.bindHost}) and is not running; start the foreground unit with MUXR_MODE=selfhost muxr up, then retry`);
+    }
+    if (existsSync(daemonDefinition().path)) return runDaemon(['restart']);
+    await ensureSelfhostRelay(state.relayPort, state.webRoot, state.bindHost, state.webOrigin, relayDiscovery(state));
+    return 0;
 }
 
 export async function withSelfhostRotationLock(operation) {
