@@ -217,6 +217,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   Settings `Herdr` row and sheet with the `herdr agent list` command, Copy
   feedback, and the real-Herdr lab log proving the command lists the host's
   sessions.
+- [Sign in over SSH with an Ed25519 key](./ssh-login-keys.md) —
+  native release app against a container with generated Ed25519/RSA keys:
+  real pairing consent, saved-credential reconnect, credential refusal and
+  connected Direct SSH results at 393/270 dp, light/dark.
 - [Read the connection route on the phone](./connection-route.md) —
   Settings > Connection names the route as `muxr setup` does: dev client on
   an emulator over a real lab host, themes and 270dp/font 1.3.
