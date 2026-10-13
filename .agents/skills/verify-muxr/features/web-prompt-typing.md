@@ -19,7 +19,7 @@ React threw #185 ("Maximum update depth exceeded"). The screen then showed
   sent text does not come back as a draft.
 - `leave` leaving the agent with an unsent prompt still keeps it as the draft.
 - `no-185` five keyboard sends in a row at 270 dp show each reply with no error
-  screen, in a tab and in the installed PWA. At 393 dp nothing changes.
+  screen in a Chrome tab. At 393 dp nothing changes.
 
 ## How to get to it (user POV)
 
