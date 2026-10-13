@@ -566,6 +566,8 @@ export interface RequestMap extends PeerRequestMap {
             text: string;
             attachments?: PromptAttachment[];
             streamingBehavior?: StreamingBehavior;
+            /** The first prompt to an agent just started from the phone; the host holds it until the agent takes it. */
+            firstPrompt?: boolean;
             /** Required by the peer dispatcher; ordinary trusted clients omit it. */
             peerMutation?: PeerMutationMetadata;
         };

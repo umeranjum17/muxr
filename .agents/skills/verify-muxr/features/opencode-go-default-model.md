@@ -60,7 +60,7 @@ Preconditions:
 - The phone's account row and agent kind list can stay stale (`Signed out`,
   `Sign-in not checked`) after the sign-in lands; the host still resolves the
   signed-in account for the start. Restarting the app refreshes the rows.
-- The Home composer can drop the prompt it starts an agent with; if the new
-  agent idles at its prompt, send the prompt again from the agent screen.
+- A prompt the Home composer starts an agent with that the agent drops comes
+  back as not sent; see [home-composer-first-prompt.md](./home-composer-first-prompt.md).
 - An OpenCode update prompt (`v1.19.0`) may cover the new agent: dismiss it
   with `esc` before reading the footer.
