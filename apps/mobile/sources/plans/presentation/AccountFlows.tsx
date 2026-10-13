@@ -11,10 +11,10 @@ import { Typography } from '@/constants/Typography';
 import { useHerdrTree } from '@/catalog/store';
 import { navigateToSession } from '@/herd';
 import { Modal } from '@/modal';
-import { AUTO, nameSuggestions, providerEntry, providerForAgent, providerName, resolvedAccountNames, runningOn, type PlanAccount } from '../domain/planAccounts';
-import { planConnection, samePlanConnection, refreshPlans, usePlansStore, type PlanConnection } from '../application/plansStore';
+import { nameSuggestions, providerEntry, providerName, resolvedAccountNames, type PlanAccount } from '../domain/planAccounts';
+import { planConnection, samePlanConnection, refreshPlans, usePlansStore, useUnknownAccounts } from '../application/plansStore';
 import { dismissNotice, showNotice, useNotice } from '../application/planNotices';
-import { agentAccount, cancelSignIn, planFailure, renameAccount, signInState, startSignIn } from '../application/plansApi';
+import { cancelSignIn, planFailure, renameAccount, signInState, startSignIn } from '../application/plansApi';
 import { GhostButton, Note, Pill, PrimaryButton, SheetLede, SheetTitle, Strong, styles as parts } from './accountParts';
 
 const TOOL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
@@ -38,27 +38,12 @@ usePlansStore.subscribe((state, previous) => {
     if (state.connection === previous.connection) return;
     opening = null;
     useFlows.setState({ adding: null, pending: null, naming: null, landed: null });
+    useUnknownAccounts.setState({ reasons: {} });
     dismissNotice();
 });
 
 const seen = createStore();
 const termsKey = (provider: string) => `plans-terms-seen:${provider}`;
-
-/** After Start, says which account the agent started on, as the host
- *  recorded it rather than as picked: Auto and a stale list can differ. */
-export async function announceStartAccount(sessionId: string, agentKind: string, choice: string, connection: PlanConnection): Promise<void> {
-    const entry = providerEntry(usePlansStore.getState().list, providerForAgent(agentKind));
-    if (entry === undefined) return;
-    let account: PlanAccount | undefined;
-    try {
-        account = runningOn(entry, (await agentAccount(sessionId, connection)).accountId);
-    } catch (error) {
-        if (samePlanConnection(connection)) showNotice('Agent started', `Couldn't check which account it is on: ${planFailure(error)}`);
-        return;
-    }
-    if (account === undefined || !samePlanConnection(connection)) return;
-    showNotice(`Started on ${account.name}${choice === AUTO ? ' (Auto)' : ''}`, account.roomLabel ?? `${providerName(entry.provider)} account`);
-}
 
 /** Add an account, or sign an existing one in again. `leave` closes whatever
  *  modal the flow starts from before the app moves to the sign-in tab. */
@@ -428,13 +413,9 @@ export function Notice() {
             entering={FadeInUp.duration(180).reduceMotion(ReduceMotion.System)}
             exiting={FadeOutUp.duration(160).reduceMotion(ReduceMotion.System)}
             style={[styles.banner, styles.bannerInline]}
-            pointerEvents="box-none"
             accessibilityLiveRegion="polite"
         >
-            {/* The mark is paint, not a target. */}
-            <View pointerEvents="none">
-                <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
-            </View>
+            <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
             <Pressable style={parts.rowCopy} onPress={() => dismissNotice()} accessibilityRole="button" accessibilityLabel={`${notice.title}. ${notice.detail}`}>
                 <Text style={styles.bannerTitle}>{notice.title}</Text>
                 <Text style={parts.facts}>{notice.detail}</Text>

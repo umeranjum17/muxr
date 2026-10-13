@@ -41,6 +41,10 @@ interface PlansState {
     setAutoOn: (on: boolean) => void;
 }
 
+/** Why an agent's account could not be read after Start, by session: its
+ *  header shows "Account unknown" and gives the reason on tap. */
+export const useUnknownAccounts = create<{ reasons: Record<string, string> }>()(() => ({ reasons: {} }));
+
 export const usePlansStore = create<PlansState>()((set, get) => ({
     connection: connectionNow(),
     list: null,

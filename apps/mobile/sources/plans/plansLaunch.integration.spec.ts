@@ -17,7 +17,7 @@ vi.mock('react-native-mmkv', () => ({
 }));
 
 const { planConnection, planAccountForLaunch, planLaunchQuestion, refreshPlans, waitForPlanDiscovery, usePlansStore } = await import('./application/plansStore');
-const { choiceLine, providerEntry } = await import('./domain/planAccounts');
+const { AUTO, choiceLine, providerEntry } = await import('./domain/planAccounts');
 
 const claude = (overrides: Partial<Record<'work' | 'side', { signedIn: boolean }>> = {}): PlanProviderAccounts => ({
     provider: 'claude',
@@ -184,6 +184,20 @@ describe('account notices', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('keeps a failed account check off the toast, for the agent header to say so', async () => {
+        const { announceStartAccount } = await import('./application/announceStart');
+        const { planFailure } = await import('./application/plansApi');
+        const { useNotice, dismissNotice } = await import('./application/planNotices');
+        const { useUnknownAccounts } = await import('./application/plansStore');
+        dismissNotice();
+        request.mockResolvedValueOnce({ providers: [claude()] });
+        await refreshPlans();
+        request.mockRejectedValueOnce(new Error('host busy'));
+        await announceStartAccount('agent-s1', 'claude', AUTO, planConnection());
+        expect(useNotice.getState().notice).toBeNull();
+        expect(useUnknownAccounts.getState().reasons['agent-s1']).toBe(planFailure(new Error('host busy')));
     });
 });
 describe('starting with no signed-in account', () => {

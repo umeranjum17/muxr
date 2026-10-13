@@ -80,7 +80,7 @@ import { TerminalLinkMenu, terminalLinkCardFits, type LinkAction } from './Termi
 import { isTerminalPath, openTerminalLink, safeTerminalLinkUrl } from '../domain/safeTerminalLink';
 import { locateTerminalPath, trimmedTapPath } from '../application/locateTerminalPath';
 import { humanError } from '@/utils/errors';
-import { AgentEmptyBanner, MoveAccountRow } from '@/plans/ui';
+import { AgentEmptyBanner, MoveAccountRow, useUnknownAccounts } from '@/plans/ui';
 import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
 import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
@@ -230,6 +230,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     }), [insets.bottom]);
     const session = useSession(props.id);
     const sessionError = useSessionError(props.id);
+    const unknownAccount = useUnknownAccounts((state) => state.reasons[props.id]);
     // The agent's device preview stays on screen as it closes, so the view can say so.
     const livePreview = session?.metadata?.preview;
     const lastPreview = React.useRef(livePreview);
@@ -1466,7 +1467,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             {/* The plan account it runs on, only when there is a choice of
                                 account. In this row, not a new one: chrome that appears late
                                 would re-attach the terminal. */}
-                            {identityKnown && currentPane?.planAccount !== undefined && <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: '30%', color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>{currentPane.planAccount}</Text>}
+                            {identityKnown && (currentPane?.planAccount !== undefined || unknownAccount !== undefined) && <Text numberOfLines={1} accessibilityRole={currentPane?.planAccount === undefined ? 'button' : undefined} onPress={currentPane?.planAccount === undefined ? () => Modal.alert("Couldn't check which account it is on", unknownAccount) : undefined} style={{ flexShrink: 0, maxWidth: '30%', color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>{currentPane?.planAccount ?? 'Account unknown'}</Text>}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
                                 is gone; the dot carries the same colour (scout §4.1).
