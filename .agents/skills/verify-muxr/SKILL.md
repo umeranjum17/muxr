@@ -198,19 +198,21 @@ size, density, `settings put system font_scale <f>` and
 font change), drive to the screen, then:
 
 ```sh
-node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>          # first screenful
+node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name> [--ref $MAIN_DIR/<name>.xml]
 # when the dump has scrollable="true": swipe up until it stops moving, then
-node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>-scrolled --end
+node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>-scrolled --end [--ref $MAIN_DIR/<name>-scrolled.xml]
 ```
 
 It saves the PNG and the uiautomator dump and prints `DEFECT …` lines for
 what a machine can see (text under the status or navigation bar, text touching
-the screen edge, overlapping elements, a covered control, flat edge strips).
+the screen edge, overlapping elements, a covered control, a squashed image,
+flat edge strips). `--ref` is the dump of the same cell from the main run
+(on main itself, omit it; the line `image geometry not compared` says so).
 Those are leads; the eye still judges every shot. Reset with
 `wm size reset; wm density reset; settings put system font_scale 1.0`.
 
-PWA: serve the export with `serveWebExport.mjs` on a free port (it prints the
-port you pass, so pass a real one, never 0), and open it in Chromium on a
+PWA: serve the export with `scripts/diagnostics/application/serveWebExport.mjs`
+on a free port (it prints the port you pass, so pass a real one, never 0), and open it in Chromium on a
 task-owned Xvfb display with its own `--user-data-dir`,
 `--remote-debugging-port`, `--hide-scrollbars` (a desktop scrollbar draws a
 grey strip that is not the app) and `--app=<origin>`; point
@@ -232,11 +234,25 @@ They report off-screen text and images, clipped text, text spilling out of
 its button, a control covered by another element, and a stretched image;
 `clean` is only a lead, the shot still gets looked at.
 
+Self-tests (run once per change to the checks, not per cell). They prove the
+checks fire on a squashed image and a black strip and stay quiet on a cover
+crop and a uniform background; they need ImageMagick and `chromium`:
+
+```sh
+node .agents/skills/verify-muxr/features/visualCheck.mjs selftest      # native: avatar geometry and edge strip
+node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-selftest  # PWA: squashed img and background vs cover
+```
+
+Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
+
 ### Defects (each fails the check)
 
-- **Stretched or squashed image** — its drawn box's aspect ratio differs from
-  its source asset or the mock by more than 2%: a round avatar drawn as an
-  oval, a logo wider or taller than the mock.
+- **Stretched or squashed image** — a filled image's drawn box differs in
+  aspect by more than 2% from its source: on the PWA, the natural size of an
+  `img` or background image drawn with `object-fit: fill` or two explicit
+  `background-size` values (cover and contain crops are not defects); on
+  native, the same image node's bounds in the `--ref` dump. A round avatar
+  drawn as an oval, a logo wider or taller than the mock.
 - **Text clipped, cut or truncated mid-word** — glyphs cut at a box edge
   (descenders, half a last line), a word broken with no hyphen, a line that
   starts with punctuation (`, signed`), text running past the screen edge or
@@ -269,11 +285,10 @@ visual matrix: native+pwa x 270/393 dp x font 1.0/2.0 x light/dark (+scrolled): 
 visual check: PASS            (or: visual check: FAIL: <shot>: <defect>; …)
 ```
 
-### Design check (placeholder, not yet required)
+### Design check (not yet part of this check)
 
-<!-- DESIGN-CHECK PLACEHOLDER: a later design check from done-done becomes a
-required step here, run on the same shots after the visual check passes. -->
-Nothing to run yet; this step becomes required when the design check lands.
+Not yet part of this check; a later step will be wired in here.
+Do not report a design check as run until it is.
 
 ## Cleanup
 
