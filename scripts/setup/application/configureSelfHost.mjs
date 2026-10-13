@@ -1,8 +1,10 @@
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { join } from 'node:path';
 import { validMachineCrypto } from '../domain/dist/index.js';
 import { atomicWrite, error, flagValue, machineIdentity, print, randomBytes, relayPortFromEnv, stateDir } from '../infrastructure/runtime.mjs';
-import { readSelfhostState, selfhostPath, writeSelfhostState } from '../infrastructure/selfhost.mjs';
+import { isTailnetIPv4, readSelfhostState, selfhostPath, writeSelfhostState } from '../infrastructure/selfhost.mjs';
 import { resolveAdvertise } from '../infrastructure/selfhostRelay.mjs';
 
 /** Prepare a foreground self-host without starting processes or managing ingress. */
@@ -21,6 +23,9 @@ export async function configureSelfHost(args) {
         const advertise = await resolveAdvertise(args, port);
         const url = new URL(advertise.url);
         if (url.protocol === 'ws:' && Number(url.port || 80) !== port) throw new Error('the ws:// advertise port must match --port (default 8792)');
+        const bindHost = isIP(url.hostname) ? url.hostname : (await lookup(url.hostname, { family: 4 })).address;
+        if (!isTailnetIPv4(bindHost)) throw new Error('--advertise must resolve to a Tailscale IPv4 address (100.64.0.0/10)');
+        const connectionMode = url.protocol === 'ws:' ? 'private' : undefined;
         let state = readSelfhostState();
         if (existsSync(selfhostPath())) {
             const info = lstatSync(selfhostPath());
@@ -28,7 +33,7 @@ export async function configureSelfHost(args) {
             if (!state?.machine?.id || !validMachineCrypto(state.machine.crypto, 'selfhost') || typeof state.mintSecret !== 'string' || !state.mintSecret) throw new Error('existing self-host state is invalid; refusing to replace its pairing identity');
             const sameConfiguration = state.relayUrl === advertise.url && state.relayPort === port
                 && state.relayLocation === 'local' && state.relayRole === 'single-machine'
-                && state.bindHost === '0.0.0.0' && !state.webEnabled && !state.ingress;
+                && state.bindHost === bindHost && state.connectionMode === connectionMode && !state.webEnabled && !state.ingress;
             if (!sameConfiguration) throw new Error('--configure-only cannot replace an existing connection; use `muxr setup` to reconfigure it');
         }
         const mintPath = join(stateDir(), 'relay', 'mint-secret');
@@ -48,10 +53,10 @@ export async function configureSelfHost(args) {
         if (!state) {
             state = { version: 1, machine: machineIdentity(undefined), relayPort: port,
                 relayUrl: advertise.url, relayLocation: 'local', relayRole: 'single-machine',
-                connectionMode: 'private', webEnabled: false, bindHost: '0.0.0.0', mintSecret: secret };
+                ...(connectionMode ? { connectionMode } : {}), webEnabled: false, bindHost, mintSecret: secret };
             writeSelfhostState(state);
         }
-        print(`Configured ${advertise.url} (bind 0.0.0.0:${port}); no relay or service started.`);
+        print(`Configured ${advertise.url} (bind ${bindHost}:${port}, Tailscale only); no relay or service started.`);
         print('Start with `MUXR_MODE=selfhost muxr up`; once running, use `muxr pair` in another shell for the pairing offer.');
         return 0;
     } catch (cause) {

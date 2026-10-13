@@ -77,9 +77,12 @@ This writes owner-only `selfhost.json` and relay authority under `MUXR_HOME`
 installation. Repeating the same command preserves the files and pairing identity;
 a different existing configuration is refused (use `muxr setup` to change it).
 The port defaults to 8792 or `MUXR_RELAY_PORT`; plain `ws://` must advertise that
-same port. `muxr up` owns its relay child and binds `0.0.0.0`; restrict inbound
-access to the tailnet with your machine's firewall. This command does not install
-Herdr or Tailscale. For systemd, use `Environment=MUXR_MODE=selfhost` with your
+same port. The advertise name must resolve to a Tailscale IPv4 address
+(`100.64.0.0/10`), or use that address directly. `muxr up` owns its relay child
+and binds only that address. If it is not assigned yet, startup logs
+`waiting for Tailscale address …` and retries without a restart or public-bind
+fallback. Keep the machine firewall as a second guard. This command does not
+install Herdr or Tailscale. For systemd, use `Environment=MUXR_MODE=selfhost` with your
 existing `ExecStart=muxr up`, using the same user and `MUXR_HOME` as configuration.
 `muxr pair` prints the short-lived offer after the foreground host is running.
 

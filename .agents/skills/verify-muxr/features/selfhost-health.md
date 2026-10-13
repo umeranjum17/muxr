@@ -41,7 +41,7 @@ Preconditions:
   the same port the calls above used — the port came from our child's stdout,
   never from scanning.
 
-## Headless cloud configuration (clean-container recipe)
+### Headless cloud configuration (clean-container recipe)
 
 This path replaces the baseline Launch: use a fresh Debian/Ubuntu Node 22
 container, the package built from the candidate checkout, its own HOME and
@@ -61,7 +61,8 @@ commands below run inside the container, never on the desktop.
    It exits 0, says no relay/service started, and directs the operator to
    `MUXR_MODE=selfhost muxr up` and then `muxr pair` in another shell.
 3. **Private, idempotent state:** verify `selfhost.json` and `relay/mint-secret`
-   are owner-only files, with relay port/URL and bind `0.0.0.0`. Never print
+   are owner-only files, with relay port/URL and the resolved tailnet IPv4 bind
+   (`100.64.0.0/10`). Plain `ws://` stores private mode; `wss://` leaves it unset. Never print
    keys/tokens. Hash both files and record mtimes inside the container; rerun
    the identical command and assert those values are unchanged. Check the
    container process list and private service directories: no relay, host,
@@ -71,8 +72,13 @@ commands below run inside the container, never on the desktop.
    too. Record the owned relay child's startup port and require the matching
    `/health` to report the candidate version and an online machine through
    the tailnet address. Correlate the child's socket inode with an IPv4
-   `0.0.0.0:<port>` LISTEN row in `/proc/net/tcp` (or `ss`); health does not
-   expose the bind address. Observe the same foreground process and child for two
+   `<tailnet-address>:<port>` LISTEN row in `/proc/net/tcp` (or `ss`). Require
+   connection to the container's non-tailnet address on that port to fail.
+   Before the tailnet address is assigned, require a live foreground process,
+   the clear `waiting for Tailscale address` line and no relay; when the address
+   appears, the same process starts its relay. Never change shared host networking
+   to manufacture this case: use an owned network namespace or authorized cloud
+   machine. Observe the same foreground process and child for two
    minutes, with no restart log or restart-loop; no detached relay exists.
 5. **Native pairing:** hold the shared emulator lock for the whole bounded
    journey (`flock -o -w <seconds> /tmp/fm-muxr-emulator.lock <command>`, at

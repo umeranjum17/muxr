@@ -8,7 +8,8 @@
  */
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,7 +18,7 @@ import { createServer } from 'node:net';
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-selfhost-state-'));
 process.env.MUXR_HOME = scratch;
 process.env.MUXR_NO_SERVICE_COMMANDS = '1';
-const { ensureSelfhostRelay, inspectSetup, selfhostConfigured, selfhostStateUnreadable, startSelfHost } = await import('../../setup/index.mjs');
+const { ensureSelfhostRelay, inspectSetup, selfhostConfigured, selfhostStateUnreadable, selfhostControlBase, startSelfHost } = await import('../../setup/index.mjs');
 
 assert.equal(selfhostConfigured(), false);
 assert.equal(selfhostStateUnreadable(), false);
@@ -63,7 +64,7 @@ const occupied = createServer((socket) => socket.destroy());
 await new Promise((resolve) => occupied.listen(0, '127.0.0.1', resolve));
 try {
     const port = occupied.address().port;
-    const args = ['--advertise', `ws://cloud.example.ts.net:${port}`, '--port', String(port)];
+    const args = ['--advertise', `ws://100.127.255.254:${port}`, '--port', String(port)];
     const output = configure(args);
     assert.match(output, /no relay or service started/);
     assert.match(output, /MUXR_MODE=selfhost muxr up/);
@@ -72,17 +73,19 @@ try {
     const mintPath = join(configuredHome, 'relay', 'mint-secret');
     const before = readFileSync(path, 'utf8');
     const state = JSON.parse(before);
-    assert.equal(state.bindHost, '0.0.0.0');
+    assert.equal(state.bindHost, '100.127.255.254');
+    assert.equal(state.connectionMode, 'private');
     assert.equal(state.relayPort, port);
-    assert.equal(state.relayUrl, `ws://cloud.example.ts.net:${port}`);
+    assert.equal(state.relayUrl, `ws://100.127.255.254:${port}`);
     assert.ok(state.machine.id && state.machine.crypto.signingSecretKey);
-    assert.equal(state.mintSecret, JSON.parse(readFileSync(mintPath, 'utf8')));
+    assert.equal(state.mintSecret === JSON.parse(readFileSync(mintPath, 'utf8')), true, 'authority mismatch');
+    assert.equal(selfhostControlBase(state), `http://100.127.255.254:${port}`);
     const stateStat = statSync(path);
     const mintStat = statSync(mintPath);
     assert.equal(stateStat.mode & 0o777, 0o600);
     assert.equal(mintStat.mode & 0o777, 0o600);
     configure(args);
-    assert.equal(readFileSync(path, 'utf8'), before);
+    assert.equal(readFileSync(path, 'utf8') === before, true, 'configuration bytes changed');
     assert.equal(statSync(path).mtimeMs, stateStat.mtimeMs);
     assert.equal(statSync(mintPath).mtimeMs, mintStat.mtimeMs);
     assert.equal(existsSync(join(configuredHome, 'logs')), false, 'configuration started a relay');
@@ -90,8 +93,43 @@ try {
     assert.throws(() => configure([...args, '--tunnel']), /accepts only --advertise and --port/);
     assert.throws(() => configure(['--port', String(port)]), /requires --advertise/);
     assert.throws(() => configure(['--advertise', 'https://cloud.example.ts.net', '--port', String(port)]), /root ws:\/\/ or wss:\/\//);
-    assert.throws(() => configure(['--advertise', `ws://other.example.ts.net:${port}`, '--port', String(port)]), /cannot replace an existing connection/);
-    assert.equal(readFileSync(path, 'utf8'), before, 'refused commands modified pairing state');
+    assert.throws(() => configure(['--advertise', `ws://100.127.255.253:${port}`, '--port', String(port)]), /cannot replace an existing connection/);
+    assert.throws(() => configure(['--advertise', `ws://192.0.2.1:${port}`, '--port', String(port)]), /Tailscale IPv4 address/);
+    assert.equal(readFileSync(path, 'utf8') === before, true, 'refused commands modified pairing state');
+
+    // The foreground unit stays alive with no relay while its persisted
+    // tailnet address is absent; stopping it must not leave a child behind.
+    const up = spawn(process.execPath, [cli, 'up'], { env: { ...environment, MUXR_MODE: 'relay' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const closed = once(up, 'exit');
+    let diagnostic = '';
+    up.stderr.setEncoding('utf8').on('data', (chunk) => { diagnostic += chunk; });
+    try {
+        for (let attempt = 0; attempt < 40 && !diagnostic.includes('waiting for Tailscale address'); attempt += 1) {
+            assert.equal(up.exitCode, null, diagnostic);
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        assert.match(diagnostic, /waiting for Tailscale address 100\.127\.255\.254/);
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        assert.equal(up.exitCode, null, 'address absence exited the foreground unit');
+        assert.equal(diagnostic.match(/waiting for Tailscale address/g)?.length, 1, 'wait flooded the log');
+        assert.equal(existsSync(join(configuredHome, 'relay', 'relay.pid')), false, 'wait started a relay before its address existed');
+    } finally {
+        up.kill('SIGTERM');
+        let forced = false;
+        const forceStop = setTimeout(() => { forced = true; up.kill('SIGKILL'); }, 10000);
+        try { await closed; }
+        finally { clearTimeout(forceStop); }
+        assert.equal(forced, false, 'waiting foreground process ignored stop');
+    }
+
+    // A secure URL is not an operator-selected private connection mode.
+    const secureHome = join(scratch, 'secure-headless');
+    execFileSync(process.execPath, [cli, 'self-host', '--configure-only', '--advertise', 'wss://100.127.255.254', '--port', String(port)], {
+        env: { ...environment, HOME: secureHome, MUXR_HOME: secureHome }, timeout: 5000, stdio: 'pipe',
+    });
+    const secure = JSON.parse(readFileSync(join(secureHome, 'selfhost.json'), 'utf8'));
+    assert.equal(secure.bindHost, '100.127.255.254');
+    assert.equal(Object.hasOwn(secure, 'connectionMode'), false);
 } finally {
     await new Promise((resolve) => occupied.close(resolve));
     rmSync(scratch, { recursive: true, force: true });

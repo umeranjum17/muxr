@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isIP } from 'node:net';
 import {
     inspectServe,
     serve,
@@ -7,7 +8,7 @@ import {
     tailscaleName,
     unserve,
 } from '@byokit/reach';
-import { parseConnection, publicRelayUrl } from '../domain/dist/index.js';
+import { localRelayBase, parseConnection, publicRelayUrl } from '../domain/dist/index.js';
 import { relayEntry } from './paths.mjs';
 import {
     atomicWrite,
@@ -29,6 +30,12 @@ export function tailscaleBin() {
         join(home(), 'Applications', 'Tailscale.app', 'Contents', 'MacOS', 'Tailscale'),
         '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
     ].find((candidate) => executable(candidate));
+}
+
+export function isTailnetIPv4(address) {
+    if (typeof address !== 'string' || isIP(address) !== 4) return false;
+    const [first, second] = address.split('.').map(Number);
+    return first === 100 && second >= 64 && second <= 127;
 }
 
 export const selfhostPath = () => join(stateDir(), 'selfhost.json');
@@ -64,7 +71,7 @@ export function selfhostConfigured() { return readSelfhostState() !== undefined;
 
 export function selfhostControlBase(state) {
     const parsed = parseConnection(state);
-    if (!parsed.ok) return `http://127.0.0.1:${state?.relayPort}`;
+    if (!parsed.ok) return localRelayBase(state?.relayPort, state?.bindHost);
     return parsed.value.controlBase(state?.relayLocation === 'remote' ? env('MUXR_REMOTE_CONTROL_BASE') : undefined);
 }
 
@@ -148,7 +155,8 @@ export async function stopOwnedSelfhostRelay() {
     const state = readSelfhostState();
     if (state === undefined || state.relayLocation === 'remote') return undefined;
     const port = Number(state.relayPort);
-    const health = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) }).then((response) => {
+    const base = selfhostControlBase(state);
+    const health = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2_000) }).then((response) => {
         if (!response.ok) return undefined;
         return response.json();
     }).catch(() => undefined);
@@ -167,7 +175,7 @@ export async function stopOwnedSelfhostRelay() {
         throw cause;
     }
     for (let attempt = 0; attempt < 30; attempt += 1) {
-        const stopped = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) })
+        const stopped = await fetch(`${base}/health`, { signal: AbortSignal.timeout(500) })
             .then(() => false)
             .catch((cause) => cause?.name !== 'TimeoutError');
         if (stopped) return { state, health, port };

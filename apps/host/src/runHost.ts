@@ -147,6 +147,7 @@ function validMachineCrypto(value: unknown): value is MachineCryptoState {
 interface SelfhostState {
     version: 1;
     relayPort?: number;
+    bindHost?: string;
     relayUrl?: string;
     mintSecret?: string;
     machineCredential?: string;
@@ -198,7 +199,8 @@ function readSelfhostAuth(): SelfhostState | undefined {
     if (parsed.version !== 1 || typeof parsed.machine?.id !== 'string' || !validMachineCrypto(parsed.machine.crypto)
         || typeof parsed.mintSecret !== 'string' && typeof parsed.machineCredential !== 'string'
         || parsed.relayLocation === 'remote' && typeof parsed.relayUrl !== 'string'
-        || parsed.relayLocation !== 'remote' && typeof parsed.relayPort !== 'number') {
+        || parsed.relayLocation !== 'remote' && typeof parsed.relayPort !== 'number'
+        || parsed.bindHost !== undefined && typeof parsed.bindHost !== 'string') {
         throw new NonRecoverableAuthError(`${path} has an unsupported or incomplete schema`);
     }
     if (parsed.credentialExpiresAt !== undefined) {
@@ -242,7 +244,11 @@ try {
 }
 function defaultRelayUrl(): string {
     if (selfhostAuth?.relayLocation === 'remote' && selfhostAuth.relayUrl !== undefined) return selfhostAuth.relayUrl;
-    if (selfhostAuth?.relayPort !== undefined) return `ws://127.0.0.1:${selfhostAuth.relayPort}/relay`;
+    if (selfhostAuth?.relayPort !== undefined) {
+        const bind = selfhostAuth.bindHost;
+        const host = bind && bind !== '0.0.0.0' && bind !== '::' ? bind : '127.0.0.1';
+        return `ws://${host.includes(':') ? `[${host}]` : host}:${selfhostAuth.relayPort}/relay`;
+    }
     return 'ws://127.0.0.1:8792';
 }
 let hostConfig: ResolvedHostConfig;

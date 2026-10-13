@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { relayEntry as packedRelayEntry } from './paths.mjs';
-import { parseConnection, parseEnrollment } from '../domain/dist/index.js';
+import { localRelayBase, parseConnection, parseEnrollment } from '../domain/dist/index.js';
 import {
     api,
     env,
@@ -168,9 +168,10 @@ export function relayDiscovery(state) {
 }
 
 export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOrigin, discovery) {
+    const base = localRelayBase(port, host);
     let health;
     try {
-        health = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2_000) })
+        health = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2_000) })
             .then((response) => response.ok ? response.json() : undefined);
     } catch (cause) {
         if (cause?.name === 'TimeoutError') {
@@ -216,7 +217,7 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
     proc.unref();
     for (let i = 0; i < 25; i++) {
         await new Promise((resolve) => setTimeout(resolve, 400));
-        if (await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) })
+        if (await fetch(`${base}/health`, { signal: AbortSignal.timeout(500) })
             .then((response) => response.ok).catch(() => false)) return;
     }
     proc.kill('SIGTERM');
@@ -224,7 +225,7 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
 }
 
 export function persistRelayRuntimeState({ state, health }) {
-    state.bindHost = health.bindHost === '127.0.0.1' ? '127.0.0.1' : '0.0.0.0';
+    if (typeof health.bindHost === 'string') state.bindHost = health.bindHost;
     state.webEnabled = health.webEnabled === true;
     state.webRoot = state.webEnabled ? join(dirname(realpathSync(process.argv[1])), 'web') : undefined;
     state.webOrigin = state.webEnabled && typeof state.relayUrl === 'string' ? state.relayUrl.replace(/^wss/, 'https') : undefined;
