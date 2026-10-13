@@ -4,12 +4,15 @@ import { error, print } from '../infrastructure/runtime.mjs';
 import { daemonDefinition } from '../infrastructure/daemon.mjs';
 import { approveScreenSharing } from './approveScreenSharing.mjs';
 import { linkPair } from './linkPair.mjs';
+import { pairHandoff } from './pairHandoff.mjs';
 import { readSelfhostState, selfhostControlBase, selfhostCredential, selfhostRelayHealthy } from '../infrastructure/selfhost.mjs';
 import { cliVersion, hostServiceVersion } from './inspectSetup.mjs';
 import { browserHostingReady, repairSelfhostRelay } from '../infrastructure/selfhostRelay.mjs';
 
-export async function mintDeviceGrant(state, kind = 'native', authority = 'control', personal = false) {
-    const record = await linkPair(state, { intent: pairingIntent({ kind, authority, personal }) });
+export async function mintDeviceGrant(state, kind = 'native', authority = 'control', personal = false, handoff = false) {
+    const record = handoff
+        ? await pairHandoff(state)
+        : await linkPair(state, { intent: pairingIntent({ kind, authority, personal }) });
     print(`  ✓ paired and verified ${record.name || 'device'}`);
     if (typeof state?.relayUrl === 'string' && /^wss?:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(state.relayUrl)) {
         print('  WARNING: this host uses the Wi-Fi-only route — the phone works only on this home network and will NOT work away from home. For access from anywhere, run `muxr setup`, choose a route that works away from home (Tailscale), then `muxr pair` again.');
@@ -93,6 +96,8 @@ export async function pairDevice(args = [], deps = {}) {
             }
         }
         const pair = pairingIntentFromHostedFlags(args);
+        const handoff = args.includes('--handoff');
+        if (handoff && pair.kind !== 'native') throw new Error('`muxr pair --handoff` pairs a phone, not a browser');
         if (pair.requiresWebHosting && !browserHostingReady()) {
             const ready = await offerBrowserRouteSwitch(state, deps);
             if (ready === 'kept') return 0;
@@ -104,10 +109,10 @@ export async function pairDevice(args = [], deps = {}) {
             healthy = await selfhostRelayHealthy(state);
         }
         if (!healthy) throw new Error('the relay could not restart; run `muxr doctor` for the exact failing check');
-        const paired = await mintDeviceGrant(state, pair.kind, pair.authority, pair.personal);
+        const paired = await mintDeviceGrant(state, pair.kind, pair.authority, pair.personal, handoff);
         // The person pairing is at this computer, which is the only place the
         // desktop's screen-sharing prompt can be answered.
-        if (paired === 0) await approveScreenSharing({ pairingDone: true });
+        if (paired === 0 && !handoff) await approveScreenSharing({ pairingDone: true });
         return paired;
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));

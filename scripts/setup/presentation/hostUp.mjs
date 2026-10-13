@@ -83,7 +83,13 @@ process.on('exit', () => {
 const mode = process.env.MUXR_MODE;
 if (mode === 'selfhost' || mode === 'relay') {
     const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
-    const state = JSON.parse(readFileSync(join(root, 'selfhost.json'), 'utf8'));
+    let state;
+    try { state = JSON.parse(readFileSync(join(root, 'selfhost.json'), 'utf8')); }
+    catch (cause) {
+        if (cause.code !== 'ENOENT') throw cause;
+        process.stderr.write('This computer is not set up yet. Run `muxr setup` first.\n');
+        process.exit(1);
+    }
     if (mode === 'relay' || state.relayLocation !== 'remote') {
         const port = Number(state.relayPort);
         if (!Number.isInteger(port)) throw new Error('self-host relay state has no valid port');

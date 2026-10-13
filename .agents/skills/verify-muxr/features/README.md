@@ -126,6 +126,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
   versioned page shares and their refusals, and the retention view of the
   same timeline.
+- [Pair a phone through the kit files](./pairing-handoff.md) —
+  non-TTY `--handoff`, raw two-word kit delivery, verified enrollment,
+  mismatch/deadline/cancellation cleanup, and missing-setup startup in a container.
 - [Scan a pairing QR from the terminal](./pairing-qr.md) —
   `muxr pair` at normal/narrow widths and inside an isolated Herdr terminal.
 - [Lead every pair entry with Scan](./pair-scan-first.md) —

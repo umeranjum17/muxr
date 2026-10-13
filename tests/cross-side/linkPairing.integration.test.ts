@@ -15,7 +15,7 @@
  * a Tailscale address that does not answer naming which end to fix.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -81,10 +81,10 @@ const { getCachedConnectionSettings, saveConnectionSettings } = await import('..
 
 const PENDING_LINK_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
 
-function launch(args: string[], extra: NodeJS.ProcessEnv = {}): ChildProcess & { output: () => string } {
+function launch(args: string[], extra: NodeJS.ProcessEnv = {}, cwd = hostRoot): ChildProcess & { output: () => string } {
     const env: NodeJS.ProcessEnv = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1', ...extra };
     for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'DATA_DIR']) delete env[`MUXR_${key}`];
-    const child = spawn(process.execPath, args, { cwd: hostRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout!.on('data', (chunk) => { out += chunk; });
     child.stderr!.on('data', (chunk) => { out += chunk; });
@@ -257,6 +257,69 @@ describe('native pairing over the byokit link', () => {
         await expect(stale).rejects.toThrow('muxr 0.2.0 or older');
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     });
+
+    it('pairs the first phone through the kit files after wrong words and a cancelled peer reset, then refuses a second handoff', async () => {
+        const workDir = join(home, 'kit-work');
+        mkdirSync(workDir);
+        const outbox = join(workDir, '.byokit', 'outbox');
+        for (const mode of ['wrong', 'cancel', 'matching']) {
+            const matches = mode === 'matching';
+            const before = readSelfhostState().machine.crypto.devices.length;
+            const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
+            const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
+            let shownWords = '';
+            try {
+                const file = await until(() => {
+                    if (command.exitCode !== null) throw new Error(command.output());
+                    return existsSync(outbox) ? readdirSync(outbox).find((name) => name.endsWith('.json')) : undefined;
+                }, 'handoff offer');
+                const offerPath = join(outbox, file);
+                const offered = JSON.parse(readFileSync(offerPath, 'utf8'));
+                expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
+                expect(offered.version).toBe(1);
+                const pairing = runPhonePairing(offered.offer, { onWords: async (words) => {
+                    shownWords = words;
+                    if (mode === 'cancel') {
+                        // Let the computer enter the actual SAS approval wait,
+                        // then its CLI closes the local socket during cancel.
+                        await new Promise((resolve) => setTimeout(resolve, 300));
+                        command.kill('SIGTERM');
+                        return;
+                    }
+                    const wordsPath = join(workDir, '.byokit', 'inbox', offered.wordsFile);
+                    // Same raw-byte, private, atomic rename contract as kit deliver.
+                    writeFileSync(`${wordsPath}.tmp`, matches ? words : 'wrong words', { mode: 0o600 });
+                    renameSync(`${wordsPath}.tmp`, wordsPath);
+                } });
+                if (matches) await pairing;
+                else await expect(pairing).rejects.toThrow();
+                expect(await exited).toBe(matches ? 0 : 1);
+                expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
+                expect(existsSync(offerPath)).toBe(false);
+                expect(existsSync(join(workDir, '.byokit', 'inbox', offered.wordsFile))).toBe(false);
+                expect(command.output()).not.toContain(offered.offer);
+                expect(shownWords).not.toBe('');
+                expect(command.output()).not.toContain(shownWords);
+                if (mode === 'wrong') expect(command.output()).toContain('two words did not match');
+                if (mode === 'cancel') {
+                    await until(() => host!.output().includes('Pairing connection lost; this pairing attempt ended.') ? true : undefined,
+                        'host contains the peer reset without crashing');
+                    expect(host!.exitCode).toBeNull();
+                    expect(host!.signalCode).toBeNull();
+                    expect(host!.output().match(/Pairing connection lost; this pairing attempt ended\./g)).toHaveLength(1);
+                }
+            } finally { await stop(command); }
+        }
+
+        const second = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
+        const secondExited = new Promise<number | null>((resolve) => second.once('exit', resolve));
+        try {
+            expect(await secondExited).toBe(1);
+            expect(second.output()).toContain('Handoff pairing is only for the first device');
+            expect(readSelfhostState().machine.crypto.devices.length).toBe(1);
+            expect(existsSync(outbox) ? readdirSync(outbox) : []).toEqual([]);
+        } finally { await stop(second); }
+    }, 60_000);
 
     it('re-pairs an older phone with matching words and carries all events and RPC over the link', async () => {
         const machineId = readSelfhostState().machine.id;
@@ -468,16 +531,22 @@ describe('native pairing over the byokit link', () => {
     }, 120_000);
 
     it('pairs nothing when the person at the computer declines', async () => {
+        const before = readSelfhostState().machine.crypto.devices.length;
         const { pairing, offer, abort } = await showPairingQr({ approve: async () => false });
-        await expect(runPhonePairing(offer)).rejects.toThrow('Your computer said no to this device.');
-        // The computer has replaced the spent code; the old one says to use the new one.
-        const superseded = runPhonePairing(offer);
-        await expect(superseded).rejects.toBeInstanceOf(PairingNeedsNewCode);
-        await expect(superseded).rejects.toThrow('That pairing code has run out. Show a new one on your computer.');
-        const state = readSelfhostState();
-        expect(state.machine.crypto.devices).toHaveLength(5); // phone, browser, forwarded, and two lost-acknowledgement pairings
-        await abort();
-        await expect(pairing).rejects.toThrow('cancelled');
+        try {
+            await expect(runPhonePairing(offer)).rejects.toThrow('Your computer said no to this device.');
+            // The computer has replaced the spent code; the old one says to use the new one.
+            const superseded = runPhonePairing(offer);
+            await expect(superseded).rejects.toBeInstanceOf(PairingNeedsNewCode);
+            await expect(superseded).rejects.toThrow('That pairing code has run out. Show a new one on your computer.');
+            expect(readSelfhostState().machine.crypto.devices).toHaveLength(before);
+            await abort();
+            await expect(pairing).rejects.toThrow('cancelled');
+        } catch (error) {
+            // A failed step must not hold the computer's one pairing slot.
+            await abort();
+            throw error;
+        }
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     }, 90_000);
 
@@ -493,30 +562,36 @@ describe('native pairing over the byokit link', () => {
     });
 
     it('completes a pairing for a phone that died between approval and the machine details', async () => {
-        const { pairing, offer } = await showPairingQr({ approve: async () => true });
-        // The phone claims and is approved, then the app process dies before
-        // `pair.complete`: exactly the pending state `pairOverLink` persists.
-        const kp = keyPair();
-        phone.secure.set(PENDING_LINK_KEY, JSON.stringify({
-            scanned: offer,
-            name: 'Android phone',
-            secretKey: b64url(kp.secretKey),
-            startedAt: Date.now(),
-        }));
-        await pairWithOffer(offer, { name: 'Android phone', key: kp, onWords: () => undefined });
+        const { pairing, offer, abort } = await showPairingQr({ approve: async () => true });
+        try {
+            // The phone claims and is approved, then the app process dies before
+            // `pair.complete`: exactly the pending state `pairOverLink` persists.
+            const kp = keyPair();
+            phone.secure.set(PENDING_LINK_KEY, JSON.stringify({
+                scanned: offer,
+                name: 'Android phone',
+                secretKey: b64url(kp.secretKey),
+                startedAt: Date.now(),
+            }));
+            await pairWithOffer(offer, { name: 'Android phone', key: kp, onWords: () => undefined });
 
-        // Restart: the resume reconnects by key alone and finishes the pairing.
-        const stored = await resumePendingHostedPairing(false);
-        expect(stored?.machineId).toBe(readSelfhostState().machine.id);
-        expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
-        expect(await pairing).toBeDefined();
+            // Restart: the resume reconnects by key alone and finishes the pairing.
+            const stored = await resumePendingHostedPairing(false);
+            expect(stored?.machineId).toBe(readSelfhostState().machine.id);
+            expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
+            expect(await pairing).toBeDefined();
+        } catch (error) {
+            // A failed step must not hold the computer's one pairing slot.
+            await abort();
+            throw error;
+        }
     }, 90_000);
 
 
     it('lists and revokes a link-paired phone from the host record', async () => {
         const state = readSelfhostState();
         const paired = state.machine.crypto.devices;
-        expect(paired).toHaveLength(6);
+        expect(paired).toHaveLength(7);
         const target = paired[0]!;
         const listing = launch([cliMain, 'devices', 'list']);
         await until(() => (listing.exitCode === null ? undefined : listing.exitCode), 'devices list finishes');
