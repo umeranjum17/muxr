@@ -15,9 +15,9 @@ import { daemonIsRunning, runDaemon, startMuxrDaemon } from '../infrastructure/d
 import {
     cleanupManagedIngress,
     cloudflaredAlive,
-    isTailnetIPv4,
     persistOwnedServeIngress,
     readSelfhostState,
+    refuseTailnetState,
     selfhostPath,
     selfhostStateUnreadable,
     stopOwnedSelfhostRelay,
@@ -78,9 +78,7 @@ export async function startSelfHost(args = []) {
             return 0;
         }
         let state = readSelfhostState();
-        if (isTailnetIPv4(state?.bindHost)) {
-            throw new Error(`this computer runs headless on Tailscale (${state.bindHost}) under MUXR_MODE=selfhost muxr up; to change it run \`muxr self-host --configure-only --advertise ws://<name>:<port> --port <port>\``);
-        }
+        refuseTailnetState(state);
         if (hostOnly) {
             if (state === undefined) throw new Error('no self-host state yet; run `muxr self-host` first');
             await startMuxrDaemon('selfhost', args);

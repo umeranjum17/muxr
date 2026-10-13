@@ -166,6 +166,23 @@ try {
         }
         assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'foreign listener replaced the owned relay');
         assert.equal(JSON.parse(readFileSync(rerunState, 'utf8')).bindHost, '127.0.0.2');
+
+        // Tailnet records are final: --enrollment (scripted setup and the relay
+        // plan both route through connect) refuses before touching state or the
+        // running relay. The loopback record is restored so the cleanup stops it.
+        const loopbackState = readFileSync(rerunState, 'utf8');
+        const tailnetState = `${JSON.stringify({ ...JSON.parse(loopbackState), bindHost: '100.127.255.254', relayUrl: `ws://100.127.255.254:${rerunPort}` }, null, 2)}\n`;
+        writeFileSync(rerunState, tailnetState, { mode: 0o600 });
+        try {
+            assert.throws(() => execFileSync(process.execPath, [cli, 'connect', '--enrollment', 'muxr://enroll?id=x', '--force'], {
+                env: process.env, encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'],
+            }), /runs headless on Tailscale/);
+            assert.equal(readFileSync(rerunState, 'utf8'), tailnetState, 'enrollment rewrote tailnet state');
+            assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'enrollment replaced the running relay');
+            assert.equal((await rerunHealth()).ok, true, 'enrollment stopped the running relay');
+        } finally {
+            writeFileSync(rerunState, loopbackState, { mode: 0o600 });
+        }
     } finally {
         await stopOwnedSelfhostRelay();
         process.env.MUXR_HOME = scratch;

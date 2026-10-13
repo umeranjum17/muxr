@@ -38,6 +38,12 @@ export function isTailnetIPv4(address) {
     return first === 100 && second >= 64 && second <= 127;
 }
 
+/** A tailnet-recorded state is final for now: no setup path may replace, restart or re-register it. */
+export function refuseTailnetState(state) {
+    if (!isTailnetIPv4(state?.bindHost)) return;
+    throw new Error(`this computer runs headless on Tailscale (${state.bindHost}) under MUXR_MODE=selfhost muxr up; it is already set up, and changing its address or port is not supported yet`);
+}
+
 export const selfhostPath = () => join(stateDir(), 'selfhost.json');
 
 export function readSelfhostState() {
@@ -171,7 +177,7 @@ export async function stopOwnedSelfhostRelay() {
     }).catch(() => undefined);
     if (health?.ok !== true) return undefined;
     const pid = ownedRelayPid();
-    if (pid === undefined) throw new Error('running relay is not a muxr relay with a valid pid file; leaving it untouched');
+    if (pid === undefined) throw new Error('relay pid does not belong to a muxr relay process; leaving it untouched');
     try { process.kill(pid, 'SIGTERM'); }
     catch (cause) {
         if (cause?.code === 'ESRCH') return { state, health, port };

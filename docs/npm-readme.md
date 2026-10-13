@@ -75,7 +75,7 @@ muxr pair
 This writes owner-only `selfhost.json` and relay authority under `MUXR_HOME`
 (default `~/.muxr`), with no prompts, detached relay, ingress changes, or service
 installation. Repeating the same command preserves the files and pairing identity;
-a different existing configuration is refused (use `muxr setup` to change it).
+a machine already set up for Tailscale is final for now: its address and port cannot be changed yet, and no setup command replaces it.
 The port defaults to 8792 or `MUXR_RELAY_PORT`; plain `ws://` must advertise that
 same port. The advertise name must resolve to a Tailscale IPv4 address
 (`100.64.0.0/10`), or use that address directly. `muxr up` owns its relay child
