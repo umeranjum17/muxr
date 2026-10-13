@@ -1,5 +1,5 @@
 import { useAuth } from '@/account/ui';
-import { ScrollView, Text, View, Platform } from 'react-native';
+import { ScrollView, Text, View, Platform, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as React from 'react';
 import { StyleSheet } from 'react-native-unistyles';
@@ -8,6 +8,7 @@ import { MainView, FirstRunConnection, TailscaleStep } from '@/herd/ui';
 import { HomeWebInstallInvite } from '@/herd/presentation/HomeFirstRunCards';
 import { LiveCardEmptyBadge } from '@/plans/ui';
 import { Wordmark } from '@/components/Wordmark';
+import { SystemBarBackdrop } from '@/components/SystemBarBackdrop';
 import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/pairing/e2ee';
 import { pairingDeviceNoun } from '@/pairing';
@@ -22,6 +23,7 @@ export default function Home() {
 function NotAuthenticated() {
     const auth = useAuth();
     const insets = useSafeAreaInsets();
+    const { width: windowWidth } = useWindowDimensions();
     const pairing = React.useRef(false);
     const [hasTailscale, setHasTailscale] = React.useState(false);
 
@@ -44,27 +46,39 @@ function NotAuthenticated() {
         }).finally(() => { pairing.current = false; });
     }, [auth]);
 
+    // The halo, its inner pill and the wordmark measure 248pt across at full
+    // size; the hero only has the window minus its own padding. Shrink the
+    // whole mark to fit viewports narrower than that instead of bleeding past
+    // both screen edges. At 312pt and up the scale is 1: unchanged.
+    const markScale = Math.min(1, Math.max(0, (windowWidth - 64) / (148 + 2 * (26 + 24))));
+
     return (
-        <ScrollView
-            style={styles.screen}
-            contentContainerStyle={[styles.content, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24 }]}
-            keyboardShouldPersistTaps="handled"
-        >
-            <View style={styles.hero}>
-                <View style={styles.markHalo} accessibilityLabel="muxr">
-                    <View style={styles.markInner}><Wordmark width={148} /></View>
+        <View style={styles.screen}>
+            <SystemBarBackdrop edge="top" />
+            <ScrollView
+                style={styles.scroll}
+                contentContainerStyle={[styles.content, { paddingTop: 20, paddingBottom: insets.bottom + 24 }]}
+                keyboardShouldPersistTaps="handled"
+            >
+                <View style={styles.hero}>
+                    <View style={[styles.markHalo, { padding: 26 * markScale }]} accessibilityLabel="muxr">
+                        <View style={[styles.markInner, { paddingVertical: 18 * markScale, paddingHorizontal: 24 * markScale }]}>
+                            <Wordmark width={148 * markScale} />
+                        </View>
+                    </View>
+                    <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : `Run your agents from your ${pairingDeviceNoun()}.`}</Text>
+                    <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
                 </View>
-                <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : `Run your agents from your ${pairingDeviceNoun()}.`}</Text>
-                <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
-            </View>
-            {hasTailscale ? <FirstRunConnection /> : <TailscaleStep onReady={() => setHasTailscale(true)} />}
-            <HomeWebInstallInvite variant="firstRun" />
-        </ScrollView>
+                {hasTailscale ? <FirstRunConnection /> : <TailscaleStep onReady={() => setHasTailscale(true)} />}
+                <HomeWebInstallInvite variant="firstRun" />
+            </ScrollView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create((theme) => ({
     screen: { flex: 1 },
+    scroll: { flex: 1 },
     content: {
         flexGrow: 1,
         justifyContent: 'center',

@@ -470,14 +470,14 @@ export default function PairScreen() {
             // without shrinking the aware scroll.
             <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
                 {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
-                <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
+                <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" wrap disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
         {!sshRoute && manualForm && showField && (
             // Same anchored bar as the SSH route: the manual Connect must stay
             // above the keyboard on short viewports.
             <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
-                <ActionButton title="Connect" icon="link-outline" variant={canScan ? 'secondary' : 'primary'} disabled={!pairingValue.trim()} onPress={connectManual} />
+                <ActionButton title="Connect" icon="link-outline" variant={canScan ? 'secondary' : 'primary'} wrap disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
         </View>
