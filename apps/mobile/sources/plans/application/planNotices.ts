@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 
 /** A short confirmation ("Added Work", "Moved to Work", "Started on Work").
- *  The overlay floats it on every screen but Accounts, so a notice that never
- *  clears sits over the terminal covering the agent's output: every notice
- *  clears by itself after a few seconds, like the other app toasts, while a
- *  tap or the next notice still clears it sooner. */
+ *  It is rendered only on the Accounts screen, in the list's own layout
+ *  flow, so it never floats over an agent terminal. Every notice clears by
+ *  itself after a few seconds, like the other app toasts, while a tap or
+ *  the next notice still clears it sooner. */
 export interface PlanNotice {
     title: string;
     detail: string;
@@ -34,18 +34,9 @@ export function showNotice(title: string, detail: string): void {
     }, NOTICE_MS);
 }
 
-/** A tap on the notice clears it at once; its timer then finds nothing. */
+/** Clears the notice at once: a tap on it, or the computer's connection
+ *  changing under it. Its timer then finds nothing. */
 export function dismissNotice(): void {
-    if (noticeTimer !== null) {
-        clearTimeout(noticeTimer);
-        noticeTimer = null;
-    }
-    useNotice.setState({ notice: null });
-}
-
-/** Leaving the computer's accounts (or signing out of them) drops any notice
- *  with them; a pending timer then finds nothing. */
-export function clearNotice(): void {
     if (noticeTimer !== null) {
         clearTimeout(noticeTimer);
         noticeTimer = null;

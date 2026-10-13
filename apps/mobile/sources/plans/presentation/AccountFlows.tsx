@@ -13,7 +13,7 @@ import { navigateToSession } from '@/herd';
 import { Modal } from '@/modal';
 import { AUTO, nameSuggestions, providerEntry, providerForAgent, providerName, resolvedAccountNames, runningOn, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, refreshPlans, usePlansStore, type PlanConnection } from '../application/plansStore';
-import { clearNotice, dismissNotice, showNotice, useNotice } from '../application/planNotices';
+import { dismissNotice, showNotice, useNotice } from '../application/planNotices';
 import { agentAccount, cancelSignIn, planFailure, renameAccount, signInState, startSignIn } from '../application/plansApi';
 import { GhostButton, Note, Pill, PrimaryButton, SheetLede, SheetTitle, Strong, styles as parts } from './accountParts';
 
@@ -38,7 +38,7 @@ usePlansStore.subscribe((state, previous) => {
     if (state.connection === previous.connection) return;
     opening = null;
     useFlows.setState({ adding: null, pending: null, naming: null, landed: null });
-    clearNotice();
+    dismissNotice();
 });
 
 const seen = createStore();
@@ -410,18 +410,16 @@ export function NameAccountSheet() {
 
 const LANDED_MS = 4_000;
 
-/** A confirmation at the top: "Moved to Work", "Added Work", "Started on
- *  Work". It reads the app theme it is shown in, so changing the theme while it
- *  is up repaints it rather than leaving it in the palette it arrived with, and
- *  it clears by itself after a few seconds; a tap or the next notice clears it
- *  sooner. It carries its own surface and lets touches past everything but its
- *  own text, so it neither fights the screen under it nor hides one: only the
- *  text dismisses on tap, and every other tap falls through to the terminal
- *  beneath. `inline` puts it in the screen's own layout flow, so on the
- *  Accounts list it pushes the rows down instead of floating over the first
- *  one; everywhere else it floats under the header. It wraps to the full
- *  message at any text size, never clipping the account name. */
-export function Notice({ top, inline = false }: { top?: number; inline?: boolean }) {
+/** A confirmation at the top of the Accounts list: "Moved to Work",
+ *  "Added Work", "Started on Work". It sits in the list's own layout flow,
+ *  pushing the rows down instead of floating over them, and it is rendered
+ *  nowhere else, so it never covers an agent terminal. It reads the app
+ *  theme it is shown in, so changing the theme while it is up repaints it
+ *  rather than leaving it in the palette it arrived with, and it clears by
+ *  itself after a few seconds; a tap or the next notice clears it sooner.
+ *  It wraps to the full message at any text size, never clipping the
+ *  account name. */
+export function Notice() {
     const { theme } = useUnistyles();
     const notice = useNotice((state) => state.notice);
     if (notice === null) return null;
@@ -429,12 +427,11 @@ export function Notice({ top, inline = false }: { top?: number; inline?: boolean
         <Animated.View
             entering={FadeInUp.duration(180).reduceMotion(ReduceMotion.System)}
             exiting={FadeOutUp.duration(160).reduceMotion(ReduceMotion.System)}
-            style={inline ? [styles.banner, styles.bannerInline] : [styles.banner, styles.bannerOverlay, { top }]}
+            style={[styles.banner, styles.bannerInline]}
             pointerEvents="box-none"
             accessibilityLiveRegion="polite"
         >
-            {/* The mark is paint, not a target: taps on it fall through to the
-              * terminal instead of dying on the banner. */}
+            {/* The mark is paint, not a target. */}
             <View pointerEvents="none">
                 <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
             </View>
@@ -488,11 +485,6 @@ const styles = StyleSheet.create((theme) => ({
         shadowRadius: 15,
         shadowOffset: { width: 0, height: 8 },
         elevation: 10,
-    },
-    bannerOverlay: {
-        position: 'absolute',
-        left: 16,
-        right: 16,
     },
     bannerInline: {
         marginHorizontal: 16,

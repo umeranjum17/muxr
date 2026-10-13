@@ -174,7 +174,7 @@ export function AccountsSettingsScreen() {
 
     return (
         <ItemList ref={listRef}>
-            <Notice inline />
+            <Notice />
             <Text style={styles.lede}>
                 Claude and ChatGPT show once you have more than one account for them; OpenCode shows as soon as you add one. With one Claude or ChatGPT account, muxr works exactly as before.
             </Text>

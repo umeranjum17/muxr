@@ -157,8 +157,8 @@ describe('account notices', () => {
     it('clears itself after a few seconds, and a replacing notice owns its own timer', async () => {
         vi.useFakeTimers();
         try {
-            const { clearNotice, dismissNotice, showNotice, useNotice } = await import('./application/planNotices');
-            clearNotice();
+            const { dismissNotice, showNotice, useNotice } = await import('./application/planNotices');
+            dismissNotice();
             showNotice('Added Demo', 'demo@example.com · OpenCode account');
             expect(useNotice.getState().notice).toMatchObject({ title: 'Added Demo' });
             await vi.advanceTimersByTimeAsync(3_999);
