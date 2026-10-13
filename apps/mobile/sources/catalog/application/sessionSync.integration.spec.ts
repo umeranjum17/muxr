@@ -122,7 +122,7 @@ vi.mock('react-native-mmkv', () => ({
         remove(key: string) { mmkvValues.delete(key); }
     }(),
 }));
-vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { currentState: 'active' } }));
+vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { currentState: 'active', addEventListener: () => ({ remove() {} }) } }));
 vi.mock('expo-localization', () => ({ getLocales: () => [{ languageCode: 'en', languageTag: 'en-US' }] }));
 const installedVersion = vi.hoisted(() => ({ value: '0.1.27' }));
 vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.value }));
@@ -1209,6 +1209,51 @@ describe('session sync flow', () => {
         expect(stale.metadata?.preview).toBeUndefined();
 
         vi.useRealTimers();
+    });
+
+    it('keeps a prompt being typed off the session catalog, and a sent one out of it', async () => {
+        // The same module graph useDraft writes to, even after an earlier resetModules.
+        const { useDraft } = await import('@/hooks/useDraft');
+        const { storage } = await import('@/catalog/store');
+        storage.getState().applySessions([sessionInfoToSession({
+            id: 'agent', cwd: '/work', messageCount: 0, firstMessage: '', agentName: 'Maria', agentStatus: 'idle', promptable: true,
+        })]);
+        expect(storage.getState().sessions.agent).toBeDefined();
+        let type: (text: string) => void = () => undefined;
+        let send: () => void = () => undefined;
+        function Composer() {
+            const [draft, setDraft] = React.useState('');
+            const { clearDraft } = useDraft('agent', draft, setDraft);
+            type = setDraft;
+            send = () => { setDraft(''); clearDraft(); };
+            return null;
+        }
+        let writes = 0;
+        const unsubscribe = storage.subscribe((after, before) => { if (after.sessions !== before.sessions) writes += 1; });
+        let screen: ReturnType<typeof TestRenderer.create> | undefined;
+        await TestRenderer.act(async () => { screen = TestRenderer.create(React.createElement(Composer)); });
+
+        // Every catalog write re-renders the whole app from inside an effect.
+        // Once per keystroke, a phone typing faster than React settles hit
+        // "Maximum update depth exceeded" and lost the agent screen.
+        const prompt = 'Reply in one line: what does add return?';
+        for (let end = 1; end <= prompt.length; end += 1) {
+            await TestRenderer.act(async () => type(prompt.slice(0, end)));
+        }
+        expect(writes).toBe(1);
+
+        // A sent prompt is not a draft to bring back next time.
+        await TestRenderer.act(async () => send());
+        expect(storage.getState().sessions.agent?.draft ?? null).toBeNull();
+
+        // Leaving with an unsent prompt still keeps it. The first character
+        // saves at once; the rest sits in the debounce window, so only the
+        // unmount flush can write the final text.
+        await TestRenderer.act(async () => type('half'));
+        await TestRenderer.act(async () => type('half a thought'));
+        await TestRenderer.act(async () => screen?.unmount());
+        expect(storage.getState().sessions.agent?.draft).toBe('half a thought');
+        unsubscribe();
     });
 
     it('draws the last Home the host confirmed, stale, until the host answers', async () => {
