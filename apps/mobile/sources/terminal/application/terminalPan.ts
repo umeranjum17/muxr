@@ -10,7 +10,8 @@ import { decodeBase64 } from '@/encryption/base64';
  * for a shell is the last line -- so that row is the box's last one. The
  * terminal's own drag reaches the rest: the surface takes the travel while it
  * can move that way, and only what is left scrolls the pane in Herdr. A drag
- * holds the box where the user put it until they type to the pane again.
+ * holds the box where the user put it until they type to the pane, tap Latest
+ * or switch panes.
  *
  * Herdr ends every frame by putting the cursor back (`ESC[row;colH`, then
  * showing or hiding it), so the row comes from the frame itself on both

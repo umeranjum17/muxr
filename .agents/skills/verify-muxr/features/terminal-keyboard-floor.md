@@ -4,10 +4,10 @@ Opening the phone keyboard over an agent never hands its pane fewer than 24
 rows, and a narrow grid (a large font) gets more: rows enough for 900 cells.
 On a short screen the terminal keeps those rows and the box follows the pane's
 cursor: its last row is the agent's prompt, with the newest reply right above
-it. A drag pans the hidden rows into view before it scrolls the pane. OpenCode 1.18 and 1.19 die with a
-bun panic (`Illegal instruction (core dumped)`) on a short grid, and the
-keyboard on the 270 dp reference phone leaves room for 7; with the floor it
-keeps running and answers.
+it. A drag pans the hidden rows into view before it scrolls the pane.
+OpenCode 1.18 and 1.19 die with a bun panic (`Illegal instruction (core
+dumped)`) on a short grid, and the keyboard on the 270 dp reference phone
+leaves room for 7; with the floor it keeps running and answers.
 
 ## Sub-features
 
