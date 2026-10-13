@@ -99,7 +99,7 @@ export function writeSelfhostState(state) {
     atomicWrite(selfhostPath(), `${JSON.stringify(state, null, 2)}\n`);
 }
 
-export { SERVE_OWNED_ERROR };
+export { localRelayBase, SERVE_OWNED_ERROR };
 
 /** The Tailscale options reach shares with the rest of setup: setup owns where the CLI lives (MUXR_TAILSCALE_BIN, the macOS app). */
 export function reachTailscaleOptions() {

@@ -6,7 +6,7 @@ import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, labHerdrSocket, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
-import { localRelayBase } from '../../../scripts/setup/domain/dist/index.js';
+import { localRelayBase } from '../../../scripts/setup/infrastructure/selfhost.mjs';
 import { startHost } from './host.js';
 import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';

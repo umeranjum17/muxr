@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-selfhost-state-'));
 process.env.MUXR_HOME = scratch;
@@ -94,6 +95,7 @@ try {
     assert.throws(() => configure(['--advertise', 'https://cloud.example.ts.net', '--port', String(port)]), /root ws:\/\/ or wss:\/\//);
     assert.throws(() => configure(['--advertise', `ws://100.127.255.253:${port}`, '--port', String(port)]), /cannot replace an existing connection/);
     assert.throws(() => configure(['--advertise', `ws://192.0.2.1:${port}`, '--port', String(port)]), /Tailscale IPv4 address/);
+    assert.throws(() => execFileSync(process.execPath, [cli, 'self-host', '--tunnel'], { env: environment, encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] }), /set up for Tailscale only/);
     assert.equal(readFileSync(path, 'utf8') === before, true, 'refused commands modified pairing state');
 
     // The foreground unit stays alive with no relay while its persisted
@@ -129,9 +131,9 @@ try {
     }), /serves plain ws:\/\/ on the tailnet address/);
     assert.equal(existsSync(join(secureHome, 'selfhost.json')), false, 'a refused wss advertise wrote state');
 
-    // Re-running setup on a recorded private bind must reuse the relay it already
-    // runs: no --advertise, no Tailscale probe, no second relay, bind unchanged.
-    // 127.0.0.2 stands in for a tailnet address, which CI hosts do not have.
+    // A recorded non-public bind is reused by its owned relay: no second spawn.
+    // 127.0.0.2 stands in for a tailnet address, which CI hosts do not have, and
+    // a foreign listener on another loopback address must not be trusted.
     const rerunHome = join(scratch, 'private-rerun');
     mkdirSync(rerunHome, { mode: 0o700 });
     const rerunProbe = createServer();
@@ -148,13 +150,19 @@ try {
     const rerunHealth = async () => (await fetch(`http://127.0.0.2:${rerunPort}/health`, { signal: AbortSignal.timeout(2_000) })).json();
     try {
         await ensureSelfhostRelay(rerunPort, undefined, '127.0.0.2');
-        const first = await rerunHealth();
-        assert.equal(await startSelfHost(['--relay-only', '--port', String(rerunPort)]), 0);
-        const second = await rerunHealth();
-        assert.ok(second.uptimeMs >= first.uptimeMs, 'setup restarted the recorded private relay');
-        const reran = JSON.parse(readFileSync(rerunState, 'utf8'));
-        assert.equal(reran.bindHost, '127.0.0.2');
-        assert.equal(reran.relayUrl, `ws://127.0.0.2:${rerunPort}`);
+        const ownerPidFile = join(rerunHome, 'relay', 'relay.pid');
+        const ownerPid = readFileSync(ownerPidFile, 'utf8');
+        await ensureSelfhostRelay(rerunPort, undefined, '127.0.0.2');
+        assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'setup spawned a second relay');
+        const foreign = createHttpServer((request, response) => response.end(JSON.stringify({ ok: true })));
+        await new Promise((resolve) => foreign.listen(rerunPort, '127.0.0.3', resolve));
+        try {
+            await assert.rejects(ensureSelfhostRelay(rerunPort, undefined, '127.0.0.3'), /is not a running muxr relay/);
+        } finally {
+            await new Promise((resolve) => foreign.close(resolve));
+        }
+        assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'foreign listener replaced the owned relay');
+        assert.equal(JSON.parse(readFileSync(rerunState, 'utf8')).bindHost, '127.0.0.2');
     } finally {
         await stopOwnedSelfhostRelay();
         process.env.MUXR_HOME = scratch;

@@ -20,6 +20,7 @@ import {
     flagValue,
     lanAddress,
     publicRelayUrl,
+    run,
     stateDir,
 } from './runtime.mjs';
 import { daemonIsRunning } from './daemon.mjs';
@@ -167,6 +168,17 @@ export function relayDiscovery(state) {
     } : undefined;
 }
 
+function ownedRelayAt(port, host) {
+    const state = readSelfhostState();
+    if (state?.bindHost !== host || state.relayPort !== port) return false;
+    const pidPath = join(stateDir(), 'relay', 'relay.pid');
+    const pid = Number(existsSync(pidPath) ? readFileSync(pidPath, 'utf8').trim() : '');
+    if (!Number.isSafeInteger(pid) || pid <= 1) return false;
+    const command = run(env('MUXR_PS_BIN') || 'ps', ['-ww', '-p', String(pid), '-o', 'command=']);
+    const relayCommand = command.ok ? command.stdout.trim() : '';
+    return /(?:^|\s)\S*\/relay\.js(?:\s|$)/.test(relayCommand) || relayCommand.includes(packedRelayEntry());
+}
+
 export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOrigin, discovery) {
     const base = localRelayBase(port, host);
     let health;
@@ -180,6 +192,9 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
     }
     const healthy = health?.ok === true;
     const dataDir = join(stateDir(), 'relay');
+    if (healthy && base !== localRelayBase(port) && !ownedRelayAt(port, host)) {
+        throw new Error(`port ${port} on ${host} answers but is not a running muxr relay for this state; stop the process using it or rerun setup with --port <free-port>`);
+    }
     if (healthy) {
         // A ghost relay (old process, deleted dataDir) answers health but has no
         // mint secret on disk — refuse rather than failing mysteriously later.

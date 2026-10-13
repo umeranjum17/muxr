@@ -62,7 +62,7 @@ commands below run inside the container, never on the desktop.
    `MUXR_MODE=selfhost muxr up` and then `muxr pair` in another shell.
 3. **Private, idempotent state:** verify `selfhost.json` and `relay/mint-secret`
    are owner-only files, with relay port/URL and the resolved tailnet IPv4 bind
-   (`100.64.0.0/10`). Plain `ws://` stores private mode; `wss://` leaves it unset. Never print
+   (`100.64.0.0/10`). Only plain `ws://` is accepted and stores private mode; `wss://` is refused. Never print
    keys/tokens. Hash both files and record mtimes inside the container; rerun
    the identical command and assert those values are unchanged. Check the
    container process list and private service directories: no relay, host,
