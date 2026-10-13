@@ -131,7 +131,7 @@ verification exception). Plugin and agent changes sync live.
 ## Maintenance
 
 ```bash
-muxr update                    # check, confirm, update, and restart
+muxr update                    # check, confirm, update, and restart (not on headless Tailscale setups)
 muxr update --check            # check without changing anything
 muxr doctor                    # current setup health and checked repairs
 muxr diagnostics               # bounded redacted host/client history

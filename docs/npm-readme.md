@@ -60,10 +60,11 @@ muxr state lives under `~/.muxr` unless `MUXR_HOME` is set. Use `muxr setup --dr
 ```text
 muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]
                [--port <n>] [--relay-only|--host-only] [--web] [--yes]
+muxr self-host --configure-only --advertise <ws-url> [--port <n>]
 ```
 
-For a headless cloud machine with Herdr already installed and Tailscale already
-connected, configure without starting anything:
+For a headless cloud machine with Herdr and Tailscale already set up, configure
+without starting anything, then run the host in the foreground:
 
 ```bash
 muxr self-host --configure-only --advertise ws://cloud.example.ts.net:38742 --port 38742
@@ -72,19 +73,8 @@ MUXR_MODE=selfhost muxr up
 muxr pair
 ```
 
-This writes owner-only `selfhost.json` and relay authority under `MUXR_HOME`
-(default `~/.muxr`), with no prompts, detached relay, ingress changes, or service
-installation. Repeating the same command preserves the files and pairing identity;
-a machine already set up for Tailscale is final for now: its address and port cannot be changed yet, and no setup command replaces it.
-The port defaults to 8792 or `MUXR_RELAY_PORT`; plain `ws://` must advertise that
-same port. The advertise name must resolve to a Tailscale IPv4 address
-(`100.64.0.0/10`), or use that address directly. `muxr up` owns its relay child
-and binds only that address. If it is not assigned yet, startup logs
-`waiting for Tailscale address …` and retries without a restart or public-bind
-fallback. Keep the machine firewall as a second guard. This command does not
-install Herdr or Tailscale. For systemd, use `Environment=MUXR_MODE=selfhost` with your
-existing `ExecStart=muxr up`, using the same user and `MUXR_HOME` as configuration.
-`muxr pair` prints the short-lived offer after the foreground host is running.
+Details, including the systemd unit and what waits or refuses, are in the
+[headless cloud machine guide](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#headless-cloud-machine-tailscale-only).
 
 See the [self-hosting guide](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone) for route requirements and the recommendation policy. The relay cannot read session or terminal content; see the [pairing and security model](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#pairing-security-model) for transport details.
 
