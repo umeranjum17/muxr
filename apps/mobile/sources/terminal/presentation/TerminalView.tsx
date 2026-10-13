@@ -57,6 +57,12 @@ export interface TerminalViewProps {
     onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
     /** The rendered row height, so overlays can end on a terminal line. */
     onRowHeight?: (height: number) => void;
+    /**
+     * Drag travel in herdr's direction, offered to the screen first: a grid
+     * taller than its box pans before the pane scrolls. Returns what is left
+     * for the pane.
+     */
+    panBy?: (lines: number) => number;
 }
 
 export type TerminalViewControls = {
@@ -399,7 +405,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => {
-                    if (!scrollStoppedRef.current) scrollGate.queue(-nativeEvent.rows);
+                    if (scrollStoppedRef.current) return;
+                    const lines = props.panBy?.(-nativeEvent.rows) ?? -nativeEvent.rows;
+                    if (lines !== 0) scrollGate.queue(lines);
                 }}
                 onPinch={pinch}
                 onOpenLink={({ nativeEvent }) => {
