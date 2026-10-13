@@ -38,7 +38,8 @@ export function RouteSwitcher(props: { onFastPairing: () => void }) {
 export function FirstRunConnection() {
     const router = useRouter();
     const styles = stylesheet;
-    const { fontScale } = useWindowDimensions();
+    const { width, fontScale } = useWindowDimensions();
+    const compact = width / fontScale < 200;
     const [linkValue, setLinkValue] = React.useState('');
     const [moreWaysOpen, setMoreWaysOpen] = React.useState(false);
     const browser = Platform.OS === 'web';
@@ -58,7 +59,7 @@ export function FirstRunConnection() {
                 <Text style={styles.title}>Let’s connect</Text>
                 <Text style={styles.subtitle}>Use the machine you already have.</Text>
             </View>
-            <View style={styles.card}>
+            <View style={[styles.card, compact && styles.cardCompact]}>
                 <View style={styles.cardHead}>
                     <Text style={styles.cardTitle}>Have a connect link?</Text>
                     <View style={styles.badge}>
@@ -72,17 +73,17 @@ export function FirstRunConnection() {
                     autoCorrect={false}
                     keyboardType="url"
                     returnKeyType="go"
-                    placeholder="Paste link"
+                    placeholder={compact ? 'Paste' : 'Paste link'}
                     placeholderTextColor={styles.inputPlaceholder.color}
                     style={styles.input}
                     value={linkValue}
                     onChangeText={setLinkValue}
                     onSubmitEditing={connectLink}
                 />
-                <ActionButton title="Connect" icon="link-outline" wrap onPress={connectLink} />
+                <ActionButton title="Connect" icon={compact ? undefined : 'link-outline'} wrap onPress={connectLink} />
                 {canScan ? (
                     <>
-                        <ActionButton variant="secondary" title="Scan the QR" icon="qr-code-outline" wrap onPress={() => { void scanPairQr(); }} />
+                        <ActionButton variant="secondary" title="Scan the QR" icon={compact ? undefined : 'qr-code-outline'} wrap onPress={() => { void scanPairQr(); }} />
                         <Text style={styles.hint}>Or scan its QR in the app. You’ll compare two words before access is granted.</Text>
                     </>
                 ) : (
@@ -186,6 +187,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         padding: 14,
         gap: 10,
     },
+    cardCompact: { paddingHorizontal: 8 },
     cardHead: {
         flexDirection: 'row',
         alignItems: 'center',
