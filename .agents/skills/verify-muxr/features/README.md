@@ -163,7 +163,8 @@ user-visible behavior, then exactly four H2 sections in this order:
   wraps inside the screen (uiautomator bounds, no sideways scroller) and Copy
   still hands over the one-line command.
 - [Check the self-host](./selfhost-health.md) — relay `/health`, version
-  identity, and the owner-only hosts listing.
+  identity, the owner-only hosts listing, and clean-container configure-only
+  foreground startup with native tailnet pairing.
 - [Keep a shell request's backgrounded child from outliving it](./host-shell-process-group.md) —
   real `machine.shell` over a fake-Herdr stack: prompt reply, backgrounded child
   reaped, and the host unit's memory and process count flat across the run.

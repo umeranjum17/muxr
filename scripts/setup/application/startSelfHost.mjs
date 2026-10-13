@@ -29,8 +29,10 @@ import {
     resolveAdvertise,
 } from '../infrastructure/selfhostRelay.mjs';
 import { mintDeviceGrant } from './pairDevice.mjs';
+import { configureSelfHost } from './configureSelfHost.mjs';
 
 export async function startSelfHost(args = []) {
+    if (args.includes('--configure-only')) return configureSelfHost(args);
     let pendingIngress;
     let envPort;
     try {

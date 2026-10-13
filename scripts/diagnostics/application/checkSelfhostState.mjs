@@ -7,7 +7,9 @@
  * promptly instead of leaving setup waiting forever.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
@@ -46,4 +48,52 @@ try {
     await new Promise((resolve) => blackhole.close(resolve));
 }
 
-process.stdout.write('selfhost state and stalled relay checks passed\n');
+// A headless operator configures while the port is occupied, then hands the
+// private state to a foreground host. Configuration must never probe or spawn
+// the relay, and repeat invocations must preserve bytes, mtimes and identity.
+const configuredHome = join(scratch, 'headless');
+mkdirSync(configuredHome, { mode: 0o700 });
+const cli = fileURLToPath(new URL('../../cli.mjs', import.meta.url));
+const environment = { ...process.env, HOME: configuredHome, MUXR_HOME: configuredHome };
+delete environment.MUXR_RELAY_PORT;
+const configure = (args) => execFileSync(process.execPath, [cli, 'self-host', '--configure-only', ...args], {
+    env: environment, encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'],
+});
+const occupied = createServer((socket) => socket.destroy());
+await new Promise((resolve) => occupied.listen(0, '127.0.0.1', resolve));
+try {
+    const port = occupied.address().port;
+    const args = ['--advertise', `ws://cloud.example.ts.net:${port}`, '--port', String(port)];
+    const output = configure(args);
+    assert.match(output, /no relay or service started/);
+    assert.match(output, /MUXR_MODE=selfhost muxr up/);
+    assert.match(output, /muxr pair/);
+    const path = join(configuredHome, 'selfhost.json');
+    const mintPath = join(configuredHome, 'relay', 'mint-secret');
+    const before = readFileSync(path, 'utf8');
+    const state = JSON.parse(before);
+    assert.equal(state.bindHost, '0.0.0.0');
+    assert.equal(state.relayPort, port);
+    assert.equal(state.relayUrl, `ws://cloud.example.ts.net:${port}`);
+    assert.ok(state.machine.id && state.machine.crypto.signingSecretKey);
+    assert.equal(state.mintSecret, JSON.parse(readFileSync(mintPath, 'utf8')));
+    const stateStat = statSync(path);
+    const mintStat = statSync(mintPath);
+    assert.equal(stateStat.mode & 0o777, 0o600);
+    assert.equal(mintStat.mode & 0o777, 0o600);
+    configure(args);
+    assert.equal(readFileSync(path, 'utf8'), before);
+    assert.equal(statSync(path).mtimeMs, stateStat.mtimeMs);
+    assert.equal(statSync(mintPath).mtimeMs, mintStat.mtimeMs);
+    assert.equal(existsSync(join(configuredHome, 'logs')), false, 'configuration started a relay');
+    assert.equal(existsSync(join(configuredHome, '.config', 'systemd')), false, 'configuration installed a service');
+    assert.throws(() => configure([...args, '--tunnel']), /accepts only --advertise and --port/);
+    assert.throws(() => configure(['--port', String(port)]), /requires --advertise/);
+    assert.throws(() => configure(['--advertise', 'https://cloud.example.ts.net', '--port', String(port)]), /root ws:\/\/ or wss:\/\//);
+    assert.throws(() => configure(['--advertise', `ws://other.example.ts.net:${port}`, '--port', String(port)]), /cannot replace an existing connection/);
+    assert.equal(readFileSync(path, 'utf8'), before, 'refused commands modified pairing state');
+} finally {
+    await new Promise((resolve) => occupied.close(resolve));
+    rmSync(scratch, { recursive: true, force: true });
+}
+process.stdout.write('selfhost state, stalled relay and headless configuration checks passed\n');

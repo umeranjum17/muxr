@@ -62,6 +62,27 @@ muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]
                [--port <n>] [--relay-only|--host-only] [--web] [--yes]
 ```
 
+For a headless cloud machine with Herdr already installed and Tailscale already
+connected, configure without starting anything:
+
+```bash
+muxr self-host --configure-only --advertise ws://cloud.example.ts.net:38742 --port 38742
+MUXR_MODE=selfhost muxr up
+# In another shell, using the same HOME and MUXR_HOME:
+muxr pair
+```
+
+This writes owner-only `selfhost.json` and relay authority under `MUXR_HOME`
+(default `~/.muxr`), with no prompts, detached relay, ingress changes, or service
+installation. Repeating the same command preserves the files and pairing identity;
+a different existing configuration is refused (use `muxr setup` to change it).
+The port defaults to 8792 or `MUXR_RELAY_PORT`; plain `ws://` must advertise that
+same port. `muxr up` owns its relay child and binds `0.0.0.0`; restrict inbound
+access to the tailnet with your machine's firewall. This command does not install
+Herdr or Tailscale. For systemd, use `Environment=MUXR_MODE=selfhost` with your
+existing `ExecStart=muxr up`, using the same user and `MUXR_HOME` as configuration.
+`muxr pair` prints the short-lived offer after the foreground host is running.
+
 See the [self-hosting guide](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone) for route requirements and the recommendation policy. The relay cannot read session or terminal content; see the [pairing and security model](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#pairing-security-model) for transport details.
 
 For a shared VPS relay, prefer interactive `muxr`. Automation equivalents are:
