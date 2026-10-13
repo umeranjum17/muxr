@@ -6,7 +6,7 @@
  * launch descriptor opens its sign-in tab and starts its agents. No kit: no
  * folderVar, no move, no readiness probe, billing unknown.
  */
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -92,6 +92,38 @@ export function opencodeGoSignedIn(env: Record<string, string | undefined>): boo
     } catch {
         return false;
     }
+}
+
+/**
+ * OpenCode Go agents start on Muse Spark 1.3 Contributor: without a model
+ * OpenCode falls back to its own default (gpt-5.6-luna), which costs the first
+ * reply a manual model switch. It goes in the account's own OpenCode config,
+ * which 1.x and 2.x both read (2.x has no `--model`), and only when no config
+ * there names a model, so a model the user set stands. Written at launch, so
+ * an account signed in before this existed gets it too.
+ */
+const OPENCODE_GO_DEFAULT_MODEL = 'opencode-go/muse-spark-1.3-contributor';
+
+export function defaultOpencodeGoModel(env: Record<string, string | undefined>): void {
+    if (env.XDG_CONFIG_HOME === undefined || !opencodeGoSignedIn(env)) return;
+    const dir = join(env.XDG_CONFIG_HOME, 'opencode');
+    let target = join(dir, 'opencode.json');
+    let config: Record<string, unknown> = {};
+    // OpenCode's global config files, merged in this order; it seeds opencode.jsonc itself.
+    for (const name of ['config.json', 'opencode.json', 'opencode.jsonc']) {
+        let parsed: unknown;
+        try { parsed = JSON.parse(readFileSync(join(dir, name), 'utf8')); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+            // ponytail: a file with JSONC comments is left alone (OpenCode's default then), parse JSONC if users hit it.
+            return;
+        }
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed) || 'model' in parsed) return;
+        target = join(dir, name);
+        config = parsed as Record<string, unknown>;
+    }
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(target, `${JSON.stringify({ ...config, model: OPENCODE_GO_DEFAULT_MODEL }, null, 2)}\n`, { mode: 0o600 });
 }
 
 /** A fresh account id with its own private root. */

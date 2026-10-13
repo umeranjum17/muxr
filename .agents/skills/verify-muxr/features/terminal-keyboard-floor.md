@@ -66,7 +66,10 @@ keyboard up, and at font 20 its top rows could not be reached.
   behind it, a bare pty: at 37 columns OpenCode survives 22 rows and panics at
   every height from 21 down to 12, even when launched at that size. Narrower
   needs more: 31 x 22, 29 x 24, 26 x 24 and 22 x 24 panic; 31 x 26, 29 x 32,
-  26 x 30 and 22 x 40 live.
+  26 x 30 and 22 x 40 live. Those heights move with content: 1.x dies whenever
+  its home screen is taller than the grid, so a long folder path or its two-line
+  "/update to upgrade to OpenCode 2.0" notice crashes 37 x 24 and 37 x 27 too.
+  OpenCode 2.x does not crash at any of these sizes.
 - Herdr's `pane list` gives a pane's rows as `scroll.viewport_rows`.
 - The row the box follows is the cursor Herdr puts back at the end of every
   frame (`ESC[row;colH`, then `ESC[?25h`); a frame with the cursor hidden

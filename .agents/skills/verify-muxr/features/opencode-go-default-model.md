@@ -9,12 +9,16 @@ no manual model switch. The phone shows no picker for this; the footer reads
 ## Sub-features
 
 - `opencode-go-default-model` a new OpenCode agent started from the phone on
-  a signed-in OpenCode Go account carries `--model
-  opencode-go/muse-spark-1.3-contributor`; its footer names Muse Spark 1.3
-  Contributor and its first reply comes from that model.
+  a signed-in OpenCode Go account opens on
+  `opencode-go/muse-spark-1.3-contributor`, set as `model` in the account's own
+  OpenCode config (`<account>/.config/opencode/opencode.jsonc` or
+  `opencode.json`) when no config there names a model. Its footer names Muse
+  Spark 1.3 Contributor and its first reply comes from that model, on OpenCode
+  1.19 and 2.x alike (2.x has no `--model` flag and exits on it).
+- `opencode-go-user-model-kept` a model the user set in that config stands.
 - `opencode-go-other-launches-unchanged` every other kind, the sign-in shell,
   and an OpenCode start with no plan account launch exactly as before (no
-  `--model` args).
+  args, no config written).
 
 ## How to get to it (user POV)
 
@@ -26,7 +30,7 @@ no manual model switch. The phone shows no picker for this; the footer reads
 Preconditions:
 
 - `yarn build`; a real Herdr lab session of your own (never `default`), the
-  real `opencode` 1.18.x binary first on the lab `PATH`; a release APK on an
+  real `opencode` binary first on the lab `PATH`; a release APK on an
   emulator you started yourself (`-memory 2048 -cores 2 -no-audio`,
   density 420 — at density 640 opening the keyboard crashes OpenCode 1.18.x).
   A host built before the fix starts agents on Luna; the fixed host starts
@@ -48,9 +52,11 @@ Preconditions:
    fix it reads `GPT-5.6 Luna · OpenCode Go`; after the fix `Muse Spark 1.3
    Contributor · OpenCode Go`. Ask for one short reply from the agent screen
    and capture footer plus reply.
-4. The start-command unit is covered by the launch flow test asserting the
-   `agent.start` args (`--model opencode-go/muse-spark-1.3-contributor` only
-   for an OpenCode start with a plan account).
+4. The launch flow test covers the config write, the kept user model and that
+   no launch passes args.
+5. OpenCode 2.x: sign the account in on 1.19 first (2.x carries that sign-in
+   over; a fresh 2.x sign-in lives only in its `opencode.db`, which muxr does
+   not read yet), then put 2.x first on the lab `PATH` and start agents.
 
 ## Gotchas
 
