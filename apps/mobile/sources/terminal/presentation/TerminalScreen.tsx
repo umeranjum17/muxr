@@ -372,9 +372,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // overlay stops at the keyboard's top edge, not at the rails' own bottom.
     const ringOverlayBottom = useAnimatedStyle(() => ({ bottom: settledRaise.value > 0 ? settledRaise.value + insets.bottom : 0 }), [insets.bottom]);
     const [choicesVisible, setChoicesVisible] = React.useState(false);
+    // A renderer keeps the grid it attached at, so one measured on the first
+    // estimate can be taller than the surface and grows it: pan the rows it drew.
+    const drawnGridHeight = drawnRowHeight !== undefined && grid !== undefined ? grid.rows * drawnRowHeight : 0;
+    const pannedHeight = Math.max(surfaceHeight, drawnGridHeight);
     React.useEffect(() => {
-        pan.layout({ surfaceHeight, boxHeight: terminalBox?.height ?? 0, rowHeight: terminalRowHeight, holdBottom: choicesVisible });
-    }, [pan, surfaceHeight, terminalBox?.height, terminalRowHeight, choicesVisible]);
+        pan.layout({ surfaceHeight: pannedHeight, boxHeight: terminalBox?.height ?? 0, rowHeight: terminalRowHeight, holdBottom: choicesVisible });
+    }, [pan, pannedHeight, terminalBox?.height, terminalRowHeight, choicesVisible]);
     // The ring is hosted by the screen, never by the terminal renderer. It owns
     // its own open state so that opening it re-renders one small component
     // rather than this whole screen on the frame the bloom starts; the screen
