@@ -309,7 +309,7 @@ export default function PairScreen() {
                         <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
                     </View>
                 )}
-                <Text style={styles.machineName} numberOfLines={2}>
+                <Text style={styles.machineName}>
                     {state === undefined
                         ? 'Securely pair this device'
                         : state.machineName ?? 'Securely pair this device'}
@@ -516,6 +516,9 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.text,
     },
     machineName: {
+        // Stretch so the whole title wraps inside the hero at the largest text,
+        // never an ellipsized line measured wider than the screen.
+        alignSelf: 'stretch',
         ...Typography.default('semiBold'),
         fontSize: 26,
         lineHeight: 32,
