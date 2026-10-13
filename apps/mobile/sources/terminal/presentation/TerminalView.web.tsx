@@ -46,6 +46,7 @@ export interface TerminalViewProps {
     onRowHeight?: (height: number) => void;
     /** Same contract as the native view: a taller grid pans before the pane scrolls. */
     panBy?: (lines: number) => number;
+    onFrame?: (base64: string) => void;
 }
 
 // Injected when this lazy chunk loads, before any terminal measures its grid.
@@ -94,6 +95,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const panByRef = React.useRef(props.panBy);
     panByRef.current = props.panBy;
+    const onFrameRef = React.useRef(props.onFrame);
+    onFrameRef.current = props.onFrame;
     const firstFrameCallback = React.useRef(props.onFirstFrameWritten);
     firstFrameCallback.current = props.onFirstFrameWritten;
     // Quiet, immediate confirmation for the long-press link copy.
@@ -314,6 +317,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 };
                 opened.onData((base64) => {
                     recordTerminalOutput(sessionId, base64);
+                    onFrameRef.current?.(base64);
                     pending.push({ data: base64, ready: readyForFrame });
                     if (!frameScheduled) {
                         frameScheduled = true;

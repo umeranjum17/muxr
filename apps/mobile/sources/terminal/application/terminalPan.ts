@@ -17,8 +17,12 @@ import { decodeBase64 } from '@/encryption/base64';
  * renderers; the native one exposes no cursor of its own.
  */
 
-/** Herdr's frame trailer: the cursor's 1-based row and column, then its visibility. */
-const CURSOR_TRAILER = /\x1b\[(\d+);\d+H\x1b\[\?25[hl]$/;
+/**
+ * Herdr's frame trailer: the cursor's 1-based row and column, then the cursor
+ * shown. A hidden cursor is parked, not where the program writes, so its frame
+ * leaves the last shown row in place.
+ */
+const CURSOR_TRAILER = /\x1b\[(\d+);\d+H\x1b\[\?25h$/;
 /** The trailer is a few dozen bytes; decode only the end of a frame. */
 const TAIL_BASE64_CHARS = 64;
 
@@ -40,7 +44,7 @@ export interface TerminalPan {
      * surface could not take, for the pane's own scroll.
      */
     pan: (lines: number) => number;
-    /** The user typed to the pane: follow its cursor again. */
+    /** The user typed to the pane, or another pane opened: follow its cursor again. */
     follow: () => void;
 }
 
@@ -88,6 +92,9 @@ export function createTerminalPan(setOffset: (offset: number) => void): Terminal
             show();
         },
         layout(next) {
+            // A question's answers appearing bring the bottom back once; a
+            // later drag still pans.
+            if (next.holdBottom === true && layout.holdBottom !== true) held = undefined;
             layout = next;
             if (held !== undefined) held = clamp(held);
             show();

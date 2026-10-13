@@ -453,7 +453,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         pan.follow();
         if (channel !== undefined) {
             let hostHasScrollback = false;
-            const stopFrames = channel.onData(pan.frame);
             const stopBottom = channel.onBottomState((state) => {
                 setCatchingUp(state === 'catching-up');
                 if (state === 'complete') {
@@ -481,7 +480,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 sendBytes(base64);
             };
             stopWatchingChannel.current = () => {
-                stopFrames();
                 stopBottom();
                 stopScrollState();
                 Object.assign(channel, { scroll, sendText, sendBytes });
@@ -1555,7 +1553,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             status={status}
                             onNothingThere={nothingToSwipeTo}
                             onSwitch={switchAgent}
-                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} panBy={panBy} />}
+                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} panBy={panBy} onFrame={pan.frame} />}
                         >
                         {linkMenu !== null && terminalBox !== undefined && terminalLinkCardFits(terminalBox.height, linkActions.length) && (
                             <TerminalLinkMenu

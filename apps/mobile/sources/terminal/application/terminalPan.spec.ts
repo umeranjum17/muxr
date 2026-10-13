@@ -3,8 +3,8 @@ import { encodeBase64 } from '@/encryption/base64';
 import { createTerminalPan } from './terminalPan';
 
 /** A Herdr diff frame: a synchronized repaint that ends by putting the cursor back. */
-function herdrFrame(text: string, cursorRow: number): string {
-    const bytes = `\x1b[?2026h\x1b[?25l\x1b[${cursorRow};1H${text}\x1b[0m\x1b[${cursorRow};3H\x1b[?25h\x1b[?2026l\x1b[${cursorRow};3H\x1b[?25h`;
+function herdrFrame(text: string, cursorRow: number, cursor: 'h' | 'l' = 'h'): string {
+    const bytes = `\x1b[?2026h\x1b[?25l\x1b[${cursorRow};1H${text}\x1b[0m\x1b[${cursorRow};3H\x1b[?25${cursor}\x1b[?2026l\x1b[${cursorRow};3H\x1b[?25${cursor}`;
     return encodeBase64(new TextEncoder().encode(bytes));
 }
 
@@ -38,8 +38,19 @@ describe('a grid taller than its box', () => {
         pan.follow();
         expect(offset).toBe(25 * row + 1 - 15 * row);
 
+        // A hidden cursor is parked, not where the program writes.
+        pan.frame(herdrFrame('', 3, 'l'));
+        expect(offset).toBe(25 * row + 1 - 15 * row);
+
         // Forward travel shows the bottom rows first, then scrolls the pane.
         expect(pan.pan(-12)).toBe(-2);
+        expect(offset).toBe(0);
+
+        // A question's answers sit on the bottom rows: appearing, they bring
+        // the bottom back from wherever the user dragged.
+        expect(pan.pan(5)).toBe(0);
+        expect(offset).toBe(5 * row);
+        pan.layout({ surfaceHeight: 25 * row + 1, boxHeight: 7 * row, rowHeight: row, holdBottom: true });
         expect(offset).toBe(0);
 
         // The keyboard closes and the whole grid fits: nothing pans.
