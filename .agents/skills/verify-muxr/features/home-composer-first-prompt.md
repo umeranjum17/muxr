@@ -10,8 +10,8 @@ prompt once and waits for Herdr's receipt that it started a turn
 
 ## Sub-features
 
-- `first-prompt-delivered` a prompt sent from Home reaches a new OpenCode,
-  Claude Code or Codex agent and the agent answers it, with no second send.
+- `first-prompt-delivered` a prompt sent from Home is typed once the new agent
+  is ready and the agent answers it, with no second send (checked on OpenCode).
 - `first-prompt-queued` the agent screen opens at once and shows `Prompt queued`
   (accessibility label `Prompt queued until the agent is ready`) until the
   agent starts its turn; the chip sits in the pane-tabs row, so the terminal
