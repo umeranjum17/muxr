@@ -170,7 +170,6 @@ export async function updateCli(command = {}) {
     const restartMode = installedMode;
     // A tailnet-recorded relay belongs to the foreground `muxr up`; an update never stops, restarts or respawns it.
     const headless = isTailnetIPv4(readSelfhostState()?.bindHost);
-    const relayMode = !headless && (restartMode === 'selfhost' || restartMode === 'relay');
     const install = managed === undefined
         ? npm(['install', '--global', '--ignore-scripts', `${PACKAGE}@${latest}`], 'inherit')
         : reinstallPlugin(managed, `v${latest}`);
@@ -182,6 +181,10 @@ export async function updateCli(command = {}) {
     }
     let relayRestarted = false;
     try {
+        if (headless) {
+            process.stdout.write('Updated. Restart your muxr service to use the new version.\n');
+            return 0;
+        }
         if (restart) {
             if ((await runDaemon(['stop'])) !== 0) throw new Error('host service did not stop');
             // Re-pin the unit's node/CLI paths before starting again: version
@@ -192,12 +195,9 @@ export async function updateCli(command = {}) {
             if ((await runDaemon(['install', ...(restartMode === undefined ? [] : ['--mode', restartMode])])) !== 0) {
                 process.stderr.write('warn: service re-registration was skipped (unit drifted?); run `muxr doctor` before the next reboot\n');
             }
-            if (relayMode) relayRestarted = await stopSelfhostRelayIfRunning();
+            if (restartMode === 'selfhost' || restartMode === 'relay') relayRestarted = await stopSelfhostRelayIfRunning();
             if ((await runDaemon(['start'])) !== 0) throw new Error('host service did not start');
-            relayRestarted = relayMode;
-        } else if (headless) {
-            process.stdout.write('Updated. Restart your muxr service to use the new version.\n');
-            return 0;
+            relayRestarted = restartMode === 'selfhost' || restartMode === 'relay';
         } else {
             relayRestarted = await restartSelfhostRelayIfRunning();
         }
