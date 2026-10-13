@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // One cell of the Visual check matrix (../SKILL.md "Visual check"). Prints the
-// defects a machine can see; they are leads only: open the shot and judge by eye.
+// defects a machine can see; every DEFECT line fails the cell (exit 1).
 //   node visualCheck.mjs <serial> <dir> <name> [--end] [--ref <main>.xml]
 //     native: saves <dir>/<name>.png and .xml from a task-owned emulator. --end:
 //     the screen is scrolled as far as it goes (or cannot scroll), so anything
@@ -13,7 +13,7 @@
 //     proves the checks fire: a squashed image and a black strip are flagged; a
 //     cover crop and a uniform background are not. pwa-selftest needs `chromium`.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -71,6 +71,7 @@ const aspect = ({ l, t, r, b }) => (r - l) / (b - t);
 
 // An image is matched to its reference by resource-id and content-desc, the nth occurrence of each pair; with neither, by order.
 // A squashed or stretched image changes its aspect against the same image in the reference, which covers an avatar that must stay round.
+// An image with no reference twin cannot be compared, so it is a defect until someone looks at it.
 const imageDefects = (cand, ref) => {
     const keyed = (nodes) => {
         const seen = new Map();
@@ -83,10 +84,17 @@ const imageDefects = (cand, ref) => {
     const refs = keyed(ref);
     return [...keyed(cand)].flatMap(([key, n]) => {
         const r = refs.get(key);
-        if (!r) return [];
+        if (!r) return [`image not compared, no reference twin: "${n.label}" ${n.at.bounds}`];
         return Math.abs(aspect(n.box) - aspect(r.box)) / aspect(r.box) > 0.02 ? [`stretched image: "${n.label}" ${n.at.bounds} (reference ${r.at.bounds})`] : [];
     });
 };
+
+const clipLeads = (nodes) => nodes.filter((n) => n.at.text).flatMap((n) => {
+    const parent = n.up.at(-1), out = [];
+    if (/(…|\.\.\.)$/.test(n.at.text)) out.push(`ellipsis cuts the text: "${n.label}" ${n.at.bounds}`);
+    if (parent && (n.box.l < parent.box.l - 1 || n.box.r > parent.box.r + 1 || n.box.t < parent.box.t - 1 || n.box.b > parent.box.b + 1)) out.push(`text runs past its parent: "${n.label}" ${n.at.bounds} (parent ${parent.at.bounds})`);
+    return out;
+});
 
 // A flat edge band that differs from the band just inside it is a blank or black strip.
 const stripLeads = (png, top, bottom, W) => {
@@ -114,6 +122,14 @@ const selfTest = () => {
     expect('squashed avatar is flagged against its reference', squashed.length === 1, `got ${squashed.length}`);
     const cover = imageDefects(parseDump(dump('[0,0][100,100]')), parseDump(dump('[0,0][100,100]')));
     expect('unchanged avatar (cover crop keeps its box) is not flagged', cover.length === 0, `got ${cover.length}`);
+    const unmatched = imageDefects(parseDump(dump('[0,0][100,100]')), parseDump(dump()));
+    expect('avatar with no reference twin is reported, not passed', unmatched.length === 1, `got ${unmatched.length}`);
+    const frame = (bounds, inner) => `<node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.muxr" content-desc="" clickable="false" bounds="${bounds}">${inner}</node>`;
+    const label = (text, bounds) => `<node index="0" text="${text}" resource-id="" class="android.widget.TextView" package="com.muxr" content-desc="" clickable="false" bounds="${bounds}" />`;
+    const clipped = (body) => clipLeads(parseDump(`<?xml version='1.0'?><hierarchy rotation="0">${body}</hierarchy>`));
+    expect('text that fits its parent is not flagged', clipped(frame('[0,0][200,100]', label('Save', '[10,10][100,40]'))).length === 0);
+    expect('text ending in an ellipsis is flagged', clipped(frame('[0,0][200,100]', label('Saving the changes…', '[10,10][100,40]'))).length === 1);
+    expect('text running past its parent is flagged', clipped(frame('[0,0][200,100]', label('Long label', '[10,10][300,40]'))).length === 1);
     const pngOf = (name, args) => {
         const png = join(dir, `${name}.png`);
         execFileSync('magick', ['-size', '1080x2376', 'xc:#0c0c0b', ...args, png]);
@@ -174,9 +190,10 @@ const native = (serial, dir, name, flags) => {
         if (a.up.includes(b) || b.up.includes(a) || cut(a.box, b.box) < 16 * 16) continue;
         found.push(`overlap: "${a.label}" ${a.at.bounds} and "${b.label}" ${b.at.bounds}${b.at.clickable === 'true' || a.at.clickable === 'true' ? ' (a control is covered)' : ''}`);
     }
-    const refAt = flags.indexOf('--ref');
-    if (refAt < 0) console.log(`image geometry not compared for ${name}: no --ref dump`);
-    else found.push(...imageDefects(app, parseDump(readFileSync(flags[refAt + 1]).toString())));
+    found.push(...clipLeads(content));
+    const refAt = flags.indexOf('--ref'), refPath = refAt < 0 ? undefined : flags[refAt + 1];
+    if (refPath && existsSync(refPath)) found.push(...imageDefects(app, parseDump(readFileSync(refPath).toString())));
+    else console.log(`image geometry not compared for ${name}: no reference dump`);
     found.push(...stripLeads(png, status?.[3] ?? 0, nav?.[1] ?? H, W));
     for (const line of found) console.log(`DEFECT ${name}: ${line}`);
     console.log(`${found.length ? 'FAIL' : 'clean'} ${name} (${W}x${H}, status bar ${status ? `0-${status[3]}` : 'none'}, nav bar ${nav ? `${nav[1]}-${nav[3]}` : 'none'})`);

@@ -192,7 +192,9 @@ Native: hold the shared emulator lock for the whole journey as
 `flock -o -w <s> /tmp/fm-muxr-emulator.lock timeout 1800 <journey>` (`-o`, so
 an adb server started inside never keeps it; at most 30 min), start the
 emulator through `fm-mem-gate.sh`, name `-s <serial>` on every adb call, kill
-it with `adb -s <serial> emu kill`, never the shared adb server. Per cell: set
+it with `adb -s <serial> emu kill`, never the shared adb server. The mem gate
+and the emulator lock are this fleet's host tools; where they are missing,
+start the emulator directly and skip the lock. Per cell: set
 size, density, `settings put system font_scale <f>` and
 `cmd uimode night yes|no`, force-stop and relaunch (a stale layout survives a
 font change), drive to the screen, then:
@@ -205,10 +207,13 @@ node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>-s
 
 It saves the PNG and the uiautomator dump and prints `DEFECT …` lines for
 what a machine can see (text under the status or navigation bar, text touching
-the screen edge, overlapping elements, a covered control, a squashed image,
-flat edge strips). `--ref` is the dump of the same cell from the main run
-(on main itself, omit it; the line `image geometry not compared` says so).
-Those are leads; the eye still judges every shot. Reset with
+the screen edge, clipped text (an ellipsis, or running past its parent),
+overlapping elements, a covered control, a squashed image or an image with no
+reference twin, flat edge strips). Any DEFECT line fails the cell (exit 1).
+`--ref` is the dump of the same cell from the main run (on main itself, omit
+it; the line `image geometry not compared` says so). The eye still judges every
+shot too. A DEFECT that is a false positive is overridden only by a named line
+in the PR's `## Checks` block: `false lead: <cell> <lead>: <why>`. Reset with
 `wm size reset; wm density reset; settings put system font_scale 1.0`.
 
 PWA: serve the export with `scripts/diagnostics/application/serveWebExport.mjs`
@@ -231,15 +236,17 @@ chrome-devtools-axi eval "$(node .agents/skills/verify-muxr/features/visualCheck
 ```
 
 They report off-screen text and images, clipped text, text spilling out of
-its button, a control covered by another element, and a stretched image;
-`clean` is only a lead, the shot still gets looked at.
+its button, a control covered by another element, and a stretched image. Any
+line other than `clean` is a DEFECT and fails the cell, with the same
+`false lead:` override as native.
 
 Self-tests (run once per change to the checks, not per cell). They prove the
-checks fire on a squashed image and a black strip and stay quiet on a cover
-crop and a uniform background; they need ImageMagick and `chromium`:
+checks fire on a squashed image, an unmatched image, clipped text and a black
+strip, and stay quiet on a cover crop, fitting text and a uniform background;
+they need ImageMagick and `chromium`:
 
 ```sh
-node .agents/skills/verify-muxr/features/visualCheck.mjs selftest      # native: avatar geometry and edge strip
+node .agents/skills/verify-muxr/features/visualCheck.mjs selftest      # native: avatar geometry, clipped text, edge strip
 node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-selftest  # PWA: squashed img and background vs cover
 ```
 
