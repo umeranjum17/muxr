@@ -44,8 +44,10 @@ export interface TerminalPan {
      * surface could not take, for the pane's own scroll.
      */
     pan: (lines: number) => number;
-    /** The user typed to the pane, or another pane opened: follow its cursor again. */
+    /** The user typed to the pane or tapped Latest: follow its cursor again. */
     follow: () => void;
+    /** A channel attached: forget the previous pane's cursor until its own frame names one. */
+    attach: () => void;
 }
 
 /** The last cursor row (0-based) a frame's trailer names, if it ends with one. */
@@ -110,6 +112,11 @@ export function createTerminalPan(setOffset: (offset: number) => void): Terminal
         },
         follow() {
             if (held === undefined) return;
+            held = undefined;
+            show();
+        },
+        attach() {
+            cursor = undefined;
             held = undefined;
             show();
         },

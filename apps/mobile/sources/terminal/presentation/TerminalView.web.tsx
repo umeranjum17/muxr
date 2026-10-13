@@ -45,8 +45,8 @@ export interface TerminalViewProps {
     /** The rendered row height, so overlays can end on a terminal line. */
     onRowHeight?: (height: number) => void;
     /** Same contract as the native view: a taller grid pans before the pane scrolls. */
-    panBy?: (lines: number) => number;
-    onFrame?: (base64: string) => void;
+    panBy: (lines: number) => number;
+    onFrame: (base64: string) => void;
 }
 
 // Injected when this lazy chunk loads, before any terminal measures its grid.
@@ -317,7 +317,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 };
                 opened.onData((base64) => {
                     recordTerminalOutput(sessionId, base64);
-                    onFrameRef.current?.(base64);
+                    onFrameRef.current(base64);
                     pending.push({ data: base64, ready: readyForFrame });
                     if (!frameScheduled) {
                         frameScheduled = true;
@@ -442,7 +442,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             const lines = Math.trunc(scrollAcc / cellHeight());
             if (lines === 0) return;
             const clamped = Math.max(-40, Math.min(40, lines));
-            const rest = panByRef.current?.(clamped) ?? clamped;
+            const rest = panByRef.current(clamped);
             if (rest !== 0) channel?.scroll(rest, { column: Math.floor(term.cols / 2), row: Math.floor(term.rows / 2) });
             scrollAcc -= clamped * cellHeight();
             if (lines !== clamped) scrollAcc = 0;

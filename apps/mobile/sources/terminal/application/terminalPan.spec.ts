@@ -42,6 +42,13 @@ describe('a grid taller than its box', () => {
         pan.frame(herdrFrame('', 3, 'l'));
         expect(offset).toBe(25 * row + 1 - 15 * row);
 
+        // Another pane attached: until its own frame names a cursor, the box
+        // shows its bottom, not this pane's row.
+        pan.attach();
+        expect(offset).toBe(0);
+        pan.frame(herdrFrame('> ', 15));
+        expect(offset).toBe(25 * row + 1 - 15 * row);
+
         // Forward travel shows the bottom rows first, then scrolls the pane.
         expect(pan.pan(-12)).toBe(-2);
         expect(offset).toBe(0);

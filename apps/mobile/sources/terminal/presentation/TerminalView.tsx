@@ -62,9 +62,9 @@ export interface TerminalViewProps {
      * taller than its box pans before the pane scrolls. Returns what is left
      * for the pane.
      */
-    panBy?: (lines: number) => number;
+    panBy: (lines: number) => number;
     /** Each frame of pane output, as it reaches the renderer. */
-    onFrame?: (base64: string) => void;
+    onFrame: (base64: string) => void;
 }
 
 export type TerminalViewControls = {
@@ -286,7 +286,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // One Ghostty write at a time, in wire order.
                     channel.onData((base64) => {
                         recordTerminalOutput(sessionId, base64);
-                        onFrameRef.current?.(base64);
+                        onFrameRef.current(base64);
                         // Output came back, so the next scroll may go. A stream
                         // repaints itself whether or not anything was scrolled,
                         // so this is flow control and nothing more: which frame
@@ -411,7 +411,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => {
                     if (scrollStoppedRef.current) return;
-                    const lines = props.panBy?.(-nativeEvent.rows) ?? -nativeEvent.rows;
+                    const lines = props.panBy(-nativeEvent.rows);
                     if (lines !== 0) scrollGate.queue(lines);
                 }}
                 onPinch={pinch}

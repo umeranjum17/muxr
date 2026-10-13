@@ -454,7 +454,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         setHostHasScrollback(undefined);
         const route = paneRoute.current;
         setScrolledAway(SCROLLED_AWAY.has(route));
-        pan.follow();
+        pan.attach();
         if (channel !== undefined) {
             let hostHasScrollback = false;
             const stopBottom = channel.onBottomState((state) => {
@@ -1548,7 +1548,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         // and the pan picks which of its rows the box shows.
                         style={{ flex: 1, overflow: 'hidden', justifyContent: 'flex-end' }}
                     >
-                        <Animated.View style={[{ flexGrow: 1, minHeight: surfaceHeight }, surfacePan]}>
+                        <Animated.View style={[{ flexGrow: 1, minHeight: pannedHeight }, surfacePan]}>
                         <AgentPager
                             key={props.id}
                             sessionId={props.id}
@@ -1563,7 +1563,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             <TerminalLinkMenu
                                 url={linkMenu.url}
                                 at={linkMenu.at}
-                                region={{ width: terminalBox.width, height: surfaceHeight }}
+                                region={{ width: terminalBox.width, height: pannedHeight }}
                                 actions={linkActions}
                                 onClose={() => setLinkMenu(null)}
                             />
