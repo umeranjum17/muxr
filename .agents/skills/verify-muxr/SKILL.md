@@ -286,7 +286,8 @@ Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
   (an ellipsis the feature file names as intended is not a defect).
 - **Overlap** — text or a control under the status bar or clock at any scroll
   position; under the gesture or navigation bar: any text or leaf button box
-  more than 4px into it at rest (a container is judged by its children), and any content still under it once scrolled to the
+  more than 4px into it at rest (a clickable box over a quarter of the screen
+  height is judged by its children instead), and any content still under it once scrolled to the
   end (`--end`); content passing under the translucent bar mid-scroll is fine;
   under the keyboard, a toast, or another element; text painted over by another
   text or an image; an image painted over a control.

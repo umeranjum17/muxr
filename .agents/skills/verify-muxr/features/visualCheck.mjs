@@ -168,7 +168,6 @@ const navLeads = (watched, nav, H, end) => {
     return watched.flatMap((n) => {
         if (n.box.b <= nav[1]) return [];
         if (end) return [`under the navigation bar: "${n.label}" ${n.at.bounds} (bar starts at y=${nav[1]})`];
-        if (!(n.at.text || n.at.clickable === 'true')) return [];
         if (Math.min(n.box.b, H) - Math.max(n.box.t, nav[1]) <= 4) return [];
         return [`under the navigation bar on the unscrolled screen: "${n.label}" ${n.at.bounds} (bar starts at y=${nav[1]})`];
     });
@@ -247,16 +246,16 @@ const layoutLeads = (app, { W, H, status, nav, end, ref }) => {
     // already in content through their description.
     const imagery = app.filter((n) => isImageNode(n) && !content.includes(n));
     const watched = app.filter((n) => content.includes(n) || imagery.includes(n));
-    const leaves = content.filter((n) => !(n.at.clickable === 'true' && content.some((d) => d !== n && d.up.includes(n))));
+    const judged = content.filter((n) => n.at.clickable === 'true' ? n.box.b - n.box.t <= H * 0.25 : n.at.text);
     const scrollable = app.some((n) => n.at.scrollable === 'true' && !/Horizontal/.test(n.at.class));
     const cut = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
     const found = [];
-    for (const n of leaves) {
+    for (const n of judged) {
         if (status && n.box.t < status[3]) found.push(`under the status bar: "${n.label}" ${n.at.bounds} (bar ends at y=${status[3]})`);
     }
     found.push(...edgeLeads(watched, W));
-    found.push(...navLeads(leaves, nav, H, end));
-    found.push(...belowLeads(content, H, scrollable, end));
+    found.push(...navLeads(judged, nav, H, end));
+    found.push(...belowLeads(judged, H, scrollable, end));
     found.push(...imageOffScreenLeads(imagery, W, H, scrollable));
     found.push(...imageCoversLeads(watched, imagery));
     for (const [i, a] of content.entries()) for (const b of content.slice(i + 1)) {
@@ -308,6 +307,10 @@ const selfTest = () => {
     expect('clickable leaf box under the gesture bar at rest is flagged', layout(nodesOf(leaf)).some((l) => l.startsWith('under the navigation bar on the unscrolled screen')), layout(nodesOf(leaf)).join(' | '));
     const card = el('android.view.ViewGroup', '[0,0][1080,2376]', { clickable: true }, el('android.widget.TextView', '[100,100][400,160]', { text: 'Fits' }));
     expect('full-screen clickable container with fitting children is not flagged', layout(nodesOf(card)).length === 0, layout(nodesOf(card)).join(' | '));
+    const ctrl = el('android.view.ViewGroup', '[100,2250][980,2370]', { clickable: true }, el('android.widget.TextView', '[400,2280][680,2330]', { text: 'Continue' }));
+    expect('button-sized clickable box under the gesture bar is flagged by its own box', layout(nodesOf(ctrl)).some((l) => l.startsWith('under the navigation bar') && l.includes('android.view.ViewGroup')), layout(nodesOf(ctrl)).join(' | '));
+    const labelled = el('android.view.ViewGroup', '[0,200][1080,2376]', { desc: 'list', scrollable: true });
+    expect('labelled non-clickable container past the bar at the end of the scroll is not flagged', layout(nodesOf(labelled), { end: true }).length === 0, layout(nodesOf(labelled), { end: true }).join(' | '));
     const pngOf = (name, args) => {
         const png = join(dir, `${name}.png`);
         execFileSync('magick', ['-size', '1080x2376', 'xc:#0c0c0b', ...args, png]);
