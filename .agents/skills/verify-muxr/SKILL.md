@@ -1,6 +1,6 @@
 ---
 name: verify-muxr
-description: Verify muxr's self-hosted relay/host and public CLI the way a user drives them, from this pockit checkout and without touching the owner's installed muxr. Use before claiming a host, relay, Shared Artifacts, naming, retention, or CLI change works, when a check fails and you need a live instance to reproduce against, or when asked to run the verify-muxr flow.
+description: Verify muxr's self-hosted relay/host, public CLI and phone screens the way a user drives them, from this pockit checkout and without touching the owner's installed muxr. Use before claiming a host, relay, Shared Artifacts, naming, retention, CLI or phone/PWA UI change works (every UI change runs the Visual check), when a check fails and you need a live instance to reproduce against, or when asked to run the verify-muxr flow.
 license: Apache-2.0
 ---
 
@@ -154,13 +154,126 @@ interaction — into the stable `$EVIDENCE` folder above. Applied to this skill:
   is not a complete proof. Name the transcript and state files in the PR.
 - Skipped — no themed surfaces: the relay, host, and CLI this skill drives
   render no dark/light UI, so there is nothing to capture per theme.
-- Phone app form factors are a separate surface with their own verification.
-  Terminal dimensions do affect pairing QR admission: `features/pairing-qr.md`
-  captures normal/narrow grids and an isolated Herdr terminal before/after.
+- Phone app and PWA screens: the **Visual check** below is required for every
+  UI change. Terminal dimensions do affect pairing QR admission:
+  `features/pairing-qr.md` captures normal/narrow grids and an isolated Herdr
+  terminal before/after.
 - Skipped — no motion: CLI output is text with no transitions or gestures,
   so there is no interaction to motion-record; the command transcript
   (`NN-command.log` with stdout, stderr, and exit code) is the equivalent
   capture.
+
+## Visual check (required for every UI change)
+
+Any change a user can see on the phone (a screen, component, style, theme,
+layout or copy under `apps/mobile/`) runs this check on `origin/main` and on
+the candidate before the PR. **Any defect below fails the check.** A change
+with no UI writes `visual check: n/a (no UI change)`.
+
+### Capture matrix
+
+Per changed screen, on main and on the candidate:
+
+- surface: **native Android** (release APK from `perf/buildPrApk.mjs` on a
+  task-owned emulator) and **installed PWA** (the web export in a standalone
+  `--app=` Chromium window where `matchMedia('(display-mode: standalone)')`
+  is true, as in `features/pwa-splash.md`);
+- width: **270 dp** (`wm size 1080x2376; wm density 640`) and **393 dp**
+  (`wm density 440`);
+- system font: **1.0** and **2.0** (Android's largest);
+- theme: **light** and **dark**;
+- plus the **scrolled** state (scrolled to the end) whenever the screen scrolls.
+
+Name each shot `<screen>-<width>-<font>-<theme>[-scrolled].png`, e.g.
+`firstrun-tailscale-270-2.0-dark-scrolled.png`, under
+`$EVIDENCE/visual/<native|pwa>/<main|candidate>/`.
+
+Native: hold the shared emulator lock for the whole journey as
+`flock -o -w <s> /tmp/fm-muxr-emulator.lock timeout 1800 <journey>` (`-o`, so
+an adb server started inside never keeps it; at most 30 min), start the
+emulator through `fm-mem-gate.sh`, name `-s <serial>` on every adb call, kill
+it with `adb -s <serial> emu kill`, never the shared adb server. Per cell: set
+size, density, `settings put system font_scale <f>` and
+`cmd uimode night yes|no`, force-stop and relaunch (a stale layout survives a
+font change), drive to the screen, then:
+
+```sh
+node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>          # first screenful
+# when the dump has scrollable="true": swipe up until it stops moving, then
+node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>-scrolled --end
+```
+
+It saves the PNG and the uiautomator dump and prints `DEFECT …` lines for
+what a machine can see (text under the status or navigation bar, text touching
+the screen edge, overlapping elements, a covered control, flat edge strips).
+Those are leads; the eye still judges every shot. Reset with
+`wm size reset; wm density reset; settings put system font_scale 1.0`.
+
+PWA: serve the export with `serveWebExport.mjs` on a free port (it prints the
+port you pass, so pass a real one, never 0), and open it in Chromium on a
+task-owned Xvfb display with its own `--user-data-dir`,
+`--remote-debugging-port`, `--hide-scrollbars` (a desktop scrollbar draws a
+grey strip that is not the app) and `--app=<origin>`; point
+chrome-devtools-axi at it with `CHROME_DEVTOOLS_AXI_BROWSER_URL`.
+react-native-web pins `fontScale` to 1 and an installed PWA takes the system
+text size as page zoom, so font F at width W x H is a viewport of W/F x H/F CSS
+px (393 x 864 and 270 x 594 at 1.0; 196 x 432 and 135 x 297 at 2.0). Per cell:
+`emulate --viewport "<W/F>x<H/F>x<2F>,mobile,touch" --color-scheme <theme>`,
+reload, wait until `document.body.innerText` is non-empty (a shot taken
+earlier is a blank page, not a pass), `emulate` again (a reload drops it),
+`screenshot`, then set every scrollable element's `scrollTop` to its
+`scrollHeight` and shoot `-scrolled`. After each shot run the DOM leads:
+
+```sh
+chrome-devtools-axi eval "$(node .agents/skills/verify-muxr/features/visualCheck.mjs pwa)"
+```
+
+They report off-screen text and images, clipped text, text spilling out of
+its button, a control covered by another element, and a stretched image;
+`clean` is only a lead, the shot still gets looked at.
+
+### Defects (each fails the check)
+
+- **Stretched or squashed image** — its drawn box's aspect ratio differs from
+  its source asset or the mock by more than 2%: a round avatar drawn as an
+  oval, a logo wider or taller than the mock.
+- **Text clipped, cut or truncated mid-word** — glyphs cut at a box edge
+  (descenders, half a last line), a word broken with no hyphen, a line that
+  starts with punctuation (`, signed`), text running past the screen edge or
+  out of its button, or an ellipsis where the mock shows the whole text
+  (an ellipsis the feature file names as intended is not a defect).
+- **Overlap** — text or a control under the status bar or clock at any scroll
+  position; under the gesture or navigation bar once the screen can scroll no
+  further (content passing under the translucent gesture bar mid-scroll is
+  fine); under the keyboard, a toast, or another element.
+- **Off-screen or unreachable** — any part beyond the screen edge, or a
+  control no scroll brings fully into view.
+- **Blank or black strip** — a flat band along an edge or between sections
+  that the mock does not have (e.g. a black left strip).
+- **Button or field hidden under a sticky element** — a header, footer,
+  composer, tab bar or floating button covering a control at any scroll
+  position, including the end.
+
+### Compare and report
+
+Put every candidate shot side by side with the approved mock (from the brief
+or issue) or, with no mock, the main shot of the same cell:
+`magick main.png candidate.png [mock.png] +append $EVIDENCE/visual/compare/<name>.png`,
+and open each one. Any defect the mock does not have fails; with no mock, any
+defect not already on main fails, and defects already on main are listed as
+`pre-existing`, never hidden. The PR's `## Checks` block lists the matrix and
+the verdict:
+
+```
+visual matrix: native+pwa x 270/393 dp x font 1.0/2.0 x light/dark (+scrolled): <screens>; shots in <dir>
+visual check: PASS            (or: visual check: FAIL: <shot>: <defect>; …)
+```
+
+### Design check (placeholder, not yet required)
+
+<!-- DESIGN-CHECK PLACEHOLDER: a later design check from done-done becomes a
+required step here, run on the same shots after the visual check passes. -->
+Nothing to run yet; this step becomes required when the design check lands.
 
 ## Cleanup
 
