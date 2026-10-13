@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
+import { WordWrappingText } from './WordWrappingText';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
@@ -25,7 +26,14 @@ export const ActionButton = React.memo((props: {
 }) => {
     const styles = stylesheet;
     const [busy, setBusy] = React.useState(false);
+    const [width, setWidth] = React.useState(0);
+    const [wordWidth, setWordWidth] = React.useState(0);
     const variant = props.variant ?? 'primary';
+    const fontSize = variant === 'quiet' ? 15 : 17;
+    const padding = Math.min(props.wrap ? 12 : 24, width / 8);
+    const contentWidth = Math.max(0, width - 2 * padding);
+    const stacked = props.icon !== undefined && wordWidth + 27 > contentWidth;
+    const labelWidth = Math.max(0, contentWidth - (props.icon !== undefined && !stacked ? 27 : 0));
     const run = React.useCallback(() => {
         hapticsLight();
         if (props.onPress) {
@@ -46,6 +54,7 @@ export const ActionButton = React.memo((props: {
     return (
         <Pressable
             testID={props.testID}
+            onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
             disabled={props.disabled || busy}
             accessibilityRole="button"
             accessibilityLabel={props.accessibilityLabel ?? props.title}
@@ -53,6 +62,7 @@ export const ActionButton = React.memo((props: {
             style={(p) => [
                 styles.base,
                 props.wrap && styles.wrap,
+                { paddingHorizontal: padding },
                 variant === 'primary' && styles.primary,
                 variant === 'secondary' && styles.secondary,
                 variant === 'quiet' && styles.quiet,
@@ -67,7 +77,7 @@ export const ActionButton = React.memo((props: {
                     color={variant === 'primary' ? styles.primaryText.color : styles.secondaryText.color}
                 />
             ) : (
-                <View style={[styles.content, props.wrap && styles.wrapContent]}>
+                <View style={[styles.content, stacked && styles.stackedContent]}>
                     {props.icon !== undefined && (
                         <Ionicons
                             name={props.icon}
@@ -75,7 +85,7 @@ export const ActionButton = React.memo((props: {
                             color={variant === 'primary' ? styles.primaryText.color : variant === 'quiet' ? styles.quietText.color : styles.secondaryText.color}
                         />
                     )}
-                    <Text
+                    <WordWrappingText fontSize={fontSize} availableWidth={labelWidth} onWordWidth={setWordWidth}
                         style={[
                             styles.text,
                             variant === 'primary' && styles.primaryText,
@@ -86,7 +96,7 @@ export const ActionButton = React.memo((props: {
                         numberOfLines={props.wrap ? undefined : 1}
                     >
                         {props.title}
-                    </Text>
+                    </WordWrappingText>
                 </View>
             )}
         </Pressable>
@@ -103,7 +113,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         alignSelf: 'stretch',
     },
     wrap: { height: undefined, minHeight: 52, paddingVertical: 8, paddingHorizontal: 12 },
-    wrapContent: { maxWidth: '100%' },
+    stackedContent: { flexDirection: 'column', gap: 4 },
     wrapText: { flexShrink: 1, textAlign: 'center' },
     primary: {
         backgroundColor: theme.colors.button.primary.background,
@@ -120,10 +130,12 @@ const stylesheet = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+        width: '100%',
+        justifyContent: 'center',
     },
     text: {
         ...Typography.default('semiBold'),
-        fontSize: 17,
+        textAlign: 'center',
         includeFontPadding: false,
     },
     primaryText: {
@@ -134,6 +146,5 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     quietText: {
         color: theme.colors.textSecondary,
-        fontSize: 15,
     },
 }));

@@ -25,7 +25,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const pwaLeads = () => {
     const out = [];
-    const shown = (e) => e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && !e.closest('[aria-hidden="true"]') && getComputedStyle(e).pointerEvents !== 'none';
+    const painted = (e) => e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && !e.closest('[aria-hidden="true"]');
+    const shown = (e) => painted(e) && getComputedStyle(e).pointerEvents !== 'none';
     const paints = (c) => /^(IMG|SVG|CANVAS|VIDEO)$/.test(c.tagName.toUpperCase()) || getComputedStyle(c).backgroundImage !== 'none';
     const inHorizontalScroller = (e) => {
         for (let a = e.parentElement; a && a !== document.documentElement; a = a.parentElement) {
@@ -37,9 +38,9 @@ const pwaLeads = () => {
     if (!document.body.innerText.trim()) return 'blank page: nothing rendered (retake the shot)';
     const de = document.documentElement;
     if (de.scrollWidth > innerWidth) out.push(`off-screen: page ${de.scrollWidth}px wide in a ${innerWidth}px viewport`);
-    for (const el of document.querySelectorAll('div[dir="auto"], span')) {
+    for (const el of document.querySelectorAll('[dir="auto"], span')) {
         const cs = getComputedStyle(el), r = el.getBoundingClientRect();
-        if (!el.innerText?.trim() || r.width === 0 || !shown(el)) continue;
+        if (!el.innerText?.trim() || r.width === 0 || !painted(el)) continue;
         if (cs.overflow !== 'visible' && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)) out.push(`clipped text: "${el.innerText.slice(0, 40)}"`);
         if ((r.right > innerWidth + 1 || r.left < -1) && !inHorizontalScroller(el)) out.push(`text off-screen: "${el.innerText.slice(0, 40)}"`);
         // Accessibility text has no line geometry. DOM ranges do: a word's
@@ -134,7 +135,7 @@ const wordSplitLeads = (nodes, words) => {
     const normalize = (s) => s.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
     const out = [];
     for (const n of nodes.filter((n) => n.at.text)) {
-        const inside = words.filter((w) => w.l >= n.box.l - 4 && w.r <= n.box.r + 4 && w.t >= n.box.t - 4 && w.b <= n.box.b + 4);
+        const inside = words.filter((w) => normalize(w.text) && w.l >= n.box.l - 4 && w.r <= n.box.r + 4 && w.t >= n.box.t - 4 && w.b <= n.box.b + 4);
         const expected = [...new Intl.Segmenter(undefined, { granularity: 'word' }).segment(n.at.text)].filter((s) => s.isWordLike);
         for (const { segment } of expected) {
             const word = normalize(segment);
@@ -376,13 +377,16 @@ const selfTest = () => {
     const uniform = stripLeads(pngOf('uniform', []), 0, 2376, 1080);
     const font = fileURLToPath(new URL('../../../../apps/mobile/sources/assets/fonts/IBMPlexSans-Regular.ttf', import.meta.url));
     const splitShot = pngOf('word-split', ['-font', font, '-pointsize', '60', '-fill', 'white',
-        '-draw', "text 100,580 'Sec' text 100,660 'urel' text 100,740 'y' text 100,860 'pair' text 100,940 'this' text 100,1020 'device'"]);
+        '-draw', "text 100,580 'Sec' text 100,660 'urel' text 100,740 'y' text 100,860 'pair' text 100,940 'this' text 100,1020 'device' text 650,580 'Tails' text 650,660 'cale' text 650,860 'Con' text 650,940 'nect'"]);
     const intactShot = pngOf('word-intact', ['-font', font, '-pointsize', '60', '-fill', 'white',
-        '-draw', "text 100,580 'Securely' text 100,660 'pair' text 100,740 'this' text 100,820 'device'"]);
-    const pairTitle = nodesOf(el('android.widget.TextView', '[80,480][600,1100]', { text: 'Securely pair this device' }));
-    expect('native screenshot: Sec/urel/y is flagged against the full dump label; whole-word wrapping is clean',
-        wordSplitLeads(pairTitle, ocrWords(splitShot)).some((l) => l.startsWith('word split across lines: "Securely"'))
-        && wordSplitLeads(pairTitle, ocrWords(intactShot)).length === 0);
+        '-draw', "text 100,580 'Securely' text 100,660 'pair' text 100,740 'this' text 100,820 'device' text 650,580 'Tailscale' text 650,860 'Connect'"]);
+    const pairTitle = nodesOf(el('android.widget.TextView', '[80,480][600,1100]', { text: 'Securely pair this device' }),
+        el('android.widget.TextView', '[630,480][1060,720]', { text: 'Get Tailscale' }),
+        el('android.widget.TextView', '[630,780][1060,1000]', { text: 'Connect' }));
+    const splits = wordSplitLeads(pairTitle, ocrWords(splitShot));
+    expect('native screenshots flag split Securely, Tailscale and Connect against full labels; whole-word wrapping is clean',
+        ['Securely', 'Tailscale', 'Connect'].every((word) => splits.some((l) => l.startsWith(`word split across lines: "${word}"`)))
+        && wordSplitLeads(pairTitle, ocrWords(intactShot)).length === 0, splits.join(' | '));
     expect('black strip on the screen edge is flagged, a uniform background is not', stripped.length === 1 && uniform.length === 0, `strip=${stripped.length} uniform=${uniform.length}`);
     process.exitCode = failed ? 1 : 0;
 };
@@ -403,12 +407,15 @@ const pwaSelfTest = () => {
 <span style="position:absolute;left:820px;top:560px">chip past the edge</span>
 <div dir="auto" style="position:absolute;left:10px;top:380px;width:55px;font:26px Arial;overflow-wrap:break-word">Securely pair this device</div>
 <div dir="auto" style="position:absolute;left:220px;top:380px;width:110px;font:26px Arial;overflow-wrap:normal">Securely pair this device</div>
+<div dir="auto" style="position:absolute;left:450px;top:380px;width:40px;font:17px Arial;overflow-wrap:break-word">Tailscale</div>
+<button disabled style="position:absolute;left:550px;top:380px;pointer-events:none"><div dir="auto" style="width:40px;font:17px Arial;overflow-wrap:break-word">Connect</div></button>
+<div dir="auto" style="position:absolute;left:650px;top:380px;width:110px;font:17px Arial;overflow-wrap:normal">Tailscale Connect</div>
 <pre id="leads"></pre>
 <script>window.onload = () => { document.getElementById('leads').textContent = (${pwaLeads})(); };</script>`);
     const html = execFileSync('chromium', ['--headless=new', '--no-sandbox', '--allow-file-access-from-files', '--virtual-time-budget=5000', '--dump-dom', pathToFileURL(join(dir, 'page.html')).href]).toString();
     const leads = (html.match(/<pre id="leads">([\s\S]*?)<\/pre>/)?.[1] ?? '').split('\n');
-    expect('PWA ranges: mid-word Securely is flagged; whole-word wrapping is clean',
-        leads.filter((l) => l.startsWith('word split across lines: "Securely"')).length === 1, leads.join(' | '));
+    expect('PWA ranges flag split Securely, Tailscale and Connect; whole-word wrapping is clean',
+        ['Securely', 'Tailscale', 'Connect'].every((word) => leads.filter((l) => l.startsWith(`word split across lines: "${word}"`)).length === 1), leads.join(' | '));
     const stretched = leads.filter((l) => l.startsWith('stretched image'));
     expect('squashed img and background are flagged, cover crops are not', stretched.length === 2 && !leads.some((l) => /drawn (80x80|90x90)/.test(l)), leads.join(' | '));
     expect('text painted over by other text or by an image is flagged',

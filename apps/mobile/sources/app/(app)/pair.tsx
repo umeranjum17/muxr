@@ -12,7 +12,7 @@ import { decidePairingInput, linkPairMachineName, looksLikeLinkOffer, PairingNee
 import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScannerAvailable, usePairQrScanner, resolvePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
-import { WrappingTitle } from '@/components/WrappingTitle';
+import { WordWrappingText } from '@/components/WordWrappingText';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
@@ -310,11 +310,11 @@ export default function PairScreen() {
                         <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
                     </View>
                 )}
-                <WrappingTitle style={styles.machineName}>
+                <WordWrappingText fontSize={26} lineHeight={32} style={styles.machineName}>
                     {state === undefined
                         ? 'Securely pair this device'
                         : state.machineName ?? 'Securely pair this device'}
-                </WrappingTitle>
+                </WordWrappingText>
                 {state?.phase === 'confirm' && (
                     <Text style={styles.subtitle}>wants to pair with this {pairingDeviceNoun()}</Text>
                 )}
@@ -336,7 +336,7 @@ export default function PairScreen() {
                             {progress?.words ? (
                                 <>
                                     <Text accessibilityLiveRegion="polite" style={styles.stepText}>{t('pairing.compareWords', { name: state.machineName })}</Text>
-                                    <WrappingTitle selectable style={styles.machineName}>{progress.words}</WrappingTitle>
+                                    <WordWrappingText fontSize={26} lineHeight={32} selectable style={styles.machineName}>{progress.words}</WordWrappingText>
                                 </>
                             ) : (
                                 <Text accessibilityLiveRegion="polite" style={styles.stepText}>{t('pairing.connecting')}</Text>
@@ -521,8 +521,6 @@ const styles = StyleSheet.create((theme) => ({
         // never an ellipsized line measured wider than the screen.
         alignSelf: 'stretch',
         ...Typography.default('semiBold'),
-        fontSize: 26,
-        lineHeight: 32,
         textAlign: 'center',
         color: theme.colors.text,
     },

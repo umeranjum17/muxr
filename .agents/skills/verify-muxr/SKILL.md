@@ -206,7 +206,8 @@ node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>-s
 ```
 
 It saves the PNG and the uiautomator dump and prints `DEFECT …` lines for
-what a machine can see (text under the status bar; text or a button box under
+what a machine can see (a word split across lines, from screenshot OCR
+reconciled against the full accessibility label; text under the status bar; text or a button box under
 the navigation bar: at rest, any text or button box whose bottom edge sits more
 than 4px into the bar, inside a scroller or not; with `--end`, any of it still
 under the bar; text touching the screen edge, or a button box past it even when
@@ -246,7 +247,8 @@ node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-check "$DIR/<name>.
 
 They report off-screen text and images (a part inside a horizontal overflow
 scroller is excused, as on native, since swipe reaches it), clipped text
-(including text cut by an overflow-hidden ancestor), text spilling out of its
+(including text cut by an overflow-hidden ancestor), a word split across lines
+(from a word's DOM range fragments), text spilling out of its
 button, text painted over by another text or an image, a control covered by
 another element, and a stretched image; the driver adds a blank-strip read of
 the screenshot itself. Known blind spot: text under a `pointer-events: none`
@@ -263,7 +265,9 @@ horizontal carousel past the edge; a blank strip) and PWA (a fixture page with
 squashed images, text over text and over an image, overflow clipping, an
 off-screen chip inside and outside a scroller; the `pwa-check` driver's exit
 codes on a DEFECT, a clean page, a page with no eval result, and a strip
-shot). They need ImageMagick and `chromium`:
+shot). Both also check split Securely/Tailscale/Connect against intact
+whole-word wrapping. Native OCR is a lead, not a guarantee: a misread or missed
+fragment can hide a split. They need ImageMagick, Tesseract and `chromium`:
 
 ```sh
 node .agents/skills/verify-muxr/features/visualCheck.mjs selftest      # native: the pair-screen flow

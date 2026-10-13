@@ -149,6 +149,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   a `--browser-view` PWA and a `--browser` PWA on one real Herdr lab host: the
   view one watches the pane but its typing, desktop and agent actions never
   reach the computer; the control one runs the command.
+- [Read whole pairing and first-run words at large text](./word-wrapping.md) —
+  unpaired pair title and Connect/Tailscale labels: installed PWA at 393/270/208 dp,
+  font 1.0/2.0, both themes, and native at 270 dp font 2.0; DOM ranges and
+  screenshot OCR lead on words split across lines, with intact-word controls.
 - [Get Tailscale before pairing your own computer](./tailscale-first-step.md) —
   the unpaired first screen's one Tailscale card on a release APK (Play Store AVD)
   and the PWA: Get Tailscale opens the store, Back, I have Tailscale shows the

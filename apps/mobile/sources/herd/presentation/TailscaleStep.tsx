@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Linking, Platform, Text, View } from 'react-native';
+import { Linking, Platform, View } from 'react-native';
+import { WordWrappingText } from '@/components/WordWrappingText';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { ActionButton } from '@/components/ActionButton';
@@ -35,8 +36,8 @@ export function TailscaleStep(props: { onReady: () => void }) {
     return (
         <View style={styles.section}>
             <View style={styles.card}>
-                <Text style={styles.title}>Start with Tailscale</Text>
-                <Text style={styles.body}>{`You need the free Tailscale app on this ${device} and on your computer, signed in to the same account.`}</Text>
+                <WordWrappingText fontSize={17} style={styles.title}>Start with Tailscale</WordWrappingText>
+                <WordWrappingText fontSize={15} lineHeight={21} style={styles.body}>{`You need the free Tailscale app on this ${device} and on your computer, signed in to the same account.`}</WordWrappingText>
                 <View style={styles.actions}>
                     <ActionButton title="Get Tailscale" icon="download-outline" wrap action={openTailscaleStore} />
                     <ActionButton variant="secondary" title="I have Tailscale" wrap onPress={props.onReady} />
@@ -62,13 +63,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     title: {
         ...Typography.default('semiBold'),
-        fontSize: 17,
         color: theme.colors.text,
     },
     body: {
         ...Typography.default(),
-        fontSize: 15,
-        lineHeight: 21,
         color: theme.colors.textSecondary,
     },
     actions: {
