@@ -18,6 +18,11 @@ const MIN_TERMINAL_CELLS = 900;
  */
 const ESTIMATED_LINE_PER_FONT_SIZE = 1.5;
 
+/** The drawn row height once a renderer reports it, else the estimate from the font size. */
+export function terminalLineHeight(input: { fontIndex: number; drawnRowHeight?: number }): number {
+    return input.drawnRowHeight ?? FONT_STEPS[clampFontIndex(input.fontIndex)]! * ESTIMATED_LINE_PER_FONT_SIZE;
+}
+
 /**
  * The height the terminal box is given at least. Both renderers turn the box
  * into their grid, so the floor is a box this tall and the screen shows its
@@ -25,7 +30,7 @@ const ESTIMATED_LINE_PER_FONT_SIZE = 1.5;
  * fewer.
  */
 export function terminalSurfaceHeight(input: { boxHeight: number; cols?: number; fontIndex: number; drawnRowHeight?: number }): number {
-    const rowHeight = input.drawnRowHeight ?? FONT_STEPS[clampFontIndex(input.fontIndex)]! * ESTIMATED_LINE_PER_FONT_SIZE;
+    const rowHeight = terminalLineHeight(input);
     const rows = Math.max(MIN_TERMINAL_ROWS, input.cols !== undefined && input.cols > 0 ? Math.ceil(MIN_TERMINAL_CELLS / input.cols) : 0);
     return Math.max(input.boxHeight, rows * rowHeight + 1);
 }

@@ -43,7 +43,7 @@ import {
     undoSmartPunctuation,
 } from '../domain/promptAvailability';
 import { terminalPaneStatus } from '../domain/terminalAgentStatus';
-import { terminalSurfaceHeight as terminalSurface } from '../domain/terminalFloor';
+import { terminalLineHeight, terminalSurfaceHeight } from '../domain/terminalFloor';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { terminalGrid } from '../application/terminalAhead';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -348,12 +348,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const grid = terminalGrid();
     const [drawnRowHeight, setDrawnRowHeight] = React.useState<number>();
     const [fontIndex] = useLocalSettingMutable('terminalFontIndex');
-    const terminalRowHeight = drawnRowHeight ?? (terminalBox !== undefined && grid !== undefined && grid.rows > 0
-        ? terminalBox.height / grid.rows
-        : undefined);
-    const terminalSurfaceHeight = terminalSurface({ boxHeight: terminalBox?.height ?? 0, cols: grid?.cols, fontIndex, drawnRowHeight });
+    const terminalRowHeight = terminalLineHeight({ fontIndex, drawnRowHeight });
+    const surfaceHeight = terminalSurfaceHeight({ boxHeight: terminalBox?.height ?? 0, cols: grid?.cols, fontIndex, drawnRowHeight });
     const terminalGridInset = drawnRowHeight !== undefined && terminalBox !== undefined && grid !== undefined && grid.rows > 0
-        ? Math.max(0, terminalSurfaceHeight - grid.rows * drawnRowHeight)
+        ? Math.max(0, surfaceHeight - grid.rows * drawnRowHeight)
         : 0;
     // How far the terminal's visible bottom sits from the one it was last
     // measured at: the rails ride the keyboard frame by frame, while the
@@ -1534,7 +1532,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         // and the box shows its bottom rows.
                         style={{ flex: 1, overflow: 'hidden', justifyContent: 'flex-end' }}
                     >
-                        <View style={{ flexGrow: 1, minHeight: terminalSurfaceHeight }}>
+                        <View style={{ flexGrow: 1, minHeight: surfaceHeight }}>
                         <AgentPager
                             key={props.id}
                             sessionId={props.id}
@@ -1549,7 +1547,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             <TerminalLinkMenu
                                 url={linkMenu.url}
                                 at={linkMenu.at}
-                                region={{ width: terminalBox.width, height: terminalSurfaceHeight }}
+                                region={{ width: terminalBox.width, height: surfaceHeight }}
                                 actions={linkActions}
                                 onClose={() => setLinkMenu(null)}
                             />
