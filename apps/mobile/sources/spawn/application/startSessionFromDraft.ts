@@ -26,6 +26,7 @@ export async function startSessionFromDraft(options: {
     machines: Machine[];
     navigateToSession: (sessionId: string) => void;
     blank?: boolean;
+    onRouteReady?: (agentRoute: string) => void;
 }): Promise<string | null> {
     const connection = planConnection();
     const draft = useNewSessionDraft.getState();
@@ -88,6 +89,7 @@ export async function startSessionFromDraft(options: {
                     draft.setAttachments([]);
                 }
                 options.navigateToSession(agentRoute);
+                options.onRouteReady?.(agentRoute);
             },
         });
         if (!samePlanConnection(connection)) return result.ok ? result.agentRoute : null;

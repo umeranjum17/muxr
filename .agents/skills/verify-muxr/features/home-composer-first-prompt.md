@@ -3,12 +3,12 @@
 Typing a prompt into Home's composer and sending it starts a new agent and
 delivers that prompt as its first message, for every kind. The agent's screen
 opens as soon as the agent exists and shows `Prompt queued` beside the pane
-tabs until the agent has taken it; its own Send waits until then. OpenCode
-reports ready seconds before its input keeps what is typed, so the host waits
-for Herdr's receipt that the prompt started a turn and types it again while
-the agent drops it (`deliverPrompt` in
-`apps/host/src/agent/infrastructure/herdrSessionSource.ts`). If it never
-arrives, the text comes back into the agent's composer with an error.
+tabs until the agent has taken it; its own Send waits until then. The host waits
+for the agent to be promptable, types the prompt once and waits for Herdr's
+receipt that it started a turn (`deliverFirstPrompt` in
+`apps/host/src/agent/infrastructure/herdrSessionSource.ts`). If Herdr reports
+it stalled, the prompt is not sent again: the text comes back into the agent's
+composer with an error, and Home keeps nothing of it.
 
 ## Sub-features
 
@@ -18,8 +18,8 @@ arrives, the text comes back into the agent's composer with an error.
   (accessibility label `Prompt queued until the agent is ready`) until the
   agent starts its turn; the chip sits in the pane-tabs row, so the terminal
   does not re-attach when it goes.
-- `first-prompt-once` a prompt that landed is never typed twice; a slash command
-  is never typed again.
+- `first-prompt-once` a prompt is typed once; a prompt the agent drops is
+  reported as not sent, never typed again.
 - `first-prompt-failed` a prompt the agent never takes comes back into the
   agent's composer, with the error alert.
 

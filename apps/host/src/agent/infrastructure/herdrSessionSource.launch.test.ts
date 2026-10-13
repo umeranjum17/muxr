@@ -49,9 +49,7 @@ function fakeHerdr(dir: string, cwd: string) {
         prompts: string[];
         /** Prompts the agent loses while it finishes starting; Herdr's wait reports each as stalled. */
         losePrompts: number;
-        /** Prompts that reach the screen but start no turn Herdr sees in time. */
-        stallLandedPrompts: number;
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, stallLandedPrompts: 0 };
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0 };
     const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
@@ -80,12 +78,9 @@ function fakeHerdr(dir: string, cwd: string) {
         state.prompts.push(text);
         const lost = state.losePrompts > 0;
         if (lost) state.losePrompts -= 1;
-        // A multi-line paste shows as a placeholder, like OpenCode's, not its text.
-        else state.paneText += `${text.includes('\n') ? `[Pasted ~${text.split('\n').length} lines]` : text}\n`;
-        const stalled = !lost && state.stallLandedPrompts > 0;
-        if (stalled) state.stallLandedPrompts -= 1;
+        else state.paneText += `${text}\n`;
         // Like Herdr, only a caller that waits learns the prompt started no turn.
-        if (params.wait !== undefined && (lost || stalled)) {
+        if (params.wait !== undefined && lost) {
             return { error: { code: 'agent_prompt_stalled', message: 'agent prompt produced no observed working or blocked state within 5000 ms' } };
         }
         return {
@@ -738,7 +733,7 @@ describe('realtime prompt boundary', () => {
 });
 
 describe('first prompt to a just-started agent', () => {
-    it('types it again once when the agent drops it, and never when it is on screen', async () => {
+    it('types it once and reports one the agent drops as not sent', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-first-prompt-'));
         const cwd = join(dir, 'repo');
         const herdr = fakeHerdr(dir, cwd);
@@ -758,24 +753,21 @@ describe('first prompt to a just-started agent', () => {
             herdr.emit('pane.agent_detected', { pane_id: 'w1:p1' });
             await source.refreshHerdr();
 
-            // OpenCode reports ready, then drops what is typed while it finishes starting: typed again once.
-            herdr.state.losePrompts = 1;
+            // The first prompt is typed once and delivered once the agent takes it.
             await expect(source.prompt({ sessionId: started.info.id, text: 'What does calc.py do?', firstPrompt: true })).resolves.toBeUndefined();
-            expect(herdr.state.prompts).toEqual(['What does calc.py do?', 'What does calc.py do?']);
+            expect(herdr.state.prompts).toEqual(['What does calc.py do?']);
             expect(herdr.state.paneText).toContain('What does calc.py do?');
 
-            // Dropped twice: the second loss fails as not delivered, so the phone keeps it in the draft.
-            herdr.state.losePrompts = 2;
+            // A first prompt the agent drops is reported as not sent and never typed again.
+            herdr.state.losePrompts = 1;
             await expect(source.prompt({ sessionId: started.info.id, text: 'Run the tests', firstPrompt: true }))
                 .rejects.toMatchObject({ code: 'prompt-not-sent' });
-            expect(herdr.state.prompts.filter((text) => text === 'Run the tests')).toHaveLength(2);
+            expect(herdr.state.prompts.filter((text) => text === 'Run the tests')).toHaveLength(1);
 
-            // Landed as a paste placeholder with no turn seen: it is on screen, so it is never typed again.
-            herdr.state.stallLandedPrompts = 1;
-            await expect(source.prompt({ sessionId: started.info.id, text: 'Summarise the log\nsecond line\nthird line', firstPrompt: true }))
-                .rejects.toMatchObject({ code: 'prompt-not-sent' });
-            expect(herdr.state.prompts.filter((text) => text.startsWith('Summarise the log'))).toHaveLength(1);
-            expect(herdr.state.paneText).toContain('[Pasted ~3 lines]');
+            // An ordinary send takes the single-call path: no receipt wait, so a dropped one is not reported.
+            herdr.state.losePrompts = 1;
+            await expect(source.prompt({ sessionId: started.info.id, text: 'Ordinary send' })).resolves.toBeUndefined();
+            expect(herdr.state.prompts.filter((text) => text === 'Ordinary send')).toHaveLength(1);
         } finally {
             await source.dispose();
             herdr.close();

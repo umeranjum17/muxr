@@ -9,12 +9,12 @@ export function useStartSessionFromDraft() {
     const [isStarting, setIsStarting] = React.useState(false);
     const isStartingRef = React.useRef(false);
 
-    const startSession = React.useCallback(async ({ blank = false }: { blank?: boolean } = {}): Promise<string | null> => {
+    const startSession = React.useCallback(async ({ blank = false, onRouteReady }: { blank?: boolean; onRouteReady?: (agentRoute: string) => void } = {}): Promise<string | null> => {
         if (isStartingRef.current) return null;
         isStartingRef.current = true;
         setIsStarting(true);
         try {
-            return await startSessionFromDraft({ machines, navigateToSession, blank });
+            return await startSessionFromDraft({ machines, navigateToSession, blank, onRouteReady });
         } finally {
             isStartingRef.current = false;
             setIsStarting(false);

@@ -47,8 +47,8 @@ import { lifecycleNotificationCopy } from '@/herd';
 
 /** A shell that never reports back must not pin the promise forever. */
 const SHELL_TIMEOUT_MS = 120_000;
-/** Outlasts the host holding a prompt for a starting agent and typing it again until the agent takes it. */
-const PROMPT_REQUEST_TIMEOUT_MS = 120_000;
+/** Outlasts the host's wait for a starting agent to take the first prompt, so the host always answers first. */
+const PROMPT_REQUEST_TIMEOUT_MS = 75_000;
 
 const LIFECYCLE_CATALOG_UNAVAILABLE_CODES = new Set([
     'host-contract-mismatch',
