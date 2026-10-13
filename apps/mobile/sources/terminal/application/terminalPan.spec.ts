@@ -12,6 +12,7 @@ describe('a grid taller than its box', () => {
     it('follows the cursor, pans before the pane scrolls, and holds where the user put it until they type', () => {
         let offset = 0;
         const pan = createTerminalPan((next) => { offset = next; });
+        pan.attach('a');
         const row = 20;
         // 25 floor rows drawn 20 tall; the keyboard leaves room for 7.
         pan.layout({ surfaceHeight: 25 * row + 1, boxHeight: 7 * row, rowHeight: row });
@@ -34,6 +35,11 @@ describe('a grid taller than its box', () => {
         pan.frame(herdrFrame('streamed reply', 15));
         expect(offset).toBe(18 * row + 1);
 
+        // Leaving and coming back to the same pane keeps the drag.
+        pan.attach('a');
+        pan.frame(herdrFrame('streamed reply', 15));
+        expect(offset).toBe(18 * row + 1);
+
         // Typing follows the cursor again.
         pan.follow();
         expect(offset).toBe(25 * row + 1 - 15 * row);
@@ -44,7 +50,7 @@ describe('a grid taller than its box', () => {
 
         // Another pane attached: until its own frame names a cursor, the box
         // shows its bottom, not this pane's row.
-        pan.attach();
+        pan.attach('b');
         expect(offset).toBe(0);
         pan.frame(herdrFrame('> ', 15));
         expect(offset).toBe(25 * row + 1 - 15 * row);
@@ -58,6 +64,12 @@ describe('a grid taller than its box', () => {
         expect(pan.pan(5)).toBe(0);
         expect(offset).toBe(5 * row);
         pan.layout({ surfaceHeight: 25 * row + 1, boxHeight: 7 * row, rowHeight: row, holdBottom: true });
+        expect(offset).toBe(0);
+
+        // A drag holds until another pane attaches.
+        expect(pan.pan(5)).toBe(0);
+        expect(offset).toBe(5 * row);
+        pan.attach('c');
         expect(offset).toBe(0);
 
         // The keyboard closes and the whole grid fits: nothing pans.

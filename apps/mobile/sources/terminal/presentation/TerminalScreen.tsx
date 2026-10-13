@@ -454,7 +454,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         setHostHasScrollback(undefined);
         const route = paneRoute.current;
         setScrolledAway(SCROLLED_AWAY.has(route));
-        pan.attach();
+        pan.attach(route);
         if (channel !== undefined) {
             let hostHasScrollback = false;
             const stopBottom = channel.onBottomState((state) => {

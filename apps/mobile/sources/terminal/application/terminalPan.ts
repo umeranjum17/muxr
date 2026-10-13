@@ -46,8 +46,11 @@ export interface TerminalPan {
     pan: (lines: number) => number;
     /** The user typed to the pane or tapped Latest: follow its cursor again. */
     follow: () => void;
-    /** A channel attached: forget the previous pane's cursor until its own frame names one. */
-    attach: () => void;
+    /**
+     * A channel attached to `pane`: forget the previous cursor until its own
+     * frame names one, and drop a drag only if it was for another pane.
+     */
+    attach: (pane: string) => void;
 }
 
 /** The last cursor row (0-based) a frame's trailer names, if it ends with one. */
@@ -71,6 +74,7 @@ export function createTerminalPan(setOffset: (offset: number) => void): Terminal
     let layout: TerminalPanLayout = { surfaceHeight: 0, boxHeight: 0, rowHeight: 0 };
     let cursor: number | undefined;
     let held: number | undefined;
+    let attached: string | undefined;
     let shown = 0;
 
     const overflow = (): number => Math.max(0, layout.surfaceHeight - layout.boxHeight);
@@ -115,9 +119,10 @@ export function createTerminalPan(setOffset: (offset: number) => void): Terminal
             held = undefined;
             show();
         },
-        attach() {
+        attach(pane) {
+            if (pane !== attached) held = undefined;
+            attached = pane;
             cursor = undefined;
-            held = undefined;
             show();
         },
     };
