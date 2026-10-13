@@ -1,12 +1,12 @@
 import { existsSync } from 'node:fs';
 import { parseConnection, pairingIntent, pairingIntentFromHostedFlags } from '../domain/dist/index.js';
 import { error, print } from '../infrastructure/runtime.mjs';
-import { daemonDefinition, runDaemon } from '../infrastructure/daemon.mjs';
+import { daemonDefinition } from '../infrastructure/daemon.mjs';
 import { approveScreenSharing } from './approveScreenSharing.mjs';
 import { linkPair } from './linkPair.mjs';
 import { readSelfhostState, selfhostControlBase, selfhostCredential, selfhostRelayHealthy } from '../infrastructure/selfhost.mjs';
 import { cliVersion, hostServiceVersion } from './inspectSetup.mjs';
-import { browserHostingReady, ensureSelfhostRelay, relayDiscovery } from '../infrastructure/selfhostRelay.mjs';
+import { browserHostingReady, repairSelfhostRelay } from '../infrastructure/selfhostRelay.mjs';
 
 export async function mintDeviceGrant(state, kind = 'native', authority = 'control', personal = false) {
     const record = await linkPair(state, { intent: pairingIntent({ kind, authority, personal }) });
@@ -100,9 +100,7 @@ export async function pairDevice(args = [], deps = {}) {
         }
         let healthy = await selfhostRelayHealthy(state);
         if (!healthy) {
-            const definition = daemonDefinition('selfhost');
-            if (existsSync(definition.path)) await runDaemon(['restart']);
-            else if (state.relayLocation !== 'remote') await ensureSelfhostRelay(state.relayPort, state.webRoot, state.bindHost, state.webOrigin, relayDiscovery(state));
+            if (existsSync(daemonDefinition().path) || state.relayLocation !== 'remote') await repairSelfhostRelay(state);
             healthy = await selfhostRelayHealthy(state);
         }
         if (!healthy) throw new Error('the relay could not restart; run `muxr doctor` for the exact failing check');

@@ -19,7 +19,7 @@ import { createServer as createHttpServer } from 'node:http';
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-selfhost-state-'));
 process.env.MUXR_HOME = scratch;
 process.env.MUXR_NO_SERVICE_COMMANDS = '1';
-const { ensureSelfhostRelay, inspectSetup, selfhostConfigured, selfhostStateUnreadable, selfhostControlBase, startSelfHost, stopOwnedSelfhostRelay } = await import('../../setup/index.mjs');
+const { ensureSelfhostRelay, inspectSetup, readSelfhostState, repairSelfhostRelay, selfhostConfigured, selfhostStateUnreadable, selfhostControlBase, startSelfHost, stopOwnedSelfhostRelay } = await import('../../setup/index.mjs');
 
 assert.equal(selfhostConfigured(), false);
 assert.equal(selfhostStateUnreadable(), false);
@@ -185,6 +185,21 @@ try {
             }), /runs headless on Tailscale/);
             assert.equal(readFileSync(rerunState, 'utf8'), tailnetState, 'self-host rewrote tailnet state');
             assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'self-host replaced the owned relay');
+            // Pair and doctor repair must not spawn or restart a relay on a
+            // tailnet record whose foreground owner is down; they name the unit.
+            const downPort = await new Promise((resolve) => {
+                const probe = createServer();
+                probe.listen(0, '127.0.0.1', () => {
+                    const { port } = probe.address();
+                    probe.close(() => resolve(port));
+                });
+            });
+            writeFileSync(rerunState, `${JSON.stringify({ ...JSON.parse(tailnetState), relayPort: downPort, relayUrl: `ws://100.127.255.254:${downPort}` }, null, 2)}\n`, { mode: 0o600 });
+            const downState = readFileSync(rerunState, 'utf8');
+            await assert.rejects(repairSelfhostRelay(readSelfhostState()), /MUXR_MODE=selfhost muxr up/);
+            assert.equal(readFileSync(rerunState, 'utf8'), downState, 'repair rewrote tailnet state');
+            assert.equal(await fetch(`http://127.0.0.1:${downPort}/health`, { signal: AbortSignal.timeout(1_000) }).then(() => true, () => false), false, 'repair spawned a relay on the tailnet record');
+            assert.equal(readFileSync(ownerPidFile, 'utf8'), ownerPid, 'repair replaced the running relay');
         } finally {
             writeFileSync(rerunState, loopbackState, { mode: 0o600 });
         }

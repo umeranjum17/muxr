@@ -88,6 +88,7 @@ export {
     ensureSelfhostRelay,
     hasPendingRemoteConnect,
     resolveAdvertise,
+    repairSelfhostRelay,
     restartSelfhostRelayIfRunning,
     selfhostPublicSummary,
     sharedMachineCount,
