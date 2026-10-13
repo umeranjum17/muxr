@@ -46,6 +46,7 @@ import { terminalPaneStatus } from '../domain/terminalAgentStatus';
 import { terminalLineHeight, terminalSurfaceHeight } from '../domain/terminalFloor';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { terminalGrid } from '../application/terminalAhead';
+import { createTerminalPan } from '../application/terminalPan';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { useDraft } from '@/hooks/useDraft';
 import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
@@ -354,6 +355,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const terminalGridInset = drawnRowHeight !== undefined && terminalBox !== undefined && grid !== undefined && grid.rows > 0
         ? Math.max(0, surfaceHeight - grid.rows * drawnRowHeight)
         : 0;
+    // A grid taller than its box shows the rows around the pane's cursor; the
+    // terminal's own drag pans the rest into view before it scrolls the pane.
+    const panOffset = useSharedValue(0);
+    const [pan] = React.useState(() => createTerminalPan((offset) => { panOffset.value = offset; }));
+    const panBy = React.useCallback((lines: number) => pan.pan(lines), [pan]);
+    const surfacePan = useAnimatedStyle(() => ({ transform: [{ translateY: panOffset.value }] }));
     // How far the terminal's visible bottom sits from the one it was last
     // measured at: the rails ride the keyboard frame by frame, while the
     // terminal resizes only once it settles. The ring's control rides this, so
@@ -366,6 +373,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // overlay stops at the keyboard's top edge, not at the rails' own bottom.
     const ringOverlayBottom = useAnimatedStyle(() => ({ bottom: settledRaise.value > 0 ? settledRaise.value + insets.bottom : 0 }), [insets.bottom]);
     const [choicesVisible, setChoicesVisible] = React.useState(false);
+    // A renderer keeps the grid it attached at, so one measured on the first
+    // estimate can be taller than the surface and grows it: pan the rows it drew.
+    const drawnGridHeight = drawnRowHeight !== undefined && grid !== undefined ? grid.rows * drawnRowHeight : 0;
+    const pannedHeight = Math.max(surfaceHeight, drawnGridHeight);
+    React.useEffect(() => {
+        pan.layout({ surfaceHeight: pannedHeight, boxHeight: terminalBox?.height ?? 0, rowHeight: terminalRowHeight, holdBottom: choicesVisible });
+    }, [pan, pannedHeight, terminalBox?.height, terminalRowHeight, choicesVisible]);
     // The ring is hosted by the screen, never by the terminal renderer. It owns
     // its own open state so that opening it re-renders one small component
     // rather than this whole screen on the frame the bloom starts; the screen
@@ -453,6 +467,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         setHostHasScrollback(undefined);
         const route = paneRoute.current;
         setScrolledAway(SCROLLED_AWAY.has(route));
+        pan.attach(route);
         if (channel !== undefined) {
             let hostHasScrollback = false;
             const stopBottom = channel.onBottomState((state) => {
@@ -474,11 +489,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 scroll(lines, at);
             };
             channel.sendText = (text) => {
-                if (!TERMINAL_REPLY.test(text)) markScrolledAway(route, false);
+                if (!TERMINAL_REPLY.test(text)) { markScrolledAway(route, false); pan.follow(); }
                 sendText(text);
             };
             channel.sendBytes = (base64) => {
-                if (!TERMINAL_REPLY.test(String.fromCharCode(...decodeBase64(base64.slice(0, 64))))) markScrolledAway(route, false);
+                if (!TERMINAL_REPLY.test(String.fromCharCode(...decodeBase64(base64.slice(0, 64))))) { markScrolledAway(route, false); pan.follow(); }
                 sendBytes(base64);
             };
             stopWatchingChannel.current = () => {
@@ -489,14 +504,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         }
         channelRef.current = channel;
         setChannel(channel);
-    }, [markScrolledAway]);
+    }, [markScrolledAway, pan]);
     const jumpToBottom = React.useCallback((kind: string | undefined) => {
         const channel = channelRef.current;
         if (channel === undefined) return;
+        pan.follow();
         const key = LATEST_KEY[kind ?? ''];
         if (key !== undefined) channel.sendText(key);
         else channel.bottom();
-    }, []);
+    }, [pan]);
     // The selected swipe stops follow Live order; the default skips old shells.
     // The pager settles before the route changes, so the switch itself is a
     // parameter, never a second screen animating in over this one.
@@ -1545,10 +1561,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             if (touch !== undefined) terminalTouch.current = { x: touch.locationX, y: touch.locationY };
                         }}
                         // Shorter than the floor, the surface overflows upward
-                        // and the box shows its bottom rows.
+                        // and the pan picks which of its rows the box shows.
                         style={{ flex: 1, overflow: 'hidden', justifyContent: 'flex-end' }}
                     >
-                        <View style={{ flexGrow: 1, minHeight: surfaceHeight }}>
+                        <Animated.View style={[{ flexGrow: 1, minHeight: pannedHeight }, surfacePan]}>
                         <AgentPager
                             key={props.id}
                             sessionId={props.id}
@@ -1557,13 +1573,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             status={status}
                             onNothingThere={nothingToSwipeTo}
                             onSwitch={switchAgent}
-                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} />}
+                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} panBy={panBy} onFrame={pan.frame} />}
                         >
                         {linkMenu !== null && terminalBox !== undefined && terminalLinkCardFits(terminalBox.height, linkActions.length) && (
                             <TerminalLinkMenu
                                 url={linkMenu.url}
                                 at={linkMenu.at}
-                                region={{ width: terminalBox.width, height: surfaceHeight }}
+                                region={{ width: terminalBox.width, height: pannedHeight }}
                                 actions={linkActions}
                                 onClose={() => setLinkMenu(null)}
                             />
@@ -1581,7 +1597,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             columns={grid?.cols}
                         />
                         </AgentPager>
-                        </View>
+                        </Animated.View>
                     </View>
 
                     {/* Everything below the terminal is one surface in the

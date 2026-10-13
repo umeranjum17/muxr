@@ -44,6 +44,9 @@ export interface TerminalViewProps {
     onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
     /** The rendered row height, so overlays can end on a terminal line. */
     onRowHeight?: (height: number) => void;
+    /** Same contract as the native view: a taller grid pans before the pane scrolls. */
+    panBy: (lines: number) => number;
+    onFrame: (base64: string) => void;
 }
 
 // Injected when this lazy chunk loads, before any terminal measures its grid.
@@ -90,6 +93,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
     const { sessionId, onStatus, onChannel, onLinkPress, onRowHeight } = props;
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
+    const panByRef = React.useRef(props.panBy);
+    panByRef.current = props.panBy;
+    const onFrameRef = React.useRef(props.onFrame);
+    onFrameRef.current = props.onFrame;
     const firstFrameCallback = React.useRef(props.onFirstFrameWritten);
     firstFrameCallback.current = props.onFirstFrameWritten;
     // Quiet, immediate confirmation for the long-press link copy.
@@ -310,6 +317,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 };
                 opened.onData((base64) => {
                     recordTerminalOutput(sessionId, base64);
+                    onFrameRef.current(base64);
                     pending.push({ data: base64, ready: readyForFrame });
                     if (!frameScheduled) {
                         frameScheduled = true;
@@ -434,7 +442,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             const lines = Math.trunc(scrollAcc / cellHeight());
             if (lines === 0) return;
             const clamped = Math.max(-40, Math.min(40, lines));
-            channel?.scroll(clamped, { column: Math.floor(term.cols / 2), row: Math.floor(term.rows / 2) });
+            const rest = panByRef.current(clamped);
+            if (rest !== 0) channel?.scroll(rest, { column: Math.floor(term.cols / 2), row: Math.floor(term.rows / 2) });
             scrollAcc -= clamped * cellHeight();
             if (lines !== clamped) scrollAcc = 0;
         };

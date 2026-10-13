@@ -57,6 +57,14 @@ export interface TerminalViewProps {
     onLinkPress?: (url: string, at?: { x: number; y: number }) => void;
     /** The rendered row height, so overlays can end on a terminal line. */
     onRowHeight?: (height: number) => void;
+    /**
+     * Drag travel in herdr's direction, offered to the screen first: a grid
+     * taller than its box pans before the pane scrolls. Returns what is left
+     * for the pane.
+     */
+    panBy: (lines: number) => number;
+    /** Each frame of pane output, as it reaches the renderer. */
+    onFrame: (base64: string) => void;
 }
 
 export type TerminalViewControls = {
@@ -104,6 +112,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const firstFrameCallback = React.useRef(props.onFirstFrameWritten);
     firstFrameCallback.current = props.onFirstFrameWritten;
+    const onFrameRef = React.useRef(props.onFrame);
+    onFrameRef.current = props.onFrame;
     const openAbortRef = React.useRef<AbortController | undefined>(undefined);
     const openedRef = React.useRef(false);
     const lastSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
@@ -276,6 +286,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // One Ghostty write at a time, in wire order.
                     channel.onData((base64) => {
                         recordTerminalOutput(sessionId, base64);
+                        onFrameRef.current(base64);
                         // Output came back, so the next scroll may go. A stream
                         // repaints itself whether or not anything was scrolled,
                         // so this is flow control and nothing more: which frame
@@ -399,7 +410,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => {
-                    if (!scrollStoppedRef.current) scrollGate.queue(-nativeEvent.rows);
+                    if (scrollStoppedRef.current) return;
+                    const lines = props.panBy(-nativeEvent.rows);
+                    if (lines !== 0) scrollGate.queue(lines);
                 }}
                 onPinch={pinch}
                 onOpenLink={({ nativeEvent }) => {
