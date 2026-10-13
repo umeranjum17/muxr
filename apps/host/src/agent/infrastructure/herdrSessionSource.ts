@@ -54,7 +54,7 @@ import type {
     PlanMoveOptions,
 } from '../application/sessionSource.js';
 import { KitHerdrClient, type HerdrCaller } from './herdrKitClient.js';
-import type { AgentStatus, PromptReceipt } from '@byokit/herdr';
+import type { AgentStatus } from '@byokit/herdr';
 import { agentInstallState } from '@byokit/herdr';
 import {
     AgentRouteStore,
@@ -345,11 +345,6 @@ function agentRouteError(code: 'agent-unavailable' | 'agent-not-ready' | 'agent-
 function promptNotSent(cause: unknown): Error {
     const detail = cause instanceof Error ? cause.message : String(cause);
     return Object.assign(new Error(detail), { code: 'prompt-not-sent', cause });
-}
-
-/** The prompt may have reached the agent, so sending it again could queue it twice. */
-function promptOutcomeUnknown(cause: unknown): Error {
-    return Object.assign(new Error('The prompt outcome could not be confirmed.'), { code: 'prompt-outcome-unknown', cause });
 }
 
 /** Listed-agent gate. Omitted interactive_ready is ready when lifecycle is live. Starting stays closed. */
@@ -2136,8 +2131,8 @@ export async function createHerdrSessionSource(
      * `agent_prompt_stalled`; that is reported as not sent, so the phone keeps
      * the text in the agent's draft and it is never typed a second time.
      */
-    async function deliverFirstPrompt(paneId: string, text: string): Promise<PromptReceipt> {
-        return await client.kit.prompt({ paneId }, text, { wait: { until: ['working', 'blocked'], timeoutMs: PROMPT_RECEIPT_TIMEOUT_MS } })
+    async function deliverFirstPrompt(paneId: string, text: string): Promise<void> {
+        await client.kit.prompt({ paneId }, text, { wait: { until: ['working', 'blocked'], timeoutMs: PROMPT_RECEIPT_TIMEOUT_MS } })
             .catch((error: unknown) => {
                 if ((error as { code?: unknown }).code !== 'agent_prompt_stalled') throw error;
                 throw promptNotSent(new Error('The agent did not take the prompt. Send it again.'));
@@ -2172,9 +2167,12 @@ export async function createHerdrSessionSource(
             throw promptNotSent(error);
         }
         const generation = sessionGenerationKey(session);
-        const receipt = firstPrompt
-            ? await deliverFirstPrompt(session.paneId, text)
-            : await client.kit.prompt({ paneId: session.paneId }, text);
+        // Herdr's wait returned only once the agent went working or blocked: that is the confirmation.
+        if (firstPrompt) {
+            await deliverFirstPrompt(session.paneId, text);
+            return;
+        }
+        const receipt = await client.kit.prompt({ paneId: session.paneId }, text);
         // Herdr names the conversation the prompt reached; a match needs no confirming read.
         const reached = parseHerdrAgentSession(receipt.agentSession);
         if (reached !== undefined && `${receipt.paneId}\u0000${herdrAgentSessionKey(reached)}` === generation) return;
@@ -2185,7 +2183,9 @@ export async function createHerdrSessionSource(
                 throw new Error('The prompt generation changed before its receipt could be confirmed.');
             }
         } catch (cause) {
-            throw promptOutcomeUnknown(cause);
+            throw Object.assign(new Error('The prompt outcome could not be confirmed.'), {
+                code: 'prompt-outcome-unknown', cause,
+            });
         }
     }
 

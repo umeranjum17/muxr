@@ -89,8 +89,8 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Deliver the Home composer's prompt to the agent it starts](./home-composer-first-prompt.md) —
   release app on a task-owned emulator paired to a real-Herdr lab: a prompt
   sent from Home opens the new OpenCode agent at once with `Prompt queued`, and
-  the agent answers it; timed pane reads on main (never arrives) and the
-  candidate.
+  the agent answers it; a first prompt the agent cannot take returns to its
+  input marked not sent.
 
 - [Name agents on Home by kind and task, never a launch id](./home-agent-labels.md) —
   paired lab PWA over a real-Herdr lab with an unnamed Codex and pi agent: the
