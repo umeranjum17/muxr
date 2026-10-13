@@ -5,7 +5,7 @@ import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
-import { startAgentFromDock } from './StartAgentFromDock';
+import { startAgentFromDock, type FirstPromptFailure } from './StartAgentFromDock';
 import { dockStartPath } from './startFolder';
 import { planConnection, samePlanConnection, waitForPlanDiscovery, acknowledgeAutoTerms, planAccountForLaunch, planLaunchQuestion, unseenAutoTerms, type LaunchQuestion } from '@/plans';
 import { announceStartAccount } from '@/plans/ui';
@@ -27,6 +27,7 @@ export async function startSessionFromDraft(options: {
     navigateToSession: (sessionId: string) => void;
     blank?: boolean;
     onRouteReady?: (agentRoute: string) => void;
+    onPromptFailed?: (failure: FirstPromptFailure) => void;
 }): Promise<string | null> {
     const connection = planConnection();
     const draft = useNewSessionDraft.getState();
@@ -91,10 +92,15 @@ export async function startSessionFromDraft(options: {
                 options.navigateToSession(agentRoute);
                 options.onRouteReady?.(agentRoute);
             },
+            // Delivery runs past the spawn: a failure lands after Home is
+            // free, so it alerts here and hands the text back to the caller.
+            onPromptFailed: (failure) => {
+                Modal.alert(t('common.error'), failure.message);
+                options.onPromptFailed?.(failure);
+            },
         });
         if (!samePlanConnection(connection)) return result.ok ? result.agentRoute : null;
         if (result.ok) {
-            if (result.promptFailed) Modal.alert(t('common.error'), result.promptFailed);
             if (planAccount !== undefined) void announceStartAccount(result.agentRoute, draft.agentType, planAccount, connection);
             return result.agentRoute;
         }

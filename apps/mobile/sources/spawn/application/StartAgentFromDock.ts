@@ -10,7 +10,8 @@ import type { AttachmentPreview } from '@/catalog';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 import { planConnection, samePlanConnection } from '@/plans';
-import { takeQueuedFirstPrompt, useQueuedFirstPrompts } from '@/terminal';
+import { appendToDraft, takeQueuedFirstPrompt, useQueuedFirstPrompts } from '@/terminal';
+import { useNewSessionDraft } from './useNewSessionDraft';
 
 export type StartAgentFromDockCommand = {
     machine: Machine | undefined;
@@ -23,10 +24,14 @@ export type StartAgentFromDockCommand = {
     planAccount?: string;
     /** Fires once the route exists, before the first prompt is delivered. */
     onRouteReady?: (sessionId: string) => void;
+    /** Fires when the detached first-prompt delivery fails, after route-ready. */
+    onPromptFailed?: (failure: FirstPromptFailure) => void;
 };
 
+export type FirstPromptFailure = { text: string; message: string };
+
 export type StartAgentFromDockResult =
-    | { ok: true; agentRoute: string; promptFailed?: string }
+    | { ok: true; agentRoute: string }
     | { ok: false; reason: 'no-machine' | 'offline' | 'worktree-failed' | 'needs-directory' | 'failed'; message?: string; directory?: string };
 
 /**
@@ -52,6 +57,24 @@ async function promptWithAttachmentPaths(
     if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
     const saved = await sync.request('session.saveAttachments', { sessionId, attachments });
     return [prompt.trim(), ...saved.savedPaths].filter((part) => part !== '').join(' ');
+}
+
+/**
+ * A first prompt the host never took belongs to both composers: the agent's
+ * screen takes it back into its own draft on mount, and Home shows it again
+ * too, since its composer already cleared at route-ready. Anything the person
+ * typed on Home since is kept; the failed text joins it, never replacing it.
+ */
+function restoreFailedFirstPrompt(agentRoute: string, prompt: string, attachments: unknown[]): void {
+    useQueuedFirstPrompts.setState({ [agentRoute]: { text: prompt, failed: true } });
+    if (prompt) {
+        const home = useNewSessionDraft.getState();
+        home.setInput(appendToDraft(home.input, prompt));
+    }
+    if (attachments.length > 0) {
+        const home = useNewSessionDraft.getState();
+        home.setAttachments([...home.attachments, ...(attachments as AttachmentPreview[])]);
+    }
 }
 
 /** Spawn from the Dock: Machine, directory, Worktree, and Agent Kind are already chosen. */
@@ -97,18 +120,22 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
     }
     useQueuedFirstPrompts.setState({ [agentRoute]: { text: command.prompt } });
     command.onRouteReady?.(agentRoute);
-    try {
-        const text = await promptWithAttachmentPaths(agentRoute, command.prompt, command.attachments, connection);
-        if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
-        await sync.sendMessage(agentRoute, text, { firstPrompt: true });
-        takeQueuedFirstPrompt(agentRoute);
-        return { ok: true, agentRoute };
-    } catch (error) {
-        useQueuedFirstPrompts.setState({ [agentRoute]: { text: command.prompt, failed: true } });
-        return {
-            ok: true,
-            agentRoute,
-            promptFailed: error instanceof Error ? error.message : 'Failed to send the first message',
-        };
-    }
+    // Home is gated on the spawn alone: the first prompt keeps delivering
+    // after this returns, so the Home composer is free while the host holds
+    // it. A failure restores both composers and reports through onPromptFailed.
+    void (async () => {
+        try {
+            const text = await promptWithAttachmentPaths(agentRoute, command.prompt, command.attachments, connection);
+            if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
+            await sync.sendMessage(agentRoute, text, { firstPrompt: true });
+            takeQueuedFirstPrompt(agentRoute);
+        } catch (error) {
+            restoreFailedFirstPrompt(agentRoute, command.prompt, command.attachments);
+            command.onPromptFailed?.({
+                text: command.prompt,
+                message: error instanceof Error ? error.message : 'Failed to send the first message',
+            });
+        }
+    })();
+    return { ok: true, agentRoute };
 }
