@@ -258,11 +258,12 @@ describe('native pairing over the byokit link', () => {
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     });
 
-    it('pairs the first phone without a TTY through the kit files, refuses mismatched words, and refuses a second handoff', async () => {
+    it('pairs the first phone through the kit files after wrong words and a cancelled peer reset, then refuses a second handoff', async () => {
         const workDir = join(home, 'kit-work');
         mkdirSync(workDir);
         const outbox = join(workDir, '.byokit', 'outbox');
-        for (const matches of [false, true]) {
+        for (const mode of ['wrong', 'cancel', 'matching']) {
+            const matches = mode === 'matching';
             const before = readSelfhostState().machine.crypto.devices.length;
             const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
             const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
@@ -276,8 +277,15 @@ describe('native pairing over the byokit link', () => {
                 const offered = JSON.parse(readFileSync(offerPath, 'utf8'));
                 expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
                 expect(offered.version).toBe(1);
-                const pairing = runPhonePairing(offered.offer, { onWords: (words) => {
+                const pairing = runPhonePairing(offered.offer, { onWords: async (words) => {
                     shownWords = words;
+                    if (mode === 'cancel') {
+                        // Let the computer enter the actual SAS approval wait,
+                        // then its CLI closes the local socket during cancel.
+                        await new Promise((resolve) => setTimeout(resolve, 300));
+                        command.kill('SIGTERM');
+                        return;
+                    }
                     const wordsPath = join(workDir, '.byokit', 'inbox', offered.wordsFile);
                     // Same raw-byte, private, atomic rename contract as kit deliver.
                     writeFileSync(`${wordsPath}.tmp`, matches ? words : 'wrong words', { mode: 0o600 });
@@ -292,7 +300,14 @@ describe('native pairing over the byokit link', () => {
                 expect(command.output()).not.toContain(offered.offer);
                 expect(shownWords).not.toBe('');
                 expect(command.output()).not.toContain(shownWords);
-                if (!matches) expect(command.output()).toContain('two words did not match');
+                if (mode === 'wrong') expect(command.output()).toContain('two words did not match');
+                if (mode === 'cancel') {
+                    await until(() => host!.output().includes('Pairing connection lost; this pairing attempt ended.') ? true : undefined,
+                        'host contains the peer reset without crashing');
+                    expect(host!.exitCode).toBeNull();
+                    expect(host!.signalCode).toBeNull();
+                    expect(host!.output().match(/Pairing connection lost; this pairing attempt ended\./g)).toHaveLength(1);
+                }
             } finally { await stop(command); }
         }
 

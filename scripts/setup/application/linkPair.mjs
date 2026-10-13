@@ -104,6 +104,10 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
     const sockets = new Set();
     let busy = false;
     const server = createServer((socket) => {
+        socket.on('error', () => {
+            process.stderr.write('Pairing connection lost; this pairing attempt ended.\n');
+            socket.destroy();
+        });
         sockets.add(socket);
         socket.on('close', () => sockets.delete(socket));
         if (busy) { socket.end(`${JSON.stringify({ error: 'another pairing is in progress' })}\n`); return; }
