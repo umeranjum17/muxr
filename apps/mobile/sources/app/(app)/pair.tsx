@@ -12,6 +12,7 @@ import { decidePairingInput, linkPairMachineName, looksLikeLinkOffer, PairingNee
 import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScannerAvailable, usePairQrScanner, resolvePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
+import { WrappingTitle } from '@/components/WrappingTitle';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
@@ -309,11 +310,11 @@ export default function PairScreen() {
                         <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
                     </View>
                 )}
-                <Text style={styles.machineName}>
+                <WrappingTitle style={styles.machineName}>
                     {state === undefined
                         ? 'Securely pair this device'
                         : state.machineName ?? 'Securely pair this device'}
-                </Text>
+                </WrappingTitle>
                 {state?.phase === 'confirm' && (
                     <Text style={styles.subtitle}>wants to pair with this {pairingDeviceNoun()}</Text>
                 )}
@@ -335,7 +336,7 @@ export default function PairScreen() {
                             {progress?.words ? (
                                 <>
                                     <Text accessibilityLiveRegion="polite" style={styles.stepText}>{t('pairing.compareWords', { name: state.machineName })}</Text>
-                                    <Text selectable style={styles.machineName}>{progress.words}</Text>
+                                    <WrappingTitle selectable style={styles.machineName}>{progress.words}</WrappingTitle>
                                 </>
                             ) : (
                                 <Text accessibilityLiveRegion="polite" style={styles.stepText}>{t('pairing.connecting')}</Text>
