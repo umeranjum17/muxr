@@ -55,7 +55,7 @@ phone: that is the before capture.
 ## Gotchas
 
 - The floor is `MIN_TERMINAL_ROWS` / `MIN_TERMINAL_CELLS` in
-  `TerminalScreen.tsx`; the lab reads the row floor from there. The probe
+  `apps/mobile/sources/terminal/domain/terminalFloor.ts`; the lab reads the row floor from there. The probe
   behind it, a bare pty: at 37 columns OpenCode survives 22 rows and panics at
   every height from 21 down to 12, even when launched at that size. Narrower
   needs more: 31 x 22, 29 x 24, 26 x 24 and 22 x 24 panic; 31 x 26, 29 x 32,

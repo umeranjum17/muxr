@@ -11,7 +11,7 @@ const { EVIDENCE, SERIAL, GO_KEY_FILE } = process.env;
 if (!EVIDENCE) throw new Error('Set EVIDENCE to the run evidence directory');
 const MODEL = process.env.MODEL ?? 'opencode-go/muse-spark-1.3-contributor';
 // The floor the app holds, read from the app so the check cannot drift from it.
-const FLOOR = Number(/const MIN_TERMINAL_ROWS = (\d+);/.exec(readFileSync('apps/mobile/sources/terminal/presentation/TerminalScreen.tsx', 'utf8'))?.[1]);
+const FLOOR = Number(/const MIN_TERMINAL_ROWS = (\d+);/.exec(readFileSync('apps/mobile/sources/terminal/domain/terminalFloor.ts', 'utf8'))?.[1]);
 const CRASHED = /Illegal instruction|bun\.report|panic\(main thread\)|command not found/;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const mark = (line) => {
@@ -123,7 +123,10 @@ try {
             adb('shell', 'input', 'tap', String((x1 + x2) >> 1), String((y1 + y2) >> 1));
             mark('tapped the prompt box');
             await sleep(5000);
-            if (!/mInputShown=true|mIsInputViewShown=true/.test(adb('shell', 'dumpsys', 'input_method'))) mark('keyboard did not open');
+            if (!/mInputShown=true|mIsInputViewShown=true/.test(adb('shell', 'dumpsys', 'input_method'))) {
+                mark('FAIL the keyboard did not open, so the floor was not exercised');
+                return false;
+            }
             return commands.check();
         },
     };
