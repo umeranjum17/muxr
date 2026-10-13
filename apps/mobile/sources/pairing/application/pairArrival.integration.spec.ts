@@ -27,7 +27,7 @@ vi.mock('react-native', () => ({
     TextInput: 'TextInput',
     View: 'View',
 }));
-vi.mock('react-native-keyboard-controller', () => ({ KeyboardAwareScrollView: 'ScrollView', KeyboardStickyView: 'View' }));
+vi.mock('react-native-keyboard-controller', () => ({ KeyboardAwareScrollView: 'ScrollView', KeyboardStickyView: 'View', KeyboardEvents: { addListener: () => ({ remove: () => undefined }) } }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: { create: (styles: (theme: unknown) => unknown) => styles({ colors: {

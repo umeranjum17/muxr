@@ -2,7 +2,7 @@ import * as React from 'react';
 import * as Linking from 'expo-linking';
 import * as Clipboard from 'expo-clipboard';
 import { ActivityIndicator, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { KeyboardAwareScrollView, KeyboardStickyView, type KeyboardAwareScrollViewRef } from 'react-native-keyboard-controller';
+import { KeyboardAwareScrollView, KeyboardEvents, KeyboardStickyView, type KeyboardAwareScrollViewRef } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
@@ -96,11 +96,12 @@ export default function PairScreen() {
     React.useEffect(() => () => { if (successTimer.current !== undefined) clearTimeout(successTimer.current); }, []);
     // The hero icon has no room once the keyboard takes half the screen: it
     // renders cut off under the header. Hide it while the keyboard is open
-    // instead of showing a clipped badge.
+    // instead of showing a clipped badge. Closed is the scroll view's own hide
+    // event: it lands after its last scroll restore, React Native's lands before.
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
     React.useEffect(() => {
         const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
-        const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false));
+        const hide = KeyboardEvents.addListener('keyboardDidHide', () => setKeyboardOpen(false));
         return () => { show.remove(); hide.remove(); };
     }, []);
     // Native intent routes the offer into this screen's query param before Expo Router handles the URL.
