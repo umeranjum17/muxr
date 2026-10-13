@@ -75,6 +75,6 @@ phone: that is the before capture.
 - With the keyboard up on a 270 dp phone only the grid's bottom rows show:
   OpenCode's status line and its prompt, not the reply above them. Close the
   keyboard to read the reply.
-- On web at 270 dp, opening the keyboard can throw React error #185 (maximum
-  update depth) into "Something went wrong". main does the same with the
-  same stack (2026-10-12), so it is not the floor. Retry recovers.
+- On web at 270 dp, typing used to throw React error #185 (maximum update
+  depth) into "Something went wrong". Not the floor: the per-keystroke draft
+  write is gone (see `web-prompt-typing.md`). If it shows again, Retry recovers.
