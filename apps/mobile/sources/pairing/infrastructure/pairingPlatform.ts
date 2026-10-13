@@ -2,8 +2,7 @@ import { Platform } from 'react-native';
 import type { StoredHostedGrant } from '../application/linkPairing';
 import { cachedGrant, loadGrants } from './grantStore';
 import { isBrowserLinkOffer } from './linkPairClient';
-import { tailscaleUnreachableMessage } from './linkFirstClient';
-import { decidePairingInput, PairingNeedsNewCode } from '../domain/pairingString';
+import { decidePairingInput, PairingNeedsNewCode, tailscaleUnreachableMessage } from '../domain/pairingString';
 
 /** What this device calls itself in pairing copy: an iPad is never "this phone". */
 export function pairingDeviceNoun(): 'browser' | 'iPad' | 'iPhone' | 'phone' {

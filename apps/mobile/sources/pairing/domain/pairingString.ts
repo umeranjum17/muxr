@@ -51,6 +51,15 @@ export function isTailscaleAddress(url: string): boolean {
     return host.endsWith('.ts.net') || (ip !== null && Number(ip[1]) >= 64 && Number(ip[1]) <= 127);
 }
 
+/** What to fix, in one sentence, when this device cannot reach the computer
+ *  over Tailscale. `onTailscale` says whether this device holds a Tailscale
+ *  address; where that is unknown (iOS, the web) both ends are named. */
+export function tailscaleUnreachableMessage(computer: string, device: string, onTailscale?: boolean): string {
+    if (onTailscale === false) return `Can't reach ${computer}: turn on Tailscale on this ${device} and sign in, then try again.`;
+    if (onTailscale === true) return `Can't reach ${computer}: check it's awake and Tailscale is on there, signed in to the same account as this ${device}.`;
+    return `Can't reach ${computer}. Is it awake and is Tailscale connected on this ${device} and the computer?`;
+}
+
 function isLinkOffer(value: string): boolean {
     return LINK_OFFER.test(value) || (isCompactOfferText(value) && readOffer(value) !== undefined);
 }
