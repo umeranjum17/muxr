@@ -15,7 +15,7 @@ export function pairingDeviceNoun(): 'browser' | 'iPad' | 'iPhone' | 'phone' {
 export async function tailscaleUnreachableHere(computer: string): Promise<string> {
     const noun = pairingDeviceNoun();
     // Loaded on use, so code that never pairs needs no native bridge.
-    const onTailscale = await import('@/../modules/tailnet-address').then((tailnet) => tailnet.hasTailnetAddress(), () => undefined);
+    const onTailscale = (await import('@/../modules/tailnet-address')).hasTailnetAddress();
     return tailscaleUnreachableMessage(computer, noun === 'browser' ? 'device' : noun, onTailscale);
 }
 
