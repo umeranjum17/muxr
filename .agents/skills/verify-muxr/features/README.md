@@ -228,6 +228,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   Settings `Herdr` row and sheet with the `herdr agent list` command, Copy
   feedback, and the real-Herdr lab log proving the command lists the host's
   sessions.
+- [Confirm the SSH host fingerprint before signing in](./ssh-host-fingerprint.md) —
+  private SSH server and native release app: no authentication before explicit
+  confirmation, cancellation, same-key reconnect and changed-key refusal.
 - [Sign in over SSH with an Ed25519 key](./ssh-login-keys.md) —
   native release app against a container with generated Ed25519/RSA keys:
   real pairing consent, saved-credential reconnect, credential refusal and

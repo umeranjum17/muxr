@@ -15,6 +15,7 @@ import {
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
     parseSshFields,
+    reviewSshHostKey,
     pinSshHostKey,
     saveConnectionSettings,
     type SshTarget,
@@ -368,6 +369,11 @@ export default function ConnectionSettingsScreen() {
         setSshError(undefined);
         setSshSaving(true);
         try {
+            target = await reviewSshHostKey(target, (fingerprint) => Modal.confirm(
+                'Check SSH fingerprint',
+                `Compare this fingerprint with your provider console before continuing.\n\n${fingerprint}\n\nNo login details have been sent.`,
+                { confirmText: 'Fingerprint matches', cancelText: 'Cancel' },
+            ));
             if (Object.keys(parsed.credential).length > 0) {
                 // Sign in with what was typed before it replaces the saved credential.
                 const hostKey = await verifySshCredential(target, parsed.credential);
@@ -711,7 +717,7 @@ export default function ConnectionSettingsScreen() {
                     <Field label="Private key passphrase" value={sshPassphrase} onChange={setSshPassphrase} placeholder="Only if the key is encrypted" secure />
                     <Item
                         title="SSH host key"
-                        subtitle={initial.ssh?.hostKey === undefined ? 'Pinned after the first successful connection' : 'Pinned on this device; a change fails closed'}
+                        subtitle={initial.ssh?.hostKey === undefined ? 'Confirm the fingerprint before signing in' : 'Confirmed on this device; a change is refused'}
                         subtitleLines={0}
                     />
                     {sshError !== undefined && <Text accessibilityRole="alert" style={styles.error}>{sshError}</Text>}

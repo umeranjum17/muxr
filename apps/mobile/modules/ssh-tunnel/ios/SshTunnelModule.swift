@@ -39,6 +39,13 @@ public final class SshTunnelModule: Module {
     AsyncFunction("openTunnel") { (record: SshTunnelRecord) async throws -> [String: Any] in
       try await self.background { try self.open(record.configuration) }
     }
+    AsyncFunction("inspectHostKey") { (record: SshTunnelRecord) async throws -> [String: String] in
+      try await self.background {
+        let connection = try SshTransport(record.configuration, probeOnly: true)
+        defer { connection.close() }
+        return ["hostKey": connection.hostKey]
+      }
+    }
     AsyncFunction("verifyCredentials") { (record: SshTunnelRecord) async throws -> [String: String] in
       try await self.background {
         let connection = try SshTransport(record.configuration)
@@ -94,9 +101,10 @@ public final class SshTunnelModule: Module {
 
   private func open(_ config: SshConfiguration) throws -> [String: Any] {
     try config.validate()
+    try config.requirePin()
     let reused = try lock.withLock { () throws -> [String: Any]? in
       guard let existing = tunnel, existing.alive, existing.signature == config.signature else { return nil }
-      if let expected = config.knownHostKey, !expected.isEmpty, expected != existing.hostKey {
+      if config.knownHostKey != existing.hostKey {
         throw SshFailure(code: "ssh-host-key", message: "the SSH host key changed")
       }
       return ["localPort": existing.localPort, "hostKey": existing.hostKey]
