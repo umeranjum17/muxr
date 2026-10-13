@@ -15,6 +15,7 @@ import { daemonIsRunning, runDaemon, startMuxrDaemon } from '../infrastructure/d
 import {
     cleanupManagedIngress,
     cloudflaredAlive,
+    isTailnetIPv4,
     persistOwnedServeIngress,
     readSelfhostState,
     selfhostPath,
@@ -113,7 +114,8 @@ export async function startSelfHost(args = []) {
             writeSelfhostState(state);
         }
         if (web && !advertise.url.startsWith('wss://')) throw new Error('--web requires HTTPS (Tailscale Serve, a named HTTPS tunnel, or --advertise wss://...)');
-        const bindHost = args.includes('--bind-loopback') || tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1' : '0.0.0.0';
+        const bindHost = args.includes('--bind-loopback') || tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1'
+            : isTailnetIPv4(state.bindHost) ? state.bindHost : '0.0.0.0';
         const webOrigin = web ? advertise.url.replace(/^wss/, 'https') : undefined;
         print(`  … checking local relay port ${port}`);
         await ensureSelfhostRelay(port, web ? webRoot : undefined, bindHost, webOrigin, {

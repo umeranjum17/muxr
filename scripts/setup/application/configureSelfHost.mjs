@@ -22,10 +22,10 @@ export async function configureSelfHost(args) {
         if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('--port must be a TCP port (1-65535)');
         const advertise = await resolveAdvertise(args, port);
         const url = new URL(advertise.url);
-        if (url.protocol === 'ws:' && Number(url.port || 80) !== port) throw new Error('the ws:// advertise port must match --port (default 8792)');
+        if (url.protocol !== 'ws:') throw new Error('--configure-only serves plain ws:// on the tailnet address; use --advertise ws://<name>:<port>');
+        if (Number(url.port || 80) !== port) throw new Error('the ws:// advertise port must match --port (default 8792)');
         const bindHost = isIP(url.hostname) ? url.hostname : (await lookup(url.hostname, { family: 4 })).address;
         if (!isTailnetIPv4(bindHost)) throw new Error('--advertise must resolve to a Tailscale IPv4 address (100.64.0.0/10)');
-        const connectionMode = url.protocol === 'ws:' ? 'private' : undefined;
         let state = readSelfhostState();
         if (existsSync(selfhostPath())) {
             const info = lstatSync(selfhostPath());
@@ -33,7 +33,7 @@ export async function configureSelfHost(args) {
             if (!state?.machine?.id || !validMachineCrypto(state.machine.crypto, 'selfhost') || typeof state.mintSecret !== 'string' || !state.mintSecret) throw new Error('existing self-host state is invalid; refusing to replace its pairing identity');
             const sameConfiguration = state.relayUrl === advertise.url && state.relayPort === port
                 && state.relayLocation === 'local' && state.relayRole === 'single-machine'
-                && state.bindHost === bindHost && state.connectionMode === connectionMode && !state.webEnabled && !state.ingress;
+                && state.bindHost === bindHost && state.connectionMode === 'private' && !state.webEnabled && !state.ingress;
             if (!sameConfiguration) throw new Error('--configure-only cannot replace an existing connection; use `muxr setup` to reconfigure it');
         }
         const mintPath = join(stateDir(), 'relay', 'mint-secret');
@@ -53,7 +53,7 @@ export async function configureSelfHost(args) {
         if (!state) {
             state = { version: 1, machine: machineIdentity(undefined), relayPort: port,
                 relayUrl: advertise.url, relayLocation: 'local', relayRole: 'single-machine',
-                ...(connectionMode ? { connectionMode } : {}), webEnabled: false, bindHost, mintSecret: secret };
+                connectionMode: 'private', webEnabled: false, bindHost, mintSecret: secret };
             writeSelfhostState(state);
         }
         print(`Configured ${advertise.url} (bind ${bindHost}:${port}, Tailscale only); no relay or service started.`);

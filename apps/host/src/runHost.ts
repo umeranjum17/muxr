@@ -6,6 +6,7 @@ import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, labHerdrSocket, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
+import { localRelayBase } from '../../../scripts/setup/domain/dist/index.js';
 import { startHost } from './host.js';
 import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
@@ -244,11 +245,7 @@ try {
 }
 function defaultRelayUrl(): string {
     if (selfhostAuth?.relayLocation === 'remote' && selfhostAuth.relayUrl !== undefined) return selfhostAuth.relayUrl;
-    if (selfhostAuth?.relayPort !== undefined) {
-        const bind = selfhostAuth.bindHost;
-        const host = bind && bind !== '0.0.0.0' && bind !== '::' ? bind : '127.0.0.1';
-        return `ws://${host.includes(':') ? `[${host}]` : host}:${selfhostAuth.relayPort}/relay`;
-    }
+    if (selfhostAuth?.relayPort !== undefined) return `${localRelayBase(selfhostAuth.relayPort, selfhostAuth.bindHost).replace(/^http:/, 'ws:')}/relay`;
     return 'ws://127.0.0.1:8792';
 }
 let hostConfig: ResolvedHostConfig;

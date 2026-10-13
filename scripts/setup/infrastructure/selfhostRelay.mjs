@@ -186,7 +186,10 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
         if (!existsSync(join(dataDir, 'mint-secret'))) {
             throw new Error(`port ${port} answers but is not this relay's state; stop the stale relay on :${port} first`);
         }
-        if (health.webEnabled !== (webRoot !== undefined) || health.bindHost !== host) {
+        // A probe from a non-loopback peer (a tailnet-bound relay) gets no bind or
+        // web fields, so the recorded state is the relay's own report.
+        const reported = health.bindHost === undefined ? readSelfhostState() : health;
+        if ((reported?.webEnabled === true) !== (webRoot !== undefined) || reported?.bindHost !== host) {
             throw new Error(`relay on :${port} is already running with different web/bind settings; stop it, then rerun setup`);
         }
         return;
@@ -226,7 +229,7 @@ export async function ensureSelfhostRelay(port, webRoot, host = '0.0.0.0', webOr
 
 export function persistRelayRuntimeState({ state, health }) {
     if (typeof health.bindHost === 'string') state.bindHost = health.bindHost;
-    state.webEnabled = health.webEnabled === true;
+    if (typeof health.webEnabled === 'boolean') state.webEnabled = health.webEnabled;
     state.webRoot = state.webEnabled ? join(dirname(realpathSync(process.argv[1])), 'web') : undefined;
     state.webOrigin = state.webEnabled && typeof state.relayUrl === 'string' ? state.relayUrl.replace(/^wss/, 'https') : undefined;
     writeSelfhostState(state);

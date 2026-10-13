@@ -11,14 +11,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-selfhost-state-'));
 process.env.MUXR_HOME = scratch;
 process.env.MUXR_NO_SERVICE_COMMANDS = '1';
-const { ensureSelfhostRelay, inspectSetup, selfhostConfigured, selfhostStateUnreadable, selfhostControlBase, startSelfHost } = await import('../../setup/index.mjs');
+const { ensureSelfhostRelay, inspectSetup, isTailnetIPv4, selfhostConfigured, selfhostStateUnreadable, selfhostControlBase, startSelfHost, stopOwnedSelfhostRelay } = await import('../../setup/index.mjs');
 
 assert.equal(selfhostConfigured(), false);
 assert.equal(selfhostStateUnreadable(), false);
@@ -122,14 +122,45 @@ try {
         assert.equal(forced, false, 'waiting foreground process ignored stop');
     }
 
-    // A secure URL is not an operator-selected private connection mode.
+    // Configure-only serves plain ws:// on the tailnet; a wss:// advertise has no TLS behind it.
     const secureHome = join(scratch, 'secure-headless');
-    execFileSync(process.execPath, [cli, 'self-host', '--configure-only', '--advertise', 'wss://100.127.255.254', '--port', String(port)], {
+    mkdirSync(secureHome, { mode: 0o700 });
+    assert.throws(() => execFileSync(process.execPath, [cli, 'self-host', '--configure-only', '--advertise', 'wss://100.127.255.254', '--port', String(port)], {
         env: { ...environment, HOME: secureHome, MUXR_HOME: secureHome }, timeout: 5000, stdio: 'pipe',
-    });
-    const secure = JSON.parse(readFileSync(join(secureHome, 'selfhost.json'), 'utf8'));
-    assert.equal(secure.bindHost, '100.127.255.254');
-    assert.equal(Object.hasOwn(secure, 'connectionMode'), false);
+    }), /serves plain ws:\/\/ on the tailnet address/);
+    assert.equal(existsSync(join(secureHome, 'selfhost.json')), false, 'a refused wss advertise wrote state');
+
+    // Re-running setup on a tailnet-bound box must reuse the relay it already
+    // runs: the probe arrives from this machine's tailnet address, so it carries
+    // no bind or web fields and the recorded state is what the relay is checked against.
+    const tailnet = Object.values(networkInterfaces()).flat().find((entry) => entry?.family === 'IPv4' && isTailnetIPv4(entry.address))?.address;
+    if (tailnet === undefined) {
+        process.stdout.write('tailnet setup re-run skipped: no local Tailscale IPv4 address\n');
+    } else {
+        const rerunHome = join(scratch, 'tailnet-rerun');
+        mkdirSync(rerunHome, { mode: 0o700 });
+        const probe = createServer();
+        await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
+        const rerunPort = probe.address().port;
+        await new Promise((resolve) => probe.close(resolve));
+        execFileSync(process.execPath, [cli, 'self-host', '--configure-only', '--advertise', `ws://${tailnet}:${rerunPort}`, '--port', String(rerunPort)], {
+            env: { ...environment, HOME: rerunHome, MUXR_HOME: rerunHome }, timeout: 5_000, stdio: 'pipe',
+        });
+        process.env.MUXR_HOME = rerunHome;
+        const health = async () => (await fetch(`http://${tailnet}:${rerunPort}/health`, { signal: AbortSignal.timeout(2_000) })).json();
+        try {
+            assert.equal(JSON.parse(readFileSync(join(rerunHome, 'selfhost.json'), 'utf8')).bindHost, tailnet);
+            await ensureSelfhostRelay(rerunPort, undefined, tailnet);
+            const first = await health();
+            assert.equal(await startSelfHost(['--relay-only', '--advertise', `ws://${tailnet}:${rerunPort}`, '--port', String(rerunPort)]), 0);
+            const second = await health();
+            assert.ok(second.uptimeMs >= first.uptimeMs, 'setup restarted the tailnet relay');
+            assert.equal(JSON.parse(readFileSync(join(rerunHome, 'selfhost.json'), 'utf8')).bindHost, tailnet);
+        } finally {
+            await stopOwnedSelfhostRelay();
+            process.env.MUXR_HOME = scratch;
+        }
+    }
 } finally {
     await new Promise((resolve) => occupied.close(resolve));
     rmSync(scratch, { recursive: true, force: true });
