@@ -102,7 +102,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 24,
         alignSelf: 'stretch',
     },
-    wrap: { height: undefined, minHeight: 52, paddingVertical: 8, paddingHorizontal: 12 },
+    wrap: { height: undefined, minHeight: 52, paddingVertical: 8, paddingHorizontal: 8 },
     wrapContent: { maxWidth: '100%' },
     // A row child that may not shrink below its longest word on web
     // (min-width: auto), so the label spills out of the pill instead of
