@@ -289,14 +289,15 @@ export default function PairScreen() {
     const manualForm = state === undefined || state.phase === 'error' && state.url === undefined;
     const showField = state?.phase !== 'error' || sshRoute || pasteFailed;
     // An error leads the card, a screen above the field at a large font on a short phone: bring it into view
-    // once the keyboard has closed, or the scroll view's own keyboard adjustment moves it away again.
+    // each time the keyboard closes, since the scroll view's own keyboard adjustment moves it away again (the
+    // keyboard can open after the error lands). With the field back, only once, so closing it does not jump.
     const scrollRef = React.useRef<KeyboardAwareScrollViewRef>(null);
     const shownError = React.useRef<PairState>(undefined);
     React.useEffect(() => {
-        if (state?.phase !== 'error' || keyboardOpen || shownError.current === state) return;
+        if (state?.phase !== 'error' || keyboardOpen || (showField && shownError.current === state)) return;
         shownError.current = state;
         scrollRef.current?.scrollTo({ y: 0, animated: true });
-    }, [state, keyboardOpen]);
+    }, [state, keyboardOpen, showField]);
     return (
         <View style={styles.screenWrap}>
         <PairScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
