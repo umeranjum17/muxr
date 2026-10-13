@@ -74,7 +74,6 @@ export {
     selfhostRelayHealthy,
     selfhostStateUnreadable,
     SERVE_OWNED_ERROR,
-    isTailnetIPv4,
     stopOwnedSelfhostRelay,
     tailscaleBin,
     tailscaleIngress,

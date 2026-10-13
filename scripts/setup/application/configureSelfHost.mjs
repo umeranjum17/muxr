@@ -10,13 +10,6 @@ import { resolveAdvertise } from '../infrastructure/selfhostRelay.mjs';
 /** Prepare a foreground self-host without starting processes or managing ingress. */
 export async function configureSelfHost(args) {
     try {
-        for (let index = 0; index < args.length; index += 1) {
-            const arg = args[index];
-            if (arg === '--configure-only') continue;
-            if (arg.startsWith('--advertise=') || arg.startsWith('--port=')) continue;
-            if (arg === '--advertise' || arg === '--port') { index += 1; continue; }
-            throw new Error('--configure-only accepts only --advertise and --port');
-        }
         if (!flagValue(args, '--advertise')?.trim()) throw new Error('--configure-only requires --advertise <ws:// or wss:// URL>');
         const port = Number(flagValue(args, '--port') ?? relayPortFromEnv() ?? 8792);
         if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('--port must be a TCP port (1-65535)');

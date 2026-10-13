@@ -11,14 +11,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { networkInterfaces, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-selfhost-state-'));
 process.env.MUXR_HOME = scratch;
 process.env.MUXR_NO_SERVICE_COMMANDS = '1';
-const { ensureSelfhostRelay, inspectSetup, isTailnetIPv4, selfhostConfigured, selfhostStateUnreadable, selfhostControlBase, startSelfHost, stopOwnedSelfhostRelay } = await import('../../setup/index.mjs');
+const { ensureSelfhostRelay, inspectSetup, selfhostConfigured, selfhostStateUnreadable, selfhostControlBase, startSelfHost, stopOwnedSelfhostRelay } = await import('../../setup/index.mjs');
 
 assert.equal(selfhostConfigured(), false);
 assert.equal(selfhostStateUnreadable(), false);
@@ -90,7 +90,6 @@ try {
     assert.equal(statSync(mintPath).mtimeMs, mintStat.mtimeMs);
     assert.equal(existsSync(join(configuredHome, 'logs')), false, 'configuration started a relay');
     assert.equal(existsSync(join(configuredHome, '.config', 'systemd')), false, 'configuration installed a service');
-    assert.throws(() => configure([...args, '--tunnel']), /accepts only --advertise and --port/);
     assert.throws(() => configure(['--port', String(port)]), /requires --advertise/);
     assert.throws(() => configure(['--advertise', 'https://cloud.example.ts.net', '--port', String(port)]), /root ws:\/\/ or wss:\/\//);
     assert.throws(() => configure(['--advertise', `ws://100.127.255.253:${port}`, '--port', String(port)]), /cannot replace an existing connection/);
@@ -130,36 +129,35 @@ try {
     }), /serves plain ws:\/\/ on the tailnet address/);
     assert.equal(existsSync(join(secureHome, 'selfhost.json')), false, 'a refused wss advertise wrote state');
 
-    // Re-running setup on a tailnet-bound box must reuse the relay it already
-    // runs: the probe arrives from this machine's tailnet address, so it carries
-    // no bind or web fields and the recorded state is what the relay is checked against.
-    const tailnet = Object.values(networkInterfaces()).flat().find((entry) => entry?.family === 'IPv4' && isTailnetIPv4(entry.address))?.address;
-    if (tailnet === undefined) {
-        process.stdout.write('tailnet setup re-run skipped: no local Tailscale IPv4 address\n');
-    } else {
-        const rerunHome = join(scratch, 'tailnet-rerun');
-        mkdirSync(rerunHome, { mode: 0o700 });
-        const probe = createServer();
-        await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-        const rerunPort = probe.address().port;
-        await new Promise((resolve) => probe.close(resolve));
-        execFileSync(process.execPath, [cli, 'self-host', '--configure-only', '--advertise', `ws://${tailnet}:${rerunPort}`, '--port', String(rerunPort)], {
-            env: { ...environment, HOME: rerunHome, MUXR_HOME: rerunHome }, timeout: 5_000, stdio: 'pipe',
-        });
-        process.env.MUXR_HOME = rerunHome;
-        const health = async () => (await fetch(`http://${tailnet}:${rerunPort}/health`, { signal: AbortSignal.timeout(2_000) })).json();
-        try {
-            assert.equal(JSON.parse(readFileSync(join(rerunHome, 'selfhost.json'), 'utf8')).bindHost, tailnet);
-            await ensureSelfhostRelay(rerunPort, undefined, tailnet);
-            const first = await health();
-            assert.equal(await startSelfHost(['--relay-only', '--advertise', `ws://${tailnet}:${rerunPort}`, '--port', String(rerunPort)]), 0);
-            const second = await health();
-            assert.ok(second.uptimeMs >= first.uptimeMs, 'setup restarted the tailnet relay');
-            assert.equal(JSON.parse(readFileSync(join(rerunHome, 'selfhost.json'), 'utf8')).bindHost, tailnet);
-        } finally {
-            await stopOwnedSelfhostRelay();
-            process.env.MUXR_HOME = scratch;
-        }
+    // Re-running setup on a recorded private bind must reuse the relay it already
+    // runs: no --advertise, no Tailscale probe, no second relay, bind unchanged.
+    // 127.0.0.2 stands in for a tailnet address, which CI hosts do not have.
+    const rerunHome = join(scratch, 'private-rerun');
+    mkdirSync(rerunHome, { mode: 0o700 });
+    const rerunProbe = createServer();
+    await new Promise((resolve) => rerunProbe.listen(0, '127.0.0.1', resolve));
+    const rerunPort = rerunProbe.address().port;
+    await new Promise((resolve) => rerunProbe.close(resolve));
+    const rerunState = join(rerunHome, 'selfhost.json');
+    execFileSync(process.execPath, [cli, 'self-host', '--configure-only', '--advertise', `ws://100.127.255.254:${rerunPort}`, '--port', String(rerunPort)], {
+        env: { ...environment, HOME: rerunHome, MUXR_HOME: rerunHome }, timeout: 5_000, stdio: 'pipe',
+    });
+    const recorded = JSON.parse(readFileSync(rerunState, 'utf8'));
+    writeFileSync(rerunState, `${JSON.stringify({ ...recorded, bindHost: '127.0.0.2', relayUrl: `ws://127.0.0.2:${rerunPort}` }, null, 2)}\n`, { mode: 0o600 });
+    process.env.MUXR_HOME = rerunHome;
+    const rerunHealth = async () => (await fetch(`http://127.0.0.2:${rerunPort}/health`, { signal: AbortSignal.timeout(2_000) })).json();
+    try {
+        await ensureSelfhostRelay(rerunPort, undefined, '127.0.0.2');
+        const first = await rerunHealth();
+        assert.equal(await startSelfHost(['--relay-only', '--port', String(rerunPort)]), 0);
+        const second = await rerunHealth();
+        assert.ok(second.uptimeMs >= first.uptimeMs, 'setup restarted the recorded private relay');
+        const reran = JSON.parse(readFileSync(rerunState, 'utf8'));
+        assert.equal(reran.bindHost, '127.0.0.2');
+        assert.equal(reran.relayUrl, `ws://127.0.0.2:${rerunPort}`);
+    } finally {
+        await stopOwnedSelfhostRelay();
+        process.env.MUXR_HOME = scratch;
     }
 } finally {
     await new Promise((resolve) => occupied.close(resolve));
