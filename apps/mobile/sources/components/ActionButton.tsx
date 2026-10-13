@@ -84,12 +84,14 @@ export const ActionButton = React.memo((props: {
                         />
                     )}
                     {props.wrap ? (
-                        <WordWrappingText
-                            fontSize={variant === 'quiet' ? 15 : 17}
-                            style={labelStyle}
-                        >
-                            {props.title}
-                        </WordWrappingText>
+                        <View style={styles.wrapLabel}>
+                            <WordWrappingText
+                                fontSize={variant === 'quiet' ? 15 : 17}
+                                style={labelStyle}
+                            >
+                                {props.title}
+                            </WordWrappingText>
+                        </View>
                     ) : (
                         <Text style={labelStyle} numberOfLines={1}>
                             {props.title}
@@ -125,6 +127,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     // Single-line buttons measure exactly as before: the row already spans
     // its content, and centering content in a full-width row draws the same.
     wrapRow: { width: '100%', flexWrap: 'wrap', justifyContent: 'center' },
+    wrapLabel: { flexGrow: 1, flexBasis: 0, minWidth: 0 },
     wrapText: { flexShrink: 1, minWidth: 0, textAlign: 'center' },
     primary: {
         backgroundColor: theme.colors.button.primary.background,

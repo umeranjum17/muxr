@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ScrollView, Text, View, type TextProps } from 'react-native';
 
-/** Wrap whole words; shrink only a word wider than the line. */
+/** Wrap whole words. A word wider than the line scales the whole block by one factor until its widest word fits. */
 export function WordWrappingText({ children, style, fontSize, lineHeight, ...props }:
     Omit<TextProps, 'children'> & { children: string; fontSize: number; lineHeight?: number }) {
     const [width, setWidth] = React.useState(0);

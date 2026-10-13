@@ -38,24 +38,11 @@ const pwaLeads = () => {
     if (!document.body.innerText.trim()) return 'blank page: nothing rendered (retake the shot)';
     const de = document.documentElement;
     if (de.scrollWidth > innerWidth) out.push(`off-screen: page ${de.scrollWidth}px wide in a ${innerWidth}px viewport`);
-    for (const el of document.querySelectorAll('[dir="auto"], span')) {
+    for (const el of document.querySelectorAll('div[dir="auto"], span')) {
         const cs = getComputedStyle(el), r = el.getBoundingClientRect();
-        if (!el.innerText?.trim() || r.width === 0 || !painted(el)) continue;
+        if (!el.innerText?.trim() || r.width === 0 || !shown(el)) continue;
         if (cs.overflow !== 'visible' && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)) out.push(`clipped text: "${el.innerText.slice(0, 40)}"`);
         if ((r.right > innerWidth + 1 || r.left < -1) && !inHorizontalScroller(el)) out.push(`text off-screen: "${el.innerText.slice(0, 40)}"`);
-        // Accessibility text has no line geometry. DOM ranges do: a word's
-        // painted fragments on different lines expose break-word/break-all.
-        const textNodes = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-        for (let node; (node = textNodes.nextNode());) {
-            for (const { segment, index, isWordLike } of new Intl.Segmenter(undefined, { granularity: 'word' }).segment(node.textContent)) {
-                if (!isWordLike) continue;
-                const range = document.createRange();
-                range.setStart(node, index);
-                range.setEnd(node, index + segment.length);
-                const rects = [...range.getClientRects()].filter((b) => b.width > 0 && b.height > 0);
-                if (rects.some((b) => Math.abs(b.top - rects[0].top) > 1)) out.push(`word split across lines: "${segment}" in "${el.innerText.slice(0, 40)}"`);
-            }
-        }
         const box = el.closest('[role="button"], button')?.getBoundingClientRect();
         if (box && (r.left < box.left - 1 || r.right > box.right + 1)) out.push(`text spills out of its button: "${el.innerText.slice(0, 40)}"`);
         // An ancestor that clips (overflow hidden, not a scroller) cuts any text
@@ -89,6 +76,25 @@ const pwaLeads = () => {
             if (paints(hit)) { out.push(`text over image: "${el.innerText.slice(0, 40)}" under ${hitName}`); break; }
         }
     }
+    // Accessibility text has no line geometry. DOM ranges do: a word's painted
+    // fragments on different lines expose break-word/break-all. A nested text
+    // node is reached from each ancestor, so the set prints one split once.
+    const splits = new Set();
+    for (const el of document.querySelectorAll('div[dir="auto"], span')) {
+        if (!el.innerText?.trim() || !painted(el)) continue;
+        const textNodes = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let node; (node = textNodes.nextNode());) {
+            for (const { segment, index, isWordLike } of new Intl.Segmenter(undefined, { granularity: 'word' }).segment(node.textContent)) {
+                if (!isWordLike) continue;
+                const range = document.createRange();
+                range.setStart(node, index);
+                range.setEnd(node, index + segment.length);
+                const rects = [...range.getClientRects()].filter((b) => b.width > 0 && b.height > 0);
+                if (rects.some((b) => Math.abs(b.top - rects[0].top) > 1)) splits.add(`word split across lines: "${segment}" in "${node.textContent.trim().slice(0, 40)}"`);
+            }
+        }
+    }
+    out.push(...splits);
     for (const b of document.querySelectorAll('[role="button"], button, input, textarea')) {
         const r = b.getBoundingClientRect();
         if (!r.width || r.bottom < 0 || r.top > innerHeight || !shown(b)) continue;
@@ -476,7 +482,10 @@ const native = (serial, dir, name, flags) => {
     const ref = refPath && existsSync(refPath) ? parseDump(readFileSync(refPath).toString()) : undefined;
     if (!ref) console.log(`image geometry not compared for ${name}: no reference dump`);
     const found = layoutLeads(parseDump(xml), { W, H, status, nav, end: flags.includes('--end'), ref });
-    found.push(...wordSplitLeads(parseDump(xml), ocrWords(png)));
+    let words;
+    try { words = ocrWords(png); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (words) found.push(...wordSplitLeads(parseDump(xml), words));
+    else console.log('word-split check skipped: tesseract not found');
     found.push(...stripLeads(png, status?.[3] ?? 0, nav?.[1] ?? H, W));
     for (const line of found) console.log(`DEFECT ${name}: ${line}`);
     console.log(`${found.length ? 'FAIL' : 'clean'} ${name} (${W}x${H}, status bar ${status ? `0-${status[3]}` : 'none'}, nav bar ${nav ? `${nav[1]}-${nav[3]}` : 'none'})`);
