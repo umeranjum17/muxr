@@ -37,7 +37,11 @@ capturing, and confirm PWA `display-mode: standalone`. Capture with
 2. Tap Cloud account: it remains disabled with no navigation or request.
    Tap native SSH login: the existing SSH form opens. Return to the shell.
 3. Expand More ways & timing, scroll to the end, and capture the command,
-   effects disclosure and optional routes. Copy must retain the exact command
+   effects disclosure and optional routes. At the narrow/largest-text extreme,
+   the command card stacks its text and Copy instead of squeezing them beside
+   a step-number badge. Open **What running this does** too; its text must
+   wrap inside the control, not run over the following content. Copy must
+   retain the exact command
    ([first-run-install-command.md](./first-run-install-command.md)).
 4. With the private stack and pair socket described in
    [pairing-consent.md](./pairing-consent.md), obtain a fresh offer for the
@@ -45,7 +49,14 @@ capturing, and confirm PWA `display-mode: standalone`. Capture with
    Connect (also exercise Go). Record **link → existing consent**; the
    screen states the machine, authority and duration before any claim.
    Do not publish the offer or grant in logs or evidence. Stop at consent
-   unless the lab journey explicitly includes approval.
+   unless the lab journey explicitly includes approval. Use trusted keyboard
+   input if a browser fill changes the DOM value without updating React state.
+   For a sampled PWA clip, capture real viewport frames through the same
+   screenshot command used for the matrix, retain actual timestamps, and
+   redact the input using the captured pixel width / CSS viewport width (not
+   an assumed DPR). Check the first and consent frames plus decoded dimensions;
+   a raw CDP full-window or blank capture is not this proof. Label sampling
+   honestly; it does not qualify animation frame rate.
 5. A wrong/cut-off link shows the existing useful validator error and never
    claims a grant. Scan, where available, uses the same consent route.
 
