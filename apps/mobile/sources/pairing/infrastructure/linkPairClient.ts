@@ -12,8 +12,7 @@ import {
     unb64url,
     type DeviceGrant as LinkDeviceGrant,
 } from '@byokit/link';
-import { linkOfferExpired, PairingNeedsNewCode, readOffer } from '../domain/pairingString';
-import { isTailscaleAddress } from './linkFirstClient';
+import { isTailscaleAddress, linkOfferExpired, PairingNeedsNewCode, readOffer } from '../domain/pairingString';
 
 /**
  * The byokit pairing protocol, behind one port: application code asks this

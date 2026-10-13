@@ -41,6 +41,16 @@ export function readOffer(scanned: string): OfferTerms | undefined {
     }
 }
 
+/** A Tailscale address: a MagicDNS name, or the 100.64.0.0/10 range Tailscale
+ *  hands out, which the kit's `describeRoute` files under "Private network". */
+export function isTailscaleAddress(url: string): boolean {
+    let host: string;
+    try { host = new URL(url).hostname.toLowerCase(); }
+    catch { return false; }
+    const ip = /^100\.(\d+)\.\d+\.\d+$/.exec(host);
+    return host.endsWith('.ts.net') || (ip !== null && Number(ip[1]) >= 64 && Number(ip[1]) <= 127);
+}
+
 function isLinkOffer(value: string): boolean {
     return LINK_OFFER.test(value) || (isCompactOfferText(value) && readOffer(value) !== undefined);
 }
