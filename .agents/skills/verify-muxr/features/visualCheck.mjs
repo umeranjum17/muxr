@@ -247,14 +247,15 @@ const layoutLeads = (app, { W, H, status, nav, end, ref }) => {
     // already in content through their description.
     const imagery = app.filter((n) => isImageNode(n) && !content.includes(n));
     const watched = app.filter((n) => content.includes(n) || imagery.includes(n));
+    const leaves = content.filter((n) => !(n.at.clickable === 'true' && content.some((d) => d !== n && d.up.includes(n))));
     const scrollable = app.some((n) => n.at.scrollable === 'true' && !/Horizontal/.test(n.at.class));
     const cut = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
     const found = [];
-    for (const n of content) {
+    for (const n of leaves) {
         if (status && n.box.t < status[3]) found.push(`under the status bar: "${n.label}" ${n.at.bounds} (bar ends at y=${status[3]})`);
     }
     found.push(...edgeLeads(watched, W));
-    found.push(...navLeads(content, nav, H, end));
+    found.push(...navLeads(leaves, nav, H, end));
     found.push(...belowLeads(content, H, scrollable, end));
     found.push(...imageOffScreenLeads(imagery, W, H, scrollable));
     found.push(...imageCoversLeads(watched, imagery));
@@ -303,6 +304,10 @@ const selfTest = () => {
     expect('full-bleed image under the status bar is not flagged', layout(nodesOf(bleed), { status }).length === 0, layout(nodesOf(bleed), { status }).join(' | '));
     expect('text under the status bar is flagged', layout(nodesOf(headline), { status }).some((l) => l.startsWith('under the status bar: "Headline"')), layout(nodesOf(headline), { status }).join(' | '));
     expect('full-bleed wallpaper under the nav bar scrolled to the end is not flagged', layout(nodesOf(bleed), { end: true }).length === 0, layout(nodesOf(bleed), { end: true }).join(' | '));
+    const leaf = el('android.view.ViewGroup', '[100,2300][980,2360]', { clickable: true });
+    expect('clickable leaf box under the gesture bar at rest is flagged', layout(nodesOf(leaf)).some((l) => l.startsWith('under the navigation bar on the unscrolled screen')), layout(nodesOf(leaf)).join(' | '));
+    const card = el('android.view.ViewGroup', '[0,0][1080,2376]', { clickable: true }, el('android.widget.TextView', '[100,100][400,160]', { text: 'Fits' }));
+    expect('full-screen clickable container with fitting children is not flagged', layout(nodesOf(card)).length === 0, layout(nodesOf(card)).join(' | '));
     const pngOf = (name, args) => {
         const png = join(dir, `${name}.png`);
         execFileSync('magick', ['-size', '1080x2376', 'xc:#0c0c0b', ...args, png]);
