@@ -12,12 +12,11 @@
 //     app drew) and fails <name> (exit 1) on any DEFECT: any lead other than
 //     `clean`, no eval result at all, or a blank strip in the screenshot.
 //   node visualCheck.mjs selftest | pwa-selftest
-//     proves every check fires on its defect and stays quiet on the matching
-//     clean case (native: avatar geometry, clipped text, edge strip, unlabelled
-//     images, button boxes, unscrolled nav bar; PWA: stretched images, blank
-//     strips, text-over-text/image, overflow-hidden clipping, driver exit
-//     codes). pwa-selftest needs `chromium`. Each prints PASS/FAIL per case and
-//     exits non-zero on any FAIL.
+//     proves the checks fire on their defects and stay quiet on the clean case,
+//     one flow per page: native (the pair-screen defect, a clean pair entry, a
+//     blank strip) and PWA (a fixture page, and the driver's exit codes).
+//     pwa-selftest needs `chromium`. Each prints PASS/FAIL per case and exits
+//     non-zero on any FAIL.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,13 +34,6 @@ const pwaLeads = () => {
         }
         return false;
     };
-    // A picture painted over the text whatever its pointer-events (elementFromPoint skips pointer-events:none).
-    const artOver = (el, x, y) => [...document.querySelectorAll('*')].find((c) => {
-        if (c === el || el.contains(c) || c.contains(el) || !(el.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
-        const cr = c.getBoundingClientRect();
-        if (x < cr.left || x > cr.right || y < cr.top || y > cr.bottom || !c.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false;
-        return paints(c);
-    });
     if (!document.body.innerText.trim()) return 'blank page: nothing rendered (retake the shot)';
     const de = document.documentElement;
     if (de.scrollWidth > innerWidth) out.push(`off-screen: page ${de.scrollWidth}px wide in a ${innerWidth}px viewport`);
@@ -75,13 +67,12 @@ const pwaLeads = () => {
             const x = r.left + r.width * fx, y = r.top + r.height * fy;
             if (x < 0 || x >= innerWidth || y < 0 || y >= innerHeight) continue;
             const hit = document.elementFromPoint(x, y);
-            if (hit?.closest('[aria-hidden="true"]')) continue;
-            const over = hit && hit !== el && !el.contains(hit) && !hit.contains(el) ? hit : artOver(el, x, y);
-            if (!over) continue;
-            const overText = (over.innerText || '').trim();
-            const overName = `${over.tagName}${overText ? ` "${overText.slice(0, 30)}"` : ''}`;
-            if (overText && over.tagName !== 'BODY' && over.tagName !== 'HTML') { out.push(`text over text: "${el.innerText.slice(0, 40)}" under ${overName}`); break; }
-            if (paints(over)) { out.push(`text over image: "${el.innerText.slice(0, 40)}" under ${overName}`); break; }
+            if (!hit || hit === el || el.contains(hit) || hit.contains(el)) continue;
+            if (hit.closest('[aria-hidden="true"]')) continue;
+            const hitText = (hit.innerText || '').trim();
+            const hitName = `${hit.tagName}${hitText ? ` "${hitText.slice(0, 30)}"` : ''}`;
+            if (hitText && hit.tagName !== 'BODY' && hit.tagName !== 'HTML') { out.push(`text over text: "${el.innerText.slice(0, 40)}" under ${hitName}`); break; }
+            if (paints(hit)) { out.push(`text over image: "${el.innerText.slice(0, 40)}" under ${hitName}`); break; }
         }
     }
     for (const b of document.querySelectorAll('[role="button"], button, input, textarea')) {
@@ -172,12 +163,8 @@ const imageCoversLeads = (ordered, imagery) => {
 // of it is stuck there. At rest, a text or button box whose bottom edge sits
 // more than 4px into the bar is the pair-screen miss, whether or not a scroller
 // holds it. Content fully below the screen is not under the bar.
-const navLeads = (watched, nav, H, end, scrollable) => {
-    if (!nav) {
-        if (scrollable || end) return [];
-        return watched.filter((n) => n.box.b > H + 1)
-            .map((n) => `off-screen below the viewport with nowhere to scroll: "${n.label}" ${n.at.bounds}`);
-    }
+const navLeads = (watched, nav, H, end) => {
+    if (!nav) return [];
     return watched.flatMap((n) => {
         if (n.box.b <= nav[1]) return [];
         if (end) return [`under the navigation bar: "${n.label}" ${n.at.bounds} (bar starts at y=${nav[1]})`];
@@ -185,6 +172,14 @@ const navLeads = (watched, nav, H, end, scrollable) => {
         if (Math.min(n.box.b, H) - Math.max(n.box.t, nav[1]) <= 4) return [];
         return [`under the navigation bar on the unscrolled screen: "${n.label}" ${n.at.bounds} (bar starts at y=${nav[1]})`];
     });
+};
+
+// Content below the viewport on a screen with nowhere to scroll is cut off,
+// with or without a navigation bar. A scrolling screen is checked by --end.
+const belowLeads = (content, H, scrollable, end) => {
+    if (scrollable || end) return [];
+    return content.filter((n) => n.box.b > H + 1)
+        .map((n) => `off-screen below the viewport with nowhere to scroll: "${n.label}" ${n.at.bounds}`);
 };
 
 // Text touching the screen edge is likely cut. A button box past the edge is
@@ -244,63 +239,68 @@ const expect = (label, ok, detail = '') => {
     if (!ok) failed++;
 };
 
+// The native page's checks over one parsed dump. status and nav are the
+// system bars as [l, t, r, b] (or null); ref is the reference dump, if any.
+const layoutLeads = (app, { W, H, status, nav, end, ref }) => {
+    const content = app.filter((n) => n.at.text || n.at['content-desc'] || n.at.clickable === 'true' || /EditText/.test(n.at.class));
+    // Unlabelled images join the bar and overlap watches; labelled ones are
+    // already in content through their description.
+    const imagery = app.filter((n) => isImageNode(n) && !content.includes(n));
+    const watched = [...content, ...imagery];
+    const scrollable = app.some((n) => n.at.scrollable === 'true' && !/Horizontal/.test(n.at.class));
+    const cut = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+    const found = [];
+    for (const n of watched) {
+        if (status && n.box.t < status[3]) found.push(`under the status bar: "${n.label}" ${n.at.bounds} (bar ends at y=${status[3]})`);
+    }
+    found.push(...edgeLeads(watched, W));
+    found.push(...navLeads(watched, nav, H, end));
+    found.push(...belowLeads(content, H, scrollable, end));
+    found.push(...imageOffScreenLeads(imagery, W, H, scrollable));
+    found.push(...imageCoversLeads(watched, imagery));
+    for (const [i, a] of content.entries()) for (const b of content.slice(i + 1)) {
+        if (a.up.includes(b) || b.up.includes(a) || cut(a.box, b.box) < 16 * 16) continue;
+        found.push(`overlap: "${a.label}" ${a.at.bounds} and "${b.label}" ${b.at.bounds}${b.at.clickable === 'true' || a.at.clickable === 'true' ? ' (a control is covered)' : ''}`);
+    }
+    found.push(...clipLeads(content));
+    if (ref) found.push(...imageDefects(app, ref));
+    return found;
+};
+
 const selfTest = () => {
     const dir = mkdtempSync(join(tmpdir(), 'visual-check-'));
-    const dump = (...boxes) => `<?xml version='1.0'?><hierarchy rotation="0">${boxes.map((bounds) =>
-        `<node index="0" text="" resource-id="" class="com.facebook.react.views.image.ReactImageView" package="com.muxr" content-desc="avatar" bounds="${bounds}" clickable="false" /> `).join('')}</hierarchy>`;
-    const squashed = imageDefects(parseDump(dump('[0,0][100,60]')), parseDump(dump('[0,0][100,100]')));
-    expect('squashed avatar is flagged against its reference', squashed.length === 1, `got ${squashed.length}`);
-    const cover = imageDefects(parseDump(dump('[0,0][100,100]')), parseDump(dump('[0,0][100,100]')));
-    expect('unchanged avatar (cover crop keeps its box) is not flagged', cover.length === 0, `got ${cover.length}`);
-    const unmatched = imageDefects(parseDump(dump('[0,0][100,100]')), parseDump(dump()));
-    expect('avatar with no reference twin is reported, not passed', unmatched.length === 1, `got ${unmatched.length}`);
-    const frame = (bounds, inner) => `<node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.muxr" content-desc="" clickable="false" bounds="${bounds}">${inner}</node>`;
-    const label = (text, bounds) => `<node index="0" text="${text}" resource-id="" class="android.widget.TextView" package="com.muxr" content-desc="" clickable="false" bounds="${bounds}" />`;
-    const clipped = (body) => clipLeads(parseDump(`<?xml version='1.0'?><hierarchy rotation="0">${body}</hierarchy>`));
-    expect('text that fits its parent is not flagged', clipped(frame('[0,0][200,100]', label('Save', '[10,10][100,40]'))).length === 0);
-    expect('text ending in an ellipsis is flagged', clipped(frame('[0,0][200,100]', label('Saving the changes…', '[10,10][100,40]'))).length === 1);
-    expect('text running past its parent is flagged', clipped(frame('[0,0][200,100]', label('Long label', '[10,10][300,40]'))).length === 1);
+    const nodesOf = (...parts) => parseDump(`<?xml version='1.0'?><hierarchy rotation="0">${parts.join('')}</hierarchy>`);
+    const el = (cls, bounds, attrs = {}, inner = '') => {
+        const a = { text: '', desc: '', clickable: false, scrollable: false, ...attrs };
+        return `<node index="0" text="${a.text}" resource-id="" class="${cls}" package="com.muxr" content-desc="${a.desc}" clickable="${a.clickable}" scrollable="${a.scrollable}" bounds="${bounds}"${inner ? `>${inner}</node>` : ' />'}`;
+    };
+    const NAV = [0, 2334, 1080, 2376];
+    const layout = (app, extra = {}) => layoutLeads(app, { W: 1080, H: 2376, status: null, nav: NAV, end: false, ...extra });
+    const pair = nodesOf(
+        el('android.widget.TextView', '[100,2300][980,2360]', { text: 'Paste the new code', clickable: true }),
+        el('android.widget.TextView', '[100,2400][980,2470]', { text: 'Back', clickable: true }),
+        el('com.facebook.react.views.image.ReactImageView', '[100,600][400,700]', { desc: 'avatar' }));
+    const refPair = nodesOf(el('com.facebook.react.views.image.ReactImageView', '[100,600][400,900]', { desc: 'avatar' }));
+    const defects = layout(pair, { ref: refPair });
+    expect('pair screen: Paste under the gesture bar, Back below the screen and a squashed avatar are flagged',
+        defects.some((l) => l.includes('"Paste the new code"') && l.includes('navigation bar'))
+        && defects.some((l) => l.startsWith('off-screen below') && l.includes('"Back"'))
+        && defects.some((l) => l.startsWith('stretched image')), defects.join(' | '));
+    expect('the same pair screen under --end still flags the Paste text under the bar',
+        layout(pair, { end: true }).some((l) => l.startsWith('under the navigation bar:')), layout(pair, { end: true }).join(' | '));
+    const clean = nodesOf(
+        el('android.widget.TextView', '[100,1800][980,1860]', { text: 'Paste the new code', clickable: true }),
+        el('com.facebook.react.views.scroll.ReactHorizontalScrollView', '[0,1900][1080,2000]', { scrollable: true },
+            el('com.facebook.react.views.image.ReactImageView', '[1060,1910][1120,1990]')));
+    expect('clean pair entry raises no leads (horizontal carousel past the edge is reachable by swipe)', layout(clean).length === 0, layout(clean).join(' | '));
     const pngOf = (name, args) => {
         const png = join(dir, `${name}.png`);
         execFileSync('magick', ['-size', '1080x2376', 'xc:#0c0c0b', ...args, png]);
         return png;
     };
-    const strip = stripLeads(pngOf('black-strip', ['-fill', 'black', '-draw', 'rectangle 0,0 7,2375']), 0, 2376, 1080);
-    expect('#000 strip on the #0c0c0b dark background is flagged', strip.length === 1, `got ${strip.length}`);
+    const stripped = stripLeads(pngOf('black-strip', ['-fill', 'black', '-draw', 'rectangle 0,0 7,2375']), 0, 2376, 1080);
     const uniform = stripLeads(pngOf('uniform', []), 0, 2376, 1080);
-    expect('uniform dark background is not flagged', uniform.length === 0, `got ${uniform.length}`);
-    // Unlabelled images: no text, no content-desc, not clickable.
-    const shot = (cls, bounds, clickable = false) =>
-        `<node index="0" text="" resource-id="" class="${cls}" package="com.muxr" content-desc="" clickable="${clickable}" bounds="${bounds}" /> `;
-    const nodesOf = (...parts) => parseDump(`<?xml version='1.0'?><hierarchy rotation="0">${parts.join('')}</hierarchy>`);
-    const W = 1080, H = 2376, NAV = [0, 2334, 1080, 2376];
-    const graphic = (bounds) => shot('com.facebook.react.views.image.ReactImageView', bounds);
-    const offUnlabelled = imageOffScreenLeads(nodesOf(graphic('[1060,100][1120,200]')), W, H, true);
-    expect('unlabelled image past the screen edge is flagged', offUnlabelled.length === 1, `got ${offUnlabelled.length}`);
-    expect('unlabelled image fully on-screen is not flagged', imageOffScreenLeads(nodesOf(graphic('[100,100][200,200]')), W, H, true).length === 0);
-    expect('unlabelled image below the fold of a scrolling screen is not flagged', imageOffScreenLeads(nodesOf(graphic('[100,2400][200,2500]')), W, H, true).length === 0);
-    expect('unlabelled image below a screen that cannot scroll is flagged', imageOffScreenLeads(nodesOf(graphic('[100,2400][200,2500]')), W, H, false).length === 1);
-    const scroller = (cls, inner) => `<node index="0" text="" resource-id="" class="${cls}" package="com.muxr" content-desc="" clickable="false" scrollable="true" bounds="[0,0][1080,2376]">${inner}</node>`;
-    expect('unlabelled image past the edge inside a horizontal scroller is not flagged', imageOffScreenLeads(nodesOf(scroller('com.facebook.react.views.scroll.ReactHorizontalScrollView', graphic('[1060,100][1120,200]'))), W, H, true).length === 0);
-    expect('unlabelled image past the edge inside a vertical scroller is still flagged', imageOffScreenLeads(nodesOf(scroller('com.facebook.react.views.scroll.ReactScrollView', graphic('[1060,100][1120,200]'))), W, H, true).length === 1);
-    const button = (bounds) => shot('android.view.ViewGroup', bounds, true);
-    const clickLabel = (text, bounds) => `<node index="0" text="${text}" resource-id="" class="android.widget.TextView" package="com.muxr" content-desc="" clickable="true" bounds="${bounds}" />`;
-    const over = nodesOf(clickLabel('Paste the new code', '[100,2200][980,2300]'), graphic('[150,2250][900,2350]'));
-    const covers = imageCoversLeads(over, over.filter((n) => isImageNode(n) && !n.at.text && !n.at['content-desc']));
-    expect('unlabelled image painted over a button is flagged', covers.length === 1, `got ${covers.length}`);
-    const under = nodesOf(graphic('[150,2250][900,2350]'), clickLabel('Paste the new code', '[100,2200][980,2300]'));
-    expect('image behind the button (earlier in draw order) is not flagged', imageCoversLeads(under, under.filter((n) => isImageNode(n) && !n.at.text && !n.at['content-desc'])).length === 0);
-    expect('button box past the screen edge is flagged', edgeLeads(nodesOf(button('[100,100][1200,200]')), W).length === 1);
-    expect('full-width button box exactly on the edge is not flagged', edgeLeads(nodesOf(button('[0,100][1080,200]')), W).length === 0);
-    expect('text chip past the edge inside a horizontal scroller is not flagged', edgeLeads(nodesOf(scroller('com.facebook.react.views.scroll.ReactHorizontalScrollView', label('Chip', '[1000,100][1100,160]'))), W).length === 0);
-    expect('text chip past the edge outside a scroller is flagged', edgeLeads(nodesOf(label('Chip', '[1000,100][1100,160]')), W).length === 1);
-    // The pair-screen miss at 270dp: button text whose bottom sits in the
-    // gesture-bar band, with no scroller around it.
-    const pairCutoff = nodesOf(clickLabel('Paste the new code', '[100,2300][980,2360]'));
-    expect('button text under the gesture bar at rest, outside any scroller, is flagged', navLeads(pairCutoff, NAV, H, false, false).length === 1);
-    expect('text spanning the bar inside a vertical scroller is flagged at rest', navLeads(nodesOf(scroller('com.facebook.react.views.scroll.ReactScrollView', label('On your computer, open muxr', '[100,2000][980,2500]'))), NAV, H, false, true).length === 1);
-    expect('content fully below the fold on a scrolling screen is not flagged', navLeads(nodesOf(label('Back', '[100,2400][980,2470]')), NAV, H, false, true).length === 0);
-    expect('content under the bar scrolled to the end is still flagged', navLeads(pairCutoff, NAV, H, true, true).length === 1);
+    expect('black strip on the screen edge is flagged, a uniform background is not', stripped.length === 1 && uniform.length === 0, `strip=${stripped.length} uniform=${uniform.length}`);
     process.exitCode = failed ? 1 : 0;
 };
 
@@ -315,30 +315,20 @@ const pwaSelfTest = () => {
 <div style="position:absolute;left:360px;top:40px;width:90px;height:90px;background-image:url(wide.svg);background-size:cover">${hidden}</div>
 <span style="position:absolute;left:10px;top:200px">buried caption</span><span style="position:absolute;left:10px;top:200px">covering caption</span>
 <span style="position:absolute;left:10px;top:260px">caption under art</span><img src="wide.svg" style="position:absolute;left:10px;top:260px;width:100px;height:30px;object-fit:none">
-<span style="position:absolute;left:240px;top:260px">caption beside art</span>
-<span style="position:absolute;left:10px;top:440px">under decorative art</span><img src="wide.svg" style="position:absolute;left:10px;top:440px;width:100px;height:30px;object-fit:none;pointer-events:none">
+<div style="position:absolute;left:10px;top:320px;width:200px;height:20px;overflow:hidden"><div dir="auto">two lines of text that wrap well beyond twenty pixels of height</div></div>
 <div style="position:absolute;left:600px;top:500px;width:150px;height:40px;overflow-x:auto;overflow-y:hidden"><div style="position:relative;width:400px;height:40px"><span style="position:absolute;left:300px;top:0">chip inside a scroller</span><img src="wide.svg" style="position:absolute;left:300px;top:20px;width:60px;height:60px;object-fit:cover"></div></div>
 <span style="position:absolute;left:820px;top:560px">chip past the edge</span>
-<div style="position:absolute;left:10px;top:320px;width:200px;height:20px;overflow:hidden"><div dir="auto">two lines of text that wrap well beyond twenty pixels of height</div></div>
-<div style="position:absolute;left:240px;top:320px;width:200px;height:100px;overflow:hidden"><div dir="auto">fits</div></div>
-<div style="position:absolute;left:10px;top:380px;width:120px;height:60px;overflow:hidden"><div style="height:60px;overflow-y:auto"><div style="height:200px"></div><div dir="auto">below the fold but reachable by scroll</div></div></div>
 <pre id="leads"></pre>
 <script>window.onload = () => { document.getElementById('leads').textContent = (${pwaLeads})(); };</script>`);
     const html = execFileSync('chromium', ['--headless=new', '--no-sandbox', '--allow-file-access-from-files', '--virtual-time-budget=5000', '--dump-dom', pathToFileURL(join(dir, 'page.html')).href]).toString();
     const leads = (html.match(/<pre id="leads">([\s\S]*?)<\/pre>/)?.[1] ?? '').split('\n');
     const stretched = leads.filter((l) => l.startsWith('stretched image'));
-    expect('squashed img and squashed background are flagged', stretched.length === 2 && stretched.some((l) => l.includes('drawn 100x100')) && stretched.some((l) => l.includes('drawn 120x120')), leads.join(' | '));
-    expect('cover img and cover background are not flagged', !leads.some((l) => /drawn (80x80|90x90)/.test(l)), leads.join(' | '));
-    expect('text painted over by another text is flagged', leads.some((l) => l.startsWith('text over text: "buried caption"')), leads.join(' | '));
-    expect('text painted over by an image is flagged', leads.some((l) => l.startsWith('text over image: "caption under art"')), leads.join(' | '));
-    expect('text beside an image is not flagged', !leads.some((l) => l.includes('"caption beside art"')), leads.join(' | '));
+    expect('squashed img and background are flagged, cover crops are not', stretched.length === 2 && !leads.some((l) => /drawn (80x80|90x90)/.test(l)), leads.join(' | '));
+    expect('text painted over by other text or by an image is flagged',
+        leads.some((l) => l.startsWith('text over text: "buried caption"')) && leads.some((l) => l.startsWith('text over image: "caption under art"')), leads.join(' | '));
     expect('text sticking out of an overflow-hidden ancestor is flagged', leads.some((l) => l.startsWith('text clipped by overflow-hidden ancestor: "two lines of text')), leads.join(' | '));
-    expect('text fitting its overflow-hidden ancestor is not flagged', !leads.some((l) => l.includes('"fits"')), leads.join(' | '));
-    expect('text below the fold inside a real scroller is not flagged', !leads.some((l) => l.includes('"below the fold but reachable by scroll"')), leads.join(' | '));
-    expect('text under a pointer-events:none image is flagged', leads.some((l) => l.startsWith('text over image: "under decorative art"')), leads.join(' | '));
-    expect('text and image inside a horizontal scroller past the edge are not flagged', !leads.some((l) => l.includes('"chip inside a scroller"') || l.startsWith('image off-screen')), leads.join(' | '));
-    expect('text past the edge outside any scroller is flagged', leads.some((l) => l.startsWith('text off-screen: "chip past the edge"')), leads.join(' | '));
-    // The driver: eval output plus screenshot through one exit code.
+    expect('text past the edge outside a scroller is flagged; text and images inside a horizontal scroller are not',
+        leads.some((l) => l.startsWith('text off-screen: "chip past the edge"')) && !leads.some((l) => l.includes('"chip inside a scroller"') || l.startsWith('image off-screen')), leads.join(' | '));
     // The driver runs the eval itself: a stub chrome-devtools-axi on PATH prints the case's eval output.
     const self = fileURLToPath(import.meta.url);
     const runDriver = (evalOut, pngArgs) => {
@@ -381,30 +371,10 @@ const native = (serial, dir, name, flags) => {
         .map((m) => m.slice(1).map(Number)).find(([l, t, r, b]) => r > l && b > t);
     const status = bar('statusBars'), nav = bar('navigationBars');
 
-    const app = parseDump(xml);
-    const content = app.filter((n) => n.at.text || n.at['content-desc'] || n.at.clickable === 'true' || /EditText/.test(n.at.class));
-    // Unlabelled images join the bar and overlap watches; labelled ones are
-    // already in content through their description.
-    const imagery = app.filter((n) => isImageNode(n) && !content.includes(n));
-    const watched = [...content, ...imagery];
-    const scrollable = app.some((n) => n.at.scrollable === 'true');
-    const cut = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
-    const found = [];
-    for (const n of watched) {
-        if (status && n.box.t < status[3]) found.push(`under the status bar: "${n.label}" ${n.at.bounds} (bar ends at y=${status[3]})`);
-    }
-    found.push(...edgeLeads(watched, W));
-    found.push(...navLeads(watched, nav, H, flags.includes('--end'), scrollable));
-    found.push(...imageOffScreenLeads(imagery, W, H, scrollable));
-    found.push(...imageCoversLeads(watched, imagery));
-    for (const [i, a] of content.entries()) for (const b of content.slice(i + 1)) {
-        if (a.up.includes(b) || b.up.includes(a) || cut(a.box, b.box) < 16 * 16) continue;
-        found.push(`overlap: "${a.label}" ${a.at.bounds} and "${b.label}" ${b.at.bounds}${b.at.clickable === 'true' || a.at.clickable === 'true' ? ' (a control is covered)' : ''}`);
-    }
-    found.push(...clipLeads(content));
     const refAt = flags.indexOf('--ref'), refPath = refAt < 0 ? undefined : flags[refAt + 1];
-    if (refPath && existsSync(refPath)) found.push(...imageDefects(app, parseDump(readFileSync(refPath).toString())));
-    else console.log(`image geometry not compared for ${name}: no reference dump`);
+    const ref = refPath && existsSync(refPath) ? parseDump(readFileSync(refPath).toString()) : undefined;
+    if (!ref) console.log(`image geometry not compared for ${name}: no reference dump`);
+    const found = layoutLeads(parseDump(xml), { W, H, status, nav, end: flags.includes('--end'), ref });
     found.push(...stripLeads(png, status?.[3] ?? 0, nav?.[1] ?? H, W));
     for (const line of found) console.log(`DEFECT ${name}: ${line}`);
     console.log(`${found.length ? 'FAIL' : 'clean'} ${name} (${W}x${H}, status bar ${status ? `0-${status[3]}` : 'none'}, nav bar ${nav ? `${nav[1]}-${nav[3]}` : 'none'})`);

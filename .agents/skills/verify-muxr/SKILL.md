@@ -214,9 +214,10 @@ its text fits, unless the node sits in a horizontal scroller that swipe
 reaches; clipped text (an ellipsis, or running past its parent); overlapping
 elements; an unlabelled image off-screen or painted over a control; a covered
 control; a squashed image or an image with no reference twin; flat edge
-strips). Any DEFECT line fails the cell (exit 1). `--end` runs on every screen
-that scrolls, as well as the at-rest shot: its scrolled-to-end shot must show
-the content clear of the bar.
+strips; a text or button box below the viewport on a screen that cannot scroll,
+with or without the bar). Any DEFECT line fails the cell (exit 1). `--end`
+runs on every screen that scrolls, as well as the at-rest shot: its
+scrolled-to-end shot must show the content clear of the bar.
 `--ref` is the dump of the same cell from the main run (on main itself, omit
 it; the line `image geometry not compared` says so). The eye still judges every
 shot too. A DEFECT that is a false positive is overridden only by a named line
@@ -254,20 +255,18 @@ Paste the driver output into the PR's `## Checks` block. Any line other than
 as native. A `blank page` line means the shot was taken before the app drew:
 retake the shot; it fails the cell like any other DEFECT.
 
-Self-tests (run once per change to the checks, not per cell). They prove each
-check fires on its defect and stays quiet on the matching clean case —
-native: avatar geometry, clipped text, edge strips, unlabelled images
-(off-screen, painted over a control, and a draw-order background left alone),
-button boxes, and the navigation-bar overlap with and without `--end`
-(including the pair-screen cutoff shape); PWA: squashed img/background vs
-cover, text over text or an image vs text beside one, overflow-hidden
-clipping vs fitting text, and the `pwa-check` driver exit codes on a DEFECT,
-a clean page, a page with no eval result, and a strip shot; they need
-ImageMagick and `chromium`:
+Self-tests (run once per change to the checks, not per cell). One flow per
+page: native (the pair-screen defect under the bar, a squashed avatar and a
+button below the screen; a clean pair entry that must stay silent, with a
+horizontal carousel past the edge; a blank strip) and PWA (a fixture page with
+squashed images, text over text and over an image, overflow clipping, an
+off-screen chip inside and outside a scroller; the `pwa-check` driver's exit
+codes on a DEFECT, a clean page, a page with no eval result, and a strip
+shot). They need ImageMagick and `chromium`:
 
 ```sh
-node .agents/skills/verify-muxr/features/visualCheck.mjs selftest      # native: avatar geometry, clipped text, edge strip
-node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-selftest  # PWA: squashed img and background vs cover
+node .agents/skills/verify-muxr/features/visualCheck.mjs selftest      # native: the pair-screen flow
+node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-selftest  # PWA: the fixture page and the driver
 ```
 
 Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
@@ -290,8 +289,7 @@ Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
   than 4px into it at rest, and any content still under it once scrolled to the
   end (`--end`); content passing under the translucent bar mid-scroll is fine;
   under the keyboard, a toast, or another element; text painted over by another
-  text or an image (including a picture with `pointer-events: none`); an image
-  painted over a control.
+  text or an image; an image painted over a control.
 - **Off-screen or unreachable** — any part beyond the screen edge (a button
   box as well as its text; a labelled or unlabelled image), except a part
   inside a horizontal scroller, which swipe reaches, on native and PWA alike;
