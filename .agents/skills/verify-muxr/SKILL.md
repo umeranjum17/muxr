@@ -206,10 +206,14 @@ node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>-s
 ```
 
 It saves the PNG and the uiautomator dump and prints `DEFECT …` lines for
-what a machine can see (text under the status or navigation bar, text touching
-the screen edge, clipped text (an ellipsis, or running past its parent),
-overlapping elements, a covered control, a squashed image or an image with no
-reference twin, flat edge strips). Any DEFECT line fails the cell (exit 1).
+what a machine can see (text under the status bar; text or a button box under
+the navigation bar, including a node fully inside the bar band on an
+unscrolled screen, which fails without `--end`; text touching the screen
+edge; a button box past the edge even when its text fits; clipped text (an
+ellipsis, or running past its parent); overlapping elements; an unlabelled
+image off-screen or painted over a control; a covered control; a squashed
+image or an image with no reference twin; flat edge strips). Any DEFECT line
+fails the cell (exit 1).
 `--ref` is the dump of the same cell from the main run (on main itself, omit
 it; the line `image geometry not compared` says so). The eye still judges every
 shot too. A DEFECT that is a false positive is overridden only by a named line
@@ -229,21 +233,32 @@ px (393 x 864 and 270 x 594 at 1.0; 196 x 432 and 135 x 297 at 2.0). Per cell:
 reload, wait until `document.body.innerText` is non-empty (a shot taken
 earlier is a blank page, not a pass), `emulate` again (a reload drops it),
 `screenshot`, then set every scrollable element's `scrollTop` to its
-`scrollHeight` and shoot `-scrolled`. After each shot run the DOM leads:
+`scrollHeight` and shoot `-scrolled`. After each shot save the DOM leads and
+run them through the driver, which exits 1 on any DEFECT:
 
 ```sh
-chrome-devtools-axi eval "$(node .agents/skills/verify-muxr/features/visualCheck.mjs pwa)"
+chrome-devtools-axi eval "$(node .agents/skills/verify-muxr/features/visualCheck.mjs pwa)" | tee "$DIR/<name>.leads"
+node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-check "$DIR/<name>.png" "$DIR/<name>.leads" <name>
 ```
 
-They report off-screen text and images, clipped text, text spilling out of
-its button, a control covered by another element, and a stretched image. Paste
-the eval output into the PR's `## Checks` block. Any line other than `clean` is
-a DEFECT and fails the cell, with the same `false lead:` override as native.
+They report off-screen text and images, clipped text (including text cut by
+an overflow-hidden ancestor), text spilling out of its button, text painted
+over by another text or an image, a control covered by another element, and a
+stretched image; the driver adds a blank-strip read of the screenshot itself.
+Paste the driver output into the PR's `## Checks` block. Any line other than
+`clean` is a DEFECT and fails the cell, with the same `false lead:` override
+as native. A `blank page` line means the shot was taken before the app drew:
+retake the shot; it fails the cell like any other DEFECT.
 
-Self-tests (run once per change to the checks, not per cell). They prove the
-checks fire on a squashed image, an unmatched image, clipped text and a black
-strip, and stay quiet on a cover crop, fitting text and a uniform background;
-they need ImageMagick and `chromium`:
+Self-tests (run once per change to the checks, not per cell). They prove each
+check fires on its defect and stays quiet on the matching clean case —
+native: avatar geometry, clipped text, edge strips, unlabelled images
+(off-screen, painted over a control, and a draw-order background left alone),
+button boxes, and the navigation-bar overlap with and without `--end`
+(including the pair-screen cutoff shape); PWA: squashed img/background vs
+cover, text over text or an image vs text beside one, overflow-hidden
+clipping vs fitting text, and the `pwa-check` driver exit codes on DEFECT,
+clean, and strip shots; they need ImageMagick and `chromium`:
 
 ```sh
 node .agents/skills/verify-muxr/features/visualCheck.mjs selftest      # native: avatar geometry, clipped text, edge strip
@@ -267,22 +282,22 @@ Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
   (an ellipsis the feature file names as intended is not a defect).
 - **Overlap** — text or a control under the status bar or clock at any scroll
   position; under the gesture or navigation bar once the screen can scroll no
-  further (content passing under the translucent gesture bar mid-scroll is
-  fine); under the keyboard, a toast, or another element.
-- **Off-screen or unreachable** — any part beyond the screen edge, or a
-  control no scroll brings fully into view.
+  further, or fully inside the bar band on an unscrolled screen (content
+  passing under the translucent gesture bar mid-scroll is fine); under the
+  keyboard, a toast, or another element; text painted over by another text or
+  an image; an image painted over a control.
+- **Off-screen or unreachable** — any part beyond the screen edge (a button
+  box as well as its text; a labelled or unlabelled image), or a control no
+  scroll brings fully into view.
 - **Blank or black strip** — a flat band along an edge or between sections
-  that the mock does not have (e.g. a black left strip).
+  that the mock does not have (e.g. a black left strip), on native and PWA
+  screenshots alike.
 - **Button or field hidden under a sticky element** — a header, footer,
   composer, tab bar or floating button covering a control at any scroll
   position, including the end.
 
-### Eye-only (the machine does not check these)
-
-Look at these by eye in every cell: blank strips on the PWA; text over text or
-over an image on the PWA; clipping on the PWA by an ancestor with `overflow`
-hidden; native images that are off-screen or overlap something and have no
-label; a button whose box, not its text, runs past the screen edge.
+Every defect class above has a machine check; the eye still judges every shot
+too, against the mock or the main shot of the same cell.
 
 ### Compare and report
 
