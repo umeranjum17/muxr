@@ -5,7 +5,7 @@ import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
-import { startAgentFromDock, type FirstPromptFailure } from './StartAgentFromDock';
+import { startAgentFromDock } from './StartAgentFromDock';
 import { dockStartPath } from './startFolder';
 import { planConnection, samePlanConnection, waitForPlanDiscovery, acknowledgeAutoTerms, planAccountForLaunch, planLaunchQuestion, unseenAutoTerms, type LaunchQuestion } from '@/plans';
 import { announceStartAccount } from '@/plans/ui';
@@ -26,8 +26,6 @@ export async function startSessionFromDraft(options: {
     machines: Machine[];
     navigateToSession: (sessionId: string) => void;
     blank?: boolean;
-    onRouteReady?: (agentRoute: string) => void;
-    onPromptFailed?: (failure: FirstPromptFailure) => void;
 }): Promise<string | null> {
     const connection = planConnection();
     const draft = useNewSessionDraft.getState();
@@ -90,14 +88,9 @@ export async function startSessionFromDraft(options: {
                     draft.setAttachments([]);
                 }
                 options.navigateToSession(agentRoute);
-                options.onRouteReady?.(agentRoute);
             },
-            // Delivery runs past the spawn: a failure lands after Home is
-            // free, so it alerts here and hands the text back to the caller.
-            onPromptFailed: (failure) => {
-                Modal.alert(t('common.error'), failure.message);
-                options.onPromptFailed?.(failure);
-            },
+            // The launch module restores both drafts; this adapter reports the error.
+            onPromptFailed: (failure) => Modal.alert(t('common.error'), failure.message),
         });
         if (!samePlanConnection(connection)) return result.ok ? result.agentRoute : null;
         if (result.ok) {

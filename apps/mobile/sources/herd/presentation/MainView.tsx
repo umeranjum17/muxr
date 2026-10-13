@@ -34,7 +34,6 @@ import { t } from '@/text';
 import { MOBILE_GLASS_HEADER_HEIGHT } from '@/components/navigation/headerMetrics';
 import { useNewSessionDraft } from '@/spawn';
 import { useStartSessionFromDraft } from '@/spawn';
-import { appendToDraft } from '@/terminal';
 import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
 import { getCachedConnectionSettings } from '@/connection';
 import { describeRoute } from '@byokit/ui-core/route';
@@ -416,7 +415,8 @@ export const MainView = React.memo(({ liveCardBadge }: {
     // The home is the screen: no tabs and no top-level navigation.
     const [searchQuery, setSearchQuery] = React.useState('');
     const [searchActive, setSearchActive] = React.useState(false);
-    const [homePrompt, setHomePrompt] = React.useState('');
+    const homePrompt = useNewSessionDraft((state) => state.input);
+    const setHomePrompt = useNewSessionDraft((state) => state.setInput);
     const [phoneHomeRecovering, setPhoneHomeRecovering] = React.useState(false);
     const [phoneLinkDown, setPhoneLinkDown] = React.useState(false);
     const handlePhoneRecoveryChange = React.useCallback((active: boolean, linkDown: boolean) => {
@@ -443,10 +443,9 @@ export const MainView = React.memo(({ liveCardBadge }: {
         }
         useNewSessionDraft.getState().setInput(prompt);
         Keyboard.dismiss();
-        // Home lets go of the prompt once the agent holds it; until then a failed start leaves it here.
-        // Delivery runs past the spawn, so a failure lands after Home is
-        // free: the text comes back to this composer, joining anything typed since.
-        const sessionId = await startHomeSession({ onRouteReady: () => setHomePrompt(''), onPromptFailed: ({ text }) => setHomePrompt((current) => appendToDraft(current, text)) });
+        // The shared draft clears at spawn and restores on delivery failure,
+        // even when Home unmounts while the agent screen is open.
+        const sessionId = await startHomeSession();
         return sessionId !== null;
     }, [homePrompt, startHomeSession]);
 

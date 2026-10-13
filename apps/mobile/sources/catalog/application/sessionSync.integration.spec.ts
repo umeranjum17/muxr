@@ -600,24 +600,6 @@ describe('session sync flow', () => {
         expect(savedConnection.lastSessionCwd).toBe('/home/umer/api');
     });
 
-    it('holds the ring and the composer behind a queued first prompt', async () => {
-        // The lock both send paths read: queued holds, failed or taken frees.
-        const { isFirstPromptQueued, isQueuedFirstPrompt, takeQueuedFirstPrompt, useQueuedFirstPrompts } =
-            await import('@/terminal/application/queuedFirstPrompts');
-        const route = 'agent-ring-guard';
-        useQueuedFirstPrompts.setState({});
-        expect(isFirstPromptQueued(route)).toBe(false);
-        expect(isQueuedFirstPrompt(useQueuedFirstPrompts.getState()[route])).toBe(false);
-        useQueuedFirstPrompts.setState({ [route]: { text: 'hello' } });
-        expect(isQueuedFirstPrompt(useQueuedFirstPrompts.getState()[route])).toBe(true);
-        expect(isFirstPromptQueued(route)).toBe(true);
-        useQueuedFirstPrompts.setState({ [route]: { text: 'hello', failed: true } });
-        expect(isFirstPromptQueued(route)).toBe(false);
-        takeQueuedFirstPrompt(route);
-        expect(useQueuedFirstPrompts.getState()[route]).toBeUndefined();
-        expect(isFirstPromptQueued(route)).toBe(false);
-    });
-
     it('frees Home right after the spawn while the first prompt delivers', async () => {
         const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
         const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
@@ -662,25 +644,23 @@ describe('session sync flow', () => {
                 status: { sessionId: 'doomed', isStreaming: false, tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 } },
             };
         });
-        sendMessage.mockReset().mockRejectedValueOnce(new Error('The agent did not take the prompt. Send it again.'));
+        let failDelivery!: (error: Error) => void;
+        sendMessage.mockReset().mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { failDelivery = reject; }));
         modalAlert.mockClear();
         useQueuedFirstPrompts.setState({});
         useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'shell', input: 'hello again', attachments: [] });
-        const failures: { text: string; message: string }[] = [];
-        const started = await startSessionFromDraft({
-            machines: [machine],
-            navigateToSession: () => undefined,
-            onPromptFailed: (failure) => { failures.push(failure); },
-        });
+        const started = await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined });
         expect(started).toBe('doomed');
-        await vi.waitFor(() => expect(failures).toHaveLength(1));
-        expect(failures[0]).toMatchObject({ text: 'hello again' });
-        expect(modalAlert).toHaveBeenCalledTimes(1);
+        // Home is already free; a failure must not replace the newer work typed there.
+        useNewSessionDraft.getState().setInput('new work');
+        failDelivery(new Error('The agent did not take the prompt. Send it again.'));
+        await vi.waitFor(() => expect(modalAlert).toHaveBeenCalledTimes(1));
+        expect(modalAlert).toHaveBeenCalledWith(expect.any(String), 'The agent did not take the prompt. Send it again.');
         // The agent screen takes this back into its own draft on mount, even
         // when the person already went back to Home.
         expect(useQueuedFirstPrompts.getState().doomed).toEqual({ text: 'hello again', failed: true });
-        // Home cleared its composer at route-ready; the text is back there too.
-        expect(useNewSessionDraft.getState().input).toBe('hello again');
+        // Home uses this shared draft, including after the screen remounts.
+        expect(useNewSessionDraft.getState().input).toBe('new work hello again');
     });
 
     it('waits for a newly started session to become visible before routing', async () => {
