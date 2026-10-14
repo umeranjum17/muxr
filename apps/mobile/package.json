@@ -22,7 +22,7 @@
   "dependencies": {
     "@expo/ui": "~57.0.16",
     "@expo/vector-icons": "^15.0.2",
-    "@desklink/react-native": "0.5.3",
+    "@desklink/react-native": "0.5.4",
     "@byokit/dictation": "0.4.0",
     "@byokit/link": "0.8.0",
     "@byokit/reach": "0.6.0",
