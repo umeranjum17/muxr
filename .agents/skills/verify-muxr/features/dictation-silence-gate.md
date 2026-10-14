@@ -16,27 +16,34 @@ runs Silero VAD (`speech:` on `whisperRnEngine`) before every final decode.
 Open Home, hold the mic, speak or stay quiet, release. The draft above Send
 shows what dictation settled on.
 
-## Driving it with the private stack
+## Driving it
 
-Preconditions: none for the stack — this path is on-device Whisper, not the
-relay. Proof is file-fed only (no microphone, no speaker playback).
+Preconditions: a task-owned Android emulator with the candidate APK installed.
+This is on-device Whisper, not the relay. Proof is file-fed only (no microphone,
+no speaker playback).
 
-1. From a task scratch dir, build the kit's `whisperBench` and a host Silero
-   `vadBench` against `node_modules/whisper.rn` 0.7.2.
-2. Fetch `WHISPER_VAD_MODEL` with `installModel` (size + SHA-256).
-3. Run the file-fed proof that mirrors
-   `apps/mobile/sources/utils/localTranscription.ts` (vocabulary prompt, beam,
-   energy preview gate, NON_SPEECH filter, plus `speech: { model, initWhisperVad }`)
-   over `near-silence-0.003-120s`, `scripts/dictation/fixtures/quiet.wav`, and
-   `clean.wav`.
-4. Expect empty final for silence, non-empty correct-ish text for quiet and
-   clean. Capture composer-draft screenshots (empty after silence, filled after
-   quiet).
+The proof drives the shipped `startLiveTranscription()` in
+`apps/mobile/sources/utils/localTranscription.ts`, so it runs the real
+`acquireEngine` and `finish()` path with the bundled Silero model
+(`apps/mobile/sources/assets/models/ggml-silero-v6.2.0.bin`). Feed the audio
+through the dictation microphone seam (`apps/mobile/sources/utils/dictationMicrophone.ts`)
+with `near-silence-0.003-120s`, `scripts/dictation/fixtures/quiet.wav` and
+`clean.wav`. That file-feed seam does not exist yet: adding it is the first step
+of this proof, and it must stay out of the shipped path.
+
+Expect an empty final for the 120 s silence take and non-empty text for quiet and
+clean. Capture composer-draft screenshots (empty after silence, filled after
+quiet), and log partials on the silence take, since partials are only held back
+by the energy gate.
+
+Supporting evidence: the kit's own proof with `@byokit/dictation` 0.5.0 (WER CLI)
+against the same fixtures. Evidence goes under `~/.no-mistakes/evidence`, not the diff.
 
 ## Gotchas
 
 - An energy-only gate at 0.015 drops quiet speech; do not "prove" silence by
   raising the RMS floor.
-- If the VAD model is missing, the app continues without the neural gate — the
-  silence case can hallucinate again. The proof must supply a verified local copy.
+- If the bundled VAD model fails to load, the app continues without the neural
+  gate and the silence case can hallucinate again. The failure is not cached, so
+  the next take retries the load.
 - Live previews are not Silero-gated; only finals and file readings are.
