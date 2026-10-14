@@ -408,7 +408,7 @@ const selfTest = () => {
         el('android.widget.TextView', '[906,1762][936,1821]', { text: 'Tab 4' }),
         el('android.widget.TextView', '[481,1755][529,1843]', { text: 'playing' }),
         el('android.widget.TextView', '[972,1764][1028,1820]', { text: '\uf356' }));
-    expect('short labels ("Go", "OK") and single-icon labels ("Tab 4", "playing") are not slivers', !layout(nodesOf(shortLabels)).some((l) => l.startsWith('text squeezed to a sliver')), layout(nodesOf(shortLabels)).join(' | '));
+    expect('short labels ("Go", "OK") and single-icon labels ("Tab 4", "playing") are not slivers', !layout(shortLabels).some((l) => l.startsWith('text squeezed to a sliver')), layout(shortLabels).join(' | '));
     const labelled = el('android.view.ViewGroup', '[0,200][1080,2376]', { desc: 'list', scrollable: true });
     expect('labelled non-clickable container past the bar at the end of the scroll is not flagged', layout(nodesOf(labelled), { end: true }).length === 0, layout(nodesOf(labelled), { end: true }).join(' | '));
     const pngOf = (name, args) => {
