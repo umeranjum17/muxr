@@ -23,9 +23,8 @@ no manual model switch. The phone shows no picker for this; the footer reads
 - `opencode-signed-in-state` once the sign-in lands, Settings › Accounts reads
   the OpenCode row as `Signed in` (it has no email to show) and New agent
   reads OpenCode as `Signed in`, not `Sign-in not checked`, with no app
-  restart and after one. The host reads its OpenCode accounts on every
-  `herdr.agentKinds`, outside the catalog cache; the OpenCode accounts flow in
-  `apps/host/src/plans/plansApi.test.ts` covers the catalog.
+  restart. The host reads OpenCode sign-ins fresh on each `herdr.agentKinds`
+  read, outside the 30 s catalog cache.
 
 ## How to get to it (user POV)
 
@@ -71,6 +70,11 @@ Preconditions:
 - OpenCode's `auth login` provider search confirms whatever is selected when
   Enter lands: wait for `(1 match)` on `OpenCode Go` first, or the key lands
   on the wrong provider and login fails with `Unexpected error`.
+- An OpenCode agent already running when the sign-in lands keeps the home it
+  started in and never reads the new account's root, so its row stays
+  unsigned (`OpenCode · opencode · Idle`) until a new agent starts. That is
+  OpenCode's own behaviour, a known limitation and follow-up, not a restart
+  flow.
 - A prompt the Home composer starts an agent with that the agent drops comes
   back as not sent; see [home-composer-first-prompt.md](./home-composer-first-prompt.md).
 - An OpenCode update prompt (`v1.19.0`) may cover the new agent: dismiss it
