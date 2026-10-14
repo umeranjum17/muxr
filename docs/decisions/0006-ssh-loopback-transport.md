@@ -53,8 +53,7 @@ silent outbound dependency, and leave the remaining connection steps explicit.
   login key's public half from **Settings → Connection & updates** (native,
   consent-gated; see SELF-HOSTING.md). Editing the SSH user's
   `~/.ssh/authorized_keys` by hand remains the fallback.
-- Ed25519 host or login key on Android: its client negotiates RSA/ECDSA only (see
-  Algorithm scope below) and says so instead of failing as unreachable.
+- Ed25519 host or login key on Android: accepted; see Algorithm scope below.
 - Host key changed: stop and review the machine; muxr does not reconnect around
   the mismatch.
 - Loopback relay unavailable: check that muxr is running and that the configured
@@ -70,18 +69,22 @@ instead**. muxr closes the SSH forward and resumes the paired relay URL without
 changing pairing keys or workspace state. Removing the saved SSH credential is
 separate and optional.
 
-## Algorithm scope (2026-09-15 qualification finding)
+## Algorithm scope (amended 2026-10-14)
 
-The native SSH client (SSHJ) resolves its algorithms through Android's
-Conscrypt provider: Android's built-in "BC" provider cannot do X25519, EC, or
-Ed25519 key agreement and signatures, and the bundled Bouncy Castle jar loses
-the `BC` name to the platform copy, so the SSHJ defaults fail on every device
-even though negotiation succeeds. The client therefore offers curve25519 and
-ECDH key exchange with RSA/ECDSA host and login keys only. Servers fall back
-to the RSA/ECDSA host keys OpenSSH generates by default; an Ed25519-only
-server or an Ed25519 login key fails with an explicit unsupported-key message
-rather than a generic unreachable error. Full Ed25519 support is future work,
-not a correction to this decision.
+The native SSH client (SSHJ) takes one JCA provider name. Android's platform
+"BC" provider lacks the X25519, EC, and Ed25519 operations SSHJ needs, and the
+bundled Bouncy Castle jar loses the `BC` name to the platform copy. The
+2026-09-15 qualification pointed SSHJ at Conscrypt and dropped Ed25519. The
+client now registers a muxr-named provider holding a full Bouncy Castle copy
+and uses it for all SSHJ crypto; Conscrypt is no longer used. Ed25519 login
+keys need Bouncy Castle, so one provider serves every algorithm.
+
+Key exchange is curve25519 and ECDH. Host-key and login-key algorithms are
+RSA, ECDSA, and Ed25519, with the RSA/ECDSA preference order kept first so
+saved RSA/ECDSA host-key pins keep verifying. Ed25519 host keys still go
+through pinned verification. The Android behaviour is proven on device only
+through the verify-muxr `ssh-login-keys` lab. iOS (libssh2/OpenSSL) is not
+covered by this amendment.
 
 ## iOS counterpart
 
