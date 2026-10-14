@@ -164,7 +164,7 @@ describe('SSH tunnel established before pairing', () => {
     });
 
     it('carries the actionable SSH failure copy instead of claiming', async () => {
-        tunnel.openSshTunnel.mockRejectedValueOnce(Object.assign(new Error('Ed25519 key rejected'), { code: 'ssh-auth' }));
+        tunnel.openSshTunnel.mockRejectedValueOnce(Object.assign(new Error('auth failed'), { code: 'ssh-auth' }));
         const result = await establishSshTunnel(FIELDS);
         expect(result.ok).toBe(false);
         expect(result.ok === false && result.message).toContain('refused these credentials');

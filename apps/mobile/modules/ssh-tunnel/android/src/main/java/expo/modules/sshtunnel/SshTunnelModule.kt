@@ -90,8 +90,9 @@ class SshTunnelConfig : Record {
     @Field var connectTimeoutMs: Int = 15_000
 }
 
-// Keep Android's BC provider intact. SSHJ selects one provider by name, so
-// expose the bundled BC algorithms under a name the platform cannot shadow.
+// SSHJ takes one provider name, and Ed25519 login keys need BouncyCastle, so BC
+// is the provider for all SSHJ crypto and Conscrypt is no longer used. Registered
+// under its own name so the platform's BC cannot shadow it.
 private val sshSecurityProvider = object : Provider("MuxrSSH", 1.0, "muxr SSH cryptography") {
     init { putAll(BouncyCastleProvider()) }
 }.also { Security.addProvider(it) }
