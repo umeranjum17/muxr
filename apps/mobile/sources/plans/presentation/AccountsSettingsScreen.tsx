@@ -229,7 +229,7 @@ export function AccountsSettingsScreen() {
                         <Item
                             title={addAccountLabel(provider.id)}
                             titleLines={0}
-                            subtitle={accounts.length === 0 ? 'Next to the one already signed in here' : undefined}
+                            subtitle={accounts.length === 0 ? 'Next to the one already signed in on this computer' : undefined}
                             subtitleLines={0}
                             titleStyle={{ color: theme.colors.textLink }}
                             style={row}
