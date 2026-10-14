@@ -7,6 +7,23 @@ import { compareVersions } from '../domain/channel.mjs';
 import { desktopHostOfTarball, requireDesktopEngine } from './requireDesktopEngine.mjs';
 import { requireLinkProtocol } from './requireLinkProtocol.mjs';
 
+function npm(args, allowMissing = false) {
+    // Metadata reads are small and must fail fast; publishing uploads the
+    // whole tarball and keeps the longer budget.
+    const timeout = args[0] === 'publish' ? 180000 : 20000;
+    const result = spawnSync('npm', args, { encoding: 'utf8', timeout });
+    if (result.status === 0) return result.stdout.trim();
+    if (allowMissing && /E404/.test(result.stderr)) return undefined;
+    const detail = (result.stderr || result.error?.message || 'no output').trim().slice(-400);
+    throw new Error(`npm ${args.join(' ')} failed (${result.status ?? 'no exit status'}): ${detail}`);
+}
+
+/** Whether this CLI version is already on npm; a merge that changes nothing publishes nothing. */
+export function versionOnNpm(version) {
+    const value = npm(['view', `@trymuxr/cli@${version}`, 'version', '--json'], true);
+    return value !== undefined && value !== '';
+}
+
 export async function publishNpm() {
     const { RUNNER_TEMP, RELEASE_COMMIT, RELEASE_VERSION, RELEASE_CHANNEL, BUILD_RUN_ID } = process.env;
     const directory = join(RUNNER_TEMP, 'package');
@@ -19,16 +36,6 @@ export async function publishNpm() {
     // Checked again here, not only when the candidate was built: a registry
     // package can be unpublished in between, and a CLI without it cannot install.
     requireDesktopEngine(desktopHostOfTarball(path));
-    function npm(args, allowMissing = false) {
-        // Metadata reads are small and must fail fast; publishing uploads the
-        // whole tarball and keeps the longer budget.
-        const timeout = args[0] === 'publish' ? 180000 : 20000;
-        const result = spawnSync('npm', args, { encoding: 'utf8', timeout });
-        if (result.status === 0) return result.stdout.trim();
-        if (allowMissing && /E404/.test(result.stderr)) return undefined;
-        const detail = (result.stderr || result.error?.message || 'no output').trim().slice(-400);
-        throw new Error(`npm ${args.join(' ')} failed (${result.status ?? 'no exit status'}): ${detail}`);
-    }
     // The registry is read-after-write eventually consistent: a view issued
     // within a second of publish can miss on a replica, answer empty, or still
     // serve the previous dist-tag. Retry until the exact expected value shows.
