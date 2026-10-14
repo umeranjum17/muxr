@@ -153,14 +153,16 @@ describe('link-first connect shell', () => {
         press(renderer.root, 'Connect');
         await TestRenderer.act(async () => {});
         expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('muxr 0.2.0 or older'));
+        expect(pairingAlert).toHaveBeenCalledTimes(1);
         expect(routerPush).not.toHaveBeenCalled();
         pairingAlert.mockClear();
         // A cut-off code names the cut, never the version.
         typeLink(renderer.root, 'byokit-link:1:not-valid!!');
         press(renderer.root, 'Connect');
         await TestRenderer.act(async () => {});
-        expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('cut off'));
         expect(routerPush).not.toHaveBeenCalled();
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('cut off'));
+        expect(pairingAlert).toHaveBeenCalledTimes(1);
         pairingAlert.mockClear();
         // An expired pasted code opens the pair screen's expired state.
         const expired = expiredOffer();
@@ -182,6 +184,15 @@ describe('link-first connect shell', () => {
         press(renderer.root, 'Scan the QR');
         await TestRenderer.act(async () => {});
         expect(scanQr).toHaveBeenCalledTimes(1);
+        // A cut-off scanned code gets the same single alert and never routes.
+        await TestRenderer.act(async () => { scanOnScanned!({ data: 'byokit-link:1:not-valid!!' }); });
+        expect(dismissScanner).toHaveBeenCalledTimes(1);
+        expect(routerPush).not.toHaveBeenCalled();
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('cut off'));
+        expect(pairingAlert).toHaveBeenCalledTimes(1);
+        pairingAlert.mockClear();
+        press(renderer.root, 'Scan the QR');
+        await TestRenderer.act(async () => {});
         await TestRenderer.act(async () => { scanOnScanned!({ data: whole }); });
         expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: whole } });
         expect(pairingAlert).not.toHaveBeenCalled();
@@ -211,6 +222,7 @@ describe('link-first connect shell', () => {
         const visible = texts(renderer.root);
         expect(visible).toContain('Have a connect link?');
         expect(visible.some((text) => text.includes('Paste the browser link from muxr on your computer.'))).toBe(true);
+        expect(visible.some((text) => text.includes('compare two words before access is granted'))).toBe(true);
         expect(visible).toContain('Cloud account');
         expect(visible).not.toContain('SSH login');
         expect(visible.some((text) => text.includes("can't scan"))).toBe(false);
