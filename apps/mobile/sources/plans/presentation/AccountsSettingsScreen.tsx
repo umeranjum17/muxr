@@ -217,7 +217,7 @@ export function AccountsSettingsScreen() {
                                 onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
                                 onLongPress={() => actions(account)}
                                 accessibilityLabel={distinct
-                                    ? [lead, account.name, account.email, sharedLine(account, accounts)].filter(Boolean).join(', ')
+                                    ? [lead, account.name, account.signedIn ? account.email || 'Signed in' : undefined, sharedLine(account, accounts)].filter(Boolean).join(', ')
                                     : [account.name, account.signedIn ? account.email || 'Signed in' : 'Signed out', facts(account)].filter(Boolean).join(', ')}
                             />
                             );
