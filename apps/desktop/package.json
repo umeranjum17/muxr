@@ -12,11 +12,11 @@
         "start:tray": "electron . --hidden"
     },
     "dependencies": {
-        "@byokit/accounts": "0.18.0",
+        "@byokit/accounts": "0.20.0",
         "@byokit/link": "0.8.0",
         "@byokit/reach": "0.6.0",
         "@byokit/realtime": "0.3.1",
-        "@byokit/relay": "0.5.3",
+        "@byokit/relay": "0.6.0",
         "@byokit/seal": "0.3.0",
         "@byokit/ui-core": "0.6.0",
         "@desklink/host": "0.5.3",

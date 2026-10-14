@@ -1099,10 +1099,10 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
-"@byokit/accounts@0.18.0":
-  version "0.18.0"
-  resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.18.0.tgz#83ef5f330b468342cd445e4e2f5059901bd4a261"
-  integrity sha512-hJ7gS1IImSgQNJHBRFHbmj42ORfkKGk8uLZeihmFtxYgkyODHzeYx8nGMlXb12kRFd2MikuKBfiZLPEF5FQ54w==
+"@byokit/accounts@0.20.0":
+  version "0.20.0"
+  resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.20.0.tgz#8b1e24a10b7d94d5e3dc7ddd50fa932ce401e059"
+  integrity sha512-lN1FPzJpJyAjKeNWaNAPkj/ly6qrGfi1mNyUtoywGRllG8tsCfiPo3Sc0u0NdiB5DEvr8GeqcemrvZvlONze2A==
   dependencies:
     "@anthropic-ai/sdk" "0.124.0"
     "@byokit/secrets" "0.5.0"
@@ -1146,7 +1146,7 @@
     "@byokit/seal" "0.3.0"
     ws "8.22.0"
 
-"@byokit/link@0.7.1", "@byokit/link@0.8.0":
+"@byokit/link@0.8.0":
   version "0.8.0"
   resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.8.0.tgz#fa730293bf91be5e90527fc7f20df439c7bbe6a9"
   integrity sha512-OzB92EqFzh0av68DKkMfXKy+X253qpQ9bxSrb42p3ww9+lDqg2QrzovtWyW7CPXzYrIxkMBaPum6k3ATiB3nhA==
@@ -1179,15 +1179,6 @@
   resolved "https://registry.yarnpkg.com/@byokit/realtime/-/realtime-0.3.1.tgz#c3c1f11f294ac9406597b496c1fc195abfb19a57"
   integrity sha512-T3rVq/3dcocEb5sDsw1NBxQOJNKHVLx/d6+9c7aCBQfpV28eXf7EAwcXff8miiqYqwUYoK3pOm9FICodvUrOCA==
   dependencies:
-    ws "8.21.3"
-
-"@byokit/relay@0.5.3":
-  version "0.5.3"
-  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.5.3.tgz#1ff97bd278ba50fd82616fcab1eca50e7eb9ec96"
-  integrity sha512-8LJJIhgfB8g6C+dhvQ8BqLfqrlGxRlHDoPGCJakotgr5y28bxk26KbIrjUMaPUHMfRqT1BIfi9UX00o9VQBxDw==
-  dependencies:
-    "@byokit/link" "0.7.1"
-    web-push "3.6.7"
     ws "8.21.3"
 
 "@byokit/relay@0.6.0":
@@ -9328,9 +9319,9 @@ react-native-device-info@14.1.1, react-native-device-info@^14.1.1:
   integrity sha512-lXFpe6DJmzbQXNLWxlMHP2xuTU5gwrKAvI8dCAZuERhW9eOXSubOQIesk9lIBnsi9pI19GMrcpJEvs4ARPRYmw==
 
 react-native-drawer-layout@^4.2.2:
-  version "4.2.11"
-  resolved "https://registry.yarnpkg.com/react-native-drawer-layout/-/react-native-drawer-layout-4.2.11.tgz#54eca13c2502040ca89a58296c388000dedbbd24"
-  integrity sha512-Aua+LAZJ6L3v7ESHsNtxN2sO+hFQKsSz3EDKOLIpWni6PdQEJGFT0Mc2UnEsvFdfV743aHfODTAaHxsJ2D0uFw==
+  version "4.2.12"
+  resolved "https://registry.yarnpkg.com/react-native-drawer-layout/-/react-native-drawer-layout-4.2.12.tgz#dd863622d5b3dc09b8becfb6c5ce527f1dbaaad8"
+  integrity sha512-qYmntEctkMSodN7pnC2llV21nswImLFPHJeT3PJXSJqZdU4jzDATR8iVi66sXkrtoOLJ2+EvXxgd7sMMpV4ViA==
   dependencies:
     color "^4.2.3"
     use-latest-callback "^0.2.4"
@@ -11212,7 +11203,7 @@ ws@8.21.3:
   resolved "https://registry.yarnpkg.com/ws/-/ws-8.21.3.tgz#660b4faddb6a3e575c86e078126919961f4de4fc"
   integrity sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==
 
-ws@8.22.0:
+ws@8.22.0, ws@^8.12.1, ws@^8.18.0:
   version "8.22.0"
   resolved "https://registry.yarnpkg.com/ws/-/ws-8.22.0.tgz#40f16e1d7588ac0575041be5c49b8eb261c28e73"
   integrity sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==
@@ -11221,11 +11212,6 @@ ws@^7, ws@^7.5.10:
   version "7.5.13"
   resolved "https://registry.yarnpkg.com/ws/-/ws-7.5.13.tgz#12aa507eaca76c295c278b1aebf4698ab2c1845f"
   integrity sha512-rsKI6xDBFVf4r/x8XyChGK04QR/XHroxs/jUcoWvtEZM8TPU/X/uIY9B1CsSzYws9ZJb/6bbBu7dPhFW00CAoA==
-
-ws@^8.12.1, ws@^8.18.0:
-  version "8.21.1"
-  resolved "https://registry.yarnpkg.com/ws/-/ws-8.21.1.tgz#045650cd4b1207809e7547146223c3814a9af586"
-  integrity sha512-+0NTnW77fFN/DjQi6k/Sq/Yvk4Sgajw7urW8V+asjXnRgDs9gyGkdb7EzgfhA4goXsRIZKE28fzIXBHEzhuiWw==
 
 xcode@^3.0.1:
   version "3.0.1"
