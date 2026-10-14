@@ -20,6 +20,12 @@ no manual model switch. The phone shows no picker for this; the footer reads
 - `opencode-go-other-launches-unchanged` every other kind, the sign-in shell,
   and an OpenCode start with no plan account launch exactly as before (no
   args, no config written).
+- `opencode-signed-in-state` once the sign-in lands, Settings › Accounts reads
+  the OpenCode row as `Signed in` (it has no email to show) and New agent
+  reads OpenCode as `Signed in`, not `Sign-in not checked`, with no app
+  restart and after one. The host reads its OpenCode accounts on every
+  `herdr.agentKinds`, outside the catalog cache; the OpenCode accounts flow in
+  `apps/host/src/plans/plansApi.test.ts` covers the catalog.
 
 ## How to get to it (user POV)
 
@@ -48,7 +54,8 @@ Preconditions:
    In the tab, filter the provider list until it reads `(1 match)` on
    `OpenCode Go` and confirm with a real Enter key (text plus Enter sent
    together can confirm the default `OpenCode (recommended)` entry instead),
-   then enter the key. The account row signs in.
+   then enter the key. The account row reads `Signed in` and New agent
+   lists OpenCode as `Signed in` (sub-feature `opencode-signed-in-state`).
 3. Start a new OpenCode agent from the phone and read its footer: before the
    fix it reads `GPT-5.6 Luna · OpenCode Go`; after the fix `Muse Spark 1.3
    Contributor · OpenCode Go`. Ask for one short reply from the agent screen
@@ -64,9 +71,6 @@ Preconditions:
 - OpenCode's `auth login` provider search confirms whatever is selected when
   Enter lands: wait for `(1 match)` on `OpenCode Go` first, or the key lands
   on the wrong provider and login fails with `Unexpected error`.
-- The phone's account row and agent kind list can stay stale (`Signed out`,
-  `Sign-in not checked`) after the sign-in lands; the host still resolves the
-  signed-in account for the start. Restarting the app refreshes the rows.
 - A prompt the Home composer starts an agent with that the agent drops comes
   back as not sent; see [home-composer-first-prompt.md](./home-composer-first-prompt.md).
 - An OpenCode update prompt (`v1.19.0`) may cover the new agent: dismiss it
