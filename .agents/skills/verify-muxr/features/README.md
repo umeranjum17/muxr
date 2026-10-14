@@ -62,6 +62,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Read a plain Computer failure](./computer-failure.md) —
   real native release app against a guarded Linux lab without ScreenCast:
   plain cause and next step, Try again, themes and 270dp/font 1.3.
+- [Keep a tapped desktop field above the keyboard in Computer](./computer-keyboard-fit.md) —
+  native Release app on an iPhone simulator, landscape, five fresh launches:
+  the tapped password field stays above the keyboard and takes typed text.
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
 
