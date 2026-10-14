@@ -5,5 +5,6 @@ export type { PlanIdentity, PlanCommandRunner } from './planIdentity.js';
 export { runPlanCommand, claudeIdentity, codexIdentity } from './planIdentity.js';
 export type { PlansDeps } from './plansApi.js';
 export { AUTO_TERMS_NOTE, listPlans, acknowledgeAutoTerms, resolvePlanLaunch, resolvePlanEnv, planLaunchEnv, renamePlanAccount, removePlanAccount, opencodeAccountRows } from './plansApi.js';
+export { opencodeLaunchArgs } from './opencodeAccounts.js';
 export { planAccounts, resolvePlanRecord } from './planAccounts.js';
 export { preparePlanSignIn, planAccountStatus, rememberPlanPane, planPaneAccount, rememberSignInTab, signInTab, forgetSignInTab, withPlanSignIn, finishPlanSignIn, cancelPlanSignIn, withPlanAccounts } from './planSignIn.js';

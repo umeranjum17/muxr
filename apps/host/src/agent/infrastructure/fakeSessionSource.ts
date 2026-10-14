@@ -166,6 +166,15 @@ export function createFakeSessionSource(): SessionSource {
             throw new Error('fake source has no panes');
         },
 
+        async paneForegroundPids() {
+            return [];
+        },
+
+        async restorePaneTerminalModes() {
+            /* fake panes have no PTY modes to clear */
+            return true;
+        },
+
         async agentWatch() {
             throw new Error('fake source has no panes');
         },
