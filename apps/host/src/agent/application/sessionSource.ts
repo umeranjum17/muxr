@@ -174,6 +174,16 @@ export interface SessionSource {
     paneScroll(paneId: string): Promise<{ offsetFromBottom: number; maxOffsetFromBottom: number }>;
     /** The text a pane shows now, by pane id. */
     paneVisibleText(paneId: string): Promise<string>;
+    /**
+     * True when only the pane's shell is in the foreground. Used to clear
+     * alternate-screen and mouse modes a crashed fullscreen program left on.
+     */
+    paneShellForeground(paneId: string): Promise<boolean>;
+    /**
+     * Restore primary screen and mouse-off after a crashed fullscreen program.
+     * Injects the reset as PTY output so the shell's command line stays clean.
+     */
+    restorePaneTerminalModes(paneId: string): Promise<void>;
     /** Register a watch; resolves once registered, not once the agent settles. */
     agentWatch(options: {
         sessionId: string;

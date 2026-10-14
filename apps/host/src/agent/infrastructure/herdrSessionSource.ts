@@ -38,6 +38,7 @@ import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
+import { foregroundIsShellOnly, writeModeResetToPane } from './paneModeReset.js';
 import { ArtifactWatcher } from './artifactWatcher.js';
 import { ArtifactDownloadServer } from './artifactDownloads.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
@@ -1828,6 +1829,29 @@ export async function createHerdrSessionSource(
         return session;
     }
 
+    async function readPaneProcess(paneId: string): Promise<{
+        shellPid?: number | null;
+        tty?: string | null;
+        foregroundPids: number[];
+    }> {
+        const result = await client.call<{
+            process_info?: {
+                shell_pid?: number | null;
+                tty?: string | null;
+                foreground_processes?: Array<{ pid?: number }>;
+            };
+        }>('pane.process_info', { pane_id: paneId });
+        const info = result.process_info;
+        const foregroundPids = (info?.foreground_processes ?? [])
+            .map((process) => Number(process.pid))
+            .filter((pid) => Number.isInteger(pid) && pid > 0);
+        return {
+            ...(info?.shell_pid === undefined ? {} : { shellPid: info.shell_pid }),
+            ...(info?.tty === undefined ? {} : { tty: info.tty }),
+            foregroundPids,
+        };
+    }
+
     function forgetClosedSession(sessionId: string, paneId?: string): void {
         const resolvedPaneId = paneId ?? closePaneId(sessionId);
         if (resolvedPaneId !== undefined) {
@@ -2793,6 +2817,26 @@ export async function createHerdrSessionSource(
         /** What a pane shows now, by pane id for the same reason as paneScroll. */
         async paneVisibleText(paneId: string): Promise<string> {
             return (await client.kit.read(paneId, { source: 'visible', ansi: false })).text;
+        },
+
+        async paneShellForeground(paneId: string): Promise<boolean> {
+            const info = await readPaneProcess(paneId);
+            return foregroundIsShellOnly(info);
+        },
+
+        async restorePaneTerminalModes(paneId: string): Promise<void> {
+            const info = await readPaneProcess(paneId);
+            if (writeModeResetToPane(info)) return;
+            // Platforms without a writable /proc fd: ask the shell to print the
+            // reset so Herdr's parser still sees it (command line is touched).
+            try {
+                await client.call('pane.send_text', {
+                    pane_id: paneId,
+                    text: "printf '\\033[?1049l\\033[?1000l\\033[?1002l\\033[?1003l\\033[?1006l\\033[?1015l'\n",
+                });
+            } catch {
+                /* A pane that cannot take input stays stuck until the user resets. */
+            }
         },
 
         async agentWatch(watchOptions: {

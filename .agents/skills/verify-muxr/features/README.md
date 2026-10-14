@@ -245,6 +245,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Keep a terminal pane alive across a reconnect](./terminal-reconnect.md) —
   native app over a private stack: relay and host restarts under an
   open pane, last frame kept, recovery with no tap, plain words.
+- [Keep a shell usable after a crashed fullscreen agent](./terminal-shell-mode-reset.md) —
+  wheel reports only while mouse reporting is on; restore alt-screen/mouse when
+  a crashed program leaves them stuck so swipe scrolls Herdr scrollback cleanly.
 - [Scroll a pane and come back with Latest](./terminal-latest.md) —
   native app over a real Herdr lab with long canned output: a finger drag moves
   the pane about as far as the finger in every kind, and Latest reaches the
