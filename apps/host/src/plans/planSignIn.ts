@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { HerdrTreePane, HerdrTreeWorkspace, PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
 import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRecord, type PlanPreparation } from './planAccounts.js';
 import { opencodeAccountRows } from './plansApi.js';
-import { addOpencodeAccount, opencodeLaunchEnv, opencodeSignedIn, removeOpencodeAccount } from './opencodeAccounts.js';
+import { addOpencodeAccount, opencodeLaunchArgs, opencodeLaunchEnv, opencodeSignedIn, removeOpencodeAccount } from './opencodeAccounts.js';
 import { loadPlanAccounts, PLAN_LABELS, plansDir, type PlanProvider } from './planStore.js';
 
 // A completed attempt releases its kit: a later re-sign-in must not inherit add's cancel ownership.
@@ -68,13 +68,14 @@ export async function preparePlanSignIn(env: NodeJS.ProcessEnv, provider: string
             freshOpencode.add(record.id);
         } else freshOpencode.delete(record.id);
         const descriptor = opencodeLaunchEnv(env, record);
+        const signInArgs = opencodeLaunchArgs({ ...env, PATH: descriptor.set.PATH });
         return {
             record,
             launch: {
                 kind: 'shell',
                 label: `Sign in · ${PLAN_LABELS.opencode}`,
                 signIn: ' sh "$MUXR_PLAN_SIGNIN"',
-                planEnv: { ...descriptor.set, ...signInScript(env, record.id, 'opencode auth login') },
+                planEnv: { ...descriptor.set, ...signInScript(env, record.id, ['opencode auth login', ...signInArgs].join(' ')) },
                 planUnset: descriptor.unset,
             },
         };
