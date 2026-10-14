@@ -106,7 +106,7 @@ https://raw.githubusercontent.com/umeranjum17/muxr/release-channels/channels.jso
 
 Every field is derived from that release's own combined `release-manifest.json` — the npm-only candidate manifest carries no Android identity and is never used for this. Artifact URLs are always canonical `github.com/umeranjum17/muxr/releases/download/<tag>/<name>` with the manifest's exact digests. `npmDistTag` is `latest` for stable and `nightly` for nightly. The retired `beta` and `dev` records stay readable in the catalog so links already published keep resolving; nothing writes to them again. Until the first nightly is published the site serves those historical records; from then on `/downloads/beta`, `/downloads/dev` and `/api/releases/{beta,dev}` answer HTTP 302 to their nightly equivalents, so an old link lands on the channel that continues that work. `manifestUrl` may be null only for the legacy stable `0.1.25` seed, which predates sealed manifests.
 
-No workflow writes the channel record any more: `publish.yml` was removed with its npm path. After a release, run these steps by hand to update the record and check that every public surface agrees:
+No workflow writes the channel record any more: `publish.yml` was removed with its npm path, and `release.yml` cannot do it because the record needs the candidate's GitHub release and Android artifact. After a candidate-backed release, run these steps by hand to update the record and check that every public surface agrees:
 
 ```
 node scripts/release/presentation/promoteReleaseVisibility.mjs --tag v0.1.27   # stable only

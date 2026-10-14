@@ -1,15 +1,18 @@
 name: release
 
 # A release is a merged version bump. Every push to main runs the full suite;
-# when the root package.json version is not yet on npm, the same job packs
-# @trymuxr/cli, checks the installed package and publishes it with provenance
-# through npm trusted publishing (OIDC). No npm token exists anywhere. The
-# publish step fails until npm links this repository and this workflow as the
-# package's trusted publisher; that is expected for the first release.
+# when the root package.json version is not yet on npm, the build job packs
+# @trymuxr/cli, checks the installed package and seals it. Only the publish job
+# holds id-token: write, and it installs no project dependencies: it publishes
+# the sealed tarball through npm trusted publishing (OIDC). No npm token exists
+# anywhere. The publish step fails until npm links this repository and this
+# workflow as the package's trusted publisher; that is expected for the first
+# release. When the version is already on npm, the build job only confirms it.
 #
 # Gaps, not published by this workflow:
 # - @desklink/host and its platform packages: published from the desklink repository.
 # - @trymuxr/contract and @trymuxr/crypto: workspace libraries, not published; publish or mark private is a maintainer decision.
+# - The public channel record and GitHub Latest: they need the candidate's GitHub release and Android artifact.
 on:
   push:
     branches: [main]
@@ -23,28 +26,30 @@ permissions:
   contents: read
 
 jobs:
-  release:
+  build:
     if: github.repository == 'umeranjum17/muxr'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: read
-      id-token: write
+    outputs:
+      needed: ${{ steps.release.outputs.needed }}
+      version: ${{ steps.release.outputs.version }}
+      channel: ${{ steps.release.outputs.channel }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: yarn
-      # Trusted publishing needs npm 11.5.1 or later.
       - run: npm install --global npm@11.6.2
       - run: yarn install --frozen-lockfile --non-interactive
       - run: yarn build
       - name: Full suite (typecheck, flows, e2e, package smoke, architecture)
         run: yarn run check
       - id: release
-        name: Decide whether this version is unpublished
-        run: node scripts/release/presentation/releaseNeeded.mjs
+        name: Decide whether this version is unpublished, or confirm it is published
+        run: node scripts/release/presentation/releaseDecision.mjs
       - name: Pack and check the installed package
         if: steps.release.outputs.needed == 'true'
         env:
@@ -72,11 +77,38 @@ jobs:
           const directory = `${process.env.RUNNER_TEMP}/package`;
           await sealRelease({ directory, version: process.env.VERSION, channel: process.env.CHANNEL, files: readdirSync(directory), runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT });
           JS
-      - name: Publish with provenance
+      - name: Keep the sealed release for the publish job
         if: steps.release.outputs.needed == 'true'
-        env:
-          RELEASE_COMMIT: ${{ github.sha }}
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-          RELEASE_CHANNEL: ${{ steps.release.outputs.channel }}
-          BUILD_RUN_ID: ${{ github.run_id }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-release
+          path: ${{ runner.temp }}/package
+          retention-days: 90
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: needs.build.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_COMMIT: ${{ github.sha }}
+      RELEASE_VERSION: ${{ needs.build.outputs.version }}
+      RELEASE_CHANNEL: ${{ needs.build.outputs.channel }}
+      BUILD_RUN_ID: ${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install --global npm@11.6.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-release
+          path: ${{ runner.temp }}/package
+      - name: Publish with provenance
         run: node scripts/release/presentation/publishNpm.mjs

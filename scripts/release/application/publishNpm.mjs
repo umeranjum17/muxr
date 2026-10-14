@@ -3,9 +3,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { verifyRelease } from './verifyRelease.mjs';
-import { compareVersions } from '../domain/channel.mjs';
+import { compareVersions, distribution } from '../domain/channel.mjs';
 import { desktopHostOfTarball, requireDesktopEngine } from './requireDesktopEngine.mjs';
 import { requireLinkProtocol } from './requireLinkProtocol.mjs';
+
+const spec = (version) => `@trymuxr/cli@${version}`;
 
 function npm(args, allowMissing = false) {
     // Metadata reads are small and must fail fast; publishing uploads the
@@ -20,8 +22,34 @@ function npm(args, allowMissing = false) {
 
 /** Whether this CLI version is already on npm; a merge that changes nothing publishes nothing. */
 export function versionOnNpm(version) {
-    const value = npm(['view', `@trymuxr/cli@${version}`, 'version', '--json'], true);
+    const value = npm(['view', spec(version), 'version', '--json'], true);
     return value !== undefined && value !== '';
+}
+
+// The registry is read-after-write eventually consistent: a view issued within
+// a second of publish can miss on a replica, answer empty, or still serve the
+// previous dist-tag. Poll until `ready` accepts the value; the caller decides
+// what a value that arrives but differs means.
+async function settle(args, ready, what) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+        if (attempt > 0) await new Promise((done) => setTimeout(done, 3000));
+        const value = npm(args, true);
+        if (value === undefined || value === '') continue;
+        const seen = JSON.parse(value);
+        if (ready(seen)) return seen;
+    }
+    throw new Error(`${what} did not settle on the registry; re-run this job to confirm it`);
+}
+
+const integrityOf = (version) => settle(['view', spec(version), 'dist.integrity', '--json'], (seen) => typeof seen === 'string', spec(version));
+const tagAtLeast = (version, distTag) => settle(['view', '@trymuxr/cli', `dist-tags.${distTag}`, '--json'],
+    (seen) => compareVersions(seen, version) >= 0, `${spec(version)} ${distTag} dist-tag`);
+
+/** A version already on npm was published by an earlier run: confirm it, never rebuild or republish it. */
+export async function confirmPublished(version) {
+    const { distTag } = distribution(version);
+    await integrityOf(version);
+    await tagAtLeast(version, distTag);
 }
 
 export async function publishNpm() {
@@ -36,34 +64,16 @@ export async function publishNpm() {
     // Checked again here, not only when the candidate was built: a registry
     // package can be unpublished in between, and a CLI without it cannot install.
     requireDesktopEngine(desktopHostOfTarball(path));
-    // The registry is read-after-write eventually consistent: a view issued
-    // within a second of publish can miss on a replica, answer empty, or still
-    // serve the previous dist-tag. Retry until the exact expected value shows.
-    // `retryMismatch` separates "not caught up yet" from "wrong bytes": a tag
-    // catches up, a differing integrity never does and must fail at once.
-    async function confirm(args, expected, { retryMismatch = false } = {}) {
-        let seen;
-        for (let attempt = 0; attempt < 10; attempt += 1) {
-            if (attempt > 0) await new Promise((done) => setTimeout(done, 3000));
-            const value = npm(args, true);
-            if (value === undefined || value === '') continue;
-            seen = JSON.parse(value);
-            if (seen === expected || !retryMismatch) return seen;
-        }
-        const detail = seen === undefined ? 'never became visible' : `still reports ${JSON.stringify(seen)}, expected ${JSON.stringify(expected)}`;
-        throw new Error(`${spec} was published but ${args.slice(1).join(' ')} ${detail} on the registry; re-run this job to confirm it`);
-    }
-    const spec = `@trymuxr/cli@${RELEASE_VERSION}`;
-    const existing = npm(['view', spec, 'dist.integrity', '--json'], true);
+    const existing = npm(['view', spec(RELEASE_VERSION), 'dist.integrity', '--json'], true);
     if (existing !== undefined && JSON.parse(existing) !== integrity) throw new Error('An existing npm version has different bytes');
     const tags = JSON.parse(npm(['view', '@trymuxr/cli', 'dist-tags', '--json']));
     const current = tags[manifest.release.distTag];
     if (current && compareVersions(current, RELEASE_VERSION) === undefined) throw new Error('Invalid registry channel version');
     if (current && compareVersions(current, RELEASE_VERSION) > 0) throw new Error('Refusing to move the channel backwards');
     if (existing === undefined) npm(['publish', path, '--tag', manifest.release.distTag, '--access', 'public', '--provenance']);
-    else if (current !== RELEASE_VERSION) npm(['dist-tag', 'add', spec, manifest.release.distTag]);
+    else if (current !== RELEASE_VERSION) npm(['dist-tag', 'add', spec(RELEASE_VERSION), manifest.release.distTag]);
     // Different bytes under the same version is never a propagation delay.
-    if (await confirm(['view', spec, 'dist.integrity', '--json'], integrity) !== integrity) throw new Error('Published npm integrity mismatch');
-    await confirm(['view', '@trymuxr/cli', `dist-tags.${manifest.release.distTag}`, '--json'], RELEASE_VERSION, { retryMismatch: true });
-    process.stdout.write(`Verified ${spec} on ${manifest.release.distTag}; published bytes match the candidate.\n`);
+    if (await integrityOf(RELEASE_VERSION) !== integrity) throw new Error('Published npm integrity mismatch');
+    await tagAtLeast(RELEASE_VERSION, manifest.release.distTag);
+    process.stdout.write(`Verified ${spec(RELEASE_VERSION)} on ${manifest.release.distTag}; published bytes match the candidate.\n`);
 }
