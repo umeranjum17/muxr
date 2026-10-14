@@ -14,7 +14,7 @@
 //   node visualCheck.mjs selftest | pwa-selftest
 //     proves the checks fire on their defects and stay quiet on the clean case,
 //     one flow per page: native (the pair-screen defect, a clean pair entry, a
-//     blank strip) and PWA (a fixture page, and the driver's exit codes).
+//     split title word, a blank strip) and PWA (a fixture page, and the driver's exit codes).
 //     pwa-selftest needs `chromium`. Each prints PASS/FAIL per case and exits
 //     non-zero on any FAIL.
 import { execFileSync } from 'node:child_process';
@@ -25,7 +25,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const pwaLeads = () => {
     const out = [];
-    const shown = (e) => e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && !e.closest('[aria-hidden="true"]') && getComputedStyle(e).pointerEvents !== 'none';
+    const painted = (e) => e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && !e.closest('[aria-hidden="true"]');
+    const shown = (e) => painted(e) && getComputedStyle(e).pointerEvents !== 'none';
     const paints = (c) => /^(IMG|SVG|CANVAS|VIDEO)$/.test(c.tagName.toUpperCase()) || getComputedStyle(c).backgroundImage !== 'none';
     const inHorizontalScroller = (e) => {
         for (let a = e.parentElement; a && a !== document.documentElement; a = a.parentElement) {
@@ -75,6 +76,25 @@ const pwaLeads = () => {
             if (paints(hit)) { out.push(`text over image: "${el.innerText.slice(0, 40)}" under ${hitName}`); break; }
         }
     }
+    // Accessibility text has no line geometry. DOM ranges do: a word's painted
+    // fragments on different lines expose break-word/break-all. A nested text
+    // node is reached from each ancestor, so the set prints one split once.
+    const splits = new Set();
+    for (const el of document.querySelectorAll('div[dir="auto"], span')) {
+        if (!el.innerText?.trim() || !painted(el)) continue;
+        const textNodes = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let node; (node = textNodes.nextNode());) {
+            for (const { segment, index, isWordLike } of new Intl.Segmenter(undefined, { granularity: 'word' }).segment(node.textContent)) {
+                if (!isWordLike) continue;
+                const range = document.createRange();
+                range.setStart(node, index);
+                range.setEnd(node, index + segment.length);
+                const rects = [...range.getClientRects()].filter((b) => b.width > 0 && b.height > 0);
+                if (rects.some((b) => Math.abs(b.top - rects[0].top) > 1)) splits.add(`word split across lines: "${segment}" in "${node.textContent.trim().slice(0, 40)}"`);
+            }
+        }
+    }
+    out.push(...splits);
     for (const b of document.querySelectorAll('[role="button"], button, input, textarea')) {
         const r = b.getBoundingClientRect();
         if (!r.width || r.bottom < 0 || r.top > innerHeight || !shown(b)) continue;
@@ -108,6 +128,36 @@ const parseDump = (xml) => {
         if (!m[2]) stack.push(node);
     }
     return nodes.filter((n) => n.at.package !== 'com.android.systemui' && n.box.r > n.box.l && n.box.b > n.box.t);
+};
+
+// Native dumps retain the whole label, not its painted line breaks. Match
+// adjacent OCR fragments back to that label before calling a split a lead.
+// OCR can miss or misread glyphs: this is a lead, never a replacement for eyes.
+const ocrWords = (png) => execFileSync('tesseract', [png, 'stdout', '--psm', '11', 'tsv'], { encoding: 'utf8' })
+    .split('\n').slice(1).map((line) => line.split('\t')).filter((c) => c[0] === '5' && c[11]?.trim())
+    .map((c) => ({ text: c[11], l: Number(c[6]), t: Number(c[7]), r: Number(c[6]) + Number(c[8]), b: Number(c[7]) + Number(c[9]) }));
+
+const wordSplitLeads = (nodes, words) => {
+    const normalize = (s) => s.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    const out = [];
+    for (const n of nodes.filter((n) => n.at.text)) {
+        const inside = words.filter((w) => normalize(w.text) && w.l >= n.box.l - 4 && w.r <= n.box.r + 4 && w.t >= n.box.t - 4 && w.b <= n.box.b + 4);
+        const expected = [...new Intl.Segmenter(undefined, { granularity: 'word' }).segment(n.at.text)].filter((s) => s.isWordLike);
+        for (const { segment } of expected) {
+            const word = normalize(segment);
+            for (let i = 0; i < inside.length; i++) {
+                let joined = '';
+                for (let j = i; j < inside.length; j++) {
+                    joined += normalize(inside[j].text);
+                    if (!word.startsWith(joined)) break;
+                    const nextLine = inside[j].t >= inside[i].b;
+                    if (joined === word && j > i && nextLine) out.push(`word split across lines: "${segment}" in "${n.label}" ${n.at.bounds}`);
+                    if (joined === word) break;
+                }
+            }
+        }
+    }
+    return [...new Set(out)];
 };
 
 const aspect = ({ l, t, r, b }) => (r - l) / (b - t);
@@ -331,6 +381,18 @@ const selfTest = () => {
     };
     const stripped = stripLeads(pngOf('black-strip', ['-fill', 'black', '-draw', 'rectangle 0,0 7,2375']), 0, 2376, 1080);
     const uniform = stripLeads(pngOf('uniform', []), 0, 2376, 1080);
+    const font = fileURLToPath(new URL('../../../../apps/mobile/sources/assets/fonts/IBMPlexSans-Regular.ttf', import.meta.url));
+    const splitShot = pngOf('word-split', ['-font', font, '-pointsize', '60', '-fill', 'white',
+        '-draw', "text 100,580 'Sec' text 100,660 'urel' text 100,740 'y' text 100,860 'pair' text 100,940 'this' text 100,1020 'device' text 650,580 'Tails' text 650,660 'cale' text 650,860 'Con' text 650,940 'nect'"]);
+    const intactShot = pngOf('word-intact', ['-font', font, '-pointsize', '60', '-fill', 'white',
+        '-draw', "text 100,580 'Securely' text 100,660 'pair' text 100,740 'this' text 100,820 'device' text 650,580 'Tailscale' text 650,860 'Connect'"]);
+    const pairTitle = nodesOf(el('android.widget.TextView', '[80,480][600,1100]', { text: 'Securely pair this device' }),
+        el('android.widget.TextView', '[630,480][1060,720]', { text: 'Get Tailscale' }),
+        el('android.widget.TextView', '[630,780][1060,1000]', { text: 'Connect' }));
+    const splits = wordSplitLeads(pairTitle, ocrWords(splitShot));
+    expect('native screenshots flag split Securely, Tailscale and Connect against full labels; whole-word wrapping is clean',
+        ['Securely', 'Tailscale', 'Connect'].every((word) => splits.some((l) => l.startsWith(`word split across lines: "${word}"`)))
+        && wordSplitLeads(pairTitle, ocrWords(intactShot)).length === 0, splits.join(' | '));
     expect('black strip on the screen edge is flagged, a uniform background is not', stripped.length === 1 && uniform.length === 0, `strip=${stripped.length} uniform=${uniform.length}`);
     process.exitCode = failed ? 1 : 0;
 };
@@ -349,10 +411,17 @@ const pwaSelfTest = () => {
 <div style="position:absolute;left:10px;top:320px;width:200px;height:20px;overflow:hidden"><div dir="auto">two lines of text that wrap well beyond twenty pixels of height</div></div>
 <div style="position:absolute;left:600px;top:500px;width:150px;height:40px;overflow-x:auto;overflow-y:hidden"><div style="position:relative;width:400px;height:40px"><span style="position:absolute;left:300px;top:0">chip inside a scroller</span><img src="wide.svg" style="position:absolute;left:300px;top:20px;width:60px;height:60px;object-fit:cover"></div></div>
 <span style="position:absolute;left:820px;top:560px">chip past the edge</span>
+<div dir="auto" style="position:absolute;left:10px;top:380px;width:55px;font:26px Arial;overflow-wrap:break-word">Securely pair this device</div>
+<div dir="auto" style="position:absolute;left:220px;top:380px;width:110px;font:26px Arial;overflow-wrap:normal">Securely pair this device</div>
+<div dir="auto" style="position:absolute;left:450px;top:380px;width:40px;font:17px Arial;overflow-wrap:break-word">Tailscale</div>
+<button disabled style="position:absolute;left:550px;top:380px;pointer-events:none"><div dir="auto" style="width:40px;font:17px Arial;overflow-wrap:break-word">Connect</div></button>
+<div dir="auto" style="position:absolute;left:650px;top:380px;width:110px;font:17px Arial;overflow-wrap:normal">Tailscale Connect</div>
 <pre id="leads"></pre>
 <script>window.onload = () => { document.getElementById('leads').textContent = (${pwaLeads})(); };</script>`);
     const html = execFileSync('chromium', ['--headless=new', '--no-sandbox', '--allow-file-access-from-files', '--virtual-time-budget=5000', '--dump-dom', pathToFileURL(join(dir, 'page.html')).href]).toString();
     const leads = (html.match(/<pre id="leads">([\s\S]*?)<\/pre>/)?.[1] ?? '').split('\n');
+    expect('PWA ranges flag split Securely, Tailscale and Connect; whole-word wrapping is clean',
+        ['Securely', 'Tailscale', 'Connect'].every((word) => leads.filter((l) => l.startsWith(`word split across lines: "${word}"`)).length === 1), leads.join(' | '));
     const stretched = leads.filter((l) => l.startsWith('stretched image'));
     expect('squashed img and background are flagged, cover crops are not', stretched.length === 2 && !leads.some((l) => /drawn (80x80|90x90)/.test(l)), leads.join(' | '));
     expect('text painted over by other text or by an image is flagged',
@@ -413,6 +482,10 @@ const native = (serial, dir, name, flags) => {
     const ref = refPath && existsSync(refPath) ? parseDump(readFileSync(refPath).toString()) : undefined;
     if (!ref) console.log(`image geometry not compared for ${name}: no reference dump`);
     const found = layoutLeads(parseDump(xml), { W, H, status, nav, end: flags.includes('--end'), ref });
+    let words;
+    try { words = ocrWords(png); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (words) found.push(...wordSplitLeads(parseDump(xml), words));
+    else console.log('word-split check skipped: tesseract not found');
     found.push(...stripLeads(png, status?.[3] ?? 0, nav?.[1] ?? H, W));
     for (const line of found) console.log(`DEFECT ${name}: ${line}`);
     console.log(`${found.length ? 'FAIL' : 'clean'} ${name} (${W}x${H}, status bar ${status ? `0-${status[3]}` : 'none'}, nav bar ${nav ? `${nav[1]}-${nav[3]}` : 'none'})`);

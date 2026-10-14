@@ -211,10 +211,11 @@ the navigation bar: at rest, any text or button box whose bottom edge sits more
 than 4px into the bar, inside a scroller or not; with `--end`, any of it still
 under the bar; text touching the screen edge, or a button box past it even when
 its text fits, unless the node sits in a horizontal scroller that swipe
-reaches; clipped text (an ellipsis, or running past its parent); overlapping
-elements; an unlabelled image off-screen or painted over a control; a covered
-control; a squashed image or an image with no reference twin; flat edge
-strips; a text or button box below the viewport on a screen that cannot scroll,
+reaches; clipped text (an ellipsis, or running past its parent); a word split
+across lines (screenshot OCR reconciled against the full accessibility label,
+a lead since OCR can miss or misread); overlapping elements; an unlabelled
+image off-screen or painted over a control; a covered control; a squashed
+image or an image with no reference twin; flat edge strips; a text or button box below the viewport on a screen that cannot scroll,
 with or without the bar). Any DEFECT line fails the cell (exit 1). `--end`
 runs on every screen that scrolls, as well as the at-rest shot: its
 scrolled-to-end shot must show the content clear of the bar.
@@ -246,7 +247,8 @@ node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-check "$DIR/<name>.
 
 They report off-screen text and images (a part inside a horizontal overflow
 scroller is excused, as on native, since swipe reaches it), clipped text
-(including text cut by an overflow-hidden ancestor), text spilling out of its
+(including text cut by an overflow-hidden ancestor), a word split across lines
+(from a word's DOM range fragments), text spilling out of its
 button, text painted over by another text or an image, a control covered by
 another element, and a stretched image; the driver adds a blank-strip read of
 the screenshot itself. Known blind spot: text under a `pointer-events: none`
@@ -263,7 +265,9 @@ horizontal carousel past the edge; a blank strip) and PWA (a fixture page with
 squashed images, text over text and over an image, overflow clipping, an
 off-screen chip inside and outside a scroller; the `pwa-check` driver's exit
 codes on a DEFECT, a clean page, a page with no eval result, and a strip
-shot). They need ImageMagick and `chromium`:
+shot). Both also check split Securely/Tailscale/Connect against intact
+whole-word wrapping. Native OCR is a lead, not a guarantee: a misread or missed
+fragment can hide a split. They need ImageMagick, Tesseract and `chromium`:
 
 ```sh
 node .agents/skills/verify-muxr/features/visualCheck.mjs selftest      # native: the pair-screen flow
