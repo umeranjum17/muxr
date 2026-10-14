@@ -25,8 +25,9 @@ the card is `FirstAgentCard` in `apps/mobile/sources/herd/presentation/HomeFirst
   invitation with a `Start an agent` button and never names Pi.
 - `install-step` no coding agent at all reads `Install a coding agent such as
   Claude Code on your computer, then tap Check again.`
-- `picker-one-tap` `Choose another agent` / `Choose an agent` opens the picker
-  and does not retire the card; only `Not now` or a started agent does.
+- `picker-one-tap` `Agents` (beside `Start <agent>`) / `Choose an agent` opens
+  the picker and does not retire the card; only `Not now` or a started agent
+  does. `Agents` stays on one line at 270 dp and font 2.0, native and PWA.
 - `start-error` a failed start shows the real cause under the sentence and
   retires the one-tap `Start` for the rest of the card's life: the card offers
   `Open agents` (the picker) and `Check again`, never a second `Start`. A failed
