@@ -1,18 +1,17 @@
 # Release channels
 
-`main` is the development stream. Pushing to `main` starts one workflow, `release.yml`: it runs the full suite and, when the root `package.json` version is not on npm yet, packs, checks and publishes `@trymuxr/cli` with provenance. Merging a version-bump PR is therefore an npm release; it updates no channel catalog, GitHub release or app store. Captain-tested commits merge frequently; a release ships from its own `release/<version>` branch instead, cut from a tested `main` commit and carrying fixes cherry-picked from `main` — so the large feature branches under review can never ship an intermediate state. The branch name is the release version: candidate, publication and Android delivery workflows require `release/<semver>`; the branch-cut workflow starts from `main`. Candidate and Android versions must match the branch. The repository workflows below are manual dispatches unless noted otherwise.
+`main` is the development stream. Pushing to `main` starts one workflow, `release.yml`: it runs the full suite and, when the root `package.json` version is not on npm yet, packs, checks and publishes `@trymuxr/cli` with provenance. Merging a version-bump PR is therefore an npm release; when that version's candidate GitHub release exists, the same run also points the channel record at it. No app store is touched. Captain-tested commits merge frequently; a release ships from its own `release/<version>` branch instead, cut from a tested `main` commit and carrying fixes cherry-picked from `main` — so the large feature branches under review can never ship an intermediate state. The branch name is the release version: candidate, publication and Android delivery workflows require `release/<semver>`; the branch-cut workflow starts from `main`. Candidate and Android versions must match the branch. The repository workflows below are manual dispatches unless noted otherwise.
 
 ```mermaid
 flowchart LR
- PR[Reviewed PR + local acceptance] --> MAIN[main; no automatic Actions]
+ PR[Reviewed PR + local acceptance] --> MAIN[main; push runs release.yml]
+ MAIN --> NPM[release.yml: npm when the version is new]
  MAIN --> TEST[Captain tests exact main commit]
  TEST --> CUT[Manual cut-release-branch dispatch]
  CUT --> BRANCH["release/<version>; fixes cherry-picked from main"]
  BRANCH --> CANDIDATE[Manual release-candidate dispatch from the branch]
  CANDIDATE --> PHONE[Install APK and test on phone]
  PHONE --> FINAL[Build final-version candidate]
- FINAL --> APPROVE[Explicit maintainer production approval]
- APPROVE --> NPM[npm latest: exact retained tarball]
  FINAL --> INTERNAL[Exact AAB to Play Internal]
  INTERNAL --> CLOSED[Closed testing]
  CLOSED --> PROD[Manual production promotion: no rebuild]
@@ -132,7 +131,7 @@ Publications serialize through the `npm-publication` concurrency group in `relea
 
 Durable website paths, served from that catalog: `/downloads/<channel>` for the human page, `/downloads/<channel>/android` redirecting to the canonical APK, `/downloads/<channel>/release` for the release page and `/downloads/<channel>/checksums` for digests, with `/api/releases/<channel>` returning the entry itself. Verification tolerates their short cache by retrying, never by weakening the comparison: it fails unless the served version and APK digest match the catalog and the redirect target is exactly the canonical artifact URL.
 
-Release titles are `muxr <version>`. PR and build provenance belongs in the notes, not the title. Every candidate is created with `--prerelease --latest=false`, so a preview never becomes GitHub's Latest. Stable promotion clears the prerelease flag on that same release and makes it Latest, after the explicit approval and the npm integrity checks — without creating a release or rebuilding a binary — so `releases/latest/download/<asset>` follows the accepted stable instead of going stale. Nightly stays a prerelease permanently.
+Release titles are `muxr <version>`. PR and build provenance belongs in the notes, not the title. Every candidate is created with `--prerelease --latest=false`, so a preview never becomes GitHub's Latest. Stable promotion clears the prerelease flag on that same release and makes it Latest, after the npm publication by `release.yml` and its integrity checks — without creating a release or rebuilding a binary — so `releases/latest/download/<asset>` follows the accepted stable instead of going stale. Nightly stays a prerelease permanently.
 
 ## Stable promotion — only after the user accepts the candidate
 
