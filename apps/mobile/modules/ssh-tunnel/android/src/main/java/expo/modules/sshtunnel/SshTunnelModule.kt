@@ -35,6 +35,9 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.security.MessageDigest
 import java.security.PublicKey
+import java.security.Provider
+import java.security.Security
+import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.util.concurrent.TimeUnit
 
 /**
@@ -87,15 +90,12 @@ class SshTunnelConfig : Record {
     @Field var connectTimeoutMs: Int = 15_000
 }
 
-/** True when the failure is the known Ed25519 gap, which deserves its own guidance. */
-private fun isEd25519Failure(cause: Exception): Boolean {
-    var current: Throwable? = cause
-    while (current != null) {
-        if (current.message?.contains("Ed25519", ignoreCase = true) == true) return true
-        current = current.cause
-    }
-    return false
-}
+// SSHJ takes one provider name, and Ed25519 login keys need BouncyCastle, so BC
+// is the provider for all SSHJ crypto and Conscrypt is no longer used. Registered
+// under its own name so the platform's BC cannot shadow it.
+private val sshSecurityProvider = object : Provider("MuxrSSH", 1.0, "muxr SSH cryptography") {
+    init { putAll(BouncyCastleProvider()) }
+}.also { Security.addProvider(it) }
 
 /** Non-secret identity of a tunnel, used to decide whether an open one can be reused. */
 private fun signatureOf(config: SshTunnelConfig): String =
@@ -344,17 +344,7 @@ class SshTunnelModule : Module() {
 
     /** A connected, authenticated client and the host key it saw. */
     private fun signIn(config: SshTunnelConfig): Pair<SSHClient, String> {
-        // SSHJ looks its algorithms up under one JCA provider name. Android's
-        // built-in "BC" provider cannot do X25519, EC, or Ed25519 key
-        // agreement and signatures, and the bundled Bouncy Castle jar loses
-        // the "BC" name to the platform copy, so the SSHJ defaults fail on
-        // every device even though negotiation succeeds. Conscrypt implements
-        // everything this tunnel needs except Ed25519, so point SSHJ at it
-        // and stop offering Ed25519 host and login keys: servers fall back to
-        // the RSA/ECDSA keys they already carry by default, and an
-        // Ed25519-only setup fails below with an actionable message instead
-        // of a generic unreachable error.
-        SecurityUtils.setSecurityProvider("AndroidOpenSSL")
+        SecurityUtils.setSecurityProvider(sshSecurityProvider.name)
         val defaults = DefaultConfig()
         defaults.keyExchangeFactories = listOf(
             Curve25519SHA256.Factory(),
@@ -362,12 +352,14 @@ class SshTunnelModule : Module() {
             ECDHNistP.Factory384(),
             ECDHNistP.Factory521(),
         )
+        // Preserve existing host-key preference so saved RSA/ECDSA pins stay valid.
         defaults.keyAlgorithms = listOf(
             KeyAlgorithms.RSASHA256(),
             KeyAlgorithms.RSASHA512(),
             KeyAlgorithms.ECDSASHANistp256(),
             KeyAlgorithms.ECDSASHANistp384(),
             KeyAlgorithms.ECDSASHANistp521(),
+            KeyAlgorithms.EdDSA25519(),
         )
         // Without keepalives a dropped network leaves the forwarder waiting on a
         // socket that will never answer, which the caller can only show as a spinner.
@@ -383,12 +375,6 @@ class SshTunnelModule : Module() {
             try { client.disconnect() } catch (_: IOException) {}
             if (verifier.observed != null && config.knownHostKey != null) {
                 throw SshHostKeyException("host key changed for ${config.host}")
-            }
-            if (isEd25519Failure(cause)) {
-                throw SshUnreachableException(
-                    "this route needs RSA or ECDSA SSH keys: the server only offered Ed25519, which this build does not support yet",
-                    cause,
-                )
             }
             throw SshUnreachableException("could not reach the SSH host", null)
         }
@@ -413,9 +399,6 @@ class SshTunnelModule : Module() {
     private fun authenticate(client: SSHClient, config: SshTunnelConfig) {
         val key = config.privateKey
         if (!key.isNullOrBlank()) {
-            if (key.contains("ssh-ed25519")) {
-                throw UserAuthException("Ed25519 login keys are not supported yet; use an RSA or ECDSA key")
-            }
             val passphrase = config.passphrase
             try {
                 val passwordFinder = if (passphrase.isNullOrEmpty()) {
