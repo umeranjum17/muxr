@@ -742,6 +742,14 @@ describe('first prompt to a just-started agent', () => {
     it('types it once the screen settles and reports one the agent drops as not sent', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-first-prompt-'));
         const cwd = join(dir, 'repo');
+        // A bare launch probes the host's own opencode for a version; keep it on
+        // a fake so the test never runs the machine's real binary.
+        const bin = join(dir, 'bin');
+        mkdirSync(bin);
+        writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
+        chmodSync(join(bin, 'opencode'), 0o755);
+        const savedPath = process.env.PATH;
+        process.env.PATH = `${bin}:${savedPath ?? ''}`;
         const herdr = fakeHerdr(dir, cwd);
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
@@ -776,6 +784,8 @@ describe('first prompt to a just-started agent', () => {
             await expect(source.prompt({ sessionId: started.info.id, text: 'Ordinary send' })).resolves.toBeUndefined();
             expect(herdr.state.prompts.filter((text) => text === 'Ordinary send')).toHaveLength(1);
         } finally {
+            if (savedPath === undefined) delete process.env.PATH;
+            else process.env.PATH = savedPath;
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });
@@ -1012,6 +1022,11 @@ describe('OpenCode account isolation', () => {
             MUXR_HOME: join(dir, 'muxr'),
             PATH: `${bin}:${process.env.PATH ?? ''}`,
         };
+        // A bare (no-account) launch resolves its binary from the host's own
+        // env, so without this it probes whatever opencode is installed on the
+        // machine and leaves a stray temp dir. Keep it on the fake.
+        const savedProcessEnv = { HOME: process.env.HOME, PATH: process.env.PATH };
+        Object.assign(process.env, { HOME: env.HOME, PATH: env.PATH });
         const a = await preparePlanSignIn(env, 'opencode');
         const herdr = fakeHerdr(dir, join(dir, 'repo'));
         const source = await createHerdrSessionSource({
@@ -1054,6 +1069,10 @@ describe('OpenCode account isolation', () => {
             expect(herdr.agents).toHaveLength(5);
             for (const agent of herdr.agents) expect(agent).not.toHaveProperty('args');
         } finally {
+            for (const [key, value] of Object.entries(savedProcessEnv)) {
+                if (value === undefined) delete process.env[key];
+                else process.env[key] = value;
+            }
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });
