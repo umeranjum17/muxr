@@ -39,6 +39,7 @@ import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
 import { foregroundProgramPids, writeModeResetToPane } from './paneModeReset.js';
+import { MODE_RESET_CSI } from './terminalModes.js';
 import { ArtifactWatcher } from './artifactWatcher.js';
 import { ArtifactDownloadServer } from './artifactDownloads.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
@@ -2831,7 +2832,7 @@ export async function createHerdrSessionSource(
             try {
                 await client.call('pane.send_text', {
                     pane_id: paneId,
-                    text: "printf '\\033[?1049l\\033[?1000l\\033[?1002l\\033[?1003l\\033[?1006l\\033[?1015l'\n",
+                    text: `printf '${MODE_RESET_CSI.replace(/\x1b/g, '\\033')}'\n`,
                 });
                 return true;
             } catch {

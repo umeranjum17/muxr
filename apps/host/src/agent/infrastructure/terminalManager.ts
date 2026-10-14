@@ -450,7 +450,8 @@ export class TerminalManager {
          */
         const paneScroll = async (scroll: ScrollInput): Promise<void> => {
             const live = (): boolean => !finished && !childExited
-                && this.attachments.get(params.channel) === attachment;
+                && this.attachments.get(params.channel) === attachment
+                && this.authorized(attachment);
             await this.probeForeground(attachment);
             if (!live()) return;
             if (!wheelReportsAllowed(attachment.foregroundPids)) {

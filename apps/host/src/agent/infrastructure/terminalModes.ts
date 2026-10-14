@@ -11,7 +11,7 @@
  */
 
 /** Leave alternate screen and every common mouse-reporting mode. */
-export const MODE_RESET_CSI = '\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l';
+export const MODE_RESET_CSI = '\x1b[?47l\x1b[?1047l\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l';
 
 /**
  * A wheel report may go only to a program: the pane's own shell never takes
