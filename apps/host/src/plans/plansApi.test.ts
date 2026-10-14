@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
 import { loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
+import { AgentCatalog } from '../requests/application/agentCatalog.js';
 
 const mockState = vi.hoisted(() => ({ failRename: false, failRefreshAllocation: false, failRefreshCleanup: false }));
 vi.mock('node:fs', async (importOriginal) => {
@@ -567,8 +568,15 @@ exit 0
     expect((await listPlans(env)).providers.map((entry) => entry.provider)).toEqual(['opencode']);
     await expect(resolvePlanLaunch(env, a.record.id, 'claude')).rejects.toMatchObject({ code: 'plan-kind-mismatch' });
 
+    // New agent's catalog, cached before the sign-in, must not keep reading "not checked" after it.
+    const catalog = new AgentCatalog({
+        agentKinds: async () => ['opencode'], installedAgentKinds: async () => ['opencode'], agentInstallStates: async () => ({}),
+    }, env);
+    expect((await catalog.read()).readiness?.opencode?.signedIn).toBe('unknown');
+
     // Sign in to A inside its own tab: only A's root gains credentials; B and the computer's own stay as they were.
     execFileSync('/bin/sh', ['-c', a.launch.signIn], { env: { ...env, ...a.launch.planEnv, OC_FIXTURE: 'oc-fixture-a' } });
+    expect((await catalog.read()).readiness?.opencode?.signedIn).toBe('yes');
     const statusA = await planAccountStatus(env, a.record.id);
     expect(statusA.account.signedIn).toBe(true);
     expect((await planAccountStatus(env, b.record.id)).account.signedIn).toBe(false);
