@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
 import { loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
-import { AgentCatalog } from '../requests/application/agentCatalog.js';
+import { AgentCatalog } from '../requests/index.js';
 
 const mockState = vi.hoisted(() => ({ failRename: false, failRefreshAllocation: false, failRefreshCleanup: false }));
 vi.mock('node:fs', async (importOriginal) => {
