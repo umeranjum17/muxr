@@ -163,10 +163,12 @@ export function AccountsSettingsScreen() {
     // and email beneath. The email never breaks mid-word: the local part before
     // the @ stays on one line (native end ellipsis, "umer@exam…"); web ignores
     // ellipsizeMode, so there the address is split and the whole domain stays.
-    const subtitle = (account: PlanAccount): string | React.ReactNode =>
-        account.signedIn && account.email
-            ? (Platform.OS === 'web' ? <EmailSplit email={account.email} /> : account.email)
-            : 'Signed out';
+    // An OpenCode sign-in has no email: signed in, the row says so instead.
+    const subtitle = (account: PlanAccount): string | React.ReactNode => {
+        if (!account.signedIn) return 'Signed out';
+        if (!account.email) return 'Signed in';
+        return Platform.OS === 'web' ? <EmailSplit email={account.email} /> : account.email;
+    };
     const facts = (account: PlanAccount): string | undefined => {
         const parts = identityParts(account);
         return parts.length === 0 ? undefined : parts.map((part) => part.text).join('\u00a0· ');
@@ -215,8 +217,8 @@ export function AccountsSettingsScreen() {
                                 onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
                                 onLongPress={() => actions(account)}
                                 accessibilityLabel={distinct
-                                    ? [lead, account.name, account.email, sharedLine(account, accounts)].filter(Boolean).join(', ')
-                                    : [account.name, account.signedIn ? account.email : 'Signed out', facts(account)].filter(Boolean).join(', ')}
+                                    ? [lead, account.name, account.signedIn ? account.email || 'Signed in' : undefined, sharedLine(account, accounts)].filter(Boolean).join(', ')
+                                    : [account.name, account.signedIn ? account.email || 'Signed in' : 'Signed out', facts(account)].filter(Boolean).join(', ')}
                             />
                             );
                         })}

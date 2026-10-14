@@ -1,7 +1,7 @@
 import type { RequestResult } from '@trymuxr/contract';
 import { agentToolPath, type SessionSource } from '../../agent/index.js';
 import { delimiter } from 'node:path';
-import { claudeIdentity, codexIdentity, defaultPlanFolder } from '../../plans/index.js';
+import { claudeIdentity, codexIdentity, defaultPlanFolder, opencodeAccountRows } from '../../plans/index.js';
 
 type Catalog = RequestResult<'herdr.agentKinds'>;
 const CACHE_MS = 30_000;
@@ -38,10 +38,14 @@ export class AgentCatalog {
     ) {}
 
     async read(refresh = false): Promise<Catalog> {
+        return withOpencodeAccounts(await this.collected(refresh), this.env);
+    }
+
+    private async collected(refresh: boolean): Promise<Catalog> {
         if (this.pending !== undefined) {
             if (!refresh) return this.pending;
             await this.pending.catch(() => undefined);
-            return this.read(true);
+            return this.collected(true);
         }
         if (!refresh && this.cached !== undefined && Date.now() - this.checkedAt < CACHE_MS) return this.cached;
         this.pending = this.collect();
@@ -59,7 +63,7 @@ export class AgentCatalog {
      * lookup is retried by the next request rather than retaining stale state. */
     refresh(): void {
         this.checkedAt = 0;
-        void this.read().catch(() => { this.cached = undefined; });
+        void this.collected(false).catch(() => { this.cached = undefined; });
     }
 
     private async collect(): Promise<Catalog> {
@@ -94,6 +98,16 @@ export class AgentCatalog {
         }));
         return { kinds: ordered, installed, readiness };
     }
+}
+
+/** OpenCode signs in through muxr's own accounts, so a signed-in account is
+ * what Auto starts it on. Read on every call, outside the cache: a sign-in
+ * that just finished shows at once, not after the cache runs out. */
+function withOpencodeAccounts(catalog: Catalog, env: NodeJS.ProcessEnv): Catalog {
+    const state = catalog.readiness?.opencode;
+    if (state === undefined || !catalog.installed?.includes('opencode')) return catalog;
+    if (!opencodeAccountRows(env).some((account) => account.signedIn)) return catalog;
+    return { ...catalog, readiness: { ...catalog.readiness, opencode: { ...state, signedIn: 'yes' } } };
 }
 
 function leadingRank(kind: string): number {
