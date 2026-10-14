@@ -8,7 +8,7 @@ export {
     type ConnectionSettings,
     type SshTarget,
 } from './connectionSettings';
-export { closeSshForward, openSshForward, sshRouteActive, executeSshCommand, forgetSshCredential, hasSshCredential, isSshHostKeyChangeRefusal, parseSshFields, pinSshHostKey, reviewSshHostKey, saveReviewedSshSettings, saveSshCredential, savedSshPublicKey, verifySshCredential, sshRelayUrl, sshTunnelAvailable, stopSshTunnel, applySshAfterPairing, channelRelayUrl, establishSshTunnel, tunnelPairingUrl, SshConnectionError, type SshCredential, type SshFieldInput, type SshSettingsSaveOptions } from './sshTunnel';
+export { closeSshForward, openSshForward, sshRouteActive, executeSshCommand, forgetSshCredential, hasSshCredential, isSshHostKeyChangeRefusal, isSshHostKeyPinMissing, parseSshFields, pinSshHostKey, reviewSshHostKey, saveReviewedSshSettings, saveSshCredential, savedSshPublicKey, verifySshCredential, sshRelayUrl, sshTunnelAvailable, stopSshTunnel, applySshAfterPairing, channelRelayUrl, establishSshTunnel, tunnelPairingUrl, SshConnectionError, type SshCredential, type SshFieldInput, type SshSettingsSaveOptions } from './sshTunnel';
 export {
     buildSshInstallCommand,
     buildSshRollbackCommand,

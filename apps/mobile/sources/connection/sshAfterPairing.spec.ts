@@ -257,6 +257,7 @@ describe('SSH tunnel established before pairing', () => {
         expect(tunnel.inspectSshHostKey).not.toHaveBeenCalled();
         expect(tunnel.verifySshCredentials).not.toHaveBeenCalled();
         expect(confirm).not.toHaveBeenCalled();
+        expect(tunnel.closeSshTunnel).not.toHaveBeenCalled();
         expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:old' });
     });
 
@@ -286,6 +287,7 @@ describe('SSH tunnel established before pairing', () => {
         expect(fromSocket.ok).toBe(true);
         expect(seenFromSocket).toEqual(['SHA256:new']);
         expect(getCachedConnectionSettings().ssh?.hostKey).toBe('SHA256:new');
+        expect(tunnel.closeSshTunnel).toHaveBeenCalledTimes(1);
 
         // Same recovery when the changed key is first seen on this save's credential probe
         // (socketError still null — live tunnel may still be up).
@@ -293,6 +295,7 @@ describe('SSH tunnel established before pairing', () => {
             ...getCachedConnectionSettings(),
             ssh: { host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:old' },
         });
+        tunnel.closeSshTunnel.mockClear();
         tunnel.verifySshCredentials
             .mockRejectedValueOnce(Object.assign(new Error('host key changed'), { code: 'ssh-host-key' }))
             .mockResolvedValueOnce({ hostKey: 'SHA256:probed' });
@@ -311,6 +314,7 @@ describe('SSH tunnel established before pairing', () => {
         expect(tunnel.inspectSshHostKey).toHaveBeenCalled();
         expect(seenFromProbe).toEqual(['SHA256:probed']);
         expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:probed' });
+        expect(tunnel.closeSshTunnel).toHaveBeenCalledTimes(1);
         expect(secrets.setNativeSecret).toHaveBeenCalledWith('muxr.ssh.credential.v1.m1', JSON.stringify({ password: 'new-secret' }));
     });
 });

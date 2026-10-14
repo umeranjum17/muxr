@@ -10,7 +10,7 @@ import { cardStyle } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { loadAppConfig } from '@/catalog';
-import { isSshHostKeyChangeRefusal } from '@/connection';
+import { isSshHostKeyChangeRefusal, isSshHostKeyPinMissing } from '@/connection';
 import { useHerdrMissing } from '@/catalog/store';
 
 const HOST_RESTART_COMMAND = 'muxr daemon restart';
@@ -38,7 +38,7 @@ const styles = StyleSheet.create((theme) => ({
 
 export function recoveryMode(error: string | null | undefined, runtimeOffline: boolean): 'host' | 'runtime' | 'update-app' | 'update-host' | 'pair' | 'revoked' | 'ssh-key' {
     // sshTunnel.ts refuses a changed or missing host-key pin before any login; no restart or retry fixes it.
-    if (isSshHostKeyChangeRefusal(error) || /Confirm the SSH host fingerprint in Connection settings/.test(error ?? '')) return 'ssh-key';
+    if (isSshHostKeyChangeRefusal(error) || isSshHostKeyPinMissing(error)) return 'ssh-key';
     if (error?.startsWith('Update needed:')) return /older muxr connection protocol|Update muxr on the computer/i.test(error) ? 'update-host' : 'update-app';
     if (error?.startsWith('Pair again:')) return 'pair';
     if (error?.startsWith('Access removed:')) return 'revoked';

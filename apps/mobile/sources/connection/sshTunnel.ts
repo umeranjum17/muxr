@@ -88,6 +88,11 @@ export function isSshHostKeyChangeRefusal(error: string | null | undefined): boo
     return typeof error === 'string' && /^The SSH fingerprint for .* changed\./.test(error);
 }
 
+/** The connection error muxr shows when a saved SSH route has no confirmed pin. */
+export function isSshHostKeyPinMissing(error: string | null | undefined): boolean {
+    return typeof error === 'string' && /^Confirm the SSH host fingerprint in Connection settings/.test(error);
+}
+
 function describe(error: SshTunnelError, target: SshTarget): SshConnectionError {
     const where = `${target.username}@${target.host}:${target.port}`;
     switch (error.code) {
@@ -379,6 +384,7 @@ export async function saveReviewedSshSettings(
             await saveSshCredential(settings.machineId, parsed.credential);
         }
         const next = { ...settings, ssh: target };
+        if (previous?.hostKey !== undefined && target.hostKey !== previous.hostKey) await stopSshTunnel();
         await saveConnectionSettings(next);
         return { ok: true, settings: next, target };
     } catch (cause) {
