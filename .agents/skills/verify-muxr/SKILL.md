@@ -250,7 +250,8 @@ scroller is excused, as on native, since swipe reaches it), clipped text
 (including text cut by an overflow-hidden ancestor), a word split across lines
 (from a word's DOM range fragments), text spilling out of its
 button, text painted over by another text or an image, a control covered by
-another element, and a stretched image; the driver adds a blank-strip read of
+another element (a point scrolled out of its scroller is not judged), and a
+stretched image; the driver adds a blank-strip read of
 the screenshot itself. Known blind spot: text under a `pointer-events: none`
 image or background is not flagged, because the hit test skips such layers.
 Paste the driver output into the PR's `## Checks` block. Any line other than
