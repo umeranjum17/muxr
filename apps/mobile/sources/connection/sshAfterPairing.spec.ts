@@ -44,8 +44,10 @@ import {
     applySshAfterPairing,
     channelRelayUrl,
     establishSshTunnel,
+    isSshHostKeyPinMissing,
     parseSshFields,
     saveReviewedSshSettings,
+    SshConnectionError,
     sshRelayUrl,
     tunnelPairingUrl,
     verifySshCredential,
@@ -133,6 +135,22 @@ describe('SSH route applied after pairing', () => {    it('saves the credential 
 
         expect(await applySshAfterPairing({ ...FIELDS, host: 'elsewhere.lan' })).toEqual({ ok: false, message: 'Confirm the SSH host fingerprint before signing in.' });
         expect(getCachedConnectionSettings().ssh?.host).toBe('box.lan');
+    });
+
+    it('refuses a saved SSH route with no confirmed pin before anything dials', async () => {
+        await pairAs(true, 'm4');
+        const pinless = { host: 'box.lan', username: 'ume', port: 22, relayPort: 8792 };
+        await saveConnectionSettings({ ...getCachedConnectionSettings(), ssh: pinless });
+        tunnel.openSshTunnel.mockClear();
+
+        const refused = await sshRelayUrl('wss://public.example:8792/sync', 'm4', pinless)
+            .then(() => undefined, (error: unknown) => error);
+
+        expect(refused).toBeInstanceOf(SshConnectionError);
+        expect((refused as Error).message).toBe('Confirm the SSH host fingerprint in Connection settings before reconnecting.');
+        // The predicate Home routes on must recognise what this producer throws.
+        expect(isSshHostKeyPinMissing((refused as Error).message)).toBe(true);
+        expect(tunnel.openSshTunnel).not.toHaveBeenCalled();
     });
 
     it('refuses to apply SSH when the pairing is not a self-host', async () => {
