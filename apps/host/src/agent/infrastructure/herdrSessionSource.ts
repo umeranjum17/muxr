@@ -1519,9 +1519,8 @@ export async function createHerdrSessionSource(
     }
 
     async function startManagedAgent(paneId: string, kind: string, launchName: string, pathEnv?: string): Promise<void> {
-        const args = kind === 'opencode'
-            ? opencodeLaunchArgs({ ...process.env, ...(pathEnv === undefined ? {} : { PATH: pathEnv }) })
-            : [];
+        const launchEnv = pathEnv === undefined ? process.env : { ...process.env, PATH: pathEnv };
+        const args = kind === 'opencode' ? opencodeLaunchArgs(launchEnv) : [];
         await client.kit.startAgent({
             kind, name: launchName, cwd: panesById.get(paneId)?.cwd ?? homedir(),
             place: { pane: paneId }, timeoutMs: 60_000,
