@@ -33,7 +33,7 @@ behaviour it claims to cover and watch it go red.
 - Voice adapters are product code under the host voice module: no catalog entry, manifest hash, or per-device plugin approval. Several engines are selectable; the default is Codex Voice (experimental).
 - Never display or speak internal ids (`pp_*`, pane ids, session ids).
 - The microphone foreground service must be running before the realtime mic opens, or Android silently returns a deaf session.
-- Dictation decoding belongs to `@byokit/dictation`; muxr supplies capture, model storage and its vocabulary prompt in `utils/localTranscription.ts`. Keep recognition tuning in the kit; shortened Whisper windows previously dropped words.
+- Dictation decoding belongs to `@byokit/dictation`; muxr supplies capture, model storage, the Silero speech gate and its vocabulary prompt in `utils/localTranscription.ts`. Keep recognition tuning in the kit; shortened Whisper windows previously dropped words.
 
 ## Naming
 

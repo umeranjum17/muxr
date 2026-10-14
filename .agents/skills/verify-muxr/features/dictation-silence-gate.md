@@ -16,7 +16,7 @@ runs Silero VAD (`speech:` on `whisperRnEngine`) before every final decode.
 Open Home, hold the mic, speak or stay quiet, release. The draft above Send
 shows what dictation settled on.
 
-## Driving it
+## Driving it with the private stack
 
 Preconditions: a task-owned Android emulator with a debug APK built from the
 candidate, with `EXPO_PUBLIC_MUXR_LAB_DICTATE=1` set at bundle time. This is

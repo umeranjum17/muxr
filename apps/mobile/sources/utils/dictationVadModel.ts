@@ -1,7 +1,8 @@
 import { Asset } from 'expo-asset';
 import { initWhisperVad } from 'whisper.rn';
 
-// Pinned Silero VAD graph from @byokit/dictation's WHISPER_VAD_MODEL (size and SHA-256 checked when fetched).
+// Bundled copy of @byokit/dictation's WHISPER_VAD_MODEL (885098 bytes, SHA-256 2aa269b7…). The kit's
+// installModel checks cover only a fetched copy; this one is shipped and not re-verified at runtime.
 const bundledVadModel: number = require('@/assets/models/ggml-silero-v6.2.0.bin');
 
 let openUri: string | undefined;

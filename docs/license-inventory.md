@@ -136,6 +136,7 @@ ships:
 |---|---|---|
 | Inter, JetBrains Mono, IBM Plex, Space Mono, Bricolage Grotesque | SIL OFL 1.1 | `apps/mobile/**/assets/fonts/`, plus the native-terminal JetBrains Mono mirror at `apps/mobile/android/app/src/main/assets/`, `LICENSES/OFL-1.1.txt`, `NOTICE` |
 | Whisper Base English (`ggml-base.en-q5_1.bin`) | MIT | `NOTICE` (OpenAI / whisper.cpp / whisper.rn) |
+| Silero VAD (`ggml-silero-v6.2.0.bin`) | MIT | `NOTICE` (Silero VAD) |
 | xterm.js (+ addons) | MIT | packaged web terminal dependency, `NOTICE` |
 
 This inventory does not replace store-release verification of native binaries.
