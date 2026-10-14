@@ -1,88 +1,23 @@
 /**
- * Terminal private-mode tracking for phone scroll.
+ * Whose pane it is decides what a phone scroll may do.
  *
- * A full-screen agent turns on alternate screen and mouse reporting. When it
- * exits or crashes without clearing those modes, Herdr keeps no scrollback and
- * still accepts wheel reports — bash then echoes SGR sequences like `64;19;6M`.
- * Muxr tracks the modes from output, turns a scroll into wheel reports only
- * while mouse reporting is known on, and restores normal screen/mouse once no
- * program of the pane is left holding those modes.
+ * A full-screen program turns on alternate screen and mouse reporting; when it
+ * exits or crashes without clearing them, Herdr keeps no scrollback for the
+ * pane and still forwards a scroll to it as mouse-wheel reports — which the
+ * shell then echoes as `64;19;6M` into its command line. Herdr's output frames
+ * do not carry those modes back, but its process list names the pane's
+ * foreground: muxr casts a wheel only while a program, not the pane's own
+ * shell, holds the pane, and clears what a program left once its pid is gone.
  */
 
 /** Leave alternate screen and every common mouse-reporting mode. */
 export const MODE_RESET_CSI = '\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l';
 
-/** Modes that make a wheel report meaningful to the program. */
-const MOUSE_MODES = new Set([1000, 1002, 1003, 1005, 1006, 1015, 1016]);
-/** Alternate-screen private modes (DECSET/DECRST). */
-const ALT_SCREEN_MODES = new Set([47, 1047, 1049]);
-
-export type TerminalModeState = {
-    /** undefined until a DECSET/DECRST for a mouse mode is seen. */
-    mouseReporting: boolean | undefined;
-    /** undefined until a DECSET/DECRST for alternate screen is seen. */
-    alternateScreen: boolean | undefined;
-};
-
-export function freshTerminalModes(): TerminalModeState {
-    return { mouseReporting: undefined, alternateScreen: undefined };
-}
-
 /**
- * CSI private-mode set/reset: ESC [ ? Pm [; Pm]* h/l (and the CSI ?= form).
- * Incomplete sequences at the end of a chunk are ignored; the next chunk
- * carries a full sequence from the program.
+ * A wheel report may go only to a program: the pane's own shell never takes
+ * one. Before a probe has answered, the pane is taken to hold a program, which
+ * is what every pane did before this check existed.
  */
-const PRIVATE_MODE = /\x1b\[\?([\d;]+)([hl])/g;
-
-export function applyPrivateModeBytes(state: TerminalModeState, text: string): TerminalModeState {
-    let mouseReporting = state.mouseReporting;
-    let alternateScreen = state.alternateScreen;
-    PRIVATE_MODE.lastIndex = 0;
-    for (const match of text.matchAll(PRIVATE_MODE)) {
-        const on = match[2] === 'h';
-        for (const part of match[1]!.split(';')) {
-            if (part === '') continue;
-            const mode = Number(part);
-            if (!Number.isInteger(mode)) continue;
-            if (MOUSE_MODES.has(mode)) mouseReporting = on;
-            if (ALT_SCREEN_MODES.has(mode)) alternateScreen = on;
-        }
-    }
-    if (mouseReporting === state.mouseReporting && alternateScreen === state.alternateScreen) return state;
-    return { mouseReporting, alternateScreen };
-}
-
-/**
- * Wheel reports go to the program only while mouse reporting is known on.
- * Herdr turns a scroll into wheel reports for the program whenever it owns no
- * scrollback, so an off — or not yet learned — mode must not expand one.
- */
-export function shouldSendWheelReports(
-    herdrOwnsScroll: boolean | undefined,
-    mouseReporting: boolean | undefined,
-): boolean {
-    return herdrOwnsScroll === false && mouseReporting === true;
-}
-
-/**
- * The pane still shows alternate-screen or mouse modes a fullscreen program
- * turned on and left behind.
- */
-export function shouldResetStaleModes(modes: TerminalModeState): boolean {
-    return modes.mouseReporting === true || modes.alternateScreen === true;
-}
-
-/**
- * After attach we may have missed the DECSET that left modes on. When Herdr
- * still has no scrollback and no mode has been seen yet, probe once.
- */
-export function shouldProbeModeRestore(
-    herdrOwnsScroll: boolean | undefined,
-    modes: TerminalModeState,
-): boolean {
-    if (herdrOwnsScroll !== false) return false;
-    if (shouldResetStaleModes(modes)) return true;
-    // Unknown modes + no scrollback: likely a crashed fullscreen program.
-    return modes.mouseReporting === undefined && modes.alternateScreen === undefined;
+export function wheelReportsAllowed(foregroundPids: number[] | undefined): boolean {
+    return foregroundPids === undefined || foregroundPids.length > 0;
 }

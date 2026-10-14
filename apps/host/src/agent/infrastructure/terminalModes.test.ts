@@ -4,51 +4,18 @@ import { describe, expect, it } from 'vitest';
 import type { TerminalSession } from '@byokit/herdr';
 import type { TerminalPipe } from '../../machine/index.js';
 import { foregroundProgramPids, programIsGone, shellPidOf } from './paneModeReset.js';
+import { wheelReportsAllowed } from './terminalModes.js';
 import { TerminalManager } from './terminalManager.js';
-import {
-    MODE_RESET_CSI,
-    applyPrivateModeBytes,
-    freshTerminalModes,
-    shouldProbeModeRestore,
-    shouldResetStaleModes,
-    shouldSendWheelReports,
-} from './terminalModes.js';
 
-describe('terminal mode wheel gate and stale-mode reset', () => {
-    it('sends wheel reports only while mouse reporting is known on', () => {
-        expect(shouldSendWheelReports(false, true)).toBe(true);
-        expect(shouldSendWheelReports(false, false)).toBe(false);
-        expect(shouldSendWheelReports(false, undefined)).toBe(false);
-        expect(shouldSendWheelReports(true, true)).toBe(false);
-        expect(shouldSendWheelReports(undefined, true)).toBe(false);
+describe('terminal wheel gate and stale-mode reset', () => {
+    it('sends a wheel report only while a program, not the pane shell, holds the pane', () => {
+        expect(wheelReportsAllowed([42])).toBe(true);
+        expect(wheelReportsAllowed([])).toBe(false);
+        // No answer yet (no probe wired, or a probe that failed): as before.
+        expect(wheelReportsAllowed(undefined)).toBe(true);
     });
 
-    it('tracks mouse and alternate-screen modes from DECSET/DECRST', () => {
-        let modes = freshTerminalModes();
-        expect(shouldResetStaleModes(modes)).toBe(false);
-        expect(shouldProbeModeRestore(false, modes)).toBe(true);
-        expect(shouldProbeModeRestore(true, modes)).toBe(false);
-        expect(shouldProbeModeRestore(undefined, modes)).toBe(false);
-
-        modes = applyPrivateModeBytes(modes, "ready\x1b[?1049h\x1b[?1000h\x1b[?1006h");
-        expect(modes).toEqual({ mouseReporting: true, alternateScreen: true });
-        expect(shouldResetStaleModes(modes)).toBe(true);
-
-        modes = applyPrivateModeBytes(modes, MODE_RESET_CSI);
-        expect(modes).toEqual({ mouseReporting: false, alternateScreen: false });
-        expect(shouldResetStaleModes(modes)).toBe(false);
-        expect(shouldProbeModeRestore(false, modes)).toBe(false);
-
-        // Combined private-mode list, and mouse without alternate screen.
-        modes = applyPrivateModeBytes(freshTerminalModes(), '\x1b[?1000;1006h');
-        expect(modes.mouseReporting).toBe(true);
-        expect(modes.alternateScreen).toBeUndefined();
-        expect(shouldResetStaleModes(modes)).toBe(true);
-        modes = applyPrivateModeBytes(modes, '\x1b[?1000;1006l');
-        expect(modes.mouseReporting).toBe(false);
-    });
-
-    it('reads the pane shell pid and the foreground programs it owns', () => {
+    it('reads the pane shell pid out of the foreground Herdr reports', () => {
         expect(shellPidOf({ shellPid: 10, foregroundPids: [] })).toBe(10);
         expect(shellPidOf({ shellPid: null, foregroundPids: [] })).toBeUndefined();
         expect(shellPidOf({ foregroundPids: [] })).toBeUndefined();
@@ -77,10 +44,12 @@ describe('terminal mode wheel gate and stale-mode reset', () => {
         }
     });
 
-    it('keeps a stopped program and resets before the first wheel after it is gone', async () => {
-        const program = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-        await once(program, 'spawn');
-        const pid = program.pid!;
+    it('gates the wheel on the pane foreground and clears only a gone program', async () => {
+        const first = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+        const second = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+        await Promise.all([once(first, 'spawn'), once(second, 'spawn')]);
+        const firstPid = first.pid!;
+        let foreground: number[] = [];
         const restores: string[] = [];
         const session = createSession();
         const pipe = createPipe();
@@ -88,40 +57,67 @@ describe('terminal mode wheel gate and stale-mode reset', () => {
             resolvePane: async () => 'pane-1',
             focusSession: async () => undefined,
             readPaneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),
-            paneForegroundPids: async () => [pid],
+            paneForegroundPids: async () => foreground,
             restorePaneTerminalModes: async (paneId) => {
                 restores.push(paneId);
                 return true;
             },
             openTerminal: () => session,
         });
+        let publishes = 0;
+        const swipe = async (): Promise<void> => {
+            session.sent.length = 0;
+            publishes += 1;
+            pipe.push(oneRowScroll());
+            await waitFor(() => scrollStates(pipe) === publishes);
+        };
         try {
             await manager.attach({ sessionId: 'session-1', channel: 'channel-1', cols: 80, rows: 24, socket: pipe });
-            session.emit(modeFrame());
-            await waitFor(() => scrollStates(pipe) === 1);
-
-            // Stopped is not gone: the modes stay the program's and a swipe is
-            // still handed over as its wheel report.
-            program.kill('SIGSTOP');
-            expect(programIsGone(pid)).toBe(false);
-            pipe.push(oneRowScroll());
-            await waitFor(() => wheelSent(session));
-            await waitFor(() => scrollStates(pipe) === 2);
+            // No DECSET frame is ever sent: who holds the pane decides, not a
+            // mode Herdr never reports back.
+            publishes += 1;
+            session.emit(screenFrame());
+            await waitFor(() => scrollStates(pipe) === publishes);
             expect(restores).toEqual([]);
 
-            // Gone: the next swipe resets the modes instead of handing the
-            // wheel to the shell, which would type `64;19;6M` at its prompt.
-            session.sent.length = 0;
-            program.kill('SIGKILL');
-            await once(program, 'exit');
-            await waitFor(() => programIsGone(pid));
-            pipe.push(oneRowScroll());
-            for (let i = 0; i < 10; i++) await Promise.resolve();
-            expect(restores).toEqual(['pane-1']);
+            // The pane's own shell holds it: the swipe is dropped, nothing cleared.
+            await swipe();
             expect(wheelSent(session)).toBe(false);
+            expect(restores).toEqual([]);
+
+            // A program holds it: the swipe is that program's wheel report.
+            foreground = [firstPid];
+            await swipe();
+            expect(wheelSent(session)).toBe(true);
+            expect(restores).toEqual([]);
+
+            // Stopped: the shell holds the pane again but the pid is still there,
+            // so the program keeps its screen.
+            first.kill('SIGSTOP');
+            foreground = [];
+            await swipe();
+            expect(wheelSent(session)).toBe(false);
+            expect(restores).toEqual([]);
+
+            // Gone: the swipe clears what the program left and is not handed over.
+            first.kill('SIGKILL');
+            await once(first, 'exit');
+            await waitFor(() => programIsGone(firstPid));
+            await swipe();
+            expect(wheelSent(session)).toBe(false);
+            expect(restores).toEqual(['pane-1']);
+
+            // A different program holds it now: its pid replaces the gone one,
+            // so the swipe is its wheel and nothing is cleared.
+            foreground = [second.pid!];
+            await swipe();
+            expect(wheelSent(session)).toBe(true);
+            expect(restores).toEqual(['pane-1']);
         } finally {
             manager.closeAll();
-            if (program.exitCode === null && program.signalCode === null) program.kill('SIGKILL');
+            for (const child of [first, second]) {
+                if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+            }
         }
     });
 });
@@ -170,12 +166,12 @@ function createPipe(): TerminalPipe & { sent: string[]; push: (line: string) => 
     };
 }
 
-/** A full repaint that turns on the modes a fullscreen program owns. */
-function modeFrame(): string {
+/** Herdr's full repaint for a pane that holds no scrollback. */
+function screenFrame(): string {
     return JSON.stringify({
         type: 'terminal.frame',
         full: true,
-        bytes: Buffer.from('\x1b[?1049h\x1b[?1000h', 'latin1').toString('base64'),
+        bytes: Buffer.from('SCREEN pane-1', 'latin1').toString('base64'),
     });
 }
 
