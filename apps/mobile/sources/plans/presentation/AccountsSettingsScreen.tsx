@@ -13,7 +13,7 @@ import { planConnection, samePlanConnection, usePlans, usePlansStore } from '../
 import { planFailure, removeAccount, renameAccount } from '../application/plansApi';
 import { useNotice } from '../application/planNotices';
 import { Notice, useAccountFlows, useFlows } from './AccountFlows';
-import { Pill, useTightText } from './accountParts';
+import { Pill } from './accountParts';
 
 const PROVIDERS: { id: string; title: string }[] = [
     { id: 'claude', title: 'Claude' },
@@ -110,10 +110,6 @@ function AccountIdentity({ account }: { account: PlanAccount }) {
 /** Settings → Accounts: every sign-in muxr can start an agent on, by provider. */
 export function AccountsSettingsScreen() {
     const { theme } = useUnistyles();
-    // Tight, the rows drop their icons and the switch moves under its text.
-    const narrow = useTightText();
-    const group = narrow ? { marginHorizontal: 4 } : undefined;
-    const row = narrow ? { paddingHorizontal: 10 } : undefined;
     const list = usePlans();
     const flows = useAccountFlows();
     const connection = planConnection();
@@ -185,7 +181,7 @@ export function AccountsSettingsScreen() {
                 Claude and ChatGPT show once you have more than one account for them; OpenCode shows as soon as you add one. With one Claude or ChatGPT account, muxr works exactly as before.
             </Text>
             {list === null && (
-                <ItemGroup containerStyle={group}>
+                <ItemGroup>
                     <Item title="This computer can't list accounts yet" subtitle="Update muxr on the computer to use more than one account." subtitleLines={2} />
                 </ItemGroup>
             )}
@@ -193,7 +189,7 @@ export function AccountsSettingsScreen() {
                 const accounts = list.providers.find((entry) => entry.provider === provider.id)?.accounts ?? [];
                 const shared = sharedNameEmail(accounts);
                 return (
-                    <ItemGroup key={provider.id} title={provider.title} containerStyle={group}>
+                    <ItemGroup key={provider.id} title={provider.title}>
                         {accounts.map((account) => {
                             // A row whose name and email are shared leads with what tells it apart.
                             const lead = collides(account, shared) ? distinguishingLine(account, accounts) : undefined;
@@ -202,7 +198,7 @@ export function AccountsSettingsScreen() {
                             <Item
                                 key={account.id}
                                 selected={account.id === landed}
-                                style={[row, account.id === landed && { backgroundColor: theme.colors.surfacePressed }]}
+                                style={account.id === landed ? { backgroundColor: theme.colors.surfacePressed } : undefined}
                                 title={lead ?? account.name}
                                 titleLines={2}
                                 subtitle={distinct ? <AccountIdentity account={account} /> : subtitle(account)}
@@ -210,7 +206,7 @@ export function AccountsSettingsScreen() {
                                 subtitleEllipsizeMode={Platform.OS === 'web' ? undefined : 'tail'}
                                 meta={distinct ? sharedLine(account, accounts) : facts(account)}
                                 metaLines={0}
-                                icon={narrow ? undefined : <Ionicons
+                                icon={<Ionicons
                                     name={account.signedIn ? 'person-circle-outline' : 'alert-circle-outline'}
                                     size={28}
                                     color={account.signedIn ? theme.colors.text : theme.colors.textSecondary}
@@ -232,8 +228,7 @@ export function AccountsSettingsScreen() {
                             subtitle={accounts.length === 0 ? 'Next to the one already signed in on this computer' : undefined}
                             subtitleLines={0}
                             titleStyle={{ color: theme.colors.textLink }}
-                            style={row}
-                            icon={narrow ? undefined : <Ionicons name="add" size={26} color={theme.colors.textLink} />}
+                            icon={<Ionicons name="add" size={26} color={theme.colors.textLink} />}
                             showChevron={false}
                             onPress={() => flows.add(provider.id)}
                         />
@@ -241,16 +236,13 @@ export function AccountsSettingsScreen() {
                 );
             })}
             {list !== null && (
-                <ItemGroup title="When you start an agent" containerStyle={group}>
+                <ItemGroup title="When you start an agent">
                     <Item
                         title="Auto picks the most room left"
                         titleLines={0}
-                        subtitle={narrow
-                            ? <View style={styles.under}><Text style={styles.underText}>Off: the account you picked last</Text><Switch value={autoOn} onValueChange={setAutoOn} /></View>
-                            : 'Off: the account you picked last'}
+                        subtitle="Off: the account you picked last"
                         subtitleLines={0}
-                        style={row}
-                        rightElement={narrow ? undefined : <Switch value={autoOn} onValueChange={setAutoOn} />}
+                        rightElement={<Switch value={autoOn} onValueChange={setAutoOn} />}
                         showChevron={false}
                     />
                 </ItemGroup>
@@ -267,16 +259,6 @@ const styles = StyleSheet.create((theme) => ({
         paddingHorizontal: 20,
         paddingTop: 12,
         ...Typography.default(),
-    },
-    under: {
-        gap: 8,
-        alignItems: 'flex-start',
-    },
-    underText: {
-        ...Typography.default(),
-        fontSize: 14,
-        lineHeight: 20,
-        color: theme.colors.textSecondary,
     },
     identity: {
         marginTop: 2,
