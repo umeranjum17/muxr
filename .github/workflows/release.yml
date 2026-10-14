@@ -1,0 +1,89 @@
+name: release
+
+# A release is a merged version bump. Every push to main runs the full suite;
+# when the root package.json version is not yet on npm, the same job packs
+# @trymuxr/cli, checks the installed package and publishes it through npm
+# trusted publishing (OIDC). No npm token exists anywhere: until the package
+# names this repository and this workflow as its trusted publisher, the publish
+# step fails, and nothing else does.
+#
+# packages/contract and packages/crypto are workspace libraries bundled into the
+# CLI, not packages of their own, so they are never published here.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Shared with publish.yml: two publications never race for one version.
+  group: npm-publication
+  cancel-in-progress: false
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.repository == 'umeranjum17/muxr'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: yarn
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install --global npm@11.6.2
+      - run: yarn install --frozen-lockfile --non-interactive
+      - run: yarn build
+      - name: Full suite (typecheck, flows, e2e, package smoke, architecture)
+        run: yarn run check
+      - id: decide
+        name: Publish only a version npm does not have yet
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          # The channel's dist-tag comes from the release domain, so a
+          # prerelease version never lands on latest.
+          tag=$(node --input-type=module -e "import { distribution } from './scripts/release/domain/channel.mjs'; process.stdout.write(distribution(process.argv[1]).distTag)" "$version")
+          if npm view "@trymuxr/cli@$version" version --json >/dev/null 2>"$RUNNER_TEMP/view.err"; then
+            echo "@trymuxr/cli@$version is already on npm; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif grep -q E404 "$RUNNER_TEMP/view.err"; then
+            echo "@trymuxr/cli@$version is not on npm; publishing on $tag."
+            printf 'publish=true\nversion=%s\ntag=%s\n' "$version" "$tag" >> "$GITHUB_OUTPUT"
+          else
+            cat "$RUNNER_TEMP/view.err" >&2
+            exit 1
+          fi
+      - name: Pack and check the installed package
+        if: steps.decide.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          set -euo pipefail
+          yarn run pack
+          mkdir -p "$RUNNER_TEMP/npm-release"
+          npm pack ./dist-npm --pack-destination "$RUNNER_TEMP/npm-release"
+          install_root="$RUNNER_TEMP/release-install"
+          npm install --prefix "$install_root" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/npm-release/*.tgz
+          mkdir -p "$RUNNER_TEMP/release-home"
+          cli="$install_root/node_modules/@trymuxr/cli/cli.mjs"
+          # The installed CLI reports the version about to be published.
+          test "$(HOME="$RUNNER_TEMP/release-home" node "$cli" version)" = "$VERSION"
+          # The same store-compatibility gates publish.yml applies to a candidate.
+          node --input-type=module -e "
+            import { requireLinkProtocol } from './scripts/release/application/requireLinkProtocol.mjs';
+            import { desktopHostOfTarball, requireDesktopEngine } from './scripts/release/application/requireDesktopEngine.mjs';
+            const [tarball] = process.argv.slice(1);
+            requireLinkProtocol(tarball);
+            requireDesktopEngine(desktopHostOfTarball(tarball));
+          " "$RUNNER_TEMP"/npm-release/*.tgz
+      - name: Publish with provenance
+        if: steps.decide.outputs.publish == 'true'
+        env:
+          TAG: ${{ steps.decide.outputs.tag }}
+        run: npm publish "$RUNNER_TEMP"/npm-release/*.tgz --provenance --access public --tag "$TAG"

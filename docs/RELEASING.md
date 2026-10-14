@@ -1,6 +1,6 @@
 # Release channels
 
-`main` is the development stream. Merging a PR or pushing to `main` does **not** start CI, build, or publication workflows. Captain-tested commits merge frequently; a release ships from its own `release/<version>` branch instead, cut from a tested `main` commit and carrying fixes cherry-picked from `main` — so the large feature branches under review can never ship an intermediate state. The branch name is the release version: candidate, publication and Android delivery workflows require `release/<semver>`; the branch-cut workflow starts from `main`. Candidate and Android versions must match the branch. The repository workflows below are manual dispatches unless noted otherwise.
+`main` is the development stream. Pushing to `main` starts one workflow, `release.yml`: it runs the full suite and, when the root `package.json` version is not on npm yet, packs, checks and publishes `@trymuxr/cli` with provenance. Merging a version-bump PR is therefore an npm release; it updates no channel catalog, GitHub release or app store. Captain-tested commits merge frequently; a release ships from its own `release/<version>` branch instead, cut from a tested `main` commit and carrying fixes cherry-picked from `main` — so the large feature branches under review can never ship an intermediate state. The branch name is the release version: candidate, publication and Android delivery workflows require `release/<semver>`; the branch-cut workflow starts from `main`. Candidate and Android versions must match the branch. The repository workflows below are manual dispatches unless noted otherwise.
 
 ```mermaid
 flowchart LR
@@ -155,7 +155,7 @@ Release titles are `muxr <version>`. PR and build provenance belongs in the note
 
 iOS App Store builds are produced on the captain's Mac from the release branch, with no paid cloud build; `mobile-ios-internal.yml` remains a disabled stub. The site lives in this repository at `apps/site`; its `marketing.lock.json` points at a muxr commit and should point at the release branch's commit for the release. Build, test and deployment for it are owned by [apps/site/README.md](../apps/site/README.md).
 
-The `npm` environment is the npm OIDC identity. It allows the main workflow; the separate `production` environment gates stable publication. npm trusted publishing must name this repository, `publish.yml`, and environment `npm`. No npm token is stored in the repository. A trusted-publisher failure leaves the downloadable tarball/APK intact and does not claim registry success.
+The `npm` environment is the npm OIDC identity. It allows the main workflow; the separate `production` environment gates stable publication. npm trusted publishing must name this repository and `release.yml`, with no environment. The manual `release-candidate.yml` and `publish.yml` path can be removed after the first automatic release works. No npm token is stored in the repository. A trusted-publisher failure leaves the downloadable tarball/APK intact and does not claim registry success.
 
 ## Play foreground-service declaration
 
