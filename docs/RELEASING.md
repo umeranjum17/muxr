@@ -1,18 +1,17 @@
 # Release channels
 
-`main` is the development stream. Merging a PR or pushing to `main` does **not** start CI, build, or publication workflows. Captain-tested commits merge frequently; a release ships from its own `release/<version>` branch instead, cut from a tested `main` commit and carrying fixes cherry-picked from `main` — so the large feature branches under review can never ship an intermediate state. The branch name is the release version: candidate, publication and Android delivery workflows require `release/<semver>`; the branch-cut workflow starts from `main`. Candidate and Android versions must match the branch. The repository workflows below are manual dispatches unless noted otherwise.
+`main` is the development stream. Pushing to `main` starts one workflow, `release.yml`: it runs the full suite and, when the root `package.json` version is not on npm yet, packs, checks and publishes `@trymuxr/cli` with provenance. Merging a version-bump PR is therefore an npm release; when that version's candidate GitHub release exists, the same run also points the channel record at it. No app store is touched. Captain-tested commits merge frequently; a release ships from its own `release/<version>` branch instead, cut from a tested `main` commit and carrying fixes cherry-picked from `main` — so the large feature branches under review can never ship an intermediate state. The branch name is the release version: candidate, publication and Android delivery workflows require `release/<semver>`; the branch-cut workflow starts from `main`. Candidate and Android versions must match the branch. The repository workflows below are manual dispatches unless noted otherwise.
 
 ```mermaid
 flowchart LR
- PR[Reviewed PR + local acceptance] --> MAIN[main; no automatic Actions]
+ PR[Reviewed PR + local acceptance] --> MAIN[main; push runs release.yml]
+ MAIN --> NPM[release.yml: npm when the version is new]
  MAIN --> TEST[Captain tests exact main commit]
  TEST --> CUT[Manual cut-release-branch dispatch]
  CUT --> BRANCH["release/<version>; fixes cherry-picked from main"]
  BRANCH --> CANDIDATE[Manual release-candidate dispatch from the branch]
  CANDIDATE --> PHONE[Install APK and test on phone]
  PHONE --> FINAL[Build final-version candidate]
- FINAL --> APPROVE[Explicit maintainer production approval]
- APPROVE --> NPM[npm latest: exact retained tarball]
  FINAL --> INTERNAL[Exact AAB to Play Internal]
  INTERNAL --> CLOSED[Closed testing]
  CLOSED --> PROD[Manual production promotion: no rebuild]
@@ -53,14 +52,7 @@ node scripts/release/presentation/changelog.mjs check    --version 0.1.27-nightl
      -f source_commit="$BRANCH_SHA" -f channel=nightly -f version=
    ```
 
-4. After the candidate is accepted, copy its run ID and dispatch publication manually from the same branch. Use `publish-VERSION` for a nightly; use `promote-VERSION` for a stable, which still waits for the protected production approval:
-
-   ```bash
-   gh workflow run publish.yml --ref release/0.2.1 \
-     -f run_id="$CANDIDATE_RUN_ID" -f confirmation="publish-$VERSION"
-   ```
-
-   For a stable candidate, replace the channel/version in step 3 and use `confirmation="promote-$VERSION"` in step 4. Do not dispatch publication before captain acceptance. `ci.yml` is likewise available only by manual dispatch; it is not a release prerequisite. After this merges, cherry-picking only the workflow commit(s) onto the existing `release/0.2.0` branch is authorized so it can run the new flow; the `v0.2.0` tag stays at `fa0b780c`.
+4. A candidate never publishes to npm. npm publication is `release.yml` on `main`: merging a version bump publishes it (see [Shared contract and crypto packages](#shared-contract-and-crypto-packages) for what it does not publish). `ci.yml` is likewise available only by manual dispatch; it is not a release prerequisite. After this merges, cherry-picking only the workflow commit(s) onto the existing `release/0.2.0` branch is authorized so it can run the new flow; the `v0.2.0` tag stays at `fa0b780c`.
 
 An automatic nightly version takes its base from the release branch name (`release/0.2.1` builds `0.2.1-nightly.N.M`), and is still rejected unless it sorts above the published stable, so a nightly can never sort under a stable promoted meanwhile. An explicit nightly or stable version whose base does not match the branch name is rejected, and a candidate whose published-channel state cannot be read fails rather than guessing a version that might sort too low.
 
@@ -80,9 +72,13 @@ The CLI pins `@desklink/host` to the exact version in `apps/host/package.json`, 
 
 ### Shared contract and crypto packages
 
+A release is a merged version bump: `release.yml` publishes `@trymuxr/cli` with provenance when its version is not on npm yet. It publishes no other package:
+
+- `@desklink/host` and its platform packages: published from the desklink repository, not here.
+
 `@trymuxr/contract` and `@trymuxr/crypto` (`packages/`) are published at their own versions, so that the host can leave this repository and still share them with the app. Inside the monorepo, the host, the app and `@trymuxr/crypto` pin the exact workspace version, and yarn links that version to the workspace. `packages/checkArchitecture.mjs` fails when a pin stops matching, because yarn would otherwise install the published copy in place of the workspace. The CLI bundles both packages, so publishing them is not a CLI release prerequisite.
 
-To release a new version:
+Held: publish or mark private is Main's decision. Until then, the manual path below is the only release route for them:
 
 1. Bump `version` in the package and every pin to it (the check names each one).
 2. From a maintainer login, run:
@@ -121,13 +117,7 @@ https://raw.githubusercontent.com/umeranjum17/muxr/release-channels/channels.jso
 
 Every field is derived from that release's own combined `release-manifest.json` — the npm-only candidate manifest carries no Android identity and is never used for this. Artifact URLs are always canonical `github.com/umeranjum17/muxr/releases/download/<tag>/<name>` with the manifest's exact digests. `npmDistTag` is `latest` for stable and `nightly` for nightly. The retired `beta` and `dev` records stay readable in the catalog so links already published keep resolving; nothing writes to them again. Until the first nightly is published the site serves those historical records; from then on `/downloads/beta`, `/downloads/dev` and `/api/releases/{beta,dev}` answer HTTP 302 to their nightly equivalents, so an old link lands on the channel that continues that work. `manifestUrl` may be null only for the legacy stable `0.1.25` seed, which predates sealed manifests.
 
-**publish release** is manual-only: it consumes a successful candidate run ID and reports a success summary once every public surface agrees. The same steps can be run by hand:
-
-```
-node scripts/release/presentation/promoteReleaseVisibility.mjs --tag v0.1.27   # stable only
-node scripts/release/presentation/updateChannelCatalog.mjs --tag v0.1.28-nightly.5.1
-node scripts/release/presentation/verifyPublicRelease.mjs --tag v0.1.28-nightly.5.1 --channel nightly
-```
+After a publication, `release.yml` updates the channel record and checks that every public surface agrees, as the steps in its `publish` job. Those steps read the version's GitHub release and its combined manifest, which only the candidate flow creates. When that release does not exist, the job leaves the record unchanged and says so in its step summary; it does not fail.
 
 The catalog update is idempotent and backfills any retained release without rebuilding. Before it writes anything it checks identity rather than names: the tag must point at the commit its manifest was sealed from, the APK asset GitHub serves must match the manifest's name, size and sha256 digest, the retained tarball must match its manifest digest and hash to the sha512 integrity npm published, and the npm dist-tag must already name that exact version. It then updates only its own channel, serializing concurrent writers through fast-forward-only ref updates — never a force push, never a backwards move, never the same version pointing at different bytes.
 
@@ -137,25 +127,23 @@ Verification is bound to the release being published, not to whatever a surface 
 
 Splitting the commands lets an initial migration seed the catalog before the website routes exist; the normal release path always runs all of them, and there is no bypass flag in CI.
 
-Publication runs the tooling from the commit the workflow file itself is running from, while the release identity — source commit, manifest, tarball and registry checks — stays bound to the candidate being published, so an older retained candidate is promoted by the current pipeline without rebuilding it.
-
-Publications serialize through the `npm-publication` concurrency group with `cancel-in-progress: false`, so a release that arrives while another is publishing waits instead of interrupting it. GitHub keeps only one pending run per group, so a third release displaces the one still waiting: re-run it after the queue drains. The catalog is safe independently of that: its writes serialize through fast-forward-only ref updates and refuse backwards moves.
+Publications serialize through the `npm-publication` concurrency group in `release.yml` with `cancel-in-progress: false`, so a release that arrives while another is publishing waits instead of interrupting it. GitHub keeps only one pending run per group, so a third release displaces the one still waiting: re-run it after the queue drains. The catalog is safe independently of that: its writes serialize through fast-forward-only ref updates and refuse backwards moves.
 
 Durable website paths, served from that catalog: `/downloads/<channel>` for the human page, `/downloads/<channel>/android` redirecting to the canonical APK, `/downloads/<channel>/release` for the release page and `/downloads/<channel>/checksums` for digests, with `/api/releases/<channel>` returning the entry itself. Verification tolerates their short cache by retrying, never by weakening the comparison: it fails unless the served version and APK digest match the catalog and the redirect target is exactly the canonical artifact URL.
 
-Release titles are `muxr <version>`. PR and build provenance belongs in the notes, not the title. Every candidate is created with `--prerelease --latest=false`, so a preview never becomes GitHub's Latest. Stable promotion clears the prerelease flag on that same release and makes it Latest, after the explicit approval and the npm integrity checks — without creating a release or rebuilding a binary — so `releases/latest/download/<asset>` follows the accepted stable instead of going stale. Nightly stays a prerelease permanently.
+Release titles are `muxr <version>`. PR and build provenance belongs in the notes, not the title. Every candidate is created with `--prerelease --latest=false`, so a preview never becomes GitHub's Latest. Stable promotion clears the prerelease flag on that same release and makes it Latest, after the npm publication by `release.yml` and its integrity checks — without creating a release or rebuilding a binary — so `releases/latest/download/<asset>` follows the accepted stable instead of going stale. Nightly stays a prerelease permanently.
 
 ## Stable promotion — only after the user accepts the candidate
 
 1. Select the accepted source. Build a **stable** candidate with its final version. A nightly npm tarball cannot be renamed into a stable version: this is a new package, and its exact installed artifact must pass checks before promotion. Preserve the nightly evidence and compare source/native bytes. Repeat local emulator/phone checks when relevant bytes change.
-2. Run **publish release** with that successful candidate run ID and `confirmation=promote-VERSION`. The protected `production` environment requires maintainer approval. It downloads and verifies the retained tarball; it does not rebuild. An already published version must have exactly the same registry integrity. Automatic completion of a stable candidate never enters this promotion path.
+2. npm publication has no separate promotion gate: the merged version bump is published by `release.yml`, which builds, checks and publishes it in one run. An already published version is never rebuilt or republished. Automatic completion of a stable candidate never enters this path.
 3. For Android, run **mobile Android internal** from the release branch with `candidate_run_id`, the matching app version/build number, `submit_to_play=true`, and `confirmation=release-VERSION-BUILD`. It verifies and uploads the candidate's AAB unchanged. Keep the resulting Internal run ID.
 4. Run **mobile closed testing**, then **mobile Android production promotion**, from the release branch with that Internal run ID, exact source commit, version and build number. Main may have advanced; the selected artifact's source and digest remain binding. Production remains protected and rollout is explicit. No Play upload/promotion is implied by a GitHub nightly download.
 5. Mark the GitHub candidate release stable only after the chosen platform promotions succeed. Record each platform separately. Keep previous releases and evidence; halt rollout/advance to a higher mobile build for regressions. Do not rebuild under an existing version/tag or overwrite release assets.
 
 iOS App Store builds are produced on the captain's Mac from the release branch, with no paid cloud build; `mobile-ios-internal.yml` remains a disabled stub. The site lives in this repository at `apps/site`; its `marketing.lock.json` points at a muxr commit and should point at the release branch's commit for the release. Build, test and deployment for it are owned by [apps/site/README.md](../apps/site/README.md).
 
-The `npm` environment is the npm OIDC identity. It allows the main workflow; the separate `production` environment gates stable publication. npm trusted publishing must name this repository, `publish.yml`, and environment `npm`. No npm token is stored in the repository. A trusted-publisher failure leaves the downloadable tarball/APK intact and does not claim registry success.
+npm trusted publishing must name this repository and `release.yml`, with no environment; `release.yml` has no GitHub environment. No npm token is stored in the repository. A trusted-publisher failure leaves the downloadable tarball/APK intact and does not claim registry success.
 
 ## Play foreground-service declaration
 
