@@ -665,7 +665,7 @@ export default function ConnectionSettingsScreen() {
                     {publicKeyInfo !== undefined && <>
                         <Item
                             title="Key fingerprint"
-                            subtitle={`${publicKeySource === 'saved' ? 'Saved private key on this device' : 'Private key pasted on this screen'} · ${publicKeyInfo.algorithm} · ${publicKeyInfo.fingerprint}${publicKeyInfo.algorithm === 'ssh-ed25519' ? ' · this route needs RSA or ECDSA' : ''}`}
+                            subtitle={`${publicKeySource === 'saved' ? 'Saved private key on this device' : 'Private key pasted on this screen'} · ${publicKeyInfo.algorithm} · ${publicKeyInfo.fingerprint}`}
                             subtitleLines={0}
                             showChevron={false}
                         />
@@ -694,7 +694,7 @@ export default function ConnectionSettingsScreen() {
                             subtitle={installReady
                                 ? `Shows the exact command for ${installTarget?.username}@${installTarget?.host} before consent.`
                                 : publicKeyInfo.algorithm === 'ssh-ed25519'
-                                    ? 'This SSH build cannot use Ed25519 login keys. Copy the public key instead.'
+                                    ? 'Copy this Ed25519 public key to the machine. This install action supports RSA or ECDSA keys.'
                                     : 'Available after this paired machine and its confirmed SSH account are connected over pinned Direct SSH. Copy remains available.'}
                             onPress={() => { void installPublicKey(); }}
                             disabled={!installReady || installBusy}

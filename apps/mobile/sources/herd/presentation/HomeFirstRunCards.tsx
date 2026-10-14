@@ -36,6 +36,9 @@ const styles = StyleSheet.create((theme) => ({
     title: { flex: 1, color: theme.colors.text, fontSize: 17, ...Typography.default('semiBold') },
     body: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, ...Typography.default() },
     actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
+    // A row of its own: in the wrapping row web sizes the pill to its label
+    // and lets it run past the card instead of fitting the card's width.
+    fullRow: { width: '100%' },
     dismissTarget: { minHeight: 44, justifyContent: 'center' },
     dismiss: { color: theme.colors.textSecondary, fontSize: 14, ...Typography.default('semiBold') },
 }));
@@ -89,7 +92,9 @@ export function FirstAgentCard() {
     const oneTap = offer?.step === 'start' && !startFailed;
     const checkable = offer?.step === 'sign-in' || offer?.step === 'install' || startFailed || error !== undefined;
     let pickerTitle = offer === undefined ? 'Start an agent' : 'Choose an agent';
-    if (offer?.step === 'start') pickerTitle = 'Choose another agent';
+    // Beside Start <agent>, one word: at 270 dp and the largest text a longer
+    // label breaks onto two lines.
+    if (offer?.step === 'start') pickerTitle = 'Agents';
     if (startFailed) pickerTitle = 'Open agents';
     return (
         <View style={[styles.card, cardStyle(theme)]}>
@@ -105,13 +110,15 @@ export function FirstAgentCard() {
                 ) : checkable ? (
                     <ActionButton title="Check again" icon="refresh-outline" action={() => check(true)} />
                 ) : null}
-                <ActionButton
-                    title={pickerTitle}
-                    icon="add-circle-outline"
-                    variant={offer?.step === 'start' || checkable ? 'secondary' : 'primary'}
-                    wrap
-                    onPress={choose}
-                />
+                <View style={styles.fullRow}>
+                    <ActionButton
+                        title={pickerTitle}
+                        icon="add-circle-outline"
+                        variant={offer?.step === 'start' || checkable ? 'secondary' : 'primary'}
+                        wrap
+                        onPress={choose}
+                    />
+                </View>
                 <Pressable accessibilityRole="button" accessibilityLabel="Dismiss first agent card" onPress={() => setDismissed(true)} style={styles.dismissTarget}>
                     <Text style={styles.dismiss}>Not now</Text>
                 </Pressable>

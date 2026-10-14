@@ -14,6 +14,7 @@ import {
     Platform,
     Pressable,
     ScrollView,
+    useWindowDimensions,
     View,
 } from 'react-native';
 import { KeyboardAwareScrollView, useKeyboardState } from 'react-native-keyboard-controller';
@@ -114,7 +115,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     agentCard: {
         flexGrow: 1,
-        flexBasis: '30%',
         minHeight: 136,
         alignItems: 'center',
         gap: 8,
@@ -219,6 +219,11 @@ const FormScrollView = Platform.OS === 'web' ? ScrollView : KeyboardAwareScrollV
 
 export default function NewAgentScreen() {
     const { theme } = useUnistyles();
+    // Three tiles fit a roomy phone; narrower or at large text a name like OpenCode
+    // needs a wider tile to stay whole. A PWA takes text size as zoom, so its width already shrinks.
+    const screen = useWindowDimensions();
+    const textWidth = screen.width / screen.fontScale;
+    const tileBasis = textWidth >= 360 ? '30%' : textWidth >= 230 ? '45%' : '100%';
     const insets = useSafeAreaInsets();
     const settings = getCachedConnectionSettings();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
@@ -442,6 +447,7 @@ export default function NewAgentScreen() {
                                     accessibilityState={{ selected: isSelected }}
                                     style={[
                                         styles.agentCard,
+                                        { flexBasis: tileBasis },
                                         !available && { opacity: 0.45 },
                                         isSelected && {
                                             borderColor: theme.colors.accent,

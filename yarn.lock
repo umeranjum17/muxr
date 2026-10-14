@@ -1299,10 +1299,10 @@
     "@desklink/host-darwin-arm64" "0.5.3"
     "@desklink/host-linux-x64-gnu" "0.5.3"
 
-"@desklink/react-native@0.5.3":
-  version "0.5.3"
-  resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.5.3.tgz#1b5ee18b3cd68096361a3a8267fa1b431f7903ea"
-  integrity sha512-5sK9BOiAZdI2UI0y5QYyGbybcV16VvLACzowSah5DgZoyeCV3tNixjREu7JlK9W3vpHzk7204jTaLWn03Ou+pg==
+"@desklink/react-native@0.5.4":
+  version "0.5.4"
+  resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.5.4.tgz#1790cf0b16ea652f5a8bd848bf79f2d39624d614"
+  integrity sha512-8K/cnJbrbtVVXJKilDm6ncim/rfbxQd9OX6IzL2fb4GHs9GN2nJAWz+oERjv1tfmANNzHRqZYQnHHmLFD7/WeQ==
 
 "@earendil-works/pi-ai@0.87.1":
   version "0.87.1"

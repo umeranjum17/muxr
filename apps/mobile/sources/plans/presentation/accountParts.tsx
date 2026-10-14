@@ -111,9 +111,17 @@ export function AccountRow({
     );
 }
 
+/** 270 dp at the largest text: too little width for a row's icon or a sheet's
+ *  full-size heading to leave a word like OpenCode whole. */
+export function useTightText(): boolean {
+    const screen = useWindowDimensions();
+    return screen.width / screen.fontScale < 200;
+}
+
 /** The sheet's own title: OptionSheet's leaves too much room above a lede. */
 export function SheetTitle({ children }: { children: React.ReactNode }) {
-    return <Text style={styles.title} accessibilityRole="header">{children}</Text>;
+    const tight = useTightText();
+    return <Text style={[styles.title, tight && styles.titleTight]} accessibilityRole="header">{children}</Text>;
 }
 
 export function SheetLede({ children }: { children: React.ReactNode }) {
@@ -197,6 +205,10 @@ export const styles = StyleSheet.create((theme) => ({
         paddingTop: 12,
         paddingBottom: 4,
         ...Typography.default('semiBold'),
+    },
+    titleTight: {
+        fontSize: 18,
+        paddingHorizontal: 12,
     },
     lede: {
         fontSize: 13,

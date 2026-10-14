@@ -263,7 +263,7 @@ export async function startFakeHerdr(options) {
             };
         },
         'server.agent_manifests': () => ({
-            manifests: [{ agent: 'pi' }, { agent: 'claude' }, { agent: 'codex' }, { agent: 'gemini' }],
+            manifests: [{ agent: 'pi' }, { agent: 'claude' }, { agent: 'codex' }, { agent: 'gemini' }, { agent: 'opencode' }],
         }),
         'workspace.list': () => ({ workspaces: live.workspaces.map((workspace) => workspaceView(live, workspace)) }),
         'workspace.get': (params) => {
