@@ -8,6 +8,7 @@ import { HomeWebInstallInvite } from '@/herd/presentation/HomeFirstRunCards';
 import { LiveCardEmptyBadge } from '@/plans/ui';
 import { Header } from '@/components/navigation/Header';
 import { SystemBarBackdrop } from '@/components/SystemBarBackdrop';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/pairing/e2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
