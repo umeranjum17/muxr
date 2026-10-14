@@ -6,6 +6,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { loadAppConfig } from '@/catalog';
 import { setupEmptyState } from '@/commercialization';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
 // Honest disclosure of what the copyable command does, checked against the
@@ -30,13 +31,14 @@ export function SetupStep(props: {
     title: string;
     hint?: string;
     tag?: string;
+    compact?: boolean;
     children?: React.ReactNode;
 }) {
     const styles = stylesheet;
     return (
-        <View style={styles.step}>
-            <View style={styles.badge}><Text style={styles.badgeNumber}>{props.number}</Text></View>
-            <View style={styles.body}>
+        <View style={[styles.step, props.compact && styles.compactStep]}>
+            {!props.compact && <View style={styles.badge}><Text style={styles.badgeNumber}>{props.number}</Text></View>}
+            <View style={props.compact ? styles.compactBody : styles.body}>
                 <View style={styles.titleRow}>
                     <Text style={styles.stepText}>{props.title}</Text>
                     {props.tag !== undefined && (
@@ -63,6 +65,8 @@ export function FirstRunSetupCard(props: {
     variant?: 'full' | 'command';
 }) {
     const commandOnly = props.variant === 'command';
+    const narrow = useCompactWindow();
+    const compact = commandOnly && narrow;
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const setup = setupEmptyState(loadAppConfig().publicBaseUrl);
@@ -81,11 +85,12 @@ export function FirstRunSetupCard(props: {
         <View style={styles.card}>
             <SetupStep
                 number={1}
+                compact={compact}
                 title="On your computer"
                 hint="muxr controls coding agents on a computer you operate. Run muxr there to review setup."
             >
-                <View style={styles.commandRow}>
-                    <Text style={styles.command} selectable>{setup.command}</Text>
+                <View style={[styles.commandRow, compact && styles.compactCommandRow]}>
+                    <Text style={[styles.command, !compact && styles.commandFlexible]} selectable>{setup.command}</Text>
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={copied ? 'Copied' : `Copy ${setup.command}`}
@@ -151,6 +156,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         alignItems: 'flex-start',
         gap: 12,
     },
+    compactStep: { flexDirection: 'column' },
+    compactBody: { alignSelf: 'stretch', gap: 4 },
     badge: {
         width: 24,
         height: 24,
@@ -202,9 +209,10 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 8,
         marginTop: 2,
     },
+    compactCommandRow: { flexDirection: 'column', alignItems: 'stretch' },
+    commandFlexible: { flex: 1 },
     command: {
         ...Typography.mono(),
-        flex: 1,
         fontSize: 13,
         color: theme.colors.text,
     },
@@ -235,6 +243,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     effectsToggleText: {
         ...Typography.default('semiBold'),
+        flexShrink: 1,
         fontSize: 13,
         color: theme.colors.textSecondary,
     },

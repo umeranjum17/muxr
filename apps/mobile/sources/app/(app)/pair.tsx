@@ -1,7 +1,7 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
 import * as Clipboard from 'expo-clipboard';
-import { ActivityIndicator, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { KeyboardAwareScrollView, KeyboardEvents, KeyboardStickyView, type KeyboardAwareScrollViewRef } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -13,6 +13,7 @@ import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScannerAvai
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { WordWrappingText } from '@/components/WordWrappingText';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
@@ -73,10 +74,7 @@ export default function PairScreen() {
     const auth = useAuth();
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    // Narrow when width/fontScale < 200: covers 270 dp and 208 dp at font 2.0,
-    // and a 393 dp phone at font 2.0 (196.5), which is intended.
-    const { width, fontScale } = useWindowDimensions();
-    const narrow = width / fontScale < 200;
+    const narrow = useCompactWindow();
     const [state, setState] = React.useState<PairState | undefined>(undefined);
     const [progress, setProgress] = React.useState<PairingProgress>();
     const [pairingValue, setPairingValue] = React.useState('');

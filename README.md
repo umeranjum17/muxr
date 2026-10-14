@@ -85,7 +85,7 @@ Store testing access depends on review and tester availability. [All downloads a
 
 ### 3. Pair and take a look
 
-In the app, tap **Get Tailscale** if this phone doesn’t have it yet, then **I have Tailscale** and **Scan the QR it shows**. Scan the computer’s one-use QR, compare the two matching words, then approve on your computer. Home opens with your agents ready to visit.
+In the app, paste the private link or pairing code your computer shows and tap **Connect**, or tap **Scan the QR** where your phone offers it and scan the computer’s one-use QR. Compare the two matching words, then approve on your computer. Home opens with your agents ready to visit.
 
 **Prefer a browser?** Enable browser access during setup, then run `muxr pair --browser` on your computer and open its link. That control link lasts eight hours. You can add the web app to your Home Screen too.
 
