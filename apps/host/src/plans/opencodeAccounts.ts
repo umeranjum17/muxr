@@ -6,6 +6,7 @@
  * launch descriptor opens its sign-in tab and starts its agents. No kit: no
  * folderVar, no move, no readiness probe, billing unknown.
  */
+import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -17,8 +18,35 @@ import { loadPlanAccounts, plansDir, savePlanAccounts, type PlanAccountRecord } 
 /** Source-backed OpenCode redirects: none may reach a launch, inherited or set. */
 const BLOCKED = ['OPENCODE_AUTH', 'OPENCODE_AUTH_CONTENT', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_TEST_HOME', 'OPENCODE_DB'];
 
+/** Cached major version per resolved binary path; --version is cheap but not free per launch. */
+const opencodeMajorByBinary = new Map<string, number | undefined>();
+
 function unavailable(): never {
     throw Object.assign(new Error("That account's private folder is missing or unsafe. Remove the account and add it again."), { code: 'plan-account-unavailable' });
+}
+
+/** Major from `opencode --version` (1.x and 2.x both print it). Unknown → undefined. */
+function opencodeMajor(binary: string): number | undefined {
+    if (opencodeMajorByBinary.has(binary)) return opencodeMajorByBinary.get(binary);
+    const result = spawnSync(binary, ['--version'], { encoding: 'utf8', timeout: 5_000 });
+    const text = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+    const match = /\b(\d+)\.\d+\.\d+\b/.exec(text) ?? /\bv?(\d+)\.\d+\b/.exec(text);
+    const major = match === null ? undefined : Number(match[1]);
+    opencodeMajorByBinary.set(binary, Number.isFinite(major) ? major : undefined);
+    return opencodeMajorByBinary.get(binary);
+}
+
+/**
+ * OpenCode 2.x starts one shared background server on a fixed port; a second
+ * account hangs waiting for it. `--standalone` gives each process a private
+ * server. 1.x rejects that flag, so only 2.x launches carry it.
+ */
+export function opencodeLaunchArgs(env: NodeJS.ProcessEnv = process.env): string[] {
+    const probe = agentProbePath((env.PATH ?? '').split(delimiter), env.HOME?.trim() || homedir());
+    const binary = resolveAgentBinary('opencode', { path: probe }).path;
+    if (binary === undefined) return [];
+    const major = opencodeMajor(binary);
+    return major !== undefined && major >= 2 ? ['--standalone'] : [];
 }
 
 /** Absolute, beneath the app-managed plans dir, and not that dir itself. */

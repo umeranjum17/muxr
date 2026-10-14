@@ -961,6 +961,44 @@ describe('OpenCode account isolation', () => {
         }
     }, 20_000);
 
+    it('passes --standalone only for OpenCode 2.x so two accounts do not share the fixed background port', async () => {
+        const run = async (version: string) => {
+            const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-stand-'));
+            const bin = join(dir, 'bin');
+            mkdirSync(bin);
+            mkdirSync(join(dir, 'repo'));
+            writeFileSync(join(bin, 'opencode'), `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "${version}"; exit 0; fi\nexit 0\n`);
+            chmodSync(join(bin, 'opencode'), 0o755);
+            const env: NodeJS.ProcessEnv = {
+                ...process.env,
+                HOME: join(dir, 'home'),
+                MUXR_HOME: join(dir, 'muxr'),
+                PATH: `${bin}:${process.env.PATH ?? ''}`,
+            };
+            const a = await preparePlanSignIn(env, 'opencode');
+            const herdr = fakeHerdr(dir, join(dir, 'repo'));
+            const source = await createHerdrSessionSource({
+                socketPath: herdr.socketPath,
+                dataDir: join(dir, 'data'),
+                artifactsDir: join(dir, 'attachments'),
+                hostHttpPort: 0,
+            });
+            try {
+                const launch = planLaunchEnv(env, a.record);
+                expect('info' in await source.start({
+                    cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launch.set, planUnset: launch.unset,
+                })).toBe(true);
+                return herdr.agents.map((agent) => (agent as { args?: string[] }).args);
+            } finally {
+                await source.dispose();
+                herdr.close();
+                rmSync(dir, { recursive: true, force: true });
+            }
+        };
+        expect(await run('2.0.28')).toEqual([['--standalone']]);
+        expect(await run('1.19.0')).toEqual([undefined]);
+    }, 20_000);
+
     it('starts OpenCode Go agents on Muse Spark 1.3 Contributor through the account config and leaves other launches alone', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-model-'));
         const bin = join(dir, 'bin');
