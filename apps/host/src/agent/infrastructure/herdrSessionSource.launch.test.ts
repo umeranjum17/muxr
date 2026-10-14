@@ -962,12 +962,12 @@ describe('OpenCode account isolation', () => {
     }, 20_000);
 
     it('passes --standalone only for OpenCode 2.x so two accounts do not share the fixed background port', async () => {
-        const run = async (version: string) => {
+        const run = async (versionOutput: string) => {
             const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-stand-'));
             const bin = join(dir, 'bin');
             mkdirSync(bin);
             mkdirSync(join(dir, 'repo'));
-            writeFileSync(join(bin, 'opencode'), `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "${version}"; exit 0; fi\nexit 0\n`);
+            writeFileSync(join(bin, 'opencode'), `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "${versionOutput}"; exit 0; fi\nexit 0\n`);
             chmodSync(join(bin, 'opencode'), 0o755);
             const env: NodeJS.ProcessEnv = {
                 ...process.env,
@@ -995,7 +995,7 @@ describe('OpenCode account isolation', () => {
                 rmSync(dir, { recursive: true, force: true });
             }
         };
-        expect(await run('2.0.28')).toEqual([['--standalone']]);
+        expect(await run('opencode v2.0.28')).toEqual([['--standalone']]);
         expect(await run('1.19.0')).toEqual([undefined]);
     }, 20_000);
 
