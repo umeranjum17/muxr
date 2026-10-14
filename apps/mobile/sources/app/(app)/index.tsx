@@ -1,6 +1,5 @@
 import { useAuth } from '@/account/ui';
 import { ScrollView, Text, View, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as React from 'react';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
@@ -8,6 +7,7 @@ import { MainView, FirstRunConnection } from '@/herd/ui';
 import { HomeWebInstallInvite } from '@/herd/presentation/HomeFirstRunCards';
 import { LiveCardEmptyBadge } from '@/plans/ui';
 import { Header } from '@/components/navigation/Header';
+import { SystemBarBackdrop } from '@/components/SystemBarBackdrop';
 import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/pairing/e2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
@@ -20,7 +20,6 @@ export default function Home() {
 
 function NotAuthenticated() {
     const auth = useAuth();
-    const insets = useSafeAreaInsets();
     const { width, fontScale } = useWindowDimensions();
     const pairing = React.useRef(false);
 
@@ -48,12 +47,13 @@ function NotAuthenticated() {
             <Header title={<Text style={styles.headerTitle}>Connect a machine</Text>} headerShadowVisible={false} />
             <ScrollView
                 style={styles.screen}
-                contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24, paddingHorizontal: width / fontScale < 200 ? 8 : 16 }]}
+                contentContainerStyle={[styles.content, { paddingBottom: 24, paddingHorizontal: width / fontScale < 200 ? 8 : 16 }]}
                 keyboardShouldPersistTaps="handled"
             >
                 <FirstRunConnection />
                 <HomeWebInstallInvite variant="firstRun" />
             </ScrollView>
+            <SystemBarBackdrop edge="bottom" />
         </View>
     );
 }
