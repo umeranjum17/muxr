@@ -26,7 +26,6 @@ export async function startSessionFromDraft(options: {
     machines: Machine[];
     navigateToSession: (sessionId: string) => void;
     blank?: boolean;
-    onRouteReady?: (agentRoute: string) => void;
 }): Promise<string | null> {
     const connection = planConnection();
     const draft = useNewSessionDraft.getState();
@@ -89,12 +88,12 @@ export async function startSessionFromDraft(options: {
                     draft.setAttachments([]);
                 }
                 options.navigateToSession(agentRoute);
-                options.onRouteReady?.(agentRoute);
             },
+            // The launch module restores both drafts; this adapter reports the error.
+            onPromptFailed: (failure) => Modal.alert(t('common.error'), failure.message),
         });
         if (!samePlanConnection(connection)) return result.ok ? result.agentRoute : null;
         if (result.ok) {
-            if (result.promptFailed) Modal.alert(t('common.error'), result.promptFailed);
             if (planAccount !== undefined) void announceStartAccount(result.agentRoute, draft.agentType, planAccount, connection);
             return result.agentRoute;
         }

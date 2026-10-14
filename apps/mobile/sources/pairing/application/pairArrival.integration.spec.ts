@@ -26,6 +26,7 @@ vi.mock('react-native', () => ({
     Text: 'Text',
     TextInput: 'TextInput',
     View: 'View',
+    useWindowDimensions: () => ({ width: 393, height: 864, fontScale: 1 }),
 }));
 vi.mock('react-native-keyboard-controller', () => ({ KeyboardAwareScrollView: 'ScrollView', KeyboardStickyView: 'View', KeyboardEvents: { addListener: () => ({ remove: () => undefined }) } }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));

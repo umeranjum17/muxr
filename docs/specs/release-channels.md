@@ -7,7 +7,7 @@ updated: 2026-09-05
 owner: umer
 links:
   - ../RELEASING.md
-  - ../../.github/workflows/publish.yml
+  - ../../.github/workflows/release.yml
 ---
 
 # muxr development, beta and stable release design
@@ -159,7 +159,7 @@ For npm, stop advancing the channel and move its pointer back to a known good ve
 
 ## What to change in this repository
 
-1. **Release metadata and publisher split:** one manifest generator, SemVer/channel validation, immutable artifact ingestion, explicit npm `dev`/`beta`/`latest`; skip irrelevant prerelease events before they start stable publishing. Current `publish.yml` only accepts stable `vX.Y.Z` and rebuilds while publishing.
+1. **Release metadata and publisher split:** one manifest generator, SemVer/channel validation, immutable artifact ingestion, explicit npm `dev`/`beta`/`latest`; skip irrelevant prerelease events before they start stable publishing. The former `publish.yml` only accepted stable `vX.Y.Z` and rebuilt while publishing; it is removed.
 2. **Native development variant:** real Gradle flavors/iOS schemes, unique IDs and links, isolated host/runtime state, channel in About/diagnostics. Current Expo config varies labels/IDs, but Android `applicationId` is fixed in build.gradle.
 3. **Candidate workflows:** nightly only after green source and relevant changes; manual release-branch cut; candidate build; attach local gate evidence. Keep regular CI/build jobs in GitHub and emulator execution local.
 4. **Promotion by immutable release ID:** existing Android production workflow already checks Internal artifact provenance and promotes without rebuilding. Replace its dependence on the current main SHA with verification against the chosen protected release commit/manifest so main can continue moving. Preserve digest, signer, version and eligibility checks.

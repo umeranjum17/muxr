@@ -89,8 +89,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Deliver the Home composer's prompt to the agent it starts](./home-composer-first-prompt.md) —
   release app on a task-owned emulator paired to a real-Herdr lab: a prompt
   sent from Home opens the new OpenCode agent at once with `Prompt queued`;
-  the prompt is delivered once the agent is ready, and if it cannot be, the
-  text returns to the agent's input marked not sent.
+  the prompt is delivered once the agent is ready, Home is free after spawn,
+  and if it cannot be, the text returns to Home's composer and the agent's
+  input marked not sent.
 
 - [Name agents on Home by kind and task, never a launch id](./home-agent-labels.md) —
   paired lab PWA over a real-Herdr lab with an unnamed Codex and pi agent: the
@@ -149,6 +150,11 @@ user-visible behavior, then exactly four H2 sections in this order:
   a `--browser-view` PWA and a `--browser` PWA on one real Herdr lab host: the
   view one watches the pane but its typing, desktop and agent actions never
   reach the computer; the control one runs the command.
+- [Read whole pairing and first-run words at large text](./word-wrapping.md) —
+  unpaired pair title, comparison words and Connect/Tailscale button labels:
+  installed PWA at 393/270/208 dp, font 1.0/2.0, both themes, and native at 270 dp
+  font 2.0; DOM ranges and screenshot OCR lead on words split across lines.
+  `Tailscale` at 208 dp font 2.0 is a known follow-up.
 - [Get Tailscale before pairing your own computer](./tailscale-first-step.md) —
   the unpaired first screen's one Tailscale card on a release APK (Play Store AVD)
   and the PWA: Get Tailscale opens the store, Back, I have Tailscale shows the
@@ -212,7 +218,8 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [OpenCode agents start on Muse Spark 1.3 Contributor](./opencode-go-default-model.md) —
   release APK on an emulator over a real lab host with an OpenCode Go
   sign-in: new agents open on the Go default model before/after one build,
-  footer plus one real reply each.
+  footer plus one real reply each; the account row and New agent read
+  `Signed in` right after the sign-in, before and after an app restart.
 - [See what runs your sessions from Settings](./settings-herdr-info.md) —
   Settings `Herdr` row and sheet with the `herdr agent list` command, Copy
   feedback, and the real-Herdr lab log proving the command lists the host's

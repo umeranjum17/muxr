@@ -11,6 +11,7 @@ import { Modal } from '@/modal';
 import { addAccountLabel, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, usePlans, usePlansStore } from '../application/plansStore';
 import { planFailure, removeAccount, renameAccount } from '../application/plansApi';
+import { useNotice } from '../application/planNotices';
 import { Notice, useAccountFlows, useFlows } from './AccountFlows';
 import { Pill } from './accountParts';
 
@@ -115,7 +116,7 @@ export function AccountsSettingsScreen() {
     const autoOn = usePlansStore((state) => state.autoOn);
     const setAutoOn = usePlansStore((state) => state.setAutoOn);
     const landed = useFlows((state) => state.landed);
-    const notice = useFlows((state) => state.notice);
+    const notice = useNotice((state) => state.notice);
     const listRef = React.useRef<ScrollView>(null);
     // The notice is the first row of the list. After adding an account the list
     // is scrolled down to the "Add" row, so bring the notice into view; it then
@@ -162,10 +163,12 @@ export function AccountsSettingsScreen() {
     // and email beneath. The email never breaks mid-word: the local part before
     // the @ stays on one line (native end ellipsis, "umer@exam…"); web ignores
     // ellipsizeMode, so there the address is split and the whole domain stays.
-    const subtitle = (account: PlanAccount): string | React.ReactNode =>
-        account.signedIn && account.email
-            ? (Platform.OS === 'web' ? <EmailSplit email={account.email} /> : account.email)
-            : 'Signed out';
+    // An OpenCode sign-in has no email: signed in, the row says so instead.
+    const subtitle = (account: PlanAccount): string | React.ReactNode => {
+        if (!account.signedIn) return 'Signed out';
+        if (!account.email) return 'Signed in';
+        return Platform.OS === 'web' ? <EmailSplit email={account.email} /> : account.email;
+    };
     const facts = (account: PlanAccount): string | undefined => {
         const parts = identityParts(account);
         return parts.length === 0 ? undefined : parts.map((part) => part.text).join('\u00a0· ');
@@ -173,7 +176,7 @@ export function AccountsSettingsScreen() {
 
     return (
         <ItemList ref={listRef}>
-            <Notice inline />
+            <Notice />
             <Text style={styles.lede}>
                 Claude and ChatGPT show once you have more than one account for them; OpenCode shows as soon as you add one. With one Claude or ChatGPT account, muxr works exactly as before.
             </Text>
@@ -214,8 +217,8 @@ export function AccountsSettingsScreen() {
                                 onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
                                 onLongPress={() => actions(account)}
                                 accessibilityLabel={distinct
-                                    ? [lead, account.name, account.email, sharedLine(account, accounts)].filter(Boolean).join(', ')
-                                    : [account.name, account.signedIn ? account.email : 'Signed out', facts(account)].filter(Boolean).join(', ')}
+                                    ? [lead, account.name, account.signedIn ? account.email || 'Signed in' : undefined, sharedLine(account, accounts)].filter(Boolean).join(', ')
+                                    : [account.name, account.signedIn ? account.email || 'Signed in' : 'Signed out', facts(account)].filter(Boolean).join(', ')}
                             />
                             );
                         })}

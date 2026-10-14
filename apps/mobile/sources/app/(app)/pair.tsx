@@ -1,7 +1,7 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
 import * as Clipboard from 'expo-clipboard';
-import { ActivityIndicator, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { KeyboardAwareScrollView, KeyboardEvents, KeyboardStickyView, type KeyboardAwareScrollViewRef } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -12,6 +12,7 @@ import { decidePairingInput, linkPairMachineName, looksLikeLinkOffer, PairingNee
 import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScannerAvailable, usePairQrScanner, resolvePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
+import { WordWrappingText } from '@/components/WordWrappingText';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
@@ -72,6 +73,10 @@ export default function PairScreen() {
     const auth = useAuth();
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    // Narrow when width/fontScale < 200: covers 270 dp and 208 dp at font 2.0,
+    // and a 393 dp phone at font 2.0 (196.5), which is intended.
+    const { width, fontScale } = useWindowDimensions();
+    const narrow = width / fontScale < 200;
     const [state, setState] = React.useState<PairState | undefined>(undefined);
     const [progress, setProgress] = React.useState<PairingProgress>();
     const [pairingValue, setPairingValue] = React.useState('');
@@ -301,25 +306,25 @@ export default function PairScreen() {
     }, [state, keyboardOpen, showField]);
     return (
         <View style={styles.screenWrap}>
-        <PairScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
+        <PairScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={[styles.screen, narrow && styles.narrowScreen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" {...(browser ? {} : { bottomOffset: 120 })}>
-            <View style={styles.hero}>
+            <View style={[styles.hero, narrow && styles.narrowHero]}>
                 {!keyboardOpen && (
                     <View style={styles.iconBadge}>
                         <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
                     </View>
                 )}
-                <Text style={styles.machineName}>
+                <WordWrappingText fontSize={26} lineHeight={32} style={styles.machineName}>
                     {state === undefined
                         ? 'Securely pair this device'
                         : state.machineName ?? 'Securely pair this device'}
-                </Text>
+                </WordWrappingText>
                 {state?.phase === 'confirm' && (
                     <Text style={styles.subtitle}>wants to pair with this {pairingDeviceNoun()}</Text>
                 )}
             </View>
 
-            <View style={styles.card}>
+            <View style={[styles.card, narrow && styles.narrowCard]}>
                 {state?.phase === 'working' ? (
                     progress?.phase === 'paired' ? (
                         <View style={styles.successRow}>
@@ -335,7 +340,7 @@ export default function PairScreen() {
                             {progress?.words ? (
                                 <>
                                     <Text accessibilityLiveRegion="polite" style={styles.stepText}>{t('pairing.compareWords', { name: state.machineName })}</Text>
-                                    <Text selectable style={styles.machineName}>{progress.words}</Text>
+                                    <WordWrappingText fontSize={26} lineHeight={32} selectable style={styles.machineName}>{progress.words}</WordWrappingText>
                                 </>
                             ) : (
                                 <Text accessibilityLiveRegion="polite" style={styles.stepText}>{t('pairing.connecting')}</Text>
@@ -436,7 +441,7 @@ export default function PairScreen() {
                         )}
                         {showField && (
                             <>
-                                <Text style={styles.inputLabel}>{browser ? 'Pairing code' : sshRoute ? 'Pairing string from muxr pair' : canScan ? 'Or paste the pairing string' : 'Paste the pairing string'}</Text>
+                                <WordWrappingText fontSize={14} style={styles.inputLabel}>{browser ? 'Pairing code' : sshRoute ? 'Pairing string from muxr pair' : canScan ? 'Or paste the pairing string' : 'Paste the pairing string'}</WordWrappingText>
                                 <TextInput
                                     accessibilityLabel="Pairing string"
                                     testID={sshRoute ? "ssh-pairing-offer" : undefined}
@@ -451,13 +456,13 @@ export default function PairScreen() {
                                     onChangeText={changePairingValue}
                                     onSubmitEditing={connectManual}
                                 />
-                                <Text style={styles.routeHint}>{browser
+                                <WordWrappingText fontSize={13} lineHeight={18} style={styles.routeHint}>{browser
                                     ? 'Paste the pairing code from muxr on your computer.'
                                     : sshRoute
                                         ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
                                         : canScan
                                             ? `If you can't point this ${pairingDeviceNoun()} at that screen, copy the pairing string shown there.`
-                                            : 'Copy it from muxr on your computer.'}</Text>
+                                            : 'Copy it from muxr on your computer.'}</WordWrappingText>
                             </>
                         )}
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
@@ -468,16 +473,16 @@ export default function PairScreen() {
         {sshRoute && manualForm && (
             // Anchored below the scroll; on native it follows the keyboard
             // without shrinking the aware scroll.
-            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
+            <ConnectBar style={[styles.ctaBar, narrow && styles.narrowCtaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
                 {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
-                <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
+                <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" wrap disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
         {!sshRoute && manualForm && showField && (
             // Same anchored bar as the SSH route: the manual Connect must stay
             // above the keyboard on short viewports.
-            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
-                <ActionButton title="Connect" icon="link-outline" variant={canScan ? 'secondary' : 'primary'} disabled={!pairingValue.trim()} onPress={connectManual} />
+            <ConnectBar style={[styles.ctaBar, narrow && styles.narrowCtaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
+                <ActionButton title="Connect" icon="link-outline" variant={canScan ? 'secondary' : 'primary'} wrap disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
         </View>
@@ -497,10 +502,13 @@ const styles = StyleSheet.create((theme) => ({
         justifyContent: 'center',
         gap: 24,
     },
+    narrowScreen: { paddingHorizontal: 8 },
     hero: {
         alignItems: 'center',
         paddingHorizontal: 16,
     },
+    narrowHero: { paddingHorizontal: 0 },
+    narrowCtaBar: { paddingHorizontal: 8 },
     iconBadge: {
         width: 64,
         height: 64,
@@ -520,8 +528,6 @@ const styles = StyleSheet.create((theme) => ({
         // never an ellipsized line measured wider than the screen.
         alignSelf: 'stretch',
         ...Typography.default('semiBold'),
-        fontSize: 26,
-        lineHeight: 32,
         textAlign: 'center',
         color: theme.colors.text,
     },
@@ -544,6 +550,7 @@ const styles = StyleSheet.create((theme) => ({
         padding: 20,
         gap: 12,
     },
+    narrowCard: { paddingHorizontal: 8 },
     securityRow: {
         flexDirection: 'row',
         gap: 10,

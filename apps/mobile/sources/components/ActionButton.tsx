@@ -67,7 +67,7 @@ export const ActionButton = React.memo((props: {
                     color={variant === 'primary' ? styles.primaryText.color : styles.secondaryText.color}
                 />
             ) : (
-                <View style={[styles.content, props.wrap && styles.wrapContent]}>
+                <View style={[styles.content, props.wrap && styles.wrapContent, props.wrap && styles.wrapRow]}>
                     {props.icon !== undefined && (
                         <Ionicons
                             name={props.icon}
@@ -102,9 +102,22 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 24,
         alignSelf: 'stretch',
     },
-    wrap: { height: undefined, minHeight: 52, paddingVertical: 8, paddingHorizontal: 12 },
+    wrap: { height: undefined, minHeight: 52, paddingVertical: 8, paddingHorizontal: 8 },
     wrapContent: { maxWidth: '100%' },
-    wrapText: { flexShrink: 1, textAlign: 'center' },
+    // A row child that may not shrink below its longest word on web
+    // (min-width: auto), so the label spills out of the pill instead of
+    // wrapping; native measures shrunk text by wrapping already.
+    //
+    // The row itself wraps: on a very narrow screen the icon keeps its size
+    // and the label flows onto its own line at the pill's full width instead
+    // of squeezing beside the icon into two-character lines that stack the
+    // button taller than the viewport. The row spans the pill so the label
+    // measures the full width, not the longest word: without it the row
+    // shrink-wraps to the longest word and the label breaks inside that.
+    // Single-line buttons measure exactly as before: the row already spans
+    // its content, and centering content in a full-width row draws the same.
+    wrapRow: { width: '100%', flexWrap: 'wrap', justifyContent: 'center' },
+    wrapText: { flexShrink: 1, minWidth: 0, textAlign: 'center' },
     primary: {
         backgroundColor: theme.colors.button.primary.background,
     },

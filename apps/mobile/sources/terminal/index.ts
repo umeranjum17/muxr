@@ -1,4 +1,5 @@
 /** Public API of the terminal context. Screens live in `./ui`. */
+export * from './application/draftInsertion';
 export * from './application/OpenTerminal';
 export * from './application/queuedFirstPrompts';
 export * from './application/recentOutput';

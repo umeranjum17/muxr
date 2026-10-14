@@ -10,7 +10,8 @@ import { Modal } from '@/modal';
 import { bestMoveTarget, isLow, runningOn, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, refreshPlans, usePlans, usePlansStore, useProviderChoice, type PlanConnection } from '../application/plansStore';
 import { agentAccount, moveAgent, planFailure } from '../application/plansApi';
-import { showNotice, useAccountFlows } from './AccountFlows';
+import { showNotice } from '../application/planNotices';
+import { useAccountFlows } from './AccountFlows';
 import { AccountRow, Note, Pill, PrimaryButton, SheetLede, SheetTitle, SignInPill, styles as parts } from './accountParts';
 
 /** The agents an account can carry, by the names the dock gives them. */
