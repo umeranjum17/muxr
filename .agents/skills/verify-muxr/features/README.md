@@ -97,7 +97,8 @@ user-visible behavior, then exactly four H2 sections in this order:
   input marked not sent.
 - [Long silence never fills the composer](./dictation-silence-gate.md) —
   file-fed Silero speech gate on the phone's Whisper finals: 120 s near-silence
-  leaves the draft empty; quiet and clean fixtures still transcribe.
+  should leave the draft empty while quiet and clean fixtures still transcribe.
+  Proof pending; no run evidence yet.
 
 - [Name agents on Home by kind and task, never a launch id](./home-agent-labels.md) —
   paired lab PWA over a real-Herdr lab with an unnamed Codex and pi agent: the
