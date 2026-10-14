@@ -45,7 +45,7 @@ function NotAuthenticated() {
 
     return (
         <View style={styles.screen}>
-            <Header title={<Text style={styles.headerTitle}>Connect a machine</Text>} />
+            <Header title={<Text style={styles.headerTitle}>Connect a machine</Text>} headerShadowVisible={false} />
             <ScrollView
                 style={styles.screen}
                 contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24, paddingHorizontal: width / fontScale < 200 ? 8 : 16 }]}
