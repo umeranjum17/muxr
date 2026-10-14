@@ -146,11 +146,7 @@ export const Header = React.memo((props: HeaderProps) => {
                         isDesktop && styles.desktopCenterContainer,
                         compactHorizontalPadding && styles.compactCenterContainer,
                     ]}>
-                        {title != null && title !== '' && (
-                            <View style={styles.titleSlot}>
-                                {title}
-                            </View>
-                        )}
+                        {title}
                         {subtitle && <Text style={subtitleStyle} numberOfLines={1} ellipsizeMode="tail">{subtitle}</Text>}
                     </View>
 
@@ -194,7 +190,7 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
     const shouldHideBackButton = splitViewLayout;
 
     // Extract title - handle both string and function types. String titles
-    // stay on one line and ellipsize inside the shrinking center slot so a
+    // stay on one line and ellipsize inside the shrinking center container so a
     // 270 dp / font-2.0 phone never pushes the title past the right edge.
     const titleTextStyle = (fontSize: number) => [
         {
@@ -323,7 +319,6 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         // Flex children default to min-content width; without 0 the title can
         // refuse to shrink and run past the right edge at 270 dp / font 2.0.
         minWidth: 0,
-        overflow: 'hidden',
     },
     // Drop the web-only title gutter when the row is already tight so short
     // titles like Accounts still fit whole at 270 dp / font 2.0.
@@ -336,17 +331,6 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         justifyContent: Platform.OS === 'ios' ? 'center' : 'flex-start',
         paddingHorizontal: 12,
         minWidth: 0,
-    },
-    titleSlot: {
-        flexGrow: 1,
-        flexShrink: 1,
-        flexBasis: 0,
-        minWidth: 0,
-        maxWidth: '100%',
-        overflow: 'hidden',
-        flexDirection: isDesktop ? 'row' : 'column',
-        alignItems: isDesktop ? 'center' : 'flex-start',
-        justifyContent: Platform.OS === 'web' ? 'flex-start' : 'center',
     },
     rightContainer: {
         flexGrow: 0,
