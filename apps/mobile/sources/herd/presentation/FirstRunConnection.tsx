@@ -60,7 +60,7 @@ export function FirstRunConnection() {
                 <Text style={styles.subtitle}>Use the machine you already have.</Text>
             </View>
             <View style={[styles.card, compact && styles.cardCompact]}>
-                <View style={styles.cardHead}>
+                <View style={[styles.cardHead, compact && styles.cardHeadCompact]}>
                     <Text style={styles.cardTitle}>Have a connect link?</Text>
                     <View style={styles.badge}>
                         <Text style={styles.badgeText}>Fastest · 20–60 sec*</Text>
@@ -194,6 +194,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 8,
         flexWrap: 'wrap',
     },
+    // Yoga shrinks a wrapping row title to a sliver instead of wrapping it.
+    cardHeadCompact: { flexDirection: 'column', alignItems: 'flex-start' },
     cardTitle: {
         ...Typography.default('semiBold'),
         flexGrow: 1,

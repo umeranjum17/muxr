@@ -244,6 +244,8 @@ const edgeLeads = (watched, W) => watched.flatMap((n) => {
 const clipLeads = (nodes) => nodes.filter((n) => n.at.text).flatMap((n) => {
     const parent = n.up.at(-1), out = [];
     if (/(…|\.\.\.)$/.test(n.at.text)) out.push(`ellipsis cuts the text: "${n.label}" ${n.at.bounds}`);
+    // A flex row can shrink a title to a sliver: one glyph per line, the rest hidden.
+    if (n.at.text.length > 2 && n.box.r - n.box.l < 20) out.push(`text squeezed to a sliver: "${n.label}" ${n.at.bounds}`);
     if (parent && (n.box.l < parent.box.l - 1 || n.box.r > parent.box.r + 1 || n.box.t < parent.box.t - 1 || n.box.b > parent.box.b + 1)) out.push(`text runs past its parent: "${n.label}" ${n.at.bounds} (parent ${parent.at.bounds})`);
     return out;
 });
@@ -372,6 +374,8 @@ const selfTest = () => {
     expect('tall clickable text under the gesture bar at rest is flagged', layout(nodesOf(tall)).some((l) => l.startsWith('under the navigation bar on the unscrolled screen') && l.includes('"Read the full terms"')), layout(nodesOf(tall)).join(' | '));
     const tallAbove = el('android.widget.TextView', '[100,1500][980,2300]', { text: 'Read the full terms', clickable: true });
     expect('tall clickable text that ends above the gesture bar is not flagged', layout(nodesOf(tallAbove)).length === 0, layout(nodesOf(tallAbove)).join(' | '));
+    const sliver = el('android.widget.TextView', '[68,1368][73,2300]', { text: 'Have a connect link?' });
+    expect('text squeezed to a sliver is flagged', layout(nodesOf(sliver)).some((l) => l.startsWith('text squeezed to a sliver')), layout(nodesOf(sliver)).join(' | '));
     const labelled = el('android.view.ViewGroup', '[0,200][1080,2376]', { desc: 'list', scrollable: true });
     expect('labelled non-clickable container past the bar at the end of the scroll is not flagged', layout(nodesOf(labelled), { end: true }).length === 0, layout(nodesOf(labelled), { end: true }).join(' | '));
     const pngOf = (name, args) => {
