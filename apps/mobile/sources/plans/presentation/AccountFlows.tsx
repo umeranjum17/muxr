@@ -11,11 +11,11 @@ import { Typography } from '@/constants/Typography';
 import { useHerdrTree } from '@/catalog/store';
 import { navigateToSession } from '@/herd';
 import { Modal } from '@/modal';
-import { nameSuggestions, providerEntry, providerName, resolvedAccountNames, type PlanAccount } from '../domain/planAccounts';
+import { addAccountLabel, nameSuggestions, providerEntry, providerName, resolvedAccountNames, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, refreshPlans, usePlansStore, useUnknownAccounts } from '../application/plansStore';
 import { dismissNotice, showNotice, useNotice } from '../application/planNotices';
 import { cancelSignIn, planFailure, renameAccount, signInState, startSignIn } from '../application/plansApi';
-import { GhostButton, Note, Pill, PrimaryButton, SheetLede, SheetTitle, Strong, styles as parts } from './accountParts';
+import { GhostButton, Note, Pill, PrimaryButton, SheetLede, SheetTitle, Strong, styles as parts, useTightText } from './accountParts';
 
 const TOOL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
 const AGENTS: Record<string, string> = { claude: 'Claude Code or Pi on a Claude model', codex: 'Codex', opencode: 'OpenCode' };
@@ -99,6 +99,7 @@ export function AddAccountSheet() {
     // A short screen keeps the three steps' titles and loses their detail, so
     // the button stays on screen.
     const short = useWindowDimensions().height < 640;
+    const tight = useTightText();
     const close = () => { if (opening !== null) opening.cancelled = true; useFlows.setState({ adding: null }); };
     React.useEffect(() => { if (provider === null) setBusy(false); }, [provider, connection]);
     if (provider === null) return <OptionSheet visible={false} title="" options={[]} onSelect={() => {}} onClose={close} body={<View />} />;
@@ -106,8 +107,8 @@ export function AddAccountSheet() {
     // Once per provider, the plain terms note; after that only the reassurance.
     const firstTerms = seen.getBoolean(termsKey(provider)) !== true;
     const step = (n: number, title: string, detail: string) => (
-        <View style={styles.step} key={n}>
-            <View style={styles.num}><Text style={styles.numText}>{n}</Text></View>
+        <View style={[styles.step, tight && styles.stepTight]} key={n}>
+            {!tight && <View style={styles.num}><Text style={styles.numText}>{n}</Text></View>}
             <View style={parts.rowCopy}>
                 <Text style={styles.stepTitle}>{title}</Text>
                 {!short && <Text style={parts.facts}>{detail}</Text>}
@@ -123,7 +124,7 @@ export function AddAccountSheet() {
             onClose={close}
             body={
                 <View>
-                    <SheetTitle>Add a {name} account</SheetTitle>
+                    <SheetTitle>{addAccountLabel(provider)}</SheetTitle>
                     {!short && <SheetLede>Use a second {name} plan from this computer, e.g. your work plan next to your personal one.</SheetLede>}
                     {step(1, `${name}'s own sign-in opens in a new tab`, `The real ${TOOL[provider]}, on a private folder just for this account.`)}
                     {step(2, 'Sign in with the account you want to add', `Your password and keys stay with ${name}. muxr never sees them.`)}
@@ -431,6 +432,9 @@ const styles = StyleSheet.create((theme) => ({
         gap: 12,
         paddingHorizontal: 20,
         paddingVertical: 8,
+    },
+    stepTight: {
+        paddingHorizontal: 12,
     },
     num: {
         width: 24,
