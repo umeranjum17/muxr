@@ -95,7 +95,7 @@ function describe(error: SshTunnelError, target: SshTarget): SshConnectionError 
         case 'ssh-host-key':
             return new SshConnectionError(
                 error.code,
-                `The SSH fingerprint for ${target.host} changed. No login details were sent. Check the fingerprint in your provider console before setting up SSH again.`,
+                `The SSH fingerprint for ${target.host} changed. No login details were sent. Open Connection settings → SSH, confirm the new fingerprint, or choose Use current relay route instead.`,
                 true,
             );
         case 'ssh-unsupported':

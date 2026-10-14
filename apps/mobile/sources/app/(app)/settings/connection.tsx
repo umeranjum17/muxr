@@ -16,7 +16,6 @@ import {
     loadConnectionSettingsAsync,
     parseSshFields,
     reviewSshHostKey,
-    pinSshHostKey,
     saveConnectionSettings,
     type SshTarget,
 } from '@/connection';
@@ -365,7 +364,10 @@ export default function ConnectionSettingsScreen() {
             setSshError(parsed.error);
             return;
         }
-        let target: SshTarget = pinSshHostKey(initial.ssh, parsed.target);
+        // Never keep a prior pin on save: a changed host key must show its new
+        // fingerprint for confirmation, and a credential-less save must not
+        // silently write the old pin back.
+        let target: SshTarget = parsed.target;
         setSshError(undefined);
         setSshSaving(true);
         try {
@@ -376,8 +378,7 @@ export default function ConnectionSettingsScreen() {
             ));
             if (Object.keys(parsed.credential).length > 0) {
                 // Sign in with what was typed before it replaces the saved credential.
-                const hostKey = await verifySshCredential(target, parsed.credential);
-                if (target.hostKey === undefined) target = { ...target, hostKey };
+                await verifySshCredential(target, parsed.credential);
                 await saveSshCredential(initial.machineId, parsed.credential);
             }
             const next = { ...initial, ssh: target };

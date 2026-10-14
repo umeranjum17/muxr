@@ -36,8 +36,9 @@ const styles = StyleSheet.create((theme) => ({
 }));
 
 export function recoveryMode(error: string | null | undefined, runtimeOffline: boolean): 'host' | 'runtime' | 'update-app' | 'update-host' | 'pair' | 'revoked' | 'ssh-key' {
-    // sshTunnel.ts refuses a changed host key before any login; no restart or retry fixes it.
-    if (error && /^The SSH fingerprint for .* changed\./.test(error)) return 'ssh-key';
+    // sshTunnel.ts refuses a changed or missing host-key pin before any login; no restart or retry fixes it.
+    if (error && (/^The SSH fingerprint for .* changed\./.test(error)
+        || /Confirm the SSH host fingerprint in Connection settings/.test(error))) return 'ssh-key';
     if (error?.startsWith('Update needed:')) return /older muxr connection protocol|Update muxr on the computer/i.test(error) ? 'update-host' : 'update-app';
     if (error?.startsWith('Pair again:')) return 'pair';
     if (error?.startsWith('Access removed:')) return 'revoked';
@@ -76,7 +77,7 @@ export function HomeRecoveryCard({
                     : mode === 'update-app' ? 'This app needs an update to connect to your computer.'
                     : mode === 'update-host' ? 'Update muxr on your computer, then pair again.'
                     : mode === 'revoked' ? 'This computer removed your access. Pair again to reconnect.'
-                    : sshKey ? (reason ?? 'The SSH fingerprint changed. No login details were sent. Check the fingerprint in your provider console before setting up SSH again.')
+                    : sshKey ? (reason ?? 'The SSH fingerprint changed. No login details were sent. Open Connection settings → SSH, confirm the new fingerprint, or choose Use current relay route instead.')
                     : reason ?? (mode === 'host'
                         ? 'Check that this device can reach the computer and that muxr is running.'
                         : 'The computer is reachable, but its agent runtime is not answering. Restart muxr there.')}
