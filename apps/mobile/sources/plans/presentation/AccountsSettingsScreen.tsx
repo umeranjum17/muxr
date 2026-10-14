@@ -110,7 +110,7 @@ function AccountIdentity({ account }: { account: PlanAccount }) {
 /** Settings → Accounts: every sign-in muxr can start an agent on, by provider. */
 export function AccountsSettingsScreen() {
     const { theme } = useUnistyles();
-    // Tight, the rows drop their icons and the switch moves under its text.
+    // Tight, the rows drop their icons so their text keeps the width.
     const narrow = useTightText();
     const group = narrow ? { marginHorizontal: 4 } : undefined;
     const row = narrow ? { paddingHorizontal: 10 } : undefined;
@@ -245,12 +245,10 @@ export function AccountsSettingsScreen() {
                     <Item
                         title="Auto picks the most room left"
                         titleLines={0}
-                        subtitle={narrow
-                            ? <View style={styles.under}><Text style={styles.underText}>Off: the account you picked last</Text><Switch value={autoOn} onValueChange={setAutoOn} /></View>
-                            : 'Off: the account you picked last'}
+                        subtitle="Off: the account you picked last"
                         subtitleLines={0}
                         style={row}
-                        rightElement={narrow ? undefined : <Switch value={autoOn} onValueChange={setAutoOn} />}
+                        rightElement={<Switch value={autoOn} onValueChange={setAutoOn} />}
                         showChevron={false}
                     />
                 </ItemGroup>
@@ -267,16 +265,6 @@ const styles = StyleSheet.create((theme) => ({
         paddingHorizontal: 20,
         paddingTop: 12,
         ...Typography.default(),
-    },
-    under: {
-        gap: 8,
-        alignItems: 'flex-start',
-    },
-    underText: {
-        ...Typography.default(),
-        fontSize: 14,
-        lineHeight: 20,
-        color: theme.colors.textSecondary,
     },
     identity: {
         marginTop: 2,
