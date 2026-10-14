@@ -17,6 +17,8 @@ import {
     MOBILE_GLASS_HEADER_HEIGHT,
 } from '@/components/navigation/headerMetrics';
 
+const isDesktop = Platform.OS === 'web' || isRunningOnMac();
+
 interface HeaderProps {
     title?: React.ReactNode;
     subtitle?: string;
@@ -65,7 +67,6 @@ export const Header = React.memo((props: HeaderProps) => {
     const paddingTop = safeAreaEnabled ? insets.top : 0;
     const headerHeight = useHeaderHeight();
     const isTablet = useIsTablet();
-    const isDesktop = Platform.OS === 'web' || isRunningOnMac();
     const floatingControlsEnabled = !isDesktop && !isTablet;
     const headerLeftUsesGlass = headerLeftGlass && !isDesktop;
     const headerRightUsesGlass = headerRightGlass && !isDesktop;
@@ -146,7 +147,7 @@ export const Header = React.memo((props: HeaderProps) => {
                         compactHorizontalPadding && styles.compactCenterContainer,
                     ]}>
                         {title != null && title !== '' && (
-                            <View style={[styles.titleSlot, isDesktop && styles.desktopTitleSlot]}>
+                            <View style={styles.titleSlot}>
                                 {title}
                             </View>
                         )}
@@ -187,7 +188,6 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
     const { options, route, back, navigation } = props;
     const extendedOptions = options as ExtendedNavigationOptions;
     const splitViewLayout = useSplitViewLayout();
-    const isDesktop = Platform.OS === 'web' || isRunningOnMac();
     const compact = useCompactWindow();
 
     // The permanent split-view header owns Back only while the drawer is present.
@@ -344,13 +344,9 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         minWidth: 0,
         maxWidth: '100%',
         overflow: 'hidden',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-    },
-    desktopTitleSlot: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: Platform.OS === 'ios' ? 'center' : 'flex-start',
+        flexDirection: isDesktop ? 'row' : 'column',
+        alignItems: isDesktop ? 'center' : 'flex-start',
+        justifyContent: Platform.OS === 'web' ? 'flex-start' : 'center',
     },
     rightContainer: {
         flexGrow: 0,
@@ -412,15 +408,6 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         alignItems: 'center',
         justifyContent: 'center',
         paddingHorizontal: Platform.select({ web: 0, default: 6 }),
-    },
-    title: {
-        fontSize: Platform.OS === 'web' ? 17 : 16,
-        fontWeight: '600',
-        textAlign: 'center',
-        color: theme.colors.header.tint,
-        flexShrink: 1,
-        maxWidth: '100%',
-        ...Typography.default('semiBold'),
     },
     subtitle: {
         fontSize: Platform.OS === 'web' ? 13 : 12,
