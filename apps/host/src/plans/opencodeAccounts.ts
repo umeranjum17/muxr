@@ -18,8 +18,10 @@ import { loadPlanAccounts, plansDir, savePlanAccounts, type PlanAccountRecord } 
 /** Source-backed OpenCode redirects: none may reach a launch, inherited or set. */
 const BLOCKED = ['OPENCODE_AUTH', 'OPENCODE_AUTH_CONTENT', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_TEST_HOME', 'OPENCODE_DB'];
 
-/** Cached major version per resolved binary path; --version is cheap but not free per launch. */
-const opencodeMajorByBinary = new Map<string, number | undefined>();
+/** Cached major version per resolved binary path. Only successful probes are
+ *  stored: a timeout, parse miss, or failed spawn must not pin "unknown" for
+ *  the host lifetime (that would omit `--standalone` on every later 2.x launch). */
+const opencodeMajorByBinary = new Map<string, number>();
 
 function unavailable(): never {
     throw Object.assign(new Error("That account's private folder is missing or unsafe. Remove the account and add it again."), { code: 'plan-account-unavailable' });
@@ -27,13 +29,15 @@ function unavailable(): never {
 
 /** Major from `opencode --version` (1.x and 2.x both print it). Unknown → undefined. */
 function opencodeMajor(binary: string): number | undefined {
-    if (opencodeMajorByBinary.has(binary)) return opencodeMajorByBinary.get(binary);
+    const cached = opencodeMajorByBinary.get(binary);
+    if (cached !== undefined) return cached;
     const result = spawnSync(binary, ['--version'], { encoding: 'utf8', timeout: 5_000 });
     const text = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
     const match = /\b(\d+)\.\d+\.\d+\b/.exec(text) ?? /\bv?(\d+)\.\d+\b/.exec(text);
     const major = match === null ? undefined : Number(match[1]);
-    opencodeMajorByBinary.set(binary, Number.isFinite(major) ? major : undefined);
-    return opencodeMajorByBinary.get(binary);
+    if (major === undefined || !Number.isFinite(major)) return undefined;
+    opencodeMajorByBinary.set(binary, major);
+    return major;
 }
 
 /**
