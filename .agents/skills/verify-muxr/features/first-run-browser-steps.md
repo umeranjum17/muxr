@@ -33,7 +33,8 @@ capturing, and confirm PWA `display-mode: standalone`. Capture with
 
 1. Open with no stored grant. The ready-link card is first, with no
    Tailscale prerequisite. Ensure the field, Connect, alternatives and footer
-   wrap without overlap at the narrow/largest-text extremes.
+   wrap without overlap at the narrow/largest-text extremes; there the card
+   heading stacks above its Fastest badge instead of shrinking to a sliver.
 2. Tap Cloud account: it remains disabled with no navigation or request.
    Tap native SSH login: the existing SSH form opens. Return to the shell.
 3. Expand More ways & timing, scroll to the end, and capture the command,
