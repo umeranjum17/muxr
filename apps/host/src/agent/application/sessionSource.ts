@@ -175,10 +175,11 @@ export interface SessionSource {
     /** The text a pane shows now, by pane id. */
     paneVisibleText(paneId: string): Promise<string>;
     /**
-     * True when no program of the pane is left — only its shell, at its prompt.
-     * A stopped (^Z) program keeps its pid in the pane, so it is not "left".
+     * The pids of the pane's foreground program(s) right now; empty when only
+     * its shell holds the pane. Recorded as the owner of the tracked terminal
+     * modes, so a later gesture can test whether that program is still there.
      */
-    paneShellForeground(paneId: string): Promise<boolean>;
+    paneForegroundPids(paneId: string): Promise<number[]>;
     /**
      * Restore primary screen and mouse-off after a crashed fullscreen program.
      * Injects the reset as PTY output so the shell's command line stays clean,

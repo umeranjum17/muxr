@@ -5,7 +5,7 @@
  * typing into the command line.
  */
 
-import { closeSync, existsSync, openSync, readFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, openSync, writeSync } from 'node:fs';
 import { MODE_RESET_CSI } from './terminalModes.js';
 
 export type PaneProcessSnapshot = {
@@ -20,28 +20,23 @@ export function shellPidOf(info: PaneProcessSnapshot): number | undefined {
     return pid !== null && pid !== undefined && Number.isInteger(pid) && pid > 0 ? pid : undefined;
 }
 
-/** Shell alone in the foreground — no child still driving the pane. */
-export function foregroundIsShellOnly(info: PaneProcessSnapshot): boolean {
+/** The pane's foreground programs — the pane's own shell is not one of them. */
+export function foregroundProgramPids(info: PaneProcessSnapshot): number[] {
     const shellPid = shellPidOf(info);
-    if (shellPid === undefined) return false;
-    const foreground = info.foregroundPids.filter((pid) => Number.isInteger(pid) && pid > 0);
-    if (foreground.length === 0) return true;
-    return foreground.every((pid) => pid === shellPid);
+    return info.foregroundPids.filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== shellPid);
 }
 
 /**
- * A child of the shell is still in the pane — running, backgrounded or
- * stopped. A ^Z'd program keeps its pid here, so its terminal modes are left
- * alone; the kernel list of the shell's children is one small file read.
- * An unreadable list reads as empty so a platform without /proc falls back to
- * the foreground check.
+ * Whether a recorded program pid has gone. A program the user stopped (^Z) or
+ * backgrounded still exists here, so its terminal modes stay its own; only a
+ * program that left the machine is gone.
  */
-export function shellHasLiveChild(shellPid: number | null | undefined): boolean {
-    if (shellPid === null || shellPid === undefined || !Number.isInteger(shellPid) || shellPid <= 0) return false;
+export function programIsGone(pid: number): boolean {
     try {
-        return readFileSync(`/proc/${shellPid}/task/${shellPid}/children`, 'utf8').trim().length > 0;
-    } catch {
+        process.kill(pid, 0);
         return false;
+    } catch (error) {
+        return (error as NodeJS.ErrnoException).code === 'ESRCH';
     }
 }
 

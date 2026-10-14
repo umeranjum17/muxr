@@ -38,7 +38,7 @@ import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
-import { foregroundIsShellOnly, shellHasLiveChild, shellPidOf, writeModeResetToPane } from './paneModeReset.js';
+import { foregroundProgramPids, writeModeResetToPane } from './paneModeReset.js';
 import { ArtifactWatcher } from './artifactWatcher.js';
 import { ArtifactDownloadServer } from './artifactDownloads.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
@@ -607,8 +607,6 @@ export async function createHerdrSessionSource(
     const lastInfoSignature = new Map<string, string>();
     /** pane_id -> close fn for its filtered status subscription. */
     const statusWatches = new Map<string, () => void>();
-    /** pane_id -> the pane's shell pid, so a per-scroll check needs no Herdr call. */
-    const shellPidByPane = new Map<string, number>();
 
     /** Stamp a freshly spawned pane with who asked for it. Best effort. */
     const lastReadinessBySession = new Map<string, string>();
@@ -1861,7 +1859,6 @@ export async function createHerdrSessionSource(
             statusWatches.get(resolvedPaneId)?.();
             statusWatches.delete(resolvedPaneId);
             lifecycleEpochByPane.delete(resolvedPaneId);
-            shellPidByPane.delete(resolvedPaneId);
             artifacts.dropPane(resolvedPaneId);
         }
         if (sessionId.startsWith(SHELL_ROUTE_PREFIX)) knownShells.delete(sessionId);
@@ -2822,21 +2819,8 @@ export async function createHerdrSessionSource(
             return (await client.kit.read(paneId, { source: 'visible', ansi: false })).text;
         },
 
-        async paneShellForeground(paneId: string): Promise<boolean> {
-            // The shell pid is stable for the pane's life, so the per-scroll
-            // check is a kernel read of the shell's children rather than a
-            // Herdr round trip; only the transition back to the shell pays one.
-            const cached = shellPidByPane.get(paneId);
-            if (cached !== undefined && shellHasLiveChild(cached)) return false;
-            const info = await readPaneProcess(paneId);
-            const shellPid = shellPidOf(info);
-            if (shellPid === undefined) {
-                shellPidByPane.delete(paneId);
-                return false;
-            }
-            shellPidByPane.set(paneId, shellPid);
-            if (shellHasLiveChild(shellPid)) return false;
-            return foregroundIsShellOnly(info);
+        async paneForegroundPids(paneId: string): Promise<number[]> {
+            return foregroundProgramPids(await readPaneProcess(paneId));
         },
 
         async restorePaneTerminalModes(paneId: string): Promise<boolean> {

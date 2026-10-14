@@ -3,21 +3,23 @@
 When a fullscreen agent (or a small stick-modes program) turns on alternate
 screen and mouse reporting and then exits or crashes without clearing them,
 Herdr keeps no scrollback and still accepts wheel reports. A swipe would type
-SGR garbage like `64;19;6M` into the shell. Muxr restores primary screen and
-mouse-off once the program that set those modes is gone, and sends wheel
-reports only while mouse reporting is on — so a swipe scrolls Herdr's own
-scrollback again and the command line stays clean.
+SGR garbage like `64;19;6M` into the shell. Muxr records the pane's
+foreground program when the modes turn on, restores primary screen and
+mouse-off once that pid is gone, and sends wheel reports only while mouse
+reporting is on — so a swipe scrolls Herdr's own scrollback again and the
+command line stays clean.
 
 ## Sub-features
 
 - `wheel-gate` with mouse reporting off or not yet learned, a swipe is not
-  expanded into program wheel reports.
+  expanded into program wheel reports; nor is it while the recorded program
+  pid is gone, which resets the modes on that same gesture.
 - `mode-reset` after a stick-modes crash (`printf` alt-screen + mouse, then
   kill), the shell returns to scrollback (`max_offset_from_bottom > 0`) without
   SGR text on the prompt.
 - `mode-reset-stopped` a `^Z` (stop) of the same stick program is not a crash:
-  the pid stays in the pane, so its alt-screen and mouse modes survive the
-  swipe and `fg` returns to the same screen.
+  its pid still exists, so its alt-screen and mouse modes survive the swipe and
+  `fg` returns to the same screen.
 - `scrollback-swipe` after that restore, swipes move `offset_from_bottom` and
   the visible command line stays free of `64;…;M`.
 
@@ -58,11 +60,11 @@ Preconditions:
   the child dies.
 - Writing reset CSI through `/proc/<shell_pid>/fd/1` injects as program output;
   opening `/dev/pts/N` alone is less reliable.
-- A program is "gone" when the pane's shell has no live child left, so a
-  stopped (`^Z`, state `T`) program is deliberately left alone and a background
-  job also defers the reset. Reading `/proc/<shell_pid>/task/<shell_pid>/children`
-  is what separates stopped from exited; Herdr's `foreground_processes` lists
-  the shell for both.
+- A program is "gone" when the pid Herdr reported in `foreground_processes`
+  when the modes turned on no longer exists (`kill(pid, 0)` says `ESRCH`). A
+  stopped (`^Z`, state `T`) or backgrounded program still exists, so it is left
+  alone; a later pid the kernel reused reads as still there. This works the
+  same on Linux and macOS.
 - Unknown mouse mode (attach mid-program, before the repaint is parsed) drops
   the gesture too: a scroll Herdr would turn into wheel reports may only go
   once mouse reporting is known on. Latest uses the same rule.

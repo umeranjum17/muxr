@@ -166,8 +166,8 @@ export function createFakeSessionSource(): SessionSource {
             throw new Error('fake source has no panes');
         },
 
-        async paneShellForeground() {
-            return true;
+        async paneForegroundPids() {
+            return [];
         },
 
         async restorePaneTerminalModes() {

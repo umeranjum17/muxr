@@ -511,7 +511,7 @@ async function main(): Promise<void> {
         focusSession: (sessionId, assertActive) => source.paneFocus(sessionId, assertActive),
         readPaneScroll: (paneId) => source.paneScroll(paneId),
         readPaneText: (paneId) => source.paneVisibleText(paneId),
-        paneShellForeground: (paneId) => source.paneShellForeground(paneId),
+        paneForegroundPids: (paneId) => source.paneForegroundPids(paneId),
         restorePaneTerminalModes: (paneId) => source.restorePaneTerminalModes(paneId),
         openTerminal: (paneId, opts) => source.herdrTerminal(paneId, opts),
     });
