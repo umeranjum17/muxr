@@ -12,7 +12,6 @@ name: release
 # Gaps, not published by this workflow:
 # - @desklink/host and its platform packages: published from the desklink repository.
 # - @trymuxr/contract and @trymuxr/crypto: workspace libraries, not published; publish or mark private is a maintainer decision.
-# - The public channel record and GitHub Latest: they need the candidate's GitHub release and Android artifact.
 on:
   push:
     branches: [main]
@@ -88,13 +87,18 @@ jobs:
 
   publish:
     needs: build
-    if: needs.build.outputs.needed == 'true'
+    if: needs.build.outputs.needed == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      actions: read
+      # Repository-wide write, used for the public channel catalog and for
+      # GitHub's Latest flag, and only when the candidate's release exists.
+      contents: write
       id-token: write
     env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_RELEASE_TAG: v${{ needs.build.outputs.version }}
       RELEASE_COMMIT: ${{ github.sha }}
       RELEASE_VERSION: ${{ needs.build.outputs.version }}
       RELEASE_CHANNEL: ${{ needs.build.outputs.channel }}
@@ -112,3 +116,36 @@ jobs:
           path: ${{ runner.temp }}/package
       - name: Publish with provenance
         run: node scripts/release/presentation/publishNpm.mjs
+      - id: github-release
+        name: Check for the candidate's GitHub release
+        run: |
+          if gh release view "$GITHUB_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "The public channel catalog and GitHub release were not updated: no $GITHUB_RELEASE_TAG GitHub release exists, and only the candidate flow creates one." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Promote the accepted stable release to GitHub Latest
+        if: steps.github-release.outputs.exists == 'true' && needs.build.outputs.channel == 'stable'
+        run: node scripts/release/presentation/promoteReleaseVisibility.mjs --tag "$GITHUB_RELEASE_TAG"
+      - name: Point the public channel at this release
+        if: steps.github-release.outputs.exists == 'true'
+        run: node scripts/release/presentation/updateChannelCatalog.mjs --tag "$GITHUB_RELEASE_TAG"
+      - name: Verify every public surface serves this release
+        if: steps.github-release.outputs.exists == 'true'
+        run: node scripts/release/presentation/verifyPublicRelease.mjs --tag "$GITHUB_RELEASE_TAG" --channel "$RELEASE_CHANNEL"
+      - name: Summarize the completed release
+        if: steps.github-release.outputs.exists == 'true'
+        run: |
+          set -euo pipefail
+          # The npm tag is the domain's, not the channel name: stable is latest.
+          tag=$(node -e "import('./scripts/release/domain/channel.mjs').then((m) => process.stdout.write(m.channelTags[process.env.RELEASE_CHANNEL] ?? ''))")
+          [ -n "$tag" ] || { echo "no npm dist-tag for channel $RELEASE_CHANNEL" >&2; exit 1; }
+          {
+            echo "## muxr $RELEASE_VERSION published on $RELEASE_CHANNEL"
+            echo
+            echo "- Download: https://trymuxr.com/downloads/$RELEASE_CHANNEL/android"
+            echo "- Channel page: https://trymuxr.com/downloads/$RELEASE_CHANNEL"
+            echo "- Release notes: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$GITHUB_RELEASE_TAG"
+            echo "- Install: \`npm install -g --ignore-scripts @trymuxr/cli@$tag\`"
+          } >> "$GITHUB_STEP_SUMMARY"

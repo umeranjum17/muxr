@@ -73,10 +73,22 @@ The CLI pins `@desklink/host` to the exact version in `apps/host/package.json`, 
 
 ### Shared contract and crypto packages
 
-A release is a merged version bump: `release.yml` publishes `@trymuxr/cli` with provenance when its version is not on npm yet, and does nothing else. It publishes no other package:
+A release is a merged version bump: `release.yml` publishes `@trymuxr/cli` with provenance when its version is not on npm yet. It publishes no other package:
 
-- `@trymuxr/contract` and `@trymuxr/crypto` (`packages/`): workspace libraries, not published; publish or mark private is a maintainer decision. Inside the monorepo, the host, the app and `@trymuxr/crypto` pin the exact workspace version, and yarn links that version to the workspace. `packages/checkArchitecture.mjs` fails when a pin stops matching. The CLI bundles both packages, so publishing them is not a CLI release prerequisite.
 - `@desklink/host` and its platform packages: published from the desklink repository, not here.
+
+`@trymuxr/contract` and `@trymuxr/crypto` (`packages/`) are published at their own versions, so that the host can leave this repository and still share them with the app. Inside the monorepo, the host, the app and `@trymuxr/crypto` pin the exact workspace version, and yarn links that version to the workspace. `packages/checkArchitecture.mjs` fails when a pin stops matching, because yarn would otherwise install the published copy in place of the workspace. The CLI bundles both packages, so publishing them is not a CLI release prerequisite.
+
+Held: publish or mark private is Main's decision. Until then, the manual path below is the only release route for them:
+
+1. Bump `version` in the package and every pin to it (the check names each one).
+2. From a maintainer login, run:
+
+   ```bash
+   npm publish --workspace packages/contract --workspace packages/crypto
+   ```
+
+   `prepack` makes a clean build of each package. The package manifests set public access. Contract goes first because crypto depends on it. To preview what ships, run `npm pack --dry-run` with the same workspace flags.
 
 ### Web bundle ownership
 
@@ -106,13 +118,7 @@ https://raw.githubusercontent.com/umeranjum17/muxr/release-channels/channels.jso
 
 Every field is derived from that release's own combined `release-manifest.json` — the npm-only candidate manifest carries no Android identity and is never used for this. Artifact URLs are always canonical `github.com/umeranjum17/muxr/releases/download/<tag>/<name>` with the manifest's exact digests. `npmDistTag` is `latest` for stable and `nightly` for nightly. The retired `beta` and `dev` records stay readable in the catalog so links already published keep resolving; nothing writes to them again. Until the first nightly is published the site serves those historical records; from then on `/downloads/beta`, `/downloads/dev` and `/api/releases/{beta,dev}` answer HTTP 302 to their nightly equivalents, so an old link lands on the channel that continues that work. `manifestUrl` may be null only for the legacy stable `0.1.25` seed, which predates sealed manifests.
 
-No workflow writes the channel record any more: `publish.yml` was removed with its npm path, and `release.yml` cannot do it because the record needs the candidate's GitHub release and Android artifact. After a candidate-backed release, run these steps by hand to update the record and check that every public surface agrees:
-
-```
-node scripts/release/presentation/promoteReleaseVisibility.mjs --tag v0.1.27   # stable only
-node scripts/release/presentation/updateChannelCatalog.mjs --tag v0.1.28-nightly.5.1
-node scripts/release/presentation/verifyPublicRelease.mjs --tag v0.1.28-nightly.5.1 --channel nightly
-```
+After a publication, `release.yml` updates the channel record and checks that every public surface agrees, as the steps in its `publish` job. Those steps read the version's GitHub release and its combined manifest, which only the candidate flow creates. When that release does not exist, the job leaves the record unchanged and says so in its step summary; it does not fail.
 
 The catalog update is idempotent and backfills any retained release without rebuilding. Before it writes anything it checks identity rather than names: the tag must point at the commit its manifest was sealed from, the APK asset GitHub serves must match the manifest's name, size and sha256 digest, the retained tarball must match its manifest digest and hash to the sha512 integrity npm published, and the npm dist-tag must already name that exact version. It then updates only its own channel, serializing concurrent writers through fast-forward-only ref updates — never a force push, never a backwards move, never the same version pointing at different bytes.
 
