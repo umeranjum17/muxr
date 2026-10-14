@@ -25,10 +25,10 @@ const styles = StyleSheet.create((theme) => ({
         width: '92%', maxWidth: 800, alignSelf: 'center', marginTop: 12,
         padding: 16, gap: 10,
     },
-    // On the first-run screen the card sits beside FirstRunConnection's step
-    // cards, so it takes their container width (100% of the centered section,
-    // maxWidth 360) instead of Home's wide 92% card, and drops the Home-only
-    // top margin so it flows with the section gap.
+    // On the first-run screen the card sits in the centered section below
+    // FirstRunConnection, so it takes that container width instead of Home's
+    // wide 92% card, and drops the Home-only top margin so it flows with the
+    // section gap.
     cardFirstRun: {
         width: '100%', maxWidth: 360, marginTop: 0,
     },
