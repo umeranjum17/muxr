@@ -33,11 +33,13 @@ import type {
 } from '@trymuxr/contract';
 import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@trymuxr/contract';
 import { hostDesktopForPanes } from '../../desktop/index.js';
-import { defaultOpencodeGoModel } from '../../plans/opencodeAccounts.js';
+import { defaultOpencodeGoModel, opencodeLaunchArgs } from '../../plans/opencodeAccounts.js';
 import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
+import { foregroundProgramPids, writeModeResetToPane } from './paneModeReset.js';
+import { MODE_RESET_CSI } from './terminalModes.js';
 import { ArtifactWatcher } from './artifactWatcher.js';
 import { ArtifactDownloadServer } from './artifactDownloads.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
@@ -1518,10 +1520,13 @@ export async function createHerdrSessionSource(
         return launched;
     }
 
-    async function startManagedAgent(paneId: string, kind: string, launchName: string): Promise<void> {
+    async function startManagedAgent(paneId: string, kind: string, launchName: string, pathEnv?: string): Promise<void> {
+        const launchEnv = pathEnv === undefined ? process.env : { ...process.env, PATH: pathEnv };
+        const args = kind === 'opencode' ? opencodeLaunchArgs(launchEnv) : [];
         await client.kit.startAgent({
             kind, name: launchName, cwd: panesById.get(paneId)?.cwd ?? homedir(),
             place: { pane: paneId }, timeoutMs: 60_000,
+            ...(args.length === 0 ? {} : { args }),
         });
         recordStartedAgent(paneId, kind, launchName);
     }
@@ -1828,6 +1833,29 @@ export async function createHerdrSessionSource(
         return session;
     }
 
+    async function readPaneProcess(paneId: string): Promise<{
+        shellPid?: number | null;
+        tty?: string | null;
+        foregroundPids: number[];
+    }> {
+        const result = await client.call<{
+            process_info?: {
+                shell_pid?: number | null;
+                tty?: string | null;
+                foreground_processes?: Array<{ pid?: number }>;
+            };
+        }>('pane.process_info', { pane_id: paneId });
+        const info = result.process_info;
+        const foregroundPids = (info?.foreground_processes ?? [])
+            .map((process) => Number(process.pid))
+            .filter((pid) => Number.isInteger(pid) && pid > 0);
+        return {
+            ...(info?.shell_pid === undefined ? {} : { shellPid: info.shell_pid }),
+            ...(info?.tty === undefined ? {} : { tty: info.tty }),
+            foregroundPids,
+        };
+    }
+
     function forgetClosedSession(sessionId: string, paneId?: string): void {
         const resolvedPaneId = paneId ?? closePaneId(sessionId);
         if (resolvedPaneId !== undefined) {
@@ -2030,7 +2058,7 @@ export async function createHerdrSessionSource(
                 try { defaultOpencodeGoModel(startOptions.planEnv ?? {}); }
                 catch { /* An unwritable config only costs the default model; the agent still starts. */ }
             }
-            await startManagedAgent(paneId, kind, launchName);
+            await startManagedAgent(paneId, kind, launchName, startOptions.planEnv?.PATH);
             const session = bindListedPane(paneId) ?? await waitForListedAgent(paneId, 5_000);
             const publishedKind = publicAgentKind(kind);
             options.onAgentLaunchDiagnostic?.('ok', {
@@ -2795,6 +2823,27 @@ export async function createHerdrSessionSource(
             return (await client.kit.read(paneId, { source: 'visible', ansi: false })).text;
         },
 
+        async paneForegroundPids(paneId: string): Promise<number[]> {
+            return foregroundProgramPids(await readPaneProcess(paneId));
+        },
+
+        async restorePaneTerminalModes(paneId: string): Promise<boolean> {
+            const info = await readPaneProcess(paneId);
+            if (writeModeResetToPane(info)) return true;
+            // Platforms without a writable /proc fd: ask the shell to print the
+            // reset so Herdr's parser still sees it (command line is touched).
+            try {
+                await client.call('pane.send_text', {
+                    pane_id: paneId,
+                    text: `printf '${MODE_RESET_CSI.replace(/\x1b/g, '\\033')}'\n`,
+                });
+                return true;
+            } catch {
+                /* A pane that cannot take input stays stuck until the user resets. */
+                return false;
+            }
+        },
+
         async agentWatch(watchOptions: {
             sessionId: string;
             until?: ('idle' | 'done' | 'blocked' | 'unknown')[];
@@ -2909,8 +2958,12 @@ export async function createHerdrSessionSource(
                 const name = `pph_${kind}_${paneId.replace(/[^a-z0-9]/gi, '').toLowerCase()}`.slice(0, 32);
                 // Fire and forget: agent.start blocks on detection, and one agent
                 // failing to come up must not lose the rest of the layout.
+                const args = kind === 'opencode' ? opencodeLaunchArgs() : [];
                 void client
-                    .call('agent.start', { name, kind, pane_id: paneId, timeout_ms: 30_000 }, 45_000)
+                    .call('agent.start', {
+                        name, kind, pane_id: paneId, timeout_ms: 30_000,
+                        ...(args.length === 0 ? {} : { args }),
+                    }, 45_000)
                     .catch(() => {});
                 started += 1;
             }

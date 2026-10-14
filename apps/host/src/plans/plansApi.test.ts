@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
 import { loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
+import { opencodeLaunchArgs } from './opencodeAccounts.js';
 import { AgentCatalog } from '../requests/index.js';
 
 const mockState = vi.hoisted(() => ({ failRename: false, failRefreshAllocation: false, failRefreshCleanup: false }));
@@ -610,4 +611,49 @@ exit 0
     expect(existsSync(a.record.folder)).toBe(false);
     expect(existsSync(b.record.folder)).toBe(true);
     expect(readFileSync(join(computerOwn, 'auth.json'), 'utf8')).toContain('NEVER_ADOPTED');
+});
+
+/** The fixed-port invariant holds on the sign-in path too: a 2.x account's
+ *  `opencode auth login` runs with its own private server, so a second
+ *  account's sign-in tab does not collide on the shared background port. */
+it('signs an OpenCode 2.x account in with --standalone, while 1.x gets no flag', async () => {
+    const bin = join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    const argsFile = join(root, 'opencode-args');
+    const writeFake = (version: string) => {
+        writeFileSync(join(bin, 'opencode'), `#!/bin/bash
+if [[ "$1" == "--version" ]]; then echo "${version}"; exit 0; fi
+printf '%s\\n' "$@" > "$OC_ARGS_FILE"
+`);
+        chmodSync(join(bin, 'opencode'), 0o755);
+    };
+    env = { ...env, PATH: `${bin}:${env.PATH}`, OC_ARGS_FILE: argsFile };
+
+    writeFake('opencode v2.0.28');
+    const two = await preparePlanSignIn(env, 'opencode');
+    execFileSync('/bin/sh', ['-c', two.launch.signIn], { env: { ...env, ...two.launch.planEnv } });
+    expect(readFileSync(argsFile, 'utf8').trim().split('\n')).toEqual(['auth', 'login', '--standalone']);
+
+    writeFake('1.19.0');
+    const one = await preparePlanSignIn(env, 'opencode');
+    execFileSync('/bin/sh', ['-c', one.launch.signIn], { env: { ...env, ...one.launch.planEnv } });
+    expect(readFileSync(argsFile, 'utf8').trim().split('\n')).toEqual(['auth', 'login']);
+});
+
+/** The version probe is cached, but an in-place upgrade must re-probe: the
+ *  host is long-lived and `opencode upgrade` rewrites the same binary path. */
+it('re-probes an OpenCode binary upgraded in place so its 2.x launch keeps --standalone', () => {
+    const bin = join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    const binary = join(bin, 'opencode');
+    const writeFake = (version: string) => {
+        writeFileSync(binary, `#!/bin/bash\nif [[ "$1" == "--version" ]]; then echo "${version}"; fi\n`);
+        chmodSync(binary, 0o755);
+    };
+    env = { ...env, PATH: `${bin}:${env.PATH}` };
+
+    writeFake('1.19.0');
+    expect(opencodeLaunchArgs(env)).toEqual([]);
+    writeFake('opencode v2.0.28');
+    expect(opencodeLaunchArgs(env)).toEqual(['--standalone']);
 });

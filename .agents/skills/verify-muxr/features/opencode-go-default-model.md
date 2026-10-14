@@ -17,9 +17,12 @@ no manual model switch. The phone shows no picker for this; the footer reads
   Spark 1.3 Contributor and its first reply comes from that model, on OpenCode
   1.19 and 2.x alike (2.x has no `--model` flag and exits on it).
 - `opencode-go-user-model-kept` a model the user set in that config stands.
-- `opencode-go-other-launches-unchanged` every other kind, the sign-in shell,
-  and an OpenCode start with no plan account launch exactly as before (no
-  args, no config written).
+- `opencode-go-other-launches-unchanged` every other kind launches exactly as
+  before, and an OpenCode start with no plan account writes no config. The only
+  launch args muxr adds are `--standalone` on OpenCode 2.x (its sign-in shell
+  included), which gives each account a private background server instead of the
+  one fixed port 2.x otherwise shares (`opencodeLaunchArgs` in
+  `plans/opencodeAccounts.ts`).
 - `opencode-signed-in-state` once the sign-in lands, Settings › Accounts reads
   the OpenCode row as `Signed in` (it has no email to show) and New agent
   reads OpenCode as `Signed in`, not `Sign-in not checked`, with no app
@@ -59,8 +62,8 @@ Preconditions:
    fix it reads `GPT-5.6 Luna · OpenCode Go`; after the fix `Muse Spark 1.3
    Contributor · OpenCode Go`. Ask for one short reply from the agent screen
    and capture footer plus reply.
-4. The launch flow test covers the config write, the kept user model and that
-   no launch passes args.
+4. The launch flow test covers the config write, the kept user model, and that
+   only OpenCode 2.x launches pass `--standalone`.
 5. OpenCode 2.x: sign the account in on 1.19 first (2.x carries that sign-in
    over; a fresh 2.x sign-in lives only in its `opencode.db`, which muxr does
    not read yet), then put 2.x first on the lab `PATH` and start agents.

@@ -35,6 +35,17 @@ const pwaLeads = () => {
         }
         return false;
     };
+    // A point scrolled out of a scroller's box is not painted there: whatever
+    // sits above the scroller (a header) answers the hit test instead.
+    const inScrollers = (e, x, y) => {
+        for (let a = e.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+            const ps = getComputedStyle(a);
+            if (!/auto|scroll/.test(ps.overflowX + ps.overflowY)) continue;
+            const pr = a.getBoundingClientRect();
+            if (x < pr.left || x > pr.right || y < pr.top || y > pr.bottom) return false;
+        }
+        return true;
+    };
     if (!document.body.innerText.trim()) return 'blank page: nothing rendered (retake the shot)';
     const de = document.documentElement;
     if (de.scrollWidth > innerWidth) out.push(`off-screen: page ${de.scrollWidth}px wide in a ${innerWidth}px viewport`);
@@ -66,7 +77,7 @@ const pwaLeads = () => {
         const spots = [[0.5, 0.2], [0.5, 0.5], [0.5, 0.8], [0.1, 0.5], [0.9, 0.5]];
         for (const [fx, fy] of spots) {
             const x = r.left + r.width * fx, y = r.top + r.height * fy;
-            if (x < 0 || x >= innerWidth || y < 0 || y >= innerHeight) continue;
+            if (x < 0 || x >= innerWidth || y < 0 || y >= innerHeight || !inScrollers(el, x, y)) continue;
             const hit = document.elementFromPoint(x, y);
             if (!hit || hit === el || el.contains(hit) || hit.contains(el)) continue;
             if (hit.closest('[aria-hidden="true"]')) continue;
@@ -99,6 +110,7 @@ const pwaLeads = () => {
         const r = b.getBoundingClientRect();
         if (!r.width || r.bottom < 0 || r.top > innerHeight || !shown(b)) continue;
         const y = Math.min(Math.max(r.top + r.height / 2, 0), innerHeight - 1);
+        if (!inScrollers(b, r.left + r.width / 2, y)) continue;
         const hit = document.elementFromPoint(r.left + r.width / 2, y);
         if (hit && !b.contains(hit) && !hit.contains(b)) out.push(`covered control: "${(b.innerText || b.getAttribute('aria-label') || '').slice(0, 40)}" under ${hit.tagName}`);
     }
@@ -241,9 +253,21 @@ const edgeLeads = (watched, W) => watched.flatMap((n) => {
     return [];
 });
 
+// A flex row can shrink a title to a sliver: one glyph per line, the rest
+// hidden. Two glyph widths of a proportional face is about one em, so the
+// narrowest readable box is roughly the text's line height, and a box under it
+// holds fewer than two glyphs to a line. Captures carry no font size, so the
+// line height comes from the node: the text-size or line-height attribute when
+// a dump has one, else the box height over the label's glyph count. Under the
+// one-glyph defect that is exactly one line; on any wider box it understates
+// the line, which keeps the rule quiet on labels whose painted text overflows
+// a narrow box. The 20 px floor stays a minimum.
+const lineHeight = (n) => Number(n.at['text-size'] || n.at['line-height']) || (n.box.b - n.box.t) / n.at.text.length;
+
 const clipLeads = (nodes) => nodes.filter((n) => n.at.text).flatMap((n) => {
     const parent = n.up.at(-1), out = [];
     if (/(…|\.\.\.)$/.test(n.at.text)) out.push(`ellipsis cuts the text: "${n.label}" ${n.at.bounds}`);
+    if (n.at.text.length > 2 && n.box.r - n.box.l < Math.max(20, lineHeight(n))) out.push(`text squeezed to a sliver: "${n.label}" ${n.at.bounds} (${n.box.r - n.box.l}px wide under a ${Math.round(lineHeight(n))}px line)`);
     if (parent && (n.box.l < parent.box.l - 1 || n.box.r > parent.box.r + 1 || n.box.t < parent.box.t - 1 || n.box.b > parent.box.b + 1)) out.push(`text runs past its parent: "${n.label}" ${n.at.bounds} (parent ${parent.at.bounds})`);
     return out;
 });
@@ -372,6 +396,19 @@ const selfTest = () => {
     expect('tall clickable text under the gesture bar at rest is flagged', layout(nodesOf(tall)).some((l) => l.startsWith('under the navigation bar on the unscrolled screen') && l.includes('"Read the full terms"')), layout(nodesOf(tall)).join(' | '));
     const tallAbove = el('android.widget.TextView', '[100,1500][980,2300]', { text: 'Read the full terms', clickable: true });
     expect('tall clickable text that ends above the gesture bar is not flagged', layout(nodesOf(tallAbove)).length === 0, layout(nodesOf(tallAbove)).join(' | '));
+    const sliver = el('android.widget.TextView', '[68,1368][73,2376]', { text: 'Have a connect link?' });
+    expect('a 17sp title squeezed to a one-glyph sliver (real 270 dp / font 2.0 bounds) is flagged', layout(nodesOf(sliver)).some((l) => l.startsWith('text squeezed to a sliver')), layout(nodesOf(sliver)).join(' | '));
+    // The old rule stopped at 20 px; a 17sp one-glyph column is about 17-50 px
+    // wide and still holds fewer than two glyphs to a line.
+    const wideSliver = el('android.widget.TextView', '[68,1368][108,2376]', { text: 'Have a connect link?' });
+    expect('a squeezed title wider than the 20 px floor is flagged by its line height', layout(nodesOf(wideSliver)).some((l) => l.startsWith('text squeezed to a sliver')), layout(nodesOf(wideSliver)).join(' | '));
+    const shortLabels = nodesOf(
+        el('android.widget.TextView', '[520,2080][560,2140]', { text: 'Go' }),
+        el('android.widget.TextView', '[520,2180][570,2240]', { text: 'OK' }),
+        el('android.widget.TextView', '[906,1762][936,1821]', { text: 'Tab 4' }),
+        el('android.widget.TextView', '[481,1755][529,1843]', { text: 'playing' }),
+        el('android.widget.TextView', '[972,1764][1028,1820]', { text: '\uf356' }));
+    expect('short labels ("Go", "OK") and single-icon labels ("Tab 4", "playing") are not slivers', !layout(shortLabels).some((l) => l.startsWith('text squeezed to a sliver')), layout(shortLabels).join(' | '));
     const labelled = el('android.view.ViewGroup', '[0,200][1080,2376]', { desc: 'list', scrollable: true });
     expect('labelled non-clickable container past the bar at the end of the scroll is not flagged', layout(nodesOf(labelled), { end: true }).length === 0, layout(nodesOf(labelled), { end: true }).join(' | '));
     const pngOf = (name, args) => {
@@ -416,8 +453,10 @@ const pwaSelfTest = () => {
 <div dir="auto" style="position:absolute;left:450px;top:380px;width:40px;font:17px Arial;overflow-wrap:break-word">Tailscale</div>
 <button disabled style="position:absolute;left:550px;top:380px;pointer-events:none"><div dir="auto" style="width:40px;font:17px Arial;overflow-wrap:break-word">Connect</div></button>
 <div dir="auto" style="position:absolute;left:650px;top:380px;width:110px;font:17px Arial;overflow-wrap:normal">Tailscale Connect</div>
+<div style="position:absolute;left:560px;top:200px;width:200px;height:40px;background:#222;z-index:1">header</div>
+<div style="position:absolute;left:560px;top:240px;width:200px;height:60px;overflow-y:auto"><div style="height:300px"><span>scrolled under the header</span><br><button>Scrolled button</button></div></div>
 <pre id="leads"></pre>
-<script>window.onload = () => { document.getElementById('leads').textContent = (${pwaLeads})(); };</script>`);
+<script>window.onload = () => { document.querySelector('[style*="overflow-y:auto"]').scrollTop = 40; document.getElementById('leads').textContent = (${pwaLeads})(); };</script>`);
     const html = execFileSync('chromium', ['--headless=new', '--no-sandbox', '--allow-file-access-from-files', '--virtual-time-budget=5000', '--dump-dom', pathToFileURL(join(dir, 'page.html')).href]).toString();
     const leads = (html.match(/<pre id="leads">([\s\S]*?)<\/pre>/)?.[1] ?? '').split('\n');
     expect('PWA ranges flag split Securely, Tailscale and Connect; whole-word wrapping is clean',
@@ -426,6 +465,7 @@ const pwaSelfTest = () => {
     expect('squashed img and background are flagged, cover crops are not', stretched.length === 2 && !leads.some((l) => /drawn (80x80|90x90)/.test(l)), leads.join(' | '));
     expect('text painted over by other text or by an image is flagged',
         leads.some((l) => l.startsWith('text over text: "buried caption"')) && leads.some((l) => l.startsWith('text over image: "caption under art"')), leads.join(' | '));
+    expect('text and a control scrolled up under a header, out of their scroller, are not flagged', !leads.some((l) => l.includes('scrolled under the header') || l.includes('Scrolled button')), leads.join(' | '));
     expect('text sticking out of an overflow-hidden ancestor is flagged', leads.some((l) => l.startsWith('text clipped by overflow-hidden ancestor: "two lines of text')), leads.join(' | '));
     expect('text past the edge outside a scroller is flagged; text and images inside a horizontal scroller are not',
         leads.some((l) => l.startsWith('text off-screen: "chip past the edge"')) && !leads.some((l) => l.includes('"chip inside a scroller"') || l.startsWith('image off-screen')), leads.join(' | '));
