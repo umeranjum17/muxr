@@ -48,9 +48,9 @@ Steps:
 The 120 s take is longer than the kit's 30 s window, so it also exercises the
 0.5.0 windowing change.
 
-Supporting evidence: the kit's own proof with `@byokit/dictation` 0.5.0 (WER
-CLI) against the same fixtures. Evidence goes under `~/.no-mistakes/evidence`,
-not the diff.
+Optional supporting check: the kit's WER CLI for `@byokit/dictation` 0.5.0 on
+the same fixtures. No result is recorded in this repo; the phone run above is
+the proof. Evidence goes under `~/.no-mistakes/evidence`, not the diff.
 
 This feature is not yet run. Its status is pending until the evidence exists.
 

@@ -57,8 +57,8 @@ Silero VAD
   MIT License
 
 The mobile app bundles the ggml Silero voice-activity model (ggml-silero-v6.2.0)
-that gates dictation so silence never reaches Whisper. It is not part of the
-host-only npm artifact.
+that skips the final Whisper decode when a dictation take has no speech. It is
+not part of the host-only npm artifact.
 
 --------------------------------------------------------------------------------
 xterm.js — https://github.com/xtermjs/xterm.js
