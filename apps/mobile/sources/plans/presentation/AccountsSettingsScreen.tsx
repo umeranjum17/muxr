@@ -224,8 +224,9 @@ export function AccountsSettingsScreen() {
                         })}
                         <Item
                             title={addAccountLabel(provider.id)}
-                            subtitle={accounts.length === 0 ? 'Next to the one already signed in on this computer' : undefined}
-                            subtitleLines={2}
+                            titleLines={0}
+                            subtitle={accounts.length === 0 ? 'Next to the one already signed in here' : undefined}
+                            subtitleLines={0}
                             titleStyle={{ color: theme.colors.textLink }}
                             icon={<Ionicons name="add" size={26} color={theme.colors.textLink} />}
                             showChevron={false}
@@ -238,8 +239,9 @@ export function AccountsSettingsScreen() {
                 <ItemGroup title="When you start an agent">
                     <Item
                         title="Auto picks the most room left"
+                        titleLines={0}
                         subtitle="Off: the account you picked last"
-                        subtitleLines={2}
+                        subtitleLines={0}
                         rightElement={<Switch value={autoOn} onValueChange={setAutoOn} />}
                         showChevron={false}
                     />

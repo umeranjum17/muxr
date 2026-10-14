@@ -11,7 +11,7 @@ import { Typography } from '@/constants/Typography';
 import { useHerdrTree } from '@/catalog/store';
 import { navigateToSession } from '@/herd';
 import { Modal } from '@/modal';
-import { nameSuggestions, providerEntry, providerName, resolvedAccountNames, type PlanAccount } from '../domain/planAccounts';
+import { addAccountLabel, nameSuggestions, providerEntry, providerName, resolvedAccountNames, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, refreshPlans, usePlansStore, useUnknownAccounts } from '../application/plansStore';
 import { dismissNotice, showNotice, useNotice } from '../application/planNotices';
 import { cancelSignIn, planFailure, renameAccount, signInState, startSignIn } from '../application/plansApi';
@@ -123,7 +123,7 @@ export function AddAccountSheet() {
             onClose={close}
             body={
                 <View>
-                    <SheetTitle>Add a {name} account</SheetTitle>
+                    <SheetTitle>{addAccountLabel(provider)}</SheetTitle>
                     {!short && <SheetLede>Use a second {name} plan from this computer, e.g. your work plan next to your personal one.</SheetLede>}
                     {step(1, `${name}'s own sign-in opens in a new tab`, `The real ${TOOL[provider]}, on a private folder just for this account.`)}
                     {step(2, 'Sign in with the account you want to add', `Your password and keys stay with ${name}. muxr never sees them.`)}
