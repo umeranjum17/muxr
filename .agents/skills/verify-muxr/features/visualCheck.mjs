@@ -14,7 +14,7 @@
 //   node visualCheck.mjs selftest | pwa-selftest
 //     proves the checks fire on their defects and stay quiet on the clean case,
 //     one flow per page: native (the pair-screen defect, a clean pair entry, a
-//     blank strip) and PWA (a fixture page, and the driver's exit codes).
+//     split title word, a blank strip) and PWA (a fixture page, and the driver's exit codes).
 //     pwa-selftest needs `chromium`. Each prints PASS/FAIL per case and exits
 //     non-zero on any FAIL.
 import { execFileSync } from 'node:child_process';

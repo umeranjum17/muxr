@@ -206,16 +206,16 @@ node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>-s
 ```
 
 It saves the PNG and the uiautomator dump and prints `DEFECT …` lines for
-what a machine can see (a word split across lines, from screenshot OCR
-reconciled against the full accessibility label; text under the status bar; text or a button box under
+what a machine can see (text under the status bar; text or a button box under
 the navigation bar: at rest, any text or button box whose bottom edge sits more
 than 4px into the bar, inside a scroller or not; with `--end`, any of it still
 under the bar; text touching the screen edge, or a button box past it even when
 its text fits, unless the node sits in a horizontal scroller that swipe
-reaches; clipped text (an ellipsis, or running past its parent); overlapping
-elements; an unlabelled image off-screen or painted over a control; a covered
-control; a squashed image or an image with no reference twin; flat edge
-strips; a text or button box below the viewport on a screen that cannot scroll,
+reaches; clipped text (an ellipsis, or running past its parent); a word split
+across lines (screenshot OCR reconciled against the full accessibility label,
+a lead since OCR can miss or misread); overlapping elements; an unlabelled
+image off-screen or painted over a control; a covered control; a squashed
+image or an image with no reference twin; flat edge strips; a text or button box below the viewport on a screen that cannot scroll,
 with or without the bar). Any DEFECT line fails the cell (exit 1). `--end`
 runs on every screen that scrolls, as well as the at-rest shot: its
 scrolled-to-end shot must show the content clear of the bar.
