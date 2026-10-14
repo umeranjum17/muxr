@@ -205,11 +205,13 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
         Typography.default('semiBold'),
         options.headerTitleStyle,
     ];
+    // Only a roomy desktop row keeps 17; compact rows and native use 16.
+    const stringTitleFontSize = isDesktop && !compact ? 17 : 16;
     let title: React.ReactNode | null = null;
     if (options.headerTitle) {
         if (typeof options.headerTitle === 'string') {
             title = (
-                <Text style={titleTextStyle(compact ? 16 : (isDesktop ? 17 : 16))} numberOfLines={1} ellipsizeMode="tail">
+                <Text style={titleTextStyle(stringTitleFontSize)} numberOfLines={1} ellipsizeMode="tail">
                     {options.headerTitle}
                 </Text>
             );
