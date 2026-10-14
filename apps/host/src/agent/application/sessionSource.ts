@@ -182,8 +182,9 @@ export interface SessionSource {
     paneForegroundPids(paneId: string): Promise<number[]>;
     /**
      * Restore primary screen and mouse-off after a crashed fullscreen program.
-     * Injects the reset as PTY output so the shell's command line stays clean,
-     * and resolves whether a reset actually landed.
+     * Prefers writing the reset onto the pane's PTY as program output, so the
+     * shell's command line stays clean; where nothing on the pane can be written
+     * it types the reset into the shell instead. Resolves whether a reset landed.
      */
     restorePaneTerminalModes(paneId: string): Promise<boolean>;
     /** Register a watch; resolves once registered, not once the agent settles. */
