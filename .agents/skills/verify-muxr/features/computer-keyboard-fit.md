@@ -10,7 +10,7 @@ password box) behind the keyboard. The pan lives in desklink's
 
 ## Sub-features
 
-- `kbfit-fresh` after `simctl terminate` + `simctl launch`, landscape -> Pane actions -> Computer -> tap the password field -> keyboard up: the focused field sits inside the picture band above the keyboard. Five independent fresh launches, all pass.
+- `kbfit-fresh` after `simctl terminate` + `simctl launch`, landscape -> Pane actions -> Computer -> tap the password field -> keyboard up: the focused field sits inside the picture band above the keyboard. Expected: each of the five independent fresh launches passes.
 - `kbfit-type` on-screen keys typed right after show in that field.
 - `kbfit-themes` light and dark.
 
