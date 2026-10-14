@@ -260,26 +260,57 @@ describe('SSH tunnel established before pairing', () => {
         expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:old' });
     });
 
-    it('drops the pin and shows the live fingerprint when the last connection reported a changed host key', async () => {
+    it('drops the pin and shows the live fingerprint after a changed-key refusal from connect or save probe', async () => {
         await pairAs(true, 'm1');
         await saveConnectionSettings({
             ...getCachedConnectionSettings(),
             ssh: { host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:old' },
         });
-        tunnel.inspectSshHostKey.mockResolvedValueOnce('SHA256:new');
-        const seen: string[] = [];
 
-        const saved = await saveReviewedSshSettings(
+        // Refusal copy from the real producer (describe via verify), not a hand-written literal.
+        tunnel.verifySshCredentials.mockRejectedValueOnce(Object.assign(new Error('host key changed'), { code: 'ssh-host-key' }));
+        const refused = await establishSshTunnel(FIELDS);
+        expect(refused.ok).toBe(false);
+        const lastConnectionError = refused.ok === false ? refused.message : '';
+        expect(lastConnectionError).toMatch(/^The SSH fingerprint for .* changed\./);
+
+        tunnel.inspectSshHostKey.mockResolvedValueOnce('SHA256:new');
+        const seenFromSocket: string[] = [];
+        const fromSocket = await saveReviewedSshSettings(
             { ...FIELDS, password: '', credentialPresent: true },
             {
-                lastConnectionError: 'The SSH fingerprint for box.lan changed. No login details were sent. Open Connection settings → SSH, confirm the new fingerprint, or choose Use current relay route instead.',
-                confirm: async (fingerprint) => { seen.push(fingerprint); return true; },
+                lastConnectionError,
+                confirm: async (fingerprint) => { seenFromSocket.push(fingerprint); return true; },
+            },
+        );
+        expect(fromSocket.ok).toBe(true);
+        expect(seenFromSocket).toEqual(['SHA256:new']);
+        expect(getCachedConnectionSettings().ssh?.hostKey).toBe('SHA256:new');
+
+        // Same recovery when the changed key is first seen on this save's credential probe
+        // (socketError still null — live tunnel may still be up).
+        await saveConnectionSettings({
+            ...getCachedConnectionSettings(),
+            ssh: { host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:old' },
+        });
+        tunnel.verifySshCredentials
+            .mockRejectedValueOnce(Object.assign(new Error('host key changed'), { code: 'ssh-host-key' }))
+            .mockResolvedValueOnce({ hostKey: 'SHA256:probed' });
+        tunnel.inspectSshHostKey.mockResolvedValueOnce('SHA256:probed');
+        const seenFromProbe: string[] = [];
+
+        const fromProbe = await saveReviewedSshSettings(
+            { ...FIELDS, password: 'new-secret' },
+            {
+                lastConnectionError: null,
+                confirm: async (fingerprint) => { seenFromProbe.push(fingerprint); return true; },
             },
         );
 
-        expect(saved.ok).toBe(true);
-        expect(tunnel.inspectSshHostKey).toHaveBeenCalledTimes(1);
-        expect(seen).toEqual(['SHA256:new']);
-        expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:new' });
+        expect(fromProbe.ok).toBe(true);
+        expect(tunnel.inspectSshHostKey).toHaveBeenCalled();
+        expect(seenFromProbe).toEqual(['SHA256:probed']);
+        expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:probed' });
+        expect(secrets.setNativeSecret).toHaveBeenCalledWith('muxr.ssh.credential.v1.m1', JSON.stringify({ password: 'new-secret' }));
     });
 });

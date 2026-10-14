@@ -340,9 +340,10 @@ export interface SshSettingsSaveOptions {
  * Save the Connection settings Direct SSH form. A confirmed pin for the same
  * endpoint is kept, so an offline edit of another field still saves without a
  * probe. The pin is dropped and the live fingerprint shown for explicit
- * confirmation when the endpoint changed, no pin exists, or the last connection
- * was refused because the host key changed. A typed credential is probed before
- * it replaces the saved one.
+ * confirmation when the endpoint changed, no pin exists, the last connection
+ * was refused because the host key changed, or this save's own credential probe
+ * refuses for a changed host key. A typed credential is probed before it
+ * replaces the saved one.
  */
 export async function saveReviewedSshSettings(
     input: SshFieldInput,
@@ -362,11 +363,19 @@ export async function saveReviewedSshSettings(
         || previous.host !== parsed.target.host
         || previous.port !== parsed.target.port;
     try {
-        const target = mustReview
+        let target = mustReview
             ? await reviewSshHostKey(parsed.target, options.confirm)
             : pinSshHostKey(previous, parsed.target);
         if (Object.keys(parsed.credential).length > 0) {
-            await verifySshCredential(target, parsed.credential);
+            try {
+                await verifySshCredential(target, parsed.credential);
+            } catch (cause) {
+                // A changed key first seen on this probe never reached socketError;
+                // drop the pin and re-confirm in the same save so Settings can recover.
+                if (!(cause instanceof SshConnectionError) || cause.code !== 'ssh-host-key' || target.hostKey === undefined) throw cause;
+                target = await reviewSshHostKey({ ...target, hostKey: undefined }, options.confirm);
+                await verifySshCredential(target, parsed.credential);
+            }
             await saveSshCredential(settings.machineId, parsed.credential);
         }
         const next = { ...settings, ssh: target };
