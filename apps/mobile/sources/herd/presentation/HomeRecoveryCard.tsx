@@ -35,7 +35,9 @@ const styles = StyleSheet.create((theme) => ({
     action: { color: theme.colors.accent, fontSize: 14, ...Typography.default('semiBold') },
 }));
 
-export function recoveryMode(error: string | null | undefined, runtimeOffline: boolean): 'host' | 'runtime' | 'update-app' | 'update-host' | 'pair' | 'revoked' {
+export function recoveryMode(error: string | null | undefined, runtimeOffline: boolean): 'host' | 'runtime' | 'update-app' | 'update-host' | 'pair' | 'revoked' | 'ssh-key' {
+    // sshTunnel.ts refuses a changed host key before any login; no restart or retry fixes it.
+    if (error && /^The SSH fingerprint for .* changed\./.test(error)) return 'ssh-key';
     if (error?.startsWith('Update needed:')) return /older muxr connection protocol|Update muxr on the computer/i.test(error) ? 'update-host' : 'update-app';
     if (error?.startsWith('Pair again:')) return 'pair';
     if (error?.startsWith('Access removed:')) return 'revoked';
@@ -54,6 +56,7 @@ export function HomeRecoveryCard({
 }) {
     const router = useRouter();
     const { theme } = useUnistyles();
+    const sshKey = mode === 'ssh-key';
     const rePair = mode === 'update-app' || mode === 'update-host' || mode === 'pair' || mode === 'revoked';
     // A runtime that is down because Herdr was never installed: no restart brings it back.
     const herdrMissing = useHerdrMissing() && mode === 'runtime';
@@ -64,7 +67,7 @@ export function HomeRecoveryCard({
         : publicBaseUrl ? `${publicBaseUrl}/downloads/stable/android` : 'https://github.com/umeranjum17/muxr/releases/latest';
     return (
         <View style={[styles.card, cardStyle(theme)]}>
-            <Text style={styles.title}>{herdrMissing ? 'Herdr is missing on your computer' : mode === 'update-app' ? 'Update the muxr app' : mode === 'update-host' ? 'Update muxr on your computer' : mode === 'pair' ? 'Pair this phone again' : mode === 'revoked' ? 'Access removed' : mode === 'host' ? 'Computer unreachable' : 'Agent runtime unavailable'}</Text>
+            <Text style={styles.title}>{herdrMissing ? 'Herdr is missing on your computer' : mode === 'update-app' ? 'Update the muxr app' : mode === 'update-host' ? 'Update muxr on your computer' : mode === 'pair' ? 'Pair this phone again' : mode === 'revoked' ? 'Access removed' : sshKey ? 'SSH fingerprint changed' : mode === 'host' ? 'Computer unreachable' : 'Agent runtime unavailable'}</Text>
             <Text style={styles.body}>
                 {herdrMissing ? 'Open the muxr app on that computer and choose Install Herdr; your agents appear here once it starts.'
                     : mode === 'pair' ? reason?.includes('no longer recognises')
@@ -73,6 +76,7 @@ export function HomeRecoveryCard({
                     : mode === 'update-app' ? 'This app needs an update to connect to your computer.'
                     : mode === 'update-host' ? 'Update muxr on your computer, then pair again.'
                     : mode === 'revoked' ? 'This computer removed your access. Pair again to reconnect.'
+                    : sshKey ? (reason ?? 'The SSH fingerprint changed. No login details were sent. Check the fingerprint in your provider console before setting up SSH again.')
                     : reason ?? (mode === 'host'
                         ? 'Check that this device can reach the computer and that muxr is running.'
                         : 'The computer is reachable, but its agent runtime is not answering. Restart muxr there.')}
@@ -81,7 +85,7 @@ export function HomeRecoveryCard({
                 refers to it: hiding it whenever a reason exists left "run the
                 command" pointing at nothing. */}
             {herdrMissing && <Text style={styles.body}>Or run this in a terminal there:</Text>}
-            {!rePair && <View style={styles.commandRow}>
+            {!rePair && !sshKey && <View style={styles.commandRow}>
                 <Text selectable style={styles.command}>{command}</Text>
                 <Pressable
                     accessibilityRole="button"
@@ -106,7 +110,7 @@ export function HomeRecoveryCard({
                                 : router.push('/pair' as never)}
                     />
                 ) : <>
-                    <ActionButton title={retrying ? 'Retrying…' : 'Retry connection'} accessibilityLabel="Retry connection" disabled={retrying} onPress={onRetry} />
+                    {!sshKey && <ActionButton title={retrying ? 'Retrying…' : 'Retry connection'} accessibilityLabel="Retry connection" disabled={retrying} onPress={onRetry} />}
                     <Pressable accessibilityRole="link" onPress={() => router.push('/settings/connection' as never)} style={styles.actionTarget}>
                         <Text style={styles.action}>Connection details</Text>
                     </Pressable>
