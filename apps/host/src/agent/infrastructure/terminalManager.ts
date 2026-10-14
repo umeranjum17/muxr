@@ -33,10 +33,10 @@ export interface TerminalManagerOptions {
     readPaneScroll?: (paneId: string) => Promise<{ offsetFromBottom: number; maxOffsetFromBottom: number }>;
     /** The pane's visible text. Omitted, a program's wheel is turned a row a report. */
     readPaneText?: (paneId: string) => Promise<string>;
-    /** True when only the pane's shell is in the foreground. */
+    /** True when no program of the pane is left — only its shell, at its prompt. */
     paneShellForeground?: (paneId: string) => Promise<boolean>;
-    /** Clear alternate-screen and mouse modes left by a crashed fullscreen program. */
-    restorePaneTerminalModes?: (paneId: string) => Promise<void>;
+    /** Clear alternate-screen and mouse modes left by a crashed fullscreen program. Resolves whether a reset landed. */
+    restorePaneTerminalModes?: (paneId: string) => Promise<boolean>;
     /** Opens the kit terminal session; the kit owns the herdr binary and env. */
     openTerminal: (paneId: string, opts: TerminalOpenOptions) => TerminalSession;
 }
@@ -425,9 +425,11 @@ export class TerminalManager {
                 }
                 const scroll = scrollInput(text);
                 const lines = Number(scroll?.lines);
-                if (scroll !== undefined && shouldSendWheelReports(attachment.herdrOwnsScroll, attachment.modes.mouseReporting)
+                const expandWheel = scroll !== undefined
+                    && shouldSendWheelReports(attachment.herdrOwnsScroll, attachment.modes.mouseReporting)
                     && (scroll.direction === 'up' || scroll.direction === 'down')
-                    && Number.isInteger(lines) && lines > 0) {
+                    && Number.isInteger(lines) && lines > 0;
+                if (expandWheel) {
                     const rows = scroll.direction === 'up' ? lines : -lines;
                     // A finger that turns back wants the new way now, not
                     // after the rest of the old way is paid off.
@@ -438,13 +440,17 @@ export class TerminalManager {
                         paintedAt = Date.now();
                         turnWheel();
                     }
-                } else {
+                } else if (scroll === undefined || attachment.herdrOwnsScroll === true) {
                     // A key goes to the program at its live edge; the rest of a
                     // fling must not carry it back up afterwards.
                     if (scroll === undefined) wheelRows = 0;
-                    // Mouse reporting off: forward the scroll so Herdr moves its
-                    // own scrollback instead of injecting wheel reports.
                     session.send(text);
+                } else {
+                    // Herdr owns no scrollback here, so it would hand this
+                    // scroll to the program as wheel reports — mouse reporting
+                    // is off or not learned yet. There is no scrollback of our
+                    // own to move, so the gesture is dropped.
+                    wheelRows = 0;
                 }
                 // Whatever a scroll turns out to move -- Herdr's own
                 // scrollback, a program's wheel handler, or nothing at all --
@@ -590,10 +596,9 @@ export class TerminalManager {
                 if (!active()) return;
                 if (scroll === undefined) break;
                 if (scroll.maxOffsetFromBottom === 0) {
-                    if (attachment.modes.mouseReporting === false) {
-                        // No Herdr scrollback and mouse reporting known off —
-                        // Latest has nowhere to turn. Unknown mouse (attach
-                        // mid-program) still turns the wheel as before.
+                    if (!shouldSendWheelReports(false, attachment.modes.mouseReporting)) {
+                        // No Herdr scrollback and mouse reporting is off or not
+                        // learned: Latest has nowhere to turn.
                         result('complete');
                         return;
                     }
@@ -779,7 +784,8 @@ export class TerminalManager {
     /**
      * When a fullscreen program dies without clearing alternate-screen or
      * mouse modes, inject the reset as PTY output so Herdr's scrollback
-     * returns and wheel reports stop typing into the shell.
+     * returns and wheel reports stop typing into the shell. A program that is
+     * only stopped (^Z) keeps its pid in the pane, so it is left alone.
      */
     private async restoreStaleModes(attachment: Attachment): Promise<void> {
         const shellForeground = this.options.paneShellForeground;
@@ -789,20 +795,22 @@ export class TerminalManager {
             await attachment.modeRestore;
             return;
         }
-        const stale = shouldResetStaleModes(attachment.modes, true);
+        const stale = shouldResetStaleModes(attachment.modes);
         const probe = !attachment.probedModeRestore
-            && shouldProbeModeRestore(attachment.herdrOwnsScroll, attachment.modes, true);
+            && shouldProbeModeRestore(attachment.herdrOwnsScroll, attachment.modes);
         if (!stale && !probe) return;
         attachment.modeRestore = (async () => {
             try {
                 if (!(await shellForeground(attachment.paneId))) return;
-                const stillStale = shouldResetStaleModes(attachment.modes, true);
+                const stillStale = shouldResetStaleModes(attachment.modes);
                 const stillProbe = !attachment.probedModeRestore
-                    && shouldProbeModeRestore(attachment.herdrOwnsScroll, attachment.modes, true);
+                    && shouldProbeModeRestore(attachment.herdrOwnsScroll, attachment.modes);
                 if (!stillStale && !stillProbe) return;
+                // Modes stay tracked until a reset really landed, so the next
+                // scroll retries instead of leaving the pane stuck on the
+                // alternate screen with the wheel gate shut.
+                if (!(await restore(attachment.paneId))) return;
                 if (stillProbe) attachment.probedModeRestore = true;
-                await restore(attachment.paneId);
-                // Assume the write landed; the next frames will confirm.
                 attachment.modes = { mouseReporting: false, alternateScreen: false };
                 delete attachment.wheelStep;
                 attachment.resetWheelMeasure?.();

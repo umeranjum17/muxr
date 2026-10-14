@@ -4,9 +4,9 @@
  * A full-screen agent turns on alternate screen and mouse reporting. When it
  * exits or crashes without clearing those modes, Herdr keeps no scrollback and
  * still accepts wheel reports — bash then echoes SGR sequences like `64;19;6M`.
- * Muxr tracks the modes from output, sends wheel reports only while mouse
- * reporting is not known-off, and restores normal screen/mouse when the shell
- * alone is left holding those modes.
+ * Muxr tracks the modes from output, turns a scroll into wheel reports only
+ * while mouse reporting is known on, and restores normal screen/mouse once no
+ * program of the pane is left holding those modes.
  */
 
 /** Leave alternate screen and every common mouse-reporting mode. */
@@ -54,39 +54,35 @@ export function applyPrivateModeBytes(state: TerminalModeState, text: string): T
 }
 
 /**
- * Wheel reports go to the program when Herdr has no scrollback, unless mouse
- * reporting is known off. Unknown (attach mid-program) keeps the old expand
- * path so a live agent still gets a fling as many notches.
+ * Wheel reports go to the program only while mouse reporting is known on.
+ * Herdr turns a scroll into wheel reports for the program whenever it owns no
+ * scrollback, so an off — or not yet learned — mode must not expand one.
  */
 export function shouldSendWheelReports(
     herdrOwnsScroll: boolean | undefined,
     mouseReporting: boolean | undefined,
 ): boolean {
-    return herdrOwnsScroll === false && mouseReporting !== false;
+    return herdrOwnsScroll === false && mouseReporting === true;
 }
 
 /**
- * Shell alone still showing alternate-screen or mouse modes — the foreground
- * program left without clearing them.
+ * The pane still shows alternate-screen or mouse modes a fullscreen program
+ * turned on and left behind.
  */
-export function shouldResetStaleModes(
-    modes: TerminalModeState,
-    foregroundIsShellOnly: boolean,
-): boolean {
-    return foregroundIsShellOnly && (modes.mouseReporting === true || modes.alternateScreen === true);
+export function shouldResetStaleModes(modes: TerminalModeState): boolean {
+    return modes.mouseReporting === true || modes.alternateScreen === true;
 }
 
 /**
  * After attach we may have missed the DECSET that left modes on. When Herdr
- * still has no scrollback and only the shell is foreground, probe a resetonce.
+ * still has no scrollback and no mode has been seen yet, probe once.
  */
 export function shouldProbeModeRestore(
     herdrOwnsScroll: boolean | undefined,
     modes: TerminalModeState,
-    foregroundIsShellOnly: boolean,
 ): boolean {
-    if (!foregroundIsShellOnly || herdrOwnsScroll !== false) return false;
-    if (shouldResetStaleModes(modes, true)) return true;
-    // Unknown modes + no scrollback + shell only: likely a crashed agent.
+    if (herdrOwnsScroll !== false) return false;
+    if (shouldResetStaleModes(modes)) return true;
+    // Unknown modes + no scrollback: likely a crashed fullscreen program.
     return modes.mouseReporting === undefined && modes.alternateScreen === undefined;
 }

@@ -5,7 +5,7 @@
  * typing into the command line.
  */
 
-import { closeSync, existsSync, openSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { MODE_RESET_CSI } from './terminalModes.js';
 
 export type PaneProcessSnapshot = {
@@ -14,15 +14,35 @@ export type PaneProcessSnapshot = {
     foregroundPids: number[];
 };
 
+/** The pane's shell pid when Herdr reported one usable. */
+export function shellPidOf(info: PaneProcessSnapshot): number | undefined {
+    const pid = info.shellPid;
+    return pid !== null && pid !== undefined && Number.isInteger(pid) && pid > 0 ? pid : undefined;
+}
+
 /** Shell alone in the foreground — no child still driving the pane. */
 export function foregroundIsShellOnly(info: PaneProcessSnapshot): boolean {
-    const shellPid = info.shellPid;
-    if (shellPid === undefined || shellPid === null || !Number.isInteger(shellPid) || shellPid <= 0) {
-        return false;
-    }
+    const shellPid = shellPidOf(info);
+    if (shellPid === undefined) return false;
     const foreground = info.foregroundPids.filter((pid) => Number.isInteger(pid) && pid > 0);
     if (foreground.length === 0) return true;
     return foreground.every((pid) => pid === shellPid);
+}
+
+/**
+ * A child of the shell is still in the pane — running, backgrounded or
+ * stopped. A ^Z'd program keeps its pid here, so its terminal modes are left
+ * alone; the kernel list of the shell's children is one small file read.
+ * An unreadable list reads as empty so a platform without /proc falls back to
+ * the foreground check.
+ */
+export function shellHasLiveChild(shellPid: number | null | undefined): boolean {
+    if (shellPid === null || shellPid === undefined || !Number.isInteger(shellPid) || shellPid <= 0) return false;
+    try {
+        return readFileSync(`/proc/${shellPid}/task/${shellPid}/children`, 'utf8').trim().length > 0;
+    } catch {
+        return false;
+    }
 }
 
 /**

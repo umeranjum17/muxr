@@ -172,6 +172,7 @@ export function createFakeSessionSource(): SessionSource {
 
         async restorePaneTerminalModes() {
             /* fake panes have no PTY modes to clear */
+            return true;
         },
 
         async agentWatch() {

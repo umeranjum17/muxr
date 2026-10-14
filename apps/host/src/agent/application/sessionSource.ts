@@ -175,15 +175,16 @@ export interface SessionSource {
     /** The text a pane shows now, by pane id. */
     paneVisibleText(paneId: string): Promise<string>;
     /**
-     * True when only the pane's shell is in the foreground. Used to clear
-     * alternate-screen and mouse modes a crashed fullscreen program left on.
+     * True when no program of the pane is left — only its shell, at its prompt.
+     * A stopped (^Z) program keeps its pid in the pane, so it is not "left".
      */
     paneShellForeground(paneId: string): Promise<boolean>;
     /**
      * Restore primary screen and mouse-off after a crashed fullscreen program.
-     * Injects the reset as PTY output so the shell's command line stays clean.
+     * Injects the reset as PTY output so the shell's command line stays clean,
+     * and resolves whether a reset actually landed.
      */
-    restorePaneTerminalModes(paneId: string): Promise<void>;
+    restorePaneTerminalModes(paneId: string): Promise<boolean>;
     /** Register a watch; resolves once registered, not once the agent settles. */
     agentWatch(options: {
         sessionId: string;
