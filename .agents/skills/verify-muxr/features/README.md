@@ -207,6 +207,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Read the computer name in the Home header](./home-header-name.md) —
   native app over a named fake-Herdr stack: one line with an ellipsis, at
   270dp and font scale 2.0, light and dark.
+- [Read a screen title in the sticky header](./sticky-header-title.md) —
+  shared stack header on PWA and native: Accounts/Settings whole at 270 dp
+  font 2.0; a longer title ellipsizes on one line; 390 dp font 1.0 unchanged.
 - [Read a version difference as one quiet Home line](./home-version-line.md) —
   native release app and PWA over a fake-Herdr stack whose host reports 0.1.0:
   one secondary line at the foot, never the top slot, themes and 270dp/font 1.3.
