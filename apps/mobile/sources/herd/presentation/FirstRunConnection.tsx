@@ -7,6 +7,7 @@ import { Typography } from '@/constants/Typography';
 import { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner } from '@/pairing';
 import { sshTunnelAvailable } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { FirstRunSetupCard } from './FirstRunSetupCard';
 
 /**
@@ -38,8 +39,8 @@ export function RouteSwitcher(props: { onFastPairing: () => void }) {
 export function FirstRunConnection() {
     const router = useRouter();
     const styles = stylesheet;
-    const { width, fontScale } = useWindowDimensions();
-    const compact = width / fontScale < 200;
+    const { fontScale } = useWindowDimensions();
+    const compact = useCompactWindow();
     const [linkValue, setLinkValue] = React.useState('');
     const [moreWaysOpen, setMoreWaysOpen] = React.useState(false);
     const browser = Platform.OS === 'web';

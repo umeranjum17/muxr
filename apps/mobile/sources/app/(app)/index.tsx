@@ -1,5 +1,5 @@
 import { useAuth } from '@/account/ui';
-import { ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import * as React from 'react';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
@@ -20,7 +20,7 @@ export default function Home() {
 
 function NotAuthenticated() {
     const auth = useAuth();
-    const { width, fontScale } = useWindowDimensions();
+    const compact = useCompactWindow();
     const pairing = React.useRef(false);
 
     React.useEffect(() => {
@@ -47,7 +47,7 @@ function NotAuthenticated() {
             <Header title={<Text style={styles.headerTitle}>Connect a machine</Text>} headerShadowVisible={false} />
             <ScrollView
                 style={styles.screen}
-                contentContainerStyle={[styles.content, { paddingBottom: 24, paddingHorizontal: width / fontScale < 200 ? 8 : 16 }]}
+                contentContainerStyle={[styles.content, { paddingBottom: 24, paddingHorizontal: compact ? 8 : 16 }]}
                 keyboardShouldPersistTaps="handled"
             >
                 <FirstRunConnection />

@@ -1,11 +1,12 @@
 import * as React from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { loadAppConfig } from '@/catalog';
 import { setupEmptyState } from '@/commercialization';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
 // Honest disclosure of what the copyable command does, checked against the
@@ -64,8 +65,8 @@ export function FirstRunSetupCard(props: {
     variant?: 'full' | 'command';
 }) {
     const commandOnly = props.variant === 'command';
-    const { width, fontScale } = useWindowDimensions();
-    const compact = commandOnly && width / fontScale < 200;
+    const narrow = useCompactWindow();
+    const compact = commandOnly && narrow;
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const setup = setupEmptyState(loadAppConfig().publicBaseUrl);
