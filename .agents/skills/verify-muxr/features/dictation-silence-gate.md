@@ -18,31 +18,39 @@ shows what dictation settled on.
 
 ## Driving it
 
-Preconditions: a task-owned Android emulator with the candidate APK installed.
-This is on-device Whisper, not the relay. Proof is file-fed only (no microphone,
-no speaker playback).
+Preconditions: a task-owned Android emulator with a debug APK built from the
+candidate, with `EXPO_PUBLIC_MUXR_LAB_DICTATE=1` set at bundle time. This is
+on-device Whisper, not the relay. Proof is file-fed only (no microphone, no
+speaker playback).
 
-The proof drives the shipped `startLiveTranscription()` in
-`apps/mobile/sources/utils/localTranscription.ts`, so it runs the real
-`acquireEngine` and `finish()` path with the bundled Silero model
-(`apps/mobile/sources/assets/models/ggml-silero-v6.2.0.bin`). Feed the audio
-through the dictation microphone seam (`apps/mobile/sources/utils/dictationMicrophone.ts`)
-with `near-silence-0.003-120s`, `scripts/dictation/fixtures/quiet.wav` and
-`clean.wav`. That file-feed seam does not exist yet: adding it is the first step
-of this proof, and it must stay out of the shipped path.
+Lab seam: `apps/mobile/sources/utils/dictationLabFeed.ts`, consumed by
+`dictationMicrophone.ts` `open()`. When the flag is set and
+`<app files>/muxr-lab-dictation.pcm` exists, the next take plays that file
+(raw little-endian PCM16 mono, 16 kHz) through the normal
+`startLiveTranscription()` path: `acquireEngine`, the bundled Silero context,
+and `finish()` all run as shipped. The flag is inlined at bundle time, so
+production has no branch and no hardware-mic change.
 
-The 120 s near-silence take is generated at proof time (PCM noise at about 0.003 RMS
-for 120 s), not committed. `quiet.wav` and `clean.wav` come from
-`scripts/dictation/fixtures/`. The 120 s take is longer than the kit's 30 s
-window, so it also exercises the 0.5.0 windowing change.
+Steps:
+1. Generate the 120 s near-silence take at proof time: PCM noise at about
+   0.003 RMS, 120 s, 16 kHz mono. It is not committed. Quiet and clean takes
+   come from `scripts/dictation/fixtures/quiet.wav` and `clean.wav` (convert to
+   raw PCM16 with the same rate).
+2. For each take, push the PCM into the app's files directory with
+   `adb shell run-as <package> cp` (or `adb push` to a temp path, then
+   `run-as`), then hold the mic on Home in the app, release, and read the
+   composer draft.
+3. Assert: the silence take leaves the draft empty; quiet and clean produce
+   their words. Capture composer-draft screenshots (empty after silence, filled
+   after quiet). Log partials on the silence take, since partials are only held
+   back by the energy gate.
 
-Expect an empty final for the 120 s silence take and non-empty text for quiet and
-clean. Capture composer-draft screenshots (empty after silence, filled after
-quiet), and log partials on the silence take, since partials are only held back
-by the energy gate.
+The 120 s take is longer than the kit's 30 s window, so it also exercises the
+0.5.0 windowing change.
 
-Supporting evidence: the kit's own proof with `@byokit/dictation` 0.5.0 (WER CLI)
-against the same fixtures. Evidence goes under `~/.no-mistakes/evidence`, not the diff.
+Supporting evidence: the kit's own proof with `@byokit/dictation` 0.5.0 (WER
+CLI) against the same fixtures. Evidence goes under `~/.no-mistakes/evidence`,
+not the diff.
 
 This feature is not yet run. Its status is pending until the evidence exists.
 

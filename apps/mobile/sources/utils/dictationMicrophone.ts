@@ -1,6 +1,7 @@
 import { Buffer } from 'buffer';
 import LiveAudioStream from 'react-native-live-audio-stream';
 import type { AudioFrame, AudioMic, AudioMicStream } from '@byokit/dictation';
+import { readLabDictationFeed } from '@/utils/dictationLabFeed';
 
 /** Permissions and microphone ownership are acquired by the dictation UI. */
 export function dictationMicrophone(): { audio: AudioMic; opened: Promise<void> } {
@@ -15,12 +16,13 @@ export function dictationMicrophone(): { audio: AudioMic; opened: Promise<void> 
                 let wake: (() => void) | undefined;
                 let recording = false;
                 let stopped: Promise<void> | undefined;
+                let fed = false;
                 let at = 0;
                 const stream: AudioMicStream = {
                     stop() {
                         if (stopped) return stopped;
                         stopped = Promise.resolve()
-                            .then(() => LiveAudioStream.stop())
+                            .then(() => (fed ? undefined : LiveAudioStream.stop()))
                             .then(() => undefined)
                             .finally(() => {
                                 recording = false;
@@ -41,6 +43,13 @@ export function dictationMicrophone(): { audio: AudioMic; opened: Promise<void> 
                     },
                 };
                 try {
+                    const labFrames = await readLabDictationFeed(rate);
+                    if (labFrames) {
+                        fed = true;
+                        frames.push(...labFrames);
+                        opened();
+                        return stream;
+                    }
                     await LiveAudioStream.init({
                         sampleRate: rate, channels: 1, bitsPerSample: 16,
                         audioSource: 6, bufferSize: 2560, wavFile: '',
