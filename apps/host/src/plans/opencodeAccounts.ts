@@ -7,7 +7,7 @@
  * folderVar, no move, no readiness probe, billing unknown.
  */
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -18,9 +18,10 @@ import { loadPlanAccounts, plansDir, savePlanAccounts, type PlanAccountRecord } 
 /** Source-backed OpenCode redirects: none may reach a launch, inherited or set. */
 const BLOCKED = ['OPENCODE_AUTH', 'OPENCODE_AUTH_CONTENT', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_TEST_HOME', 'OPENCODE_DB'];
 
-/** Cached major version per resolved binary path. Only successful probes are
- *  stored: a timeout, parse miss, or failed spawn must not pin "unknown" for
- *  the host lifetime (that would omit `--standalone` on every later 2.x launch). */
+/** Cached major version per resolved binary path plus file identity, so an
+ *  in-place upgrade re-probes. Only successful probes are stored: a timeout,
+ *  parse miss, or failed spawn must not pin "unknown" for the host lifetime
+ *  (that would omit `--standalone` on every later 2.x launch). */
 const opencodeMajorByBinary = new Map<string, number>();
 
 function unavailable(): never {
@@ -29,14 +30,16 @@ function unavailable(): never {
 
 /** Major from `opencode --version` (1.x and 2.x both print it). Unknown → undefined. */
 function opencodeMajor(binary: string): number | undefined {
-    const cached = opencodeMajorByBinary.get(binary);
+    const stat = existsSync(binary) ? statSync(binary) : undefined;
+    const key = stat === undefined ? binary : `${binary}:${stat.mtimeMs}:${stat.size}`;
+    const cached = opencodeMajorByBinary.get(key);
     if (cached !== undefined) return cached;
     const result = spawnSync(binary, ['--version'], { encoding: 'utf8', timeout: 5_000 });
     const text = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
     const match = /\b(\d+)\.\d+\.\d+\b/.exec(text) ?? /\bv?(\d+)\.\d+\b/.exec(text);
     const major = match === null ? undefined : Number(match[1]);
     if (major === undefined || !Number.isFinite(major)) return undefined;
-    opencodeMajorByBinary.set(binary, major);
+    opencodeMajorByBinary.set(key, major);
     return major;
 }
 
