@@ -12,7 +12,7 @@ import {
     type SshCommandResult,
     type SshTunnelErrorCode,
 } from '../../modules/ssh-tunnel';
-import type { SshTarget } from './connectionSettings';
+import type { ConnectionSettings, SshTarget } from './connectionSettings';
 import { sameSshTarget } from './sshKeyInstall';
 import type { SshPublicKeyInfo } from './sshPublicKey';
 
@@ -81,6 +81,11 @@ export class SshConnectionError extends Error {
         super(message);
         this.name = 'SshConnectionError';
     }
+}
+
+/** The connection error muxr shows when a changed host key refused the login. */
+export function isSshHostKeyChangeRefusal(error: string | null | undefined): boolean {
+    return typeof error === 'string' && /^The SSH fingerprint for .* changed\./.test(error);
 }
 
 function describe(error: SshTunnelError, target: SshTarget): SshConnectionError {
@@ -320,6 +325,53 @@ export async function applySshAfterPairing(input: SshFieldInput, options?: { hos
             ...(options?.relayUrl !== undefined ? { relayUrl: options.relayUrl } : {}),
         });
         return { ok: true };
+    } catch (cause) {
+        return { ok: false, message: cause instanceof Error ? cause.message : String(cause) };
+    }
+}
+
+export interface SshSettingsSaveOptions {
+    /** The last connection's error, if any: a changed host key drops the pin. */
+    lastConnectionError: string | null;
+    confirm?: (fingerprint: string) => Promise<boolean>;
+}
+
+/**
+ * Save the Connection settings Direct SSH form. A confirmed pin for the same
+ * endpoint is kept, so an offline edit of another field still saves without a
+ * probe. The pin is dropped and the live fingerprint shown for explicit
+ * confirmation when the endpoint changed, no pin exists, or the last connection
+ * was refused because the host key changed. A typed credential is probed before
+ * it replaces the saved one.
+ */
+export async function saveReviewedSshSettings(
+    input: SshFieldInput,
+    options: SshSettingsSaveOptions,
+): Promise<{ ok: true; settings: ConnectionSettings; target: SshTarget } | { ok: false; message: string }> {
+    const { getCachedConnectionSettings, saveConnectionSettings } = await import('./connectionSettings');
+    const settings = getCachedConnectionSettings();
+    if (settings.selfhost !== true || settings.machineId === '') {
+        return { ok: false, message: 'Pair this phone with a self-hosted machine before configuring Direct SSH.' };
+    }
+    const parsed = parseSshFields(input);
+    if ('error' in parsed) return { ok: false, message: parsed.error };
+    const previous = settings.ssh;
+    const mustReview = isSshHostKeyChangeRefusal(options.lastConnectionError)
+        || previous === undefined
+        || previous.hostKey === undefined
+        || previous.host !== parsed.target.host
+        || previous.port !== parsed.target.port;
+    try {
+        const target = mustReview
+            ? await reviewSshHostKey(parsed.target, options.confirm)
+            : pinSshHostKey(previous, parsed.target);
+        if (Object.keys(parsed.credential).length > 0) {
+            await verifySshCredential(target, parsed.credential);
+            await saveSshCredential(settings.machineId, parsed.credential);
+        }
+        const next = { ...settings, ssh: target };
+        await saveConnectionSettings(next);
+        return { ok: true, settings: next, target };
     } catch (cause) {
         return { ok: false, message: cause instanceof Error ? cause.message : String(cause) };
     }

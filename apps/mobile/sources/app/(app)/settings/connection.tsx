@@ -14,16 +14,13 @@ import {
     executeSshCommand,
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
-    parseSshFields,
-    reviewSshHostKey,
     saveConnectionSettings,
+    saveReviewedSshSettings,
     type SshTarget,
 } from '@/connection';
 import {
     forgetSshCredential,
     hasSshCredential,
-    saveSshCredential,
-    verifySshCredential,
     savedSshPublicKey,
     sshTunnelAvailable,
     stopSshTunnel,
@@ -346,49 +343,36 @@ export default function ConnectionSettingsScreen() {
     const sshSupported = initial.selfhost === true && sshTunnelAvailable();
 
     const saveSsh = async () => {
-        if (initial.selfhost !== true || initial.machineId === '') {
-            setSshError('Pair this phone with a self-hosted machine before configuring Direct SSH.');
-            return;
-        }
-        const parsed = parseSshFields({
-            host: sshHost,
-            username: sshUsername,
-            port: sshPort,
-            relayPort: sshRelayPort,
-            password: sshPassword,
-            privateKey: sshPrivateKey,
-            passphrase: sshPassphrase,
-            credentialPresent: sshCredentialPresent,
-        });
-        if ('error' in parsed) {
-            setSshError(parsed.error);
-            return;
-        }
-        // Never keep a prior pin on save: a changed host key must show its new
-        // fingerprint for confirmation, and a credential-less save must not
-        // silently write the old pin back.
-        let target: SshTarget = parsed.target;
         setSshError(undefined);
         setSshSaving(true);
         try {
-            target = await reviewSshHostKey(target, (fingerprint) => Modal.confirm(
-                'Check SSH fingerprint',
-                `Compare this fingerprint with your provider console before continuing.\n\n${fingerprint}\n\nNo login details have been sent.`,
-                { confirmText: 'Fingerprint matches', cancelText: 'Cancel' },
-            ));
-            if (Object.keys(parsed.credential).length > 0) {
-                // Sign in with what was typed before it replaces the saved credential.
-                await verifySshCredential(target, parsed.credential);
-                await saveSshCredential(initial.machineId, parsed.credential);
+            const saved = await saveReviewedSshSettings({
+                host: sshHost,
+                username: sshUsername,
+                port: sshPort,
+                relayPort: sshRelayPort,
+                password: sshPassword,
+                privateKey: sshPrivateKey,
+                passphrase: sshPassphrase,
+                credentialPresent: sshCredentialPresent,
+            }, {
+                lastConnectionError: socketError,
+                confirm: (fingerprint) => Modal.confirm(
+                    'Check SSH fingerprint',
+                    `Compare this fingerprint with your provider console before continuing.\n\n${fingerprint}\n\nNo login details have been sent.`,
+                    { confirmText: 'Fingerprint matches', cancelText: 'Cancel' },
+                ),
+            });
+            if (!saved.ok) {
+                setSshError(saved.message);
+                return;
             }
-            const next = { ...initial, ssh: target };
-            await saveConnectionSettings(next);
-            setInitial(next);
+            setInitial(saved.settings);
             setInstallStatus(undefined);
-            setSshHost(parsed.target.host);
-            setSshUsername(parsed.target.username);
-            setSshPort(String(parsed.target.port));
-            setSshRelayPort(String(parsed.target.relayPort));
+            setSshHost(saved.target.host);
+            setSshUsername(saved.target.username);
+            setSshPort(String(saved.target.port));
+            setSshRelayPort(String(saved.target.relayPort));
             setSshPassword('');
             setSshPrivateKey('');
             setSshPassphrase('');

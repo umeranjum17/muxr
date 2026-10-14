@@ -45,8 +45,7 @@ import {
     channelRelayUrl,
     establishSshTunnel,
     parseSshFields,
-    pinSshHostKey,
-    reviewSshHostKey,
+    saveReviewedSshSettings,
     sshRelayUrl,
     tunnelPairingUrl,
     verifySshCredential,
@@ -74,6 +73,7 @@ beforeEach(async () => {
     tunnel.livePort = 0;
     tunnel.verifySshCredentials.mockReset();
     tunnel.verifySshCredentials.mockResolvedValue({ hostKey: 'SHA256:abc' });
+    tunnel.inspectSshHostKey.mockClear();
 });
 
 const FIELDS = {
@@ -240,21 +240,46 @@ describe('SSH tunnel established before pairing', () => {
         expect(getCachedConnectionSettings().relayUrl).toBe('wss://box.lan:8792');
     });
 
-    it('Connection settings re-save drops a stale pin so the live fingerprint must be confirmed', async () => {
+    it('saves Direct SSH keeping a confirmed pin for an unchanged endpoint without probing', async () => {
         await pairAs(true, 'm1');
         await saveConnectionSettings({
             ...getCachedConnectionSettings(),
             ssh: { host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:old' },
         });
-        const next = { host: 'box.lan', username: 'ume', port: 22, relayPort: 8792 };
-        // Same endpoint would keep the stale pin on reconnect; settings save must not.
-        expect(pinSshHostKey(getCachedConnectionSettings().ssh, next).hostKey).toBe('SHA256:old');
-        tunnel.inspectSshHostKey.mockResolvedValueOnce('SHA256:new');
-        const reviewed = await reviewSshHostKey(next, async (fingerprint) => {
-            expect(fingerprint).toBe('SHA256:new');
-            return true;
+        const confirm = vi.fn(async () => true);
+
+        const saved = await saveReviewedSshSettings(
+            { ...FIELDS, password: '', credentialPresent: true },
+            { lastConnectionError: null, confirm },
+        );
+
+        expect(saved.ok).toBe(true);
+        expect(tunnel.inspectSshHostKey).not.toHaveBeenCalled();
+        expect(tunnel.verifySshCredentials).not.toHaveBeenCalled();
+        expect(confirm).not.toHaveBeenCalled();
+        expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:old' });
+    });
+
+    it('drops the pin and shows the live fingerprint when the last connection reported a changed host key', async () => {
+        await pairAs(true, 'm1');
+        await saveConnectionSettings({
+            ...getCachedConnectionSettings(),
+            ssh: { host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:old' },
         });
-        expect(reviewed).toEqual({ ...next, hostKey: 'SHA256:new' });
-        expect(tunnel.inspectSshHostKey).toHaveBeenCalled();
+        tunnel.inspectSshHostKey.mockResolvedValueOnce('SHA256:new');
+        const seen: string[] = [];
+
+        const saved = await saveReviewedSshSettings(
+            { ...FIELDS, password: '', credentialPresent: true },
+            {
+                lastConnectionError: 'The SSH fingerprint for box.lan changed. No login details were sent. Open Connection settings → SSH, confirm the new fingerprint, or choose Use current relay route instead.',
+                confirm: async (fingerprint) => { seen.push(fingerprint); return true; },
+            },
+        );
+
+        expect(saved.ok).toBe(true);
+        expect(tunnel.inspectSshHostKey).toHaveBeenCalledTimes(1);
+        expect(seen).toEqual(['SHA256:new']);
+        expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792, hostKey: 'SHA256:new' });
     });
 });
