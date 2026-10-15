@@ -139,6 +139,11 @@ user-visible behavior, then exactly four H2 sections in this order:
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
   versioned page shares and their refusals, and the retention view of the
   same timeline.
+- [Send any file from the phone to a live agent](./attach-any-file.md) —
+  the composer's `+` offers Photo Library and Files: a zip, pdf and txt land on
+  the host with their original names against a live Herdr agent that opens each,
+  the 10 MB cap refuses a larger file on the phone, and the host backstop holds;
+  images keep their resize/thumbnail path, chips at 393/270 px light and dark.
 - [Pair a phone through the kit files](./pairing-handoff.md) —
   non-TTY `--handoff`, raw two-word kit delivery, verified enrollment,
   mismatch/deadline/cancellation cleanup, and missing-setup startup in a container.
@@ -263,8 +268,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   open pane, last frame kept, recovery with no tap, plain words.
 - [Keep a shell usable after a crashed fullscreen agent](./terminal-shell-mode-reset.md) —
   wheel reports only while a program holds the pane; restore alt-screen/mouse
-  once the program seen there is gone (a stopped one is left alone) so a swipe
-  stays clean.
+  once the program seen there is gone, or when the crash preceded the attach
+  and the shell has no child left (a stopped one is left alone), so a swipe
+  stays clean and the pane scrolls back.
 - [Scroll a pane and come back with Latest](./terminal-latest.md) —
   native app over a real Herdr lab with long canned output: a finger drag moves
   the pane about as far as the finger in every kind, and Latest reaches the

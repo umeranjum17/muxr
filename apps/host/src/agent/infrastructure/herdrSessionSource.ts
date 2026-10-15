@@ -10,7 +10,7 @@
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
-import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -38,7 +38,7 @@ import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
-import { foregroundProgramPids, writeModeResetToPane } from './paneModeReset.js';
+import { foregroundProgramPids, shellHasLiveChild, shellPidOf, writeModeResetToPane } from './paneModeReset.js';
 import { MODE_RESET_CSI } from './terminalModes.js';
 import { ArtifactWatcher } from './artifactWatcher.js';
 import { ArtifactDownloadServer } from './artifactDownloads.js';
@@ -475,6 +475,24 @@ export function boundedWorkspaceTokens(tokens: unknown): Record<string, string> 
         if (clean !== '') out[key] = clean;
     }
     return Object.keys(out).length === 0 ? undefined : out;
+}
+
+/** One per-file cap for prompt attachments; the phone refuses over this first. */
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+/**
+ * A client-supplied attachment name as one safe path component: separators and
+ * anything unusual become `_`, an all-dots name (which would address a
+ * directory) becomes `attachment`, and the stem is bounded so the join stays
+ * inside the filesystem's name limit. The extension is kept.
+ */
+function safeAttachmentName(name: string): { stem: string; extension: string } {
+    const cleaned = name.replace(/[^A-Za-z0-9._-]/g, '_');
+    if (cleaned === '' || /^\.+$/.test(cleaned)) return { stem: 'attachment', extension: '' };
+    const dot = cleaned.lastIndexOf('.');
+    const stem = dot > 0 ? cleaned.slice(0, dot) : cleaned;
+    const extension = dot > 0 ? cleaned.slice(dot) : '';
+    return { stem: stem.slice(0, 200) || 'attachment', extension: extension.slice(0, 32) };
 }
 
 /** Only self-naming attribution crosses from pane metadata to user surfaces. */
@@ -2837,6 +2855,12 @@ export async function createHerdrSessionSource(
 
         async restorePaneTerminalModes(paneId: string): Promise<boolean> {
             const info = await readPaneProcess(paneId);
+            const shell = shellPidOf(info);
+            // Shell foreground alone does not mean the program exited: ^Z
+            // returns the tty to the shell too. Require an explicitly reported
+            // shell and no child (including stopped/background jobs) at the write.
+            if (shell === undefined || !info.foregroundPids.includes(shell)) return false;
+            if (foregroundProgramPids(info).length > 0 || shellHasLiveChild(shell)) return false;
             if (writeModeResetToPane(info)) return true;
             // Platforms without a writable /proc fd: ask the shell to print the
             // reset so Herdr's parser still sees it (command line is touched).
@@ -3238,10 +3262,35 @@ export async function createHerdrSessionSource(
             await mkdir(dir, { recursive: true });
             const savedPaths: string[] = [];
             for (const attachment of saveOptions.attachments) {
-                const safeName = attachment.name.replace(/[^A-Za-z0-9._-]/g, '_') || 'attachment';
-                const target = join(dir, safeName);
-                await writeFile(target, Buffer.from(attachment.data, 'base64'));
-                savedPaths.push(target);
+                const bytes = Buffer.from(attachment.data, 'base64');
+                // Backstop for the phone's own cap; a client that skips it still
+                // cannot park an oversized blob on the host.
+                if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+                    throw Object.assign(
+                        new Error(`"${attachment.name}" is too large to attach (limit ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB).`),
+                        { code: 'attachment-too-large' },
+                    );
+                }
+                const { stem, extension } = safeAttachmentName(attachment.name);
+                let written: string | undefined;
+                // Collision-safe: keep the original name, add -1, -2 … before the
+                // extension, and let the atomic create decide the winner.
+                for (let attempt = 0; written === undefined && attempt < 1000; attempt++) {
+                    const target = join(dir, `${stem}${attempt === 0 ? '' : `-${attempt}`}${extension}`);
+                    const handle = await open(target, 'wx').catch((error: unknown) => {
+                        if ((error as { code?: string }).code === 'EEXIST') return undefined;
+                        throw error;
+                    });
+                    if (handle === undefined) continue;
+                    try {
+                        await handle.writeFile(bytes);
+                    } finally {
+                        await handle.close();
+                    }
+                    written = target;
+                }
+                if (written === undefined) throw new Error(`Could not save "${attachment.name}" on the host.`);
+                savedPaths.push(written);
             }
             return { savedPaths };
         },

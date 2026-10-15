@@ -47,7 +47,7 @@ import { terminalLineHeight, terminalSurfaceHeight } from '../domain/terminalFlo
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { terminalGrid } from '../application/terminalAhead';
 import { createTerminalPan } from '../application/terminalPan';
-import { useImagePicker } from '@/hooks/useImagePicker';
+import { useAttachmentPicker, chooseAttachmentSource } from '@/hooks/useAttachmentPicker';
 import { useDraft } from '@/hooks/useDraft';
 import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
 import { withAlpha } from '@/components/ui';
@@ -431,7 +431,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         setDraft(next);
     }, [queuedPrompt, props.id]);
 
-    const { selectedImages, pickImages, clearImages } = useImagePicker();
+    const { attachments: pendingAttachments, pickImages, pickFiles, clearAttachments } = useAttachmentPicker();
 
     /**
      * On a pane whose scrollback Herdr owns, Latest shows while Herdr reports
@@ -1029,7 +1029,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         }
         // A booting agent is not a refusal: the host holds the prompt until it
         // can accept it, so let the composer stay live and let the host answer.
-        if (firstPromptQueued || attaching || selectedImages.length > 0 || dictationActive) return;
+        if (firstPromptQueued || attaching || pendingAttachments.length > 0 || dictationActive) return;
         const text = terminalComposerText(draftRef.current, attachedPaths, typing !== undefined);
         if (text === '') return;
         if (typing !== undefined) {
@@ -1069,52 +1069,55 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, firstPromptQueued, markScrolledAway, selectedImages.length, props.id]);
+    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, firstPromptQueued, markScrolledAway, pendingAttachments.length, props.id]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft((previous) =>
         Platform.OS === 'ios' && currentPaneRef.current?.agentKind === undefined ? undoSmartPunctuation(previous, text) : text), []);
 
-    // Files land on the host; their paths are appended only when sending.
-    const attachPhotos = React.useCallback(async () => {
-        await pickImages();
-    }, [pickImages]);
+    // Images and files both land on the host; the paths are appended when sending.
+    const attach = React.useCallback(() => {
+        chooseAttachmentSource(pickImages, pickFiles);
+    }, [pickImages, pickFiles]);
 
     React.useEffect(() => {
-        if (selectedImages.length === 0 || attaching) return;
+        if (pendingAttachments.length === 0 || attaching) return;
         setAttaching(true);
         void (async () => {
             try {
-                const attachments = [];
-                for (const image of selectedImages) {
-                    attachments.push({
-                        name: image.name,
-                        mimeType: image.mimeType,
-                        data: encodeBase64(await readFileBytes(image.uri)),
-                    });
+                // One request per file: a whole batch in one frame could pass the
+                // link's 16 MB message ceiling, a single file never does.
+                for (const attachment of pendingAttachments) {
+                    try {
+                        const result = await sync.request('session.saveAttachments', {
+                            sessionId: props.id,
+                            attachments: [{
+                                name: attachment.name,
+                                mimeType: attachment.mimeType,
+                                data: encodeBase64(await readFileBytes(attachment.uri)),
+                            }],
+                        });
+                        const path = result.savedPaths[0];
+                        if (path === undefined) throw new Error('The host did not confirm the file. Please attach it again.');
+                        setAttachedImages((previous) => [...previous, {
+                            id: attachment.id,
+                            uri: attachment.uri,
+                            name: attachment.name,
+                            mimeType: attachment.mimeType,
+                            size: attachment.size,
+                            path,
+                        }]);
+                    } catch (error) {
+                        Modal.alert('Attachment failed', error instanceof Error ? error.message : `Could not send "${attachment.name}" to the host.`);
+                    }
                 }
-                const result = await sync.request('session.saveAttachments', {
-                    sessionId: props.id,
-                    attachments,
-                });
-                if (result.savedPaths.length !== selectedImages.length) throw new Error('The host did not confirm every image. Please attach them again.');
-                if (result.savedPaths.length > 0) {
-                    setAttachedImages((previous) => [...previous, ...result.savedPaths.map((path, index) => ({
-                        id: selectedImages[index]!.id,
-                        uri: selectedImages[index]!.uri,
-                        name: selectedImages[index]!.name,
-                        path,
-                    }))]);
-                }
-            } catch (error) {
-                Modal.alert('Attachment failed', error instanceof Error ? error.message : 'Could not send the file to the host.');
             } finally {
                 // In finally, not after the request: a failed upload with the
-                // images still queued would re-fire this effect forever.
-                clearImages();
+                // files still queued would re-fire this effect forever.
+                clearAttachments();
                 setAttaching(false);
             }
         })();
-    }, [selectedImages, attaching, clearImages, props.id]);
+    }, [pendingAttachments, attaching, clearAttachments, props.id]);
 
     const labels = agentLabels(currentPane);
     const shell = isShellLabels(labels);
@@ -1162,7 +1165,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     }, [located, props.id, siblings, shell]);
 
     // Nothing overtakes a queued prompt.
-    const canSend = !firstPromptQueued && !dictationActive && !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0, canControl && channel !== undefined);
+    const canSend = !firstPromptQueued && !dictationActive && !attaching && pendingAttachments.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0, canControl && channel !== undefined);
     // The ring needs at least one slot to be worth its control; view-only
     // keeps what it can still run, so nothing that was reachable is lost.
     const hasTools = viewControls.commands.length > 0 || canControl;
@@ -1302,7 +1305,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             });
             // The leading control: its own circle, outside the field, so the
             // field is the only container on the rail.
-            const attachmentAction = railEnd(<Pressable onPress={attachPhotos} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
+            const attachmentAction = railEnd(<Pressable onPress={attach} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
                 style={({ pressed }) => ({ ...endCircle(pressed), opacity: attaching ? 0.4 : pressed ? 0.7 : 1 })}>
                 <Ionicons name={attaching ? 'hourglass-outline' : 'add'} size={20} color={theme.colors.textSecondary} />
             </Pressable>);
@@ -1380,7 +1383,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // plugin and into the app the slot's contribution list emptied, so
             // the empty state silently fell through to a disabled send. Third
             // party contributions keep their own row in the pane menu.
-            const readyToSend = draft.trim() !== '' || attachedPaths.length > 0 || selectedImages.length > 0;
+            const readyToSend = draft.trim() !== '' || attachedPaths.length > 0 || pendingAttachments.length > 0;
             const trailingAction = !readyToSend && canControl
                 ? railEnd(<View style={endCircle(false)}>
                     {/* The trailing circle is the rail's primary action, so its
@@ -1771,7 +1774,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         {showKeyRow && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction} />}
 
                     <ComposerAttachments
-                        images={[...attachedImages, ...selectedImages.filter((image) => !attachedImages.some((attached) => attached.id === image.id))]}
+                        images={[...attachedImages, ...pendingAttachments.filter((attachment) => !attachedImages.some((attached) => attached.id === attachment.id))]}
                         onRemove={(id) => setAttachedImages((previous) => previous.filter((image) => image.id !== id))}
                     />
 

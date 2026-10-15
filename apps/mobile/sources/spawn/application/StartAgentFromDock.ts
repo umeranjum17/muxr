@@ -46,17 +46,19 @@ async function promptWithAttachmentPaths(
     connection: ReturnType<typeof planConnection>,
 ): Promise<string> {
     if (previews.length === 0) return prompt;
-    const attachments = [];
+    const savedPaths: string[] = [];
+    // One request per file: a whole batch in one frame could pass the link's
+    // 16 MB message ceiling, a single file never does.
     for (const preview of previews as AttachmentPreview[]) {
-        attachments.push({
-            name: preview.name,
-            mimeType: preview.mimeType,
-            data: encodeBase64(await readFileBytes(preview.uri)),
+        const data = encodeBase64(await readFileBytes(preview.uri));
+        if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
+        const saved = await sync.request('session.saveAttachments', {
+            sessionId,
+            attachments: [{ name: preview.name, mimeType: preview.mimeType, data }],
         });
+        savedPaths.push(...saved.savedPaths);
     }
-    if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
-    const saved = await sync.request('session.saveAttachments', { sessionId, attachments });
-    return [prompt.trim(), ...saved.savedPaths].filter((part) => part !== '').join(' ');
+    return [prompt.trim(), ...savedPaths].filter((part) => part !== '').join(' ');
 }
 
 /**

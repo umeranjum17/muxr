@@ -5,7 +5,8 @@
  * typing into the command line.
  */
 
-import { closeSync, existsSync, openSync, writeSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { closeSync, existsSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { MODE_RESET_CSI } from './terminalModes.js';
 
 export type PaneProcessSnapshot = {
@@ -37,6 +38,28 @@ export function programIsGone(pid: number): boolean {
         return false;
     } catch (error) {
         return (error as NodeJS.ErrnoException).code === 'ESRCH';
+    }
+}
+
+/**
+ * Whether the pane's shell still has a child. A stopped (^Z) or backgrounded
+ * program is one, so a pane whose shell still has a job under it keeps its
+ * modes; only a shell with nothing below it is safe to reset. A list that
+ * cannot be read reads as "has a child": a program that cannot be ruled out is
+ * never disturbed, and the caller retries on the next gesture.
+ */
+export function shellHasLiveChild(shellPid: number | null | undefined): boolean {
+    if (shellPid === null || shellPid === undefined || !Number.isInteger(shellPid) || shellPid <= 0) return true;
+    try {
+        return readFileSync(`/proc/${shellPid}/task/${shellPid}/children`, 'utf8').trim().length > 0;
+    } catch {
+        /* Not a /proc host. */
+    }
+    try {
+        const listing = execFileSync('ps', ['-A', '-o', 'ppid=,pid='], { encoding: 'utf8', timeout: 2_000 });
+        return listing.split('\n').some((line) => Number.parseInt(line, 10) === shellPid);
+    } catch {
+        return true;
     }
 }
 
