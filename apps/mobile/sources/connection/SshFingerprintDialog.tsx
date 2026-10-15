@@ -3,7 +3,6 @@ import { Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { MobileGlassSurface } from '@/components/MobileGlass';
 
 /**
  * The SSH host-fingerprint confirmation as an in-app dialog instead of the
@@ -33,12 +32,7 @@ export function SshFingerprintDialog({ fingerprint, onConfirm, onCancel }: {
     const dialogWidth = Math.min(340, Math.max(160, Math.round(windowWidth - 48)));
     const styles = StyleSheet.create({
         container: {
-            backgroundColor: Platform.select({
-                web: theme.colors.surface,
-                ios: theme.colors.glass.overlay,
-                android: theme.colors.surface,
-                default: theme.colors.surface,
-            }),
+            backgroundColor: theme.colors.surface,
             borderRadius: 14,
             width: dialogWidth,
             maxHeight: Math.round(windowHeight * 0.8),
@@ -139,22 +133,7 @@ export function SshFingerprintDialog({ fingerprint, onConfirm, onCancel }: {
             </View>
         </>
     );
-    // Android's glass is translucent without blur: the settings text behind
-    // it remains legible through the fingerprint. Keep this dialog opaque.
-    if (Platform.OS === 'ios') {
-        return (
-            <MobileGlassSurface
-                enabled
-                nativeEffect
-                glassEffectStyle="regular"
-                intensity={88}
-                tintColor={theme.colors.glass.overlayTint}
-                style={styles.container}
-            >
-                {body}
-            </MobileGlassSurface>
-        );
-    }
+    // An opaque surface keeps the settings text behind out of the fingerprint.
     return <View style={styles.container}>{body}</View>;
 }
 
@@ -164,6 +143,11 @@ export function SshFingerprintDialog({ fingerprint, onConfirm, onCancel }: {
  * silence can never pin a key: only Fingerprint matches approves.
  */
 export function confirmSshFingerprint(fingerprint: string): Promise<boolean> {
+    if (Platform.OS !== 'android') {
+        return Modal.confirm('Check SSH fingerprint', `Compare this fingerprint with your provider console before continuing.\n\n${fingerprint}\n\nNo login details have been sent.`, {
+            confirmText: 'Fingerprint matches', cancelText: 'Cancel',
+        });
+    }
     return new Promise((resolve) => {
         let settled = false;
         let id = '';
