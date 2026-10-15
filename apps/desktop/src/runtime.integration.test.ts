@@ -84,11 +84,7 @@ describe('desktop runtime self-host state', () => {
         listeningRelayFixture(relayEntry);
         const hostEntry = join(home, 'host-fixture.mjs');
         writeFileSync(hostEntry, [
-            "import { mkdirSync, writeFileSync } from 'node:fs';",
-            "import { join } from 'node:path';",
-            "mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
-            "writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
-            "setTimeout(() => process.stdout.write('link relay: online\\n'), 150);",
+            "setTimeout(() => process.stdout.write('link relay: online\\npairing: ready\\n'), 150);",
             'setInterval(() => {}, 1000);',
             '',
         ].join('\n'));
@@ -105,21 +101,19 @@ describe('desktop runtime self-host state', () => {
     }, 30_000);
 
     it('offers Try again while a slow host starts, then follows it online', async () => {
-        // A computer with no Herdr brings its host up late. The window must
-        // follow the host's own online report, and Ready waits for its pairing socket too.
+        // A computer with no Herdr brings its host up late, here after a killed
+        // host left its pair.sock behind. The window must follow the host's own
+        // reports: link online, then its pairing socket listening.
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-slow-'));
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
+        mkdirSync(join(home, 'host'));
+        writeFileSync(join(home, 'host', 'pair.sock'), '');
         const relayEntry = join(home, 'relay-fixture.mjs');
         listeningRelayFixture(relayEntry);
         const hostEntry = join(home, 'host-fixture.mjs');
         writeFileSync(hostEntry, [
-            "import { mkdirSync, writeFileSync } from 'node:fs';",
-            "import { join } from 'node:path';",
             'setTimeout(() => process.stdout.write(\'link relay: online\\n\'), 100);',
-            'setTimeout(() => {',
-            "    mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
-            "    writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
-            '}, 1500);',
+            'setTimeout(() => process.stdout.write(\'pairing: ready\\n\'), 1500);',
             'setInterval(() => {}, 1000);',
             '',
         ].join('\n'));
@@ -162,11 +156,7 @@ describe('desktop runtime self-host state', () => {
         listeningRelayFixture(relayEntry);
         const hostEntry = join(home, 'host-fixture.mjs');
         writeFileSync(hostEntry, [
-            "import { mkdirSync, writeFileSync } from 'node:fs';",
-            "import { join } from 'node:path';",
-            "mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
-            "writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
-            "process.stdout.write('link relay: online\\n');",
+            "process.stdout.write('link relay: online\\npairing: ready\\n');",
             'setInterval(() => {}, 1000);',
             '',
         ].join('\n'));
@@ -226,11 +216,7 @@ describe('desktop runtime self-host state', () => {
         listeningRelayFixture(relayEntry);
         const hostEntry = join(root, 'host-fixture.mjs');
         writeFileSync(hostEntry, [
-            "import { mkdirSync, writeFileSync } from 'node:fs';",
-            "import { join } from 'node:path';",
-            "mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
-            "writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
-            "process.stdout.write('link relay: online\\n');",
+            "process.stdout.write('link relay: online\\npairing: ready\\n');",
             'setInterval(() => {}, 1000);',
             '',
         ].join('\n'));
@@ -302,11 +288,7 @@ describe('desktop runtime self-host state', () => {
         ].join('\n'));
         const hostEntry = join(home, 'host-fixture.mjs');
         writeFileSync(hostEntry, [
-            "import { mkdirSync, writeFileSync } from 'node:fs';",
-            "import { join } from 'node:path';",
-            "mkdirSync(join(process.env.MUXR_HOME, 'host'), { recursive: true });",
-            "writeFileSync(join(process.env.MUXR_HOME, 'host', 'pair.sock'), '');",
-            "setTimeout(() => process.stdout.write('link relay: online\\n'), 150);",
+            "setTimeout(() => process.stdout.write('link relay: online\\npairing: ready\\n'), 150);",
             'setInterval(() => {}, 1000);',
             '',
         ].join('\n'));
