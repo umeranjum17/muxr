@@ -68,12 +68,13 @@ vi.mock('@/catalog/store', () => ({
 }));
 vi.mock('@/pairing', () => ({ isMachineOnline: () => false }));
 vi.mock('@/utils/pathUtils', () => ({ resolveAbsolutePath: () => null }));
-vi.mock('@/hooks/useImagePicker', () => ({ useImagePicker: () => ({
-    selectedImages: [], pickImages: vi.fn(), removeImage: vi.fn(), clearImages: vi.fn(),
-}) }));
+vi.mock('@/hooks/useAttachmentPicker', () => ({ useAttachmentPicker: () => ({
+    attachments: [], pickImages: vi.fn(), pickFiles: vi.fn(), removeAttachment: vi.fn(), clearAttachments: vi.fn(),
+}), chooseAttachmentSource: vi.fn() }));
 vi.mock('@/catalog/sync', () => ({ sync: { request: vi.fn(() => Promise.resolve(catalogResult)) } }));
 vi.mock('@/catalog', async () => ({
     ...await import('@/catalog/application/persistence'), resolveAgentCatalog: () => catalogResult,
+    isImageAttachment: () => true, attachmentIcon: () => 'document-outline', attachmentSizeLabel: () => '',
 }));
 vi.mock('@/herd', () => ({ formatPathRelativeToHome: vi.fn() }));
 vi.mock('../application/worktree', () => ({ listWorktrees: vi.fn() }));
