@@ -262,7 +262,15 @@ export function UsageScreen() {
     return (
         <>
             <Header
-                title={<Text style={{ fontSize: 16, color: theme.colors.header.tint, ...Typography.default('semiBold') }}>{t('usage.title')}</Text>}
+                title={
+                    <Text
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                        style={{ fontSize: 16, color: theme.colors.header.tint, flexShrink: 1, minWidth: 0, ...Typography.default('semiBold') }}
+                    >
+                        {t('usage.title')}
+                    </Text>
+                }
                 headerLeft={() => <HeaderBackButton onPress={() => router.back()} label={t('plugins.goBack')} />}
                 headerRight={() => <RefreshControlButton busy={busy} throttledSeconds={throttledSeconds} failed={failed} onPress={refreshNow} />}
                 headerLeftGlass={false}
