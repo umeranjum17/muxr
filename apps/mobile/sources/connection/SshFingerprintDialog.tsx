@@ -12,7 +12,10 @@ import { MobileGlassSurface } from '@/components/MobileGlass';
  * fold, and CANCEL renders half-clipped on the dialog's bottom edge where a
  * tap on its visible glyphs does nothing. This dialog keeps the exact copy
  * and button order, stacks both buttons full-width so none is squeezed, and
- * scrolls only the message while both answers stay on screen.
+ * scrolls only the message while both answers stay on screen. The
+ * fingerprint is deliberately not selectable: a selectable Android text
+ * takes focus when the dialog opens, which scrolls the title off the top
+ * before the user reads anything.
  *
  * Opened with `confirmSshFingerprint(fingerprint)` from the pair and
  * Connection-settings SSH flows; both keep passing the probed fingerprint
@@ -109,7 +112,7 @@ export function SshFingerprintDialog({ fingerprint, onConfirm, onCancel }: {
                 <Text style={[styles.message, Typography.default()]}>
                     Compare this fingerprint with your provider console before continuing.
                 </Text>
-                <Text selectable style={styles.fingerprint}>{fingerprint}</Text>
+                <Text style={styles.fingerprint}>{fingerprint}</Text>
                 <Text style={[styles.message, Typography.default()]}>No login details have been sent.</Text>
             </ScrollView>
             {/* Stacked full-width, Cancel first like the platform alert's
