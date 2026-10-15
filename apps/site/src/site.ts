@@ -30,14 +30,14 @@ function values(name: string): string[] {
     return (process.env[name] ?? '').split(',').map((value) => value.trim()).filter(Boolean);
 }
 
-const downloads = createDownloadRoutes(new ReleaseChannels());
-
 /** The real site server, without starting it: entry points and tests both use this. */
 export function createSiteServer(): Server {
-    return createServer((req, res) => { void route(req, res); });
+    // A lab or staging site reads its own catalog; every entry is validated the same.
+    const downloads = createDownloadRoutes(new ReleaseChannels({ url: process.env.MUXR_RELEASE_CATALOG_URL?.trim() || undefined }));
+    return createServer((req, res) => { void route(req, res, downloads); });
 }
 
-async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function route(req: IncomingMessage, res: ServerResponse, downloads: ReturnType<typeof createDownloadRoutes>): Promise<void> {
     const url = new URL(req.url ?? '/', 'https://trymuxr.com');
     const path = url.pathname;
     if (req.method !== 'GET' && req.method !== 'HEAD') {

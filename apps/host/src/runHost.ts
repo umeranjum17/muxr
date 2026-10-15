@@ -614,6 +614,9 @@ async function main(): Promise<void> {
                         linkEndpoint.start();
                         const { startHostPairingServer } = await import('../../../scripts/setup/application/linkPair.mjs');
                         pairingServer = await startHostPairingServer(linkEndpoint, join(dataDir, 'pair.sock'), selfhostAuth?.relayUrl ?? relayUrl, herdrSession);
+                        // Supervisors wait for this line, not for pair.sock to exist: a killed
+                        // host leaves its socket file behind until this one replaces it.
+                        process.stdout.write('pairing: ready\n');
                         host.onBroadcast((frame, deviceId) => linkEndpoint?.broadcast(frame, deviceId));
                     }
                     return;

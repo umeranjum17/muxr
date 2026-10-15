@@ -1,5 +1,5 @@
 import type { ServerResponse } from 'node:http';
-import { drawing, escapeHtml, term, writeHtml, writeMessage } from './website.js';
+import { drawing, escapeHtml, INSTALL, term, writeHtml, writeMessage } from './website.js';
 import {
     apkFilename,
     CHANNELS,
@@ -116,6 +116,40 @@ ${term('Install on your computer', installCommand(release))}
 </section>`);
 }
 
+/**
+ * Where the phone's Add your computer link lands. It offers the Linux desktop
+ * app only when stable publishes a validated one, and otherwise says so and
+ * keeps today's terminal install, so the link never dead-ends.
+ */
+function writeDesktop(res: ServerResponse, stable: ChannelRelease | undefined, catalogRead: boolean): void {
+    const linux = stable?.linux;
+    const name = linux?.url.split('/').pop() ?? '';
+    const pairNote = '<p>The computer then shows a one-use QR. On your phone, tap <strong>Scan the computer’s QR</strong>, check that the same two words show on both, and approve on the computer.</p>';
+    let offer: string;
+    if (linux !== undefined && stable !== undefined) {
+        offer = `<p class="lede">Get the muxr app for this computer, open it, and pair your phone. No terminal needed.</p>
+<p><a class="button primary" href="${escapeHtml(linux.url)}">Download for Linux</a></p>
+<p>muxr ${escapeHtml(stable.version)} for Linux, ${escapeHtml(size(linux.bytes))}. In the downloaded file’s Properties, allow it to run as a program, then open it.</p>
+${pairNote}
+<details><summary>Verify the download</summary><p>Run <code>sha256sum ${escapeHtml(name)}</code> and compare it with:</p><p><code>${escapeHtml(linux.sha256)}</code></p></details>
+<h2>On a Mac, or prefer a terminal?</h2>
+<p>The Mac desktop app comes later. The terminal install works on Linux, macOS and WSL.</p>`;
+    } else {
+        offer = `<p class="lede">${catalogRead
+            ? 'The desktop app download is not published yet.'
+            : 'We could not check for the desktop app just now. Try again shortly.'} Until then, install muxr from a terminal on this computer. It pairs with your phone the same way.</p>`;
+    }
+    writeHtml(res, 200, 'Add your computer', `<section class="docs">
+${drawing('pair', 'The developer from the films holds his phone up to the pairing code on his laptop', 480, 300, 'drawing spot')}
+<p class="eyebrow">Add your computer</p><h1>Pair this computer with your phone.</h1>
+${offer}
+${term('Install on your computer', INSTALL)}
+<p>Needs Node.js 22 or newer on Linux, macOS or WSL.</p>
+${linux === undefined ? pairNote : ''}
+<p><a class="textlink" href="/docs/quickstart">Quickstart &#8594;</a></p>
+</section>`);
+}
+
 function redirect(res: ServerResponse, location: string): void {
     res.writeHead(302, {
         'cache-control': 'no-store',
@@ -158,6 +192,18 @@ export function createDownloadRoutes(channels: ReleaseChannels) {
         const api = path.startsWith('/api/releases/');
         const segments = path.split('/').filter(Boolean);
         const wanted = api ? segments[2] : segments[1];
+
+        if (path === '/desktop') {
+            let stable: ChannelRelease | undefined;
+            let catalogRead = true;
+            try { stable = (await channels.catalog()).stable; }
+            catch (error) {
+                if (!(error instanceof ReleaseCatalogUnavailable)) throw error;
+                catalogRead = false;
+            }
+            writeDesktop(res, stable, catalogRead);
+            return true;
+        }
 
         let channel: CatalogChannel | undefined;
         let action: string | undefined;

@@ -12,11 +12,16 @@ without a terminal.
   Already running — a command-line install that manages this computer (Quit
   only) or an orphaned desktop relay (Try again and Quit).
 - A computer with no Herdr still starts the relay and host: the window follows the
-  relay's and host's own reports (`link relay: online`) and shows Ready to pair
-  only once the host's pairing socket exists; the 30-second stall timer only
+  relay's and host's own reports and shows Ready to pair only once the host
+  prints both `link relay: online` and `pairing: ready` (its pairing socket
+  listening); the 30-second stall timer only
   offers Try again. A host that stays quiet for 30 seconds shows Needs attention
   with "taking longer than usual" and Try again, and still flips to Ready to
   pair if it comes up after that.
+- A host that crashed or was killed leaves `host/pair.sock` behind. The window
+  says "muxr stopped unexpectedly" and stays on it (it never re-dials the dead
+  socket); Try again, or a relaunch over the leftover file, goes Starting… →
+  Ready to pair with no raw socket error (`ECONNREFUSED`) in between.
 - A computer with no Herdr shows one sentence ("muxr runs your agents in Herdr,
   which isn't installed on this computer.") with Install Herdr above the
   pairing offer; the QR stays on screen and pairing never waits for Herdr.
@@ -67,6 +72,13 @@ APK.
    2026-10-12), then report an agent in the lab session and see it on Home.
 6. Toggle keep-awake and start-at-login and read `settings.json` and the XDG
    autostart file back.
+7. Killed host: once Ready to pair shows, `kill -9` the exact host PID (the
+   app's child running `apps/host/dist/main.js`) and keep watching the window's
+   card text over CDP for 8 s: it must stay on "muxr stopped unexpectedly".
+   Then call `window.muxr.retry()` and watch to the QR; separately quit with
+   `window.muxr.quit()` (pair.sock stays) and relaunch over it. Poll the card
+   text every 50 ms: the old raw `connect ECONNREFUSED …/pair.sock` card lived
+   about 3 s, so a coarse poll misses it.
 
 ## Gotchas
 

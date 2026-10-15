@@ -2,6 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 const mmkvState = vi.hoisted(() => ({ values: new Map<string, string>(), failSaves: false }));
 const mmkvValues = mmkvState.values;
+const appState = vi.hoisted(() => ({ platformOs: 'android' as 'android' | 'web', publicBaseUrl: 'https://muxr.test' as string | undefined }));
+vi.mock('react-native', () => ({
+    Platform: { get OS() { return appState.platformOs; } },
+}));
+vi.mock('@/catalog', () => ({
+    loadAppConfig: () => ({ publicBaseUrl: appState.publicBaseUrl }),
+}));
 vi.mock('react-native-mmkv', () => ({
     createMMKV: () => new class {
         getString(key: string) { return mmkvState.values.get(key); }
@@ -15,6 +22,7 @@ vi.mock('react-native-mmkv', () => ({
     }(),
 }));
 import {
+    addComputerLink,
     directBillingUrl,
     firstRestorableMachine,
     setupEmptyState,
@@ -32,6 +40,7 @@ describe('open-source mobile onboarding flow', () => {
             title: 'Connect your computer',
             command: 'muxr',
             setupUrl: 'https://muxr.test/setup',
+            desktopUrl: 'https://muxr.test/desktop',
         });
         expect(setupEmptyState()).toEqual({
             title: 'Connect your computer',
@@ -41,6 +50,24 @@ describe('open-source mobile onboarding flow', () => {
         expect(directBillingUrl({ directDistribution: false, publicBaseUrl: 'https://muxr.test' })).toBeNull();
         expect(directBillingUrl({ publicBaseUrl: 'https://muxr.test' })).toBeNull();
         expect(directBillingUrl({ directDistribution: true, publicBaseUrl: 'https://muxr.test/' })).toBeNull();
+    });
+
+    it('hands over the desktop download link only where the computer can pair', () => {
+        appState.platformOs = 'android';
+        appState.publicBaseUrl = 'https://muxr.test/';
+        expect(addComputerLink()).toBe('https://muxr.test/desktop');
+
+        // A browser cannot pair with the desktop app, which offers only native codes.
+        appState.platformOs = 'web';
+        expect(addComputerLink()).toBeUndefined();
+
+        // A build with no public site has no link to hand over.
+        appState.platformOs = 'android';
+        appState.publicBaseUrl = undefined;
+        expect(addComputerLink()).toBeUndefined();
+
+        appState.platformOs = 'android';
+        appState.publicBaseUrl = 'https://muxr.test';
     });
 
     it('loads current settings without retaining unknown secret fields', async () => {

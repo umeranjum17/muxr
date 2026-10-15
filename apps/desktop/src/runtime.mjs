@@ -205,31 +205,24 @@ export class MuxrRuntime extends EventEmitter {
 
     /**
      * Resolve when the host reports its link online and its pairing socket
-     * exists; the stall timer covers the wait. Reject when it exits or cannot
-     * start.
+     * listening; the stall timer covers the wait. Only the host's own report
+     * counts: a host that was killed leaves pair.sock behind, so the file
+     * existing says nothing. Reject when it exits or cannot start.
      */
     #hostOnline(host) {
         return new Promise((resolve, reject) => {
             let out = '';
-            let poll;
             const settle = () => {
                 host.stdout?.off('data', collect);
                 host.off('exit', exited);
                 host.off('error', failed);
-                clearTimeout(poll);
                 out = '';
-            };
-            const awaitPairSocket = () => {
-                if (!existsSync(this.pairSocketPath)) { poll = setTimeout(awaitPairSocket, 300); return; }
-                settle();
-                resolve();
             };
             const collect = (chunk) => {
                 out += chunk.toString();
-                if (!out.includes('link relay: online')) return;
-                host.stdout?.off('data', collect);
-                out = '';
-                awaitPairSocket();
+                if (!out.includes('link relay: online') || !out.includes('pairing: ready')) return;
+                settle();
+                resolve();
             };
             const ended = (reason) => () => {
                 settle();
