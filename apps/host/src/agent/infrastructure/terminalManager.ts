@@ -11,6 +11,8 @@
 import type { TerminalSession } from '@byokit/herdr';
 import { type TerminalScrollStateFrame } from '@trymuxr/contract';
 import { type TerminalPipe } from '../../machine/index.js';
+import { wheelReportsAllowed } from './terminalModes.js';
+import { programIsGone } from './paneModeReset.js';
 
 export interface TerminalOpenOptions {
     mode: 'control' | 'observe';
@@ -25,6 +27,13 @@ export interface TerminalManagerOptions {
     readPaneScroll?: (paneId: string) => Promise<{ offsetFromBottom: number; maxOffsetFromBottom: number }>;
     /** The pane's visible text. Omitted, a program's wheel is turned a row a report. */
     readPaneText?: (paneId: string) => Promise<string>;
+    /**
+     * The pids of the pane's foreground programs, empty while only its shell
+     * holds it. Omitted, a scroll is taken to hold a program as before.
+     */
+    paneForegroundPids?: (paneId: string) => Promise<number[]>;
+    /** Clear alternate-screen and mouse modes left by a crashed fullscreen program. Resolves whether a reset landed. */
+    restorePaneTerminalModes?: (paneId: string) => Promise<boolean>;
     /** Opens the kit terminal session; the kit owns the herdr binary and env. */
     openTerminal: (paneId: string, opts: TerminalOpenOptions) => TerminalSession;
 }
@@ -47,11 +56,21 @@ interface Attachment {
     scrollOffsetFromBottom: number;
     /** Whether Herdr holds scrollback here, as last read; unknown until then. */
     herdrOwnsScroll?: boolean;
+    /** The pane's foreground programs, as last probed; undefined until one answers. */
+    foregroundPids?: number[];
+    /** The last program seen holding the pane, so its death can be told. */
+    ownerPid?: number;
+    /** The one in-flight foreground probe, so a fling does not stampede Herdr. */
+    foregroundProbe?: Promise<void>;
+    /** One restore in flight so a fling does not stampede the PTY. */
+    modeRestore?: Promise<boolean>;
     /** Rows the program on the alternate screen moves per wheel report, once measured. */
     wheelStep?: number;
     /** How long the program took to paint that measured report. */
     wheelPaintMs?: number;
     resetWheelMeasure?: () => void;
+    /** Drop any in-flight program wheel after modes are restored to the shell. */
+    cancelWheel?: () => void;
     close: (reason?: string) => void;
 }
 
@@ -298,6 +317,13 @@ export class TerminalManager {
             wheelMeasured = undefined;
             delete attachment.wheelPaintMs;
         };
+        attachment.cancelWheel = (): void => {
+            wheelRows = 0;
+            clearTimeout(wheelTimer);
+            wheelTimer = undefined;
+            wheelMeasuring = false;
+            wheelPainting = false;
+        };
         let childExited = false;
         void session.exited.then(() => { childExited = true; });
         let removeInputRef: () => void = () => undefined;
@@ -396,34 +422,63 @@ export class TerminalManager {
                     return;
                 }
                 const scroll = scrollInput(text);
-                const lines = Number(scroll?.lines);
-                if (scroll !== undefined && attachment.herdrOwnsScroll === false && (scroll.direction === 'up' || scroll.direction === 'down')
-                    && Number.isInteger(lines) && lines > 0) {
-                    const rows = scroll.direction === 'up' ? lines : -lines;
-                    // A finger that turns back wants the new way now, not
-                    // after the rest of the old way is paid off.
-                    const owed = Math.sign(wheelRows) === -Math.sign(rows) ? rows : wheelRows + rows;
-                    wheelRows = Math.max(-MAX_WHEEL_ROWS, Math.min(MAX_WHEEL_ROWS, owed));
-                    wheelAt = { column: scroll.column, row: scroll.row };
-                    if (wheelTimer === undefined) {
-                        paintedAt = Date.now();
-                        turnWheel();
-                    }
-                } else {
+                if (scroll === undefined) {
                     // A key goes to the program at its live edge; the rest of a
                     // fling must not carry it back up afterwards.
-                    if (scroll === undefined) wheelRows = 0;
+                    wheelRows = 0;
                     session.send(text);
+                    return;
                 }
-                // Whatever a scroll turns out to move -- Herdr's own
-                // scrollback, a program's wheel handler, or nothing at all --
-                // the phone is told where Herdr's viewport ended up. Without
-                // this, a scroll away from the live edge was reported only
-                // at the next attach.
-                if (scroll !== undefined) this.scheduleScrollState(attachment);
+                if (attachment.herdrOwnsScroll === true) {
+                    // Herdr holds this pane's scrollback: the scroll moves its
+                    // viewport, never a program's wheel.
+                    session.send(text);
+                    this.scheduleScrollState(attachment);
+                    return;
+                }
+                void paneScroll(scroll).catch((error) => {
+                    onInputError(error instanceof Error ? error : new Error(String(error)));
+                });
             } catch (error) {
                 onInputError(error instanceof Error ? error : new Error(String(error)));
             }
+        };
+        /**
+         * A scroll on a pane whose scrollback Herdr may not own: ask whose pane
+         * it is before Herdr turns the scroll into a wheel report, so the report
+         * only ever reaches a program.
+         */
+        const paneScroll = async (scroll: ScrollInput): Promise<void> => {
+            const live = (): boolean => !finished && !childExited
+                && this.attachments.get(params.channel) === attachment
+                && this.authorized(attachment);
+            await this.probeForeground(attachment);
+            if (!live()) return;
+            if (!wheelReportsAllowed(attachment.foregroundPids)) {
+                // The pane's own shell is in the foreground: Herdr would hand
+                // the scroll to it as wheel reports. There is no scrollback of
+                // our own to move, so the gesture is dropped and whatever the
+                // program left behind is cleared once its pid is gone.
+                wheelRows = 0;
+                void this.restoreStaleModes(attachment).then(() => this.scheduleScrollState(attachment));
+                return;
+            }
+            const lines = Number(scroll.lines);
+            if ((scroll.direction === 'up' || scroll.direction === 'down') && Number.isInteger(lines) && lines > 0) {
+                const rows = scroll.direction === 'up' ? lines : -lines;
+                // A finger that turns back wants the new way now, not after
+                // the rest of the old way is paid off.
+                const owed = Math.sign(wheelRows) === -Math.sign(rows) ? rows : wheelRows + rows;
+                wheelRows = Math.max(-MAX_WHEEL_ROWS, Math.min(MAX_WHEEL_ROWS, owed));
+                wheelAt = { column: scroll.column, row: scroll.row };
+                if (wheelTimer === undefined) {
+                    paintedAt = Date.now();
+                    turnWheel();
+                }
+            } else {
+                wheelRows = 0;
+            }
+            this.scheduleScrollState(attachment);
         };
         const wheelStep = (): number => attachment.wheelStep ?? 1;
         const turnWheel = (): void => {
@@ -559,6 +614,15 @@ export class TerminalManager {
                 if (!active()) return;
                 if (scroll === undefined) break;
                 if (scroll.maxOffsetFromBottom === 0) {
+                    await this.probeForeground(attachment);
+                    if (!active()) return;
+                    if (!wheelReportsAllowed(attachment.foregroundPids)) {
+                        // The pane's own shell holds it: a wheel would land in
+                        // its line editor, and Latest has nowhere to turn.
+                        if (await this.restoreStaleModes(attachment)) this.scheduleScrollState(attachment);
+                        result('complete');
+                        return;
+                    }
                     wheelReachedEnd = false;
                     wheelRows = -MAX_WHEEL_ROWS;
                     wheelAt = { column: Math.floor(attachment.cols / 2), row: Math.floor(attachment.rows / 2) };
@@ -698,6 +762,12 @@ export class TerminalManager {
             const scroll = await read(attachment.paneId);
             attachment.scrollOffsetFromBottom = scroll.offsetFromBottom;
             attachment.herdrOwnsScroll = scroll.maxOffsetFromBottom > 0;
+            if (attachment.herdrOwnsScroll === false && attachment.foregroundPids === undefined) {
+                // Whose pane this is decides the wheel gate; the first answer is
+                // taken here, so a program is on record while it still holds the
+                // pane.
+                await this.probeForeground(attachment);
+            }
             if (attachment.herdrOwnsScroll) {
                 delete attachment.wheelStep;
                 attachment.resetWheelMeasure?.();
@@ -714,6 +784,60 @@ export class TerminalManager {
             attachment.scrollStateReading = false;
             if (attachment.scrollStateDirty) this.scheduleScrollState(attachment);
         }
+    }
+
+    /**
+     * Ask Herdr whose pane this is now. One probe is in flight at a time, so a
+     * fling does not stampede it; a probe that fails leaves the last answer.
+     */
+    private async probeForeground(attachment: Attachment): Promise<void> {
+        const read = this.options.paneForegroundPids;
+        if (read === undefined) return;
+        attachment.foregroundProbe ??= read(attachment.paneId)
+            .then((programs) => {
+                attachment.foregroundPids = programs;
+                const owner = programs[programs.length - 1];
+                if (owner !== undefined) attachment.ownerPid = owner;
+            })
+            .catch(() => undefined)
+            .finally(() => {
+                delete attachment.foregroundProbe;
+            });
+        await attachment.foregroundProbe;
+    }
+
+    /**
+     * The pane's own shell holds it and the program last seen there is gone,
+     * so what that program left on the screen is nobody's: inject the reset as
+     * PTY output so Herdr's scrollback returns and wheel reports stop typing
+     * into the shell. Resolves whether a reset landed; a pane that could
+     * not be reset is retried by the next scroll.
+     */
+    private async restoreStaleModes(attachment: Attachment): Promise<boolean> {
+        const restore = this.options.restorePaneTerminalModes;
+        if (restore === undefined || wheelReportsAllowed(attachment.foregroundPids)) return false;
+        const owner = attachment.ownerPid;
+        if (owner === undefined || !programIsGone(owner)) return false;
+        if (attachment.modeRestore !== undefined) return await attachment.modeRestore;
+        const pending = (async (): Promise<boolean> => {
+            let landed = false;
+            try {
+                landed = await restore(attachment.paneId);
+                if (!landed) return false;
+                // The pane's shell owns it again; forget the program that left.
+                delete attachment.ownerPid;
+                delete attachment.wheelStep;
+                attachment.resetWheelMeasure?.();
+                attachment.cancelWheel?.();
+            } catch {
+                /* A failed reset keeps the owner recorded; the next scroll retries. */
+            } finally {
+                delete attachment.modeRestore;
+            }
+            return landed;
+        })();
+        attachment.modeRestore = pending;
+        return await pending;
     }
 
     private authorized(attachment: Attachment): boolean {

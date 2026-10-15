@@ -242,7 +242,11 @@ export default function MachineDetailScreen() {
                                     color={theme.colors.header.tint}
                                     style={{ marginRight: 6 }}
                                 />
-                                <Text style={[Typography.default('semiBold'), { fontSize: 17, color: theme.colors.header.tint }]}>
+                                <Text
+                                    numberOfLines={1}
+                                    ellipsizeMode="tail"
+                                    style={[Typography.default('semiBold'), { fontSize: 17, color: theme.colors.header.tint, flexShrink: 1, minWidth: 0 }]}
+                                >
                                     {machineName}
                                 </Text>
                             </View>

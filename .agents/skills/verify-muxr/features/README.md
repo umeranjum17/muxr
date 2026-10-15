@@ -95,6 +95,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   the prompt is delivered once the agent is ready, Home is free after spawn,
   and if it cannot be, the text returns to Home's composer and the agent's
   input marked not sent.
+- [Long silence never fills the composer](./dictation-silence-gate.md) —
+  file-fed Silero speech gate on the phone's Whisper finals: 120 s near-silence
+  should leave the draft empty while quiet and clean fixtures still transcribe.
+  Proof pending; no run evidence yet.
 
 - [Name agents on Home by kind and task, never a launch id](./home-agent-labels.md) —
   paired lab PWA over a real-Herdr lab with an unnamed Codex and pi agent: the
@@ -207,6 +211,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Read the computer name in the Home header](./home-header-name.md) —
   native app over a named fake-Herdr stack: one line with an ellipsis, at
   270dp and font scale 2.0, light and dark.
+- [Read a screen title in the sticky header](./sticky-header-title.md) —
+  shared stack header on PWA and native: Accounts/Settings whole at 270 dp
+  font 2.0; a longer title ellipsizes on one line; 390 dp font 1.0 unchanged.
 - [Read a version difference as one quiet Home line](./home-version-line.md) —
   native release app and PWA over a fake-Herdr stack whose host reports 0.1.0:
   one secondary line at the foot, never the top slot, themes and 270dp/font 1.3.
@@ -248,6 +255,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Keep a terminal pane alive across a reconnect](./terminal-reconnect.md) —
   native app over a private stack: relay and host restarts under an
   open pane, last frame kept, recovery with no tap, plain words.
+- [Keep a shell usable after a crashed fullscreen agent](./terminal-shell-mode-reset.md) —
+  wheel reports only while a program holds the pane; restore alt-screen/mouse
+  once the program seen there is gone (a stopped one is left alone) so a swipe
+  stays clean.
 - [Scroll a pane and come back with Latest](./terminal-latest.md) —
   native app over a real Herdr lab with long canned output: a finger drag moves
   the pane about as far as the finger in every kind, and Latest reaches the

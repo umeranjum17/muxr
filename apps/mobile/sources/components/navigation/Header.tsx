@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackHeaderProps } from '@react-navigation/native-stack';
 import { BlurView } from 'expo-blur';
 import { layout } from '@/components/layout';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { isRunningOnMac } from '@/utils/platform';
 import { useHeaderHeight, useIsTablet, useSplitViewLayout } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
@@ -15,6 +16,8 @@ import {
     MOBILE_GLASS_CONTROL_SIZE,
     MOBILE_GLASS_HEADER_HEIGHT,
 } from '@/components/navigation/headerMetrics';
+
+const isDesktop = Platform.OS === 'web' || isRunningOnMac();
 
 interface HeaderProps {
     title?: React.ReactNode;
@@ -64,7 +67,6 @@ export const Header = React.memo((props: HeaderProps) => {
     const paddingTop = safeAreaEnabled ? insets.top : 0;
     const headerHeight = useHeaderHeight();
     const isTablet = useIsTablet();
-    const isDesktop = Platform.OS === 'web' || isRunningOnMac();
     const floatingControlsEnabled = !isDesktop && !isTablet;
     const headerLeftUsesGlass = headerLeftGlass && !isDesktop;
     const headerRightUsesGlass = headerRightGlass && !isDesktop;
@@ -139,9 +141,13 @@ export const Header = React.memo((props: HeaderProps) => {
                         {headerLeft && !headerLeftUsesGlass && headerLeft()}
                     </View>
 
-                    <View style={[styles.centerContainer, isDesktop && styles.desktopCenterContainer]}>
+                    <View style={[
+                        styles.centerContainer,
+                        isDesktop && styles.desktopCenterContainer,
+                        compactHorizontalPadding && styles.compactCenterContainer,
+                    ]}>
                         {title}
-                        {subtitle && <Text style={subtitleStyle} numberOfLines={1}>{subtitle}</Text>}
+                        {subtitle && <Text style={subtitleStyle} numberOfLines={1} ellipsizeMode="tail">{subtitle}</Text>}
                     </View>
 
                     <View style={[styles.rightContainer, headerRightTouchInset && styles.rightContainerTouchInset]}>
@@ -178,26 +184,34 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
     const { options, route, back, navigation } = props;
     const extendedOptions = options as ExtendedNavigationOptions;
     const splitViewLayout = useSplitViewLayout();
-    const isDesktop = Platform.OS === 'web' || isRunningOnMac();
+    const compact = useCompactWindow();
 
     // The permanent split-view header owns Back only while the drawer is present.
     const shouldHideBackButton = splitViewLayout;
 
-    // Extract title - handle both string and function types
+    // Extract title - handle both string and function types. String titles
+    // stay on one line and ellipsize inside the shrinking center container so a
+    // 270 dp / font-2.0 phone never pushes the title past the right edge.
+    const titleTextStyle = (fontSize: number) => [
+        {
+            fontSize,
+            fontWeight: '600' as const,
+            textAlign: (isDesktop && Platform.OS === 'ios' ? 'center' : 'left') as 'center' | 'left',
+            color: options.headerTintColor || '#000',
+            flexShrink: 1,
+            minWidth: 0,
+            maxWidth: '100%' as const,
+        },
+        Typography.default('semiBold'),
+        options.headerTitleStyle,
+    ];
+    // Only a roomy desktop row keeps 17; compact rows and native use 16.
+    const stringTitleFontSize = isDesktop && !compact ? 17 : 16;
     let title: React.ReactNode | null = null;
     if (options.headerTitle) {
         if (typeof options.headerTitle === 'string') {
             title = (
-                <Text style={[
-                    {
-                        fontSize: isDesktop ? 17 : 16,
-                        fontWeight: '600',
-                        textAlign: isDesktop && Platform.OS === 'ios' ? 'center' : 'left',
-                        color: options.headerTintColor || '#000',
-                    },
-                    Typography.default('semiBold'),
-                    options.headerTitleStyle
-                ]}>
+                <Text style={titleTextStyle(stringTitleFontSize)} numberOfLines={1} ellipsizeMode="tail">
                     {options.headerTitle}
                 </Text>
             );
@@ -207,11 +221,7 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
         }
     } else if (typeof options.title === 'string') {
         title = (
-            <Text style={[
-                { fontSize: 17, fontWeight: '600', textAlign: Platform.OS === 'ios' ? 'center' : 'left', color: options.headerTintColor || '#000' },
-                Typography.default('semiBold'),
-                options.headerTitleStyle
-            ]}>
+            <Text style={titleTextStyle(17)} numberOfLines={1} ellipsizeMode="tail">
                 {options.title}
             </Text>
         );
@@ -242,6 +252,7 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
                 () => options.headerRight!({ canGoBack: !!back, tintColor: options.headerTintColor }) :
                 undefined
             }
+            compactHorizontalPadding={compact}
             headerStyle={options.headerStyle}
             headerTitleStyle={options.headerTitleStyle}
             headerSubtitleStyle={extendedOptions.headerSubtitleStyle}
@@ -288,7 +299,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         width: '100%',
         maxWidth: layout.headerMaxWidth,
     },
-    compactContent: { paddingHorizontal: 10 },
+    compactContent: { paddingHorizontal: 6 },
     desktopContent: {
         gap: 0,
         paddingHorizontal: Platform.select({ ios: 8, default: 16 }),
@@ -300,20 +311,28 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     },
     centerContainer: {
         flexGrow: 1,
+        flexShrink: 1,
         flexBasis: 0,
         alignSelf: 'stretch',
         flexDirection: Platform.OS === 'web' ? 'row' : 'column',
         alignItems: Platform.OS === 'web' ? 'center' : 'flex-start',
         justifyContent: Platform.OS === 'web' ? 'flex-start' : 'center',
         paddingHorizontal: Platform.OS === 'web' ? 12 : 0,
-        minWidth: Platform.OS === 'web' ? undefined : 0,
+        // Flex children default to min-content width; without 0 the title can
+        // refuse to shrink and run past the right edge at 270 dp / font 2.0.
+        minWidth: 0,
+    },
+    // Drop the web-only title gutter when the row is already tight so short
+    // titles like Accounts still fit whole at 270 dp / font 2.0.
+    compactCenterContainer: {
+        paddingHorizontal: 0,
     },
     desktopCenterContainer: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: Platform.OS === 'ios' ? 'center' : 'flex-start',
         paddingHorizontal: 12,
-        minWidth: undefined,
+        minWidth: 0,
     },
     rightContainer: {
         flexGrow: 0,
@@ -376,19 +395,14 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         justifyContent: 'center',
         paddingHorizontal: Platform.select({ web: 0, default: 6 }),
     },
-    title: {
-        fontSize: Platform.OS === 'web' ? 17 : 16,
-        fontWeight: '600',
-        textAlign: 'center',
-        color: theme.colors.header.tint,
-        ...Typography.default('semiBold'),
-    },
     subtitle: {
         fontSize: Platform.OS === 'web' ? 13 : 12,
         fontWeight: '400',
         textAlign: 'left',
         marginTop: Platform.OS === 'web' ? 2 : 1,
         color: theme.colors.header.tint,
+        flexShrink: 1,
+        maxWidth: '100%',
         ...Typography.default('regular'),
     },
     desktopSubtitle: {
