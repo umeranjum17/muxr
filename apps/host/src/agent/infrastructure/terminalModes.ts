@@ -7,7 +7,10 @@
  * shell then echoes as `64;19;6M` into its command line. Herdr's output frames
  * do not carry those modes back, but its process list names the pane's
  * foreground: muxr casts a wheel only while a program, not the pane's own
- * shell, holds the pane, and clears what a program left once its pid is gone.
+ * shell, holds the pane, and clears what a program left once the pane's shell
+ * is alone again. A program the phone never saw can still be there, stopped
+ * (^Z) or backgrounded: the shell's own child list names it, so the reset waits
+ * for a shell with nothing left under it.
  */
 
 /** Leave alternate screen and every common mouse-reporting mode. */

@@ -268,8 +268,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   open pane, last frame kept, recovery with no tap, plain words.
 - [Keep a shell usable after a crashed fullscreen agent](./terminal-shell-mode-reset.md) —
   wheel reports only while a program holds the pane; restore alt-screen/mouse
-  once the program seen there is gone (a stopped one is left alone) so a swipe
-  stays clean.
+  once the program seen there is gone, or when the crash preceded the attach
+  and the shell has no child left (a stopped one is left alone), so a swipe
+  stays clean and the pane scrolls back.
 - [Scroll a pane and come back with Latest](./terminal-latest.md) —
   native app over a real Herdr lab with long canned output: a finger drag moves
   the pane about as far as the finger in every kind, and Latest reaches the
