@@ -26,8 +26,9 @@ private-network, LAN, tunnel, and custom WSS choices.
   public edge or an operated backend.
 - Passwords, private keys, and passphrases are stored only in the device secure
   store. They never enter connection settings, logs, diagnostics, or the repo.
-- The first SSH host key is pinned as a `SHA256:` fingerprint; a later mismatch
-  fails closed and requires deliberate reconfiguration.
+- The SSH host key is confirmed as a `SHA256:` fingerprint before any login;
+  a route with no confirmed pin is refused, a later mismatch fails closed, and
+  both require deliberate reconfiguration.
 - SSH is an explicit native override; the
   [route picker](../SELF-HOSTING.md#reaching-the-relay-from-your-phone) owns the
   self-host recommendation policy.

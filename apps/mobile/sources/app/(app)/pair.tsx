@@ -181,7 +181,11 @@ export default function PairScreen() {
         // Link offers pair over the running machine; Direct SSH uses its own route.
         const decided = decidePairingInput(url);
         if (!decided.ok) throw new PairingNeedsNewCode(decided.message);
-        const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput);
+        const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput, (fingerprint) => Modal.confirm(
+            'Check SSH fingerprint',
+            `Compare this fingerprint with your provider console before continuing.\n\n${fingerprint}\n\nNo login details have been sent.`,
+            { confirmText: 'Fingerprint matches', cancelText: 'Cancel' },
+        ));
         if (tunnel !== undefined && !tunnel.ok) throw new Error(tunnel.message);
         const paired = await pairLinkOffer(decided.link, auth, {
             tunnelPort: tunnel?.ok ? tunnel.localPort : undefined,

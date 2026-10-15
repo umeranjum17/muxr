@@ -14,16 +14,13 @@ import {
     executeSshCommand,
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
-    parseSshFields,
-    pinSshHostKey,
     saveConnectionSettings,
+    saveReviewedSshSettings,
     type SshTarget,
 } from '@/connection';
 import {
     forgetSshCredential,
     hasSshCredential,
-    saveSshCredential,
-    verifySshCredential,
     savedSshPublicKey,
     sshTunnelAvailable,
     stopSshTunnel,
@@ -346,42 +343,36 @@ export default function ConnectionSettingsScreen() {
     const sshSupported = initial.selfhost === true && sshTunnelAvailable();
 
     const saveSsh = async () => {
-        if (initial.selfhost !== true || initial.machineId === '') {
-            setSshError('Pair this phone with a self-hosted machine before configuring Direct SSH.');
-            return;
-        }
-        const parsed = parseSshFields({
-            host: sshHost,
-            username: sshUsername,
-            port: sshPort,
-            relayPort: sshRelayPort,
-            password: sshPassword,
-            privateKey: sshPrivateKey,
-            passphrase: sshPassphrase,
-            credentialPresent: sshCredentialPresent,
-        });
-        if ('error' in parsed) {
-            setSshError(parsed.error);
-            return;
-        }
-        let target: SshTarget = pinSshHostKey(initial.ssh, parsed.target);
         setSshError(undefined);
         setSshSaving(true);
         try {
-            if (Object.keys(parsed.credential).length > 0) {
-                // Sign in with what was typed before it replaces the saved credential.
-                const hostKey = await verifySshCredential(target, parsed.credential);
-                if (target.hostKey === undefined) target = { ...target, hostKey };
-                await saveSshCredential(initial.machineId, parsed.credential);
+            const saved = await saveReviewedSshSettings({
+                host: sshHost,
+                username: sshUsername,
+                port: sshPort,
+                relayPort: sshRelayPort,
+                password: sshPassword,
+                privateKey: sshPrivateKey,
+                passphrase: sshPassphrase,
+                credentialPresent: sshCredentialPresent,
+            }, {
+                lastConnectionError: socketError,
+                confirm: (fingerprint) => Modal.confirm(
+                    'Check SSH fingerprint',
+                    `Compare this fingerprint with your provider console before continuing.\n\n${fingerprint}\n\nNo login details have been sent.`,
+                    { confirmText: 'Fingerprint matches', cancelText: 'Cancel' },
+                ),
+            });
+            if (!saved.ok) {
+                setSshError(saved.message);
+                return;
             }
-            const next = { ...initial, ssh: target };
-            await saveConnectionSettings(next);
-            setInitial(next);
+            setInitial(saved.settings);
             setInstallStatus(undefined);
-            setSshHost(parsed.target.host);
-            setSshUsername(parsed.target.username);
-            setSshPort(String(parsed.target.port));
-            setSshRelayPort(String(parsed.target.relayPort));
+            setSshHost(saved.target.host);
+            setSshUsername(saved.target.username);
+            setSshPort(String(saved.target.port));
+            setSshRelayPort(String(saved.target.relayPort));
             setSshPassword('');
             setSshPrivateKey('');
             setSshPassphrase('');
@@ -711,7 +702,7 @@ export default function ConnectionSettingsScreen() {
                     <Field label="Private key passphrase" value={sshPassphrase} onChange={setSshPassphrase} placeholder="Only if the key is encrypted" secure />
                     <Item
                         title="SSH host key"
-                        subtitle={initial.ssh?.hostKey === undefined ? 'Pinned after the first successful connection' : 'Pinned on this device; a change fails closed'}
+                        subtitle={initial.ssh?.hostKey === undefined ? 'Confirm the fingerprint before signing in' : 'Confirmed on this device; a change is refused'}
                         subtitleLines={0}
                     />
                     {sshError !== undefined && <Text accessibilityRole="alert" style={styles.error}>{sshError}</Text>}

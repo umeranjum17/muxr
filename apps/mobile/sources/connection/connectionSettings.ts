@@ -12,7 +12,7 @@ export interface SshTarget {
     username: string;
     /** The muxr relay port as seen from the SSH host's loopback. */
     relayPort: number;
-    /** SHA256:... fingerprint learned on first connect and then pinned. */
+    /** SHA256:... fingerprint the user confirmed before the first sign-in. */
     hostKey?: string;
 }
 
