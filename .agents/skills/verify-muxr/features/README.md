@@ -158,9 +158,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   view one watches the pane but its typing, desktop and agent actions never
   reach the computer; the control one runs the command.
 - [Read whole pairing and first-run words at large text](./word-wrapping.md) —
-  unpaired pair title, comparison words and Connect button labels:
-  installed PWA at 393/270/208 dp, font 1.0/2.0, both themes, and native at 270 dp
-  font 2.0; DOM ranges and screenshot OCR lead on words split across lines.
+  unpaired pair title, comparison words, Connect button labels and the new agent
+  screen's worktree hint: installed PWA at 393/270/208 dp, font 1.0/2.0, both
+  themes, and native at 270 dp font 2.0; DOM ranges and screenshot OCR lead on
+  words split across lines.
 - [Tailscale is a fallback route, not a first-run gate](./tailscale-first-step.md) —
   the unpaired first screen's link-first card on a release APK (Play Store AVD)
   and the PWA: no gate stands in front of the connect link, "More ways & timing"

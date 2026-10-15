@@ -26,6 +26,7 @@ import { sync } from '@/catalog/sync';
 import { type HerdrTreeWorkspace } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { Switch } from '@/components/Switch';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { DirectoryPicker, type DirectoryPlace } from '@/spawn/ui';
 import { wherePlaces } from '@/utils/directoryPicker';
@@ -174,9 +175,23 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 12,
         paddingHorizontal: 2,
     },
+    // Grow/shrink, never `flex: 1`: a zero flex-basis leaves the copy no height
+    // once the row stacks (see worktreeRowCompact).
     worktreeTexts: {
-        flex: 1,
+        flexGrow: 1,
+        flexShrink: 1,
         gap: 1,
+    },
+    // A narrow window leaves the column beside the switch too thin for a
+    // word ("untouch/ed"): give the copy the whole row and put the switch
+    // on its own line.
+    worktreeRowCompact: {
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        gap: 8,
+    },
+    worktreeSwitchCompact: {
+        alignSelf: 'flex-end',
     },
     worktreeTitle: {
         color: theme.colors.text,
@@ -223,6 +238,7 @@ export default function NewAgentScreen() {
     // needs a wider tile to stay whole. A PWA takes text size as zoom, so its width already shrinks.
     const screen = useWindowDimensions();
     const textWidth = screen.width / screen.fontScale;
+    const compact = useCompactWindow();
     const tileBasis = textWidth >= 360 ? '30%' : textWidth >= 230 ? '45%' : '100%';
     const insets = useSafeAreaInsets();
     const settings = getCachedConnectionSettings();
@@ -527,12 +543,13 @@ export default function NewAgentScreen() {
 
                 {/* --- Worktree: a quiet secondary option ------------------------ */}
                 <Pressable onPress={() => setWorktree((value) => !value)} accessibilityRole="switch" accessibilityState={{ checked: worktree }}>
-                    <View style={styles.worktreeRow}>
+                    <View style={[styles.worktreeRow, compact && styles.worktreeRowCompact]}>
                         <View style={styles.worktreeTexts}>
                             <Text style={styles.worktreeTitle}>Use a separate worktree</Text>
                             <Text style={styles.worktreeSubtitle}>A fresh checkout on its own branch, so this folder stays untouched.</Text>
                         </View>
                         <Switch
+                            style={compact ? styles.worktreeSwitchCompact : undefined}
                             value={worktree}
                             onValueChange={setWorktree}
                         />
