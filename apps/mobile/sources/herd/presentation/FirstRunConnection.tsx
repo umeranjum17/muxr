@@ -6,6 +6,8 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner } from '@/pairing';
 import { sshTunnelAvailable } from '@/connection';
+import { loadAppConfig } from '@/catalog';
+import { setupEmptyState } from '@/commercialization';
 import { ActionButton } from '@/components/ActionButton';
 import { useCompactWindow } from '@/components/useCompactWindow';
 import { FirstRunSetupCard } from './FirstRunSetupCard';
@@ -49,6 +51,8 @@ export function FirstRunConnection() {
     const scanPairQr = usePairQrScanner(processPairLink, canScan);
     // Offer Direct SSH only when this native build includes the transport.
     const sshAvailable = !browser && sshTunnelAvailable();
+    // A build with no public site has no download link to hand over.
+    const canAddComputer = setupEmptyState(loadAppConfig().publicBaseUrl).desktopUrl !== undefined;
     const connectLink = React.useCallback(() => {
         void processPairLink(linkValue.trim());
     }, [processPairLink, linkValue]);
@@ -96,6 +100,18 @@ export function FirstRunConnection() {
             <View style={styles.alternatives}>
                 <Text style={styles.alternativesLabel}>Not set up yet?</Text>
                 <View style={styles.alternativeRow}>
+                    {canAddComputer && (
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Add your computer. Install the muxr app on it from a link."
+                            style={({ pressed }) => [styles.wayTile, { flexBasis: 112 * fontScale }, pressed && styles.wayTilePressed]}
+                            onPress={() => router.push('/add-computer')}
+                        >
+                            <Ionicons name="laptop-outline" size={22} color={styles.wayIcon.color} />
+                            <Text style={styles.wayTitle}>Add your computer</Text>
+                            <Text style={styles.waySub}>Desktop app · no terminal</Text>
+                        </Pressable>
+                    )}
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel="Cloud account. Coming soon, no action yet."

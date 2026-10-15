@@ -4,12 +4,14 @@ export function setupEmptyState(publicBaseUrl?: string): {
     title: string;
     command: string;
     setupUrl?: string;
+    /** Where Add your computer sends the computer: the desktop app download. */
+    desktopUrl?: string;
 } {
     const base = publicBaseUrl?.trim().replace(/\/$/, '');
     return {
         title: 'Connect your computer',
         command: SETUP_COMMAND,
-        ...(base ? { setupUrl: `${base}/setup` } : {}),
+        ...(base ? { setupUrl: `${base}/setup`, desktopUrl: `${base}/desktop` } : {}),
     };
 }
 

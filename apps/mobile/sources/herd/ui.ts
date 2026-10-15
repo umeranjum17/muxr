@@ -1,5 +1,6 @@
 /** Presentation of the herd context. App routes import screens from here. */
 export * from './presentation/ActiveSessionsGroupCompact';
+export * from './presentation/AddComputerScreen';
 export * from './presentation/EmptySessionsTablet';
 export * from './presentation/HerdView';
 export * from './presentation/FirstRunConnection';

@@ -32,6 +32,7 @@ describe('open-source mobile onboarding flow', () => {
             title: 'Connect your computer',
             command: 'muxr',
             setupUrl: 'https://muxr.test/setup',
+            desktopUrl: 'https://muxr.test/desktop',
         });
         expect(setupEmptyState()).toEqual({
             title: 'Connect your computer',

@@ -19,6 +19,7 @@ import { t } from '@/text';
 import { refreshPushState, unsubscribeWebPush, updateWebPushNotificationLevel, type PushState } from '@/utils/pushNotifications';
 import { resolveForgetPushAction } from '@/utils/pushForget';
 import { loadAppConfig } from '@/catalog';
+import { setupEmptyState } from '@/commercialization';
 import { versionsMismatch } from '@/utils/versionStatus';
 import { getAppVersion } from '@/utils/appVersion';
 import { usePlanAccountsAvailable } from '@/plans';
@@ -325,6 +326,14 @@ export const SettingsView = React.memo(function SettingsView({
                             textAlign: 'center',
                             color: theme.colors.textLink,
                         }}
+                    />
+                )}
+                {setupEmptyState(loadAppConfig().publicBaseUrl).desktopUrl !== undefined && (
+                    <Item
+                        title="Add your computer"
+                        subtitle="Send a link to install muxr on it, then pair"
+                        icon={<Ionicons name="laptop-outline" size={29} color="#34C759" />}
+                        onPress={() => router.push('/add-computer')}
                     />
                 )}
                 <Item
