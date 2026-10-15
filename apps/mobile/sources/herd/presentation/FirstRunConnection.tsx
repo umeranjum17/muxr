@@ -6,11 +6,10 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner } from '@/pairing';
 import { sshTunnelAvailable } from '@/connection';
-import { loadAppConfig } from '@/catalog';
-import { setupEmptyState } from '@/commercialization';
 import { ActionButton } from '@/components/ActionButton';
 import { useCompactWindow } from '@/components/useCompactWindow';
 import { FirstRunSetupCard } from './FirstRunSetupCard';
+import { addComputerLink } from './AddComputerScreen';
 
 /**
  * Segmented Fast pairing / Direct SSH switcher. Rendered at the top of the
@@ -51,8 +50,7 @@ export function FirstRunConnection() {
     const scanPairQr = usePairQrScanner(processPairLink, canScan);
     // Offer Direct SSH only when this native build includes the transport.
     const sshAvailable = !browser && sshTunnelAvailable();
-    // A build with no public site has no download link to hand over.
-    const canAddComputer = setupEmptyState(loadAppConfig().publicBaseUrl).desktopUrl !== undefined;
+    const canAddComputer = addComputerLink() !== undefined;
     const connectLink = React.useCallback(() => {
         void processPairLink(linkValue.trim());
     }, [processPairLink, linkValue]);

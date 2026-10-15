@@ -328,7 +328,8 @@ export const SettingsView = React.memo(function SettingsView({
                         }}
                     />
                 )}
-                {setupEmptyState(loadAppConfig().publicBaseUrl).desktopUrl !== undefined && (
+                {/* A browser can't pair with the desktop app; see addComputerLink(). */}
+                {Platform.OS !== 'web' && setupEmptyState(loadAppConfig().publicBaseUrl).desktopUrl !== undefined && (
                     <Item
                         title="Add your computer"
                         subtitle="Send a link to install muxr on it, then pair"

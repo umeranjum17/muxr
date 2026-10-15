@@ -14,8 +14,15 @@ import { ActionButton } from '@/components/ActionButton';
 import { WordWrappingText } from '@/components/WordWrappingText';
 import { useCompactWindow } from '@/components/useCompactWindow';
 
-/** Web shares only where the browser has a share sheet; native always has one. */
-const canShare = Platform.OS !== 'web' || (typeof navigator !== 'undefined' && typeof navigator.share === 'function');
+/**
+ * The desktop app's download link, or undefined where this screen cannot finish:
+ * a build with no public site has no link, and a browser cannot pair with the
+ * desktop app, which offers only phone (native) codes.
+ */
+export function addComputerLink(): string | undefined {
+    if (Platform.OS === 'web') return undefined;
+    return setupEmptyState(loadAppConfig().publicBaseUrl).desktopUrl;
+}
 
 /** The link's QR, dark on white in both themes so any camera reads it. */
 function LinkQr(props: { text: string; size: number }) {
@@ -55,7 +62,7 @@ export function AddComputerScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const compact = useCompactWindow();
-    const link = setupEmptyState(loadAppConfig().publicBaseUrl).desktopUrl;
+    const link = addComputerLink();
     const shown = link?.replace(/^https:\/\//, '');
     const [notice, setNotice] = React.useState<string | undefined>();
     const [qrSide, setQrSide] = React.useState(0);
@@ -72,9 +79,8 @@ export function AddComputerScreen() {
     const share = React.useCallback(() => {
         if (link === undefined) return;
         setNotice(undefined);
-        // Android's sheet takes a message, iOS and web take a url.
-        void Share.share(Platform.OS === 'android' ? { message: link } : { url: link, message: link }).catch((cause: unknown) => {
-            if (cause instanceof Error && cause.name === 'AbortError') return;
+        // Android's sheet takes a message, iOS a url.
+        void Share.share(Platform.OS === 'android' ? { message: link } : { url: link }).catch(() => {
             setNotice('Couldn’t open sharing. Copy the link instead.');
         });
     }, [link]);
@@ -85,7 +91,7 @@ export function AddComputerScreen() {
                 <Text style={styles.lede}>Install the muxr app on your computer, then pair it with this {pairingDeviceNoun()}. No terminal needed.</Text>
                 <Step number={1} title="On your computer, open this link">
                     {link === undefined || shown === undefined ? (
-                        <Text style={styles.hint}>This app build has no download link. On your computer, install muxr from a terminal and run muxr instead.</Text>
+                        <Text style={styles.hint}>This app can’t hand over the download link. On your computer, install muxr from a terminal and run muxr instead.</Text>
                     ) : (
                         <>
                             <View style={styles.qrRow} onLayout={(event) => setQrSide(Math.min(200, Math.floor(event.nativeEvent.layout.width)))}>
@@ -94,7 +100,7 @@ export function AddComputerScreen() {
                             <WordWrappingText selectable style={styles.link} fontSize={17} lineHeight={23}>{shown}</WordWrappingText>
                             <View style={[styles.actions, compact && styles.actionsCompact]}>
                                 <View style={[styles.action, !compact && styles.actionInRow]}><ActionButton variant="secondary" title="Copy link" icon={compact ? undefined : 'copy-outline'} wrap onPress={copy} /></View>
-                                {canShare && <View style={[styles.action, !compact && styles.actionInRow]}><ActionButton variant="secondary" title="Share link" icon={compact ? undefined : 'share-outline'} wrap onPress={share} /></View>}
+                                <View style={[styles.action, !compact && styles.actionInRow]}><ActionButton variant="secondary" title="Share link" icon={compact ? undefined : 'share-outline'} wrap onPress={share} /></View>
                             </View>
                             {notice !== undefined && <Text accessibilityLiveRegion="polite" style={styles.notice}>{notice}</Text>}
                             <Text style={styles.hint}>Type it into the computer’s browser, send it to yourself, or scan the QR from the computer.</Text>
