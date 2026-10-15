@@ -134,4 +134,14 @@ jobs:
         if: steps.scope.outputs.docs_only != 'true'
         run: |
           npx -y done-done-axi run fast
-          npx -y done-done-axi check --outcome "the pull-request fast lane passes on this commit" ~/.done-done/evidence/pockit/*/*.log --trusted-ref origin/main
+          # Detached HEAD names no claim, so pass the PR branch explicitly.
+          CLAIM_ID="${{ github.head_ref || github.ref_name }}"
+          # Bootstrap: this config is new in this PR, so origin/main has no
+          # .done-done.yaml to trust yet; check against the working-tree
+          # config until it lands, then --trusted-ref applies again.
+          if git cat-file -e "origin/main:.done-done.yaml" 2>/dev/null; then
+            TRUSTED_REF_ARGS="--trusted-ref origin/main"
+          else
+            TRUSTED_REF_ARGS=""
+          fi
+          npx -y done-done-axi check --outcome "the pull-request fast lane passes on this commit" ~/.done-done/evidence/pockit/*/*.log --claim-id "$CLAIM_ID" $TRUSTED_REF_ARGS
