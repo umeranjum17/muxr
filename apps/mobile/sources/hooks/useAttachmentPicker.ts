@@ -12,7 +12,6 @@
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Platform } from 'react-native';
 import { Modal } from '@/modal';
@@ -203,6 +202,9 @@ export function useAttachmentPicker(): UseAttachmentPickerResult {
             return;
         }
 
+        // Imported on demand so the document-picker native module stays out of
+        // the landing payload; it loads only when Files is tapped.
+        const DocumentPicker = await import('expo-document-picker');
         const result = await DocumentPicker.getDocumentAsync({
             type: '*/*',
             multiple: true,

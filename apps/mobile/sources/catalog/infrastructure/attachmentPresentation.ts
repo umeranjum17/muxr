@@ -3,7 +3,7 @@
  * size label and a file-type icon. Images render their own thumbnail, so these
  * cover everything that is not an image.
  */
-import { Ionicons } from '@expo/vector-icons';
+import type { Ionicons } from '@expo/vector-icons';
 import type { AttachmentPreview } from './attachmentTypes';
 
 type IconName = keyof typeof Ionicons.glyphMap;
