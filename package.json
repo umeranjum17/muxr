@@ -43,7 +43,7 @@
     },
     "dependencies": {
         "@byokit/seal": "0.3.0",
-        "@byokit/reach": "0.6.0",
+        "@byokit/reach": "0.6.1",
         "@byokit/ui-core": "0.6.0",
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/addon-web-links": "^0.12.0",

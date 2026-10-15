@@ -14,7 +14,7 @@
     },
     "dependencies": {
         "@byokit/link": "0.8.0",
-        "@byokit/reach": "0.6.0",
-        "@byokit/relay": "0.5.3"
+        "@byokit/reach": "0.6.1",
+        "@byokit/relay": "0.6.0"
     }
 }
