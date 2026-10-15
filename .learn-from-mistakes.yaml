@@ -7,7 +7,32 @@ name: "pockit"
 # agent_config: { <agent>: { model: <model>, effort: low } }
 # agent_timeout: "20m"
 excerpts: on   # on: the worker and judge see redacted record excerpts; off: pointers and counts only
+repeat: { min_incidents: 3, min_days: 2 }
+# Causes read from the no-mistakes failed-step and merged-PR records on 2026-10-15
+# (330 gate rows, 134 PRs): each is a repeated mechanism, not a keyword.
+causes:
+  agent-timeout:
+    description: "A pipeline agent step hits the 30-minute wall clock and is killed (exit 143)."
+    match: { source: gate, error_contains: "30m0s" }
+  agent-wait-delay:
+    description: "The pipeline's wait for an agent's events expires (WaitDelay expired) before the agent answers."
+    match: { source: gate, error_contains: "WaitDelay expired" }
+  agent-output-parse:
+    description: "An agent's structured output misses a required field (findings, risk_level), so the step fails on the schema, not the work."
+    match: { source: gate, error_contains: "output parse" }
+  provider-unavailable:
+    description: "The model provider refuses the call: usage or rate limit, 5xx admission failure, bad key, or insufficient funds."
+    match: { source: gate, error_contains: "reported error" }
+  user-cancelled:
+    description: "A person stopped the run (aborted, context canceled): not a product or pipeline failure."
+    match: { source: gate, error_contains: "cancel" }
+  merge-conflict:
+    description: "The pipeline's rebase onto the base branch fails on a conflict the worker did not resolve."
+    match: { source: gate, error_contains: "rebase" }
+  daemon-unavailable:
+    description: "The pipeline daemon crashed or shut down mid-run, failing steps that did nothing wrong."
+    match: { source: gate, error_contains: "daemon " }
 sources:
   gate: { type: "no-mistakes", path: "~/.no-mistakes/state.sqlite" }
-  # sessions: temporarily omitted for run 2 (tool bug: events.push(...million) stack overflow on 335MB fleet session file); restored after.
+  sessions: { type: "sessions", agents: ["auto"] }
   prs: { type: "github" }
