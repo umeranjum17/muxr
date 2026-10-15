@@ -38,7 +38,7 @@ import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
-import { foregroundProgramPids, writeModeResetToPane } from './paneModeReset.js';
+import { foregroundProgramPids, shellHasLiveChild, shellPidOf, writeModeResetToPane } from './paneModeReset.js';
 import { MODE_RESET_CSI } from './terminalModes.js';
 import { ArtifactWatcher } from './artifactWatcher.js';
 import { ArtifactDownloadServer } from './artifactDownloads.js';
@@ -2847,6 +2847,12 @@ export async function createHerdrSessionSource(
 
         async restorePaneTerminalModes(paneId: string): Promise<boolean> {
             const info = await readPaneProcess(paneId);
+            const shell = shellPidOf(info);
+            // Shell foreground alone does not mean the program exited: ^Z
+            // returns the tty to the shell too. Require an explicitly reported
+            // shell and no child (including stopped/background jobs) at the write.
+            if (shell === undefined || !info.foregroundPids.includes(shell)) return false;
+            if (foregroundProgramPids(info).length > 0 || shellHasLiveChild(shell)) return false;
             if (writeModeResetToPane(info)) return true;
             // Platforms without a writable /proc fd: ask the shell to print the
             // reset so Herdr's parser still sees it (command line is touched).

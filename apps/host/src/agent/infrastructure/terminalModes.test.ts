@@ -80,16 +80,16 @@ describe('terminal wheel gate and stale-mode reset', () => {
             await waitFor(() => scrollStates(pipe) === publishes);
             expect(restores).toEqual([]);
 
-            // The pane's own shell holds it: the swipe is dropped, nothing cleared.
+            // No program was observed before attachment. The source may now
+            // restore a crashed program's modes after checking the shell's jobs.
             await swipe();
             expect(wheelSent(session)).toBe(false);
-            expect(restores).toEqual([]);
-
+            expect(restores).toEqual(['pane-1']);
             // A program holds it: the swipe is that program's wheel report.
             foreground = [firstPid];
             await swipe();
             expect(wheelSent(session)).toBe(true);
-            expect(restores).toEqual([]);
+            expect(restores).toEqual(['pane-1']);
 
             // Stopped: the shell holds the pane again but the pid is still there,
             // so the program keeps its screen.
@@ -97,7 +97,7 @@ describe('terminal wheel gate and stale-mode reset', () => {
             foreground = [];
             await swipe();
             expect(wheelSent(session)).toBe(false);
-            expect(restores).toEqual([]);
+            expect(restores).toEqual(['pane-1']);
 
             // Gone: the swipe clears what the program left and is not handed over.
             first.kill('SIGKILL');
@@ -105,14 +105,14 @@ describe('terminal wheel gate and stale-mode reset', () => {
             await waitFor(() => programIsGone(firstPid));
             await swipe();
             expect(wheelSent(session)).toBe(false);
-            expect(restores).toEqual(['pane-1']);
+            expect(restores).toEqual(['pane-1', 'pane-1']);
 
             // A different program holds it now: its pid replaces the gone one,
             // so the swipe is its wheel and nothing is cleared.
             foreground = [second.pid!];
             await swipe();
             expect(wheelSent(session)).toBe(true);
-            expect(restores).toEqual(['pane-1']);
+            expect(restores).toEqual(['pane-1', 'pane-1']);
         } finally {
             manager.closeAll();
             for (const child of [first, second]) {

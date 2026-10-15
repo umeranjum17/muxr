@@ -32,7 +32,7 @@ export interface TerminalManagerOptions {
      * holds it. Omitted, a scroll is taken to hold a program as before.
      */
     paneForegroundPids?: (paneId: string) => Promise<number[]>;
-    /** Clear alternate-screen and mouse modes left by a crashed fullscreen program. Resolves whether a reset landed. */
+    /** Restore crashed-program modes only after rechecking shell foreground and no live jobs. Resolves whether a reset landed. */
     restorePaneTerminalModes?: (paneId: string) => Promise<boolean>;
     /** Opens the kit terminal session; the kit owns the herdr binary and env. */
     openTerminal: (paneId: string, opts: TerminalOpenOptions) => TerminalSession;
@@ -458,7 +458,7 @@ export class TerminalManager {
                 // The pane's own shell is in the foreground: Herdr would hand
                 // the scroll to it as wheel reports. There is no scrollback of
                 // our own to move, so the gesture is dropped and whatever the
-                // program left behind is cleared once its pid is gone.
+                // program left behind is cleared only when no live job remains.
                 wheelRows = 0;
                 void this.restoreStaleModes(attachment).then(() => this.scheduleScrollState(attachment));
                 return;
@@ -807,8 +807,8 @@ export class TerminalManager {
     }
 
     /**
-     * The pane's own shell holds it and the program last seen there is gone,
-     * so what that program left on the screen is nobody's: inject the reset as
+     * The pane's own shell holds it and no live program is left on it, so
+     * what a crashed program left on the screen is nobody's: inject the reset as
      * PTY output so Herdr's scrollback returns and wheel reports stop typing
      * into the shell. Resolves whether a reset landed; a pane that could
      * not be reset is retried by the next scroll.
@@ -816,8 +816,12 @@ export class TerminalManager {
     private async restoreStaleModes(attachment: Attachment): Promise<boolean> {
         const restore = this.options.restorePaneTerminalModes;
         if (restore === undefined || wheelReportsAllowed(attachment.foregroundPids)) return false;
+        if (attachment.herdrOwnsScroll === true) return false;
+        // A program we saw still alive (stopped or backgrounded) keeps its screen.
         const owner = attachment.ownerPid;
-        if (owner === undefined || !programIsGone(owner)) return false;
+        if (owner !== undefined && !programIsGone(owner)) return false;
+        // An unseen crash has no owner pid. The source rechecks shell
+        // foreground and the absence of live children immediately before writing.
         if (attachment.modeRestore !== undefined) return await attachment.modeRestore;
         const pending = (async (): Promise<boolean> => {
             let landed = false;
