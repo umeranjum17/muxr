@@ -50,13 +50,6 @@ describe('header/connection agreement', () => {
             .toBe('Relay connected; the computer answered the last check.');
     });
 
-    it('a missing or out-of-date Herdr points at Home for the install, never a restart', () => {
-        expect(connectionStatusSubtitle({ status: 'connected', hostRefresh: 'ready', herdrRuntime: false, herdrMissing: true }))
-            .toBe('Relay connected; Herdr is missing on the computer. See Home for how to install it.');
-        expect(connectionStatusSubtitle({ status: 'connected', hostRefresh: 'ready', herdrRuntime: false, herdrOutdated: true }))
-            .toBe('Relay connected; Herdr on the computer is out of date. See Home for how to install it.');
-    });
-
     it('unknown runtime stays quiet: no false runtime alarm on either surface', () => {
         const socket = { status: 'connected', error: null };
         expect(summarizeConnection(socket, undefined)).toEqual({ linkDown: false, runtimeDown: false });

@@ -51,28 +51,42 @@ Preconditions: the no-Herdr desktop lab from `linux-desktop-app.md` step 5
 (PATH farm without `herdr`, task-owned `MUXR_HOME`, relay port 0, Xvfb, lab
 installer shim over the helper's named session), and a release APK on a
 task-owned emulator paired to that window. For the outdated and recipe
-states without the window, a plain lab relay plus a real (non-`--fake`) lab
-host works: hide every compatible Herdr with a farm PATH (no `HERDR_BIN`,
-empty `HERDR_INSTALL_DIR`, fresh `HOME`), put a `herdr 0.8.x` shim on the
-farm for the outdated state, and set `MUXR_DESKTOP_APP=1` for the
-desktop-app recipe. Pair a lab-flag web export through
-`window.__MUXR_LAB_PAIR__` (`lab-browser-pairing.md`) with a browser link
-minted on the host's own `pair.sock`, then read the card per host config.
+states without the window, use a real (non-`--fake`) foreground lab host,
+private HOME/MUXR_HOME and a port-0 relay. All Herdr calls, including session
+queries, go through the task's `--herdr-lab` helper. Pin `HERDR_BIN` to a
+lab-only shim that reports `herdr 0.8.5` for `--version` and forwards other
+calls through `helper run <named-session>`. Let the host validate that running
+session and report `pairing: ready`, then stop only it with
+`helper stop <named-session>`: the published kit now reports a disconnected
+runtime, and the host reports its old binary. Remove only that lab shim for
+the missing case; a farm PATH without another Herdr prevents fallback. Start
+the host with `MUXR_DESKTOP_APP=1` for the desktop recipe, unset for CLI.
+Before restarting the host, re-provision the same stopped lab through the
+helper. Never redirect it to an invented or default socket.
 
-1. Read Home's card at 270dp, font 1.0 and 2.0, light and dark.
+Pair a browser link minted on the host's own `pair.sock` through the pair
+screen's HTTPS wrapper (or the lab hook in `lab-browser-pairing.md`). Capture
+both recipes and both missing/outdated states on native and installed PWA,
+light/dark, including the scrolled end. The follow-up regression matrix is
+270dp at font 1.3 and 393dp at font 1.0; use the full Visual check matrix when
+layout or styles change.
+
+1. Read Home's card at the matrix above; verify the install lead and the
+   alternative step, then scroll until Retry connection and Connection details
+   are fully reachable. Run the Visual check driver at rest and at the end.
 2. Outdated proof: with the old shim as the only Herdr (or pinned via
    `HERDR_BIN`), Home titles "out of date" and leads with the install —
    never the restart card. A pinned old `HERDR_BIN` is the case that used to
    show the generic "Agent runtime unavailable" card: capture it as the
    before shot.
-2. Install from the window offline, then online; poll the phone with
+3. Install from the window offline, then online; poll the phone with
    `uiautomator dump` until "Herdr is missing" is gone and time it from the
    click.
-3. Create a workspace and report an agent through the lab helper
+4. Create a workspace and report an agent through the lab helper
    (`pane report-agent --agent pi --state working`); Home lists it.
-4. PWA: pair a lab-flag web export (`lab-browser-pairing.md`) to the same
+5. PWA: pair a lab-flag web export (`lab-browser-pairing.md`) to the same
    window and read the card in the installed-PWA window at 270 wide.
-5. Before/after: the origin/main AppImage on the same lab shows Ready to pair
+6. Before/after: the origin/main AppImage on the same lab shows Ready to pair
    on the window and "Agent runtime unavailable … muxr daemon restart" on Home.
 
 ## Gotchas
