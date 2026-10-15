@@ -36,7 +36,7 @@ export function SshFingerprintDialog({ fingerprint, onConfirm, onCancel }: {
             backgroundColor: Platform.select({
                 web: theme.colors.surface,
                 ios: theme.colors.glass.overlay,
-                android: theme.colors.glass.backgroundStrong,
+                android: theme.colors.surface,
                 default: theme.colors.surface,
             }),
             borderRadius: 14,
@@ -139,9 +139,9 @@ export function SshFingerprintDialog({ fingerprint, onConfirm, onCancel }: {
             </View>
         </>
     );
-    // A translucent blur layer over a busy screen lets the text behind show
-    // through the dialog body, so native renders on glass and web on solid.
-    if (Platform.OS !== 'web') {
+    // Android's glass is translucent without blur: the settings text behind
+    // it remains legible through the fingerprint. Keep this dialog opaque.
+    if (Platform.OS === 'ios') {
         return (
             <MobileGlassSurface
                 enabled
