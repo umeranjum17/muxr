@@ -34,7 +34,10 @@ export function openPairingSocket(socketPath, handlers) {
             catch { /* a partial or malformed line is ignored; the host never sends them */ }
         }
     });
-    socket.on('error', (error) => handlers.onError(error.message));
+    // A socket error (the host went away mid-session) is no message for the
+    // window: the close that follows re-opens pairing, or the runtime reports
+    // the host stopped. Only the host's own error events are shown.
+    socket.on('error', (error) => handlers.onLost?.(error));
     socket.on('close', () => handlers.onClosed?.());
 
     return {

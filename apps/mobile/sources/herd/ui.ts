@@ -1,5 +1,7 @@
 /** Presentation of the herd context. App routes import screens from here. */
 export * from './presentation/ActiveSessionsGroupCompact';
+// AddComputerScreen stays out of this barrel: it is a lazy route screen and
+// its QR/svg/pairing imports must not join the eager landing payload.
 export * from './presentation/EmptySessionsTablet';
 export * from './presentation/HerdView';
 export * from './presentation/FirstRunConnection';

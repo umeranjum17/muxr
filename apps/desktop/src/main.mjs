@@ -7,7 +7,7 @@
  * pair, Paired, or Offline/Error with a retry.
  */
 import { app, BrowserWindow, clipboard, Menu, Tray, ipcMain, nativeImage, powerSaveBlocker, shell } from 'electron';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +46,6 @@ let tray;
 let runtime;
 let pairing;
 let reopenTimer;
-let pairingAttempt = 0;
 let retrying = false;
 let blockerId = null;
 let settings = { keepAwake: false, autostart: true };
@@ -170,28 +169,28 @@ function reopenPairingSoon() {
     }, PAIRING_REOPEN_MS);
 }
 
-function startPairing() {
+// Pairing runs only while the host is up: a stopped or killed host leaves
+// pair.sock behind, and dialing it again would only be refused.
+function stopPairing() {
     if (reopenTimer !== undefined) { clearTimeout(reopenTimer); reopenTimer = undefined; }
     const previous = pairing;
     pairing = undefined;
     previous?.close();
-    const attempt = ++pairingAttempt;
-    const connect = () => {
-        // The host opens pair.sock a moment after it reports online; retry until it
-        // is there, unless a newer start (Try again, a reopen) has taken over.
-        if (attempt !== pairingAttempt || runtime === undefined) return;
-        if (!existsSync(runtime.pairSocketPath)) { setTimeout(connect, 300); return; }
-        let client;
-        client = openPairingSocket(runtime.pairSocketPath, {
-            onOffer: (offer) => send(offerState(offer)),
-            onApproval: (approval) => send({ phase: 'approval', deviceName: approval.name, words: approval.words }),
-            onPaired: (record) => { send({ phase: 'paired', deviceName: record?.name ?? 'your phone' }); reopenPairingSoon(); },
-            onError: (message) => { send({ phase: 'error', message }); reopenPairingSoon(); },
-            onClosed: () => { if (pairing === client) reopenPairingSoon(); },
-        });
-        pairing = client;
-    };
-    connect();
+}
+
+// Called once the runtime is online, which already waited for the host's own
+// report that pair.sock is listening.
+function startPairing() {
+    stopPairing();
+    const client = openPairingSocket(runtime.pairSocketPath, {
+        onOffer: (offer) => send(offerState(offer)),
+        onApproval: (approval) => send({ phase: 'approval', deviceName: approval.name, words: approval.words }),
+        onPaired: (record) => { send({ phase: 'paired', deviceName: record?.name ?? 'your phone' }); reopenPairingSoon(); },
+        onError: (message) => { send({ phase: 'error', message }); reopenPairingSoon(); },
+        onLost: (error) => process.stderr.write(`desktop: pairing socket: ${error.message}\n`),
+        onClosed: () => { if (pairing === client) reopenPairingSoon(); },
+    });
+    pairing = client;
 }
 
 async function startRuntime() {
@@ -200,7 +199,8 @@ async function startRuntime() {
     // The one place Herdr is read and started: launch check plus every status below.
     wireHerdrToRuntime(runtime, herdr);
     runtime.on('status', (event) => {
-        if (event.phase === 'error') reportFailure('runtime error', event.message, RUNTIME_EXIT_MESSAGE);
+        // The Herdr forwarding lives in wireHerdrToRuntime above; only the pairing stop rides along here.
+        if (event.phase === 'error') { stopPairing(); reportFailure('runtime error', event.message, RUNTIME_EXIT_MESSAGE); }
         else if (event.phase === 'starting') send({ phase: 'starting' });
         else if (event.phase === 'stalled') reportFailure('host still starting', 'no online report yet', STALLED_MESSAGE);
         else if (event.phase === 'already-running') send({ phase: 'already-running', message: event.message, canRetry: event.canRetry === true });
@@ -250,8 +250,7 @@ if (!app.requestSingleInstanceLock()) {
     app.on('activate', () => showWindow());
     app.on('window-all-closed', () => { if (tray === undefined) app.quit(); });
     app.on('before-quit', () => {
-        if (reopenTimer !== undefined) { clearTimeout(reopenTimer); reopenTimer = undefined; }
-        pairing?.close();
+        stopPairing();
         runtime?.stop();
         if (blockerId !== null) { powerSaveBlocker.stop(blockerId); blockerId = null; }
     });
@@ -263,6 +262,7 @@ if (!app.requestSingleInstanceLock()) {
         if (retrying) return;
         retrying = true;
         try {
+            stopPairing();
             await runtime?.stop();
             runtime = undefined;
             await startRuntime();

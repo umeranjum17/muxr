@@ -36,6 +36,13 @@ export type AndroidArtifact = {
     applicationId: string;
 };
 
+/** The Linux desktop app, once a release publishes one. */
+export type LinuxArtifact = {
+    url: string;
+    sha256: string;
+    bytes: number;
+};
+
 export type ChannelRelease = {
     version: string;
     appVersion: string;
@@ -46,6 +53,7 @@ export type ChannelRelease = {
     /** Null only for the legacy stable release that predates manifests. */
     manifestUrl: string | null;
     android: AndroidArtifact;
+    linux?: LinuxArtifact;
 };
 
 /** Channels that validated. A missing one is unavailable on its own. */
@@ -73,6 +81,7 @@ const APPLICATION_ID: Record<CatalogChannel, string> = {
 };
 const SHA256 = /^[0-9a-f]{64}$/;
 const APK = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apk$/;
+const APPIMAGE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.AppImage$/;
 const MANIFEST = 'release-manifest.json';
 /** The one release that predates published manifests. */
 const MANIFEST_EXEMPT = { channel: 'stable', version: '0.1.25' };
@@ -120,11 +129,32 @@ function assetUrl(value: unknown, tag: string, filename: string, field: string):
     return expected;
 }
 
-function filenameOf(value: unknown, field: string): string {
+function filenameOf(value: unknown, field: string, pattern = APK): string {
     if (typeof value !== 'string') throw new ReleaseCatalogUnavailable(`invalid ${field}`);
     const name = value.split('/').pop() ?? '';
-    if (!APK.test(name)) throw new ReleaseCatalogUnavailable(`invalid ${field} filename`);
+    if (!pattern.test(name)) throw new ReleaseCatalogUnavailable(`invalid ${field} filename`);
     return name;
+}
+
+function sha256(value: unknown, field: string): string {
+    if (typeof value !== 'string' || !SHA256.test(value)) throw new ReleaseCatalogUnavailable(`invalid ${field}`);
+    return value;
+}
+
+/** The desktop download is optional: one that does not validate is left out, never the channel's phone app. */
+function parseLinux(value: unknown, tag: string, channel: CatalogChannel): LinuxArtifact | undefined {
+    if (value === undefined) return undefined;
+    try {
+        const linux = record(value, `${channel}.linux`);
+        const field = `${channel}.linux.url`;
+        return {
+            url: assetUrl(linux.url, tag, filenameOf(linux.url, field, APPIMAGE), field),
+            sha256: sha256(linux.sha256, `${channel}.linux.sha256`),
+            bytes: count(linux.bytes, `${channel}.linux.bytes`),
+        };
+    } catch {
+        return undefined;
+    }
 }
 
 function parseRelease(value: unknown, channel: CatalogChannel): ChannelRelease {
@@ -148,13 +178,12 @@ function parseRelease(value: unknown, channel: CatalogChannel): ChannelRelease {
         manifestUrl: entry.manifestUrl === null ? null : assetUrl(entry.manifestUrl, tag, MANIFEST, `${channel}.manifestUrl`),
         android: {
             url: assetUrl(android.url, tag, filenameOf(android.url, `${channel}.android.url`), `${channel}.android.url`),
-            sha256: typeof android.sha256 === 'string' && SHA256.test(android.sha256)
-                ? android.sha256
-                : (() => { throw new ReleaseCatalogUnavailable(`invalid ${channel}.android.sha256`); })(),
+            sha256: sha256(android.sha256, `${channel}.android.sha256`),
             bytes: count(android.bytes, `${channel}.android.bytes`),
             versionCode: count(android.versionCode, `${channel}.android.versionCode`),
             applicationId: exact(android.applicationId, APPLICATION_ID[channel], `${channel}.android.applicationId`),
         },
+        linux: parseLinux(entry.linux, tag, channel),
     };
 }
 
