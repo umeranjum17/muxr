@@ -45,6 +45,11 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 ## Features
 
+- [Add your computer from the phone](./add-your-computer.md) —
+  release APK on an emulator, lab site with a catalog fixture and the local
+  AppImage: link and QR on the phone, `/desktop` download, real scan of the
+  desktop's QR, timed tap-to-paired, and a 270dp font 2.0 unreachable-relay
+  failure that recovers with Try again; absent on web/PWA.
 - [Pair the phone from the installable desktop app](./linux-desktop-app.md) —
   a Linux AppImage wrapping the relay and host: launch→Ready timing with and
   without Herdr, Install Herdr from the window, QR and two-word pairing with a
