@@ -77,7 +77,7 @@ class SshTunnelConfig : Record {
     @Field var privateKey: String? = null
     @Field var passphrase: String? = null
 
-    /** Pinned `SHA256:…` host key. Absent means trust-on-first-use; the caller stores what it gets back. */
+    /** User-confirmed `SHA256:…` host key; required before authentication. */
     @Field var knownHostKey: String? = null
 
     /** Relay address as seen from the host, always its loopback. */
@@ -117,7 +117,7 @@ private class PinnedHostKeyVerifier(private val expected: String?) : HostKeyVeri
         val actual = fingerprintOf(key)
         observed = actual
         val pinned = expected
-        if (pinned.isNullOrBlank()) return true
+        if (pinned.isNullOrBlank()) return false
         return MessageDigest.isEqual(pinned.toByteArray(), actual.toByteArray())
     }
 
@@ -161,6 +161,12 @@ class SshTunnelModule : Module() {
 
         AsyncFunction("verifyCredentials") { config: SshTunnelConfig -> verify(config) }
 
+        AsyncFunction("inspectHostKey") { config: SshTunnelConfig ->
+            validate(config)
+            val (_, hostKey) = signIn(config, probeOnly = true)
+            mapOf("hostKey" to hostKey)
+        }
+
         AsyncFunction("execCommand") { config: SshTunnelConfig, command: String -> exec(config, command) }
 
         AsyncFunction("closeTunnel") { closeCurrent() }
@@ -186,9 +192,11 @@ class SshTunnelModule : Module() {
 
     private fun open(config: SshTunnelConfig): Map<String, Any> {
         validate(config)
+        requirePin(config)
         val expected = synchronized(lock) {
             val existing = tunnel
             if (existing != null && existing.alive() && existing.signature == signatureOf(config)) {
+                if (config.knownHostKey != existing.hostKey) throw SshHostKeyException("the SSH host key changed")
                 return mapOf("localPort" to existing.localPort, "hostKey" to existing.hostKey)
             }
             existing?.close()
@@ -342,8 +350,15 @@ class SshTunnelModule : Module() {
         return tunnel
     }
 
-    /** A connected, authenticated client and the host key it saw. */
-    private fun signIn(config: SshTunnelConfig): Pair<SSHClient, String> {
+    private fun requirePin(config: SshTunnelConfig) {
+        if (config.knownHostKey.isNullOrBlank()) {
+            throw SshConfigurationException("Confirm the SSH host fingerprint before signing in.")
+        }
+    }
+
+    /** A probe rejects the handshake at the key check and never authenticates. */
+    private fun signIn(config: SshTunnelConfig, probeOnly: Boolean = false): Pair<SSHClient, String> {
+        if (!probeOnly) requirePin(config)
         SecurityUtils.setSecurityProvider(sshSecurityProvider.name)
         val defaults = DefaultConfig()
         defaults.keyExchangeFactories = listOf(
@@ -352,7 +367,6 @@ class SshTunnelModule : Module() {
             ECDHNistP.Factory384(),
             ECDHNistP.Factory521(),
         )
-        // Preserve existing host-key preference so saved RSA/ECDSA pins stay valid.
         defaults.keyAlgorithms = listOf(
             KeyAlgorithms.RSASHA256(),
             KeyAlgorithms.RSASHA512(),
@@ -365,7 +379,7 @@ class SshTunnelModule : Module() {
         // socket that will never answer, which the caller can only show as a spinner.
         defaults.keepAliveProvider = KeepAliveProvider.KEEP_ALIVE
         val client = SSHClient(defaults)
-        val verifier = PinnedHostKeyVerifier(config.knownHostKey)
+        val verifier = PinnedHostKeyVerifier(if (probeOnly) null else config.knownHostKey)
         client.addHostKeyVerifier(verifier)
         client.connectTimeout = config.connectTimeoutMs
         client.timeout = config.connectTimeoutMs
@@ -373,8 +387,10 @@ class SshTunnelModule : Module() {
             client.connect(config.host, config.port)
         } catch (cause: Exception) {
             try { client.disconnect() } catch (_: IOException) {}
-            if (verifier.observed != null && config.knownHostKey != null) {
-                throw SshHostKeyException("host key changed for ${config.host}")
+            val observed = verifier.observed
+            if (observed != null && probeOnly) return client to observed
+            if (observed != null && observed != config.knownHostKey) {
+                throw SshHostKeyException("the SSH host key changed")
             }
             throw SshUnreachableException("could not reach the SSH host", null)
         }

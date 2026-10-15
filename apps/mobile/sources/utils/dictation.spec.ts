@@ -64,6 +64,8 @@ const WORDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
 vi.mock('whisper.rn', () => ({ initWhisper: vi.fn(async () => ({ transcribeData: mocks.transcribe, release: mocks.releases })) }));
 vi.mock('@/utils/dictationModels', () => ({ BUNDLED_DICTATION_MODEL_ID: 'base', getInstalledDictationModelUri: () => null }));
 vi.mock('@/utils/dictationModelFiles', () => ({ getBundledDictationModelUri: async () => 'file:///bundled-dictation.bin' }));
+// No Silero gate here: the stand-in whisper hears every take ungated, as before the VAD model.
+vi.mock('@/utils/dictationVadModel', () => ({ getDictationVadModelUri: async () => null }));
 vi.mock('@/catalog/application/persistence', () => ({ loadLocalSettings: () => ({
     dictationModel: mocks.dictationModel,
     dictationLanguage: mocks.dictationLanguage,

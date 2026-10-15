@@ -23,6 +23,12 @@ struct SshConfiguration {
 
   var signature: String { "\(username)@\(host):\(port)->\(remoteHost):\(remotePort)" }
 
+  func requirePin() throws {
+    guard let pin = knownHostKey, !pin.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      throw SshFailure(code: "ssh-configuration", message: "Confirm the SSH host fingerprint before signing in.")
+    }
+  }
+
   func validate() throws {
     guard !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
           !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -146,8 +152,9 @@ final class SshTransport {
 
   var alive: Bool { state.withLock { !stopped } }
 
-  init(_ config: SshConfiguration) throws {
+  init(_ config: SshConfiguration, probeOnly: Bool = false) throws {
     try config.validate()
+    if !probeOnly { try config.requirePin() }
     guard Self.initialized == 0 else { throw SshFailure(code: "ssh-unreachable", message: "could not initialize SSH") }
     signature = config.signature
     timeout = config.timeout
@@ -170,7 +177,8 @@ final class SshTransport {
       }
       let digest = SHA256.hash(data: Data(bytes: bytes, count: length))
       hostKey = "SHA256:" + Data(digest).base64EncodedString().replacingOccurrences(of: "=", with: "")
-      if let expected = config.knownHostKey, !expected.isEmpty, expected != hostKey {
+      if probeOnly { return }
+      if config.knownHostKey != hostKey {
         throw SshFailure(code: "ssh-host-key", message: "the SSH host key changed")
       }
       try Self.retry(opened, socket, timeout: timeout, code: "ssh-auth") {

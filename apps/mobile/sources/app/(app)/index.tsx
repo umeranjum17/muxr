@@ -45,7 +45,10 @@ function NotAuthenticated() {
 
     return (
         <View style={styles.screen}>
-            <Header title={<Text style={styles.headerTitle}>Connect a machine</Text>} headerShadowVisible={false} />
+            <Header
+                title={<Text style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">Connect a machine</Text>}
+                headerShadowVisible={false}
+            />
             <ScrollView
                 style={styles.screen}
                 contentContainerStyle={[styles.content, { paddingBottom: 24, paddingHorizontal: compact ? 8 : 16 }]}
@@ -71,5 +74,7 @@ const styles = StyleSheet.create((theme) => ({
         ...Typography.default('semiBold'),
         fontSize: 16,
         color: theme.colors.text,
+        flexShrink: 1,
+        minWidth: 0,
     },
 }));

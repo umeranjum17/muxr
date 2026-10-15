@@ -3,6 +3,7 @@ import {
     closeSshTunnel,
     execSshCommand,
     isSshTunnelSupported,
+    inspectSshHostKey,
     openSshForward,
     openSshTunnel,
     sshTunnelPort,
@@ -11,7 +12,7 @@ import {
     type SshCommandResult,
     type SshTunnelErrorCode,
 } from '../../modules/ssh-tunnel';
-import type { SshTarget } from './connectionSettings';
+import type { ConnectionSettings, SshTarget } from './connectionSettings';
 import { sameSshTarget } from './sshKeyInstall';
 import type { SshPublicKeyInfo } from './sshPublicKey';
 
@@ -82,6 +83,16 @@ export class SshConnectionError extends Error {
     }
 }
 
+/** The connection error muxr shows when a changed host key refused the login. */
+export function isSshHostKeyChangeRefusal(error: string | null | undefined): boolean {
+    return typeof error === 'string' && /^The SSH fingerprint for .* changed\./.test(error);
+}
+
+/** The connection error muxr shows when a saved SSH route has no confirmed pin. */
+export function isSshHostKeyPinMissing(error: string | null | undefined): boolean {
+    return typeof error === 'string' && /^Confirm the SSH host fingerprint in Connection settings/.test(error);
+}
+
 function describe(error: SshTunnelError, target: SshTarget): SshConnectionError {
     const where = `${target.username}@${target.host}:${target.port}`;
     switch (error.code) {
@@ -94,7 +105,7 @@ function describe(error: SshTunnelError, target: SshTarget): SshConnectionError 
         case 'ssh-host-key':
             return new SshConnectionError(
                 error.code,
-                `The SSH host key for ${target.host} changed, so muxr did not connect. If you rebuilt or replaced that machine, choose 'Use current relay route instead' in Connection settings to clear the Direct SSH route, then save SSH again to trust the new key; otherwise treat it as an interception.`,
+                `The SSH fingerprint for ${target.host} changed. No login details were sent. Open Connection settings → SSH, confirm the new fingerprint, or choose Use current relay route instead.`,
                 true,
             );
         case 'ssh-unsupported':
@@ -189,15 +200,26 @@ export function parseSshFields(input: SshFieldInput): { target: SshTarget; crede
 
 /**
  * Keep a host key already pinned for the same endpoint; a new endpoint pairs
- * fresh and pins on first successful connect.
+ * fresh and requires the user to confirm its fingerprint before signing in.
  */
 export function pinSshHostKey(previous: SshTarget | undefined, next: SshTarget): SshTarget {
     return previous !== undefined
         && previous.host === next.host && previous.port === next.port
-        && previous.username === next.username && previous.relayPort === next.relayPort
         && previous.hostKey !== undefined
         ? { ...next, hostKey: previous.hostKey }
         : next;
+}
+
+/** A first connection probes without credentials and waits for explicit consent. */
+export async function reviewSshHostKey(target: SshTarget, confirm?: (fingerprint: string) => Promise<boolean>): Promise<SshTarget> {
+    if (target.hostKey !== undefined) return target;
+    if (confirm === undefined) throw new SshConnectionError('ssh-configuration', 'Confirm the SSH host fingerprint before signing in.', true);
+    let hostKey: string;
+    try { hostKey = await inspectSshHostKey(target); }
+    catch (cause) { throw describe(SshTunnelError.from(cause), target); }
+    if (!/^SHA256:[A-Za-z0-9+/]+$/.test(hostKey)) throw new SshConnectionError('ssh-host-key', 'The server did not present a valid SSH fingerprint.', true);
+    if (!await confirm(hostKey)) throw new SshConnectionError('ssh-configuration', 'SSH cancelled. No login details were sent.', true);
+    return { ...target, hostKey };
 }
 
 /**
@@ -207,6 +229,7 @@ export function pinSshHostKey(previous: SshTarget | undefined, next: SshTarget):
  * touched, so a failure here leaves a working route as it was.
  */
 export async function verifySshCredential(target: SshTarget, credential: SshCredential): Promise<string> {
+    if (!target.hostKey) throw new SshConnectionError('ssh-configuration', 'Confirm the SSH host fingerprint before signing in.', true);
     try {
         const { hostKey } = await verifySshCredentials({
             host: target.host,
@@ -231,15 +254,18 @@ export async function verifySshCredential(target: SshTarget, credential: SshCred
  * always implies a working tunnel. Reuses an alive identical tunnel, but only
  * after the entered credential has signed in on its own.
  */
-export async function establishSshTunnel(input: SshFieldInput): Promise<{ ok: true; localPort: number; hostKey: string | undefined } | { ok: false; message: string }> {
+export async function establishSshTunnel(input: SshFieldInput, confirmHostKey?: (fingerprint: string) => Promise<boolean>): Promise<{ ok: true; localPort: number; hostKey: string | undefined } | { ok: false; message: string }> {
     if (!isSshTunnelSupported()) {
         return { ok: false, message: 'This build of muxr cannot open SSH connections. Use the store app or another supported build.' };
     }
     const parsed = parseSshFields(input);
     if ('error' in parsed) return { ok: false, message: parsed.error };
     try {
-        const verifiedHostKey = await verifySshCredential(parsed.target, parsed.credential);
+        const { getCachedConnectionSettings } = await import('./connectionSettings');
+        const target = await reviewSshHostKey(pinSshHostKey(getCachedConnectionSettings().ssh, parsed.target), confirmHostKey);
+        const verifiedHostKey = await verifySshCredential(target, parsed.credential);
         const handle = await openSshTunnel({
+            knownHostKey: target.hostKey,
             host: parsed.target.host,
             port: parsed.target.port,
             username: parsed.target.username,
@@ -291,19 +317,76 @@ export async function applySshAfterPairing(input: SshFieldInput, options?: { hos
         return { ok: false, message: 'This pairing is not self-hosted, so the Direct SSH route was not applied. The connection uses the paired relay route.' };
     }
     try {
-        await saveSshCredential(settings.machineId, parsed.credential);
         let target = pinSshHostKey(settings.ssh, parsed.target);
         if (options?.hostKey !== undefined && target.hostKey === undefined) {
-            // Trust on first use: the key seen while the tunnel was established
-            // during pairing becomes this route's authority.
+            // The user confirmed this key before the pairing tunnel signed in.
             target = { ...target, hostKey: options.hostKey };
         }
+        if (!target.hostKey) return { ok: false, message: 'Confirm the SSH host fingerprint before signing in.' };
+        await saveSshCredential(settings.machineId, parsed.credential);
         await saveConnectionSettings({
             ...settings,
             ssh: target,
             ...(options?.relayUrl !== undefined ? { relayUrl: options.relayUrl } : {}),
         });
         return { ok: true };
+    } catch (cause) {
+        return { ok: false, message: cause instanceof Error ? cause.message : String(cause) };
+    }
+}
+
+export interface SshSettingsSaveOptions {
+    /** The last connection's error, if any: a changed host key drops the pin. */
+    lastConnectionError: string | null;
+    confirm?: (fingerprint: string) => Promise<boolean>;
+}
+
+/**
+ * Save the Connection settings Direct SSH form. A confirmed pin for the same
+ * endpoint is kept, so an offline edit of another field still saves without a
+ * probe. The pin is dropped and the live fingerprint shown for explicit
+ * confirmation when the endpoint changed, no pin exists, the last connection
+ * was refused because the host key changed, or this save's own credential probe
+ * refuses for a changed host key. A typed credential is probed before it
+ * replaces the saved one.
+ */
+export async function saveReviewedSshSettings(
+    input: SshFieldInput,
+    options: SshSettingsSaveOptions,
+): Promise<{ ok: true; settings: ConnectionSettings; target: SshTarget } | { ok: false; message: string }> {
+    const { getCachedConnectionSettings, saveConnectionSettings } = await import('./connectionSettings');
+    const settings = getCachedConnectionSettings();
+    if (settings.selfhost !== true || settings.machineId === '') {
+        return { ok: false, message: 'Pair this phone with a self-hosted machine before configuring Direct SSH.' };
+    }
+    const parsed = parseSshFields(input);
+    if ('error' in parsed) return { ok: false, message: parsed.error };
+    const previous = settings.ssh;
+    const mustReview = isSshHostKeyChangeRefusal(options.lastConnectionError)
+        || previous === undefined
+        || previous.hostKey === undefined
+        || previous.host !== parsed.target.host
+        || previous.port !== parsed.target.port;
+    try {
+        let target = mustReview
+            ? await reviewSshHostKey(parsed.target, options.confirm)
+            : pinSshHostKey(previous, parsed.target);
+        if (Object.keys(parsed.credential).length > 0) {
+            try {
+                await verifySshCredential(target, parsed.credential);
+            } catch (cause) {
+                // A changed key first seen on this probe never reached socketError;
+                // drop the pin and re-confirm in the same save so Settings can recover.
+                if (!(cause instanceof SshConnectionError) || cause.code !== 'ssh-host-key' || target.hostKey === undefined) throw cause;
+                target = await reviewSshHostKey({ ...target, hostKey: undefined }, options.confirm);
+                await verifySshCredential(target, parsed.credential);
+            }
+            await saveSshCredential(settings.machineId, parsed.credential);
+        }
+        const next = { ...settings, ssh: target };
+        if (previous?.hostKey !== undefined && target.hostKey !== previous.hostKey) await stopSshTunnel();
+        await saveConnectionSettings(next);
+        return { ok: true, settings: next, target };
     } catch (cause) {
         return { ok: false, message: cause instanceof Error ? cause.message : String(cause) };
     }
@@ -368,9 +451,10 @@ export async function sshRelayUrl(relayUrl: string, machineId: string, target: S
     } catch {
         throw new SshConnectionError('ssh-unreachable', 'This machine has no usable relay address. Pair it again from the computer.', true);
     }
-    const { getCachedConnectionSettings, saveConnectionSettings } = await import('./connectionSettings');
+    const { getCachedConnectionSettings } = await import('./connectionSettings');
     const settings = getCachedConnectionSettings();
     const activeTarget = settings.machineId === machineId && settings.ssh !== undefined ? settings.ssh : target;
+    if (!activeTarget.hostKey) throw new SshConnectionError('ssh-configuration', 'Confirm the SSH host fingerprint in Connection settings before reconnecting.', true);
     const key = JSON.stringify([machineId, activeTarget.host, activeTarget.port, activeTarget.username, activeTarget.relayPort, activeTarget.hostKey]);
     let pending = pendingRelayTunnels.get(key);
     if (pending === undefined) {
@@ -398,11 +482,6 @@ export async function sshRelayUrl(relayUrl: string, machineId: string, target: S
                     });
                 } catch (error) {
                     throw describe(error instanceof SshTunnelError ? error : SshTunnelError.from(error), activeTarget);
-                }
-                // Trust on first use: the key seen while pairing becomes the authority for
-                // this route from then on. A later mismatch fails closed above.
-                if (activeTarget.hostKey === undefined && settings.machineId === machineId && settings.ssh !== undefined) {
-                    await saveConnectionSettings({ ...settings, ssh: { ...settings.ssh, hostKey: handle.hostKey } });
                 }
                 return handle.localPort;
             } finally {

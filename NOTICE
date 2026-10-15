@@ -49,6 +49,18 @@ The mobile app bundles the official quantized English Whisper Base model for
 fully on-device dictation. It is not part of the host-only npm artifact.
 
 --------------------------------------------------------------------------------
+Silero VAD
+
+  https://github.com/snakers4/silero-vad
+  https://huggingface.co/ggml-org/whisper-vad
+
+  MIT License
+
+The mobile app bundles the ggml Silero voice-activity model (ggml-silero-v6.2.0)
+that skips the final Whisper decode when a dictation take has no speech. It is
+not part of the host-only npm artifact.
+
+--------------------------------------------------------------------------------
 xterm.js — https://github.com/xtermjs/xterm.js
 
   MIT License

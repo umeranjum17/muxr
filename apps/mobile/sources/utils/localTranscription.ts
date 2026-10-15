@@ -1,16 +1,19 @@
 import { Dictation, whisperRnEngine } from '@byokit/dictation';
-import { initWhisper } from 'whisper.rn';
+import { initWhisper, initWhisperVad } from 'whisper.rn';
 import { loadLocalSettings } from '@/catalog/application/persistence';
 import { BUNDLED_DICTATION_MODEL_ID, getInstalledDictationModelUri } from '@/utils/dictationModels';
 import { getBundledDictationModelUri } from '@/utils/dictationModelFiles';
+import { getDictationVadModelUri } from '@/utils/dictationVadModel';
 import { dictationMicrophone } from '@/utils/dictationMicrophone';
 
 const KEEP_WARM_MS = 3 * 60_000;
 const VOCABULARY_PROMPT = 'muxr, Herdr, Crewhouse, Treehouse, OpenClaw, ChatGPT, Codex, Claude, BYOKit, worktree, npm.';
 // Phone room noise reads 0.003-0.005 RMS, over the kit's default speech gate, so live
 // readings started on silence and stuck on "[BLANK_AUDIO]". The final reads the whole take either way.
+// Neural Silero VAD (speech:) skips the final decode when a take has no speech; this energy
+// floor still keeps live previews off room noise. NON_SPEECH still strips Whisper labels.
 const SPEECH_GATE_RMS = 0.015;
-let warm: { modelUri: string; multilingual: boolean; engine: ReturnType<typeof whisperRnEngine> } | null = null;
+let warm: { modelUri: string; vadModelUri: string | null; multilingual: boolean; engine: ReturnType<typeof whisperRnEngine> } | null = null;
 
 // whisper annotates non-speech audio with short parenthetical or bracketed
 // labels like "(wind howling)", "[wind]" or "[inaudible]", and music as "♪".
@@ -52,7 +55,8 @@ async function acquireEngine(modelId: string) {
     const installedModelUri = getInstalledDictationModelUri(modelId);
     const modelUri = installedModelUri ?? await getBundledDictationModelUri();
     const multilingual = installedModelUri !== null && modelId !== BUNDLED_DICTATION_MODEL_ID;
-    if (warm?.modelUri === modelUri) return warm;
+    const vadModelUri = await getDictationVadModelUri();
+    if (warm?.modelUri === modelUri && warm.vadModelUri === vadModelUri) return warm;
     const previous = warm;
     warm = null;
     await previous?.engine.release();
@@ -61,8 +65,9 @@ async function acquireEngine(modelId: string) {
         multilingual,
         initWhisper,
         settings: { initialPrompt: VOCABULARY_PROMPT, beamSize: 5, vad: { threshold: SPEECH_GATE_RMS } },
+        ...(vadModelUri !== null ? { speech: { model: vadModelUri, initWhisperVad } } : {}),
     });
-    warm = { modelUri, multilingual, engine };
+    warm = { modelUri, vadModelUri, multilingual, engine };
     return warm;
 }
 

@@ -14,7 +14,7 @@ export interface SshTunnelConfig {
     password?: string;
     privateKey?: string;
     passphrase?: string;
-    /** Pinned `SHA256:…` key. Omitted on the first connection, which returns the key to pin. */
+    /** User-confirmed `SHA256:…` key. Required for every authenticated operation. */
     knownHostKey?: string;
     remoteHost: string;
     remotePort: number;
@@ -36,6 +36,7 @@ export interface SshCommandResult {
 export type SshTunnelErrorCode = 'ssh-unreachable' | 'ssh-auth' | 'ssh-host-key' | 'ssh-local-port' | 'ssh-configuration' | 'ssh-exec-timeout' | 'ssh-unsupported';
 
 interface SshTunnelNative {
+    inspectHostKey: (config: SshTunnelConfig) => Promise<{ hostKey: string }>;
     openTunnel: (config: SshTunnelConfig) => Promise<SshTunnelHandle>;
     verifyCredentials: (config: SshTunnelConfig) => Promise<{ hostKey: string }>;
     execCommand: (config: SshTunnelConfig, command: string) => Promise<SshCommandResult>;
@@ -75,6 +76,21 @@ export async function openSshTunnel(config: SshTunnelConfig): Promise<SshTunnelH
     if (module === null) throw new SshTunnelError('ssh-unsupported', 'this build has no SSH support');
     try {
         return await module.openTunnel(config);
+    } catch (error) {
+        throw SshTunnelError.from(error);
+    }
+}
+
+/** Inspect the server identity without sending any login material. */
+export async function inspectSshHostKey(target: Pick<SshTunnelConfig, 'host' | 'port' | 'username'>): Promise<string> {
+    const module = nativeModule();
+    if (module === null) throw new SshTunnelError('ssh-unsupported', 'this build has no SSH support');
+    try {
+        const result = await module.inspectHostKey({
+            host: target.host, port: target.port, username: target.username,
+            remoteHost: '127.0.0.1', remotePort: 8792,
+        });
+        return result.hostKey;
     } catch (error) {
         throw SshTunnelError.from(error);
     }
