@@ -2,7 +2,6 @@ import * as React from 'react';
 import { Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { Modal } from '@/modal';
 
 /**
  * The SSH host-fingerprint confirmation as an in-app dialog instead of the
@@ -16,8 +15,8 @@ import { Modal } from '@/modal';
  * takes focus when the dialog opens, which scrolls the title off the top
  * before the user reads anything.
  *
- * Opened with `confirmSshFingerprint(fingerprint)` from the pair and
- * Connection-settings SSH flows; both keep passing the probed fingerprint
+ * Opened with `confirmSshFingerprint(fingerprint)` from `./ui` (pair and
+ * Connection-settings SSH flows); both keep passing the probed fingerprint
  * and awaiting an explicit answer before any login material is sent.
  */
 export function SshFingerprintDialog({ fingerprint, onConfirm, onCancel }: {
@@ -137,35 +136,3 @@ export function SshFingerprintDialog({ fingerprint, onConfirm, onCancel }: {
     return <View style={styles.container}>{body}</View>;
 }
 
-/**
- * Shows {@link SshFingerprintDialog} and resolves with the user's answer.
- * A stray backdrop tap or the hardware back button counts as a decline, so
- * silence can never pin a key: only Fingerprint matches approves.
- */
-export function confirmSshFingerprint(fingerprint: string): Promise<boolean> {
-    if (Platform.OS !== 'android') {
-        return Modal.confirm('Check SSH fingerprint', `Compare this fingerprint with your provider console before continuing.\n\n${fingerprint}\n\nNo login details have been sent.`, {
-            confirmText: 'Fingerprint matches', cancelText: 'Cancel',
-        });
-    }
-    return new Promise((resolve) => {
-        let settled = false;
-        let id = '';
-        const finish = (value: boolean) => {
-            if (settled) return;
-            settled = true;
-            if (id !== '') Modal.hide(id);
-            resolve(value);
-        };
-        id = Modal.show({
-            component: SshFingerprintDialog,
-            props: {
-                fingerprint,
-                onConfirm: () => finish(true),
-                onCancel: () => finish(false),
-                onDismiss: () => finish(false),
-            },
-            closeOnBackdrop: false,
-        });
-    });
-}

@@ -51,20 +51,21 @@ const modal = vi.hoisted(() => ({
 }));
 vi.mock('@/modal', () => ({ Modal: modal }));
 
-import { SshFingerprintDialog, confirmSshFingerprint } from './SshFingerprintDialog';
+import { SshFingerprintDialog } from './SshFingerprintDialog';
+import { confirmSshFingerprint } from './ui';
 
 const FINGERPRINT = 'SHA256:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
-function renderedTexts(root: TestRenderer.ReactTestInstance): string[] {
-    return root.findAllByType('Text').map((node) => node.props.children)
-        .filter((child): child is string => typeof child === 'string');
+function renderedTexts(root: any): string[] {
+    return root.findAllByType('Text').map((node: any) => node.props.children)
+        .filter((child: unknown): child is string => typeof child === 'string');
 }
 
 describe('SshFingerprintDialog at 270 dp', () => {
     it('reads whole with both answers stacked, and only an explicit match approves', async () => {
         let confirmed = false;
         let cancelled = false;
-        let renderer: TestRenderer.ReactTestRenderer | undefined;
+        let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(
                 <SshFingerprintDialog
@@ -85,13 +86,13 @@ describe('SshFingerprintDialog at 270 dp', () => {
 
         // The fingerprint must not grab focus and scroll the title away.
         const fingerprintNode = root.findAllByType('Text')
-            .find((node) => node.props.children === FINGERPRINT);
+            .find((node: any) => node.props.children === FINGERPRINT);
         expect(fingerprintNode?.props.selectable).not.toBe(true);
 
         // Both answers are stacked full-width, Cancel first like the alert
         // order, so the long confirm label cannot squeeze its neighbour.
         const buttons = root.findAllByType('Pressable');
-        expect(buttons.map((button) => button.props.accessibilityLabel)).toEqual([
+        expect(buttons.map((button: any) => button.props.accessibilityLabel)).toEqual([
             'Cancel',
             'Fingerprint matches',
         ]);
@@ -113,7 +114,7 @@ describe('SshFingerprintDialog at 270 dp', () => {
         platformOs = 'android';
         try {
             const pending = confirmSshFingerprint(FINGERPRINT);
-            expect(modal.show).toHaveBeenCalledOnce();
+            await vi.waitFor(() => expect(modal.show).toHaveBeenCalledOnce());
             const config = modal.show.mock.calls[0][0] as {
                 component: typeof SshFingerprintDialog;
                 closeOnBackdrop: boolean;
@@ -134,11 +135,13 @@ describe('SshFingerprintDialog at 270 dp', () => {
             await expect(pending).resolves.toBe(false);
 
             const cancelPending = confirmSshFingerprint(FINGERPRINT);
+            await vi.waitFor(() => expect(modal.show).toHaveBeenCalledTimes(2));
             const cancelConfig = modal.show.mock.calls[1][0] as typeof config;
             cancelConfig.props.onCancel();
             await expect(cancelPending).resolves.toBe(false);
 
             const confirmPending = confirmSshFingerprint(FINGERPRINT);
+            await vi.waitFor(() => expect(modal.show).toHaveBeenCalledTimes(3));
             const confirmConfig = modal.show.mock.calls[2][0] as typeof config;
             confirmConfig.props.onConfirm();
             await expect(confirmPending).resolves.toBe(true);
