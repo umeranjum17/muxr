@@ -24,7 +24,7 @@ Home → a shell pane where a fullscreen program crashed → swipe the terminal.
 
 ## Driving it with the private stack
 
-Use the verify-muxr relay/host recipe with a **real** Herdr source (not
+Use the verify-pockit relay/host recipe with a **real** Herdr source (not
 `--fake`) in a disposable **non-default** session. Every Herdr call goes through
 `HERDR_LAB_HELPER run "$HERDR_LAB_SESSION" …`; provision/teardown through the
 same helper, with cleanup installed before provisioning. Give the host its own

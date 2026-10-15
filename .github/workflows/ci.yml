@@ -30,7 +30,11 @@ jobs:
   # policies -- the exact list `yarn check:fast` runs, so a red mark here is
   # reproducible in one local command. It deliberately does NOT build a package,
   # export the web app, drive an install, or touch a release artifact: it is
-  # early feedback on a pull request, never a release trigger.
+  # early feedback on a pull request, never a release trigger. The lane runs
+  # through done-done (run + check), so the merge gate consumes commit-tied
+  # proof instead of a bare log: pair this job with `suite` in branch
+  # protection once it is green (change this block and protection together,
+  # per the header above).
   fast:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -38,7 +42,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The constraints floor guard diffs the pull request against its
-          # merge base, which a depth-1 checkout cannot compute.
+          # merge base, which a depth-1 checkout cannot compute. The done-done
+          # check also reads its merge-gate rules from origin/main.
           fetch-depth: 0
       # A documentation- or evidence-only change cannot affect this job. The
       # job still runs and reports success so it stays a required check; its
@@ -56,9 +61,21 @@ jobs:
           cache: yarn
       - if: steps.scope.outputs.docs_only != 'true'
         run: yarn install --frozen-lockfile --non-interactive
-      - name: Fast lane (typecheck, self-checks, vitest flows, architecture)
+      - name: Fast lane as done-done proof (run, then check against this commit)
         if: steps.scope.outputs.docs_only != 'true'
-        run: yarn run check:fast
+        run: |
+          npx -y done-done-axi@0.3.0 run fast
+          # Detached HEAD names no claim, so pass the PR branch explicitly.
+          CLAIM_ID="${{ github.head_ref || github.ref_name }}"
+          # Bootstrap: this config is new in this PR, so origin/main has no
+          # .done-done.yaml to trust yet; check against the working-tree
+          # config until it lands, then --trusted-ref applies again.
+          if git cat-file -e "origin/main:.done-done.yaml" 2>/dev/null; then
+            TRUSTED_REF_ARGS="--trusted-ref origin/main"
+          else
+            TRUSTED_REF_ARGS=""
+          fi
+          npx -y done-done-axi@0.3.0 check --outcome "the pull-request fast lane passes on this commit" ~/.done-done/evidence/pockit/*/*.log --claim-id "$CLAIM_ID" $TRUSTED_REF_ARGS
 
   suite:
     runs-on: ubuntu-latest
@@ -101,47 +118,3 @@ jobs:
       - name: Core purity guard
         if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/diagnostics/application/checkCorePurity.mjs
-
-  # Proof gate: runs the fast lane again as the done-done `fast` journey and
-  # checks the capture against this commit, so the merge gate consumes
-  # commit-tied proof instead of a bare log. Pair with `suite` in branch
-  # protection once it is green (change this block and protection together,
-  # per the header above). Never publishes, deploys, packs, or tags anything.
-  done-done:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # check --trusted-ref reads the merge-gate rules from main, and the
-          # run ties its capture to this commit; both need real history.
-          fetch-depth: 0
-      # Same docs/evidence-only scope as `fast` and `suite`:
-      # scripts/diagnostics/application/scopeDocsOnly.mjs owns the rule.
-      - name: Scope (a docs/evidence-only change cannot affect this job)
-        id: scope
-        run: node scripts/diagnostics/application/scopeDocsOnly.mjs "${{ github.event.pull_request.base.sha }}"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        if: steps.scope.outputs.docs_only != 'true'
-        with:
-          node-version: 22
-          cache: yarn
-      - if: steps.scope.outputs.docs_only != 'true'
-        run: yarn install --frozen-lockfile --non-interactive
-      - if: steps.scope.outputs.docs_only != 'true'
-        run: yarn build
-      - name: Fast lane as done-done proof (run, then check against this commit)
-        if: steps.scope.outputs.docs_only != 'true'
-        run: |
-          npx -y done-done-axi run fast
-          # Detached HEAD names no claim, so pass the PR branch explicitly.
-          CLAIM_ID="${{ github.head_ref || github.ref_name }}"
-          # Bootstrap: this config is new in this PR, so origin/main has no
-          # .done-done.yaml to trust yet; check against the working-tree
-          # config until it lands, then --trusted-ref applies again.
-          if git cat-file -e "origin/main:.done-done.yaml" 2>/dev/null; then
-            TRUSTED_REF_ARGS="--trusted-ref origin/main"
-          else
-            TRUSTED_REF_ARGS=""
-          fi
-          npx -y done-done-axi check --outcome "the pull-request fast lane passes on this commit" ~/.done-done/evidence/pockit/*/*.log --claim-id "$CLAIM_ID" $TRUSTED_REF_ARGS

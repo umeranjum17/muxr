@@ -7,8 +7,8 @@ app: "pockit"
 # Proof primitives: the repo's own check lanes, driven by done-done so the
 # capture is tied to the exact commit. Prerequisites (run once per checkout):
 # yarn install --frozen-lockfile --non-interactive && yarn build
-# (dist/ is git-ignored; the self-check steps read it). CI's done-done job
-# runs those prerequisites first, then `done-done run fast`.
+# (dist/ is git-ignored; the self-check steps read it). CI's `fast` job runs
+# `done-done run fast` and `done-done check` against the commit.
 journeys:
   # The pull-request fast lane: typecheck, compiled self-checks, every
   # vitest flow, architecture policies. Same list as `yarn run check:fast`.
