@@ -11,7 +11,7 @@ import { pairingDeviceNoun, useHostedPairing, usePairQrScanner, usePairQrScanner
 import { ActionButton } from '@/components/ActionButton';
 import { WordWrappingText } from '@/components/WordWrappingText';
 import { useCompactWindow } from '@/components/useCompactWindow';
-import { addComputerLink } from './addComputerLink';
+import { addComputerLink } from '@/commercialization';
 
 /** The link's QR, dark on white in both themes so any camera reads it. */
 function LinkQr(props: { text: string; size: number }) {
