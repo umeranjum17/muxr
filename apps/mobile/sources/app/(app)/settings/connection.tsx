@@ -18,8 +18,8 @@ import {
     saveReviewedSshSettings,
     type SshTarget,
 } from '@/connection';
+import { confirmSshFingerprint } from '@/connection/ui';
 import {
-    confirmSshFingerprint,
     forgetSshCredential,
     hasSshCredential,
     savedSshPublicKey,

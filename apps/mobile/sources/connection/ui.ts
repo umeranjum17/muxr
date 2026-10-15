@@ -1,0 +1,1 @@
+export { confirmSshFingerprint } from './SshFingerprintDialog';
