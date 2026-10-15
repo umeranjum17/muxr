@@ -62,7 +62,7 @@ const initial = loadNewSessionDraft();
 
 export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => ({
     input: initial?.input ?? '',
-    // Image picker URIs are temporary, so attachments intentionally stay out
+    // Picker URIs are temporary, so attachments intentionally stay out
     // of MMKV persistence and only bridge Home -> New session in memory.
     attachments: [],
     selectedMachineId: initial?.selectedMachineId ?? null,

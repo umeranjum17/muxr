@@ -6,11 +6,14 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { ZoomableImage } from './ZoomableImage';
+import { attachmentIcon, attachmentSizeLabel, isImageAttachment } from '@/catalog';
 
 export interface ComposerAttachment {
     id: string;
     uri: string;
     name: string;
+    mimeType: string;
+    size?: number;
     path?: string;
 }
 
@@ -30,24 +33,35 @@ export function ComposerAttachments({ images, onRemove }: {
     return <>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
             style={{ maxHeight: 124 }} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, gap: 10 }}>
-            {images.map((image) => <View key={image.id} style={{ width: 92 }}>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Preview attachment ${image.name}`}
-                    onPress={() => { Keyboard.dismiss(); setFailed(false); setPreviewId(image.id); }}
-                    style={{ width: 92, height: 88, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.surfaceHigh }}>
-                    <Image source={{ uri: image.uri }} recyclingKey={image.id} contentFit="cover" style={{ width: 92, height: 88 }} />
-                    {image.path === undefined && <View pointerEvents="none" style={{ position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' }}>
-                        <ActivityIndicator color="#fff" accessibilityLabel={`Uploading ${image.name}`} />
-                    </View>}
-                </Pressable>
-                {image.path !== undefined && <Pressable accessibilityRole="button" accessibilityLabel={`Remove attachment ${image.name}`}
-                    onPress={() => onRemove(image.id)} hitSlop={2}
-                    style={{ position: 'absolute', top: 0, right: 0, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
-                    <View style={{ borderRadius: 14, width: 28, height: 28, backgroundColor: 'rgba(0,0,0,0.8)', alignItems: 'center', justifyContent: 'center' }}>
-                        <Ionicons name="close" size={20} color="#fff" />
-                    </View>
-                </Pressable>}
-                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, marginTop: 4, fontSize: 11 }}>{image.name}</Text>
-            </View>)}
+            {images.map((image) => {
+                const isImage = isImageAttachment(image);
+                const uploading = image.path === undefined;
+                const size = image.size === undefined ? '' : attachmentSizeLabel(image.size);
+                return <View key={image.id} style={{ width: 92 }}>
+                    <Pressable accessibilityRole="button" accessibilityLabel={isImage ? `Preview attachment ${image.name}` : `Attachment ${image.name}`}
+                        disabled={!isImage}
+                        onPress={() => { if (!isImage) return; Keyboard.dismiss(); setFailed(false); setPreviewId(image.id); }}
+                        style={{ width: 92, height: 88, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.surfaceHigh }}>
+                        {isImage
+                            ? <Image source={{ uri: image.uri }} recyclingKey={image.id} contentFit="cover" style={{ width: 92, height: 88 }} />
+                            : <View style={{ width: 92, height: 88, alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6 }}>
+                                <Ionicons name={attachmentIcon(image)} size={30} color={theme.colors.textSecondary} />
+                                {size !== '' && <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11 }}>{size}</Text>}
+                            </View>}
+                        {uploading && <View pointerEvents="none" style={{ position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' }}>
+                            <ActivityIndicator color="#fff" accessibilityLabel={`Uploading ${image.name}`} />
+                        </View>}
+                    </Pressable>
+                    {image.path !== undefined && <Pressable accessibilityRole="button" accessibilityLabel={`Remove attachment ${image.name}`}
+                        onPress={() => onRemove(image.id)} hitSlop={2}
+                        style={{ position: 'absolute', top: 0, right: 0, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                        <View style={{ borderRadius: 14, width: 28, height: 28, backgroundColor: 'rgba(0,0,0,0.8)', alignItems: 'center', justifyContent: 'center' }}>
+                            <Ionicons name="close" size={20} color="#fff" />
+                        </View>
+                    </Pressable>}
+                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, marginTop: 4, fontSize: 11 }}>{image.name}</Text>
+                </View>;
+            })}
         </ScrollView>
         {preview !== undefined && <Modal visible animationType="fade" onRequestClose={() => setPreviewId(undefined)}>
             <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#111', paddingTop: insets.top, paddingBottom: insets.bottom }}>

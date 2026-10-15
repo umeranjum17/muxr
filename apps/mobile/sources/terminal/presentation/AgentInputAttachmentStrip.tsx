@@ -1,14 +1,14 @@
 /**
- * Horizontal scrollable strip showing selected image attachment thumbnails.
- * Each thumbnail shows the image with a remove button.
- * Uses thumbhash as a blurry placeholder while the full image loads.
+ * Horizontal scrollable strip of the composer's chosen attachments.
+ * Images show their thumbnail (with a thumbhash placeholder); any other file
+ * shows a file-type icon with its name and size. Each has a remove button.
  */
 import * as React from 'react';
-import { ScrollView, View, Pressable } from 'react-native';
+import { ScrollView, View, Pressable, Text } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import type { AttachmentPreview } from '@/catalog';
+import { attachmentIcon, attachmentSizeLabel, isImageAttachment, type AttachmentPreview } from '@/catalog';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
 
 const THUMB_SIZE = 64;
@@ -32,13 +32,10 @@ export function AgentInputAttachmentStrip({ images, onRemove }: AgentInputAttach
             contentContainerStyle={styles.stripContent}
             keyboardShouldPersistTaps="always"
         >
-            {images.map((img) => (
-                <AttachmentThumbnail
-                    key={img.id}
-                    image={img}
-                    onRemove={onRemove}
-                    theme={theme}
-                />
+            {images.map((attachment) => (
+                isImageAttachment(attachment)
+                    ? <AttachmentThumbnail key={attachment.id} image={attachment} onRemove={onRemove} theme={theme} />
+                    : <AttachmentFileChip key={attachment.id} attachment={attachment} onRemove={onRemove} theme={theme} />
             ))}
         </ScrollView>
     );
@@ -87,6 +84,36 @@ function AttachmentThumbnail({
     );
 }
 
+function AttachmentFileChip({
+    attachment,
+    onRemove,
+    theme,
+}: {
+    attachment: AttachmentPreview;
+    onRemove: (id: string) => void;
+    theme: any;
+}) {
+    const size = attachment.size > 0 ? attachmentSizeLabel(attachment.size) : '';
+    return (
+        <View style={[styles.fileChip, { borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }]}>
+            <Ionicons name={attachmentIcon(attachment)} size={20} color={theme.colors.textSecondary} />
+            <View style={styles.fileText}>
+                <Text numberOfLines={1} style={[styles.fileName, { color: theme.colors.text }]}>{attachment.name}</Text>
+                {size !== '' && <Text numberOfLines={1} style={[styles.fileSize, { color: theme.colors.textSecondary }]}>{size}</Text>}
+            </View>
+            <Pressable
+                onPress={() => onRemove(attachment.id)}
+                hitSlop={4}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove attachment ${attachment.name}`}
+                style={(p) => [styles.fileRemove, { opacity: p.pressed ? 0.6 : 1 }]}
+            >
+                <Ionicons name="close" size={14} color={theme.colors.text} />
+            </Pressable>
+        </View>
+    );
+}
+
 const styles = StyleSheet.create(() => ({
     strip: {
         marginBottom: 8,
@@ -94,6 +121,7 @@ const styles = StyleSheet.create(() => ({
     },
     stripContent: {
         flexDirection: 'row',
+        alignItems: 'center',
         gap: 8,
         paddingHorizontal: 4,
     },
@@ -118,5 +146,32 @@ const styles = StyleSheet.create(() => ({
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 10,
+    },
+    fileChip: {
+        height: THUMB_SIZE,
+        maxWidth: 220,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 10,
+        borderRadius: BORDER_RADIUS,
+        borderWidth: 1,
+    },
+    fileText: {
+        flexShrink: 1,
+        minWidth: 0,
+    },
+    fileName: {
+        fontSize: 13,
+    },
+    fileSize: {
+        fontSize: 11,
+        marginTop: 1,
+    },
+    fileRemove: {
+        width: 20,
+        height: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 }));

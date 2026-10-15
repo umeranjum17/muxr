@@ -33,7 +33,7 @@ import { useAllMachines, useSessions, useSocketStatus } from '@/catalog/store';
 import { isMachineOnline } from '@/pairing';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { type NewSessionAgentType } from '@/catalog';
-import { useImagePicker } from '@/hooks/useImagePicker';
+import { useAttachmentPicker, chooseAttachmentSource } from '@/hooks/useAttachmentPicker';
 import { sync } from '@/catalog/sync';
 import { resolveAgentCatalog, type AgentCatalogOption } from '@/catalog';
 import { useAccountLine } from '@/plans';
@@ -516,7 +516,7 @@ export const HomeDock = React.memo(({
     const dictationActive = dictation.active;
     const dictationControl = { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' } as const;
     const dictateControl = { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' } as const;
-    const { selectedImages, pickImages, removeImage, clearImages } = useImagePicker();
+    const { attachments: selectedAttachments, pickImages, pickFiles, removeAttachment, clearAttachments } = useAttachmentPicker();
     const agentType = useNewSessionDraft((state) => state.agentType);
     const selectedMachineId = useNewSessionDraft((state) => state.selectedMachineId);
     const selectedPath = useNewSessionDraft((state) => state.selectedPath);
@@ -638,14 +638,14 @@ export const HomeDock = React.memo(({
     const currentAgent = currentDockAgent(availableAgents, agentType);
     // Absent unless the agent's provider has two or more accounts.
     const accountLine = useAccountLine(agentType);
-    const hasPrompt = prompt.trim().length > 0 || selectedImages.length > 0;
+    const hasPrompt = prompt.trim().length > 0 || selectedAttachments.length > 0;
     const compact = useWindowDimensions().width < 330;
     const catalogReady = hostAgentKinds !== null && socketStatus.status === 'connected';
     const canSubmit = !isSubmitting && hasPrompt && catalogReady;
     // The chosen agent's CLI installs on first start: say what the computer is
     // doing while the start request runs instead of an unnamed spinner.
     const installPhase = isSubmitting ? currentAgent.installPhase : undefined;
-    const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
+    const focusedComposerHeight = selectedAttachments.length > 0 ? 206 : 126;
     // On a short phone the keyboard would lift the pickers under the back
     // control and the status bar, so the dock is bounded between the two and
     // scrolls; its content stays anchored to the bottom, where you type. The
@@ -952,9 +952,9 @@ export const HomeDock = React.memo(({
 
     const submit = async () => {
         if (!canSubmit) return false;
-        useNewSessionDraft.getState().setAttachments(selectedImages);
+        useNewSessionDraft.getState().setAttachments(selectedAttachments);
         const started = await onSubmit();
-        if (started) clearImages();
+        if (started) clearAttachments();
         return started;
     };
 
@@ -981,12 +981,12 @@ export const HomeDock = React.memo(({
                 style={[
                     styles.focusedComposerSurface,
                     styles.focusedComposerAnchored,
-                    selectedImages.length > 0 && styles.focusedComposerSurfaceWithAttachments,
+                    selectedAttachments.length > 0 && styles.focusedComposerSurfaceWithAttachments,
                 ]}
             >
                 <View style={styles.focusedComposerContent}>
                     <Animated.View style={[styles.focusedInputReveal, focusedInputRevealStyle]}>
-                        <AgentInputAttachmentStrip images={selectedImages} onRemove={removeImage} />
+                        <AgentInputAttachmentStrip images={selectedAttachments} onRemove={removeAttachment} />
                         <TextInput
                             ref={focusedInputRef}
                             value={prompt}
@@ -1005,12 +1005,12 @@ export const HomeDock = React.memo(({
                         {/* The field above already shows the words as they land. */}
                         {dictationActive ? <DictationStrip dictation={dictation} control={dictationControl} showLive={false} /> : <>
                         <BubblePressable
-                            onPress={() => void pickImages()}
+                            onPress={() => chooseAttachmentSource(pickImages, pickFiles)}
                             style={styles.sideButton}
                             accessibilityRole="button"
-                            accessibilityLabel="Add image"
+                            accessibilityLabel="Add attachment"
                         >
-                            <Ionicons name="image-outline" size={24} color={theme.colors.text} />
+                            <Ionicons name="add" size={24} color={theme.colors.text} />
                         </BubblePressable>
                         {/* The web has no native menu to open; the Agent row above picks the agent there. */}
                         {Platform.OS !== 'web' && (
