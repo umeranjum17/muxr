@@ -95,6 +95,11 @@ layout or styles change.
   `missing`, so the phone keeps the restart card. An older host with a pinned
   old `HERDR_BIN` sends neither flag, which is the generic-card defect the
   `outdated` state fixes.
+- A lab host started with `HERDR_SESSION` execs a Herdr to reach that named
+  session at startup, so removing the shim alone takes the host down before it
+  can report `missing` (the exit reads `spawn herdr ENOENT`). Drop the session
+  env for the missing case too — a real computer with no Herdr has no session
+  gate either — while keeping the farm PATH and `HERDR_BIN` free of Herdr.
 - `desktopApp` is true only when the desktop runtime spawned that host. A host
   started any other way on a desktop-app computer (service, terminal) reads
   as command-line, and the phone leads with the terminal command.
