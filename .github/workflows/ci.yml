@@ -101,3 +101,37 @@ jobs:
       - name: Core purity guard
         if: steps.scope.outputs.docs_only != 'true'
         run: node scripts/diagnostics/application/checkCorePurity.mjs
+
+  # Proof gate: runs the fast lane again as the done-done `fast` journey and
+  # checks the capture against this commit, so the merge gate consumes
+  # commit-tied proof instead of a bare log. Pair with `suite` in branch
+  # protection once it is green (change this block and protection together,
+  # per the header above). Never publishes, deploys, packs, or tags anything.
+  done-done:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # check --trusted-ref reads the merge-gate rules from main, and the
+          # run ties its capture to this commit; both need real history.
+          fetch-depth: 0
+      # Same docs/evidence-only scope as `fast` and `suite`:
+      # scripts/diagnostics/application/scopeDocsOnly.mjs owns the rule.
+      - name: Scope (a docs/evidence-only change cannot affect this job)
+        id: scope
+        run: node scripts/diagnostics/application/scopeDocsOnly.mjs "${{ github.event.pull_request.base.sha }}"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.scope.outputs.docs_only != 'true'
+        with:
+          node-version: 22
+          cache: yarn
+      - if: steps.scope.outputs.docs_only != 'true'
+        run: yarn install --frozen-lockfile --non-interactive
+      - if: steps.scope.outputs.docs_only != 'true'
+        run: yarn build
+      - name: Fast lane as done-done proof (run, then check against this commit)
+        if: steps.scope.outputs.docs_only != 'true'
+        run: |
+          npx -y done-done-axi run fast
+          npx -y done-done-axi check --outcome "the pull-request fast lane passes on this commit" ~/.done-done/evidence/pockit/*/*.log --trusted-ref origin/main

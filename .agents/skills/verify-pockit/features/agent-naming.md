@@ -32,7 +32,7 @@ Preconditions:
   exits `0` with stdout `{"ok":true,"status":"ok","results":{"pane":true}}`.
   Confirm through Herdr, not the CLI echo:
   `herdr --session <yours> pane get "$HERDR_PANE_ID"` shows the new title.
-- **Name the workspace.** `node scripts/cli.mjs name --workspace 'verify-muxr'`
+- **Name the workspace.** `node scripts/cli.mjs name --workspace 'verify-pockit'`
   exits `0` and `herdr --session <yours> workspace list` shows the label.
 - **Attribution.** `node scripts/cli.mjs name --provider pi --model glm-5.3`
   exits `0`; `herdr --session <yours> pane get "$HERDR_PANE_ID"` (or

@@ -1,10 +1,10 @@
 ---
-name: verify-muxr
-description: Verify muxr's self-hosted relay/host, public CLI and phone screens the way a user drives them, from this pockit checkout and without touching the owner's installed muxr. Use before claiming a host, relay, Shared Artifacts, naming, retention, CLI or phone/PWA UI change works (every UI change runs the Visual check), when a check fails and you need a live instance to reproduce against, or when asked to run the verify-muxr flow.
+name: verify-pockit
+description: Verify muxr's self-hosted relay/host, public CLI and phone screens the way a user drives them, from this pockit checkout and without touching the owner's installed muxr. Use before claiming a host, relay, Shared Artifacts, naming, retention, CLI or phone/PWA UI change works (every UI change runs the Visual check), when a check fails and you need a live instance to reproduce against, or when asked to run the verify-pockit flow.
 license: Apache-2.0
 ---
 
-# verify-muxr
+# verify-pockit
 
 Drives a private muxr stack (relay + host + naming loopback) plus the public
 `muxr` CLI against disposable state, then captures proof. Everything below was
@@ -123,7 +123,7 @@ synthesizing flags.
 Define the run's stable evidence directory up front; cleanup never touches it:
 
 ```sh
-EVIDENCE="/tmp/verify-muxr-evidence/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$EVIDENCE"
+EVIDENCE="/tmp/verify-pockit-evidence/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$EVIDENCE"
 ```
 
 Capture, per proof, into `$EVIDENCE` (outside `RUN_ROOT`):
@@ -200,9 +200,9 @@ size, density, `settings put system font_scale <f>` and
 font change), drive to the screen, then:
 
 ```sh
-node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name> [--ref $MAIN_DIR/<name>.xml]
+node .agents/skills/verify-pockit/features/visualCheck.mjs $SERIAL "$DIR" <name> [--ref $MAIN_DIR/<name>.xml]
 # when the dump has scrollable="true": swipe up until it stops moving, then
-node .agents/skills/verify-muxr/features/visualCheck.mjs $SERIAL "$DIR" <name>-scrolled --end [--ref $MAIN_DIR/<name>-scrolled.xml]
+node .agents/skills/verify-pockit/features/visualCheck.mjs $SERIAL "$DIR" <name>-scrolled --end [--ref $MAIN_DIR/<name>-scrolled.xml]
 ```
 
 It saves the PNG and the uiautomator dump and prints `DEFECT …` lines for
@@ -242,7 +242,7 @@ earlier is a blank page, not a pass), `emulate` again (a reload drops it),
 same page; it runs the DOM leads itself and exits 1 on any DEFECT:
 
 ```sh
-node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-check "$DIR/<name>.png" <name>
+node .agents/skills/verify-pockit/features/visualCheck.mjs pwa-check "$DIR/<name>.png" <name>
 ```
 
 They report off-screen text and images (a part inside a horizontal overflow
@@ -271,8 +271,8 @@ whole-word wrapping. Native OCR is a lead, not a guarantee: a misread or missed
 fragment can hide a split. They need ImageMagick, Tesseract and `chromium`:
 
 ```sh
-node .agents/skills/verify-muxr/features/visualCheck.mjs selftest      # native: the pair-screen flow
-node .agents/skills/verify-muxr/features/visualCheck.mjs pwa-selftest  # PWA: the fixture page and the driver
+node .agents/skills/verify-pockit/features/visualCheck.mjs selftest      # native: the pair-screen flow
+node .agents/skills/verify-pockit/features/visualCheck.mjs pwa-selftest  # PWA: the fixture page and the driver
 ```
 
 Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
