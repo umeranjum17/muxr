@@ -198,6 +198,9 @@ export class MuxrRuntime extends EventEmitter {
             MUXR_MODE: 'selfhost',
             MUXR_HOME: this.#home,
             MUXR_DATA_DIR: join(this.#home, 'host'),
+            // This app owns and runs this host, so the phone leads with the
+            // window's Install Herdr instead of a terminal command.
+            MUXR_DESKTOP_APP: '1',
         }, 'host');
 
         await this.#hostOnline(host);

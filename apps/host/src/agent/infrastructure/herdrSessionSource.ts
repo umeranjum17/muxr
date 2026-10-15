@@ -14,7 +14,7 @@ import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { findHerdrBin } from '../../../../../scripts/setup/infrastructure/herdr.mjs';
+import { findHerdrBin, herdrAvailability } from '../../../../../scripts/setup/infrastructure/herdr.mjs';
 import type {
     AgentLifecycle,
     ApplicationLauncher,
@@ -2594,7 +2594,7 @@ export async function createHerdrSessionSource(
             }
         },
 
-        async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean; missing?: true }> {
+        async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean; missing?: true; outdated?: true; desktopApp?: true }> {
             const workspaces: HerdrTreeWorkspace[] = [];
             const sessionsByPane = new Map<string, CurrentSession>();
             for (const session of currentSessions()) if (!sessionsByPane.has(session.paneId)) sessionsByPane.set(session.paneId, session);
@@ -2655,7 +2655,15 @@ export async function createHerdrSessionSource(
                     tabs,
                 });
             }
-            return { workspaces, connected: client.connected, ...(client.connected || resolvedHerdrBin() !== undefined ? {} : { missing: true as const }) };
+            // A Herdr below the minimum muxr supports is not a restart: the phone
+            // must lead with the install, exactly as it does when none is there.
+            const unavailable = client.connected ? undefined : herdrAvailability(options.herdrBin);
+            return {
+                workspaces,
+                connected: client.connected,
+                ...(unavailable === 'outdated' ? { outdated: true as const } : unavailable === 'missing' ? { missing: true as const } : {}),
+                ...(process.env.MUXR_DESKTOP_APP === '1' ? { desktopApp: true as const } : {}),
+            };
         },
 
         async applicationsList(): Promise<{ items: ApplicationLauncher[] }> {
