@@ -1,0 +1,13 @@
+{
+  "schema": 2,
+  "items": [
+    {
+      "filed": "2026-10-15T07:00:52.365Z",
+      "key": "merge-the-fleet-tool-migration-pr-done-done-journeys-learn-from",
+      "title": "Merge the fleet tool-migration PR (done-done journeys + learn-from-mistakes + sign-off-axi; verify-pockit replaces verify-muxr)?",
+      "about": "One PR, no compat shims. Proof: done-done run receipt, learn-from-mistakes retro report, this card. Evidence paths in the PR Checks block.",
+      "recommend_value": "yes",
+      "filer": "toolmig-pockit"
+    }
+  ]
+}

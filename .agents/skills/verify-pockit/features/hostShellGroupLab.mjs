@@ -8,7 +8,7 @@
  * pre-fix host the reply hangs on the 60 s timeout and the child is orphaned.
  *
  * Usage (from the repo root, after `yarn build`):
- *   node .agents/skills/verify-muxr/features/hostShellGroupLab.mjs
+ *   node .agents/skills/verify-pockit/features/hostShellGroupLab.mjs
  * Exit 0 prints PASS with the reply time; nonzero explains what leaked.
  */
 import { createConnection } from 'node:net';
