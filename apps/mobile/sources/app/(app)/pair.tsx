@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
 import { decidePairingInput, linkPairMachineName, looksLikeLinkOffer, PairingNeedsNewCode } from '@/pairing/e2ee';
 import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScannerAvailable, usePairQrScanner, resolvePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
-import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
+import { applySshAfterPairing, confirmSshFingerprint, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { WordWrappingText } from '@/components/WordWrappingText';
 import { useCompactWindow } from '@/components/useCompactWindow';
@@ -181,11 +181,7 @@ export default function PairScreen() {
         // Link offers pair over the running machine; Direct SSH uses its own route.
         const decided = decidePairingInput(url);
         if (!decided.ok) throw new PairingNeedsNewCode(decided.message);
-        const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput, (fingerprint) => Modal.confirm(
-            'Check SSH fingerprint',
-            `Compare this fingerprint with your provider console before continuing.\n\n${fingerprint}\n\nNo login details have been sent.`,
-            { confirmText: 'Fingerprint matches', cancelText: 'Cancel' },
-        ));
+        const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput, confirmSshFingerprint);
         if (tunnel !== undefined && !tunnel.ok) throw new Error(tunnel.message);
         const paired = await pairLinkOffer(decided.link, auth, {
             tunnelPort: tunnel?.ok ? tunnel.localPort : undefined,

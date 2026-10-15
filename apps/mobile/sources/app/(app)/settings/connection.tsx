@@ -19,6 +19,7 @@ import {
     type SshTarget,
 } from '@/connection';
 import {
+    confirmSshFingerprint,
     forgetSshCredential,
     hasSshCredential,
     savedSshPublicKey,
@@ -357,11 +358,7 @@ export default function ConnectionSettingsScreen() {
                 credentialPresent: sshCredentialPresent,
             }, {
                 lastConnectionError: socketError,
-                confirm: (fingerprint) => Modal.confirm(
-                    'Check SSH fingerprint',
-                    `Compare this fingerprint with your provider console before continuing.\n\n${fingerprint}\n\nNo login details have been sent.`,
-                    { confirmText: 'Fingerprint matches', cancelText: 'Cancel' },
-                ),
+                confirm: confirmSshFingerprint,
             });
             if (!saved.ok) {
                 setSshError(saved.message);
