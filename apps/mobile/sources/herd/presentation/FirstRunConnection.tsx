@@ -9,7 +9,7 @@ import { sshTunnelAvailable } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { useCompactWindow } from '@/components/useCompactWindow';
 import { FirstRunSetupCard } from './FirstRunSetupCard';
-import { addComputerLink } from './AddComputerScreen';
+import { addComputerLink } from './addComputerLink';
 
 /**
  * Segmented Fast pairing / Direct SSH switcher. Rendered at the top of the

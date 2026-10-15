@@ -7,22 +7,11 @@ import Svg, { Path, Rect } from 'react-native-svg';
 import { StyleSheet } from 'react-native-unistyles';
 import { qrMatrix } from '@byokit/ui-core/link';
 import { Typography } from '@/constants/Typography';
-import { loadAppConfig } from '@/catalog';
-import { setupEmptyState } from '@/commercialization';
 import { pairingDeviceNoun, useHostedPairing, usePairQrScanner, usePairQrScannerAvailable } from '@/pairing';
 import { ActionButton } from '@/components/ActionButton';
 import { WordWrappingText } from '@/components/WordWrappingText';
 import { useCompactWindow } from '@/components/useCompactWindow';
-
-/**
- * The desktop app's download link, or undefined where this screen cannot finish:
- * a build with no public site has no link, and a browser cannot pair with the
- * desktop app, which offers only phone (native) codes.
- */
-export function addComputerLink(): string | undefined {
-    if (Platform.OS === 'web') return undefined;
-    return setupEmptyState(loadAppConfig().publicBaseUrl).desktopUrl;
-}
+import { addComputerLink } from './addComputerLink';
 
 /** The link's QR, dark on white in both themes so any camera reads it. */
 function LinkQr(props: { text: string; size: number }) {
