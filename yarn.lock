@@ -1114,17 +1114,17 @@
     partial-json "0.1.7"
     undici-types "7.16.0"
 
-"@byokit/audio@0.1.0":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@byokit/audio/-/audio-0.1.0.tgz#a31ec5878a65539207d9886b1611532c60c4c0ad"
-  integrity sha512-fgZEjXSpeLr6cb1I1fiObzv5X4s9sINjvXRLLkdMpok3BvZRf9yBmDQaiDZeqhUPKHmIQ0Kca3uQqZ/P9afBwA==
+"@byokit/audio@0.2.0":
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/@byokit/audio/-/audio-0.2.0.tgz#1b33bc0436cf3d06b37dd609bb59142444cd6cb2"
+  integrity sha512-DJfUo6UVjxtvE4E8uVXLbwlEc/y/g+yyekxxGL+Hx7861A8j+eAeijiDKYf5lAfUjKir1DpR2yYpetOLq4dZ+A==
 
-"@byokit/dictation@0.4.0":
-  version "0.4.0"
-  resolved "https://registry.yarnpkg.com/@byokit/dictation/-/dictation-0.4.0.tgz#92c72437eff470b43aa2547f56430dbb9708f60b"
-  integrity sha512-lgACqg6yowv+Qumxf6o2QwCVDI651919y0dWYcwDtF5iOlpOel8HBtedej22JqY3wwDkadcvHMkRTCO+yh4rkg==
+"@byokit/dictation@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@byokit/dictation/-/dictation-0.5.0.tgz#947c84a29878ada5c508f500be3139a47029e41c"
+  integrity sha512-0jRE5UumurwwokrlauGX4iClcBkE3gMaEvY9s+65kGTsEl5kUqb7G9ThdnAa41c3N64Prz7dMCAOj1uIRmIluA==
   dependencies:
-    "@byokit/audio" "0.1.0"
+    "@byokit/audio" "0.2.0"
 
 "@byokit/discover@0.6.0":
   version "0.6.0"

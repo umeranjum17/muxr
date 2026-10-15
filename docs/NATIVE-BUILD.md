@@ -268,8 +268,8 @@ unzip -l "$APK" | awk '$4 ~ /^lib\// {split($4,p,"/"); print p[2]}' | sort -u
   verify --verbose "$APK"
 ```
 
-Expect only `arm64-v8a`, a valid v2 signature, the bundled Whisper model, and no
-Sherpa/ONNX wake-word assets.
+Expect only `arm64-v8a`, a valid v2 signature, the bundled Whisper and Silero VAD
+models, and no Sherpa/ONNX wake-word assets.
 
 ## TLS requirement
 
