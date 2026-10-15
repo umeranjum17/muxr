@@ -181,6 +181,14 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="add-computer"
+                options={{
+                    headerShown: true,
+                    headerTitle: 'Add your computer',
+                    headerBackTitle: t('common.back'),
+                }}
+            />
+            <Stack.Screen
                 name="changelog"
                 options={{
                     headerShown: true,

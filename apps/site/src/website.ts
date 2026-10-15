@@ -419,7 +419,7 @@ export function writeHtml(res: ServerResponse, status: number, title: string, bo
     res.end(shell(title, body));
 }
 
-const INSTALL = ['npm install -g --ignore-scripts @trymuxr/cli@latest', 'muxr'];
+export const INSTALL = ['npm install -g --ignore-scripts @trymuxr/cli@latest', 'muxr'];
 
 /** Film metadata generated from the checksum-locked public artifact. */
 type DemoFilm = { duration: number; width: number; height: number; poster: { at: number; width: number; height: number }; sourceCommit: string };
