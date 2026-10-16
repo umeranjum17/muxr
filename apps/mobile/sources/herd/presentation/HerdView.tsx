@@ -246,7 +246,7 @@ export const HerdView = React.memo(({
                         {Platform.OS === 'web' ? (
                             <>
                                 <ActionButton title="Paste browser pairing link" icon="clipboard-outline" onPress={() => router.push('/pair')} />
-                                <Text style={styles.routeHint}>Browsers pair by string: paste the link shown by muxr pair --browser on that computer.</Text>
+                                <Text style={styles.routeHint}>Browsers pair by string: open muxr on that computer, or run muxr pair --browser, then paste the link it shows.</Text>
                             </>
                         ) : (
                             <>
@@ -255,7 +255,7 @@ export const HerdView = React.memo(({
                                     <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
                                 </>}
                                 <ActionButton title="Enter pairing string" variant={canScan ? 'secondary' : 'primary'} icon="keypad-outline" wrap onPress={() => router.push('/pair')} />
-                                <Text style={styles.routeHint}>{canScan ? 'For a computer you are not standing at.' : `This ${pairingDeviceNoun()} can't scan a QR, so paste the pairing string from muxr pair.`}</Text>
+                                <Text style={styles.routeHint}>{canScan ? 'For a computer you are not standing at.' : `This ${pairingDeviceNoun()} can't scan a QR, so open muxr on your computer, or run muxr pair, then paste the pairing string.`}</Text>
                             </>
                         )}
                     </View>

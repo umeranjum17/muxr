@@ -68,9 +68,9 @@ export const LEGACY_PAIRING_CODE = 'This code came from muxr 0.2.0 or older. On 
 
 export const CUTOFF_PAIRING_CODE = 'This string is cut off. Copy all of it, or scan the QR.';
 
-export const NOT_A_PAIRING_STRING = "That isn't a muxr pairing string.";
+export const NOT_A_PAIRING_STRING = "That isn't a muxr pairing string. Open muxr on your computer, or run muxr pair, for a new one.";
 
-export const EXPIRED_PAIRING_CODE = 'That pairing code has run out. Show a new one on your computer.';
+export const EXPIRED_PAIRING_CODE = 'That pairing code has run out. Open muxr on your computer, or run muxr pair, for a new one.';
 
 /** What `muxr pair` printed before the link offers: the only input that is genuinely an old version. */
 const WS_LEGACY_CODE = /^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=/i;
@@ -240,7 +240,7 @@ function pairingUrlOrReject(value: string): PairingStringParse {
     // Ordinary ASCII whitespace is wrapping from terminals; strip it while
     // still rejecting control and bidi spoofing characters.
     const input = value.trim().replace(/[ \t\r\n]+/g, '');
-    if (input.length === 0) return { ok: false, error: 'Enter a pairing string from muxr setup or muxr pair.' };
+    if (input.length === 0) return { ok: false, error: 'Enter a pairing string. Open muxr on your computer, or run muxr pair, to get one.' };
     if (input.length > 65_536) return { ok: false, error: 'This pairing string is too large. Create a fresh one on the computer.' };
     if (UNSAFE_PAIRING_TEXT.test(input)) {
         return { ok: false, error: 'This pairing string contains hidden control characters. Create a fresh one and scan or paste it exactly.' };
@@ -269,9 +269,9 @@ function pairingUrlOrReject(value: string): PairingStringParse {
             return acceptPairing(input);
         }
         if (looksLikeLinkOffer(input) || hasPairingPayload(parsed)) return acceptPairing(input);
-        return { ok: false, error: 'This browser pairing link has no pairing code. Create a fresh one with muxr pair --browser.' };
+        return { ok: false, error: 'This browser pairing link has no pairing code. Open muxr on your computer, or run muxr pair --browser, for a fresh one.' };
     }
-    return { ok: false, error: 'This is not a muxr pairing string. Create a fresh one with muxr setup or muxr pair.' };
+    return { ok: false, error: 'This is not a muxr pairing string. Open muxr on your computer, or run muxr pair, for a fresh one.' };
 }
 
 function acceptPairing(url: string): PairingStringParse {
