@@ -128,6 +128,15 @@ function plainTerminalStatus(status: string): string {
  * shows at once, so the badge only ever appears when the trouble outlasted it.
  */
 const STATUS_GRACE_MS = 900;
+/**
+ * How long the app may be away before the pane it returns to stops posing as
+ * live. The link cannot prove itself while backgrounded, and a dropped link
+ * takes seconds to notice once back, so a return past this line marks the
+ * pane stale at once -- before that check finishes -- instead of showing the
+ * last frame as current. A quicker return keeps the link it never lost, so it
+ * shows no false stale state.
+ */
+const RETURN_STALE_AFTER_MS = 10_000;
 /** The pane tabs row: its chips and its + are all this tall. */
 const PANE_TABS_HEIGHT = 24;
 /** The air above the rails' first row. */
@@ -280,6 +289,17 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         [props.id, sessions, swipeNow, swipeScope, workspaces],
     );
     const [status, setStatus] = React.useState('connecting');
+    // The provisional stale mark a long return sets (see the AppState edge
+    // below): the channel's next authoritative event, or the next host frame,
+    // clears it, so it never outlives the link check it precedes.
+    const [returnStale, setReturnStale] = React.useState(false);
+    const statusRef = React.useRef(status);
+    statusRef.current = status;
+    const returnStaleRef = React.useRef(returnStale);
+    returnStaleRef.current = returnStale;
+    // When the app last left the foreground; a return past
+    // RETURN_STALE_AFTER_MS cannot trust the link it left behind.
+    const backgroundedAt = React.useRef<number | null>(null);
     // A fresh mount is the only retry a pane has before it ever attached: the
     // channel that reconnect() would use does not exist yet.
     const [attempt, setAttempt] = React.useState(0);
@@ -514,6 +534,18 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         if (key !== undefined) channel.sendText(key);
         else channel.bottom();
     }, [pan]);
+    // A host frame is first-hand proof the pane is live: it clears a return's
+    // provisional stale mark, so a link that never dropped shakes it off the
+    // moment its answer lands. A link that did drop sends no frame, and the
+    // channel's own retry path settles the mark instead.
+    const handleFrame = React.useCallback((base64: string) => {
+        pan.frame(base64);
+        if (returnStaleRef.current) {
+            returnStaleRef.current = false;
+            setReturnStale(false);
+            if (statusRef.current !== 'live') setStatus('live');
+        }
+    }, [pan]);
     // The selected swipe stops follow Live order; the default skips old shells.
     // The pager settles before the route changes, so the switch itself is a
     // parameter, never a second screen animating in over this one.
@@ -527,9 +559,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [shownStatus, setShownStatus] = React.useState('live');
     React.useEffect(() => {
         if (status === 'live') { setShownStatus('live'); return; }
+        // A long return already proved nothing is known: show the stale state
+        // in the first frame rather than grace-pending it behind the old one.
+        if (returnStale) { setShownStatus(status); return; }
         const timer = setTimeout(() => setShownStatus(status), STATUS_GRACE_MS);
         return () => clearTimeout(timer);
-    }, [status]);
+    }, [status, returnStale]);
 
     // An agent's emulator or simulator the host can show.
     const preview = usePreviewGate(props.id, session?.metadata?.preview, {
@@ -590,6 +625,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const onStatus = React.useCallback(
         (next: string) => {
             setStatus(next);
+            // The channel has spoken: whatever a return suspected is settled.
+            if (returnStaleRef.current) {
+                returnStaleRef.current = false;
+                setReturnStale(false);
+            }
             if (!goneRef.current && next.includes('unknown session')) {
                 goneRef.current = true;
                 clearDraftInsertion(props.id);
@@ -984,8 +1024,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
 
     // Coming back to a screen whose socket died while it was backgrounded used
     // to leave a dead terminal until the user navigated away and back. Retry on
-    // both edges: screen focus and app foreground. The preview poll rides the
-    // same edges, then keeps ticking while the screen is up.
+    // both edges: screen focus and app foreground. The foreground edge below
+    // also marks a long-absent pane stale in its first frame back, before the
+    // retry's answer lands. The preview poll rides the same edges, then keeps
+    // ticking while the screen is up.
     useFocusEffect(
         React.useCallback(() => {
             channelRef.current?.reconnect();
@@ -995,7 +1037,28 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
 
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (next) => {
-            if (next === 'active') channelRef.current?.reconnect();
+            if (next === 'active') {
+                // The return proves nothing about the link: after long enough
+                // away it cannot still be trusted, and the check that settles
+                // it takes seconds. Mark the pane stale in this same frame --
+                // the pill and the header below read it at once -- and let the
+                // channel's next event, or the next host frame, prove it live
+                // again. A quick return, or a pane already known unwell, is
+                // left alone, so neither flashes a false stale state.
+                const awayMs = backgroundedAt.current === null ? 0 : Date.now() - backgroundedAt.current;
+                backgroundedAt.current = null;
+                const socket = storage.getState().socketStatus;
+                const socketDown = socket !== 'connected' && socket !== 'connecting';
+                if (statusRef.current === 'live' && (socketDown || awayMs > RETURN_STALE_AFTER_MS)) {
+                    returnStaleRef.current = true;
+                    setReturnStale(true);
+                    setStatus('reconnecting');
+                    setShownStatus('reconnecting');
+                }
+                channelRef.current?.reconnect();
+                return;
+            }
+            backgroundedAt.current ??= Date.now();
         });
         return () => subscription.remove();
     }, []);
@@ -1254,7 +1317,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const contextName = agentBesideName(labels);
     const identityKnown = currentPane !== undefined;
     const headerLifecycle = terminalPaneStatus(currentPane, session);
-    const headerLifecycleLabel = headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
+    // The lifecycle sentence comes from the tree's last snapshot, so on a
+    // pane whose link is not provably live it may be an old "Working". Say
+    // nothing until the pane proves itself again; shownStatus carries the
+    // grace, so a sub-second blip never flickers the header.
+    const linkUnproven = returnStale || shownStatus !== 'live';
+    const headerLifecycleLabel = linkUnproven || headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
     return (
         <ScopedTheme name="dark"><DarkSurface>{(theme) => {
             if (sessionError !== undefined) return <TerminalFailure message={sessionError} onHome={() => router.replace('/')} />;
@@ -1585,7 +1653,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             status={status}
                             onNothingThere={nothingToSwipeTo}
                             onSwitch={switchAgent}
-                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} panBy={panBy} onFrame={pan.frame} />}
+                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} panBy={panBy} onFrame={handleFrame} />}
                         >
                         {linkMenu !== null && terminalBox !== undefined && terminalLinkCardFits(terminalBox.height, linkActions.length) && (
                             <TerminalLinkMenu
