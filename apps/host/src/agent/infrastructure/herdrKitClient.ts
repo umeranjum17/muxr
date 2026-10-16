@@ -2,8 +2,12 @@
  * HerdrKit-backed transport adapter. HerdrKit owns the socket, the event
  * batch and the per-pane status watches; this class keeps the exact surface
  * the session source was written against (positional timeouts, onEvent
- * fan-out, a connected flag, id-based status-watch readiness) so every
+ * fan-out, a connected flag, status-watch readiness) so every
  * `client.call(m, p, t)` site rides the kit without edits.
+ *
+ * The kit already opens the batch socket and one filtered status socket per
+ * agent pane during its own bootstrap, and taps both through `onEvent`, so
+ * this class opens none of its own.
  *
  * Adopt-mode spawns take the host PATH plus the identity vars Herdr reads
  * through the kit's env/path options; the socket path needs no env because
@@ -47,14 +51,12 @@ export async function labHerdrSocket(bin: string, socketPath: string | undefined
     return named.socket_path;
 }
 
-const EVENT_SUBSCRIPTION = (type: string): { type: string; [key: string]: unknown } => ({ type });
-
 export class KitHerdrClient implements HerdrCaller {
     /** Live event-socket state, surfaced on `herdr.tree` so the phone can tell a dead herdr from a quiet one. */
     connected = false;
     readonly kit: HerdrKit;
     private readonly listeners = new Set<(event: HerdrEvent) => void>();
-    private batchStop: (() => void) | undefined;
+    private offKitEvent: (() => void) | undefined;
     private reconnectTimer: NodeJS.Timeout | undefined;
     private started = false;
     private closed = false;
@@ -89,6 +91,12 @@ export class KitHerdrClient implements HerdrCaller {
                 // resync pass when herdr comes back after an outage.
                 if (ready && this.started) this.onReconnect();
             },
+        });
+        // The kit taps its own batch and per-pane status sockets through
+        // `onEvent`; one registration fans out to every session-source listener
+        // instead of muxr opening a second subscription of its own.
+        this.offKitEvent = this.kit.onEvent((event) => {
+            for (const listener of this.listeners) listener(event);
         });
     }
 
@@ -137,56 +145,23 @@ export class KitHerdrClient implements HerdrCaller {
         return () => this.listeners.delete(listener);
     }
 
-    /** The subscription socket: one request, then pushes for the life of the socket. */
-    async subscribeEvents(kinds: string[]): Promise<void> {
-        this.batchStop?.();
-        const stop = (this.kit.subscribe as (
-            subs: Array<{ type: string; [key: string]: unknown }>,
-            on: (event: HerdrEvent) => void,
-        ) => () => void)(
-            kinds.map(EVENT_SUBSCRIPTION),
-            (event) => {
-                for (const listener of this.listeners) listener(event);
-            },
-        );
-        this.batchStop = stop;
-    }
-
     /**
-     * `pane.agent_status_changed` is a FILTERED subscription (pane_id required);
-     * putting it in the batch rejects everything. One socket per pane instead.
+     * Resolves when the kit's own per-pane `pane.agent_status_changed` watches
+     * have acked for the latest bootstrap. The session source re-reads its
+     * mirror on that edge: a session Herdr published while the watches were
+     * still landing reaches no event until they accept.
      */
-    watchPaneStatus(paneId: string, onStatus: (agentStatus: string) => void, onReady: () => void): () => void {
-        const stop = (this.kit.subscribe as (
-            subs: Array<{ type: string; [key: string]: unknown }>,
-            on: (event: HerdrEvent) => void,
-        ) => () => void)(
-            [{ type: 'pane.agent_status_changed', pane_id: paneId }],
-            (event) => {
-                // The kit spreads the frame data onto the event, so the status
-                // rides top-level exactly as the old client delivered it.
-                if (typeof event.agent_status === 'string') onStatus(event.agent_status);
-            },
-        );
-        // The declared type hides it, but the kit resolves `ready` on the
-        // subscribe ack -- the same edge the old client used for onReady.
-        const ready = (stop as { ready?: Promise<boolean> }).ready;
-        if (ready !== undefined) {
-            void ready.then((ok) => {
-                if (ok !== false) onReady();
-            }).catch(() => {});
-        } else {
-            queueMicrotask(onReady);
-        }
-        return stop;
+    async statusWatchReady(): Promise<void> {
+        await this.kit.statusWatchReady();
     }
 
     async close(): Promise<void> {
         this.closed = true;
         this.connected = false;
         if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
-        this.batchStop?.();
-        this.batchStop = undefined;
+        this.offKitEvent?.();
+        this.offKitEvent = undefined;
+        this.listeners.clear();
         await this.kit.stop().catch(() => {});
     }
 
