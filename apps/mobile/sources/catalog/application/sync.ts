@@ -551,7 +551,7 @@ class MuxrSync {
         // treat an explicit false as a dead runtime. The store is the one
         // source every surface reads; the return value stays for the caller.
         const herdrConnected = (tree as { connected?: boolean }).connected;
-        if (request === this.herdrTreeRequest) storage.getState().setHerdrRuntime(herdrConnected, tree.missing === true);
+        if (request === this.herdrTreeRequest) storage.getState().setHerdrRuntime(herdrConnected, tree.missing === true, tree.outdated === true, tree.desktopApp === true);
         return { workspaces: tree.workspaces, herdrConnected };
     }
 

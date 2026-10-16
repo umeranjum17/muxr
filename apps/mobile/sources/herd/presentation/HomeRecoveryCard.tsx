@@ -11,11 +11,31 @@ import { Typography } from '@/constants/Typography';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { loadAppConfig } from '@/catalog';
 import { isSshHostKeyChangeRefusal, isSshHostKeyPinMissing } from '@/connection';
-import { useHerdrMissing } from '@/catalog/store';
+import { useHerdrDesktopApp, useHerdrMissing, useHerdrOutdated } from '@/catalog/store';
 
 const HOST_RESTART_COMMAND = 'muxr daemon restart';
-// Doctor finds the missing Herdr and offers to install and start it.
+// Doctor finds the missing or old Herdr and offers to install and start it.
 const HERDR_INSTALL_COMMAND = 'muxr doctor';
+
+/**
+ * Herdr's two steps, led by the one that fits the way that computer was set
+ * up: the desktop app's Install Herdr on a computer it owns, the terminal
+ * command on a command-line computer. The other step stays visible, second.
+ */
+function herdrCopy(outdated: boolean, desktopApp: boolean): { lead: string; terminal?: string; alternative?: string } {
+    if (desktopApp) {
+        return {
+            lead: outdated
+                ? 'The Herdr on that computer is out of date. Open the muxr app on it and choose Install Herdr; your agents appear here once it restarts.'
+                : 'Open the muxr app on that computer and choose Install Herdr; your agents appear here once it starts.',
+            terminal: 'Or run this in a terminal there:',
+        };
+    }
+    return {
+        lead: 'Run this in a terminal there:',
+        alternative: 'Or open the muxr app on that computer and choose Install Herdr.',
+    };
+}
 
 const styles = StyleSheet.create((theme) => ({
     card: {
@@ -59,18 +79,23 @@ export function HomeRecoveryCard({
     const { theme } = useUnistyles();
     const sshKey = mode === 'ssh-key';
     const rePair = mode === 'update-app' || mode === 'update-host' || mode === 'pair' || mode === 'revoked';
-    // A runtime that is down because Herdr was never installed: no restart brings it back.
+    // A runtime that is down because Herdr is absent or older than muxr
+    // supports: no restart brings it back, so the card leads with an install.
     const herdrMissing = useHerdrMissing() && mode === 'runtime';
-    const command = herdrMissing ? HERDR_INSTALL_COMMAND : HOST_RESTART_COMMAND;
+    const herdrOutdated = useHerdrOutdated() && mode === 'runtime';
+    const herdrBroken = herdrMissing || herdrOutdated;
+    const herdrDesktopApp = useHerdrDesktopApp();
+    const copy = herdrBroken ? herdrCopy(herdrOutdated, herdrDesktopApp) : undefined;
+    const command = herdrBroken ? HERDR_INSTALL_COMMAND : HOST_RESTART_COMMAND;
     const publicBaseUrl = loadAppConfig().publicBaseUrl;
     const appDownload = Platform.OS === 'ios'
         ? 'https://testflight.apple.com/join/aJSbs8pN'
         : publicBaseUrl ? `${publicBaseUrl}/downloads/stable/android` : 'https://github.com/umeranjum17/muxr/releases/latest';
     return (
         <View style={[styles.card, cardStyle(theme)]}>
-            <Text style={styles.title}>{herdrMissing ? 'Herdr is missing on your computer' : mode === 'update-app' ? 'Update the muxr app' : mode === 'update-host' ? 'Update muxr on your computer' : mode === 'pair' ? 'Pair this phone again' : mode === 'revoked' ? 'Access removed' : sshKey ? 'SSH fingerprint changed' : mode === 'host' ? 'Computer unreachable' : 'Agent runtime unavailable'}</Text>
+            <Text style={styles.title}>{herdrOutdated ? 'Herdr is out of date on your computer' : herdrMissing ? 'Herdr is missing on your computer' : mode === 'update-app' ? 'Update the muxr app' : mode === 'update-host' ? 'Update muxr on your computer' : mode === 'pair' ? 'Pair this phone again' : mode === 'revoked' ? 'Access removed' : sshKey ? 'SSH fingerprint changed' : mode === 'host' ? 'Computer unreachable' : 'Agent runtime unavailable'}</Text>
             <Text style={styles.body}>
-                {herdrMissing ? 'Open the muxr app on that computer and choose Install Herdr; your agents appear here once it starts.'
+                {copy ? copy.lead
                     : mode === 'pair' ? reason?.includes('no longer recognises')
                     ? 'Your computer no longer recognises this phone. Pair once to reconnect.'
                     : 'Your computer has a newer muxr connection. Pair once to reconnect.'
@@ -85,12 +110,12 @@ export function HomeRecoveryCard({
             {/* The restart command stays visible beside the Retry feedback that
                 refers to it: hiding it whenever a reason exists left "run the
                 command" pointing at nothing. */}
-            {herdrMissing && <Text style={styles.body}>Or run this in a terminal there:</Text>}
+            {copy?.terminal !== undefined && <Text style={styles.body}>{copy.terminal}</Text>}
             {!rePair && !sshKey && <View style={styles.commandRow}>
                 <Text selectable style={styles.command}>{command}</Text>
                 <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={herdrMissing ? 'Copy Herdr install command' : 'Copy host restart command'}
+                    accessibilityLabel={herdrBroken ? 'Copy Herdr install command' : 'Copy host restart command'}
                     hitSlop={10}
                     style={styles.copy}
                     onPress={() => void Clipboard.setStringAsync(command)
@@ -100,6 +125,7 @@ export function HomeRecoveryCard({
                     <Ionicons name="copy-outline" size={17} color={theme.colors.textSecondary} />
                 </Pressable>
             </View>}
+            {copy?.alternative !== undefined && <Text style={styles.body}>{copy.alternative}</Text>}
             <View style={styles.actions}>
                 {rePair ? (
                     <ActionButton

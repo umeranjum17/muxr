@@ -15,7 +15,7 @@ import { qrMatrix } from '@byokit/ui-core/link';
 import { autostartInstalled, setAutostart } from './autostart.mjs';
 import { openPairingSocket } from './pairClient.mjs';
 import { MuxrRuntime, RelayOwnedError } from './runtime.mjs';
-import { createHerdrSetup } from './herdrSetup.mjs';
+import { createHerdrSetup, wireHerdrToRuntime } from './herdrSetup.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..', '..');
@@ -196,8 +196,10 @@ function startPairing() {
 async function startRuntime() {
     send({ phase: 'starting' });
     runtime = new MuxrRuntime({ home: MUXR_HOME, node: process.execPath, relayEntry: RELAY_ENTRY, hostEntry: HOST_ENTRY, port: RELAY_PORT });
+    // The one place Herdr is read and started: launch check plus every status below.
+    wireHerdrToRuntime(runtime, herdr);
     runtime.on('status', (event) => {
-        void herdr.observeRuntime(event);
+        // The Herdr forwarding lives in wireHerdrToRuntime above; only the pairing stop rides along here.
         if (event.phase === 'error') { stopPairing(); reportFailure('runtime error', event.message, RUNTIME_EXIT_MESSAGE); }
         else if (event.phase === 'starting') send({ phase: 'starting' });
         else if (event.phase === 'stalled') reportFailure('host still starting', 'no online report yet', STALLED_MESSAGE);
@@ -242,7 +244,6 @@ if (!app.requestSingleInstanceLock()) {
         try { tray = new Tray(nativeImage.createFromPath(asset('tray.png'))); tray.on('click', showWindow); updateTray(); }
         catch (error) { process.stderr.write(`tray unavailable: ${error instanceof Error ? error.message : String(error)}\n`); }
         createWindow();
-        herdr.check();
         await startRuntime();
     });
 

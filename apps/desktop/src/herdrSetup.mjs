@@ -85,9 +85,13 @@ export function createHerdrSetup(onChange) {
     return {
         get state() { return current; },
         install,
-        /** At launch, before the runtime knows whether this desktop owns the computer: say Herdr is missing, start nothing. */
+        /**
+         * At launch, before the runtime knows whether this desktop owns the
+         * computer: say Herdr is missing, start nothing. A retried start and a
+         * failed install keep the state they already showed.
+         */
         check() {
-            if (findHerdr() === undefined) set({ status: 'missing' });
+            if (current.status === 'ok' && findHerdr() === undefined) set({ status: 'missing' });
         },
         /** Every runtime status goes here. Only 'online' means this desktop owns the computer, so only then is Herdr started. */
         async observeRuntime(event) {
@@ -97,4 +101,16 @@ export function createHerdrSetup(onChange) {
             else await startServer(binary);
         },
     };
+}
+
+/**
+ * The desktop app's whole Herdr rule, so `main.mjs` and the runtime
+ * integration test drive the same code: the launch check says whether Herdr is
+ * there, and every MuxrRuntime status event decides what happens next. Nothing
+ * starts Herdr before the runtime reports 'online', which is the only status
+ * that means this desktop owns the computer.
+ */
+export function wireHerdrToRuntime(runtime, herdr) {
+    runtime.on('status', (event) => { void herdr.observeRuntime(event); });
+    herdr.check();
 }
