@@ -82,7 +82,8 @@ For `first-prompt-failed-attachments`, attach one image on Home and break the
 route, not the agent: killing or `SIGSTOP`ping the agent retires its route (the
 shell takes the pane back) and the agent screen moves to that shell, so there is
 no agent composer left to restore into. Instead, once the attachment file lands
-under the lab host's `attachments/<session>/`, `kill -STOP` the lab's own relay
+under the lab host's `attachments/<digest>/` (the dump layout
+[attach-any-file.md](./attach-any-file.md) owns), `kill -STOP` the lab's own relay
 PID (the `apps/relay/dist/main.js` child of the lab process), wait for the
 75 s `Your computer didn't answer in time.` alert, then `kill -CONT` it. The
 agent screen keeps its route; after the fix it shows the text and the image

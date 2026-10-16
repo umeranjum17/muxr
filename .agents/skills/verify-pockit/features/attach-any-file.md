@@ -16,11 +16,20 @@ file and the limit.
   input (installed PWA) shows a file chip with its name, size and type icon in
   the composer, removable before send.
 - `attach-host-name` the host stores the original (sanitised) name and
-  extension under `$MUXR_HOME/host/attachments/<sessionId>/<folder>/`; two files
-  with the same name never overwrite — the second gets `-1` before the
-  extension.
+  extension under `$MUXR_HOME/host/attachments/<digest>/<folder>/`, where
+  `<digest>` is an opaque per-session folder name — the internal pane id
+  (pp_…) never appears in a saved path. Two files with the same name never
+  overwrite — the second gets `-1` before the extension.
 - `attach-agent-path` a live agent reads the file at the path in the prompt
-  (listing the zip, reading the PDF text, printing the txt).
+  (listing the zip, reading the PDF text, printing the txt) with **no
+  permission prompt**: muxr's own attachment folder is pre-allowed
+  (`external_directory` allow — OpenCode's folder grant has no read/write
+  split, and its edit globs match project-relative paths only, so no deny
+  rule for this external folder exists) in the account's OpenCode config
+  at launch, or, without an account, as the pane's `OPENCODE_CONFIG_CONTENT`
+  carrying the user's own rules (none when the host already sets it or a
+  config will not parse — the prompt then stays); other agents already read
+  external paths silently.
 - `attach-too-large` a file over the 10 MB cap is refused before upload with a
   plain alert naming the file and the cap; nothing is written host-side.
 - `attach-host-backstop` a request that skips the phone cap is refused by the
@@ -47,11 +56,13 @@ Preconditions:
 1. Open the live agent, tap `+`, choose `Files`, pick `bundle.zip`, `sample.pdf`,
    `notes.txt`. Confirm three chips with names, sizes and type icons appear and
    each is removable. Send one prompt.
-2. On the host, list `$MUXR_HOME/host/attachments/<sessionId>/<folder>/`: the
-   three files are present with their original names and `cmp` identical bytes.
+2. On the host, list `$MUXR_HOME/host/attachments/`: a 16-hex digest folder
+   (not `pp_…`) holds `<folder>/` with the three files, original names, `cmp`
+   identical bytes. No path anywhere (prompt, terminal) shows `pp_`.
 3. In the agent's TUI, run the command that opens each path: `unzip -l` on the
    zip, `pdftotext`/a cat of the pdf text, `cat` on the txt. Capture the agent
-   printing each.
+   printing each. On OpenCode there must be **no** "Access external directory"
+   prompt and no "Needs you" header for these reads.
 4. Repeat with a file just over 10 MB: the phone refuses it with the plain
    alert; the host directory is unchanged.
 5. Installed PWA: the same flow at 393 and 270 px, light and dark, chips and the

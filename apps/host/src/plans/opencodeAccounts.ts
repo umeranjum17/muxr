@@ -129,6 +129,8 @@ export function opencodeGoSignedIn(env: Record<string, string | undefined>): boo
     }
 }
 
+const OPENCODE_GO_DEFAULT_MODEL = 'opencode-go/muse-spark-1.3-contributor';
+
 /**
  * OpenCode Go agents start on Muse Spark 1.3 Contributor: without a model
  * OpenCode falls back to its own default (gpt-5.6-luna), which costs the first
@@ -137,8 +139,6 @@ export function opencodeGoSignedIn(env: Record<string, string | undefined>): boo
  * there names a model, so a model the user set stands. Written at launch, so
  * an account signed in before this existed gets it too.
  */
-const OPENCODE_GO_DEFAULT_MODEL = 'opencode-go/muse-spark-1.3-contributor';
-
 export function defaultOpencodeGoModel(env: Record<string, string | undefined>): void {
     if (env.XDG_CONFIG_HOME === undefined || !opencodeGoSignedIn(env)) return;
     const dir = join(env.XDG_CONFIG_HOME, 'opencode');
@@ -162,6 +162,118 @@ export function defaultOpencodeGoModel(env: Record<string, string | undefined>):
     const temp = `${target}.${randomBytes(4).toString('hex')}.tmp`;
     try {
         writeFileSync(temp, `${JSON.stringify({ ...config, model: OPENCODE_GO_DEFAULT_MODEL }, null, 2)}\n`, { mode: 0o600 });
+        renameSync(temp, target);
+    } catch (error) { rmSync(temp, { force: true }); throw error; }
+}
+
+/** A permission entry as its rule map: a plain string is the catch-all rule. */
+function permissionRules(value: unknown): Record<string, unknown> {
+    if (typeof value === 'string') return { '*': value };
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
+}
+
+/** Object order is rule order (last match wins): the permission's own rules
+ *  stand, ours comes last, so the one folder reads without a prompt. */
+function attachmentRules(permission: Record<string, unknown>, dir: string): Record<string, Record<string, unknown>> {
+    return {
+        external_directory: { ...permissionRules(permission.external_directory), [`${dir}/**`]: 'allow' },
+    };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The config files OpenCode merges before OPENCODE_CONFIG_CONTENT, in its
+ *  order: global, then OPENCODE_CONFIG, then project files from the worktree
+ *  root down to `cwd`. */
+function opencodeConfigFiles(env: NodeJS.ProcessEnv, cwd: string): string[] {
+    const global = join(env.XDG_CONFIG_HOME?.trim() || join(env.HOME?.trim() || homedir(), '.config'), 'opencode');
+    const project: string[] = [];
+    for (let dir = resolve(cwd); ; dir = dirname(dir)) {
+        project.unshift(...['opencode.json', 'opencode.jsonc', join('.opencode', 'opencode.json'), join('.opencode', 'opencode.jsonc')].map((name) => join(dir, name)));
+        if (existsSync(join(dir, '.git')) || dirname(dir) === dir) break;
+    }
+    return [
+        ...['config.json', 'opencode.json', 'opencode.jsonc'].map((name) => join(global, name)),
+        ...(env.OPENCODE_CONFIG?.trim() ? [env.OPENCODE_CONFIG.trim()] : []),
+        ...project,
+    ];
+}
+
+/**
+ * The same attachment pre-allow for an OpenCode started without a muxr
+ * account, as OPENCODE_CONFIG_CONTENT for its pane: muxr never writes the
+ * user's own config. OpenCode deep-merges that content last, and a plain
+ * string rule there would be replaced by our rule map, so the user's own
+ * rules for that tool are read — config files only, never auth — and carried
+ * in as `"*"`. Nothing is injected (the prompt stays, never a guess) when the
+ * host already sets OPENCODE_CONFIG_CONTENT, a config cannot be read or parsed
+ * (JSONC comments), or `permission` is one value for every tool.
+ */
+export function opencodeAttachmentEnv(env: NodeJS.ProcessEnv, dir: string, cwd: string): Record<string, string> {
+    if (env.OPENCODE_CONFIG_CONTENT !== undefined || dir === '') return {};
+    const permission: Record<string, unknown> = {};
+    for (const file of opencodeConfigFiles(env, cwd)) {
+        let parsed: unknown;
+        try { parsed = JSON.parse(readFileSync(file, 'utf8')); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+            return {};
+        }
+        if (!isRecord(parsed)) return {};
+        if (parsed.permission === undefined) continue;
+        if (!isRecord(parsed.permission)) return {};
+        // OpenCode's merge: a later rule map joins an earlier one, anything else replaces it.
+        for (const [key, value] of Object.entries(parsed.permission)) {
+            const before = permission[key];
+            permission[key] = isRecord(before) && isRecord(value) ? { ...before, ...value } : value;
+        }
+    }
+    return { OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: attachmentRules(permission, dir) }) };
+}
+
+/**
+ * Pre-allows muxr's own prompt-attachment folder in the account's OpenCode
+ * config, so an attachment path carried in a prompt never trips the "Access
+ * external directory" prompt. The grant is exactly that one folder: OpenCode's
+ * folder grant has no read/write split, and its edit globs match project-
+ * relative paths only — a deny rule for this external folder never matches —
+ * so writes into the folder ride the same grant. Muxr owns the account root,
+ * so the
+ * config there is ours to keep current; written at launch, so an account
+ * from before this existed gets it too. Runs only when the launch carries a
+ * muxr-owned XDG root (a plan account); an ambient launch keeps the user's
+ * own config untouched. A config OpenCode would merge but we cannot parse
+ * (JSONC comments) is left alone — the prompt is the old behavior, not a
+ * broken launch.
+ */
+export function allowOpencodeAttachments(env: Record<string, string | undefined>, dir: string): void {
+    if (env.XDG_CONFIG_HOME === undefined || dir === '') return;
+    const configDir = join(env.XDG_CONFIG_HOME, 'opencode');
+    let target = join(configDir, 'opencode.json');
+    let config: Record<string, unknown> = {};
+    // Same global files OpenCode merges, last one wins; ours must land there.
+    for (const name of ['config.json', 'opencode.json', 'opencode.jsonc']) {
+        let parsed: unknown;
+        try { parsed = JSON.parse(readFileSync(join(configDir, name), 'utf8')); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+            return;
+        }
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return;
+        target = join(configDir, name);
+        config = parsed as Record<string, unknown>;
+    }
+    const permission = permissionRules(config.permission);
+    config.permission = { ...permission, ...attachmentRules(permission, dir) };
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    // Temp file then rename: a failed write leaves the config intact, not truncated.
+    const temp = `${target}.${randomBytes(4).toString('hex')}.tmp`;
+    try {
+        writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
         renameSync(temp, target);
     } catch (error) { rmSync(temp, { force: true }); throw error; }
 }
