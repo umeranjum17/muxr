@@ -1,0 +1,59 @@
+name: desktop-appimage
+
+# Build the Linux desktop app -- the AppImage a newcomer downloads to pair this
+# computer without a terminal -- from a clean checkout and keep it as a workflow
+# artifact for testing. This workflow never publishes: no GitHub release asset,
+# no npm publish, no site change, no store upload. Public release waits on the
+# captain's own testing.
+#
+# `yarn desktop:build:linux` is the exact local path (apps/desktop/scripts/build.mjs)
+# and it already audits the shipped licenses and runs electron-builder with
+# `--publish never`, so nothing here can publish even if it wanted to. A push to
+# main keeps a fresh artifact beside the source that produced it; a pull request
+# builds the same AppImage before it can land; workflow_dispatch rebuilds on demand.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  appimage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile --non-interactive
+      # Builds the host, relay, voice runtime and Electron main, audits every
+      # shipped dependency's license, then packages the AppImage into
+      # apps/desktop/release/. A copyleft or unknown license fails the build.
+      - name: Build the AppImage (publish disabled)
+        run: yarn desktop:build:linux
+      # The checksum travels beside the artifact so a downloader can verify the
+      # exact file this run produced.
+      - name: Write the AppImage's SHA-256 beside it
+        run: |
+          set -euo pipefail
+          cd apps/desktop/release
+          appimage="$(basename "$(ls -1 ./*.AppImage | head -n1)")"
+          sha256sum "$appimage" > "$appimage.sha256"
+          cat "$appimage.sha256"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: muxr-linux-appimage
+          path: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.AppImage.sha256
+          if-no-files-found: error
