@@ -1603,6 +1603,18 @@ export async function createHerdrSessionSource(
         return launched;
     }
 
+    /** The env any pane-creating launch path gives its new pane: the base
+     *  pane env, plus the attachment pre-allow for an ambient OpenCode pane —
+     *  a plan account carries its own grant in `planEnv` instead. */
+    function paneLaunchEnv(kind: string | undefined, cwd: string, planEnv?: Record<string, string>): Record<string, string> {
+        return {
+            ...paneEnvironment(),
+            ...(kind === 'opencode' && planEnv === undefined
+                ? opencodeAttachmentEnv(process.env, join(options.dataDir, 'attachments'), cwd) : {}),
+            ...planEnv,
+        };
+    }
+
     async function startManagedAgent(paneId: string, kind: string, launchName: string): Promise<void> {
         const args = kind === 'opencode' ? opencodeLaunchArgs() : [];
         await client.kit.startAgent({
@@ -2068,7 +2080,7 @@ export async function createHerdrSessionSource(
             try {
                 // A plan account rides on the new pane only: without one this
                 // is byte-for-byte today's shell.
-                const placed = await client.kit.place({ cwd: shellCwd, place, env: { ...paneEnvironment(), ...startOptions.planEnv } });
+                const placed = await client.kit.place({ cwd: shellCwd, place, env: paneLaunchEnv(kind, shellCwd, startOptions.planEnv) });
                 paneId = placed.paneId;
                 // kit.place drops the label on a workspace it creates; name the tab either way.
                 if (requestedLabel !== undefined) await client.call('tab.rename', { tab_id: placed.tabId, label: requestedLabel });
@@ -2125,15 +2137,11 @@ export async function createHerdrSessionSource(
         // pane without either, keeps today's env.
         const env = plan
             ? {
-                overlay: Object.fromEntries(Object.entries({ ...paneEnvironment(), ...startOptions.planEnv })
+                overlay: Object.fromEntries(Object.entries(paneLaunchEnv(kind, cwd, startOptions.planEnv))
                     .filter(([name]) => !unset.includes(name))),
                 unset,
             }
-            : {
-                ...paneEnvironment(),
-                ...(kind === 'opencode' && startOptions.planEnv === undefined
-                    ? opencodeAttachmentEnv(process.env, join(options.dataDir, 'attachments'), cwd) : {}),
-            };
+            : paneLaunchEnv(kind, cwd);
         const launchEnv = startOptions.planEnv?.PATH === undefined ? process.env : { ...process.env, PATH: startOptions.planEnv.PATH };
         const args = kind === 'opencode' ? opencodeLaunchArgs(launchEnv) : [];
         let paneId: string | undefined;
@@ -2818,7 +2826,7 @@ export async function createHerdrSessionSource(
             const record = await resolvePane(splitOptions.sessionId);
             const { paneId: newPaneId } = await client.kit.place({
                 place: { split: record.paneId, direction: splitOptions.direction },
-                env: paneEnvironment(),
+                env: paneLaunchEnv(splitOptions.kind, cwdForSession(splitOptions.sessionId) ?? homedir()),
             });
             if (splitOptions.kind === undefined) {
                 await refreshSnapshot();
@@ -3081,9 +3089,7 @@ export async function createHerdrSessionSource(
             const applied = await client.call<{ layout?: { tab_id?: string; root?: HerdrLayoutNode } }>(
                 'layout.apply',
                 {
-                    root: toHerdrRootWithEnv(applyOptions.snapshot, (index) => kinds[index] === 'opencode'
-                        ? { ...paneEnvironment(), ...opencodeAttachmentEnv(process.env, join(options.dataDir, 'attachments'), homedir()) }
-                        : paneEnvironment()),
+                    root: toHerdrRootWithEnv(applyOptions.snapshot, (index) => paneLaunchEnv(kinds[index], homedir())),
                     ...(pane.pane?.workspace_id === undefined ? {} : { workspace_id: pane.pane.workspace_id }),
                     ...(applyOptions.label === undefined ? {} : { tab_label: applyOptions.label }),
                     focus: false,
@@ -3187,7 +3193,7 @@ export async function createHerdrSessionSource(
             const { paneId, tabId } = await client.kit.place({
                 cwd,
                 place: { tab: 'new', workspaceId, ...(requestedLabel === undefined ? {} : { label: requestedLabel }) },
-                env: paneEnvironment(),
+                env: paneLaunchEnv(options.kind, cwd),
             });
             if (options.kind === undefined) {
                 await refreshSnapshot();

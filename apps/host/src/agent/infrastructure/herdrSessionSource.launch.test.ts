@@ -1093,6 +1093,55 @@ describe('OpenCode account isolation', () => {
         }
     }, 20_000);
 
+    it('pre-allows the attachment folder for an ambient OpenCode pane whatever path creates it', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-paths-'));
+        const bin = join(dir, 'bin');
+        mkdirSync(bin);
+        mkdirSync(join(dir, 'repo'));
+        writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
+        chmodSync(join(bin, 'opencode'), 0o755);
+        // A bare launch resolves its binary from the host's own env; keep the
+        // probe on the fake, and HOME on an empty dir so no real OpenCode
+        // config leaks into the injected content.
+        const saved = { HOME: process.env.HOME, PATH: process.env.PATH };
+        Object.assign(process.env, { HOME: join(dir, 'home'), PATH: `${bin}:${process.env.PATH ?? ''}` });
+        const herdr = fakeHerdr(dir, join(dir, 'repo'));
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const started = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            const split = await source.paneSplit({ sessionId: started.info.id, direction: 'right', kind: 'opencode' });
+            const tab = await source.createTab(started.info.id, { kind: 'opencode' });
+            const otherKind = await source.paneSplit({ sessionId: started.info.id, direction: 'down', kind: 'claude' });
+            expect(split.sessionId).toBeDefined();
+            expect(tab.sessionId).toBeDefined();
+            expect(otherKind.sessionId).toBeDefined();
+            const allow = (index: number) => {
+                const env = (herdr.tabs[index] as { env?: Record<string, string> }).env ?? {};
+                const content = JSON.parse(env.OPENCODE_CONFIG_CONTENT ?? 'null') as
+                    { permission?: { external_directory?: Record<string, string> } } | null;
+                return content?.permission?.external_directory?.[`${join(dir, 'data', 'attachments')}/**`];
+            };
+            expect(allow(0)).toBe('allow'); // session.start
+            expect(allow(1)).toBe('allow'); // pane.split (phone New pane / split sheet)
+            expect(allow(2)).toBe('allow'); // tab.create
+            expect(allow(3)).toBeUndefined(); // a claude pane carries no OpenCode config
+        } finally {
+            for (const [name, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+
     it('passes --standalone only for OpenCode 2.x so two accounts do not share the fixed background port', async () => {
         const run = async (versionOutput: string) => {
             const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-stand-'));
