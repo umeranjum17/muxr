@@ -260,7 +260,6 @@ const aborted = (value) => value === undefined || value === BACK;
 // connecting it remains behind Apply instead of becoming a preflight prompt.
 const tailscalePlannable = (found) => found.tailscale.installed && !found.tailscale.connected && found.tailscale.backend !== undefined;
 
-
 // A first run reviews its plan on the route screen itself, so one Enter on a
 // route applies it. The route-specific cost is in each route's description.
 function firstRunSummary(found) {
