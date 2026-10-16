@@ -5,6 +5,7 @@ import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Item } from '@/components/Item';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { ItemGroup } from '@/components/ItemGroup';
 import { Modal } from '@/modal';
 import { useSession } from '@/catalog/store';
@@ -26,6 +27,9 @@ export default function ChangesScreen() {
     const { id: sessionId } = useLocalSearchParams<{ id: string }>();
     const session = useSession(sessionId);
     const { theme } = useUnistyles();
+    // Large text on a narrow phone: the counts go under the path and the kind icon
+    // gives way, so the file name keeps the row.
+    const compact = useCompactWindow();
     const [scope, setScope] = React.useState<ChangesScope>('working');
     const [root, setRoot] = React.useState<string | undefined>(undefined);
     const [page, setPage] = React.useState(0);
@@ -71,7 +75,7 @@ export default function ChangesScreen() {
                     .map((entry) => ({
                         id: entry.path,
                         title: entry.title,
-                        metadata: [{ value: entry.added === '-' ? 'binary' : `+${entry.added} / −${entry.deleted}` }],
+                        metadata: [{ value: fileCounts(entry) }],
                         action: { type: 'kernel.navigate', target: 'file', path: entry.path.startsWith('/') ? entry.path : `${browse?.root ?? ''}/${entry.path}` },
                     })),
             });
@@ -171,14 +175,14 @@ export default function ChangesScreen() {
                                     title={file.title}
                                     subtitle={file.path}
                                     subtitleLines={1}
-                                    icon={<Ionicons
-                                        name={file.kind === 'untracked' ? 'add-circle-outline' : 'git-compare-outline'}
-                                        size={18}
-                                        color={theme.colors.textSecondary}
-                                    />}
-                                    rightElement={<Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
-                                        {file.added === '-' ? 'binary' : `+${file.added} / −${file.deleted}`}
-                                    </Text>}
+                                    {...(compact ? { meta: fileCounts(file) } : {
+                                        icon: <Ionicons
+                                            name={file.kind === 'untracked' ? 'add-circle-outline' : 'git-compare-outline'}
+                                            size={18}
+                                            color={theme.colors.textSecondary}
+                                        />,
+                                        rightElement: <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{fileCounts(file)}</Text>,
+                                    })}
                                     onPress={() => openFile(file)}
                                     accessibilityLabel={`Review ${file.path}`}
                                 />
@@ -210,15 +214,19 @@ export default function ChangesScreen() {
     );
 }
 
+function fileCounts(file: ChangesFile): string {
+    return file.added === '-' ? 'binary' : `+${file.added} / −${file.deleted}`;
+}
+
 const styles = StyleSheet.create((theme) => ({
     screen: { flex: 1, backgroundColor: theme.colors.groupped.background },
     content: { paddingBottom: 32 },
     scopeRow: {
-        flexDirection: 'row', alignItems: 'center', gap: 6,
+        flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6,
         paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4,
     },
     scopeButton: { borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6, marginRight: 2 },
-    summaryRow: { flexDirection: 'row', gap: 18, paddingHorizontal: 16, paddingVertical: 10 },
+    summaryRow: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 8, columnGap: 18, paddingHorizontal: 16, paddingVertical: 10 },
     summaryCell: { gap: 2 },
     pageRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18, paddingVertical: 12 },
     pageButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHigh },

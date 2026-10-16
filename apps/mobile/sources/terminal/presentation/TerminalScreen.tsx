@@ -2018,10 +2018,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close pane actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
                             <AnimatedPopup style={{
                                 flexShrink: 1,
-                                minWidth: 236,
+                                // Never wider than the window: an installed PWA at the largest
+                                // text is a 135 px viewport, and the sheet ran off its left edge.
+                                minWidth: Math.min(236, windowWidth - 16),
                                 maxWidth: 320,
                                 marginRight: 8,
-                                marginLeft: 16,
+                                marginLeft: 8,
                                 marginTop: headerBottom + 8,
                                 marginBottom: (keyboardVisible ? keyboardHeight : insets.bottom) + 8,
                                 borderRadius: 14,
