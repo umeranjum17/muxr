@@ -48,15 +48,15 @@ const stub = createServer((req, res) => {
 });
 const stubUrl = await new Promise((resolve) => stub.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${stub.address().port}`)));
 
-// The host's owner socket offers one native pairing and approves the device that takes it.
+// The host's owner socket offers one pairing (native app or browser) and approves the device that takes it.
 let offering;
-const mintNativePairing = async (path) => {
+const mintPairing = async (path, kind) => {
     if (offering && !offering.destroyed) { offering.destroy(); await sleep(500); }
     return new Promise((resolve, reject) => {
         const socket = offering = createConnection(path);
         let pending = '';
         socket.on('error', reject);
-        socket.on('connect', () => socket.write('{"intent":{"kind":"native","authority":"control","personal":false}}\n'));
+        socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind, authority: 'control', personal: false } })}\n`));
         socket.on('data', (chunk) => {
             pending += String(chunk);
             for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
@@ -84,10 +84,11 @@ try {
     mark(`herdr session ${lab.session}`);
     let agent;
     const commands = {
-        pair: async () => {
-            const pairing = await mintNativePairing(join(root, 'host', 'pair.sock'));
-            const link = `muxr://pair#${pairing.code}`;
-            if (SERIAL) {
+        // `pair` opens a native pairing on SERIAL; `pair browser` writes a link for the PWA's lab hook.
+        pair: async (kind = 'native') => {
+            const pairing = await mintPairing(join(root, 'host', 'pair.sock'), kind);
+            const link = kind === 'native' ? `muxr://pair#${pairing.code}` : pairing.code;
+            if (SERIAL && kind === 'native') {
                 await run('adb', ['-s', SERIAL, 'reverse', `tcp:${lab.port}`, `tcp:${lab.port}`]);
                 await run('adb', ['-s', SERIAL, 'shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', `'${link}'`, process.env.APP_ID ?? 'com.trymuxr.app']);
                 mark('pairing link opened on the device; tap Pair');
@@ -112,12 +113,12 @@ try {
             mark(`${name}: ${/"agent_status":"(\w+)"/.exec(lab.herdr(['pane', 'get', agent.paneId]))?.[1]}`);
         },
     };
-    mark('ready; enter: pair | start | ask | look [name] | quit');
+    mark('ready; enter: pair [native|browser] | start | ask | look [name] | quit');
     const input = createInterface({ input: process.stdin });
     for await (const line of input) {
         const [name, ...args] = line.trim().split(/\s+/);
         if (name === 'quit') break;
-        if (!(name in commands)) { console.error('commands: pair | start | ask | look [name] | quit'); continue; }
+        if (!(name in commands)) { console.error('commands: pair [native|browser] | start | ask | look [name] | quit'); continue; }
         await commands[name](...args).catch((error) => mark(`${name} failed: ${error.message}`));
     }
 } finally {
