@@ -129,6 +129,8 @@ export function opencodeGoSignedIn(env: Record<string, string | undefined>): boo
     }
 }
 
+const OPENCODE_GO_DEFAULT_MODEL = 'opencode-go/muse-spark-1.3-contributor';
+
 /**
  * OpenCode Go agents start on Muse Spark 1.3 Contributor: without a model
  * OpenCode falls back to its own default (gpt-5.6-luna), which costs the first
@@ -137,8 +139,6 @@ export function opencodeGoSignedIn(env: Record<string, string | undefined>): boo
  * there names a model, so a model the user set stands. Written at launch, so
  * an account signed in before this existed gets it too.
  */
-const OPENCODE_GO_DEFAULT_MODEL = 'opencode-go/muse-spark-1.3-contributor';
-
 export function defaultOpencodeGoModel(env: Record<string, string | undefined>): void {
     if (env.XDG_CONFIG_HOME === undefined || !opencodeGoSignedIn(env)) return;
     const dir = join(env.XDG_CONFIG_HOME, 'opencode');
@@ -162,6 +162,60 @@ export function defaultOpencodeGoModel(env: Record<string, string | undefined>):
     const temp = `${target}.${randomBytes(4).toString('hex')}.tmp`;
     try {
         writeFileSync(temp, `${JSON.stringify({ ...config, model: OPENCODE_GO_DEFAULT_MODEL }, null, 2)}\n`, { mode: 0o600 });
+        renameSync(temp, target);
+    } catch (error) { rmSync(temp, { force: true }); throw error; }
+}
+
+/** A permission entry as its rule map: a plain string is the catch-all rule. */
+function permissionRules(value: unknown): Record<string, unknown> {
+    if (typeof value === 'string') return { '*': value };
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
+}
+
+/**
+ * Pre-allows reads of muxr's own prompt-attachment folder in the account's
+ * OpenCode config, so an attachment path carried in a prompt never trips the
+ * "Access external directory" prompt. The grant is that one folder and reads
+ * only: edits inside it stay denied. Muxr owns the account root, so the
+ * config there is ours to keep current; written at launch, so an account
+ * from before this existed gets it too. Runs only when the launch carries a
+ * muxr-owned XDG root (a plan account); an ambient launch keeps the user's
+ * own config untouched. A config OpenCode would merge but we cannot parse
+ * (JSONC comments) is left alone — the prompt is the old behavior, not a
+ * broken launch.
+ */
+export function allowOpencodeAttachments(env: Record<string, string | undefined>, dir: string): void {
+    if (env.XDG_CONFIG_HOME === undefined || dir === '') return;
+    const configDir = join(env.XDG_CONFIG_HOME, 'opencode');
+    let target = join(configDir, 'opencode.json');
+    let config: Record<string, unknown> = {};
+    // Same global files OpenCode merges, last one wins; ours must land there.
+    for (const name of ['config.json', 'opencode.json', 'opencode.jsonc']) {
+        let parsed: unknown;
+        try { parsed = JSON.parse(readFileSync(join(configDir, name), 'utf8')); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+            return;
+        }
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return;
+        target = join(configDir, name);
+        config = parsed as Record<string, unknown>;
+    }
+    const permission = permissionRules(config.permission);
+    // Object order is rule order (last match wins): existing rules stand, our
+    // two rules come last, so the one folder is readable and never writable.
+    config.permission = {
+        ...permission,
+        external_directory: { ...permissionRules(permission.external_directory), [`${dir}/**`]: 'allow' },
+        edit: { ...permissionRules(permission.edit), [`${dir}/**`]: 'deny' },
+    };
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    // Temp file then rename: a failed write leaves the config intact, not truncated.
+    const temp = `${target}.${randomBytes(4).toString('hex')}.tmp`;
+    try {
+        writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
         renameSync(temp, target);
     } catch (error) { rmSync(temp, { force: true }); throw error; }
 }

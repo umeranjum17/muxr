@@ -1168,13 +1168,17 @@ describe('OpenCode account isolation', () => {
             const launchA = planLaunchEnv(env, a.record);
             const go = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchA.set, planUnset: launchA.unset });
             expect('info' in go).toBe(true);
+            const attDir = `${join(dir, 'data', 'attachments')}/**`;
             expect(JSON.parse(readFileSync(config(a.record.folder), 'utf8'))).toEqual({
                 $schema: 'https://opencode.ai/config.json', model: 'opencode-go/muse-spark-1.3-contributor',
+                permission: { external_directory: { [attDir]: 'allow' }, edit: { [attDir]: 'deny' } },
             });
-            // A model the user set there stands.
+            // A model the user set there stands; the pre-allow still joins it.
             writeFileSync(config(a.record.folder), '{"model": "opencode-go/glm-flash-5.3"}');
             expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchA.set, planUnset: launchA.unset })).toBe(true);
-            expect(readFileSync(config(a.record.folder), 'utf8')).toBe('{"model": "opencode-go/glm-flash-5.3"}');
+            const kept = JSON.parse(readFileSync(config(a.record.folder), 'utf8')) as { model?: string; permission?: { external_directory?: Record<string, string> } };
+            expect(kept.model).toBe('opencode-go/glm-flash-5.3');
+            expect(kept.permission?.external_directory?.[attDir]).toBe('allow');
             const bare = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode' });
             expect('info' in bare).toBe(true);
             const other = await source.start({ cwd: join(dir, 'repo'), kind: 'claude' });
@@ -1185,7 +1189,12 @@ describe('OpenCode account isolation', () => {
             const launchB = planLaunchEnv(env, b.record);
             const otherProvider = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchB.set, planUnset: launchB.unset });
             expect('info' in otherProvider).toBe(true);
-            expect(existsSync(config(b.record.folder, 'opencode.json'))).toBe(false);
+            // No Go credential, so no model default — but the attachment
+            // pre-allow lands for every muxr-owned OpenCode account.
+            const bConfig = JSON.parse(readFileSync(config(b.record.folder, 'opencode.json'), 'utf8')) as { model?: string; permission?: { external_directory?: Record<string, string>; edit?: Record<string, string> } };
+            expect(bConfig.model).toBeUndefined();
+            expect(bConfig.permission?.external_directory?.[attDir]).toBe('allow');
+            expect(bConfig.permission?.edit?.[attDir]).toBe('deny');
             expect(existsSync(config(b.record.folder))).toBe(false);
             // No launch passes `--model`: OpenCode 2.x has no such flag and exits on it.
             expect(herdr.agents).toHaveLength(5);

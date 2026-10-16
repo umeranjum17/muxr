@@ -33,7 +33,8 @@ import type {
 } from '@trymuxr/contract';
 import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@trymuxr/contract';
 import { hostDesktopForPanes } from '../../desktop/index.js';
-import { defaultOpencodeGoModel, opencodeLaunchArgs } from '../../plans/opencodeAccounts.js';
+import { attachmentFolderId } from '../../attachments/attachments.js';
+import { allowOpencodeAttachments, defaultOpencodeGoModel, opencodeLaunchArgs } from '../../plans/opencodeAccounts.js';
 import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent, widened } from './agentClose.js';
@@ -2106,10 +2107,14 @@ export async function createHerdrSessionSource(
         const launchName = `pp_${randomBytes(8).toString('hex')}`;
         // An OpenCode agent on an account signed in to OpenCode Go opens on
         // the Go default model; every other kind, provider, and a pane without
-        // a plan account keep today's launch.
+        // a plan account keep today's launch. The account root also pre-allows
+        // reads of muxr's own attachment folder, so a prompt attachment never
+        // trips "Access external directory".
         if (kind === 'opencode') {
             try { defaultOpencodeGoModel(startOptions.planEnv ?? {}); }
             catch { /* An unwritable config only costs the default model; the agent still starts. */ }
+            try { allowOpencodeAttachments(startOptions.planEnv ?? {}, join(options.dataDir, 'attachments')); }
+            catch { /* An unwritable config only costs the pre-allow; the agent still starts. */ }
         }
         const unset = startOptions.planUnset ?? [];
         const plan = startOptions.planEnv !== undefined || unset.length > 0;
@@ -3350,14 +3355,16 @@ export async function createHerdrSessionSource(
         }): Promise<{ savedPaths: string[] }> {
             const record = await resolvePane(saveOptions.sessionId);
             // Moshi's pattern: the file lands on the host, the agent gets a path.
-            // Per-session folder keeps concurrent herds from stepping on names.
-            // Both name and folder are client-supplied -- sanitize both, and
-            // reject dot components: '..' must never climb out of the data dir.
+            // Per-session folder keeps concurrent herds from stepping on names,
+            // under a digest of the session id so the internal pane id never
+            // appears in the path the prompt carries. Both name and folder are
+            // client-supplied -- sanitize both, and reject dot components: '..'
+            // must never climb out of the data dir.
             const folder = (saveOptions.folder ?? new Date().toISOString().replace(/[:.]/g, '-')).replace(
                 /[^A-Za-z0-9_-]/g,
                 '_',
             );
-            const dir = join(options.dataDir, 'attachments', record.sessionId, folder);
+            const dir = join(options.dataDir, 'attachments', attachmentFolderId(record.sessionId), folder);
             await mkdir(dir, { recursive: true });
             const savedPaths: string[] = [];
             for (const attachment of saveOptions.attachments) {
