@@ -9,7 +9,7 @@
  * plain sentence; the raw cause goes to the log).
  */
 import { dirname } from 'node:path';
-import { ensureHerdrServer, findHerdrBin, runHerdrInstaller } from '../../../scripts/setup/infrastructure/herdr.mjs';
+import { ensureHerdrServer, findHerdrBin, installHerdr } from '../../../scripts/setup/infrastructure/herdr.mjs';
 
 const INSTALL_MESSAGE = "Couldn't install Herdr. Check this computer's internet connection, then press Try again.";
 const START_MESSAGE = "Herdr is installed but didn't start. Choose Try again.";
@@ -69,9 +69,9 @@ export function createHerdrSetup(onChange) {
         if (binary === undefined) {
             set({ status: 'installing', step: 'Downloading Herdr…' });
             try {
-                await runHerdrInstaller(userEnv());
+                await installHerdr();
                 binary = findHerdr();
-                if (binary === undefined) throw new Error('the installer finished but no herdr binary was found');
+                if (binary === undefined) throw new Error('the pinned Herdr download finished but no herdr binary was found');
             } catch (error) {
                 process.stderr.write(`desktop: herdr install: ${detail(error)}\n`);
                 set({ status: 'failed', message: INSTALL_MESSAGE });
