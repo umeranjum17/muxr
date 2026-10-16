@@ -175,11 +175,10 @@ function permissionRules(value: unknown): Record<string, unknown> {
 }
 
 /** Object order is rule order (last match wins): the permission's own rules
- *  stand, our two come last, so the one folder is readable, never writable. */
+ *  stand, ours comes last, so the one folder reads without a prompt. */
 function attachmentRules(permission: Record<string, unknown>, dir: string): Record<string, Record<string, unknown>> {
     return {
         external_directory: { ...permissionRules(permission.external_directory), [`${dir}/**`]: 'allow' },
-        edit: { ...permissionRules(permission.edit), [`${dir}/**`]: 'deny' },
     };
 }
 
@@ -205,11 +204,11 @@ function opencodeConfigFiles(env: NodeJS.ProcessEnv, cwd: string): string[] {
 }
 
 /**
- * The same read-only pre-allow for an OpenCode started without a muxr
+ * The same attachment pre-allow for an OpenCode started without a muxr
  * account, as OPENCODE_CONFIG_CONTENT for its pane: muxr never writes the
  * user's own config. OpenCode deep-merges that content last, and a plain
- * string rule there (`"edit": "ask"`) would be replaced by our rule map, so
- * the user's own rules are read — config files only, never auth — and carried
+ * string rule there would be replaced by our rule map, so the user's own
+ * rules for that tool are read — config files only, never auth — and carried
  * in as `"*"`. Nothing is injected (the prompt stays, never a guess) when the
  * host already sets OPENCODE_CONFIG_CONTENT, a config cannot be read or parsed
  * (JSONC comments), or `permission` is one value for every tool.
@@ -237,10 +236,13 @@ export function opencodeAttachmentEnv(env: NodeJS.ProcessEnv, dir: string, cwd: 
 }
 
 /**
- * Pre-allows reads of muxr's own prompt-attachment folder in the account's
- * OpenCode config, so an attachment path carried in a prompt never trips the
- * "Access external directory" prompt. The grant is that one folder and reads
- * only: edits inside it stay denied. Muxr owns the account root, so the
+ * Pre-allows muxr's own prompt-attachment folder in the account's OpenCode
+ * config, so an attachment path carried in a prompt never trips the "Access
+ * external directory" prompt. The grant is exactly that one folder: OpenCode's
+ * folder grant has no read/write split, and its edit globs match project-
+ * relative paths only — a deny rule for this external folder never matches —
+ * so writes into the folder ride the same grant. Muxr owns the account root,
+ * so the
  * config there is ours to keep current; written at launch, so an account
  * from before this existed gets it too. Runs only when the launch carries a
  * muxr-owned XDG root (a plan account); an ambient launch keeps the user's

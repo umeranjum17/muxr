@@ -1,7 +1,7 @@
 /**
  * P1 flow: the OpenCode launch config over a throwaway account root. The
- * attachment pre-allow lands in the account's own opencode.json, reads-only
- * for exactly muxr's attachment folder; an ambient launch carries it as
+ * attachment pre-allow lands in the account's own opencode.json, scoped to
+ * exactly muxr's attachment folder; an ambient launch carries it as
  * OPENCODE_CONFIG_CONTENT and never writes the user's config.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -28,16 +28,17 @@ function writtenConfig(): Record<string, unknown> {
     return JSON.parse(readFileSync(join(root, 'account', '.config', 'opencode', 'opencode.json'), 'utf8'));
 }
 
-it('grants the one folder read-only in a fresh account config', () => {
+it('grants exactly the one folder in a fresh account config', () => {
     const dir = join(root, 'muxr-home', 'host', 'attachments');
     allowOpencodeAttachments(accountEnv(), dir);
     const permission = writtenConfig().permission as Record<string, Record<string, string>>;
-    expect(permission.external_directory).toEqual({ [`${dir}/**`]: 'allow' });
-    // Reads only: the same folder must never become writable through the grant.
-    expect(permission.edit).toEqual({ [`${dir}/**`]: 'deny' });
+    expect(permission).toEqual({ external_directory: { [`${dir}/**`]: 'allow' } });
+    // The grant is the whole folder: OpenCode's folder grant has no read/write
+    // split, and its edit globs match project-relative paths only, so a deny
+    // rule for this external folder never matches — none is written.
 });
 
-it('keeps an existing model choice and rule order, so our rules stand last', () => {
+it('keeps an existing model choice and rule order, so our rule stands last', () => {
     const configDir = join(root, 'account', '.config', 'opencode');
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, 'opencode.json'), JSON.stringify({
@@ -51,12 +52,11 @@ it('keeps an existing model choice and rule order, so our rules stand last', () 
     const permission = config.permission as { external_directory: Record<string, string>; edit: Record<string, string> };
     // A plain string was the catch-all rule; it must survive as such.
     expect(permission.external_directory['*']).toBe('deny');
-    expect(permission.edit['*']).toBe('ask');
-    // Last matching rule wins: the folder grant and the write ban are last.
+    // Last matching rule wins: the folder grant is last. Every other tool,
+    // edit included, keeps the user's own rules untouched.
+    expect(permission.edit).toEqual({ '*': 'ask' });
     expect(Object.keys(permission.external_directory).at(-1)).toBe(`${dir}/**`);
     expect(permission.external_directory[`${dir}/**`]).toBe('allow');
-    expect(Object.keys(permission.edit).at(-1)).toBe(`${dir}/**`);
-    expect(permission.edit[`${dir}/**`]).toBe('deny');
 });
 
 it('leaves a config it cannot parse, and an ambient launch, untouched', () => {
@@ -88,12 +88,12 @@ it('pre-allows the folder for an ambient launch through config content, writing 
     const dir = join(root, 'muxr-home', 'host', 'attachments');
     const injected = opencodeAttachmentEnv(env, dir, cwd);
     expect(JSON.parse(injected.OPENCODE_CONFIG_CONTENT!)).toEqual({
-        permission: { external_directory: { [`${dir}/**`]: 'allow' }, edit: { [`${dir}/**`]: 'deny' } },
+        permission: { external_directory: { [`${dir}/**`]: 'allow' } },
     });
     expect(existsSync(userConfig)).toBe(false);
 });
 
-it("carries the user's own string rules in, so edit: ask stays ask", () => {
+it("carries the user's own external_directory rules in and leaves every other tool alone", () => {
     const { env, cwd, userConfig } = ambient();
     mkdirSync(userConfig, { recursive: true });
     writeFileSync(join(userConfig, 'opencode.json'), JSON.stringify({ permission: { edit: 'ask', external_directory: 'deny', bash: 'allow' } }));
@@ -102,9 +102,8 @@ it("carries the user's own string rules in, so edit: ask stays ask", () => {
     const dir = join(root, 'atts');
     const content = JSON.parse(opencodeAttachmentEnv(env, dir, cwd).OPENCODE_CONFIG_CONTENT!) as { permission: Record<string, Record<string, string>> };
     expect(content.permission.external_directory).toEqual({ '*': 'deny', [`${dir}/**`]: 'allow' });
-    expect(content.permission.edit).toEqual({ 'src/**': 'allow', [`${dir}/**`]: 'deny' });
-    // Only the two rules travel: every other tool keeps the user's own merge.
-    expect(Object.keys(content.permission)).toEqual(['external_directory', 'edit']);
+    // Only the one rule travels: edit and bash keep the user's own merge untouched.
+    expect(Object.keys(content.permission)).toEqual(['external_directory']);
 });
 
 it('injects nothing when the host already sets config content, or a config cannot be read', () => {

@@ -22,8 +22,10 @@ file and the limit.
   overwrite — the second gets `-1` before the extension.
 - `attach-agent-path` a live agent reads the file at the path in the prompt
   (listing the zip, reading the PDF text, printing the txt) with **no
-  permission prompt**: muxr's own attachment folder is pre-allowed read-only
-  (`external_directory` allow, `edit` deny) in the account's OpenCode config
+  permission prompt**: muxr's own attachment folder is pre-allowed
+  (`external_directory` allow — OpenCode's folder grant has no read/write
+  split, and its edit globs match project-relative paths only, so no deny
+  rule for this external folder exists) in the account's OpenCode config
   at launch, or, without an account, as the pane's `OPENCODE_CONFIG_CONTENT`
   carrying the user's own rules (none when the host already sets it or a
   config will not parse — the prompt then stays); other agents already read
