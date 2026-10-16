@@ -105,15 +105,15 @@ removed grants, and web secure-store reset clear it.
 |---|---|---|
 | machine | the host running `herdr server` | `ping`, `session.snapshot` |
 | session | **a pane with an agent in it** | `agent.list`, `pane.list` |
-| session.start | workspace-per-cwd → tab → agent in the selected pane | `workspace.create` / `tab.create` / kit `startAgent` with `place: { pane }` and the pane's cwd (home directory fallback) |
+| session.start | workspace-per-cwd → tab → agent in the selected pane | kit `startAgent` with a workspace label place (`{ workspace: cwd }`; `{ workspace: 'new' }` for a worktree) and the kit's verifying env overlay for plan-account env, or `place: { pane }` when the pane already exists (squad kinds, splits); kit `place` for shells and labelled tabs |
 | session.prompt | submit text to the agent | `agent.prompt` |
-| session.abort | interrupt | `agent.send_keys esc` |
+| session.abort | interrupt | kit `sendKeys` with escape (the kit falls back to `pane.send_keys` for a plain shell route) |
 | session.stop | close the selected live Agent Route through an explicit pane → tab → workspace → worktree-group ladder | host close ladder (`agentClose.ts`) on the kit's `closePane` / `closeTab` / `closeWorkspace`: each refusal names the wider target, which becomes the next confirmation |
 | pane.close | close only the selected pane | `pane.close`; refuse if its tab could not remain |
 | tab.close | close only the selected tab | `tab.close`; refuse if its workspace could not remain |
 | workspace.close | close only the selected workspace | `workspace.close`; refuse if its worktree group would also close |
 | herdr.rename | rename an agent, pane, tab or workspace in Herdr, which owns every name | `agent.rename` / `pane.rename` / `tab.rename` / `workspace.rename`, then refresh the snapshot (Herdr announces no agent or pane rename) |
-| Close worktree group | final explicit scope of `session.stop`, after its own confirmation | call Herdr `workspace.close` with `close_group: true` on the group root (the kit has no confirmed group close); Herdr closes the group atomically |
+| Close worktree group | final explicit scope of `session.stop`, after its own confirmation | kit `closeWorkspace` with `confirmed: { scope: 'worktreeGroup' }` on the group root (its refusal names the repo and member count); the kit closes the group atomically |
 | status | `idle · working · blocked · done · unknown` | `pane.agent_status_changed` |
 | inbox / attention | blocked → needs you, done → finished | derived host-side |
 | live view | terminal frames over a link stream | kit `TerminalSession` (`control` with takeover / `observe` read-only previews) |
