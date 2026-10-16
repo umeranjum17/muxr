@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { Pressable, Text, useWindowDimensions, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { create } from 'zustand';
 import { OptionSheet } from '@/components/OptionSheet';
+import { SheetIcon } from '@/components/SheetIcon';
 import { navigateToSession } from '@/herd';
 import { Modal } from '@/modal';
 import { bestMoveTarget, isLow, runningOn, type PlanAccount } from '../domain/planAccounts';
@@ -74,7 +74,7 @@ export function MoveAccountRow({ sessionId, agentKind, working, onOpen }: {
                 : `Move to another account${current ? `, on ${current.name}` : ''}${current?.roomLeftPercent !== undefined ? `, ${current.roomLeftPercent}% left` : ''}`}
             style={({ pressed }) => [styles.menuRow, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: early ? 0.6 : 1 }]}
         >
-            <Ionicons name="swap-horizontal-outline" size={18} color={theme.colors.textSecondary} />
+            <SheetIcon name="swap-horizontal-outline" size={18} color={theme.colors.textSecondary} />
             <View style={parts.rowCopy}>
                 <Text style={styles.menuText}>Move to another account</Text>
                 {early ? <Text style={styles.menuSub} numberOfLines={1}>Available after the first reply</Text> : current !== undefined && (
@@ -86,7 +86,7 @@ export function MoveAccountRow({ sessionId, agentKind, working, onOpen }: {
                     </Text>
                 )}
             </View>
-            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+            <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
         </Pressable>
     );
 }
