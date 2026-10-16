@@ -632,7 +632,7 @@ describe('session sync flow', () => {
         await vi.waitFor(() => expect(isFirstPromptQueued('spawned')).toBe(false));
     });
 
-    it('returns a failed first prompt, with its attachments, to Home and to the agent composer', async () => {
+    it('returns a failed first prompt to Home, and with its attachments to the agent composer', async () => {
         const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
         const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
         const { useQueuedFirstPrompts } = await import('@/terminal/application/queuedFirstPrompts');
