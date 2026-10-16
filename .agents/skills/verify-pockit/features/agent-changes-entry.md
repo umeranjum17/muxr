@@ -28,13 +28,16 @@ no count.
   its parent from React context).
 - `changes-large-text` at width ÷ font scale under 200 (270 dp or 393 dp at
   font 2.0) the review's scope chips and Lines added / Lines removed / Files
-  wrap onto more lines, and each file row drops its kind icon and shows its
-  `+N / −N` under the path. A file name longer than its row ends in `…`
-  (intended at every size; `pwa-check` and OCR flag it as a lead).
-- `sheet-narrow` Pane actions is never wider than the window less 16 px; under
-  a 252 px window (the installed PWA at font 2.0) its rows drop their icons and
-  chevrons (`SheetIcon`) so labels wrap by word and counts stay inside. At
-  252 px and up it is unchanged.
+  wrap onto more lines, and each file row drops its kind icon and chevron,
+  wraps its name and shows its `+N / −N` under the path (a long one-word name
+  breaks mid-word; the path keeps one line, ellipsized). At normal sizes a
+  name longer than its row ends in `…` as before (`pwa-check` and OCR flag it
+  as a lead).
+- `sheet-narrow` under a 252 px window (`NARROW_SHEET_WINDOW`: the installed
+  PWA at font 2.0) Pane actions fills the window less 16 px, its rows drop their
+  icons and chevrons (`SheetIcon`) so labels wrap by word and counts stay
+  inside, and the talk row wraps its button under the label. At 252 px and up
+  (every native phone) it is pixel-identical to before.
 
 ## How to get to it (user POV)
 
