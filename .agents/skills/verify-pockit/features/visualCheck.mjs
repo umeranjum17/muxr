@@ -175,10 +175,13 @@ const wordSplitLeads = (nodes, words) => {
 // Android ellipsizes at paint time and the dump keeps the whole label, so a
 // tail ellipsis shows only in the pixels: an OCR word inside the node ending in
 // `..` or `…` that the label itself does not hold.
-const paintedEllipsisLeads = (nodes, words) => nodes.filter((n) => n.at.text).flatMap((n) => words
-    .filter((w) => /(\.\.|…)$/.test(w.text) && !n.at.text.includes(w.text)
-        && w.l >= n.box.l - 4 && w.r <= n.box.r + 4 && w.t >= n.box.t - 4 && w.b <= n.box.b + 4)
-    .map((w) => `ellipsis cuts the text: "${n.label}" painted as "${w.text}" ${n.at.bounds}`));
+const paintedEllipsisLeads = (nodes, words) => nodes.filter((n) => n.at.text).flatMap((n) => {
+    const label = n.at.text.replace(/…/g, '...');
+    return words
+        .filter((w) => /(\.\.|…)$/.test(w.text) && !label.includes(w.text.replace(/…/g, '...'))
+            && w.l >= n.box.l - 4 && w.r <= n.box.r + 4 && w.t >= n.box.t - 4 && w.b <= n.box.b + 4)
+        .map((w) => `ellipsis cuts the text: "${n.label}" painted as "${w.text}" ${n.at.bounds}`);
+});
 
 const aspect = ({ l, t, r, b }) => (r - l) / (b - t);
 
@@ -444,6 +447,10 @@ const selfTest = () => {
     const cut = paintedEllipsisLeads(header, ocrWords(cutShot));
     expect('a header painted as "Connect a machi.." (real 270 dp / font 2.0 bounds) is flagged; wrapped to two lines it is clean',
         cut.some((l) => l.startsWith('ellipsis cuts the text: "Connect a machine"')) && paintedEllipsisLeads(header, ocrWords(wrapShot)).length === 0, cut.join(' | '));
+    const reconnect = nodesOf(el('android.widget.TextView', '[80,600][1000,700]', { text: 'Reconnecting…' }));
+    const glyphWords = [{ text: 'Reconnecting...', l: 86, t: 620, r: 860, b: 690 }, { text: 'Reconnecting…', l: 86, t: 620, r: 820, b: 690 }];
+    const glyph = paintedEllipsisLeads(reconnect, glyphWords);
+    expect('a label ending in … with the glyph OCR-read as dots or as … stays clean', glyph.length === 0, glyph.join(' | '));
     expect('black strip on the screen edge is flagged, a uniform background is not', stripped.length === 1 && uniform.length === 0, `strip=${stripped.length} uniform=${uniform.length}`);
     process.exitCode = failed ? 1 : 0;
 };
