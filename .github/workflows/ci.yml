@@ -68,7 +68,12 @@ jobs:
           # Through env, never inline: a branch name is attacker-controlled.
           CLAIM_ID: ${{ github.head_ref || github.ref_name }}
         run: |
-          npx -y done-done-axi@0.3.0 run fast
+          # The journey writes its output to the evidence log, so a red run
+          # prints that log here before failing.
+          npx -y done-done-axi@0.3.0 run fast || {
+            tail -n 200 ~/.done-done/evidence/pockit/*/*.log >&2 2>/dev/null || true
+            exit 1
+          }
           # Bootstrap: this config is new in this PR, so origin/main has no
           # .done-done.yaml to trust yet; check against the working-tree
           # config until it lands, then --trusted-ref applies again.
