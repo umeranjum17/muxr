@@ -18,6 +18,7 @@ import { createAgentWatchStores } from '../application/watchStores.js';
 import { startHost } from '../../host.js';
 import { LinkEndpoint, type MachineCryptoState } from '../../machine/index.js';
 import { createHerdrSessionSource, boundedWorkspaceTokens } from './herdrSessionSource.js';
+import { QUOTA_RETRY_REASON } from '../domain/quotaRetry.js';
 
 /**
  * The slice of herdr a phone launch touches. `agent.start` answers the way
@@ -515,6 +516,67 @@ describe('phone launch before herdr detects the agent', () => {
             rmSync(dir, { recursive: true, force: true });
         }
     }, 20_000);
+
+    it('reads a quota retry loop as needing attention instead of idle, and releases it when the loop ends', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-quota-'));
+        const herdr = fakeHerdr(dir, dir);
+        const domain = createAgentWatchStores({ dataDir: join(dir, 'host') });
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath, dataDir: join(dir, 'host'),
+            artifactsDir: join(dir, 'artifacts'), hostHttpPort: 0,
+            machineName: 'Umer', attention: domain.attention, lifecycle: domain.lifecycle,
+        });
+        try {
+            const started = await source.start({ cwd: dir, kind: 'pi' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            const sessionId = started.info.id;
+            // Herdr detects the agent and settles it to idle while its pane
+            // keeps looping on plan/quota retries.
+            Object.assign(herdr.agents.find((agent) => agent.pane_id === 'w1:p1')!, {
+                agent: 'pi', name: 'quota-pi', agent_status: 'idle', interactive_ready: true,
+                agent_session: { source: 'herdr', agent: 'pi', kind: 'id', value: 'quota-pi' },
+            });
+            herdr.state.paneText = [
+                'quota exceeded for plan Work - retrying in 60s (attempt 1)',
+                'quota exceeded for plan Work - retrying in 60s (attempt 2)',
+            ].join('\n');
+            // Adopt the published agent first, then report the loop: the probe
+            // runs from the session's own state emission.
+            await source.refreshHerdr();
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p1' });
+            await source.refreshHerdr();
+            await vi.waitFor(async () => {
+                expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId, agentStatus: 'blocked' });
+            }, { timeout: 15_000 });
+            expect((await source.status(sessionId)).agentStatus).toBe('blocked');
+            await vi.waitFor(() => {
+                expect(domain.attention.catalog().entries).toContainEqual(
+                    expect.objectContaining({ sessionId, reason: 'waiting', detail: QUOTA_RETRY_REASON }),
+                );
+            }, { timeout: 15_000 });
+            expect(QUOTA_RETRY_REASON).not.toMatch(/pp_|429|ERR_|herdr/i);
+            expect(domain.lifecycle.latestFor(sessionId)?.state).toBe('blocked');
+
+            // The loop ends: output without the retry pattern releases the
+            // hold on its own, past one probe window.
+            herdr.state.paneText = 'done: all tasks complete\n';
+            const probed = Date.now();
+            vi.spyOn(Date, 'now').mockImplementation(() => probed + 21_000);
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p1' });
+            await source.refreshHerdr();
+            vi.restoreAllMocks();
+            await vi.waitFor(async () => {
+                expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId, agentStatus: 'idle' });
+            }, { timeout: 15_000 });
+            expect(domain.attention.catalog().entries.map((entry) => entry.sessionId)).not.toContain(sessionId);
+        } finally {
+            vi.restoreAllMocks();
+            await source.dispose();
+            await domain.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 60_000);
 });
 
 describe('new panes share the host desktop', () => {
