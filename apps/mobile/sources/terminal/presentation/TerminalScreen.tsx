@@ -37,7 +37,7 @@ import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { AgentPager } from './AgentPager';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { SheetIcon } from '@/components/SheetIcon';
+import { NARROW_SHEET_WINDOW, SheetIcon } from '@/components/SheetIcon';
 import { agentBesideName, agentLabels, agentStatusColor, agentWhoLine, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, renameInHerdr, renamePane, resolveTabPane, showTabActions, tabLabel, useNavigateToSession } from '@/herd';
 import {
     terminalComposerText,
@@ -2019,12 +2019,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close pane actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
                             <AnimatedPopup style={{
                                 flexShrink: 1,
-                                // Never wider than the window (an installed PWA at the largest
-                                // text is 135 px); there the rows drop their icons (SheetIcon).
-                                minWidth: Math.min(236, windowWidth - 16),
-                                maxWidth: Math.min(320, windowWidth - 16),
+                                // Never wider than a narrow window (an installed PWA at the
+                                // largest text is 135 px); there the rows drop their icons (SheetIcon).
+                                ...(windowWidth < NARROW_SHEET_WINDOW
+                                    ? { minWidth: windowWidth - 16, maxWidth: windowWidth - 16, marginLeft: 8 }
+                                    : { minWidth: 236, maxWidth: 320, marginLeft: 16 }),
                                 marginRight: 8,
-                                marginLeft: 8,
                                 marginTop: headerBottom + 8,
                                 marginBottom: (keyboardVisible ? keyboardHeight : insets.bottom) + 8,
                                 borderRadius: 14,

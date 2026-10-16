@@ -27,8 +27,8 @@ export default function ChangesScreen() {
     const { id: sessionId } = useLocalSearchParams<{ id: string }>();
     const session = useSession(sessionId);
     const { theme } = useUnistyles();
-    // Large text on a narrow phone: the counts go under the path and the kind icon
-    // gives way, so the file name keeps the row.
+    // Large text on a narrow phone: the kind icon and chevron give way and the
+    // name and counts wrap, so a file name stays readable inside the screen.
     const compact = useCompactWindow();
     const [scope, setScope] = React.useState<ChangesScope>('working');
     const [root, setRoot] = React.useState<string | undefined>(undefined);
@@ -114,7 +114,7 @@ export default function ChangesScreen() {
         <>
             <Stack.Screen options={{ title: browse?.title ?? 'Changes' }} />
             <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-                <View style={styles.scopeRow}>
+                <View style={[styles.scopeRow, compact && styles.wrap]}>
                     {scopeButton('working', 'Working')}
                     {scopeButton('staged', 'Staged')}
                     {scopeButton('branch', 'Branch')}
@@ -132,7 +132,7 @@ export default function ChangesScreen() {
                 {browse !== undefined && error === undefined && (
                     <>
                         {browse.summary.length > 0 && (
-                            <View style={styles.summaryRow}>
+                            <View style={[styles.summaryRow, compact && styles.wrap]}>
                                 {browse.summary.map((entry) => (
                                     <View key={entry.label} style={styles.summaryCell}>
                                         <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{entry.label}</Text>
@@ -175,7 +175,7 @@ export default function ChangesScreen() {
                                     title={file.title}
                                     subtitle={file.path}
                                     subtitleLines={1}
-                                    {...(compact ? { meta: fileCounts(file) } : {
+                                    {...(compact ? { meta: fileCounts(file), metaLines: 0, titleLines: 0, subtitleEllipsizeMode: 'middle' as const, showChevron: false } : {
                                         icon: <Ionicons
                                             name={file.kind === 'untracked' ? 'add-circle-outline' : 'git-compare-outline'}
                                             size={18}
@@ -222,11 +222,12 @@ const styles = StyleSheet.create((theme) => ({
     screen: { flex: 1, backgroundColor: theme.colors.groupped.background },
     content: { paddingBottom: 32 },
     scopeRow: {
-        flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6,
+        flexDirection: 'row', alignItems: 'center', gap: 6,
         paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4,
     },
     scopeButton: { borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6, marginRight: 2 },
-    summaryRow: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 8, columnGap: 18, paddingHorizontal: 16, paddingVertical: 10 },
+    summaryRow: { flexDirection: 'row', gap: 18, paddingHorizontal: 16, paddingVertical: 10 },
+    wrap: { flexWrap: 'wrap', rowGap: 8 },
     summaryCell: { gap: 2 },
     pageRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18, paddingVertical: 12 },
     pageButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHigh },
