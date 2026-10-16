@@ -233,7 +233,7 @@ harness, not the product). Write spaces as `%s`
 (`adb shell input text 'Reply%swith%sexactly:%sx'`), or type longer text with
 `scripts/diagnostics/application/checkFocusedSecretTyping.mjs --serial <s>
 --text 'Reply with exactly: x'` (one char per call with a readback). Over the
-PWA, type through the real keyboard path (chrome-devtools-axi keys), never a
+PWA, type through real key events (`chrome-devtools-axi type`), never a
 dom-value paste. Never compensate in product code: a literal `%20` a person
 types must reach the agent verbatim, so no surface may decode prompt text.
 
