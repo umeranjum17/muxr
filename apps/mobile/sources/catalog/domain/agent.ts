@@ -136,6 +136,7 @@ export function mergeCatalogAgent(
         // Drafts are device-local; a catalog refresh must not replace one
         // while a pane is temporarily away on a history screen.
         ...(previous?.draft === undefined ? {} : { draft: previous.draft }),
+        ...(previous?.draftAttachments === undefined ? {} : { draftAttachments: previous.draftAttachments }),
         // The host omits `created`; the first value this device saw is the creation time.
         ...(previous === undefined ? {} : { createdAt: previous.createdAt }),
         metadata,

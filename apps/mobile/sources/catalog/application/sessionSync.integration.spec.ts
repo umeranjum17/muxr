@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as React from 'react';
 import TestRenderer from 'react-test-renderer';
 import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent, SessionEvent, SessionInfo, SessionStatus } from '@trymuxr/contract';
-import type { Session } from '../domain/sessionTypes';
+import type { DraftAttachment, Session } from '../domain/sessionTypes';
 import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
 import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, nativeLifecycleNotificationState, sortHerd } from '@/herd/model';
@@ -1372,6 +1372,40 @@ describe('session sync flow', () => {
         await TestRenderer.act(async () => screen?.unmount());
         expect(storage.getState().sessions.agent?.draft).toBe('half a thought');
         unsubscribe();
+
+        // Chips leave and come back with the text: a saved one ready, one a
+        // failed first prompt handed back still to upload. Sending clears both.
+        let attach: (next: DraftAttachment[]) => void = () => undefined;
+        let shown: readonly DraftAttachment[] = [];
+        function AttachingComposer() {
+            const [draft, setDraft] = React.useState('');
+            const [chips, setChips] = React.useState<readonly DraftAttachment[]>([]);
+            const restore = React.useCallback((stored: readonly DraftAttachment[]) => setChips((current) => [...current, ...stored]), []);
+            const { clearDraft } = useDraft('agent', draft, setDraft, { attachments: chips, onRestoreAttachments: restore });
+            attach = setChips;
+            shown = chips;
+            send = () => { setDraft(''); setChips([]); clearDraft(); };
+            return null;
+        }
+        const chip = { id: 'shot', uri: 'file:///shot.png', name: 'shot.png', mimeType: 'image/png', size: 9, path: '/host/shot.png' };
+        const unsaved = { id: 'note', uri: 'file:///note.txt', name: 'note.txt', mimeType: 'text/plain', size: 4 };
+        await TestRenderer.act(async () => { screen = TestRenderer.create(React.createElement(AttachingComposer)); });
+        expect(shown).toEqual([]);
+        await TestRenderer.act(async () => attach([chip, unsaved]));
+        // A catalog refresh mid-draft keeps the chips with it: the merge holds
+        // device-local draft state out of the host's reach, chips included.
+        await TestRenderer.act(async () => storage.getState().applySessions([sessionInfoToSession({
+            id: 'agent', cwd: '/work', messageCount: 0, firstMessage: '', agentName: 'Maria', agentStatus: 'idle', promptable: true,
+        })]));
+        expect(storage.getState().sessions.agent?.draftAttachments).toEqual([chip, unsaved]);
+        await TestRenderer.act(async () => screen?.unmount());
+        await TestRenderer.act(async () => { screen = TestRenderer.create(React.createElement(AttachingComposer)); });
+        expect(shown).toEqual([chip, unsaved]);
+        await TestRenderer.act(async () => send());
+        await TestRenderer.act(async () => screen?.unmount());
+        await TestRenderer.act(async () => { screen = TestRenderer.create(React.createElement(AttachingComposer)); });
+        expect(shown).toEqual([]);
+        await TestRenderer.act(async () => screen?.unmount());
     });
 
     it('draws the last Home the host confirmed, stale, until the host answers', async () => {

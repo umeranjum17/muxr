@@ -20,7 +20,7 @@ const shell = async (cwd, extra = {}) => {
 const tree = async () => { await source.refreshHerdr(); return (await source.herdrTree()).workspaces; };
 const workspaceOf = async (info) => (await tree()).find((w) => w.tabs.some((t) => t.panes.some((p) => p.sessionId === info.id)));
 const paneIds = async () => (await tree()).flatMap((w) => w.tabs.flatMap((t) => t.panes.map((p) => p.paneId)));
-// muxr's start makes its own tab beside the new workspace's root tab; close the root one so the shell is the last tab.
+// Close any other tab in the shell's workspace so the shell is the last tab.
 const closeOtherTabs = async (info) => {
     const w = await workspaceOf(info);
     for (const tab of w.tabs) if (!tab.panes.some((p) => p.sessionId === info.id)) await source.closeTab(info.id, tab.tabId);
@@ -35,7 +35,9 @@ try {
     say('pane close', splitResult);
     check(splitResult.status === 'closed' && !(await paneIds()).includes(split.paneId), 'split pane closes alone');
 
-    // 2. Tab: the last pane of a tab asks first, then closes the tab.
+    // 2. Tab: the last pane of a tab asks first, then closes the tab. A second
+    // shell in the folder gives the workspace another tab, so `a`'s is not its last.
+    await shell(join(dir, 'pane'));
     const tabAsk = await source.stop(a.id, {});
     say('tab ask', tabAsk);
     check(tabAsk.status === 'confirmationRequired' && tabAsk.scope === 'tab', 'last pane in its tab asks for the tab');
@@ -49,7 +51,8 @@ try {
     const cWorkspace = (await workspaceOf(c)).workspaceId;
     const workspaceAsk = await source.stop(c.id, { confirmedScope: 'tab' });
     say('workspace ask', workspaceAsk);
-    check(workspaceAsk.status === 'confirmationRequired' && workspaceAsk.scope === 'workspace', 'last tab asks for the workspace');
+    check(workspaceAsk.status === 'confirmationRequired' && workspaceAsk.scope === 'workspace' && workspaceAsk.label === 'workspace',
+        'last tab asks for the workspace by its folder name');
     const workspaceClosed = await source.stop(c.id, { confirmedScope: 'workspace' });
     say('workspace close', workspaceClosed);
     check(workspaceClosed.status === 'closed' && !(await tree()).some((w) => w.workspaceId === cWorkspace), 'confirmed workspace close closes it');

@@ -28,7 +28,7 @@ import * as Clipboard from 'expo-clipboard';
 import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionError, useSessionGitStatus, useSessions, useSocketStatus } from '@/catalog/store';
 import { sessionStop } from '@/catalog/ops';
 import { registerArtifactUpdateHandler, sync } from '@/catalog/sync';
-import { resolveMessageModeMeta } from '@/catalog';
+import { resolveMessageModeMeta, type DraftAttachment } from '@/catalog';
 import { recordAgentGate, recordTrackedRpc } from '@/catalog/diagnostics';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
 import { ComputersSheet, PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
@@ -307,7 +307,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // channel that reconnect() would use does not exist yet.
     const [attempt, setAttempt] = React.useState(0);
     const [draft, setDraft] = React.useState('');
-    const { clearDraft } = useDraft(props.id, draft, setDraft);
     const [attaching, setAttaching] = React.useState(false);
     const [stopping, setStopping] = React.useState(false);
     // Latching modifiers apply to one toolbar key or typed character, then clear.
@@ -451,10 +450,22 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     insertDraftRef.current = insertDraft;
 
     const { attachments: pendingAttachments, pickImages, pickFiles, clearAttachments, addAttachments } = useAttachmentPicker();
+    // Every chip the composer shows: saved ones, then those still uploading.
+    const composerAttachments = React.useMemo(() => [
+        ...attachedImages,
+        ...pendingAttachments.filter((attachment) => !attachedImages.some((attached) => attached.id === attachment.id)),
+    ], [attachedImages, pendingAttachments]);
+    // Files the host already saved come back ready; the rest upload again from here.
+    const restoreAttachments = React.useCallback((attachments: readonly DraftAttachment[]) => {
+        const saved = attachments.filter((attachment) => attachment.path !== undefined);
+        if (saved.length > 0) setAttachedImages((current) => [...current, ...saved]);
+        const unsaved = attachments.filter((attachment) => attachment.path === undefined);
+        if (unsaved.length > 0) addAttachments(unsaved.map((attachment) => ({ ...attachment, size: attachment.size ?? 0 })));
+    }, [addAttachments]);
+    const { clearDraft } = useDraft(props.id, draft, setDraft, { attachments: composerAttachments, onRestoreAttachments: restoreAttachments });
 
     // A prompt sent from Home before this agent could take it: queued until the
-    // host delivers it, and back in this composer if it never arrives. Files the
-    // host already saved come back ready; the rest upload again from here.
+    // host delivers it, and back in this composer if it never arrives.
     const queuedPrompt = useQueuedFirstPrompts((queued) => queued[props.id]);
     const firstPromptQueued = isQueuedFirstPrompt(queuedPrompt);
     React.useEffect(() => {
@@ -463,12 +474,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         const next = appendToDraft(draftRef.current, queuedPrompt.text);
         draftRef.current = next;
         setDraft(next);
-        const attachments = queuedPrompt.attachments ?? [];
-        const saved = attachments.filter((attachment) => attachment.path !== undefined);
-        if (saved.length > 0) setAttachedImages((current) => [...current, ...saved]);
-        const unsaved = attachments.filter((attachment) => attachment.path === undefined);
-        if (unsaved.length > 0) addAttachments(unsaved);
-    }, [queuedPrompt, props.id, addAttachments]);
+        restoreAttachments(queuedPrompt.attachments ?? []);
+    }, [queuedPrompt, props.id, restoreAttachments]);
 
     /**
      * On a pane whose scrollback Herdr owns, Latest shows while Herdr reports
@@ -1864,7 +1871,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         {showKeyRow && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction} />}
 
                     <ComposerAttachments
-                        images={[...attachedImages, ...pendingAttachments.filter((attachment) => !attachedImages.some((attached) => attached.id === attachment.id))]}
+                        images={composerAttachments}
                         onRemove={(id) => setAttachedImages((previous) => previous.filter((image) => image.id !== id))}
                     />
 
