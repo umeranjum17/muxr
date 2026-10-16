@@ -26,6 +26,15 @@ no count.
   the screen opened from it drew a dark body under a light header in light
   mode (fixed in `patches/react-native-unistyles+3.1.1.patch`: a scope reads
   its parent from React context).
+- `changes-large-text` at width ÷ font scale under 200 (270 dp or 393 dp at
+  font 2.0) the review's scope chips and Lines added / Lines removed / Files
+  wrap onto more lines, and each file row drops its kind icon and shows its
+  `+N / −N` under the path. A file name longer than its row ends in `…`
+  (intended at every size; `pwa-check` and OCR flag it as a lead).
+- `sheet-narrow` Pane actions is never wider than the window less 16 px; under
+  a 252 px window (the installed PWA at font 2.0) its rows drop their icons and
+  chevrons (`SheetIcon`) so labels wrap by word and counts stay inside. At
+  252 px and up it is unchanged.
 
 ## How to get to it (user POV)
 
@@ -70,6 +79,14 @@ Preconditions:
    find the Unistyles module (`__r(i)` exporting `UnistylesShadowRegistry`)
    and read `UnistylesShadowRegistry.getScopedTheme()`: outside every scope it
    is `undefined`; the defect reads `dark`.
+7. Large text: give the repo a change with a long name (e.g.
+   `billing/monthly_statement_reconciliation_report.py`) and capture the
+   review (tap the pill) and Pane actions (with `-scrolled`) in the full
+   native + PWA matrix. At 270/2.0 every scope chip, summary label and count is
+   on screen, and the PWA sheet sits inside the 135 px viewport. On native,
+   `muxr://session/<session id>` (e.g. `shell:w1:p1`) opens the pane for each
+   cell; on the PWA, set `location.href` to `/session/<id>` and tap the pill
+   (a reload straight onto `/changes` lands on the agent screen).
 
 ## Gotchas
 
@@ -83,5 +100,8 @@ Preconditions:
   pane (`printf '\033]0;calc\007'`) so shots carry no scratch path.
 - `pwa-check` flags the terminal canvas (`text over text: ""`) and every
   control under the open menu sheet (`covered control`) on main as well;
-  compare against main's cell before calling a lead new. At font 2.0 the Pane
-  actions sheet runs off the left edge on main too.
+  compare against main's cell before calling a lead new. Native Pane actions
+  also reports `overlap … "Terminal surface"` for every row: the sheet floats
+  over the terminal by design.
+- Name the lab pane (`herdr pane rename w1:p1 calc`), or the shell's title
+  puts the scratch path in the header.
