@@ -72,6 +72,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   the tapped password field stays above the keyboard and takes typed text.
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
+- [Follow a Herdr agent's status live](./herdr-live-status.md) —
+  host session source on a guarded lab Herdr: tree follows new panes, status
+  working/blocked/idle lands, socket count 1 → 2 → 1; no baseline needed.
 
 - [Read the desktop receiver's decoder and frame rate (developer probe)](./desktop-decoder-probe.md) —
   developer-mode-only machine row and `/debug/decode` route: absent until ten
