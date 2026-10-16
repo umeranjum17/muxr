@@ -1,5 +1,6 @@
 # written by learn-from-mistakes-axi init
 name: "pockit"
+# retro-skill survey: origin/main had no in-repo retro skill (only the verify-muxr verification skill); nothing converted, that intent step skipped.
 # The agent keys come from $LFM_HOME/config.yaml (default ~/.learn-from-mistakes/config.yaml); set one here to
 # override it for this project. The tool never picks an agent: set agent and judge_agent, each with its model.
 # agent: claude   # or codex, opencode, pi, acp:<target>, byokit:<route>

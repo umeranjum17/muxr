@@ -68,20 +68,23 @@ jobs:
           # Through env, never inline: a branch name is attacker-controlled.
           CLAIM_ID: ${{ github.head_ref || github.ref_name }}
         run: |
+          # The fast journey must be origin/main's definition, not one this PR
+          # can redefine: `run` executes the working-tree command and `check`
+          # never re-derives it. Bootstrap (origin/main without .done-done.yaml)
+          # has no trusted config to compare and runs; otherwise the config must
+          # byte-match origin/main, and --trusted-ref still guards `check`.
+          if git cat-file -e "origin/main:.done-done.yaml" 2>/dev/null; then
+            git diff --quiet origin/main -- .done-done.yaml || exit 1
+            TRUSTED_REF_ARGS=(--trusted-ref origin/main)
+          else
+            TRUSTED_REF_ARGS=()
+          fi
           # The journey writes its output to the evidence log, so a red run
           # prints that log here before failing.
           npx -y done-done-axi@0.3.0 run fast || {
             tail -n 200 ~/.done-done/evidence/pockit/*/*.log >&2 2>/dev/null || true
             exit 1
           }
-          # Bootstrap: this config is new in this PR, so origin/main has no
-          # .done-done.yaml to trust yet; check against the working-tree
-          # config until it lands, then --trusted-ref applies again.
-          if git cat-file -e "origin/main:.done-done.yaml" 2>/dev/null; then
-            TRUSTED_REF_ARGS=(--trusted-ref origin/main)
-          else
-            TRUSTED_REF_ARGS=()
-          fi
           npx -y done-done-axi@0.3.0 check --outcome "the pull-request fast lane passes on this commit" ~/.done-done/evidence/pockit/*/*.log --claim-id "$CLAIM_ID" "${TRUSTED_REF_ARGS[@]}"
 
   suite:
