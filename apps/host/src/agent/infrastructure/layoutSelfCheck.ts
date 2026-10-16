@@ -16,6 +16,7 @@ import { closeAgent, isRetryableHerdr } from './agentClose.js';
 import { RealtimeCodingCoordinator, type RealtimeCoordinationDiagnostic } from './realtimeCoordinator.js';
 import { herdrAgentIsPromptable, isRetryableCloseFailure, mergeHerdrAgentEvent, resolveClosePaneId } from './herdrSessionSource.js';
 import { HerdrKit } from '@byokit/herdr';
+import type { CloseScope } from '@trymuxr/contract';
 import { createConnection } from 'node:net';
 import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -379,7 +380,6 @@ async function demo(): Promise<void> {
     }), 'sanitized socket permission, reset, and timeout codes stay retryable at the host boundary');
     type ClosePhase = 'split' | 'two-tabs' | 'last-tab' | 'group' | 'herdr-group' | 'revalidation-outage' | 'empty' | 'outage';
     let closePhase: ClosePhase = 'split';
-    let revalidationSnapshots = 0;
     const hostCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const snapshots: Record<Exclude<ClosePhase, 'outage' | 'revalidation-outage'>, Record<string, unknown>> = {
         split: {
@@ -422,28 +422,50 @@ async function demo(): Promise<void> {
         hostCalls.push({ method, params });
         if (closePhase === 'outage') throw new Error('herdr: session.snapshot: connect ECONNREFUSED');
         if (method === 'session.snapshot') {
-            if (closePhase === 'revalidation-outage') {
-                revalidationSnapshots += 1;
-                if (revalidationSnapshots > 1) throw new Error('herdr: session.snapshot: connect ECONNREFUSED');
-                return { snapshot: snapshots['herdr-group'] };
-            }
-            return { snapshot: snapshots[closePhase] };
+            // The ladder reads the tree only to revalidate the refusal, and that read is down.
+            if (closePhase === 'revalidation-outage') throw new Error('herdr: session.snapshot: connect ECONNREFUSED');
+            return { snapshot: { agents: [], ...snapshots[closePhase] } };
         }
         if (method === 'tab.close' && (closePhase === 'herdr-group' || closePhase === 'revalidation-outage')) {
             throw new Error('herdr: confirmation_required: closing this tab would close a worktree group');
         }
         if (method === 'pane.close' || method === 'tab.close' || method === 'workspace.close') return {};
+        // The kit's closes read the named target's live counts before they close.
+        const live = closePhase === 'revalidation-outage' ? snapshots['herdr-group'] : snapshots[closePhase];
+        const byId = (rows: unknown, key: string, id: unknown) => (rows as Array<Record<string, unknown>>).find((row) => row[key] === id);
+        if (method === 'pane.get') {
+            const pane = byId(live.panes, 'pane_id', params.pane_id);
+            if (pane === undefined) throw new Error('herdr: pane_not_found: pane not found');
+            return { pane };
+        }
+        if (method === 'tab.get') return { tab: byId(live.tabs, 'tab_id', params.tab_id) };
+        if (method === 'workspace.get') return { workspace: byId(live.workspaces, 'workspace_id', params.workspace_id) };
+        if (method === 'workspace.list') return { workspaces: live.workspaces };
+        if (method === 'ping') return { protocol: 22 };
         throw new Error(`unexpected ${method}`);
     };
+    const closeKit = new HerdrKit({
+        mode: 'adopt',
+        bin: 'herdr',
+        socketPath: 'self-check.sock',
+        transport: { ...explicitCloseTransport, call: hostCall },
+    });
+    await closeKit.start();
+    const ladder = (paneId: string, confirmedScope?: CloseScope) => closeAgent({
+        paneId,
+        ...(confirmedScope === undefined ? {} : { confirmedScope }),
+        kit: closeKit,
+        call: hostCall,
+    });
 
     closePhase = 'split';
-    const paneClosed = await closeAgent({ paneId: 'w1:p1', call: hostCall });
+    const paneClosed = await ladder('w1:p1');
     assert(paneClosed.status === 'closed' && hostCalls.some((call) => call.method === 'pane.close'),
         'unconfirmed split-pane close issues exact pane.close');
 
     closePhase = 'two-tabs';
     const beforeTabAsk = hostCalls.length;
-    const tabAsk = await closeAgent({ paneId: 'w1:p1', call: hostCall });
+    const tabAsk = await ladder('w1:p1');
     assert(tabAsk.status === 'confirmationRequired' && tabAsk.scope === 'tab' && tabAsk.label === 'Review'
         && !hostCalls.slice(beforeTabAsk).some((call) => call.method.endsWith('.close')),
         'last pane in a multi-tab workspace asks for tab confirmation without mutation');
@@ -452,46 +474,47 @@ async function demo(): Promise<void> {
 
     closePhase = 'last-tab';
     const beforeWorkspaceAsk = hostCalls.length;
-    const workspaceAsk = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: hostCall });
+    const workspaceAsk = await ladder('w1:p1', 'tab');
     assert(workspaceAsk.status === 'confirmationRequired' && workspaceAsk.scope === 'workspace' && workspaceAsk.label === 'App'
         && !hostCalls.slice(beforeWorkspaceAsk).some((call) => call.method === 'tab.close'),
         'confirmed tab after topology change to a last tab returns the newly required workspace scope');
 
     closePhase = 'group';
     const beforeGroupAsk = hostCalls.length;
-    const groupAsk = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'workspace', call: hostCall });
+    const groupAsk = await ladder('w1:p1', 'workspace');
     assert(groupAsk.status === 'confirmationRequired' && groupAsk.scope === 'worktreeGroup' && groupAsk.label === 'repo'
         && !hostCalls.slice(beforeGroupAsk).some((call) => call.method === 'workspace.close'),
         'confirmed workspace on a parent worktree group asks for worktreeGroup without mutation');
 
-    const groupClosed = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'worktreeGroup', call: hostCall });
+    const groupClosed = await ladder('w1:p1', 'worktreeGroup');
     assert(groupClosed.status === 'closed'
-        && hostCalls.some((call) => call.method === 'workspace.close' && call.params.workspace_id === 'w1'),
-        'confirmed worktreeGroup invokes exact workspace.close');
+        && hostCalls.some((call) => call.method === 'workspace.close' && call.params.workspace_id === 'w1' && call.params.close_group === true),
+        'confirmed worktreeGroup invokes workspace.close with close_group');
 
     closePhase = 'herdr-group';
-    const herdrGroup = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: hostCall });
+    const herdrGroup = await ladder('w1:p1', 'tab');
     assert(herdrGroup.status === 'confirmationRequired' && herdrGroup.scope === 'workspace',
         'a raced Herdr tab no-widen response asks for the exact next workspace scope');
-    const beyondConfirmed = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'workspace', call: hostCall });
+    const beyondConfirmed = await ladder('w1:p1', 'workspace');
     assert(beyondConfirmed.status === 'confirmationRequired' && beyondConfirmed.scope === 'worktreeGroup',
         'a Herdr refusal asks strictly beyond both the attempted tab and confirmed workspace');
 
     closePhase = 'revalidation-outage';
-    revalidationSnapshots = 0;
-    const revalidationDown = await closeAgent({ paneId: 'w1:p1', confirmedScope: 'tab', call: hostCall });
+    const revalidationDown = await ladder('w1:p1', 'tab');
     assert(revalidationDown.status === 'retryable',
         'temporary outage while revalidating a Herdr refusal never reports the pane already gone');
 
     closePhase = 'empty';
-    const gone = await closeAgent({ paneId: 'w1:p1', call: hostCall });
+    const gone = await ladder('w1:p1');
     assert(gone.status === 'closed' && gone.alreadyGone === true
         && !hostCalls.slice(-2).some((call) => call.method.endsWith('.close')),
         'already missing pane maps to closed alreadyGone');
 
     closePhase = 'outage';
-    const down = await closeAgent({ paneId: 'w1:p1', call: hostCall });
+    const down = await ladder('w1:p1');
     assert(down.status === 'retryable', 'temporary Herdr socket failure is retryable');
+    closePhase = 'split';
+    await closeKit.stop();
 
     const socketDir = mkdtempSync(join(tmpdir(), 'pph-coord-check-'));
     const socketPath = join(socketDir, 'realtime-coding.sock');

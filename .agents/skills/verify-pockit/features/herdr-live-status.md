@@ -13,6 +13,9 @@ the host opening sockets of its own.
   (the kit's status watch), and drops it when the pane closes.
 - Applying a saved layout starts each recorded agent through the kit's
   `startAgent`, and that agent comes up in the new tab.
+- Closing an agent climbs pane → tab → workspace → worktree group on the kit's
+  `closePane`/`closeTab`/`closeWorkspace` refusals, asking before each wider
+  close; a confirmed group close is Herdr's own `close_group` close.
 
 ## How to get to it (user POV)
 
@@ -39,7 +42,12 @@ Preconditions: a built host (`yarn build`) and the guarded lab helper
    It applies a split whose first pane records `pi` and must print
    `PASS layoutApply started pi via the kit` (a real pi; the lab helper gives it a
    disposable home).
-6. SIGTERM the status probe (it disposes the source), then teardown; teardown
+6. Close ladder: `node .agents/skills/verify-pockit/features/herdrCloseLab.mjs <socket> <scratch>/close`
+   (shells only; it makes its own git repo and linked worktree). It must print a
+   `PASS` line for the split pane, the tab ask and close, the workspace ask and
+   close, and the group ask ("Closing repo will close 2 workspaces in this
+   worktree group.") and close, then `PASS herdrCloseLab`.
+7. SIGTERM the status probe (it disposes the source), then teardown; teardown
    must exit 0.
 
 ## Gotchas

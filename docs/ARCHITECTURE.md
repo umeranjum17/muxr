@@ -108,12 +108,12 @@ removed grants, and web secure-store reset clear it.
 | session.start | workspace-per-cwd → tab → agent in the selected pane | `workspace.create` / `tab.create` / kit `startAgent` with `place: { pane }` and the pane's cwd (home directory fallback) |
 | session.prompt | submit text to the agent | `agent.prompt` |
 | session.abort | interrupt | `agent.send_keys esc` |
-| session.stop | close the selected live Agent Route through an explicit pane → tab → workspace → worktree-group ladder | host close ladder (`agentClose.ts`) on the live Herdr socket; live revalidation and confirmation for every broader scope |
+| session.stop | close the selected live Agent Route through an explicit pane → tab → workspace → worktree-group ladder | host close ladder (`agentClose.ts`) on the kit's `closePane` / `closeTab` / `closeWorkspace`: each refusal names the wider target, which becomes the next confirmation |
 | pane.close | close only the selected pane | `pane.close`; refuse if its tab could not remain |
 | tab.close | close only the selected tab | `tab.close`; refuse if its workspace could not remain |
 | workspace.close | close only the selected workspace | `workspace.close`; refuse if its worktree group would also close |
 | herdr.rename | rename an agent, pane, tab or workspace in Herdr, which owns every name | `agent.rename` / `pane.rename` / `tab.rename` / `workspace.rename`, then refresh the snapshot (Herdr announces no agent or pane rename) |
-| Close worktree group | final explicit scope of `session.stop`, after its own confirmation | revalidate the parent workspace, then call Herdr `workspace.close`; Herdr has no separate group-close method |
+| Close worktree group | final explicit scope of `session.stop`, after its own confirmation | call Herdr `workspace.close` with `close_group: true` on the group root (the kit has no confirmed group close); Herdr closes the group atomically |
 | status | `idle · working · blocked · done · unknown` | `pane.agent_status_changed` |
 | inbox / attention | blocked → needs you, done → finished | derived host-side |
 | live view | terminal frames over a link stream | kit `TerminalSession` (`control` with takeover / `observe` read-only previews) |
