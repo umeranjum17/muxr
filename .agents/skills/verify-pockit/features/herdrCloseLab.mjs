@@ -35,7 +35,9 @@ try {
     say('pane close', splitResult);
     check(splitResult.status === 'closed' && !(await paneIds()).includes(split.paneId), 'split pane closes alone');
 
-    // 2. Tab: the last pane of a tab asks first, then closes the tab.
+    // 2. Tab: the last pane of a tab asks first, then closes the tab. A second
+    // shell in the folder gives the workspace another tab, so `a`'s is not its last.
+    await shell(join(dir, 'pane'));
     const tabAsk = await source.stop(a.id, {});
     say('tab ask', tabAsk);
     check(tabAsk.status === 'confirmationRequired' && tabAsk.scope === 'tab', 'last pane in its tab asks for the tab');
