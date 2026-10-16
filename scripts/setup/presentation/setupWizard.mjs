@@ -1,4 +1,3 @@
-import { tailscaleState } from '@byokit/reach';
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { homedir, networkInterfaces, userInfo } from 'node:os';
@@ -14,7 +13,7 @@ import { enrollMachine } from '../application/enrollMachine.mjs';
 import { listMachines } from '../application/listMachines.mjs';
 import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
-import { inspectTailscaleServeRoot, readSelfhostState, reachTailscaleOptions, selfhostPath, tailscaleBin } from '../infrastructure/selfhost.mjs';
+import { classifyNetworkRoutes, inspectTailscaleServeRoot, probeTailscale, readSelfhostState, selfhostPath, TAILSCALE_INSTALL_URL, tailscaleBin, tailscaleMissing } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting, parseEnrollment } from '../domain/dist/index.js';
 import { env, relayPortFromEnv } from '../infrastructure/runtime.mjs';
 
@@ -55,35 +54,6 @@ function value(args, name) {
     if (inline !== undefined) return inline.slice(name.length + 1);
     const index = args.indexOf(name);
     return index >= 0 ? args[index + 1] : undefined;
-}
-
-const privateIpv4 = (address) => /^10\./.test(address)
-    || /^192\.168\./.test(address)
-    || /^172\.(?:1[6-9]|2\d|3[01])\./.test(address);
-const overlayIpv4 = (address) => {
-    const match = address.match(/^100\.(\d+)\./);
-    return match !== null && Number(match[1]) >= 64 && Number(match[1]) <= 127;
-};
-const overlayProvider = (name) => {
-    if (/^(?:wt|netbird|nb)/i.test(name)) return 'NetBird';
-    if (/^wg/i.test(name)) return 'WireGuard';
-    if (/^zt/i.test(name)) return 'ZeroTier';
-    return 'private network';
-};
-
-export function classifyNetworkRoutes(interfaces = networkInterfaces(), ignoredAddress) {
-    const routes = { private: undefined, lan: undefined };
-    for (const [name, list] of Object.entries(interfaces)) {
-        for (const entry of list ?? []) {
-            if (entry.family !== 'IPv4' || entry.internal || entry.address === ignoredAddress || /^tailscale/i.test(name)) continue;
-            // ponytail: CGNAT implies an overlay; add route-table evidence if WISP false positives become common.
-            const overlay = /^(?:wt|netbird|nb|wg|zt|utun|tun|tap)/i.test(name) || overlayIpv4(entry.address);
-            if (overlay && routes.private === undefined) routes.private = { address: entry.address, interface: name, provider: overlayProvider(name) };
-            if (!overlay && routes.lan === undefined && privateIpv4(entry.address)
-                && !/^(?:docker|br-|veth|virbr|podman|lxc|vbox|vmnet|hyperv|wsl)/i.test(name)) routes.lan = entry.address;
-        }
-    }
-    return routes;
 }
 
 function integrationSummary(result) {
@@ -135,21 +105,7 @@ function probeCodingAgents(env = process.env) {
             directories.some((directory) => isExecutable(join(directory, command)))));
 }
 
-const TAILSCALE_INSTALL_URL = 'https://tailscale.com/download';
-const TAILSCALE_UP_HINT = process.platform === 'darwin' ? 'open Tailscale and sign in' : 'sudo tailscale up --operator=$USER';
 const CLOUDFLARED_INSTALL_URL = 'https://github.com/cloudflare/cloudflared/releases';
-
-async function probeTailscale() {
-    const state = await tailscaleState(reachTailscaleOptions());
-    if (!state.installed) return { installed: false, connected: false, detail: `not installed — ${TAILSCALE_INSTALL_URL}` };
-    const ip = state.ips.find((candidate) => candidate.includes('.'));
-    const backend = state.backendState;
-    const connected = state.reason === undefined && backend === 'Running' && ip !== undefined;
-    if (connected) return { installed: true, connected, ip, dnsName: state.dnsName, backend };
-    const reason = backend !== undefined && backend !== 'Running'
-        ? `backend state ${backend}` : state.reason ?? 'no tailnet address assigned yet';
-    return { installed: true, connected: false, ip, dnsName: state.dnsName, backend, detail: `${reason} — try ${TAILSCALE_UP_HINT}` };
-}
 
 function probeCloudflared() {
     const result = command('cloudflared', ['--version']);
@@ -304,11 +260,6 @@ const aborted = (value) => value === undefined || value === BACK;
 // connecting it remains behind Apply instead of becoming a preflight prompt.
 const tailscalePlannable = (found) => found.tailscale.installed && !found.tailscale.connected && found.tailscale.backend !== undefined;
 
-// One plain sentence: what is missing and how to fix it; Enter checks again.
-function tailscaleMissing(found) {
-    if (!found.tailscale.installed) return `Tailscale isn't on this computer yet. Install it from ${TAILSCALE_INSTALL_URL} and sign in, then press Enter to check again.`;
-    return `Tailscale is on this computer but not connected: ${TAILSCALE_UP_HINT}, then press Enter to check again.`;
-}
 
 // A first run reviews its plan on the route screen itself, so one Enter on a
 // route applies it. The route-specific cost is in each route's description.
@@ -384,7 +335,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         // Tailscale missing or not signed in: say so, and check again in place.
         const recheck = { value: 'recheck', title: 'Check again', description: 'once Tailscale is installed and signed in on this computer' };
         const connectionPrompt = recommended ? [recommended, otherWays] : [recheck, otherWays];
-        mode = await select('How will your phone reach this computer?', connectionPrompt, 0, undefined, recommended ? summary : [tailscaleMissing(found)]);
+        mode = await select('How will your phone reach this computer?', connectionPrompt, 0, undefined, recommended ? summary : [tailscaleMissing(found.tailscale, 'press Enter to check again')]);
         if (mode === 'recheck') {
             // The whole probe, so a new tailnet address is not listed as a private network.
             Object.assign(found, await withSpinner('Checking Tailscale again', async () => probeMachine()));

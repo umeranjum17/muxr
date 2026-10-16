@@ -183,7 +183,7 @@ function stopPairing() {
 function startPairing() {
     stopPairing();
     const client = openPairingSocket(runtime.pairSocketPath, {
-        onOffer: (offer) => send(offerState(offer)),
+        onOffer: (offer) => send({ ...offerState(offer), routeHint: runtime.routeHint }),
         onApproval: (approval) => send({ phase: 'approval', deviceName: approval.name, words: approval.words }),
         onPaired: (record) => { send({ phase: 'paired', deviceName: record?.name ?? 'your phone' }); reopenPairingSoon(); },
         onError: (message) => { send({ phase: 'error', message }); reopenPairingSoon(); },

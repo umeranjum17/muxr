@@ -1,14 +1,16 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isIP } from 'node:net';
+import { networkInterfaces } from 'node:os';
 import {
     inspectServe,
     serve,
     SERVE_OWNED_ERROR,
     tailscaleName,
+    tailscaleState,
     unserve,
 } from '@byokit/reach';
-import { localRelayBase, parseConnection, publicRelayUrl } from '../domain/dist/index.js';
+import { advertisedUrlForMode, localRelayBase, parseConnection, publicRelayUrl } from '../domain/dist/index.js';
 import { relayEntry } from './paths.mjs';
 import {
     atomicWrite,
@@ -111,6 +113,69 @@ export { localRelayBase, SERVE_OWNED_ERROR };
 export function reachTailscaleOptions() {
     const bin = tailscaleBin();
     return bin === undefined ? {} : { bin };
+}
+
+export const TAILSCALE_INSTALL_URL = 'https://tailscale.com/download';
+export const TAILSCALE_UP_HINT = process.platform === 'darwin' ? 'open Tailscale and sign in' : 'sudo tailscale up --operator=$USER';
+
+const privateIpv4 = (address) => /^10\./.test(address)
+    || /^192\.168\./.test(address)
+    || /^172\.(?:1[6-9]|2\d|3[01])\./.test(address);
+const overlayIpv4 = (address) => {
+    const match = address.match(/^100\.(\d+)\./);
+    return match !== null && Number(match[1]) >= 64 && Number(match[1]) <= 127;
+};
+const overlayProvider = (name) => {
+    if (/^(?:wt|netbird|nb)/i.test(name)) return 'NetBird';
+    if (/^wg/i.test(name)) return 'WireGuard';
+    if (/^zt/i.test(name)) return 'ZeroTier';
+    return 'private network';
+};
+
+export function classifyNetworkRoutes(interfaces = networkInterfaces(), ignoredAddress) {
+    const routes = { private: undefined, lan: undefined };
+    for (const [name, list] of Object.entries(interfaces)) {
+        for (const entry of list ?? []) {
+            if (entry.family !== 'IPv4' || entry.internal || entry.address === ignoredAddress || /^tailscale/i.test(name)) continue;
+            // ponytail: CGNAT implies an overlay; add route-table evidence if WISP false positives become common.
+            const overlay = /^(?:wt|netbird|nb|wg|zt|utun|tun|tap)/i.test(name) || overlayIpv4(entry.address);
+            if (overlay && routes.private === undefined) routes.private = { address: entry.address, interface: name, provider: overlayProvider(name) };
+            if (!overlay && routes.lan === undefined && privateIpv4(entry.address)
+                && !/^(?:docker|br-|veth|virbr|podman|lxc|vbox|vmnet|hyperv|wsl)/i.test(name)) routes.lan = entry.address;
+        }
+    }
+    return routes;
+}
+
+export async function probeTailscale() {
+    const state = await tailscaleState(reachTailscaleOptions());
+    if (!state.installed) return { installed: false, connected: false, detail: `not installed — ${TAILSCALE_INSTALL_URL}` };
+    const ip = state.ips.find((candidate) => candidate.includes('.'));
+    const backend = state.backendState;
+    const connected = state.reason === undefined && backend === 'Running' && ip !== undefined;
+    if (connected) return { installed: true, connected, ip, dnsName: state.dnsName, backend };
+    const reason = backend !== undefined && backend !== 'Running'
+        ? `backend state ${backend}` : state.reason ?? 'no tailnet address assigned yet';
+    return { installed: true, connected: false, ip, dnsName: state.dnsName, backend, detail: `${reason} — try ${TAILSCALE_UP_HINT}` };
+}
+
+// One plain sentence: what is missing, how to fix it, and what to do next.
+export function tailscaleMissing(tailscale, next) {
+    if (!tailscale.installed) return `Tailscale isn't on this computer yet. Install it from ${TAILSCALE_INSTALL_URL} and sign in, then ${next}.`;
+    return `Tailscale is on this computer but not connected: ${TAILSCALE_UP_HINT}, then ${next}.`;
+}
+
+/**
+ * The route a computer with no setup screen takes (the desktop app): Tailscale
+ * when it is up, else this Wi-Fi plus the sentence `muxr setup` shows for it.
+ * Direct Tailscale, because Serve would change this computer's Tailscale config.
+ */
+export async function defaultRoute(port, next) {
+    const tailscale = await probeTailscale();
+    const found = { tailscale, lan: classifyNetworkRoutes(networkInterfaces(), tailscale.ip).lan };
+    const advertise = (mode) => advertisedUrlForMode({ mode, found, port, web: false, tailscalePlanned: false });
+    if (tailscale.connected) return { mode: 'tailscale-direct', relayUrl: advertise('tailscale-direct') };
+    return { mode: 'lan', relayUrl: advertise('lan') ?? `ws://127.0.0.1:${port}`, hint: tailscaleMissing(tailscale, next) };
 }
 
 export async function tailscaleIngress(args) {
