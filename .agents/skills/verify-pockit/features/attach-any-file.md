@@ -25,6 +25,9 @@ file and the limit.
   plain alert naming the file and the cap; nothing is written host-side.
 - `attach-host-backstop` a request that skips the phone cap is refused by the
   host with `attachment-too-large`.
+- `attach-survives-leaving` a chip leaves with its agent screen and comes back
+  with the draft text: attach, go Home, reopen the agent, the chip is there and
+  Send carries its path. Sending (or clearing) the draft clears the chip too.
 
 ## How to get to it (user POV)
 
@@ -53,6 +56,11 @@ Preconditions:
    alert; the host directory is unchanged.
 5. Installed PWA: the same flow at 393 and 270 px, light and dark, chips and the
    refusal. Run the skill's Visual check on the composer with a file chip.
+6. Leaving keeps the chip: in a shell pane of the lab type `ls -l`, attach an
+   image, tap Back to Home, reopen the pane. The composer shows `ls -l` and the
+   chip; Send runs `ls -l <host path>` and the shell lists the saved file. On a
+   build without the fix the chip is gone and the shell gets a bare `ls -l`.
+   Reopen once more after sending: no chip and no text come back.
 
 ## Gotchas
 

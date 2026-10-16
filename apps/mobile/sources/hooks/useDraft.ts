@@ -1,10 +1,15 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { storage } from '@/catalog/store';
+import type { DraftAttachment } from '@/catalog';
 import { useIsFocused } from '@react-navigation/native';
 
 interface UseDraftOptions {
     autoSaveInterval?: number; // in milliseconds, default 2000
+    // The composer's chips, kept with the text so leaving the screen never
+    // brings the text back without them. Restored once on mount.
+    attachments?: readonly DraftAttachment[];
+    onRestoreAttachments?: (attachments: readonly DraftAttachment[]) => void;
 }
 
 export function useDraft(
@@ -13,7 +18,7 @@ export function useDraft(
     onChange: (value: string) => void,
     options: UseDraftOptions = {}
 ) {
-    const { autoSaveInterval = 2000 } = options;
+    const { autoSaveInterval = 2000, attachments, onRestoreAttachments } = options;
     const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     // Seed with the initial value so a pre-hydrated draft (e.g. ChatComposer
     // reads storage synchronously on mount) doesn't trip the autosave into
@@ -112,11 +117,32 @@ export function useDraft(
         };
     }, [sessionId, saveDraft]);
 
+    // Chips change rarely, so each change is written at once. Restoring takes
+    // the stored ones out first, so the empty composer of the mount cannot
+    // erase them and a repeated mount effect cannot restore them twice; the
+    // next change writes them back.
+    const restoreAttachments = useRef(onRestoreAttachments);
+    restoreAttachments.current = onRestoreAttachments;
+    useEffect(() => {
+        if (!sessionId || !restoreAttachments.current) return;
+        const stored = storage.getState().sessions[sessionId]?.draftAttachments;
+        if (!stored?.length) return;
+        storage.getState().updateSession(sessionId, { draftAttachments: null });
+        restoreAttachments.current(stored);
+    }, [sessionId]);
+    useEffect(() => {
+        if (!sessionId || attachments === undefined) return;
+        const next = attachments.length > 0 ? attachments : null;
+        if ((storage.getState().sessions[sessionId]?.draftAttachments ?? null) === next) return;
+        storage.getState().updateSession(sessionId, { draftAttachments: next });
+    }, [sessionId, attachments]);
+
     // Clear draft (used after message is sent)
     const clearDraft = useCallback(() => {
         if (!sessionId) return;
         
         storage.getState().updateSessionDraft(sessionId, null);
+        storage.getState().updateSession(sessionId, { draftAttachments: null });
         lastSavedValue.current = '';
     }, [sessionId]);
 
