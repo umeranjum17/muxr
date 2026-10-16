@@ -15,7 +15,13 @@ the host opening sockets of its own.
   `startAgent`, and that agent comes up in the new tab.
 - Closing an agent climbs pane → tab → workspace → worktree group on the kit's
   `closePane`/`closeTab`/`closeWorkspace` refusals, asking before each wider
-  close; a confirmed group close is Herdr's own `close_group` close.
+  close; the group ask names the repo and member count from the kit's refusal,
+  and a confirmed group close is the kit's confirmed `closeWorkspace`.
+- Starting an agent goes through the kit's `startAgent` label place: a folder
+  with no workspace gets one workspace whose only tab carries the task title,
+  a second start reuses it in a new labelled tab, a plan account's values reach
+  the agent process through the kit's verifying overlay, and a start that
+  cannot launch leaves no workspace behind.
 
 ## How to get to it (user POV)
 
@@ -47,7 +53,12 @@ Preconditions: a built host (`yarn build`) and the guarded lab helper
    `PASS` line for the split pane, the tab ask and close, the workspace ask and
    close, and the group ask ("Closing repo will close 2 workspaces in this
    worktree group.") and close, then `PASS herdrCloseLab`.
-7. SIGTERM the status probe (it disposes the source), then teardown; teardown
+7. Starts: `node .agents/skills/verify-pockit/features/herdrStartLab.mjs <socket> <scratch>/start`
+   (a real `pi`, no sign-in). It must print a `PASS` line for the one labelled
+   tab, the overlay in the agent process (read from `/proc/<pid>/environ`), the
+   reused workspace, the labelled shell, the shell abort and the failed start
+   that leaves no workspace, then `PASS herdrStartLab`.
+8. SIGTERM the status probe (it disposes the source), then teardown; teardown
    must exit 0.
 
 ## Gotchas

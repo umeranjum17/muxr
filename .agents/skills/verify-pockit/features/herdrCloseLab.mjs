@@ -20,7 +20,7 @@ const shell = async (cwd, extra = {}) => {
 const tree = async () => { await source.refreshHerdr(); return (await source.herdrTree()).workspaces; };
 const workspaceOf = async (info) => (await tree()).find((w) => w.tabs.some((t) => t.panes.some((p) => p.sessionId === info.id)));
 const paneIds = async () => (await tree()).flatMap((w) => w.tabs.flatMap((t) => t.panes.map((p) => p.paneId)));
-// muxr's start makes its own tab beside the new workspace's root tab; close the root one so the shell is the last tab.
+// Close any other tab in the shell's workspace so the shell is the last tab.
 const closeOtherTabs = async (info) => {
     const w = await workspaceOf(info);
     for (const tab of w.tabs) if (!tab.panes.some((p) => p.sessionId === info.id)) await source.closeTab(info.id, tab.tabId);
