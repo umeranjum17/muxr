@@ -1479,7 +1479,7 @@ export async function createHerdrSessionSource(
     function resnapshotAfterStatusWatch(): void {
         void client.statusWatchReady()
             .then(() => [...agentsByPane.keys()].some(needsSessionDiscovery))
-            .then((missing) => (missing === true ? refreshSnapshot().then(emitAllStates) : undefined))
+            .then((missing) => (missing === true ? refreshSnapshotFresh().then(emitAllStates) : undefined))
             .catch(() => {});
     }
     const client = new KitHerdrClient(() => resolvedHerdrBin() ?? 'herdr', socketPath, () => {
