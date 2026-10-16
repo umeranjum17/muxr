@@ -1392,6 +1392,12 @@ describe('session sync flow', () => {
         await TestRenderer.act(async () => { screen = TestRenderer.create(React.createElement(AttachingComposer)); });
         expect(shown).toEqual([]);
         await TestRenderer.act(async () => attach([chip, unsaved]));
+        // A catalog refresh mid-draft keeps the chips with it: the merge holds
+        // device-local draft state out of the host's reach, chips included.
+        await TestRenderer.act(async () => storage.getState().applySessions([sessionInfoToSession({
+            id: 'agent', cwd: '/work', messageCount: 0, firstMessage: '', agentName: 'Maria', agentStatus: 'idle', promptable: true,
+        })]));
+        expect(storage.getState().sessions.agent?.draftAttachments).toEqual([chip, unsaved]);
         await TestRenderer.act(async () => screen?.unmount());
         await TestRenderer.act(async () => { screen = TestRenderer.create(React.createElement(AttachingComposer)); });
         expect(shown).toEqual([chip, unsaved]);
