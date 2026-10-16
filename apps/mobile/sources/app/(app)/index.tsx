@@ -1,8 +1,7 @@
 import { useAuth } from '@/account/ui';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import * as React from 'react';
 import { StyleSheet } from 'react-native-unistyles';
-import { Typography } from '@/constants/Typography';
 import { MainView, FirstRunConnection } from '@/herd/ui';
 import { HomeWebInstallInvite } from '@/herd/presentation/HomeFirstRunCards';
 import { LiveCardEmptyBadge } from '@/plans/ui';
@@ -46,7 +45,7 @@ function NotAuthenticated() {
     return (
         <View style={styles.screen}>
             <Header
-                title={<Text style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">Connect a machine</Text>}
+                title="Connect a machine"
                 headerShadowVisible={false}
             />
             <ScrollView
@@ -62,7 +61,7 @@ function NotAuthenticated() {
     );
 }
 
-const styles = StyleSheet.create((theme) => ({
+const styles = StyleSheet.create({
     screen: { flex: 1 },
     content: {
         flexGrow: 1,
@@ -70,11 +69,4 @@ const styles = StyleSheet.create((theme) => ({
         gap: 20,
         paddingTop: 22,
     },
-    headerTitle: {
-        ...Typography.default('semiBold'),
-        fontSize: 16,
-        color: theme.colors.text,
-        flexShrink: 1,
-        minWidth: 0,
-    },
-}));
+});
