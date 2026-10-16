@@ -314,3 +314,7 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Keep pairing and settings across an app upgrade](./upgrade-keeps-state.md) —
   main release APK paired with settings changed, `install -r` of the
   candidate, then pairing, theme and text size read back; fresh pair after.
+- [Keep every New agent field clear of the sticky Start button](./new-agent-footer-clearance.md) —
+  native release APK: at 270 dp largest font the scroll ends above the sticky
+  Start footer, so the Folder field and every field stay fully visible above
+  Start and a field tap never starts an agent.
