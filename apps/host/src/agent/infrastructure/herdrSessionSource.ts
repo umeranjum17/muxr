@@ -2163,11 +2163,13 @@ export async function createHerdrSessionSource(
             const gate = launchMissGate(paneId);
             // A failed kit start already rolled back what it made.
             if (launched && paneId !== undefined) await rollbackPane(paneId);
-            const code = herdrFailureCode(error);
-            return earlyFailure(
-                gate,
-                code === 'unsupported_agent_kind' ? 'That agent is not installed.' : 'Agent could not start.',
-            );
+            const code = (error as { code?: unknown } | null)?.code ?? herdrFailureCode(error);
+            let message = 'Agent could not start.';
+            if (code === 'unsupported_agent_kind') message = 'That agent is not installed.';
+            // The kit names the folder; the phone says the cause without the path.
+            else if (code === 'workspace-ambiguous') message = 'More than one workspace uses this folder. Rename one, then try again.';
+            else if (code === 'env_mismatch') message = 'The selected account could not reach the new pane.';
+            return earlyFailure(gate, message);
         }
     }
 
