@@ -131,12 +131,14 @@ even if an older snapshot was in flight.
   `events.subscribe` holds a socket open — one subscribe per socket; a second
   interleaves acks with events. The kit owns this: the host's
   [`herdrKitClient.ts`](../apps/host/src/agent/infrastructure/herdrKitClient.ts)
-  (`KitHerdrClient`) keeps one batch subscription socket and one filtered socket
-  per pane for status, over `@byokit/herdr`.
+  (`KitHerdrClient`) opens no subscription sockets of its own; the kit holds
+  one batch event socket and one filtered `pane.agent_status_changed` socket
+  per agent pane, and the host taps both through the kit's `onEvent`.
 - **Filtered subscription kinds reject the whole batch.** `pane.agent_status_changed`
   needs a `pane_id`; including it in the batch errors everything (with an
   invisible `id:""` error frame) and zero events flow. Status transitions ride
-  per-pane sockets (`watchPaneStatus`).
+  the kit's per-pane status watches, which the host reads through `onEvent`
+  and `statusWatchReady`.
 - **There are no raw `terminal.*` socket methods.** Frames come from a kit
   terminal session (`source.herdrTerminal`, one `TerminalSession` per attached
   channel), which emits herdr's own NDJSON terminal protocol — the only
