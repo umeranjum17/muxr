@@ -76,3 +76,4 @@ Most points are review judgement, not CI rules.
 - Do not mass-rewrite the 11 existing mobile feature cycle pairs in
   `apps/mobile/sources/architecture.spec.ts`. Remove one pair per feature PR,
   verified at product level.
+
