@@ -2258,12 +2258,26 @@ export async function createHerdrSessionSource(
      * Herdr names a prompt that starts no working or blocked state within 5 s
      * `agent_prompt_stalled`; that is reported as not sent, so the phone keeps
      * the text in the agent's draft and it is never typed a second time.
+     *
+     * A prompt that fails after it was typed can still sit unsubmitted in the
+     * agent's input (a line, or OpenCode's `[Pasted ~N lines]`), and a resend
+     * would type onto it. So the input is cleared first, for every kind alike:
+     * ctrl+u empties a line and backspace joins the one above, one round per
+     * line plus one for an Enter that only added a line. Both do nothing on an
+     * empty input, unlike ctrl+c, which quits OpenCode and Codex from one.
      */
     async function deliverFirstPrompt(paneId: string, text: string): Promise<void> {
         await waitForQuietScreen(paneId);
         await client.kit.prompt({ paneId }, text, { wait: { until: ['working', 'blocked'], timeoutMs: PROMPT_RECEIPT_TIMEOUT_MS } })
-            .catch((error: unknown) => {
-                if ((error as { code?: unknown }).code !== 'agent_prompt_stalled') throw error;
+            .catch(async (error: unknown) => {
+                const code = (error as { code?: unknown }).code;
+                // The kit refuses these before anything is typed.
+                if (code === 'agent-blocked' || code === 'agent-not-ready') throw error;
+                const rounds = text.split('\n').map(() => ['backspace', 'ctrl+u']).flat();
+                await client.kit.sendKeys({ paneId }, ['ctrl+u', ...rounds]).catch((cause: unknown) => {
+                    throw promptNotSent(new Error('The agent did not take the prompt, and its input could not be cleared. Check the agent before sending again.', { cause }));
+                });
+                if (code !== 'agent_prompt_stalled') throw error;
                 throw promptNotSent(new Error('The agent did not take the prompt. Send it again.'));
             });
     }
