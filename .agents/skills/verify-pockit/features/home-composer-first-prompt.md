@@ -25,6 +25,10 @@ turn (`deliverFirstPrompt` in `apps/host/src/agent/infrastructure/herdrSessionSo
   reported as not sent, never typed again.
 - `first-prompt-failed` a prompt the agent never takes comes back into Home's
   composer and the agent's draft, with the error alert, even after returning Home.
+- `first-prompt-unsubmitted-cleared` a first prompt that stalls with its text
+  still unsubmitted in the agent's input (a line, or OpenCode's
+  `[Pasted ~N lines]`) is cleared from that input before the phone reports it
+  not sent, so a resend from the agent composer leaves exactly one copy there.
 - `first-prompt-failed-attachments` a failed first prompt's attachments come
   back into the agent composer with its text, in order: a file the host already
   saved returns as a ready chip whose send reuses that saved path (no second
@@ -85,6 +89,17 @@ agent screen keeps its route; after the fix it shows the text and the image
 chip, and sending it puts the first attempt's saved path in the real TUI.
 A PWA picker is fed by intercepting the page's file `<input>` click and setting
 its `files`; `chrome-devtools-axi upload` does not reach it.
+
+For `first-prompt-unsubmitted-cleared`, make Return stop submitting in the lab
+project's own `opencode.json` (`"keybinds": {"input_submit": "ctrl+s"}`, with
+`"autoupdate": false`, also in the lab's `<xdg-root>/config/opencode/`, so no
+update dialog takes the keys). From Home, send a one-line prompt to a new
+OpenCode, and in a second round a 12-line one (insert it into the composer in
+one `document.execCommand('insertText', …)`, which OpenCode shows as
+`[Pasted ~12 lines]`). Herdr types each and reports it stalled. Read the pane
+with `pane read --source visible` after the `The agent did not take the prompt`
+alert (the input must be empty), tap OK, then Send the restored draft and read
+it again: one copy of the line or placeholder, where main shows two.
 
 ## Gotchas
 
