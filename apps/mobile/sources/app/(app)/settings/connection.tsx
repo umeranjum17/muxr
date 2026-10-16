@@ -530,7 +530,7 @@ export default function ConnectionSettingsScreen() {
     };
 
     const nearbyCopy: Record<typeof nearbyPhase, string> = {
-            web: 'Browsers cannot scan nearby relays. If the computer’s address changed, run muxr setup there to refresh its route, then open a new browser pairing link.',
+            web: 'Browsers cannot scan nearby relays. If the computer’s address changed, open muxr on the computer, or run muxr setup, to refresh its route, then open a new browser pairing link.',
             disabled: 'Nearby scanning is off for this route. It runs only after pairing over a local or private address.',
             scanning: 'Looking for this paired computer on the local network. A new address must pass the saved device-grant check.',
             'no-service': 'No matching relay found nearby. Check that the computer and phone share Wi-Fi and muxr is running there, then retry.',
@@ -539,8 +539,8 @@ export default function ConnectionSettingsScreen() {
             updated: 'Nearby address verified with this device’s saved grant. Reconnecting to the computer.',
             unverified: 'The nearby address could not be verified. The saved connection was kept; retry when the computer is reachable.',
             permission: 'Android blocked nearby discovery. Check this app’s network permission and Wi-Fi in system settings, then retry.',
-            unavailable: 'Nearby discovery is unavailable in this app build. Refresh the route with muxr setup on the computer, then pair by QR or string if needed.',
-            failed: 'Nearby discovery failed. Check Wi-Fi and retry; muxr setup on the computer can refresh its route if the address changed.',
+            unavailable: 'Nearby discovery is unavailable in this app build. Open muxr on the computer, or run muxr setup, to refresh the route, then pair by QR or string if needed.',
+            failed: 'Nearby discovery failed. Check Wi-Fi and retry; open muxr on the computer, or run muxr setup, to refresh its route if the address changed.',
         };
         const staleLanHint = status !== 'connected' && describeRoute(initial.relayUrl) === 'Local or private network'
             ? ' The saved LAN address may have changed.' : '';
@@ -593,9 +593,9 @@ export default function ConnectionSettingsScreen() {
         const changeRoute = async () => {
             try {
                 await Clipboard.setStringAsync('muxr setup');
-                Modal.alert('Command copied', 'Run muxr setup in the computer’s terminal to review and change its connection route.');
+                Modal.alert('Command copied', 'Open muxr on your computer, or run muxr setup, to review and change its connection route.');
             } catch {
-                Modal.alert('Copy failed', 'Run muxr setup in the computer’s terminal to review and change its connection route.');
+                Modal.alert('Copy failed', 'Open muxr on your computer, or run muxr setup, to review and change its connection route.');
             }
         };
         return (
@@ -636,8 +636,8 @@ export default function ConnectionSettingsScreen() {
                     {mode === 'remote'
                         ? <Item title="Change shared relay" subtitle="Ask the relay owner for a new enrollment, then run muxr connect --enrollment on this computer. The relay owner manages its route." subtitleLines={0} />
                         : knownRoute === undefined
-                            ? <Item title="Change route on computer" subtitle="Run muxr setup for a self-hosted relay, or ask the relay owner for a new enrollment if it is shared. This device cannot change host networking." subtitleLines={0} />
-                            : <Item title="Change route on computer" subtitle="Run muxr setup there to choose a route. If its address changes, remote devices may need a fresh pairing. Tap to copy the command." subtitleLines={0} onPress={() => void changeRoute()} />}
+                            ? <Item title="Change route on computer" subtitle="Open muxr on your computer, or run muxr setup, for a self-hosted relay, or ask the relay owner for a new enrollment if it is shared. This device cannot change host networking." subtitleLines={0} />
+                            : <Item title="Change route on computer" subtitle="Open muxr on your computer, or run muxr setup, to choose a route. If its address changes, remote devices may need a fresh pairing. Tap to copy the command." subtitleLines={0} onPress={() => void changeRoute()} />}
                 </ItemGroup>
 
                 {sshSupported && <ItemGroup

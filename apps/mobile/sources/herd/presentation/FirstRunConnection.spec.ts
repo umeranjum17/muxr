@@ -145,7 +145,7 @@ describe('link-first connect shell', () => {
         // An empty Connect never routes: the same alert a bad scan shows.
         press(renderer.root, 'Connect');
         await TestRenderer.act(async () => {});
-        expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', "That isn't a muxr pairing string.");
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', "That isn't a muxr pairing string. Open muxr on your computer, or run muxr pair, for a new one.");
         expect(routerPush).not.toHaveBeenCalled();
         pairingAlert.mockClear();
         // A legacy code names the old version, like a scan does.

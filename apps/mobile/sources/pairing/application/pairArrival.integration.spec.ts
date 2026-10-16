@@ -339,7 +339,7 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
 
     // A launch link, or a scan from first run, whose code ran out.
     await open({ offer: machineOffer(9, { expires: Date.now() - 60_000 }) });
-    expect(alerts()).toContain('That pairing code has run out. Show a new one on your computer.');
+    expect(alerts()).toContain('That pairing code has run out. Open muxr on your computer, or run muxr pair, for a new one.');
     await scanLeads('Scan a new code', machineOffer(10));
 
     // The computer declined the code after Pair.
@@ -408,7 +408,7 @@ it('leads every native pair entry and failed code with Scan, which opens the cam
     // pasted, and one tap pastes the fresh code the computer shows by now.
     await open({ source: 'settings' });
     await type(machineOffer(12, { expires: Date.now() - 1_000 }));
-    expect(alerts()).toContain('That pairing code has run out. Show a new one on your computer.');
+    expect(alerts()).toContain('That pairing code has run out. Open muxr on your computer, or run muxr pair, for a new one.');
     expect(fields()).toHaveLength(0);
     harness.clipboard = machineOffer(13);
     await press('Paste the new code');
