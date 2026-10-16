@@ -180,6 +180,10 @@ interface StorageState extends WatchSnapshot {
     herdrRuntime: boolean | undefined;
     /** The dead runtime is a computer with no Herdr installed: the fix is an install, not a restart. */
     herdrMissing: boolean;
+    /** The dead runtime because that computer's Herdr is older than muxr supports: same fix, said plainly. */
+    herdrOutdated: boolean;
+    /** The desktop app runs the paired host, so its window holds the Install Herdr step the phone leads with. */
+    herdrDesktopApp: boolean;
     /** The active machine's workspace ids shown first, a per-device view preference. */
     pinnedSpaceIds: string[];
     /** Per machine: Spaces Move up/down order and favourite agents, a per-device view preference. */
@@ -224,7 +228,7 @@ interface StorageState extends WatchSnapshot {
     discardVoiceReport: (identity: string) => void;
     applySessions: (sessions: (Omit<Session, 'presence'> & { presence?: 'online' | number })[], replace?: boolean) => void;
     applyHerdrTree: (workspaces: HerdrTreeWorkspace[]) => void;
-    setHerdrRuntime: (runtime: boolean | undefined, missing?: boolean) => void;
+    setHerdrRuntime: (runtime: boolean | undefined, missing?: boolean, outdated?: boolean, desktopApp?: boolean) => void;
     toggleSpacePin: (workspaceId: string) => void;
     setActiveMachine: (machineId: string) => void;
     setSpaceOrder: (order: string[]) => void;
@@ -305,6 +309,8 @@ export const storage = create<StorageState>()((set, get) => ({
     herdrTreeLoaded: false,
     herdrRuntime: undefined,
     herdrMissing: false,
+    herdrOutdated: false,
+    herdrDesktopApp: false,
     pinnedSpaceIds: [],
     spacesLayouts: loadSpacesLayouts(),
     activeMachineId: '',
@@ -439,7 +445,13 @@ export const storage = create<StorageState>()((set, get) => ({
         socketConnectingSince: socketStatus !== 'connecting' ? null : state.socketConnectingSince ?? Date.now(),
     })),
     setSocketError: (socketError) => set({ socketError }),
-    setHerdrRuntime: (herdrRuntime, missing = false) => set({ herdrRuntime, herdrMissing: herdrRuntime === false && missing }),
+    setHerdrRuntime: (herdrRuntime, missing = false, outdated = false, desktopApp) => set((state) => ({
+        herdrRuntime,
+        herdrMissing: herdrRuntime === false && missing,
+        herdrOutdated: herdrRuntime === false && outdated,
+        // A failed read answers nothing about the host, so the last known answer stays.
+        ...(desktopApp === undefined ? {} : { herdrDesktopApp: desktopApp }),
+    })),
     // Settings are device-local in muxr -- there is no settings sync request --
     // so writing the store was the whole change and every toggle reset on reload.
     applyLocalSettings: (patch) => set((state) => {
@@ -786,6 +798,14 @@ export function useHerdrRuntime(): boolean | undefined {
 
 export function useHerdrMissing(): boolean {
     return storage((state) => state.herdrMissing);
+}
+
+export function useHerdrOutdated(): boolean {
+    return storage((state) => state.herdrOutdated);
+}
+
+export function useHerdrDesktopApp(): boolean {
+    return storage((state) => state.herdrDesktopApp);
 }
 
 export function useSocketStatus() {

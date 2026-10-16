@@ -73,6 +73,17 @@ export function productPanePack() {
     return { id: parsed.id, root, version };
 }
 
+/** Where Herdr may sit when HERDR_BIN says nothing, in the order muxr prefers. */
+function herdrPaths() {
+    const dirs = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
+    return [
+        pinnedHerdrBin(),
+        ...dirs.map((dir) => join(dir, 'herdr')),
+        join(env('HERDR_INSTALL_DIR') || join(home(), '.local', 'bin'), 'herdr'),
+        '/usr/local/bin/herdr',
+    ].filter((candidate) => candidate !== undefined);
+}
+
 export function herdrBin() {
     const configured = env('HERDR_BIN');
     if (configured) {
@@ -80,20 +91,26 @@ export function herdrBin() {
         if (selected === undefined) throw new Error(`HERDR_BIN does not resolve to an executable: ${configured}`);
         return realpathSync(resolve(selected));
     }
-    const dirs = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
-    const candidates = [
-        pinnedHerdrBin(),
-        ...dirs.map((dir) => join(dir, 'herdr')),
-        join(env('HERDR_INSTALL_DIR') || join(home(), '.local', 'bin'), 'herdr'),
-        '/usr/local/bin/herdr',
-    ];
-    const selected = candidates.find((candidate) => candidate !== undefined && executable(candidate) !== undefined && compatibleHerdr(candidate));
+    const selected = herdrPaths().find((candidate) => executable(candidate) !== undefined && compatibleHerdr(candidate));
     return selected === undefined ? undefined : realpathSync(resolve(selected));
 }
 
 export function findHerdrBin(onError) {
     try { return herdrBin(); }
     catch (error) { onError?.(error); return undefined; }
+}
+
+/**
+ * Why the phone should offer an install instead of a restart, or `undefined`
+ * when a Herdr muxr can use is there. `outdated` is a Herdr that exists but is
+ * older than the minimum. An explicit HERDR_BIN is what the host spawns, so an
+ * old one is reported as outdated rather than silently skipped for a PATH hit.
+ */
+export function herdrAvailability(configured = env('HERDR_BIN')) {
+    const selected = configured === undefined ? findHerdrBin() : executable(configured);
+    if (selected !== undefined) return compatibleHerdr(realpathSync(resolve(selected))) ? undefined : 'outdated';
+    const candidates = configured === undefined ? herdrPaths() : [configured, ...herdrPaths()];
+    return candidates.some((candidate) => executable(candidate) !== undefined) ? 'outdated' : 'missing';
 }
 
 /** The HERDR_BIN a service unit or LaunchAgent pins for the host, undecoded for the path itself. */

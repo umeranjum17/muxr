@@ -61,6 +61,7 @@ export function connectionStatusSubtitle(input: {
     hostRefresh: 'loading' | 'ready' | 'failed';
     herdrRuntime: boolean | undefined;
     herdrMissing?: boolean;
+    herdrOutdated?: boolean;
 }): string {
     if (input.status === 'connected') {
         if (input.hostRefresh === 'loading') return 'Relay connected; checking the computer…';
@@ -68,7 +69,9 @@ export function connectionStatusSubtitle(input: {
         if (summarizeConnection({ status: input.status }, input.herdrRuntime).runtimeDown) {
             return input.herdrMissing
                 ? 'Relay connected; Herdr is missing on the computer. See Home for how to install it.'
-                : 'Relay connected; the agent runtime is not answering. See Home for the restart command.';
+                : input.herdrOutdated
+                    ? 'Relay connected; Herdr on the computer is out of date. See Home for how to install it.'
+                    : 'Relay connected; the agent runtime is not answering. See Home for the restart command.';
         }
         return 'Relay connected; the computer answered the last check.';
     }

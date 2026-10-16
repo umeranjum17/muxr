@@ -366,9 +366,11 @@ export interface RequestMap extends PeerRequestMap {
     };
     /**
      * The whole herd: workspaces -> tabs -> panes with live agent state. `connected` is herdr liveness; absent from pre-liveness hosts.
-     * `missing` rides a false `connected` when the computer has no Herdr installed, so the fix shown is an install, not a restart.
+     * `missing` and `outdated` ride a false `connected` when the computer has no Herdr, or only one
+     * older than muxr supports: either way the fix shown is an install, not a restart.
+     * `desktopApp` says the desktop app runs this host, so its Install Herdr is the step the phone leads with.
      */
-    'herdr.tree': { params: Record<string, never>; result: { workspaces: HerdrTreeWorkspace[]; connected?: boolean; missing?: boolean; linkEnrolledKey?: string } };
+    'herdr.tree': { params: Record<string, never>; result: { workspaces: HerdrTreeWorkspace[]; connected?: boolean; missing?: boolean; outdated?: boolean; desktopApp?: boolean; linkEnrolledKey?: string } };
     /**
      * Third-party Applications: the global launcher actions declared by enabled
      * plugins in the live Herdr registry. Product pane launching lives in

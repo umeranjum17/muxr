@@ -7,7 +7,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createHerdrSetup } from './herdrSetup.mjs';
+import { createHerdrSetup, wireHerdrToRuntime } from './herdrSetup.mjs';
 import { MuxrRuntime, RelayOwnedError } from './runtime.mjs';
 
 const MACHINE = { id: 'machine-owner', name: 'computer', crypto: { signingPublicKey: 's' } };
@@ -228,38 +228,38 @@ describe('desktop runtime self-host state', () => {
         delete process.env.HERDR_BIN;
         const shown: { status: string }[] = [];
         const herdr = createHerdrSetup((next: { status: string }) => shown.push(next));
-        // Every status the real runtime emits goes into the window's Herdr rule, as main.mjs does.
-        const forward = (runtime: MuxrRuntime) => {
-            const pending: Promise<void>[] = [];
-            runtime.on('status', (event) => { pending.push(herdr.observeRuntime(event)); });
-            return pending;
-        };
         try {
             // A command-line computer: the launch check reads the pinned Herdr, and no status starts it.
             process.env.MUXR_HOME = cliHome;
-            herdr.check();
             const cli = collectingRuntime(cliHome, relayEntry, hostEntry).runtime;
-            const cliStarts = forward(cli);
+            wireHerdrToRuntime(cli, herdr);
             await expect(cli.start()).rejects.toThrow(RelayOwnedError);
-            await Promise.all(cliStarts);
             await new Promise((resolve) => setTimeout(resolve, 600));
             expect(existsSync(serverUp)).toBe(false);
             expect(shown).toEqual([]);
 
-            // A Herdr below the minimum counts as missing and is not started until a compatible one is there.
+            // A Herdr below the minimum counts as missing at launch, before any online report.
             fakeHerdr('0.8.0');
             process.env.MUXR_HOME = ownHome;
+            const belowMinimum = collectingRuntime(ownHome, relayEntry, hostEntry).runtime;
+            wireHerdrToRuntime(belowMinimum, herdr);
+            expect(shown.at(-1)).toEqual({ status: 'missing' });
+            // No online report yet, so nothing may have started: the launch
+            // check read the pinned Herdr and the CLI phase left no trace.
+            expect(existsSync(serverUp)).toBe(false);
+            expect(shown).toEqual([{ status: 'missing' }]);
+
+            // The runtime's own online report is what starts an installed Herdr.
+            fakeHerdr('0.9.1');
             const { runtime, statuses } = collectingRuntime(ownHome, relayEntry, hostEntry);
-            const starts = forward(runtime);
+            wireHerdrToRuntime(runtime, herdr);
             try {
                 await runtime.start();
-                await Promise.all(starts);
                 expect(statuses.at(-1)?.phase).toBe('online');
-                expect(shown.at(-1)).toEqual({ status: 'missing' });
-                expect(existsSync(serverUp)).toBe(false);
-
-                fakeHerdr('0.9.1');
-                await herdr.observeRuntime({ phase: 'online' });
+                // The wiring forwards the online report without waiting for
+                // the server start, so wait for the window to show it.
+                const deadline = Date.now() + 10_000;
+                while (shown.at(-1)?.status !== 'ok' && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
                 expect(existsSync(serverUp)).toBe(true);
                 expect(shown.at(-1)).toEqual({ status: 'ok' });
             } finally {

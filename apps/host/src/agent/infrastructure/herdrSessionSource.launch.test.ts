@@ -845,11 +845,12 @@ describe('herdr installed in its own folder, off the host PATH', () => {
         const installDir = join(dir, 'bin');
         mkdirSync(installDir);
         const binary = join(installDir, 'herdr');
-        const saved = { HOME: process.env.HOME, PATH: process.env.PATH, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, HERDR_BIN: process.env.HERDR_BIN };
+        const saved = { HOME: process.env.HOME, PATH: process.env.PATH, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, HERDR_BIN: process.env.HERDR_BIN, MUXR_DESKTOP_APP: process.env.MUXR_DESKTOP_APP };
         process.env.HOME = dir;
         process.env.PATH = join(dir, 'empty-path');
         mkdirSync(process.env.PATH);
         process.env.HERDR_INSTALL_DIR = installDir;
+        process.env.MUXR_DESKTOP_APP = '1';
         delete process.env.HERDR_BIN;
         let source: Awaited<ReturnType<typeof createHerdrSessionSource>> | undefined;
         try {
@@ -857,9 +858,18 @@ describe('herdr installed in its own folder, off the host PATH', () => {
                 socketPath: join(dir, 'no-herdr.sock'), dataDir: join(dir, 'data'),
                 artifactsDir: join(dir, 'attachments'), hostHttpPort: 0,
             });
-            expect((await source.herdrTree()).missing).toBe(true);
+            const none = await source.herdrTree();
+            expect(none.missing).toBe(true);
+            expect(none.desktopApp).toBe(true);
+            // A Herdr older than muxr supports is not a restart: the phone leads with the install.
+            writeFileSync(binary, '#!/bin/sh\n# an older release\ncase "$1" in --version) echo "herdr 0.8.5" ;; *) echo "ran $0" ;; esac\n', { mode: 0o755 });
+            const old = await source.herdrTree();
+            expect(old.outdated).toBe(true);
+            expect(old.missing).toBeUndefined();
             writeFileSync(binary, '#!/bin/sh\ncase "$1" in --version) echo "herdr 0.9.1" ;; *) echo "ran $0" ;; esac\n', { mode: 0o755 });
-            expect((await source.herdrTree()).missing).toBeUndefined();
+            const current = await source.herdrTree();
+            expect(current.outdated).toBeUndefined();
+            expect(current.missing).toBeUndefined();
             expect((await source.herdrCli(['status'])).stdout.trim()).toBe(`ran ${realpathSync(binary)}`);
         } finally {
             await source?.dispose();
