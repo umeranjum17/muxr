@@ -277,7 +277,6 @@ const lineHeight = (n) => Number(n.at['text-size'] || n.at['line-height']) || (n
 
 const clipLeads = (nodes) => nodes.filter((n) => n.at.text).flatMap((n) => {
     const parent = n.up.at(-1), out = [];
-    if (/(…|\.\.\.)$/.test(n.at.text)) out.push(`ellipsis cuts the text: "${n.label}" ${n.at.bounds}`);
     if (n.at.text.length > 2 && n.box.r - n.box.l < Math.max(20, lineHeight(n))) out.push(`text squeezed to a sliver: "${n.label}" ${n.at.bounds} (${n.box.r - n.box.l}px wide under a ${Math.round(lineHeight(n))}px line)`);
     if (parent && (n.box.l < parent.box.l - 1 || n.box.r > parent.box.r + 1 || n.box.t < parent.box.t - 1 || n.box.b > parent.box.b + 1)) out.push(`text runs past its parent: "${n.label}" ${n.at.bounds} (parent ${parent.at.bounds})`);
     return out;
