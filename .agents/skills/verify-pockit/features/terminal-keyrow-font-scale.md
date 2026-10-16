@@ -5,7 +5,8 @@ prompt field both keep one height and, for the keys, one glyph size. At Android
 font scale 2.0 the key labels grew until the trailing keys ran off the right
 edge and the labels overran the fixed row height, and the prompt placeholder
 grew far past the rail band. Both are capped so they stay whole and reachable at
-the largest text size, and normal font scale is unchanged.
+the largest text size; at normal font scale the prompt field is unchanged and
+the key row fits itself to the screen width instead of scrolling.
 
 ## Sub-features
 
@@ -50,8 +51,9 @@ Preconditions:
    `adb -s $SERIAL shell settings put system font_scale 2.0`,
    then `am force-stop` and reopen the session so the app reads the new scale.
 4. `adb -s $SERIAL exec-out screencap -p > $EVIDENCE/keyrow-2.0.png`. Repeat with
-   `font_scale 1.0` for the unchanged normal size, and `cmd uimode night yes|no`
-   for the dark capture.
+   `font_scale 1.0` for the normal size, and again at `wm density 440` (393 dp,
+   the fit check's second width; force-stop and reopen after each change), and
+   `cmd uimode night yes|no` for the dark capture.
 5. Pass: at 2.0 the whole key row and the prompt placeholder are inside their
    bands — no key label cut at the right edge, none taller than the row, the
    placeholder not grown past the rail; at 1.0 every label is whole and ctrl
