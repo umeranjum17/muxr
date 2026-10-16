@@ -1,0 +1,21 @@
+# done-done project config. `done-done init` never overwrites this file.
+# The app name finds this repo's evidence and receipts from every checkout.
+app: "pockit"
+# This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
+# agent: opencode
+
+# Proof primitives: the repo's own check lanes, driven by done-done so the
+# capture is tied to the exact commit. Prerequisites (run once per checkout):
+# yarn install --frozen-lockfile --non-interactive && yarn build
+# (dist/ is git-ignored; the self-check steps read it). CI's `fast` job runs
+# `done-done run fast` and `done-done check` against the commit.
+journeys:
+  # The pull-request fast lane: typecheck, compiled self-checks, every
+  # vitest flow, architecture policies. Same list as `yarn run check:fast`.
+  fast:
+    command: yarn run check:fast > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}.log 2>&1
+  # The full suite: everything above plus packaging, web export/serving,
+  # install smoke and live-herdr e2e. Same list as `yarn run check`.
+  suite:
+    command: yarn run check > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}.log 2>&1
+    timeout: 30m

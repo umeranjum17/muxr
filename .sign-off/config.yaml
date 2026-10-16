@@ -1,0 +1,8 @@
+# sign-off repo setup. board: path under .sign-off/, port: dashboard port, agent: auto or the coding agents to install the skill for.
+# bind: 127.0.0.1 keeps the dashboard on this machine; a private address such as its VPN address lets a phone open it.
+# hosts: (optional) private DNS names that lead to that address, such as its mesh VPN name, commas between them.
+# on_answer: (optional) a command run for each answer, with the answer as one JSON line on its stdin; no shell, so | > && do nothing: on_answer: node hook.mjs
+board: decisions.json
+port: 4419
+bind: 127.0.0.1
+agent: pi

@@ -1,0 +1,14 @@
+# written by learn-from-mistakes-axi init
+name: "pockit"
+# retro-skill survey: origin/main had no in-repo retro skill (only the verify-muxr verification skill); nothing converted, that intent step skipped.
+# The agent keys come from $LFM_HOME/config.yaml (default ~/.learn-from-mistakes/config.yaml); set one here to
+# override it for this project. The tool never picks an agent: set agent and judge_agent, each with its model.
+# agent: claude   # or codex, opencode, pi, acp:<target>, byokit:<route>
+# judge_agent: codex   # its agent and model must differ from the worker's
+# agent_config: { <agent>: { model: <model>, effort: low } }
+# agent_timeout: "20m"
+excerpts: on   # on: the worker and judge see redacted record excerpts; off: pointers and counts only
+sources:
+  gate: { type: "no-mistakes", path: "~/.no-mistakes/state.sqlite" }
+  # sessions: temporarily omitted for run 2 (tool bug: events.push(...million) stack overflow on 335MB fleet session file); restored after.
+  prs: { type: "github" }

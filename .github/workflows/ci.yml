@@ -30,7 +30,11 @@ jobs:
   # policies -- the exact list `yarn check:fast` runs, so a red mark here is
   # reproducible in one local command. It deliberately does NOT build a package,
   # export the web app, drive an install, or touch a release artifact: it is
-  # early feedback on a pull request, never a release trigger.
+  # early feedback on a pull request, never a release trigger. The lane runs
+  # through done-done (run + check), so the merge gate consumes commit-tied
+  # proof instead of a bare log: pair this job with `suite` in branch
+  # protection once it is green (change this block and protection together,
+  # per the header above).
   fast:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -38,7 +42,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The constraints floor guard diffs the pull request against its
-          # merge base, which a depth-1 checkout cannot compute.
+          # merge base, which a depth-1 checkout cannot compute. The done-done
+          # check also reads its merge-gate rules from origin/main.
           fetch-depth: 0
       # A documentation- or evidence-only change cannot affect this job. The
       # job still runs and reports success so it stays a required check; its
@@ -56,9 +61,31 @@ jobs:
           cache: yarn
       - if: steps.scope.outputs.docs_only != 'true'
         run: yarn install --frozen-lockfile --non-interactive
-      - name: Fast lane (typecheck, self-checks, vitest flows, architecture)
+      - name: Fast lane as done-done proof (run, then check against this commit)
         if: steps.scope.outputs.docs_only != 'true'
-        run: yarn run check:fast
+        env:
+          # Detached HEAD names no claim, so pass the PR branch explicitly.
+          # Through env, never inline: a branch name is attacker-controlled.
+          CLAIM_ID: ${{ github.head_ref || github.ref_name }}
+        run: |
+          # The fast journey must be origin/main's definition, not one this PR
+          # can redefine: `run` executes the working-tree command and `check`
+          # never re-derives it. Bootstrap (origin/main without .done-done.yaml)
+          # has no trusted config to compare and runs; otherwise the config must
+          # byte-match origin/main, and --trusted-ref still guards `check`.
+          if git cat-file -e "origin/main:.done-done.yaml" 2>/dev/null; then
+            git diff --quiet origin/main -- .done-done.yaml || exit 1
+            TRUSTED_REF_ARGS=(--trusted-ref origin/main)
+          else
+            TRUSTED_REF_ARGS=()
+          fi
+          # The journey writes its output to the evidence log, so a red run
+          # prints that log here before failing.
+          npx -y done-done-axi@0.3.0 run fast || {
+            tail -n 200 ~/.done-done/evidence/pockit/*/*.log >&2 2>/dev/null || true
+            exit 1
+          }
+          npx -y done-done-axi@0.3.0 check --outcome "the pull-request fast lane passes on this commit" ~/.done-done/evidence/pockit/*/*.log --claim-id "$CLAIM_ID" "${TRUSTED_REF_ARGS[@]}"
 
   suite:
     runs-on: ubuntu-latest

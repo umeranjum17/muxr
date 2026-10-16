@@ -37,7 +37,7 @@ test:
 
     This baseline stays the configured check; it is not weakened or replaced.
     For host, relay, or public-CLI behavior outside it, drive the mapped
-    feature with the project-local verify-muxr skill
-    (.agents/skills/verify-muxr/SKILL.md) and keep its feature map current
+    feature with the project-local verify-pockit skill
+    (.agents/skills/verify-pockit/SKILL.md) and keep its feature map current
     when a feature changes. Its private-stack proof never substitutes for this
     baseline and adds no runner.
