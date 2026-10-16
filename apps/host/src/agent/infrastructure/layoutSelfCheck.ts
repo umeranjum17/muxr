@@ -488,8 +488,8 @@ async function demo(): Promise<void> {
 
     const groupClosed = await ladder('w1:p1', 'worktreeGroup');
     assert(groupClosed.status === 'closed'
-        && hostCalls.some((call) => call.method === 'workspace.close' && call.params.workspace_id === 'w1'),
-        'confirmed worktreeGroup invokes exact workspace.close');
+        && hostCalls.some((call) => call.method === 'workspace.close' && call.params.workspace_id === 'w1' && call.params.close_group === true),
+        'confirmed worktreeGroup invokes workspace.close with close_group');
 
     closePhase = 'herdr-group';
     const herdrGroup = await ladder('w1:p1', 'tab');

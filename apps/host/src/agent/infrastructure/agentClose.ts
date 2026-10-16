@@ -5,8 +5,8 @@
  * The pane, tab and workspace steps are the kit's closePane/closeTab/
  * closeWorkspace: each refuses a close that would widen and names the wider
  * target, which is the next rung. Only the confirmed worktree-group close is a
- * raw `workspace.close` on the group root, because the kit has no
- * confirmed-scope close and Herdr widens that one atomically.
+ * raw `workspace.close { close_group }` on the group root, because the kit
+ * has no confirmed-scope close and Herdr closes the group atomically.
  */
 import type { HerdrKit } from '@byokit/herdr';
 import type { CloseResult, CloseScope } from '@trymuxr/contract';
@@ -201,9 +201,9 @@ export async function closeAgent({ paneId, confirmedScope, kit, call }: {
             return confirmation('worktreeGroup', live ?? { workspaceLabel });
         }
         attemptedScope = 'worktreeGroup';
-        // Herdr has no group-close RPC; worktreeGroup is explicit consent to the
-        // root's workspace.close, which Herdr widens to the group atomically.
-        await call('workspace.close', { workspace_id: workspace.id });
+        // worktreeGroup is explicit consent to Herdr's own atomic group close;
+        // without close_group Herdr refuses a root that has linked worktrees.
+        await call('workspace.close', { workspace_id: workspace.id, close_group: true });
         return { status: 'closed' };
     } catch (error) {
         if (isGoneHerdr(error)) {
