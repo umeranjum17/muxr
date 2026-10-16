@@ -172,6 +172,14 @@ const wordSplitLeads = (nodes, words) => {
     return [...new Set(out)];
 };
 
+// Android ellipsizes at paint time and the dump keeps the whole label, so a
+// tail ellipsis shows only in the pixels: an OCR word inside the node ending in
+// `..` or `…` that the label itself does not hold.
+const paintedEllipsisLeads = (nodes, words) => nodes.filter((n) => n.at.text).flatMap((n) => words
+    .filter((w) => /(\.\.|…)$/.test(w.text) && !n.at.text.includes(w.text)
+        && w.l >= n.box.l - 4 && w.r <= n.box.r + 4 && w.t >= n.box.t - 4 && w.b <= n.box.b + 4)
+    .map((w) => `ellipsis cuts the text: "${n.label}" painted as "${w.text}" ${n.at.bounds}`));
+
 const aspect = ({ l, t, r, b }) => (r - l) / (b - t);
 
 // An image is matched to its reference by resource-id and content-desc, the nth occurrence of each pair; with neither, by order.
@@ -430,6 +438,12 @@ const selfTest = () => {
     expect('native screenshots flag split Securely, Tailscale and Connect against full labels; whole-word wrapping is clean',
         ['Securely', 'Tailscale', 'Connect'].every((word) => splits.some((l) => l.startsWith(`word split across lines: "${word}"`)))
         && wordSplitLeads(pairTitle, ocrWords(intactShot)).length === 0, splits.join(' | '));
+    const header = nodesOf(el('android.widget.TextView', '[80,159][1000,432]', { text: 'Connect a machine' }));
+    const cutShot = pngOf('header-cut', ['-font', font, '-pointsize', '64', '-fill', 'white', '-draw', "text 86,270 'Connect a machi..'"]);
+    const wrapShot = pngOf('header-wrap', ['-font', font, '-pointsize', '64', '-fill', 'white', '-draw', "text 86,250 'Connect a' text 86,390 'machine'"]);
+    const cut = paintedEllipsisLeads(header, ocrWords(cutShot));
+    expect('a header painted as "Connect a machi.." (real 270 dp / font 2.0 bounds) is flagged; wrapped to two lines it is clean',
+        cut.some((l) => l.startsWith('ellipsis cuts the text: "Connect a machine"')) && paintedEllipsisLeads(header, ocrWords(wrapShot)).length === 0, cut.join(' | '));
     expect('black strip on the screen edge is flagged, a uniform background is not', stripped.length === 1 && uniform.length === 0, `strip=${stripped.length} uniform=${uniform.length}`);
     process.exitCode = failed ? 1 : 0;
 };
@@ -524,7 +538,7 @@ const native = (serial, dir, name, flags) => {
     const found = layoutLeads(parseDump(xml), { W, H, status, nav, end: flags.includes('--end'), ref });
     let words;
     try { words = ocrWords(png); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    if (words) found.push(...wordSplitLeads(parseDump(xml), words));
+    if (words) found.push(...wordSplitLeads(parseDump(xml), words), ...paintedEllipsisLeads(parseDump(xml), words));
     else console.log('word-split check skipped: tesseract not found');
     found.push(...stripLeads(png, status?.[3] ?? 0, nav?.[1] ?? H, W));
     for (const line of found) console.log(`DEFECT ${name}: ${line}`);
