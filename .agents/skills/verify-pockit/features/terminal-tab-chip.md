@@ -1,15 +1,23 @@
-# Keep terminal tab chip labels inside their row
+# Keep terminal tab and notice chip labels inside their row
 
 The native terminal's pane-tabs row above the composer is one fixed height. At
 Android font scale 2.0 a tab chip's label grew past that height and its
-descenders (`g`, `p`, `y`) were cut off by the row's clip. The label is capped
-so it stays whole at the largest text sizes, and normal font scale is unchanged.
+descenders (`g`, `p`, `y`) were cut off by the row's clip. The notice chip that
+shares the row (a gesture hint such as `No other working or recently finished
+agent`, `Prompt queued`, `Reconnecting…` and the other connection words) did
+the same, and grew wide enough to squeeze the `main` tab to a sliver. Both
+labels are capped at 1.5x so they stay whole at the largest text sizes, and
+normal font scale is unchanged.
 
 ## Sub-features
 
 - `chip-label-cap` at font scale 2.0 a tab chip label shows its descenders in
   full, clear of the row's bottom edge.
 - `chip-label-normal` at font scale 1.0 the chip label renders exactly as before.
+- `notice-chip-cap` at font scale 2.0 the notice chip's words keep their
+  descenders inside the chip at 270 and 393 dp; a long hint ellipsizes on one
+  line, by design, and the tab beside it keeps its label.
+- `notice-chip-normal` at font scale 1.0 the notice chip renders exactly as before.
 
 ## How to get to it (user POV)
 
@@ -50,6 +58,20 @@ Preconditions:
 5. Pass: at 2.0 the label's ink clears the row's bottom edge (descenders whole);
    at 1.0 the label is pixel-identical to the same build before the cap
    (the cap only bites above 1.5).
+5a. Notice chip, same cells: the gesture hint comes from a sideways swipe on
+   the terminal with no other agent to reach (`input swipe 950 <y> 150 <y> 120`,
+   more than 24 dp in from either edge); it lasts 1.4 s, so `visualCheck.mjs`'s
+   screenshot holds it but its later dump usually does not. A status notice
+   comes from stopping the relay under the open pane: run
+   `terminalReconnectLab.mjs` (terminal-reconnect.md) as the stack, send it
+   `open` and then `relay 25`, and capture about 7 s later while `Reconnecting…`
+   shows. `Prompt queued` needs a real agent start (home-composer-first-prompt.md)
+   and draws through the same label, so the two above stand for it.
+   The installed PWA draws these chips at the page zoom (react-native-web pins
+   `fontScale` to 1 and ignores the cap), so capture it as `../SKILL.md`'s
+   Visual check says and expect it unchanged. A raw CDP
+   `Input.dispatchTouchEvent` swipe drives the hint there; chrome-devtools-axi
+   has no touch drag, and a mouse drag is text selection, not a page turn.
 6. Undo the display: `wm size reset`, `wm density reset`,
    `settings put system font_scale 1.0`, `cmd uimode night no`.
 
