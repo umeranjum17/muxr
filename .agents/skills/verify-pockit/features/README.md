@@ -102,7 +102,7 @@ user-visible behavior, then exactly four H2 sections in this order:
   sent from Home opens the new OpenCode agent at once with `Prompt queued`;
   the prompt is delivered once the agent is ready, Home is free after spawn,
   and if it cannot be, the text returns to Home's composer and the agent's
-  input marked not sent.
+  draft marked not sent.
 - [Long silence never fills the composer](./dictation-silence-gate.md) —
   file-fed Silero speech gate on the phone's Whisper finals: 120 s near-silence
   should leave the draft empty while quiet and clean fixtures still transcribe.
