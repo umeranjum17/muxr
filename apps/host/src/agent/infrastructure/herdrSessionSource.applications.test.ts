@@ -75,6 +75,24 @@ function fakeHerdr(dir: string, plugins: unknown[]) {
                         reply = { tab: { tab_id: 'owned-tab' }, root_pane: anchor };
                         break;
                     }
+                    // The kit's guarded closes read the live tree before closing.
+                    case 'pane.get': {
+                        const pane = panes().find((entry) => entry.pane_id === p.pane_id);
+                        reply = pane === undefined ? { error: { code: 'pane_not_found', message: 'gone' } } : { pane };
+                        break;
+                    }
+                    case 'tab.get': {
+                        const count = panes().filter((entry) => entry.tab_id === p.tab_id).length;
+                        reply = count === 0 ? { error: { code: 'tab_not_found', message: 'gone' } } : { tab: { tab_id: p.tab_id, workspace_id: 'work', pane_count: count } };
+                        break;
+                    }
+                    case 'workspace.get':
+                        reply = { workspace: { workspace_id: 'work', label: 'Work', tab_count: new Set(panes().map((entry) => entry.tab_id)).size } };
+                        break;
+                    case 'tab.close':
+                        save(panes().filter((entry) => entry.tab_id !== p.tab_id));
+                        reply = {};
+                        break;
                     case 'pane.close': {
                         save(panes().filter((pane) => (pane as { pane_id: string }).pane_id !== p.pane_id));
                         reply = {};

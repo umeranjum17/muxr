@@ -36,7 +36,7 @@ import { hostDesktopForPanes } from '../../desktop/index.js';
 import { defaultOpencodeGoModel, opencodeLaunchArgs } from '../../plans/opencodeAccounts.js';
 import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
-import { closeAgent } from './agentClose.js';
+import { closeAgent, widened } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
 import { foregroundProgramPids, shellHasLiveChild, shellPidOf, writeModeResetToPane } from './paneModeReset.js';
 import { MODE_RESET_CSI } from './terminalModes.js';
@@ -56,7 +56,7 @@ import type {
     PlanMoveOptions,
 } from '../application/sessionSource.js';
 import { KitHerdrClient, type HerdrCaller } from './herdrKitClient.js';
-import type { AgentStatus } from '@byokit/herdr';
+import type { AgentStatus, PlaceTarget } from '@byokit/herdr';
 import { agentInstallState } from '@byokit/herdr';
 import {
     AgentRouteStore,
@@ -1602,9 +1602,8 @@ export async function createHerdrSessionSource(
         return launched;
     }
 
-    async function startManagedAgent(paneId: string, kind: string, launchName: string, pathEnv?: string): Promise<void> {
-        const launchEnv = pathEnv === undefined ? process.env : { ...process.env, PATH: pathEnv };
-        const args = kind === 'opencode' ? opencodeLaunchArgs(launchEnv) : [];
+    async function startManagedAgent(paneId: string, kind: string, launchName: string): Promise<void> {
+        const args = kind === 'opencode' ? opencodeLaunchArgs() : [];
         await client.kit.startAgent({
             kind, name: launchName, cwd: panesById.get(paneId)?.cwd ?? homedir(),
             place: { pane: paneId }, timeoutMs: 60_000,
@@ -1988,7 +1987,7 @@ export async function createHerdrSessionSource(
                 if (!('info' in snapshot)) {
                     for (const session of started.reverse()) {
                         transition(session, 'failed', 'squad-rolled-back');
-                        await client.call('pane.close', { pane_id: session.paneId }).catch(() => undefined);
+                        await rollbackPane(session.paneId);
                         removeRouteState(session.sessionId);
                         routes.remove(session.sessionId);
                     }
@@ -2038,9 +2037,9 @@ export async function createHerdrSessionSource(
         };
 
         let cwd = startOptions.cwd;
-        let workspaceId: string | undefined;
-        try {
-            if (startOptions.worktree !== undefined) {
+        let place: PlaceTarget = { workspace: cwd, ...(requestedLabel === undefined ? {} : { label: requestedLabel }) };
+        if (startOptions.worktree !== undefined) {
+            try {
                 const created = await client.call<{
                     workspace?: { workspace_id?: string; worktree?: { checkout_path?: string } };
                 }>(
@@ -2052,66 +2051,42 @@ export async function createHerdrSessionSource(
                         ...(startOptions.worktree.base === undefined ? {} : { base: startOptions.worktree.base }),
                     },
                 );
-                workspaceId = created.workspace?.workspace_id;
-                const checkout = created.workspace?.worktree?.checkout_path;
-                if (checkout !== undefined) cwd = checkout;
+                const workspaceId = created.workspace?.workspace_id;
+                if (workspaceId === undefined) return earlyFailure();
+                cwd = created.workspace?.worktree?.checkout_path ?? cwd;
+                place = { tab: 'new', workspaceId, ...(requestedLabel === undefined ? {} : { label: requestedLabel }) };
+            } catch {
+                return earlyFailure();
             }
-
-            if (workspaceId === undefined) {
-                const workspaces = await client.call<{ workspaces?: { workspace_id: string; label?: string }[] }>(
-                    'workspace.list',
-                );
-                const existing = (workspaces.workspaces ?? []).find((workspace) => workspace.label === cwd);
-                if (existing !== undefined) {
-                    workspaceId = existing.workspace_id;
-                } else {
-                    const created = await client.call<{ workspace?: { workspace_id: string } }>('workspace.create', {
-                        cwd,
-                        label: cwd,
-                        env: paneEnvironment(),
-                        focus: false,
-                    });
-                    workspaceId = created.workspace?.workspace_id;
-                }
-            }
-        } catch {
-            return earlyFailure();
         }
-        if (workspaceId === undefined) return earlyFailure();
 
-        let tab: { tab?: { tab_id: string }; root_pane?: { pane_id: string } };
-        try {
-            tab = await client.call('tab.create', {
-                workspace_id: workspaceId,
-                cwd,
+        if (kind === 'shell') {
+            let paneId: string;
+            try {
                 // A plan account rides on the new pane only: without one this
-                // is byte-for-byte today's launch.
-                env: { ...paneEnvironment(), ...startOptions.planEnv },
-                ...(requestedLabel === undefined ? {} : { label: requestedLabel }),
-                focus: false,
-            });
-        } catch {
-            return earlyFailure();
-        }
-        const paneId = tab.root_pane?.pane_id;
-        if (paneId === undefined || tab.tab?.tab_id === undefined) return earlyFailure();
-
-        try {
-            if (startOptions.planUnset !== undefined && startOptions.planUnset.length > 0) {
-                // Names come only from the host-resolved published account contract; no credential values are echoed.
-                await client.call('pane.send_text', { pane_id: paneId, text: `unset ${startOptions.planUnset.join(' ')}\n` });
-                for (const name of startOptions.planUnset) {
-                    if (!await checkPaneEnv(paneId, name, '', true)) throw new Error('The selected account could not shed inherited credentials.');
-                }
+                // is byte-for-byte today's shell.
+                const placed = await client.kit.place({ cwd, place, env: { ...paneEnvironment(), ...startOptions.planEnv } });
+                paneId = placed.paneId;
+                // kit.place drops the label on a workspace it creates; name the tab either way.
+                if (requestedLabel !== undefined) await client.call('tab.rename', { tab_id: placed.tabId, label: requestedLabel });
+            } catch {
+                return earlyFailure();
             }
-            // A sign-in's own script sets its folder; echoing a check into
-            // that tab would only show muxr's plumbing above the sign-in.
-            for (const [name, folder] of Object.entries(startOptions.signIn === undefined ? startOptions.planEnv ?? {} : {})) {
-                if (!await checkPaneEnv(paneId, name, folder)) {
-                    throw new Error('The selected account did not reach the new pane.');
+            try {
+                if (startOptions.planUnset !== undefined && startOptions.planUnset.length > 0) {
+                    // Names come only from the host-resolved published account contract; no credential values are echoed.
+                    await client.call('pane.send_text', { pane_id: paneId, text: `unset ${startOptions.planUnset.join(' ')}\n` });
+                    for (const name of startOptions.planUnset) {
+                        if (!await checkPaneEnv(paneId, name, '', true)) throw new Error('The selected account could not shed inherited credentials.');
+                    }
                 }
-            }
-            if (kind === 'shell') {
+                // A sign-in's own script sets its folder; echoing a check into
+                // that tab would only show muxr's plumbing above the sign-in.
+                for (const [name, folder] of Object.entries(startOptions.signIn === undefined ? startOptions.planEnv ?? {} : {})) {
+                    if (!await checkPaneEnv(paneId, name, folder)) {
+                        throw new Error('The selected account did not reach the new pane.');
+                    }
+                }
                 await refreshSnapshot();
                 const shell = currentSession(shellRoute(paneId));
                 if (shell === undefined) return earlyFailure();
@@ -2120,30 +2095,58 @@ export async function createHerdrSessionSource(
                 }
                 emitState(shell.sessionId);
                 return snapshotFor(shell, true);
+            } catch {
+                await rollbackPane(paneId);
+                return earlyFailure();
             }
-            const launchName = `pp_${randomBytes(8).toString('hex')}`;
-            // The tab was created at `cwd`; seed it so the start snapshot and the
-            // agent launch carry that cwd instead of waiting for a snapshot read.
-            seedLaunchPane(paneId, {
-                pane_id: paneId,
-                cwd,
-                tab_id: tab.tab.tab_id,
-                workspace_id: workspaceId,
-            });
-            tabsById.set(tab.tab.tab_id, {
-                tab_id: tab.tab.tab_id,
-                workspace_id: workspaceId,
-                ...(requestedLabel === undefined ? {} : { label: requestedLabel }),
-            });
-            rememberLaunch(paneId, kind, launchName);
-            // An OpenCode agent on an account signed in to OpenCode Go opens on
-            // the Go default model; every other kind, provider, and a pane without
-            // a plan account keep today's launch.
-            if (kind === 'opencode') {
-                try { defaultOpencodeGoModel(startOptions.planEnv ?? {}); }
-                catch { /* An unwritable config only costs the default model; the agent still starts. */ }
+        }
+
+        const launchName = `pp_${randomBytes(8).toString('hex')}`;
+        // An OpenCode agent on an account signed in to OpenCode Go opens on
+        // the Go default model; every other kind, provider, and a pane without
+        // a plan account keep today's launch.
+        if (kind === 'opencode') {
+            try { defaultOpencodeGoModel(startOptions.planEnv ?? {}); }
+            catch { /* An unwritable config only costs the default model; the agent still starts. */ }
+        }
+        const unset = startOptions.planUnset ?? [];
+        const plan = startOptions.planEnv !== undefined || unset.length > 0;
+        // A plan account is a verifying overlay: the kit lands it (and the unsets) on the
+        // pane's inherited environment and proves it in the pane before agent.start, so a
+        // shell rc cannot redirect the selected account. Without one this is today's launch.
+        const env = plan
+            ? {
+                overlay: Object.fromEntries(Object.entries({ ...paneEnvironment(), ...startOptions.planEnv })
+                    .filter(([name]) => !unset.includes(name))),
+                unset,
             }
-            await startManagedAgent(paneId, kind, launchName, startOptions.planEnv?.PATH);
+            : paneEnvironment();
+        const launchEnv = startOptions.planEnv?.PATH === undefined ? process.env : { ...process.env, PATH: startOptions.planEnv.PATH };
+        const args = kind === 'opencode' ? opencodeLaunchArgs(launchEnv) : [];
+        let paneId: string | undefined;
+        let launched = false;
+        try {
+            await client.kit.startAgent({
+                kind, name: launchName, cwd, place, env, timeoutMs: 60_000,
+                ...(args.length === 0 ? {} : { args }),
+                onEvent: (event) => {
+                    if (event.phase !== 'placed') return;
+                    paneId = event.ref.paneId;
+                    // Seed the placement so the start snapshot and the agent launch
+                    // carry its cwd instead of waiting for a snapshot read.
+                    seedLaunchPane(paneId, { pane_id: paneId, cwd, tab_id: event.ref.tabId, workspace_id: event.ref.workspaceId });
+                    tabsById.set(event.ref.tabId, {
+                        ...tabsById.get(event.ref.tabId),
+                        tab_id: event.ref.tabId,
+                        workspace_id: event.ref.workspaceId,
+                        ...(requestedLabel === undefined ? {} : { label: requestedLabel }),
+                    });
+                    rememberLaunch(paneId, kind, launchName);
+                },
+            });
+            launched = true;
+            if (paneId === undefined) throw new Error('herdr: the start placed no pane');
+            recordStartedAgent(paneId, kind, launchName);
             const session = bindListedPane(paneId) ?? await waitForListedAgent(paneId, 5_000);
             const publishedKind = publicAgentKind(kind);
             options.onAgentLaunchDiagnostic?.('ok', {
@@ -2155,16 +2158,31 @@ export async function createHerdrSessionSource(
             void confirmLaunch(paneId, kind, session.sessionId);
             return snapshotFor(session, true);
         } catch (error) {
-            forgetLaunch(paneId);
+            if (paneId !== undefined) forgetLaunch(paneId);
             await refreshSnapshot().catch(() => undefined);
             const gate = launchMissGate(paneId);
-            await client.call('pane.close', { pane_id: paneId }).catch(() => undefined);
+            // A failed kit start already rolled back what it made.
+            if (launched && paneId !== undefined) await rollbackPane(paneId);
             const code = herdrFailureCode(error);
             return earlyFailure(
                 gate,
                 code === 'unsupported_agent_kind' ? 'That agent is not installed.' : 'Agent could not start.',
             );
         }
+    }
+
+    /**
+     * Closes a pane a start just made through the kit's confirmed closes: the
+     * pane, its own tab when it is the tab's only pane, and the workspace when
+     * that tab is the workspace's only one. Best-effort, like any rollback.
+     */
+    async function rollbackPane(paneId: string): Promise<void> {
+        try {
+            const tab = await widened(client.kit.closePane(paneId));
+            if (tab === undefined) return;
+            const workspace = await widened(client.kit.closePane(paneId, { confirmed: { scope: 'tab', id: tab.id } }));
+            if (workspace !== undefined) await client.kit.closeWorkspace(workspace.id);
+        } catch { /* rollback is best-effort */ }
     }
 
     function realtimeAgentFor(session: CurrentSession): RealtimeCodingAgent {
@@ -2443,15 +2461,10 @@ export async function createHerdrSessionSource(
 
         // Every launch gets an owned tab: an action may split its anchor, and
         // its result can never be confused with an unrelated pane created elsewhere.
-        const created = await client.call<{ tab?: { tab_id?: string }; root_pane?: { pane_id?: string } }>('tab.create', {
-            workspace_id: workspaceId,
+        const { paneId: anchor, tabId } = await client.kit.place({
             cwd: launchCwd,
-            label: entry.title,
-            focus: false,
+            place: { tab: 'new', workspaceId, label: entry.title },
         });
-        const anchor = created.root_pane?.pane_id;
-        const tabId = created.tab?.tab_id;
-        if (anchor === undefined || tabId === undefined) throw new Error('Could not create a pane for this application.');
         const actionPanes = (): string[] => [...panesById.values()]
             .filter((pane) => pane.tab_id === tabId && pane.pane_id !== anchor)
             .map((pane) => pane.pane_id);
@@ -2506,7 +2519,7 @@ export async function createHerdrSessionSource(
             } while (Date.now() < deadline);
             const openedPane = opened[0];
             if (opened.length !== 1 || openedPane === undefined) throw new Error('The application did not open exactly one pane.');
-            await client.call('pane.close', { pane_id: anchor });
+            await client.kit.closePane(anchor);
             await refreshSnapshot();
             return { title: entry.title, sessionId: shellRoute(openedPane) };
         } catch (cause) {
@@ -2514,7 +2527,7 @@ export async function createHerdrSessionSource(
             // in Panes rather than orphaning work, and only clean an empty tab.
             await refreshSnapshot().catch(() => undefined);
             const remaining = actionPanes();
-            if (remaining.length === 0) await client.call('pane.close', { pane_id: anchor }).catch(() => undefined);
+            if (remaining.length === 0) await rollbackPane(anchor);
             if (remaining.length > 0) {
                 throw new Error('The application did not finish starting. Its pane is available in Panes; check its output before retrying.');
             }
@@ -2765,14 +2778,10 @@ export async function createHerdrSessionSource(
             kind?: string;
         }): Promise<{ paneId: string; sessionId?: string }> {
             const record = await resolvePane(splitOptions.sessionId);
-            const result = await client.call<{ pane?: { pane_id?: string } }>('pane.split', {
-                direction: splitOptions.direction,
-                target_pane_id: record.paneId,
+            const { paneId: newPaneId } = await client.kit.place({
+                place: { split: record.paneId, direction: splitOptions.direction },
                 env: paneEnvironment(),
-                focus: false,
             });
-            const newPaneId = result.pane?.pane_id;
-            if (newPaneId === undefined) throw new Error('herdr: pane.split returned no pane');
             if (splitOptions.kind === undefined) {
                 await refreshSnapshot();
                 return { paneId: newPaneId, sessionId: shellRoute(newPaneId) };
@@ -3135,12 +3144,11 @@ export async function createHerdrSessionSource(
             const cwd = cwdForSession(sessionId);
             if (workspaceId === undefined || cwd === undefined) throw new Error('herdr: session has no workspace');
             const requestedLabel = options.label?.trim();
-            const tab = await client.call<{ tab?: { tab_id: string }; root_pane?: { pane_id: string } }>(
-                'tab.create',
-                { workspace_id: workspaceId, cwd, env: paneEnvironment(), ...(requestedLabel === undefined ? {} : { label: requestedLabel }), focus: false },
-            );
-            const paneId = tab.root_pane?.pane_id;
-            if (paneId === undefined || tab.tab?.tab_id === undefined) throw new Error('herdr: tab.create returned no root pane');
+            const { paneId, tabId } = await client.kit.place({
+                cwd,
+                place: { tab: 'new', workspaceId, ...(requestedLabel === undefined ? {} : { label: requestedLabel }) },
+                env: paneEnvironment(),
+            });
             if (options.kind === undefined) {
                 await refreshSnapshot();
                 emitState(shellRoute(paneId));
@@ -3152,11 +3160,11 @@ export async function createHerdrSessionSource(
             seedLaunchPane(paneId, {
                 pane_id: paneId,
                 cwd,
-                tab_id: tab.tab.tab_id,
+                tab_id: tabId,
                 workspace_id: workspaceId,
             });
-            tabsById.set(tab.tab.tab_id, {
-                tab_id: tab.tab.tab_id,
+            tabsById.set(tabId, {
+                tab_id: tabId,
                 workspace_id: workspaceId,
                 ...(requestedLabel === undefined ? {} : { label: requestedLabel }),
             });
@@ -3232,10 +3240,8 @@ export async function createHerdrSessionSource(
 
         async abort(sessionId: string): Promise<void> {
             const record = await resolvePane(sessionId);
-            await client
-                .call('agent.send_keys', { target: record.paneId, keys: ['escape'] })
-                .catch(() => client.call('pane.send_keys', { pane_id: record.paneId, keys: ['escape'] }))
-                .catch(() => {});
+            // The kit falls back to pane.send_keys for a plain shell route.
+            await client.kit.sendKeys({ paneId: record.paneId }, ['escape']).catch(() => {});
         },
 
         async reload(): Promise<void> {

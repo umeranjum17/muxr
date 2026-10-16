@@ -4,9 +4,9 @@
  *
  * The pane, tab and workspace steps are the kit's closePane/closeTab/
  * closeWorkspace: each refuses a close that would widen and names the wider
- * target, which is the next rung. Only the confirmed worktree-group close is a
- * raw `workspace.close { close_group }` on the group root, because the kit
- * has no confirmed-scope close and Herdr closes the group atomically.
+ * target, which is the next rung. A worktree-group root's refusal names the
+ * group with its repo name and size, and the confirmed group close echoes it
+ * back so the kit closes the whole group atomically.
  */
 import type { HerdrKit } from '@byokit/herdr';
 import type { CloseResult, CloseScope } from '@trymuxr/contract';
@@ -15,7 +15,7 @@ export type HerdrCall = (method: string, params?: Record<string, unknown>) => Pr
 export type CloseKit = Pick<HerdrKit, 'closePane' | 'closeTab' | 'closeWorkspace'>;
 
 /** The wider target a kit close refusal names, or undefined when the close went through. */
-type Wider = { id: string; label: string };
+type Wider = { id: string; label: string; size?: number };
 
 const GONE = new Set(['pane_not_found', 'tab_not_found', 'workspace_not_found']);
 const CLOSE_LADDER = ['pane', 'tab', 'workspace', 'worktreeGroup'] as const;
@@ -157,15 +157,19 @@ async function revalidate(call: HerdrCall, paneId: string): Promise<{ located: L
     }
 }
 
-async function widened(close: Promise<void>): Promise<Wider | undefined> {
+export async function widened(close: Promise<void>): Promise<Wider | undefined> {
     try {
         await close;
         return undefined;
     } catch (error) {
-        const refusal = error as { code?: unknown; id?: unknown; label?: unknown } | null;
+        const refusal = error as { code?: unknown; id?: unknown; label?: unknown; size?: unknown } | null;
         if (typeof refusal?.code !== 'string' || !refusal.code.endsWith('-close-would-widen')
             || typeof refusal.id !== 'string') throw error;
-        return { id: refusal.id, label: typeof refusal.label === 'string' ? refusal.label : '' };
+        return {
+            id: refusal.id,
+            label: typeof refusal.label === 'string' ? refusal.label : '',
+            ...(typeof refusal.size === 'number' ? { size: refusal.size } : {}),
+        };
     }
 }
 
@@ -193,17 +197,17 @@ export async function closeAgent({ paneId, confirmedScope, kit, call }: {
         const workspaceLabel = labelOf(workspace.label, 'workspace');
         if (!allows('workspace')) return confirmation('workspace', { workspaceLabel });
         attemptedScope = 'workspace';
-        // The kit refuses only a worktree-group root here.
-        if (await widened(kit.closeWorkspace(workspace.id)) === undefined) return { status: 'closed' };
+        // The kit refuses only a worktree-group root here, naming the group's repo and size.
+        const group = await widened(kit.closeWorkspace(workspace.id));
+        if (group === undefined) return { status: 'closed' };
         if (!allows('worktreeGroup')) {
-            // The refusal names the root; the sentence also needs the group's repo name and size.
-            const live = locate(await snapshot(call), paneId);
-            return confirmation('worktreeGroup', live ?? { workspaceLabel });
+            return confirmation('worktreeGroup', {
+                workspaceLabel,
+                ...(group.size === undefined ? {} : { group: { label: labelOf(group.label, workspaceLabel), size: group.size } }),
+            });
         }
         attemptedScope = 'worktreeGroup';
-        // worktreeGroup is explicit consent to Herdr's own atomic group close;
-        // without close_group Herdr refuses a root that has linked worktrees.
-        await call('workspace.close', { workspace_id: workspace.id, close_group: true });
+        await kit.closeWorkspace(workspace.id, { confirmed: { scope: 'worktreeGroup', id: group.id } });
         return { status: 'closed' };
     } catch (error) {
         if (isGoneHerdr(error)) {
