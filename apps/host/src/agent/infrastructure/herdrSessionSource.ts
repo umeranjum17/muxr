@@ -3053,14 +3053,14 @@ export async function createHerdrSessionSource(
                 const paneId = newPanes[index];
                 if (kind === undefined || paneId === undefined) continue;
                 const name = `pph_${kind}_${paneId.replace(/[^a-z0-9]/gi, '').toLowerCase()}`.slice(0, 32);
-                // Fire and forget: agent.start blocks on detection, and one agent
+                // Fire and forget: a start blocks on detection, and one agent
                 // failing to come up must not lose the rest of the layout.
                 const args = kind === 'opencode' ? opencodeLaunchArgs() : [];
-                void client
-                    .call('agent.start', {
-                        name, kind, pane_id: paneId, timeout_ms: 30_000,
+                void client.kit
+                    .startAgent({
+                        kind, name, cwd: homedir(), place: { pane: paneId }, timeoutMs: 30_000,
                         ...(args.length === 0 ? {} : { args }),
-                    }, 45_000)
+                    })
                     .catch(() => {});
                 started += 1;
             }
