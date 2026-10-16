@@ -1490,15 +1490,17 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // What the pane is doing while it is not live, or the hint a gesture
             // left: one chip in the row under the terminal, never over output.
             const noticeChip = { flexShrink: 1, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, height: PANE_TABS_HEIGHT, marginLeft: 4, paddingHorizontal: 10, borderRadius: PANE_TABS_HEIGHT / 2, backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider };
-            const noticeText = { flexShrink: 1, color: theme.colors.textSecondary, fontSize: 11 };
+            // Capped like the tabs beside it, so the chip keeps the row's one
+            // fixed height at the largest system text.
+            const noticeLabel = (text: string) => <Text numberOfLines={1} maxFontSizeMultiplier={1.5} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 11 }}>{text}</Text>;
             const terminalNotice = gestureHint !== null
-                ? <View pointerEvents="none" style={noticeChip}><Text numberOfLines={1} style={noticeText}>{gestureHint}</Text></View>
+                ? <View pointerEvents="none" style={noticeChip}>{noticeLabel(gestureHint)}</View>
                 : firstPromptQueued
-                    ? <View pointerEvents="none" accessibilityLabel="Prompt queued until the agent is ready" style={noticeChip}><ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} /><Text numberOfLines={1} style={noticeText}>Prompt queued</Text></View>
+                    ? <View pointerEvents="none" accessibilityLabel="Prompt queued until the agent is ready" style={noticeChip}><ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} />{noticeLabel('Prompt queued')}</View>
                 : showConnectingStatus
-                    ? <View pointerEvents="none" style={noticeChip}><ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} /><Text numberOfLines={1} style={noticeText}>{statusText}</Text></View>
+                    ? <View pointerEvents="none" style={noticeChip}><ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} />{noticeLabel(statusText)}</View>
                     : showUnconfirmedStatus
-                        ? <View pointerEvents="none" accessibilityLabel={statusText} style={noticeChip}><Text numberOfLines={1} style={noticeText}>{statusText}</Text></View>
+                        ? <View pointerEvents="none" accessibilityLabel={statusText} style={noticeChip}>{noticeLabel(statusText)}</View>
                         : showRetryStatus
                             ? (
                                 <Pressable
@@ -1508,7 +1510,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                     accessibilityLabel={shownStatus.includes('another device') ? 'Use this terminal here' : `Reconnect terminal. ${statusText}`}
                                     style={({ pressed }) => [noticeChip, { opacity: pressed ? 0.7 : 1 }]}
                                 >
-                                    <Text numberOfLines={1} style={noticeText}>{statusText}</Text>
+                                    {noticeLabel(statusText)}
                                     <Ionicons name="refresh-outline" size={12} color={theme.colors.textSecondary} />
                                 </Pressable>
                             )
