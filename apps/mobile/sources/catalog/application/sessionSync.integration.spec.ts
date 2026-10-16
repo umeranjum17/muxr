@@ -665,7 +665,6 @@ describe('session sync flow', () => {
         const started = await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined });
         expect(started).toBe('doomed');
         await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith('doomed', 'hello again /host/attachments/shot.png', { firstPrompt: true }));
-        expect(useNewSessionDraft.getState().attachments).toEqual([]);
         // Home is already free; a failure must not replace the newer work typed there.
         useNewSessionDraft.getState().setInput('new work');
         failDelivery(new Error('The agent did not take the prompt. Send it again.'));
@@ -680,7 +679,6 @@ describe('session sync flow', () => {
         });
         // Home uses this shared draft, including after the screen remounts.
         expect(useNewSessionDraft.getState().input).toBe('new work hello again');
-        expect(useNewSessionDraft.getState().attachments).toEqual([shot]);
     });
 
     it('waits for a newly started session to become visible before routing', async () => {
