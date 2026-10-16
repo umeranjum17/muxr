@@ -1431,8 +1431,16 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 maxFontSizeMultiplier={1.5}
                 accessibilityLabel="Prompt"
                 // Web: remove the focus ring; the rail is not a browser widget.
+                // A textarea never grows on its own, and react-native-web
+                // measures only typed text, so a restored draft stayed one
+                // row with its second line cut. `field-sizing` grows it to
+                // the same 120 for any text, and the vertical air moves
+                // outside the box: a textarea scrolls its text through its
+                // padding, so a full field showed a sliver of the next line.
+                // Empty, it keeps its one row: sized to the placeholder, a
+                // narrow rail wrapped "Prompt…" a letter per line.
                 style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingLeft: 14, paddingRight: 2, paddingVertical: 8, fontSize: 15, maxHeight: 120,
-                    ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } as any : {}) }}
+                    ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0, fieldSizing: draft === '' ? 'fixed' : 'content', paddingVertical: 0, marginVertical: 8, maxHeight: 104 } as any : {}) }}
             />;
             // In-field controls are circles on one size, like everything else
             // on this rail: the screen has exactly two shapes, a round control
