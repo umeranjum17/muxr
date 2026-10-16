@@ -91,12 +91,19 @@ import {
 } from '../domain/layout.js';
 import { rollupLifecycle } from '../domain/lifecycle.js';
 import { blockedQuestion } from '../domain/blockedQuestion.js';
+import { QUOTA_RETRY_REASON, quotaRetryDetail, tailLines } from '../domain/quotaRetry.js';
 import { reportAgentOutcome } from '../application/reportAgentOutcome.js';
 import { agentKindsFromManifests } from '../domain/agentKinds.js';
 
 const PROMPT_READY_TIMEOUT_MS = 30_000;
 /** How long a blocked alert waits for the kit to read the agent's question before going out without it. */
 const QUESTION_WAIT_MS = 3_000;
+/** Minimum gap between quota-retry pane reads for one settled session. */
+const QUOTA_PROBE_DEBOUNCE_MS = 20_000;
+/** Recent output lines a quota retry loop would print into. */
+const QUOTA_RETRY_TAIL_LINES = 25;
+/** A matching tail this old with no new output is a loop that ended quietly. */
+const QUOTA_RETRY_STALE_MS = 5 * 60_000;
 const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 /** Outlasts Herdr's 5 s window for a prompt to start a turn. */
@@ -605,6 +612,15 @@ export async function createHerdrSessionSource(
     /** Last emitted signatures per session, so snapshots publish only real changes. */
     const lastStateSignature = new Map<string, string>();
     const lastInfoSignature = new Map<string, string>();
+    /**
+     * Sessions whose recent pane output shows a plan/quota retry loop. While
+     * held, a settled idle/done reads as blocked everywhere the lifecycle is
+     * published; the entry clears on the next probe without a match, so the
+     * state returns to normal on its own when the loop ends.
+     */
+    const quotaRetryBySession = new Map<string, { tail: string; settledAt: number }>();
+    const quotaProbeAt = new Map<string, number>();
+    const quotaProbeFlight = new Set<string>();
 
     /** Stamp a freshly spawned pane with who asked for it. Best effort. */
     const lastReadinessBySession = new Map<string, string>();
@@ -992,11 +1008,78 @@ export async function createHerdrSessionSource(
         ),
     });
 
-    function lifecycleOf(session: CurrentSession): AgentLifecycle {
+    function rawLifecycleOf(session: CurrentSession): AgentLifecycle {
         const raw = session.agent?.agent_status ?? session.pane.agent_status;
         if (raw === 'idle' || raw === 'working' || raw === 'blocked' || raw === 'done' || raw === 'failed') return raw;
         const historical = options.lifecycle?.current(session.sessionId)?.state;
         return historical === 'starting' || historical === 'failed' ? historical : 'unknown';
+    }
+
+    function lifecycleOf(session: CurrentSession): AgentLifecycle {
+        const raw = rawLifecycleOf(session);
+        // A plan/quota retry loop settles Herdr to idle/done while the pane
+        // keeps retrying: it needs its user, not a finished label.
+        if ((raw === 'idle' || raw === 'done') && quotaRetryBySession.has(session.sessionId)) return 'blocked';
+        return raw;
+    }
+
+    /**
+     * Fire-and-forget quota-retry probe for a settled session: reads the
+     * pane's recent output once per debounce window and holds or releases the
+     * blocked override, re-emitting only on change. A matching tail that
+     * stops growing is a loop that ended quietly, so it releases on its own;
+     * any status change away from settled clears the hold immediately.
+     */
+    function probeQuotaRetry(sessionId: string, paneId: string): void {
+        if (quotaProbeFlight.has(sessionId)) return;
+        quotaProbeFlight.add(sessionId);
+        quotaProbeAt.set(sessionId, Date.now());
+        void (async () => {
+            try {
+                const session = currentSession(sessionId);
+                if (session === undefined || session.paneId !== paneId) return;
+                let text = '';
+                try {
+                    text = (await client.kit.read(paneId, { source: 'recent_unwrapped', lines: 40 })).text ?? '';
+                } catch {
+                    return;
+                }
+                if (text.trim() === '') {
+                    try {
+                        text = (await client.kit.read(paneId, { source: 'visible', ansi: false })).text ?? '';
+                    } catch {
+                        return;
+                    }
+                }
+                const tail = tailLines(text, QUOTA_RETRY_TAIL_LINES);
+                const now = Date.now();
+                if (quotaRetryDetail(tail) === undefined) {
+                    if (quotaRetryBySession.delete(sessionId)) emitState(sessionId);
+                    return;
+                }
+                const held = quotaRetryBySession.get(sessionId);
+                if (held === undefined || held.tail !== tail) {
+                    quotaRetryBySession.set(sessionId, { tail, settledAt: now });
+                    emitState(sessionId);
+                } else if (now - held.settledAt > QUOTA_RETRY_STALE_MS) {
+                    quotaRetryBySession.delete(sessionId);
+                    emitState(sessionId);
+                }
+            } finally {
+                quotaProbeFlight.delete(sessionId);
+            }
+        })();
+    }
+
+    function maybeProbeQuotaRetry(session: CurrentSession, raw: AgentLifecycle): void {
+        if (session.agent === undefined) return;
+        if (raw !== 'idle' && raw !== 'done') {
+            if (quotaRetryBySession.delete(session.sessionId)) emitState(session.sessionId);
+            return;
+        }
+        const last = quotaProbeAt.get(session.sessionId) ?? 0;
+        if (Date.now() - last < QUOTA_PROBE_DEBOUNCE_MS || quotaProbeFlight.has(session.sessionId)) return;
+        probeQuotaRetry(session.sessionId, session.paneId);
     }
 
     function lifecycleForPane(paneId: string, session: CurrentSession | undefined): AgentLifecycle {
@@ -1133,7 +1216,7 @@ export async function createHerdrSessionSource(
             case 'blocked':
                 changed = attention.clear(sessionId, 'failed') || changed;
                 {
-                    const setChanged = attention.set(sessionId, 'waiting', 'Agent needs attention.');
+                    const setChanged = attention.set(sessionId, 'waiting', quotaRetryBySession.get(sessionId) === undefined ? 'Agent needs attention.' : QUOTA_RETRY_REASON);
                     changed = setChanged || changed;
                     const eventId = options.lifecycle?.current(sessionId)?.eventId;
                     if (eventId !== undefined && (setChanged || notifiedBlocked.get(sessionId) !== eventId)) {
@@ -1195,6 +1278,8 @@ export async function createHerdrSessionSource(
         questionWaits.delete(sessionId);
         askedRevisions.delete(sessionId);
         notifiedBlocked.delete(sessionId);
+        quotaRetryBySession.delete(sessionId);
+        quotaProbeAt.delete(sessionId);
         publish(sessionId, { type: 'session.removed' });
     }
 
@@ -1203,6 +1288,7 @@ export async function createHerdrSessionSource(
         if (session === undefined) return;
         if (agentPromptable(session)) launchFailureByPane.delete(session.paneId);
         const agentStatus = lifecycleOf(session);
+        maybeProbeQuotaRetry(session, rawLifecycleOf(session));
         if (session.agent !== undefined) {
             const promptable = agentPromptable(session);
             const detail = readinessDetail(session);
