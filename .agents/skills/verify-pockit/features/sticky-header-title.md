@@ -1,18 +1,19 @@
 # Read a screen title in the sticky header
 
-Stack screens that use the shared sticky header (Settings, Accounts, and
-siblings) keep the title on one line inside the row. At 270 dp and font scale
-2.0 a short title such as Accounts still reads whole; a title longer than the
-row ends in a single-line ellipsis. The back control and any right-side actions
-stay fully visible and tappable. Wide screens at font 1.0 look unchanged.
+Screens that use the shared sticky header (Settings, Accounts, Home's
+"Connect a machine" before a computer is paired, and siblings) keep the title
+inside the row. At 270 dp and font scale 2.0 a title that does not fit on one
+line wraps to a second and reads whole; only a title longer than two lines ends
+in an ellipsis. The back control and any right-side actions stay fully visible
+and tappable. Wide screens at font 1.0 look unchanged.
 
 ## Sub-features
 
 - `header-title-short` Accounts / Settings at 270 dp font 2.0: title whole, no
   off-screen or mid-glyph clip.
-- `header-title-long` a longer stack title (for example Computer collaboration
-  or Conversation history) at 270 dp font 2.0: one line ending in `…` when it
-  cannot fit; that trailing ellipsis is the intended stress, not a defect.
+- `header-title-long` a longer title (Home's `Connect a machine` with no
+  computer paired, Computer collaboration, Conversation history) at 270 dp
+  font 2.0: wraps to two lines, every word whole, no `…`.
 - `header-title-wide` the same screens at 390 dp font 1.0: title and chrome
   match the pre-change layout.
 
@@ -21,6 +22,8 @@ stay fully visible and tappable. Wide screens at font 1.0 look unchanged.
 - Open Settings, then Accounts. Open one more stack screen whose title is
   longer than Accounts (Settings → Computer collaboration, or Conversation
   history from an agent).
+- Fresh install with no computer paired: Home's header reads
+  `Connect a machine`.
 
 ## Driving it with the private stack
 
@@ -31,12 +34,12 @@ Preconditions:
   standalone Chromium `--app=` window. Native: task-owned emulator under
   `flock -o /tmp/fm-muxr-emulator.lock`, every `adb` call with `-s <serial>`.
 - Capture Accounts, Settings, and one long-title screen at 270 dp / font 2.0
-  in light and dark on the installed PWA; capture Accounts at 270 dp / font
-  2.0 on native. Also shoot 390 dp / font 1.0 before/after for the unchanged
+  in light and dark on the installed PWA; capture Accounts and the unpaired
+  Home (`home-unpaired-<width>-<font>-<theme>.png`, no stack needed) at 270 dp
+  / font 2.0 on native. Also shoot 390 dp / font 1.0 before/after for the unchanged
   wide layout.
-- Pass: `visualCheck` prints `clean` for those cells (or only the long-title
-  ellipsis named above). Back stays tappable; nothing runs past the right
-  edge.
+- Pass: `visualCheck` prints `clean` for those cells. Back stays tappable;
+  nothing runs past the right edge.
 
 ## Gotchas
 
