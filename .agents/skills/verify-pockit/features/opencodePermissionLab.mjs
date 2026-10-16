@@ -36,7 +36,7 @@ const stub = createServer((req, res) => {
         const chunk = (delta, finish = null) => res.write(`data: ${JSON.stringify({ id: 'lab', object: 'chat.completion.chunk', created: 0, model: 'standin', choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         if (last?.role === 'tool') {
-            const distro = /PRETTY_NAME="?([^"\n]+)/.exec(JSON.stringify(last.content))?.[1];
+            const distro = /PRETTY_NAME="?([^"\n]+)/.exec(typeof last.content === 'string' ? last.content : JSON.stringify(last.content))?.[1];
             chunk({ role: 'assistant', content: distro ? `The distro is ${distro}.` : 'I was not allowed to read that file.' });
             chunk({}, 'stop');
         } else {
