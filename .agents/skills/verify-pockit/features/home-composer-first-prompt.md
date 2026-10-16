@@ -25,6 +25,11 @@ turn (`deliverFirstPrompt` in `apps/host/src/agent/infrastructure/herdrSessionSo
   reported as not sent, never typed again.
 - `first-prompt-failed` a prompt the agent never takes comes back into Home's
   composer and the agent's draft, with the error alert, even after returning Home.
+- `first-prompt-failed-attachments` a failed first prompt's attachments come
+  back into the agent composer with its text, in order: a file the host already
+  saved returns as a ready chip whose send reuses that saved path (no second
+  upload); one never saved uploads again from the agent screen. Home's dock
+  shows its own picker's files, so Home gets the text back but not the chips.
 - `first-prompt-home-free` go back to Home immediately after spawn: its composer
   accepts a new draft while the first prompt is still queued.
 - `first-prompt-ring-held` open the agent's command ring while `Prompt queued`
@@ -68,6 +73,18 @@ quota. Another model or a stub cannot substitute for that real receipt.
    one native 270 dp / font-scale 2.0 cell for draft retention and Shell's guard.
    Run the skill's Visual check; repeat on the exact published candidate head.
    A delivered prompt followed by a quota error is not a successful reply.
+
+For `first-prompt-failed-attachments`, attach one image on Home and break the
+route, not the agent: killing or `SIGSTOP`ping the agent retires its route (the
+shell takes the pane back) and the agent screen moves to that shell, so there is
+no agent composer left to restore into. Instead, once the attachment file lands
+under the lab host's `attachments/<session>/`, `kill -STOP` the lab's own relay
+PID (the `apps/relay/dist/main.js` child of the lab process), wait for the
+75 s `Your computer didn't answer in time.` alert, then `kill -CONT` it. The
+agent screen keeps its route; after the fix it shows the text and the image
+chip, and sending it puts the first attempt's saved path in the real TUI.
+A PWA picker is fed by intercepting the page's file `<input>` click and setting
+its `files`; `chrome-devtools-axi upload` does not reach it.
 
 ## Gotchas
 

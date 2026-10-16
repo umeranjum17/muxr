@@ -439,8 +439,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
 
     insertDraftRef.current = insertDraft;
 
+    const { attachments: pendingAttachments, pickImages, pickFiles, clearAttachments, addAttachments } = useAttachmentPicker();
+
     // A prompt sent from Home before this agent could take it: queued until the
-    // host delivers it, and back in this draft if it never arrives.
+    // host delivers it, and back in this composer if it never arrives. Files the
+    // host already saved come back ready; the rest upload again from here.
     const queuedPrompt = useQueuedFirstPrompts((queued) => queued[props.id]);
     const firstPromptQueued = isQueuedFirstPrompt(queuedPrompt);
     React.useEffect(() => {
@@ -449,9 +452,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         const next = appendToDraft(draftRef.current, queuedPrompt.text);
         draftRef.current = next;
         setDraft(next);
-    }, [queuedPrompt, props.id]);
-
-    const { attachments: pendingAttachments, pickImages, pickFiles, clearAttachments } = useAttachmentPicker();
+        const attachments = queuedPrompt.attachments ?? [];
+        const saved = attachments.filter((attachment) => attachment.path !== undefined);
+        if (saved.length > 0) setAttachedImages((current) => [...current, ...saved]);
+        const unsaved = attachments.filter((attachment) => attachment.path === undefined);
+        if (unsaved.length > 0) addAttachments(unsaved);
+    }, [queuedPrompt, props.id, addAttachments]);
 
     /**
      * On a pane whose scrollback Herdr owns, Latest shows while Herdr reports

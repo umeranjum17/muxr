@@ -632,13 +632,17 @@ describe('session sync flow', () => {
         await vi.waitFor(() => expect(isFirstPromptQueued('spawned')).toBe(false));
     });
 
-    it('returns a failed first prompt to Home and to the agent draft', async () => {
+    it('returns a failed first prompt to Home, and with its attachments to the agent composer', async () => {
         const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
         const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
         const { useQueuedFirstPrompts } = await import('@/terminal/application/queuedFirstPrompts');
+        const { readFileBytes } = await import('@/utils/readFileBytes');
         const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/umer' } } as never;
+        const shot = { id: 'shot', uri: 'blob:shot', mimeType: 'image/png', size: 3, name: 'shot.png' };
+        vi.mocked(readFileBytes).mockResolvedValue(new Uint8Array([1, 2, 3]));
         request.mockImplementation(async (method: string) => {
             if (method === 'plans.list') return { providers: [], autoTermsAcknowledged: true, autoTermsNote: '' };
+            if (method === 'session.saveAttachments') return { savedPaths: ['/host/attachments/shot.png'] };
             if (method !== 'session.start') throw new Error(`unexpected request: ${method}`);
             storage.setState({ sessions: { ...storage.getState().sessions, doomed: {} as Session } });
             return {
@@ -650,7 +654,7 @@ describe('session sync flow', () => {
         sendMessage.mockReset().mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { failDelivery = reject; }));
         modalAlert.mockClear();
         useQueuedFirstPrompts.setState({});
-        useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'shell', input: 'hello again', attachments: [] });
+        useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'shell', input: 'hello again', attachments: [shot] });
         expect(await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined })).toBeNull();
         expect(request).not.toHaveBeenCalled();
         expect(sendMessage).not.toHaveBeenCalled();
@@ -660,16 +664,56 @@ describe('session sync flow', () => {
         useNewSessionDraft.getState().setAgentType('opencode');
         const started = await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined });
         expect(started).toBe('doomed');
+        await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith('doomed', 'hello again /host/attachments/shot.png', { firstPrompt: true }));
         // Home is already free; a failure must not replace the newer work typed there.
         useNewSessionDraft.getState().setInput('new work');
         failDelivery(new Error('The agent did not take the prompt. Send it again.'));
         await vi.waitFor(() => expect(modalAlert).toHaveBeenCalledTimes(1));
         expect(modalAlert).toHaveBeenCalledWith(expect.any(String), 'The agent did not take the prompt. Send it again.');
-        // The agent screen takes this back into its own draft on mount, even
-        // when the person already went back to Home.
-        expect(useQueuedFirstPrompts.getState().doomed).toEqual({ text: 'hello again', failed: true });
+        // The agent screen takes this back into its own composer on mount, even
+        // when the person already went back to Home; the saved file keeps its path.
+        expect(useQueuedFirstPrompts.getState().doomed).toEqual({
+            text: 'hello again',
+            attachments: [{ ...shot, path: '/host/attachments/shot.png' }],
+            failed: true,
+        });
         // Home uses this shared draft, including after the screen remounts.
         expect(useNewSessionDraft.getState().input).toBe('new work hello again');
+    });
+
+    it('never sends a first prompt whose file the host did not confirm, and hands it back unsaved', async () => {
+        const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
+        const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
+        const { useQueuedFirstPrompts } = await import('@/terminal/application/queuedFirstPrompts');
+        const { readFileBytes } = await import('@/utils/readFileBytes');
+        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/umer' } } as never;
+        const shot = { id: 'shot', uri: 'blob:shot', mimeType: 'image/png', size: 3, name: 'shot.png' };
+        vi.mocked(readFileBytes).mockResolvedValue(new Uint8Array([1, 2, 3]));
+        request.mockImplementation(async (method: string) => {
+            if (method === 'plans.list') return { providers: [], autoTermsAcknowledged: true, autoTermsNote: '' };
+            // The host answered, but confirmed no file.
+            if (method === 'session.saveAttachments') return { savedPaths: [] };
+            if (method !== 'session.start') throw new Error(`unexpected request: ${method}`);
+            storage.setState({ sessions: { ...storage.getState().sessions, doomed: {} as Session } });
+            return {
+                info: { id: 'doomed' },
+                status: { sessionId: 'doomed', isStreaming: false, tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 } },
+            };
+        });
+        sendMessage.mockReset();
+        modalAlert.mockClear();
+        useQueuedFirstPrompts.setState({});
+        useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'opencode', input: 'hello again', attachments: [shot] });
+        const started = await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined });
+        expect(started).toBe('doomed');
+        await vi.waitFor(() => expect(modalAlert).toHaveBeenCalledTimes(1));
+        // The prompt never goes out without the file it carries.
+        expect(sendMessage).not.toHaveBeenCalled();
+        expect(modalAlert).toHaveBeenCalledWith(expect.any(String), 'The host did not confirm the file. Please attach it again.');
+        // Both composers get the prompt back, the file still unsaved, so a resend uploads it again.
+        expect(useQueuedFirstPrompts.getState().doomed).toEqual({ text: 'hello again', attachments: [shot], failed: true });
+        expect(useNewSessionDraft.getState().input).toBe('hello again');
+        expect(useNewSessionDraft.getState().attachments).toEqual([shot]);
     });
 
     it('waits for a newly started session to become visible before routing', async () => {
