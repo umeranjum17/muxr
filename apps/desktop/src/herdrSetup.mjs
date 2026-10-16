@@ -1,9 +1,10 @@
 /**
  * Herdr runs the agents, and on a computer with only this app nothing else
  * installs or starts it. This owns that: it says whether Herdr is missing,
- * installs the published release (the same herdr.dev installer `muxr setup`
- * runs, into the user's own folder, no root), and starts its server. The host
- * keeps retrying Herdr's socket, so the phone's agents appear without a restart.
+ * fetches the pinned, sha256-checked Herdr release asset through the herdr kit
+ * (never running a downloaded installer script) into the user's own folder, no
+ * root, and starts its server. The host keeps retrying Herdr's socket, so the
+ * phone's agents appear without a restart.
  *
  * Status: 'ok', 'missing', 'installing' (with a step) or 'failed' (with one
  * plain sentence; the raw cause goes to the log).
