@@ -13,7 +13,7 @@ import { BUILTIN_KEY_CATALOG, modifiedSend, resolveKeyRow, type RowEntry, type T
  * Keys that read better as a mark than as a word. An arrow rendered as the
  * character `\u2190` is a text glyph at text size — the thing on this row a
  * thumb reaches for most, drawn smallest. These are icons, at icon size, and
- * they keep the same 32dp target the text keys have.
+ * they keep the same target the text keys have.
  */
 const KEY_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
     '\u001b[D': 'arrow-back', '\u001b[A': 'arrow-up', '\u001b[B': 'arrow-down', '\u001b[C': 'arrow-forward',
@@ -35,6 +35,25 @@ const TRAILING_EDGE = 32;
  *  height. Capped, the same as the pane-tabs chip, so the labels stay whole and
  *  every key stays reachable at the largest text size. */
 const KEY_LABEL_MAX_SCALE = 1.5;
+/** A key's padding at full size and at its tightest, and the smallest its
+ *  label and icon may draw. */
+const KEY_PADDING = 8;
+const KEY_PADDING_MIN = 2;
+const KEY_SCALE_MIN = 0.8;
+const ROW_INSET = KEY_PADDING + TRAILING_EDGE;
+
+/**
+ * How tight the row draws to fit its width: a 270dp phone has room for half
+ * the default row at full size, which put the arrows off the edge. Padding
+ * gives way first, then the marks shrink; past both floors the row scrolls.
+ * `marks` is the row's width with no padding at full size.
+ */
+function keyRowFit(width: number, marks: number, count: number): { padding: number; scale: number } {
+    const room = width - ROW_INSET;
+    const padding = (room - marks) / (2 * count);
+    if (padding >= KEY_PADDING_MIN) return { padding: Math.min(KEY_PADDING, padding), scale: 1 };
+    return { padding: KEY_PADDING_MIN, scale: Math.max(KEY_SCALE_MIN, (room - 2 * KEY_PADDING_MIN * count) / marks) };
+}
 
 // Sticky modifiers: tap = applies to the next key, tap again =
 // locked until tapped once more. A touchscreen makes hold-and-reach a
@@ -47,11 +66,9 @@ const cycle = (state: Modifier): Modifier => (state === 'off' ? 'once' : state =
 
 // Memoised: the screen above re-renders on every keystroke in the composer,
 // and rebuilding a dozen key marks per character is work nobody asked for. The
-// row's props are all stable, including the plugin slot the screen memoises
-// before handing it down.
-export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, children, entries, onEdit, onAction }: {
+// row's props are all stable.
+export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, entries, onEdit, onAction }: {
     channel?: { sendText: (text: string) => void };
-    children?: React.ReactNode;
     /** Draw this row instead of the stored one: the key editor previews its working copy through this same component. */
     entries?: readonly RowEntry[];
     onEdit?: () => void;
@@ -88,14 +105,16 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
     // filled caps at a single grey was most of what read as a band of chrome
     // under the terminal; unboxed, the row disappears until it is wanted and
     // an armed modifier is the only thing that takes colour.
-    // Equal padding and no gap: every glyph sits the same 16dp from the next,
-    // whatever its width, instead of a minimum box re-centring the short ones.
+    // Equal padding and no gap: every glyph sits the same distance from the
+    // next (16dp at full size), whatever its width, instead of a minimum box re-centring the short ones.
+    // The minimum width tightens with the padding and scale, so a key's width
+    // stays linear in both and one measurement of the row sizes the fit.
     const style = (locked = false) => ({
         minHeight: 32,
-        minWidth: 32,
+        minWidth: 2 * fit.padding + 16 * fit.scale,
         justifyContent: 'center' as const,
         alignItems: 'center' as const,
-        paddingHorizontal: 8,
+        paddingHorizontal: fit.padding,
         // Round, like every other control on this plane: an armed modifier is a
         // pill, not the one rounded rectangle on the screen.
         borderRadius: 999,
@@ -103,7 +122,7 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
         borderWidth: 0,
         borderColor: 'transparent',
     });
-    const labelStyle = (tint: string) => ({ color: tint, fontSize: 13, ...Typography.mono() });
+    const labelStyle = (tint: string) => ({ color: tint, fontSize: 13 * fit.scale, ...Typography.mono() });
     const fire = (key: TerminalKey) => {
         if (key.action !== undefined) {
             hapticsSelection();
@@ -117,6 +136,17 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
     };
     const active = (state: Modifier) => state !== 'off';
     const keys = resolveKeyRow(entries ?? storedEntries);
+    // ctrl and shift lead every row.
+    const count = keys.length + 2;
+    const [width, setWidth] = React.useState(0);
+    const [marks, setMarks] = React.useState(0);
+    const fit = width > 0 && marks > 0 ? keyRowFit(width, marks, count) : { padding: KEY_PADDING, scale: 1 };
+    // The drawn row is ROW_INSET + 2 * padding * count + scale * marks; solve
+    // back for marks, and ignore sub-dp rounding so the fit cannot oscillate.
+    const measured = (contentWidth: number) => {
+        const next = (contentWidth - ROW_INSET - 2 * fit.padding * count) / fit.scale;
+        setMarks((previous) => (Math.abs(previous - next) > 1 ? next : previous));
+    };
     const openEditor = React.useCallback(() => {
         stopRepeat();
         onEdit?.();
@@ -129,7 +159,9 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
                 showsHorizontalScrollIndicator={false}
                 keyboardShouldPersistTaps="always"
                 style={{ flexGrow: 0, maxHeight: 32 }}
-                contentContainerStyle={{ alignItems: 'center', gap: 0, paddingLeft: 8, paddingRight: TRAILING_EDGE, paddingVertical: 0 }}
+                onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+                onContentSizeChange={measured}
+                contentContainerStyle={{ alignItems: 'center', gap: 0, paddingLeft: KEY_PADDING, paddingRight: TRAILING_EDGE, paddingVertical: 0 }}
             >
             <Pressable
                 onPress={() => { hapticsSelection(); applyMods(cycle(ctrlRef.current), shiftRef.current); }}
@@ -182,12 +214,11 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
                         style={({ pressed }) => [style(), unavailable && { opacity: 0.35 }, pressed && { opacity: 0.6 }]}
                     >
                         {icon !== undefined
-                            ? <Ionicons name={icon} size={KEY_ICON_SIZE} color={theme.colors.textSecondary} />
+                            ? <Ionicons name={icon} size={KEY_ICON_SIZE * fit.scale} color={theme.colors.textSecondary} />
                             : <Text maxFontSizeMultiplier={KEY_LABEL_MAX_SCALE} style={labelStyle(theme.colors.textSecondary)}>{key.label}</Text>}
                     </Pressable>
                 );
             })}
-            {children}
             </ScrollView>
             {/* The live row sits on the terminal chrome; the editor's preview
                 (`entries`) sits on its own sheet and keeps a plain edge. */}

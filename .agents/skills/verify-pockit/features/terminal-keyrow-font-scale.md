@@ -5,7 +5,8 @@ prompt field both keep one height and, for the keys, one glyph size. At Android
 font scale 2.0 the key labels grew until the trailing keys ran off the right
 edge and the labels overran the fixed row height, and the prompt placeholder
 grew far past the rail band. Both are capped so they stay whole and reachable at
-the largest text size, and normal font scale is unchanged.
+the largest text size; at normal font scale the prompt field is unchanged and
+the key row fits itself to the screen width instead of scrolling.
 
 ## Sub-features
 
@@ -15,8 +16,11 @@ the largest text size, and normal font scale is unchanged.
   keys (^C, ^D, Enter and the rest) whole, none clipped at the right edge.
 - `prompt-placeholder-cap` at font scale 2.0 the composer's prompt placeholder
   sits inside the rail band and stays legible, not grown past it.
-- `keyrow-font-normal` at font scale 1.0 the key row and prompt field render
-  exactly as before (the cap only bites above 1.5).
+- `keyrow-font-normal` at font scale 1.0 the prompt field renders exactly as
+  before (the cap only bites above 1.5).
+- `keyrow-fit` at font scale 1.0 every key label is whole and the four arrows
+  are on screen without scrolling, at 270 dp and at 393 dp (where the whole
+  default row fits).
 
 ## How to get to it (user POV)
 
@@ -47,13 +51,13 @@ Preconditions:
    `adb -s $SERIAL shell settings put system font_scale 2.0`,
    then `am force-stop` and reopen the session so the app reads the new scale.
 4. `adb -s $SERIAL exec-out screencap -p > $EVIDENCE/keyrow-2.0.png`. Repeat with
-   `font_scale 1.0` for the unchanged normal size, and `cmd uimode night yes|no`
-   for the dark capture.
+   `font_scale 1.0` for the normal size, and again at `wm density 440` (393 dp,
+   the fit check's second width; force-stop and reopen after each change), and
+   `cmd uimode night yes|no` for the dark capture.
 5. Pass: at 2.0 the whole key row and the prompt placeholder are inside their
    bands — no key label cut at the right edge, none taller than the row, the
-   placeholder not grown past the rail; at 1.0 the row and field are
-   pixel-identical to the same build before the cap (the cap only bites above
-   1.5).
+   placeholder not grown past the rail; at 1.0 every label is whole and ctrl
+   through the right arrow sit on screen at both 270 and 393 dp (`keyrow-fit`).
 6. Reachability at 2.0: the row is wider than the viewport, so scroll it left
    with small swipes inside the row (`adb -s $SERIAL shell input swipe 850
    <rowY> 650 <rowY> 300`) until `^C`, `^D` and `Enter` are all whole on screen,
@@ -72,8 +76,9 @@ Preconditions:
   itself paints dark.
 - Toggling `font_scale` while the session is open can leave a stale layout;
   force-stop and reopen the session before each capture.
-- The key row is horizontally scrollable, and the default row is already wider
-  than the 270 dp viewport at every font scale: only its leading keys fit without
-  scrolling, and the trailing ones (Enter, arrows, paste, hide kb) are reached by
-  scrolling the row. The cap keeps each label at one size so the row does not
-  grow wider or taller than it already is at the largest text size.
+- The row fits itself to the screen width: key padding gives way first (8 dp
+  down to 2 dp), then the labels and icons shrink (to 80%). At font 1.0 the
+  default row fits whole at 393 dp, and at 270 dp every key through the right
+  arrow is on screen with only paste and hide kb past the edge. Past both floors
+  (font 2.0, or a long custom row) the row scrolls, and the cap keeps each label
+  at one size so it does not grow taller than the row.

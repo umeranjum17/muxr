@@ -299,8 +299,8 @@ user-visible behavior, then exactly four H2 sections in this order:
   Android font scale 2.0 and normal font scale is unchanged.
 - [Keep the terminal key row and prompt field inside their rows at large font](./terminal-keyrow-font-scale.md) —
   native app over a private stack: every key stays reachable and the prompt
-  placeholder stays in the rail at Android font scale 2.0, normal scale
-  unchanged.
+  placeholder stays in the rail at Android font scale 2.0; at normal scale the
+  row fits the screen width.
 - [Answer an agent's folder-trust question in one tap](./agent-trust-answers.md) —
   release APK and PWA over a guarded real-Herdr lab with a real, untrusted
   Claude Code: unnumbered choices as chips, timed trust step before/after, and
