@@ -1,11 +1,13 @@
 import { create } from 'zustand';
+import type { AttachmentPreview } from '@/catalog';
 
 /**
  * A Dock prompt the host is still delivering to the agent it just started, by
  * Agent Route. The agent's screen shows it as queued until delivery, and takes
- * the text back into its own draft when delivery fails.
+ * the text and attachments back into its own composer when delivery fails. An
+ * attachment the host already saved keeps its path, so it is not sent twice.
  */
-export type QueuedFirstPrompt = { text: string; failed?: true };
+export type QueuedFirstPrompt = { text: string; attachments?: (AttachmentPreview & { path?: string })[]; failed?: true };
 
 export const useQueuedFirstPrompts = create<Record<string, QueuedFirstPrompt>>(() => ({}));
 

@@ -33,6 +33,8 @@ type UseAttachmentPickerResult = {
     pickFiles: () => Promise<void>;
     removeAttachment: (id: string) => void;
     clearAttachments: () => void;
+    /** Queues files picked elsewhere, such as a first prompt handed back after it failed. */
+    addAttachments: (previews: AttachmentPreview[]) => void;
 };
 
 function newId(): string {
@@ -244,5 +246,9 @@ export function useAttachmentPicker(): UseAttachmentPickerResult {
         setAttachments([]);
     }, []);
 
-    return { attachments, pickImages, pickFiles, removeAttachment, clearAttachments };
+    const addAttachments = useCallback((previews: AttachmentPreview[]) => {
+        setAttachments(prev => [...prev, ...previews].slice(0, MAX_ATTACHMENTS_PER_MESSAGE));
+    }, []);
+
+    return { attachments, pickImages, pickFiles, removeAttachment, clearAttachments, addAttachments };
 }

@@ -37,28 +37,29 @@ export type StartAgentFromDockResult =
 /**
  * The agent is a TUI, so it reaches a file by having its path in the prompt.
  * Save the images to the host over the session socket, the same way the
- * terminal composer does, and append the paths it returns.
+ * terminal composer does, and append the paths it returns. Each saved path is
+ * kept on its attachment, so a failed delivery can hand it back as saved.
  */
 async function promptWithAttachmentPaths(
     sessionId: string,
     prompt: string,
-    previews: unknown[],
+    attachments: (AttachmentPreview & { path?: string })[],
     connection: ReturnType<typeof planConnection>,
 ): Promise<string> {
-    if (previews.length === 0) return prompt;
-    const savedPaths: string[] = [];
     // One request per file: a whole batch in one frame could pass the link's
     // 16 MB message ceiling, a single file never does.
-    for (const preview of previews as AttachmentPreview[]) {
-        const data = encodeBase64(await readFileBytes(preview.uri));
+    for (const attachment of attachments) {
+        const data = encodeBase64(await readFileBytes(attachment.uri));
         if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
         const saved = await sync.request('session.saveAttachments', {
             sessionId,
-            attachments: [{ name: preview.name, mimeType: preview.mimeType, data }],
+            attachments: [{ name: attachment.name, mimeType: attachment.mimeType, data }],
         });
-        savedPaths.push(...saved.savedPaths);
+        const path = saved.savedPaths[0];
+        if (path === undefined) throw new Error('The host did not confirm the file. Please attach it again.');
+        attachment.path = path;
     }
-    return [prompt.trim(), ...savedPaths].filter((part) => part !== '').join(' ');
+    return [prompt.trim(), ...attachments.map((attachment) => attachment.path)].filter((part) => part !== '').join(' ');
 }
 
 /**
@@ -67,15 +68,15 @@ async function promptWithAttachmentPaths(
  * too, since its composer already cleared at route-ready. Anything the person
  * typed on Home since is kept; the failed text joins it, never replacing it.
  */
-function restoreFailedFirstPrompt(agentRoute: string, prompt: string, attachments: unknown[]): void {
-    useQueuedFirstPrompts.setState({ [agentRoute]: { text: prompt, failed: true } });
+function restoreFailedFirstPrompt(agentRoute: string, prompt: string, attachments: (AttachmentPreview & { path?: string })[]): void {
+    useQueuedFirstPrompts.setState({ [agentRoute]: { text: prompt, attachments, failed: true } });
     if (prompt) {
         const home = useNewSessionDraft.getState();
         home.setInput(appendToDraft(home.input, prompt));
     }
     if (attachments.length > 0) {
         const home = useNewSessionDraft.getState();
-        home.setAttachments([...home.attachments, ...(attachments as AttachmentPreview[])]);
+        home.setAttachments([...home.attachments, ...attachments.map(({ path: _path, ...preview }) => preview)]);
     }
 }
 
@@ -128,14 +129,15 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
     // Home is gated on the spawn alone: the first prompt keeps delivering
     // after this returns, so the Home composer is free while the host holds
     // it. A failure restores both composers and reports through onPromptFailed.
+    const attachments = (command.attachments as AttachmentPreview[]).map((attachment): AttachmentPreview & { path?: string } => ({ ...attachment }));
     void (async () => {
         try {
-            const text = await promptWithAttachmentPaths(agentRoute, command.prompt, command.attachments, connection);
+            const text = await promptWithAttachmentPaths(agentRoute, command.prompt, attachments, connection);
             if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
             await sync.sendMessage(agentRoute, text, { firstPrompt: true });
             takeQueuedFirstPrompt(agentRoute);
         } catch (error) {
-            restoreFailedFirstPrompt(agentRoute, command.prompt, command.attachments);
+            restoreFailedFirstPrompt(agentRoute, command.prompt, attachments);
             command.onPromptFailed?.({
                 text: command.prompt,
                 message: error instanceof Error ? error.message : 'Failed to send the first message',
