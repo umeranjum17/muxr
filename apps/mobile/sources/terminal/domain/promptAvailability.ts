@@ -30,6 +30,8 @@ const OPENCODE_PERMISSION = [
 ];
 /** Screen lines at the bottom that may hold the row: its footer can wrap at phone width. */
 const BUTTON_ROW_LINES = 10;
+/** How many arguments follow 38/48: 2 picks 24-bit r;g;b, 5 picks a palette index. */
+const COLOUR_ARGS: Record<string, number> = { '2': 4, '5': 2 };
 /** Lines a question may show under its last choice: "Esc to cancel", "Press enter to continue". */
 const FOOTER_LINES = 6;
 /** Lines a long choice may wrap onto at phone width before the next one. */
@@ -82,7 +84,8 @@ function opencodePermissionChoices(screen: string): PendingChoice[] {
         if (row === undefined || row === '') return [];
         const lit = visible.flatMap((word, button) => (backgrounds[word.index] === row ? [] : [button]));
         const hidden = OPENCODE_PERMISSION.length - visible.length;
-        const selected = lit.length === 1 ? lit[0]! : lit.length === 0 && hidden === 1 ? OPENCODE_PERMISSION.length - 1 : -1;
+        let selected = lit.length === 1 ? lit[0]! : -1;
+        if (lit.length === 0 && hidden === 1) selected = OPENCODE_PERMISSION.length - 1;
         if (selected === -1) return [];
         return OPENCODE_PERMISSION.map(({ label, confirm }, button) => {
             const moves = button > selected ? RIGHT.repeat(button - selected) : LEFT.repeat(selected - button);
@@ -114,7 +117,7 @@ function nextBackground(background: string, params: string): string {
     for (let at = 0; at < codes.length; at++) {
         const code = codes[at]!;
         if (code === '38' || code === '48') {
-            const span = codes[at + 1] === '2' ? 4 : codes[at + 1] === '5' ? 2 : 0;
+            const span = COLOUR_ARGS[codes[at + 1] ?? ''] ?? 0;
             if (code === '48') next = codes.slice(at, at + span + 1).join(';');
             at += span;
         } else if (code === '0' || code === '49') {
