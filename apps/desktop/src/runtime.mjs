@@ -187,18 +187,26 @@ export class MuxrRuntime extends EventEmitter {
             this.emit('log', 'runtime', `relay on :${boundPort}, advertised ${advertised}\n`);
         } else {
             let state = existing;
-            // A computer that fell back to this Wi-Fi moves to Tailscale once it is up;
-            // phones paired over Wi-Fi keep reaching the same relay there.
-            if (existing.connectionMode === 'lan' && !process.env.MUXR_RELAY_URL?.trim()) {
+            // The route is chosen again at every start for the modes this app
+            // writes: a computer on this Wi-Fi moves to Tailscale once it is
+            // up, and one whose Tailscale is clearly gone moves back so the
+            // window can say how to restore it. An unclear probe keeps the
+            // stored route: at boot the daemon may lag the app, and that must
+            // not flap the advertised address.
+            if ((existing.connectionMode === 'lan' || existing.connectionMode === 'tailscale-direct') && !process.env.MUXR_RELAY_URL?.trim()) {
                 const route = await defaultRoute(existing.relayPort, REOPEN);
-                this.#routeHint = route.hint;
-                if (route.mode !== 'lan') {
+                const kept = route.mode === 'lan' && existing.connectionMode !== 'lan' && !route.gone;
+                this.#routeHint = kept ? undefined : route.hint;
+                if (!kept && route.mode !== existing.connectionMode) {
                     state = { ...existing, connectionMode: route.mode, relayUrl: route.relayUrl };
-                    atomicWrite(statePath, `${JSON.stringify(state)}\n`, 0o600);
-                    this.emit('log', 'runtime', `advertised ${route.relayUrl}\n`);
                 }
             }
             await this.#awaitRelay(this.#spawnRelay(existing.relayPort, state));
+            if (state !== existing) {
+                // The state file names the route only once the relay holding it bound.
+                atomicWrite(statePath, `${JSON.stringify(state)}\n`, 0o600);
+                this.emit('log', 'runtime', `advertised ${state.relayUrl}\n`);
+            }
             this.emit('log', 'runtime', `using the existing self-host state at ${statePath}\n`);
         }
 

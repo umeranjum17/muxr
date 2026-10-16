@@ -39,7 +39,10 @@ without a terminal.
   Tailscale missing or signed out it keeps the Wi-Fi address and the Ready card
   ends with the CLI's sentence ("Tailscale isn't on this computer yet. Install
   it from https://tailscale.com/download and sign in, then quit muxr and open
-  it again."); reopening once Tailscale is up moves that state to Tailscale.
+  it again."); reopening once Tailscale is up moves that state to Tailscale,
+  and the same probe runs on every start: a `tailscale-direct` state whose
+  Tailscale is signed out or removed moves back to the Wi-Fi address with the
+  sentence, while an unclear probe (daemon not up yet) keeps the stored route.
   Serve is never touched.
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.

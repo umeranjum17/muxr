@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createHerdrSetup, wireHerdrToRuntime } from './herdrSetup.mjs';
+import { TAILSCALE_UP_HINT } from '../../../scripts/setup/infrastructure/selfhost.mjs';
 import { MuxrRuntime, RelayOwnedError } from './runtime.mjs';
 
 const MACHINE = { id: 'machine-owner', name: 'computer', crypto: { signingPublicKey: 's' } };
@@ -316,7 +317,7 @@ describe('desktop runtime self-host state', () => {
         expect(readFileSync(join(home, 'selfhost.json'), 'utf8')).toBe(stored);
     }, 30_000);
 
-    it('falls back to this Wi-Fi with the Tailscale sentence, then moves to Tailscale once it is up', async () => {
+    it('falls back to this Wi-Fi with the Tailscale sentence, then moves to Tailscale once it is up, and back when it is gone', async () => {
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-route-'));
         const relayEntry = join(home, 'relay-fixture.mjs');
         writeFileSync(relayEntry, [
@@ -356,6 +357,23 @@ describe('desktop runtime self-host state', () => {
             const up = await run();
             expect(up.hint).toBeUndefined();
             expect(up.state).toMatchObject({ connectionMode: 'tailscale-direct', relayUrl: 'ws://100.101.102.103:8792', machine: missing.state.machine });
+
+            // An unclear probe (the daemon not up yet at boot) keeps the
+            // stored route: no rewrite, no hint, no flap.
+            writeFileSync(tailscale, `#!/bin/sh\nprintf '%s' '${JSON.stringify({ BackendState: 'NoState', Self: {} })}'\n`, { mode: 0o755 });
+            const stored = readFileSync(join(home, 'selfhost.json'), 'utf8');
+            const unclear = await run();
+            expect(unclear.hint).toBeUndefined();
+            expect(unclear.state).toEqual(JSON.parse(stored));
+            expect(readFileSync(join(home, 'selfhost.json'), 'utf8')).toBe(stored);
+
+            // Signed out again: the next start moves the state back to this
+            // Wi-Fi with the sentence, so the QR is usable and explained.
+            writeFileSync(tailscale, `#!/bin/sh\nprintf '%s' '${JSON.stringify({ BackendState: 'NeedsLogin', Self: {} })}'\n`, { mode: 0o755 });
+            const out = await run();
+            expect(out.state).toMatchObject({ connectionMode: 'lan', machine: up.state.machine });
+            expect(out.state.relayUrl).not.toContain('100.101.102.103');
+            expect(out.hint).toBe(`Tailscale is on this computer but not connected: ${TAILSCALE_UP_HINT}, then quit muxr and open it again.`);
         } finally {
             for (const [name, value] of Object.entries(saved)) {
                 if (value === undefined) delete process.env[name];

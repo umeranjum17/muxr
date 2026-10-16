@@ -175,7 +175,14 @@ export async function defaultRoute(port, next) {
     const found = { tailscale, lan: classifyNetworkRoutes(networkInterfaces(), tailscale.ip).lan };
     const advertise = (mode) => advertisedUrlForMode({ mode, found, port, web: false, tailscalePlanned: false });
     if (tailscale.connected) return { mode: 'tailscale-direct', relayUrl: advertise('tailscale-direct') };
-    return { mode: 'lan', relayUrl: advertise('lan') ?? `ws://127.0.0.1:${port}`, hint: tailscaleMissing(tailscale, next) };
+    return {
+        mode: 'lan',
+        relayUrl: advertise('lan') ?? `ws://127.0.0.1:${port}`,
+        hint: tailscaleMissing(tailscale, next),
+        // gone: the probe clearly reports Tailscale missing or signed out; any
+        // other no result may be the daemon lagging, not a route change.
+        gone: !tailscale.installed || tailscale.backend === 'NeedsLogin',
+    };
 }
 
 export async function tailscaleIngress(args) {
