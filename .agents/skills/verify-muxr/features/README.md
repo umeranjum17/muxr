@@ -265,7 +265,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   route and plan on step 2 of 3, one Enter applies.
 - [Keep a terminal pane alive across a reconnect](./terminal-reconnect.md) —
   native app over a private stack: relay and host restarts under an
-  open pane, last frame kept, recovery with no tap, plain words.
+  open pane, last frame kept, recovery with no tap, plain words; a return
+  from long enough background marks the pane stale in its first frame back
+  (native and installed PWA), quick returns stay quiet.
 - [Keep a shell usable after a crashed fullscreen agent](./terminal-shell-mode-reset.md) —
   wheel reports only while a program holds the pane; restore alt-screen/mouse
   once the program seen there is gone, or when the crash preceded the attach

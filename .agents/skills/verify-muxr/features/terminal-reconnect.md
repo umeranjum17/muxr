@@ -12,6 +12,7 @@ by itself once the link is back. No tap, and no internal words such as
 - `terminal-network-drop` the phone's route to the relay goes away for a while and comes back; same recovery.
 - `terminal-last-frame` the pane's last output stays visible for the whole outage.
 - `terminal-plain-words` only what the person must act on ends the pane, in plain words: `Open on another device · Tap to use it here`, `This pane was closed on the computer`, or the machine's own pairing/update message.
+- `terminal-return-stale` after the app was backgrounded or locked long enough for the link to drop, the first frame back already reads not-live: the header drops its lifecycle word and the pane shows the reconnecting state at once, before the link check finishes, and turns live again once the missed output plays in. A quick return with the link still up shows no false stale state (`RETURN_STALE_AFTER_MS` in `TerminalScreen.tsx`).
 
 ## How to get to it (user POV)
 
@@ -44,6 +45,17 @@ Preconditions:
    `link: terminal stream attached` — one per resubscribe). Pull and inspect
    the recording's frames; screenshots of the reconnecting and recovered states
    go next to them.
+7. Return-stale cell: with an agent pinned `working` (the fake answers
+   `lab.set_agent_status` on its socket), press HOME for 60 s while the relay is
+   down, then come back and screencap the first frame: it must read
+   `Reconnecting…` with no lifecycle word in the header, and the pane must read
+   live again (label back, no chip) once the missed output plays in. A 3 s
+   HOME round trip with the link untouched must show no `Reconnecting…` at all.
+   The installed PWA at 393 dp rides the same edge (RN-Web maps
+   `visibilitychange` to `AppState`): drive Chrome on the emulator over its
+   devtools socket (`adb forward tcp:9222 localabstract:chrome_devtools_remote`),
+   pair with the export's `window.__MUXR_LAB_PAIR__`, install from Chrome's
+   menu, then HOME and return with a screencap loop.
 
 ## Gotchas
 
@@ -54,4 +66,10 @@ Preconditions:
   in a row; retries continue meanwhile.
 - `adb reverse --remove` may leave an already-open socket alive on some adbd
   versions; if the header never reads offline, rely on the `relay` cut.
+- Desktop Chromium cannot play the phone here: `Page.setWebLifecycleState`
+  turns `visibilityState` hidden without firing `visibilitychange` (Chrome
+  151), and an X11 unmap fires nothing either — use the emulator's Chrome with
+  a real HOME/return.
+- The Recents thumbnail is the OS's own snapshot; it is not this feature's
+  surface and is out of scope.
 - The lab never prints the pairing offer to its logs; keep it that way.
