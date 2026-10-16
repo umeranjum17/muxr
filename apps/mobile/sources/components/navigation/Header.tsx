@@ -146,7 +146,9 @@ export const Header = React.memo((props: HeaderProps) => {
                         isDesktop && styles.desktopCenterContainer,
                         compactHorizontalPadding && styles.compactCenterContainer,
                     ]}>
-                        {title}
+                        {typeof title === 'string'
+                            ? <Text style={[styles.title, headerTitleStyle]} numberOfLines={2}>{title}</Text>
+                            : title}
                         {subtitle && <Text style={subtitleStyle} numberOfLines={1} ellipsizeMode="tail">{subtitle}</Text>}
                     </View>
 
@@ -190,8 +192,9 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
     const shouldHideBackButton = splitViewLayout;
 
     // Extract title - handle both string and function types. String titles
-    // stay on one line and ellipsize inside the shrinking center container so a
-    // 270 dp / font-2.0 phone never pushes the title past the right edge.
+    // wrap to a second line inside the shrinking center container so a
+    // 270 dp / font-2.0 phone reads them whole and never pushes them past the
+    // right edge; only a title longer than two lines ellipsizes.
     const titleTextStyle = (fontSize: number) => [
         {
             fontSize,
@@ -211,7 +214,7 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
     if (options.headerTitle) {
         if (typeof options.headerTitle === 'string') {
             title = (
-                <Text style={titleTextStyle(stringTitleFontSize)} numberOfLines={1} ellipsizeMode="tail">
+                <Text style={titleTextStyle(stringTitleFontSize)} numberOfLines={2} ellipsizeMode="tail">
                     {options.headerTitle}
                 </Text>
             );
@@ -221,7 +224,7 @@ const NavigationHeaderComponent: React.FC<NativeStackHeaderProps> = React.memo((
         }
     } else if (typeof options.title === 'string') {
         title = (
-            <Text style={titleTextStyle(17)} numberOfLines={1} ellipsizeMode="tail">
+            <Text style={titleTextStyle(17)} numberOfLines={2} ellipsizeMode="tail">
                 {options.title}
             </Text>
         );
@@ -332,6 +335,13 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         alignItems: 'center',
         justifyContent: Platform.OS === 'ios' ? 'center' : 'flex-start',
         paddingHorizontal: 12,
+        minWidth: 0,
+    },
+    title: {
+        ...Typography.default('semiBold'),
+        fontSize: 16,
+        color: theme.colors.text,
+        flexShrink: 1,
         minWidth: 0,
     },
     rightContainer: {

@@ -211,7 +211,7 @@ the navigation bar: at rest, any text or button box whose bottom edge sits more
 than 4px into the bar, inside a scroller or not; with `--end`, any of it still
 under the bar; text touching the screen edge, or a button box past it even when
 its text fits, unless the node sits in a horizontal scroller that swipe
-reaches; clipped text (an ellipsis, running past its parent, or squeezed to a sliver); a word split
+reaches; clipped text (an ellipsis, including one Android paints while the dump keeps the whole label, read by OCR; running past its parent, or squeezed to a sliver); a word split
 across lines (screenshot OCR reconciled against the full accessibility label,
 a lead since OCR can miss or misread); overlapping elements; an unlabelled
 image off-screen or painted over a control; a covered control; a squashed
