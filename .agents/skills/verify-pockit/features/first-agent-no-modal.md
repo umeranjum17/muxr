@@ -31,7 +31,7 @@ Preconditions:
   (`HERDR_LAB_HELPER`, `FM_HERDR_LAB_STATE_DIR`) and `claude` on PATH.
 
 1. Start the lab with no panes, from the repo root in its own shell, stdin
-   attached: `KINDS= EVIDENCE=$EVIDENCE node --input-type=module -e "$(< .agents/skills/verify-muxr/features/terminalLatestLab.mjs)"`.
+   attached: `KINDS= EVIDENCE=$EVIDENCE node --input-type=module -e "$(< .agents/skills/verify-pockit/features/terminalLatestLab.mjs)"`.
    Claude Code in the lab answers from the canned fixture, so no account is used;
    the picker may still read `Needs sign-in`, and it starts all the same.
 2. Fresh newcomer state for muxr only: install the APK, then `pm clear

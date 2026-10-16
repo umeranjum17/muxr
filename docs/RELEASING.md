@@ -52,7 +52,7 @@ node scripts/release/presentation/changelog.mjs check    --version 0.1.27-nightl
      -f source_commit="$BRANCH_SHA" -f channel=nightly -f version=
    ```
 
-4. A candidate never publishes to npm. npm publication is `release.yml` on `main`: merging a version bump publishes it (see [Shared contract and crypto packages](#shared-contract-and-crypto-packages) for what it does not publish). `ci.yml` is likewise available only by manual dispatch; it is not a release prerequisite. After this merges, cherry-picking only the workflow commit(s) onto the existing `release/0.2.0` branch is authorized so it can run the new flow; the `v0.2.0` tag stays at `fa0b780c`.
+4. A candidate never publishes to npm. npm publication is `release.yml` on `main`: merging a version bump publishes it (see [Shared contract and crypto packages](#shared-contract-and-crypto-packages) for what it does not publish). `ci.yml` never runs on a merge to main — it starts on pull requests and by manual dispatch — so it is not a release prerequisite. After this merges, cherry-picking only the workflow commit(s) onto the existing `release/0.2.0` branch is authorized so it can run the new flow; the `v0.2.0` tag stays at `fa0b780c`.
 
 An automatic nightly version takes its base from the release branch name (`release/0.2.1` builds `0.2.1-nightly.N.M`), and is still rejected unless it sorts above the published stable, so a nightly can never sort under a stable promoted meanwhile. An explicit nightly or stable version whose base does not match the branch name is rejected, and a candidate whose published-channel state cannot be read fails rather than guessing a version that might sort too low.
 

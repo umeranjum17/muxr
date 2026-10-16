@@ -1,0 +1,12 @@
+mocks/
+evidence/
+*.answers.jsonl
+*.rounds.jsonl
+*.messages.jsonl
+*.annotations.jsonl
+*.seen.jsonl
+*.dismissed.jsonl
+*.board.pid
+*.board.log
+*.token
+*.export.html

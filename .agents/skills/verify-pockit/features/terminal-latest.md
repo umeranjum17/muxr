@@ -37,7 +37,7 @@ Preconditions:
   iOS build on a simulator or iPad.
 
 1. `mkdir -p "$EVIDENCE"`, then from the repo root, in its own shell:
-   `SERIAL=<serial> EVIDENCE=$EVIDENCE node --input-type=module -e "$(< .agents/skills/verify-muxr/features/terminalLatestLab.mjs)"`.
+   `SERIAL=<serial> EVIDENCE=$EVIDENCE node --input-type=module -e "$(< .agents/skills/verify-pockit/features/terminalLatestLab.mjs)"`.
    Keep stdin attached. `KINDS=opencode,shell` narrows the panes; every model is
    the canned fixture `labStub.mjs`, so no account or credential is involved.
    For an iPad or another device on the network, leave `SERIAL` unset and set
