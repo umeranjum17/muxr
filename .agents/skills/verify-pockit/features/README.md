@@ -300,6 +300,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   release APK and PWA over a guarded real-Herdr lab with a real, untrusted
   Claude Code: unnumbered choices as chips, timed trust step before/after, and
   Home and New agent sharing the last start folder.
+- [Answer an OpenCode permission prompt in one tap](./opencode-permission-answers.md) —
+  release APK and PWA over a guarded real-Herdr lab with a real OpenCode:
+  Allow once / Allow always / Reject as chips at a cut-off phone row, each tap
+  answering OpenCode's box whichever button is selected.
 - [Read a Live preview with no output](./live-preview-empty.md) —
   native release app and PWA over a fake-Herdr stack whose pane reads empty:
   a calm placeholder and a plain line, themes and 270dp/360dp, live output

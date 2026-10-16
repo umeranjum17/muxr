@@ -15,8 +15,8 @@ const DOWN = '\u001b[B';
 const UP = '\u001b[A';
 const RIGHT = '\u001b[C';
 const LEFT = '\u001b[D';
-/** An escape sequence: SGR and other CSI, or an OSC. */
-const ESCAPE = /(\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\))/;
+/** An escape sequence: SGR and any other CSI, an OSC, or a two-byte escape such as a charset (ESC ( B). */
+const ESCAPE = /(\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[ -/]*[0-~])/;
 /**
  * OpenCode's permission dialog, " Allow once   Allow always   Reject " in one
  * row with the selected button drawn on its own background. Its Allow always
@@ -62,7 +62,8 @@ export function pendingChoices(screen: string, columns?: number): PendingChoice[
  * so a visible button need only start its label, and the chips carry
  * OpenCode's full labels. The selected button is the one whose background
  * differs from the row's; when none visible does, it is the one button cut off
- * entirely, and with more than one cut off there is no honest answer.
+ * entirely. With fewer than two buttons in view, or more than one cut off,
+ * there is no honest answer.
  */
 function opencodePermissionChoices(screen: string): PendingChoice[] {
     const lines = screen.split('\n');
@@ -72,11 +73,13 @@ function opencodePermissionChoices(screen: string): PendingChoice[] {
         const first = words.findIndex((word) => word[0] === OPENCODE_PERMISSION[0]!.label);
         if (first === -1) continue;
         const visible = words.slice(first, first + OPENCODE_PERMISSION.length);
-        if (visible.some((word, button) => !OPENCODE_PERMISSION[button]!.label.startsWith(word[0]))) return [];
+        if (visible.length < 2 || visible.some((word, button) => !OPENCODE_PERMISSION[button]!.label.startsWith(word[0]))) return [];
         const start = visible[0]!.index;
         if (start < 2) return [];
-        // The cell before the first button's padding is the row's own background.
+        // The cell before the first button's padding is the row's own background;
+        // a row with none was read without colour, which hides the selection.
         const row = backgrounds[start - 2];
+        if (row === undefined || row === '') return [];
         const lit = visible.flatMap((word, button) => (backgrounds[word.index] === row ? [] : [button]));
         const hidden = OPENCODE_PERMISSION.length - visible.length;
         const selected = lit.length === 1 ? lit[0]! : lit.length === 0 && hidden === 1 ? OPENCODE_PERMISSION.length - 1 : -1;
