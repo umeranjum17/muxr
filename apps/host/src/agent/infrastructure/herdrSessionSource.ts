@@ -2036,36 +2036,38 @@ export async function createHerdrSessionSource(
             };
         };
 
-        let cwd = startOptions.cwd;
-        let place: PlaceTarget = { workspace: cwd, ...(requestedLabel === undefined ? {} : { label: requestedLabel }) };
-        if (startOptions.worktree !== undefined) {
-            try {
-                const created = await client.call<{
-                    workspace?: { workspace_id?: string; worktree?: { checkout_path?: string } };
-                }>(
-                    'worktree.create',
-                    {
-                        cwd,
-                        focus: false,
-                        ...(startOptions.worktree.branch === undefined ? {} : { branch: startOptions.worktree.branch }),
-                        ...(startOptions.worktree.base === undefined ? {} : { base: startOptions.worktree.base }),
-                    },
-                );
-                const workspaceId = created.workspace?.workspace_id;
-                if (workspaceId === undefined) return earlyFailure();
-                cwd = created.workspace?.worktree?.checkout_path ?? cwd;
-                place = { tab: 'new', workspaceId, ...(requestedLabel === undefined ? {} : { label: requestedLabel }) };
-            } catch {
-                return earlyFailure();
-            }
-        }
-
+        const cwd = startOptions.cwd;
+        const label = requestedLabel === undefined ? {} : { label: requestedLabel };
         if (kind === 'shell') {
+            let shellCwd = cwd;
+            let place: PlaceTarget = { workspace: cwd, ...label };
+            if (startOptions.worktree !== undefined) {
+                try {
+                    const created = await client.call<{
+                        workspace?: { workspace_id?: string; worktree?: { checkout_path?: string } };
+                    }>(
+                        'worktree.create',
+                        {
+                            cwd,
+                            focus: false,
+                            ...(startOptions.worktree.branch === undefined ? {} : { branch: startOptions.worktree.branch }),
+                            ...(startOptions.worktree.base === undefined ? {} : { base: startOptions.worktree.base }),
+                        },
+                    );
+                    // kit.place has no worktree rung; an agent start's worktree goes through startAgent.
+                    const workspaceId = created.workspace?.workspace_id;
+                    if (workspaceId === undefined) return earlyFailure();
+                    shellCwd = created.workspace?.worktree?.checkout_path ?? cwd;
+                    place = { tab: 'new', workspaceId, ...label };
+                } catch {
+                    return earlyFailure();
+                }
+            }
             let paneId: string;
             try {
                 // A plan account rides on the new pane only: without one this
                 // is byte-for-byte today's shell.
-                const placed = await client.kit.place({ cwd, place, env: { ...paneEnvironment(), ...startOptions.planEnv } });
+                const placed = await client.kit.place({ cwd: shellCwd, place, env: { ...paneEnvironment(), ...startOptions.planEnv } });
                 paneId = placed.paneId;
                 // kit.place drops the label on a workspace it creates; name the tab either way.
                 if (requestedLabel !== undefined) await client.call('tab.rename', { tab_id: placed.tabId, label: requestedLabel });
@@ -2127,14 +2129,23 @@ export async function createHerdrSessionSource(
         let launched = false;
         try {
             await client.kit.startAgent({
-                kind, name: launchName, cwd, place, env, timeoutMs: 60_000,
+                kind, name: launchName, cwd, env, timeoutMs: 60_000,
+                // A worktree start gets its own new workspace; otherwise the one labelled with the folder.
+                place: startOptions.worktree === undefined ? { workspace: cwd, ...label } : { workspace: 'new', ...label },
+                ...(startOptions.worktree === undefined ? {} : { worktree: startOptions.worktree }),
                 ...(args.length === 0 ? {} : { args }),
                 onEvent: (event) => {
                     if (event.phase !== 'placed') return;
                     paneId = event.ref.paneId;
                     // Seed the placement so the start snapshot and the agent launch
                     // carry its cwd instead of waiting for a snapshot read.
-                    seedLaunchPane(paneId, { pane_id: paneId, cwd, tab_id: event.ref.tabId, workspace_id: event.ref.workspaceId });
+                    seedLaunchPane(paneId, {
+                        pane_id: paneId,
+                        // A worktree pane opens in its checkout, which the next snapshot reads.
+                        ...(startOptions.worktree === undefined ? { cwd } : {}),
+                        tab_id: event.ref.tabId,
+                        workspace_id: event.ref.workspaceId,
+                    });
                     tabsById.set(event.ref.tabId, {
                         ...tabsById.get(event.ref.tabId),
                         tab_id: event.ref.tabId,
