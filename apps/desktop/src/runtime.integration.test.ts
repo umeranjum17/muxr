@@ -3,7 +3,10 @@
  * State from the command-line install means muxr already runs there, so the app
  * refuses with one plain state; only a desktop-created state starts processes.
  */
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -128,7 +131,7 @@ describe('desktop runtime self-host state', () => {
         expect(statuses.map((status) => status.phase)).toEqual(['starting', 'stalled', 'online']);
     }, 30_000);
 
-    it('on a computer with no Herdr, installs it from the window after an offline try and starts it', async () => {
+    it('on a computer with no Herdr, installs it from the window through the pinned sha256 fetch and starts it', async () => {
         // An older herdr (below the minimum) sits first on PATH; the install folder is empty.
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-noherdr-'));
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', machine: MACHINE, relayLocation: 'local', relayPort: 8792 })}\n`, { mode: 0o600 });
@@ -136,22 +139,17 @@ describe('desktop runtime self-host state', () => {
         const installDir = join(home, 'bin');
         mkdirSync(emptyPath);
         writeFileSync(join(emptyPath, 'herdr'), "#!/bin/sh\necho 'herdr 0.8.0'\n", { mode: 0o755 });
-        const offline = join(home, 'offline');
-        writeFileSync(offline, '');
-        // The published installer's two outcomes: offline, or a herdr whose server reports running once started.
-        const installer = join(home, 'install-herdr.sh');
-        writeFileSync(installer, [
-            '#!/bin/sh',
-            `PATH=${JSON.stringify(process.env.PATH ?? '')}`,
-            `if [ -e ${JSON.stringify(offline)} ]; then echo "error: can't reach https://herdr.dev/latest.json" >&2; exit 1; fi`,
-            `mkdir -p ${JSON.stringify(installDir)}`,
-            `cat > ${JSON.stringify(join(installDir, 'herdr'))} <<'HERDR'`,
+        // The pinned release asset, served from a loopback fixture: a herdr whose server reports running once started.
+        const asset = [
             '#!/bin/sh',
             `case "$1" in --version) echo 'herdr 0.9.1' ;; server) : > ${JSON.stringify(join(home, 'server-up'))} ;; status) [ -e ${JSON.stringify(join(home, 'server-up'))} ] && echo '{"running":true}' || echo '{"running":false}' ;; esac`,
-            'HERDR',
-            `chmod +x ${JSON.stringify(join(installDir, 'herdr'))}`,
             '',
-        ].join('\n'), { mode: 0o755 });
+        ].join('\n');
+        const assetSha = createHash('sha256').update(asset).digest('hex');
+        let served = 0;
+        const fixture = createServer((_request, response) => { served += 1; response.end(asset); });
+        await new Promise<void>((resolve) => fixture.listen(0, '127.0.0.1', resolve));
+        const fixtureUrl = `http://127.0.0.1:${(fixture.address() as AddressInfo).port}/herdr`;
         const relayEntry = join(home, 'relay-fixture.mjs');
         listeningRelayFixture(relayEntry);
         const hostEntry = join(home, 'host-fixture.mjs');
@@ -161,8 +159,8 @@ describe('desktop runtime self-host state', () => {
             '',
         ].join('\n'));
 
-        const saved = { HOME: process.env.HOME, PATH: process.env.PATH, HERDR_BIN: process.env.HERDR_BIN, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, MUXR_HERDR_INSTALLER: process.env.MUXR_HERDR_INSTALLER, MUXR_HOME: process.env.MUXR_HOME, MUXR_NO_SERVICE_COMMANDS: process.env.MUXR_NO_SERVICE_COMMANDS };
-        Object.assign(process.env, { HOME: home, PATH: emptyPath, HERDR_INSTALL_DIR: installDir, MUXR_HERDR_INSTALLER: installer, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1' });
+        const saved = { HOME: process.env.HOME, PATH: process.env.PATH, HERDR_BIN: process.env.HERDR_BIN, HERDR_INSTALL_DIR: process.env.HERDR_INSTALL_DIR, MUXR_HERDR_BINARY_URL: process.env.MUXR_HERDR_BINARY_URL, MUXR_HERDR_BINARY_SHA256: process.env.MUXR_HERDR_BINARY_SHA256, MUXR_HOME: process.env.MUXR_HOME, MUXR_NO_SERVICE_COMMANDS: process.env.MUXR_NO_SERVICE_COMMANDS };
+        Object.assign(process.env, { HOME: home, PATH: emptyPath, HERDR_INSTALL_DIR: installDir, MUXR_HERDR_BINARY_URL: 'http://127.0.0.1:1/herdr', MUXR_HERDR_BINARY_SHA256: assetSha, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1' });
         delete process.env.HERDR_BIN;
         const shown: { status: string; step?: string; message?: string }[] = [];
         const herdr = createHerdrSetup((next: { status: string }) => shown.push(next));
@@ -173,15 +171,27 @@ describe('desktop runtime self-host state', () => {
             expect(statuses.at(-1)?.phase).toBe('online');
             expect(shown).toEqual([{ status: 'missing' }]);
 
+            // Offline: the fetch fails in plain words, and nothing is written.
             await herdr.install();
             expect(shown.at(-1)).toEqual({ status: 'failed', message: "Couldn't install Herdr. Check this computer's internet connection, then press Try again." });
+            expect(existsSync(join(installDir, 'herdr'))).toBe(false);
 
-            rmSync(offline);
+            // Tampered or wrong-hash download: refused, and no file is left behind.
+            process.env.MUXR_HERDR_BINARY_URL = fixtureUrl;
+            process.env.MUXR_HERDR_BINARY_SHA256 = createHash('sha256').update('tampered').digest('hex');
+            await herdr.install();
+            expect(shown.at(-1)?.status).toBe('failed');
+            expect(existsSync(join(installDir, 'herdr'))).toBe(false);
+
+            // The pinned asset verifies and installs; the server then starts.
+            process.env.MUXR_HERDR_BINARY_SHA256 = assetSha;
             await herdr.install();
             expect(shown.slice(-3).map((entry) => entry.step ?? entry.status)).toEqual(['Downloading Herdr…', 'Starting Herdr…', 'ok']);
+            expect(served).toBeGreaterThan(0);
             expect(existsSync(join(home, 'server-up'))).toBe(true);
         } finally {
             await runtime.stop();
+            await new Promise<void>((resolve) => fixture.close(() => resolve()));
             for (const [name, value] of Object.entries(saved)) {
                 if (value === undefined) delete process.env[name];
                 else process.env[name] = value;

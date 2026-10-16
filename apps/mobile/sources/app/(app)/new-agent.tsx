@@ -375,6 +375,12 @@ export default function NewAgentScreen() {
     }, [directory, kinds, squad, worktree]);
 
     const styles = stylesheet;
+    // The Start button is sticky outside the scroll view, so the scroll
+    // content ends above it: the footer's 16 top pad, the 48 button (room
+    // for a wrapped second line at large text), and the bottom inset, plus
+    // a 16 gap so the last field rests clear of it. Same footer/inset
+    // pattern as MissingFileState.
+    const startFooterClearance = 16 + 96 + Math.max(16, insets.bottom) + 16;
     // Open workspaces first, then recent folders; the picker shows the first few.
     const places: DirectoryPlace[] = wherePlaces(workspaces.map(workspaceJoinPath), settings.recentSessionCwds ?? []);
 
@@ -396,7 +402,7 @@ export default function NewAgentScreen() {
                     </Pressable>
                 </View>
                 <View style={styles.content}>
-                    <Text style={styles.emptyHint}>This browser has view-only access. Run muxr pair --browser on the computer to pair a control browser that can start agents, create worktrees, and type into terminals.</Text>
+                    <Text style={styles.emptyHint}>This browser has view-only access. Open muxr on your computer, or run muxr pair --browser, to pair a control browser that can start agents, create worktrees, and type into terminals.</Text>
                 </View>
             </View>
         );
@@ -417,7 +423,8 @@ export default function NewAgentScreen() {
                 // A reloading listing changes the content height and can clamp the scroll; pin the field again.
                 onContentSizeChange={() => { if (typingPath.current && Platform.OS !== 'web') showPicker(); }}
                 // Web gets no keyboard padding, so leave room below for the field to reach the top.
-                contentContainerStyle={[styles.content, Platform.OS === 'web' && isTypingPath && { paddingBottom: scrollHeight }]}
+                // Native ends above the sticky Start footer so every field scrolls clear of it.
+                contentContainerStyle={[styles.content, { paddingBottom: startFooterClearance }, Platform.OS === 'web' && isTypingPath && { paddingBottom: scrollHeight }]}
                 keyboardShouldPersistTaps="handled"
             >
                 {/* --- Agent grid (multi-select -> squad) ---------------------- */}

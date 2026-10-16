@@ -132,6 +132,26 @@ const MCP_SCREEN = [
     '',
 ].join('\n');
 
+/** One run of Herdr's ANSI read: it resets and sets the background before every run. */
+const run = (background: string, text: string) => `\u001b[0m\u001b[38;2;255;255;255m\u001b[48;2;${background}m${text}`;
+const frame = (...runs: string[]) => [run('10;10;10', '  '), run('20;20;20', '\u2503'), ...runs, '\u001b[0m'].join('');
+
+/**
+ * OpenCode 1.18's permission dialog as Herdr reads it at a 33-column phone
+ * grid: the row is cut off before Reject, and Allow always is selected, which
+ * shows only as its background.
+ */
+const OPENCODE_SCREEN = [
+    frame(run('30;30;30', '  \u25b3 Permission required        ')),
+    frame(run('30;30;30', '    \u2190 Access external          ')),
+    frame(run('30;30;30', '      directory /etc           ')),
+    frame(run('30;30;30', '                               ')),
+    frame(run('30;30;30', '  '), run('30;30;30', ' Allow once '), run('30;30;30', ' '), run('245;167;66', ' Allow always '), run('30;30;30', '  ')),
+    frame(run('30;30;30', '                               ')),
+    frame(run('30;30;30', '  ctrl+f fullscreen  \u21c6 select  ')),
+    frame(run('30;30;30', '                               ')),
+].join('\n');
+
 describe('one-tap answers to a question with no numbers', () => {    it('answers the folder-trust question by moving to the tapped row, never by Enter on the highlighted Exit', async () => {
         currentOverrides.value = {};
         readText.value = TRUST_SCREEN;
@@ -174,5 +194,24 @@ describe('one-tap answers to a question with no numbers', () => {    it('answers
 
         await TestRenderer.act(async () => { chips[1].props.onPress(); });
         expect(sent).toEqual(['\u001b[A\r']);
+    });
+
+    it('answers OpenCode\'s permission row from the selected button, with the labels the narrow row cuts off', async () => {
+        currentOverrides.value = {};
+        readText.value = OPENCODE_SCREEN;
+        const sent: string[] = [];
+        let renderer: any;
+        await TestRenderer.act(async () => {
+            renderer = TestRenderer.create(
+                <PendingChoices sessionId="s" waiting channel={{ sendText: (text) => sent.push(text) }} onVisibilityChange={() => undefined} columns={33} />,
+            );
+        });
+        await TestRenderer.act(async () => { await Promise.resolve(); });
+
+        const chips = renderer.root.findAll((node: any) => node.type === 'Pressable');
+        expect(chips.map((chip: any) => chip.props.accessibilityLabel)).toEqual(['Answer Allow once', 'Answer Allow always', 'Answer Reject']);
+
+        await TestRenderer.act(async () => { chips[2].props.onPress(); });
+        expect(sent).toEqual(['\u001b[C\r']);
     });
 });

@@ -31,7 +31,7 @@ Preconditions:
   `HERDR_PANE_ID=<pane-id>` / pass `--pane <pane-id>` for that pane.
 
 - **Share a file.** Create a payload and share it:
-  `printf 'verify-muxr artifact body\n' > "$RUN_ROOT/verify.txt"` then
+  `printf 'verify-pockit artifact body\n' > "$RUN_ROOT/verify.txt"` then
   `node scripts/cli.mjs share "$RUN_ROOT/verify.txt"` (with the run's `MUXR_HOME`).
   Exit code `0`, stdout `Shared verify.txt`.
 - **Confirm the durable side effect.** The stored copy exists with identical

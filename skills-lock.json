@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "sign-off-axi": {
+      "source": "umeranjum17/sign-off",
+      "sourceType": "github",
+      "skillPath": "skills/sign-off-axi/SKILL.md",
+      "computedHash": "d312903e192313118ea99d8ba1e9ad6f302238c28fbeb2c86e4fa39d7d68cfdd"
+    }
+  }
+}

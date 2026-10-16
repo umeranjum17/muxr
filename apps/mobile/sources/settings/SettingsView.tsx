@@ -200,7 +200,7 @@ export const SettingsView = React.memo(function SettingsView({
             : '';
         const confirmed = await Modal.confirm(
             t('settingsAccount.logout'),
-            `This signs out and removes this device’s pairing with every machine it has ever paired with. To reconnect, pair each machine again from \`muxr pair\`.${collaborationWarning}`,
+            `This signs out and removes this device’s pairing with every machine it has ever paired with. To reconnect, open muxr on your computer, or run muxr pair, and pair each machine again.${collaborationWarning}`,
             { confirmText: t('settingsAccount.logout'), destructive: true },
         );
         if (!confirmed) return;
@@ -339,7 +339,7 @@ export const SettingsView = React.memo(function SettingsView({
                 )}
                 <Item
                     title="Pair another machine"
-                    subtitle="Scan the QR from muxr pair, or paste its string"
+                    subtitle="Open muxr on your computer, or run muxr pair, then scan the QR or paste its string"
                     icon={<Ionicons name="qr-code-outline" size={29} color="#007AFF" />}
                     onPress={() => router.push('/pair?source=settings')}
                 />

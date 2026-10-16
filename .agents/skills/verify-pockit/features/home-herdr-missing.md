@@ -33,9 +33,11 @@ explicit `HERDR_BIN`, else the binary the service pins, PATH,
   the computer, and offers `muxr doctor` with a copy button;
   Settings → Connection reads "Herdr is missing on the computer" (or
   "…is out of date…") with the same install pointer.
-- `desktop-install` the window's Install Herdr runs the published installer,
-  starts the server, and returns to the normal window (see
-  `linux-desktop-app.md`); a failed install reads one sentence with Try again.
+- `desktop-install` the window's Install Herdr fetches the pinned Herdr release
+  asset through the herdr kit's sha256-checked `ensureHerdr` (never running a
+  downloaded installer script), starts the server, and returns to the normal
+  window (see `linux-desktop-app.md`); a wrong-hash or failed download is
+  refused leaving nothing behind, and reads one sentence with Try again.
 - `recover` the host keeps retrying the socket, so Home drops the card and
   shows the agents on its next tree poll, with no tap.
 
@@ -48,8 +50,8 @@ watch Home turn into the agent list.
 ## Driving it with the private stack
 
 Preconditions: the no-Herdr desktop lab from `linux-desktop-app.md` step 5
-(PATH farm without `herdr`, task-owned `MUXR_HOME`, relay port 0, Xvfb, lab
-installer shim over the helper's named session), and a release APK on a
+(PATH farm without `herdr`, task-owned `MUXR_HOME`, relay port 0, Xvfb, a
+loopback fixture serving the shim herdr with its sha256), and a release APK on a
 task-owned emulator paired to that window. For the outdated and recipe
 states without the window, use a real (non-`--fake`) foreground lab host,
 private HOME/MUXR_HOME and a port-0 relay. All Herdr calls, including session

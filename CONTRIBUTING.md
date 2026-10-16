@@ -44,7 +44,12 @@ yarn run check        # everything above plus the e2e, web-export, install and s
 ```
 
 Both invoke `scripts/diagnostics/application/runSuite.mjs`, which owns both
-lists; CI's `fast` and `suite` jobs run these on every pull request. A pull request from a fork runs the same `suite` check; if you are a first-time or outside contributor, the checks wait for a maintainer to approve the run before they start. `main` requires the branch to be up to date with `main` before merge.
+lists; CI's `fast` and `suite` jobs run these on every pull request. `fast`
+drives its lane through done-done (`run`, then `check` against the commit,
+with the journey defined in [`.done-done.yaml`](.done-done.yaml)), so its gate
+consumes commit-tied proof; a pull request that edits that config is refused,
+because the fast journey is defined on `main` and the gate compares against it.
+A pull request from a fork runs the same `suite` check; if you are a first-time or outside contributor, the checks wait for a maintainer to approve the run before they start. `main` requires the branch to be up to date with `main` before merge.
 
 Each stage's complete stdout/stderr is saved in a private `muxr-suite-*`
 directory under the system temporary directory. The summary prints the directory

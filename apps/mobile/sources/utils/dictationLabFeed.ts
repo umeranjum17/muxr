@@ -1,6 +1,6 @@
 import type { AudioFrame } from '@byokit/dictation';
 
-// Lab-only file feed for the verify-muxr dictation proof. The flag is inlined at build
+// Lab-only file feed for the verify-pockit dictation proof. The flag is inlined at build
 // time, so production bundles keep no branch. The lab pushes raw little-endian PCM16 mono
 // at the kit rate to `<app files>/muxr-lab-dictation.pcm`; the next take plays that file
 // through the dictation microphone instead of opening the hardware mic.

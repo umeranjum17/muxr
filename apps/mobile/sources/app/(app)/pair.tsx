@@ -303,9 +303,13 @@ export default function PairScreen() {
         shownError.current = state;
         scrollRef.current?.scrollTo({ y: 0, animated: true });
     }, [state, keyboardOpen, showField]);
+    // The stack header is a laid-out sibling above this screen and already
+    // clears the status bar, so the content pays 12 and not the inset again;
+    // re-paying it double-padded the top and pushed the card tail under the
+    // gesture bar at 270 dp with large fonts.
     return (
         <View style={styles.screenWrap}>
-        <PairScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={[styles.screen, narrow && styles.narrowScreen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
+        <PairScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={[styles.screen, narrow && styles.narrowScreen, { paddingTop: 12, paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" {...(browser ? {} : { bottomOffset: 120 })}>
             <View style={[styles.hero, narrow && styles.narrowHero]}>
                 {!keyboardOpen && (

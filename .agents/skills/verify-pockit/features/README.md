@@ -72,6 +72,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   the tapped password field stays above the keyboard and takes typed text.
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
+- [Follow a Herdr agent's status live](./herdr-live-status.md) —
+  host session source on a guarded lab Herdr: tree follows new panes, status
+  working/blocked/idle lands, socket count 1 → 2 → 1; no baseline needed.
 
 - [Read the desktop receiver's decoder and frame rate (developer probe)](./desktop-decoder-probe.md) —
   developer-mode-only machine row and `/debug/decode` route: absent until ten
@@ -302,6 +305,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   release APK and PWA over a guarded real-Herdr lab with a real, untrusted
   Claude Code: unnumbered choices as chips, timed trust step before/after, and
   Home and New agent sharing the last start folder.
+- [Answer an OpenCode permission prompt in one tap](./opencode-permission-answers.md) —
+  release APK and PWA over a guarded real-Herdr lab with a real OpenCode:
+  Allow once / Allow always / Reject as chips at a cut-off phone row, each tap
+  answering OpenCode's box whichever button is selected.
 - [Read a Live preview with no output](./live-preview-empty.md) —
   native release app and PWA over a fake-Herdr stack whose pane reads empty:
   a calm placeholder and a plain line, themes and 270dp/360dp, live output
@@ -309,3 +316,7 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Keep pairing and settings across an app upgrade](./upgrade-keeps-state.md) —
   main release APK paired with settings changed, `install -r` of the
   candidate, then pairing, theme and text size read back; fresh pair after.
+- [Keep every New agent field clear of the sticky Start button](./new-agent-footer-clearance.md) —
+  native release APK: at 270 dp largest font the scroll ends above the sticky
+  Start footer, so the Folder field and every field stay fully visible above
+  Start and a field tap never starts an agent.
