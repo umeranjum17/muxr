@@ -290,6 +290,9 @@ export interface SessionAgentModesPatch {
     effortLevel?: string | null;
 }
 
+/** A composer chip kept with the draft: where the host saved it, never its bytes. No path yet: still to upload. */
+export type DraftAttachment = { id: string; uri: string; name: string; mimeType: string; size?: number; path?: string };
+
 export interface Session {
     id: string,
     seq: number,
@@ -306,6 +309,7 @@ export interface Session {
     presence: "online" | number, // "online" when active, timestamp when last seen
     extensionStatus?: Record<string, string>; // latest ctx.ui.setStatus text per key; cleared keys are removed
     draft?: string | null; // Local draft message, not synced to server
+    draftAttachments?: readonly DraftAttachment[] | null; // The draft's composer chips, kept with it
     permissionMode?: string | null; // Permission pick; local mirror of synced metadata.permissionMode (#1492)
     modelMode?: string | null; // Model pick; local mirror of synced metadata.modelMode (#1492)
     effortLevel?: string | null; // Effort pick; local mirror of synced metadata.effortLevel (#1492)
