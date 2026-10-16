@@ -64,9 +64,11 @@ async function promptWithAttachmentPaths(
 
 /**
  * A first prompt the host never took belongs to both composers: the agent's
- * screen takes it back into its own draft on mount, and Home shows it again
- * too, since its composer already cleared at route-ready. Anything the person
- * typed on Home since is kept; the failed text joins it, never replacing it.
+ * screen takes it and its attachments back into its own composer on mount, a
+ * saved file as a ready chip reusing its saved path, and Home shows the text
+ * again too, since its composer already cleared at route-ready. Anything the
+ * person typed on Home since is kept; the failed text joins it, never
+ * replacing it.
  */
 function restoreFailedFirstPrompt(agentRoute: string, prompt: string, attachments: (AttachmentPreview & { path?: string })[]): void {
     useQueuedFirstPrompts.setState({ [agentRoute]: { text: prompt, attachments, failed: true } });
