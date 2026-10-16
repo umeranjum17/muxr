@@ -52,7 +52,11 @@ function fakeHerdr(dir: string, cwd: string) {
         losePrompts: number;
         /** Screen reads that still find the agent drawing; it reads no keys until they are used up. */
         drawingReads: number;
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0 };
+        /** Prompts typed into the agent's input whose Enter it swallows; Herdr's wait reports each as stalled. */
+        holdPrompts: number;
+        /** The agent's unsubmitted input line, which a later prompt is typed onto. */
+        input: string;
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0, holdPrompts: 0, input: '' };
     const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
@@ -79,9 +83,15 @@ function fakeHerdr(dir: string, cwd: string) {
         if (state.failSnapshotAfterPrompt) state.failSnapshot = true;
         const text = String(params.text ?? '');
         state.prompts.push(text);
-        const lost = state.losePrompts > 0 || state.drawingReads > 0;
+        const lost = state.losePrompts > 0 || state.drawingReads > 0 || state.holdPrompts > 0;
         if (state.losePrompts > 0) state.losePrompts -= 1;
-        else state.paneText += `${text}\n`;
+        else if (state.holdPrompts > 0) {
+            state.holdPrompts -= 1;
+            state.input += text;
+        } else {
+            state.paneText += `${state.input}${text}\n`;
+            state.input = '';
+        }
         // Like Herdr, only a caller that waits learns the prompt started no turn.
         if (params.wait !== undefined && lost) {
             return { error: { code: 'agent_prompt_stalled', message: 'agent prompt produced no observed working or blocked state within 5000 ms' } };
@@ -224,6 +234,14 @@ function fakeHerdr(dir: string, cwd: string) {
                         reply = 'error' in answer ? { id, ...answer } : { id, result: answer };
                         break;
                     }
+                    case 'agent.send_keys':
+                        // The agent's own line editing: ctrl+u empties a line, backspace joins the one above.
+                        for (const key of (p.keys ?? []) as string[]) {
+                            if (key === 'ctrl+u') state.input = state.input.slice(0, state.input.lastIndexOf('\n') + 1);
+                            else if (key === 'backspace') state.input = state.input.slice(0, -1);
+                        }
+                        reply = { id, result: {} };
+                        break;
                     case 'pane.read':
                         if (state.drawingReads > 0) {
                             state.drawingReads -= 1;
@@ -801,7 +819,7 @@ describe('realtime prompt boundary', () => {
 });
 
 describe('first prompt to a just-started agent', () => {
-    it('types it once the screen settles and reports one the agent drops as not sent', async () => {
+    it('types it once the screen settles, and clears one the agent leaves unsubmitted before reporting it not sent', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-first-prompt-'));
         const cwd = join(dir, 'repo');
         // A bare launch probes the host's own opencode for a version; keep it on
@@ -835,11 +853,15 @@ describe('first prompt to a just-started agent', () => {
             expect(herdr.state.prompts).toEqual(['What does calc.py do?']);
             expect(herdr.state.paneText).toContain('What does calc.py do?');
 
-            // A first prompt the agent drops is reported as not sent and never typed again.
-            herdr.state.losePrompts = 1;
-            await expect(source.prompt({ sessionId: started.info.id, text: 'Run the tests', firstPrompt: true }))
+            // A first prompt the agent leaves unsubmitted is reported as not sent and never typed again;
+            // its input is cleared first, so the phone's resend reaches the agent as one copy.
+            herdr.state.holdPrompts = 1;
+            await expect(source.prompt({ sessionId: started.info.id, text: 'Run the tests\nthen lint', firstPrompt: true }))
                 .rejects.toMatchObject({ code: 'prompt-not-sent' });
-            expect(herdr.state.prompts.filter((text) => text === 'Run the tests')).toHaveLength(1);
+            expect(herdr.state.prompts.filter((text) => text === 'Run the tests\nthen lint')).toHaveLength(1);
+            expect(herdr.state.input).toBe('');
+            await expect(source.prompt({ sessionId: started.info.id, text: 'Run the tests\nthen lint' })).resolves.toBeUndefined();
+            expect(herdr.state.paneText.split('Run the tests').length - 1).toBe(1);
 
             // An ordinary send takes the single-call path: no receipt wait, so a dropped one is not reported.
             herdr.state.losePrompts = 1;
