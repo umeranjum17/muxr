@@ -51,7 +51,6 @@ export {
 
 export {
     applyMachineSetup,
-    classifyNetworkRoutes,
     connectRemoteRelay,
     continueWithDirectTailscale,
     hostSharedRelay,
@@ -62,6 +61,7 @@ export {
 
 export {
     advertisedRelayHealthy,
+    classifyNetworkRoutes,
     cleanupManagedIngress,
     cloudflaredAlive,
     inspectTailscaleServeRoot,

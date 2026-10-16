@@ -16,6 +16,7 @@ const ctx = canvas.getContext('2d');
 const qrWrap = document.getElementById('qr-wrap');
 const readyHint = document.getElementById('ready-hint');
 const expiry = document.getElementById('expiry');
+const routeHint = document.getElementById('route-hint');
 const copyButton = document.getElementById('copy-code');
 const copyLabel = copyButton.querySelector('.copy-label');
 const keepAwake = document.getElementById('keep-awake');
@@ -99,6 +100,8 @@ window.muxr.onState((state) => {
                 readyHint.textContent = 'On your phone, open muxr and add this computer, then enter the pairing code below.';
             }
             tickExpiry();
+            routeHint.hidden = state.routeHint === undefined;
+            routeHint.textContent = state.routeHint === undefined ? '' : `Your phone reaches this computer only on this Wi-Fi. ${state.routeHint}`;
             show('ready');
         } else {
             document.getElementById('note-message').textContent = state.message ?? 'Preparing the pairing code…';

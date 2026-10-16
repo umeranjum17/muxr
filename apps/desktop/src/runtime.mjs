@@ -7,9 +7,9 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { atomicWrite, machineIdentity } from '../../../scripts/setup/infrastructure/runtime.mjs';
+import { defaultRoute } from '../../../scripts/setup/infrastructure/selfhost.mjs';
 import { waitForRelay } from '../../../scripts/diagnostics/application/waitForRelay.mjs';
 
 const CLI_RUNNING_MESSAGE = 'muxr is already running on this computer from the command-line install. Pair from there with: muxr pair';
@@ -22,16 +22,9 @@ export class RelayOwnedError extends Error {
     }
 }
 
-function lanIpv4Addresses() {
-    const out = [];
-    for (const entries of Object.values(networkInterfaces())) {
-        for (const entry of entries ?? []) {
-            if (entry.internal || entry.family !== 'IPv4') continue;
-            out.push(entry.address);
-        }
-    }
-    return out;
-}
+// What follows the Tailscale sentence on the pairing screen: the route is
+// chosen again at the next start.
+const REOPEN = 'quit muxr and open it again';
 
 // How long a quiet start runs before the window offers Try again. Only the
 // message waits on it: the relay's and host's own reports still win after it.
@@ -50,6 +43,7 @@ export class MuxrRuntime extends EventEmitter {
     #children = [];
     #stopping = false;
     #stallMs;
+    #routeHint;
 
     constructor({ home, node, relayEntry, hostEntry, port, stallMs = HOST_STALL_MS }) {
         super();
@@ -63,6 +57,8 @@ export class MuxrRuntime extends EventEmitter {
 
     get home() { return this.#home; }
     get pairSocketPath() { return join(this.#home, 'host', 'pair.sock'); }
+    /** Set while the phone can reach this computer only on this Wi-Fi: how to add Tailscale. */
+    get routeHint() { return this.#routeHint; }
 
     #spawn(entry, env, label) {
         const child = spawn(this.#node, [entry], {
@@ -172,15 +168,16 @@ export class MuxrRuntime extends EventEmitter {
             // Same self-host state a `muxr setup` writes: this computer's pairing
             // identity, the relay it owns, and the relay owner's secret.
             const boundPort = await this.#awaitRelay(this.#spawnRelay(this.#port));
-            const lanIp = lanIpv4Addresses()[0];
-            const advertised = process.env.MUXR_RELAY_URL?.trim()
-                || (lanIp === undefined ? `ws://127.0.0.1:${boundPort}` : `ws://${lanIp}:${boundPort}`);
+            const pinned = process.env.MUXR_RELAY_URL?.trim();
+            const route = pinned ? { mode: 'lan', relayUrl: pinned } : await defaultRoute(boundPort, REOPEN);
+            this.#routeHint = route.hint;
+            const advertised = route.relayUrl;
             const state = {
                 version: 1,
                 createdBy: 'desktop',
                 machine: machineIdentity(undefined),
                 relayRole: 'single-machine',
-                connectionMode: 'lan',
+                connectionMode: route.mode,
                 relayPort: boundPort,
                 relayUrl: advertised,
                 relayLocation: 'local',
@@ -189,7 +186,27 @@ export class MuxrRuntime extends EventEmitter {
             atomicWrite(statePath, `${JSON.stringify(state)}\n`, 0o600);
             this.emit('log', 'runtime', `relay on :${boundPort}, advertised ${advertised}\n`);
         } else {
-            await this.#awaitRelay(this.#spawnRelay(existing.relayPort, existing));
+            let state = existing;
+            // The route is chosen again at every start for the modes this app
+            // writes: a computer on this Wi-Fi moves to Tailscale once it is
+            // up, and one whose Tailscale is clearly gone moves back so the
+            // window can say how to restore it. An unclear probe keeps the
+            // stored route: at boot the daemon may lag the app, and that must
+            // not flap the advertised address.
+            if ((existing.connectionMode === 'lan' || existing.connectionMode === 'tailscale-direct') && !process.env.MUXR_RELAY_URL?.trim()) {
+                const route = await defaultRoute(existing.relayPort, REOPEN);
+                const kept = route.mode === 'lan' && existing.connectionMode !== 'lan' && !route.gone;
+                this.#routeHint = kept ? undefined : route.hint;
+                if (!kept && route.mode !== existing.connectionMode) {
+                    state = { ...existing, connectionMode: route.mode, relayUrl: route.relayUrl };
+                }
+            }
+            await this.#awaitRelay(this.#spawnRelay(existing.relayPort, state));
+            if (state !== existing) {
+                // The state file names the route only once the relay holding it bound.
+                atomicWrite(statePath, `${JSON.stringify(state)}\n`, 0o600);
+                this.emit('log', 'runtime', `advertised ${state.relayUrl}\n`);
+            }
             this.emit('log', 'runtime', `using the existing self-host state at ${statePath}\n`);
         }
 

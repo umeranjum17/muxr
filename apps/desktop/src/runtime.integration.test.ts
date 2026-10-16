@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createHerdrSetup, wireHerdrToRuntime } from './herdrSetup.mjs';
+import { TAILSCALE_UP_HINT } from '../../../scripts/setup/infrastructure/selfhost.mjs';
 import { MuxrRuntime, RelayOwnedError } from './runtime.mjs';
 
 const MACHINE = { id: 'machine-owner', name: 'computer', crypto: { signingPublicKey: 's' } };
@@ -314,6 +315,71 @@ describe('desktop runtime self-host state', () => {
         expect(statuses.at(-1)?.phase).toBe('online');
         expect(JSON.parse(readFileSync(dump, 'utf8'))).toEqual({ relayUrl: 'wss://relay.example.test', bindHost: '127.0.0.1' });
         expect(readFileSync(join(home, 'selfhost.json'), 'utf8')).toBe(stored);
+    }, 30_000);
+
+    it('falls back to this Wi-Fi with the Tailscale sentence, then moves to Tailscale once it is up, and back when it is gone', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-route-'));
+        const relayEntry = join(home, 'relay-fixture.mjs');
+        writeFileSync(relayEntry, [
+            "import { mkdirSync, writeFileSync } from 'node:fs';",
+            'mkdirSync(process.env.MUXR_RELAY_DATA_DIR, { recursive: true });',
+            "writeFileSync(process.env.MUXR_RELAY_DATA_DIR + '/mint-secret', JSON.stringify('secret'));",
+            "setTimeout(() => process.stdout.write('relay listening on ws://0.0.0.0:8792\\n'), 150);",
+            'setInterval(() => {}, 1000);',
+            '',
+        ].join('\n'));
+        const hostEntry = join(home, 'host-fixture.mjs');
+        writeFileSync(hostEntry, [
+            "setTimeout(() => process.stdout.write('link relay: online\\npairing: ready\\n'), 150);",
+            'setInterval(() => {}, 1000);',
+            '',
+        ].join('\n'));
+        const tailscale = join(home, 'tailscale');
+        const saved = { MUXR_TAILSCALE_BIN: process.env.MUXR_TAILSCALE_BIN, MUXR_RELAY_URL: process.env.MUXR_RELAY_URL };
+        process.env.MUXR_TAILSCALE_BIN = tailscale;
+        delete process.env.MUXR_RELAY_URL;
+        const run = async () => {
+            const { runtime, statuses } = collectingRuntime(home, relayEntry, hostEntry);
+            try { await runtime.start(); } finally {
+                runtime.stop();
+                await new Promise((resolve) => setTimeout(resolve, 300));
+            }
+            expect(statuses.at(-1)?.phase).toBe('online');
+            return { hint: runtime.routeHint, state: JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) };
+        };
+        try {
+            const missing = await run();
+            expect(missing.state.connectionMode).toBe('lan');
+            expect(missing.state.relayUrl).not.toContain('100.101.102.103');
+            expect(missing.hint).toBe("Tailscale isn't on this computer yet. Install it from https://tailscale.com/download and sign in, then quit muxr and open it again.");
+
+            writeFileSync(tailscale, `#!/bin/sh\nprintf '%s' '${JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'lab.tailnet.ts.net.', TailscaleIPs: ['100.101.102.103'] } })}'\n`, { mode: 0o755 });
+            const up = await run();
+            expect(up.hint).toBeUndefined();
+            expect(up.state).toMatchObject({ connectionMode: 'tailscale-direct', relayUrl: 'ws://100.101.102.103:8792', machine: missing.state.machine });
+
+            // An unclear probe (the daemon not up yet at boot) keeps the
+            // stored route: no rewrite, no hint, no flap.
+            writeFileSync(tailscale, `#!/bin/sh\nprintf '%s' '${JSON.stringify({ BackendState: 'NoState', Self: {} })}'\n`, { mode: 0o755 });
+            const stored = readFileSync(join(home, 'selfhost.json'), 'utf8');
+            const unclear = await run();
+            expect(unclear.hint).toBeUndefined();
+            expect(unclear.state).toEqual(JSON.parse(stored));
+            expect(readFileSync(join(home, 'selfhost.json'), 'utf8')).toBe(stored);
+
+            // Signed out again: the next start moves the state back to this
+            // Wi-Fi with the sentence, so the QR is usable and explained.
+            writeFileSync(tailscale, `#!/bin/sh\nprintf '%s' '${JSON.stringify({ BackendState: 'NeedsLogin', Self: {} })}'\n`, { mode: 0o755 });
+            const out = await run();
+            expect(out.state).toMatchObject({ connectionMode: 'lan', machine: up.state.machine });
+            expect(out.state.relayUrl).not.toContain('100.101.102.103');
+            expect(out.hint).toBe(`Tailscale is on this computer but not connected: ${TAILSCALE_UP_HINT}, then quit muxr and open it again.`);
+        } finally {
+            for (const [name, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+        }
     }, 30_000);
 
     it('asks the user to quit the earlier desktop session when its relay is still alive', async () => {

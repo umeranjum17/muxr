@@ -33,6 +33,17 @@ without a terminal.
   A wrong-hash or failed download is refused leaving nothing behind, and reads
   "Couldn't install Herdr. Check this computer's internet connection, then
   press Try again."
+- Tailscale first, like `muxr setup`: with Tailscale up, a new desktop state
+  advertises direct Tailscale (`connectionMode: tailscale-direct`,
+  `ws://100.x:<port>`), and the pairing code's `urls` carry that address. With
+  Tailscale missing or signed out it keeps the Wi-Fi address and the Ready card
+  ends with the CLI's sentence ("Tailscale isn't on this computer yet. Install
+  it from https://tailscale.com/download and sign in, then quit muxr and open
+  it again."); reopening once Tailscale is up moves that state to Tailscale,
+  and the same probe runs on every start: a `tailscale-direct` state whose
+  Tailscale is signed out or removed moves back to the Wi-Fi address with the
+  sentence, while an unclear probe (daemon not up yet) keeps the stored route.
+  Serve is never touched.
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.
 - Closing the window keeps the relay and host running in the tray.
@@ -74,9 +85,17 @@ APK.
    choose Try again, and time click→window normal and click→phone Home (≈3 s and
    ≈6 s on 2026-10-12), then report an agent in the lab session and see it on
    Home.
-6. Toggle keep-awake and start-at-login and read `settings.json` and the XDG
+6. Route: read the app log's `relay on :<port>, advertised <url>` line and
+   `selfhost.json`; decode the window's QR (`zbarimg` on a CDP screenshot after
+   scrolling `#qr` into view) and base64url-decode the token after
+   `byokit-link:1:` to read its `urls`. For the Wi-Fi leg set
+   `MUXR_TAILSCALE_BIN` to a missing path (never change the host's Tailscale),
+   read `#route-hint`, then relaunch the same `MUXR_HOME` without it. Pairing a
+   lab PWA with the window's code works through `window.__MUXR_LAB_PAIR__`
+   (lab-browser-pairing.md), approved in the window.
+7. Toggle keep-awake and start-at-login and read `settings.json` and the XDG
    autostart file back.
-7. Killed host: once Ready to pair shows, `kill -9` the exact host PID (the
+8. Killed host: once Ready to pair shows, `kill -9` the exact host PID (the
    app's child running `apps/host/dist/main.js`) and keep watching the window's
    card text over CDP for 8 s: it must stay on "muxr stopped unexpectedly".
    Then call `window.muxr.retry()` and watch to the QR; separately quit with
