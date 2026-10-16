@@ -288,6 +288,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   24 rows or more, OpenCode stays up and answers on OpenCode Go; the box follows
   the cursor so the reply shows with the keyboard up, and a drag pans to every
   row of a grid taller than the box (font 20).
+- [Find an agent's changes from the terminal screen](./agent-changes-entry.md) —
+  real Herdr lab and lab host, PWA main vs candidate: header `N files changed`
+  pill only while the tree is dirty (live on idle, compact at 270 dp and font
+  2.0), Pane actions › Changes, both opening the changes review.
 - [Stay connected to a busy computer](./busy-computer.md) —
   homeLoad at 300 panes / 150 agents, then a frozen lab host on an emulator:
   busy card through the offline grace, explanation only after it.
