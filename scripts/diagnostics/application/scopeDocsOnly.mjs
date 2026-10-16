@@ -18,7 +18,7 @@ import { pathToFileURL } from 'node:url';
 
 const productRead = (file) => /(^|\/)(README|SKILL)\.md$/.test(file);
 const docsOnlyPath = (file) => /\.(md|mdx)$/.test(file)
-    || /^(docs\/|data\/|\.lavish\/|screenshots\/|LICENSE$|NOTICE$|TRADEMARK$)/.test(file);
+    || /^(docs\/|data\/|screenshots\/|LICENSE$|NOTICE$|TRADEMARK$)/.test(file);
 
 /** True only when the diff from `base` to HEAD is entirely docs/evidence. */
 export function scopeDocsOnly(base) {

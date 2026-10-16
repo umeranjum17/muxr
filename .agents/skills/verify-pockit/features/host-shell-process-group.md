@@ -30,7 +30,7 @@ Preconditions: follow `../SKILL.md` isolation and run `yarn build` so
 `perf/lib/fakeStack.mjs` (real relay and host from this checkout, fake Herdr),
 never the owner's host.
 
-1. Answer-time and reap proof: `node .agents/skills/verify-muxr/features/hostShellGroupLab.mjs`.
+1. Answer-time and reap proof: `node .agents/skills/verify-pockit/features/hostShellGroupLab.mjs`.
    Expect `PASS machine.shell replied in <ms> and reaped backgrounded child <pid>`.
    The payload backgrounds a 64 MiB sleeper and records its pid; the lab fails
    if the reply takes over 8 s or the pid is still alive.
