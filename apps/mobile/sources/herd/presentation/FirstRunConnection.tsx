@@ -7,6 +7,7 @@ import { Typography } from '@/constants/Typography';
 import { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner } from '@/pairing';
 import { sshTunnelAvailable } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
+import { WordWrappingText } from '@/components/WordWrappingText';
 import { useCompactWindow } from '@/components/useCompactWindow';
 import { FirstRunSetupCard } from './FirstRunSetupCard';
 import { addComputerLink } from '@/commercialization';
@@ -59,7 +60,7 @@ export function FirstRunConnection() {
         <View style={styles.section}>
             <View style={styles.intro}>
                 <Text style={styles.eyebrow}>Your machine. No new account.</Text>
-                <Text style={styles.title}>Let’s connect</Text>
+                <WordWrappingText fontSize={25} lineHeight={29} style={styles.title}>Let’s connect</WordWrappingText>
                 <Text style={styles.subtitle}>Use the machine you already have.</Text>
             </View>
             <View style={[styles.card, compact && styles.cardCompact]}>

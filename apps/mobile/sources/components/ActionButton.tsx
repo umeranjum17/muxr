@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { hapticsLight } from '@/components/haptics';
+import { WordWrappingText } from '@/components/WordWrappingText';
 
 /**
  * The one button style used across onboarding, pairing and empty states:
@@ -25,7 +26,9 @@ export const ActionButton = React.memo((props: {
 }) => {
     const styles = stylesheet;
     const [busy, setBusy] = React.useState(false);
+    const [rowWidth, setRowWidth] = React.useState(0);
     const variant = props.variant ?? 'primary';
+    const variantText = variant === 'primary' ? styles.primaryText : variant === 'secondary' ? styles.secondaryText : styles.quietText;
     const run = React.useCallback(() => {
         hapticsLight();
         if (props.onPress) {
@@ -67,26 +70,25 @@ export const ActionButton = React.memo((props: {
                     color={variant === 'primary' ? styles.primaryText.color : styles.secondaryText.color}
                 />
             ) : (
-                <View style={[styles.content, props.wrap && styles.wrapContent, props.wrap && styles.wrapRow]}>
+                <View style={[styles.content, props.wrap && styles.wrapContent, props.wrap && styles.wrapRow]}
+                    onLayout={props.wrap ? (event) => setRowWidth(event.nativeEvent.layout.width) : undefined}>
                     {props.icon !== undefined && (
                         <Ionicons
                             name={props.icon}
                             size={19}
-                            color={variant === 'primary' ? styles.primaryText.color : variant === 'quiet' ? styles.quietText.color : styles.secondaryText.color}
+                            color={variantText.color}
                         />
                     )}
-                    <Text
-                        style={[
-                            styles.text,
-                            variant === 'primary' && styles.primaryText,
-                            variant === 'secondary' && styles.secondaryText,
-                            variant === 'quiet' && styles.quietText,
-                            props.wrap && styles.wrapText,
-                        ]}
-                        numberOfLines={props.wrap ? undefined : 1}
-                    >
-                        {props.title}
-                    </Text>
+                    {props.wrap ? (
+                        // A wrapping label keeps its words whole: one wider than
+                        // the pill scales the label down instead of splitting.
+                        // The label may take a line of its own, so it fits the row.
+                        <WordWrappingText fontSize={variant === 'quiet' ? 15 : 17} lineWidth={rowWidth} style={[styles.text, variantText, styles.wrapText]}>
+                            {props.title}
+                        </WordWrappingText>
+                    ) : (
+                        <Text style={[styles.text, variantText]} numberOfLines={1}>{props.title}</Text>
+                    )}
                 </View>
             )}
         </Pressable>
