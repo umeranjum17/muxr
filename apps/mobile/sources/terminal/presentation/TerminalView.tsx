@@ -252,6 +252,15 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     void writePumpRef.current?.cancel();
                     let recoveryRequested = false;
                     let firstFrameWritten = false;
+                    // A failed write poisons the screen's status until the
+                    // channel says otherwise -- but a channel that never
+                    // changes state (a backlog that overflowed while the app
+                    // was backgrounded, on a link that never dropped) says
+                    // nothing, so the chip would read failure forever while
+                    // new output paints behind it. The next successful write
+                    // re-announces the channel's own current state instead.
+                    let writeFailed = false;
+                    let lastChannelState = 'connecting';
                     const latest = lastSizeRef.current ?? opened;
                     const needsRepaint = latest.cols !== opened.cols || latest.rows !== opened.rows;
                     let readyForFrame = !needsRepaint;
@@ -266,6 +275,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             if (view === null) return;
                             await view.write(bytes);
                             recoveryRequested = false;
+                            if (writeFailed && writeGenerationRef.current === attachGen) {
+                                writeFailed = false;
+                                onStatus?.(lastChannelState);
+                            }
                             channel.recordFrameWritten();
                             if (ready && !firstFrameWritten && writeGenerationRef.current === attachGen) {
                                 firstFrameWritten = true;
@@ -277,6 +290,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         cancelSchedule: (handle) => cancelAnimationFrame(handle as number),
                         onRejected: () => {
                             if (writeGenerationRef.current !== attachGen) return;
+                            writeFailed = true;
                             onStatus?.('terminal write failed');
                             if (recoveryRequested) return;
                             recoveryRequested = true;
@@ -300,7 +314,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     channel.onPredictedData((base64) => {
                         writePumpRef.current?.push({ bytes: base64 });
                     });
-                    channel.onState((state) => onStatus?.(state));
+                    channel.onState((state) => {
+                        lastChannelState = state;
+                        onStatus?.(state);
+                    });
                     channel.onClose((reason) => onStatus?.(reason));
                     onChannel?.(channel);
                     // The keyboard can resize Ghostty while hosted attach is
