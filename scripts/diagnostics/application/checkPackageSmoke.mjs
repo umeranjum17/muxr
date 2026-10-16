@@ -1,6 +1,7 @@
 import { transform } from 'esbuild';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
     chmodSync,
     cpSync,
@@ -71,13 +72,35 @@ esac
 `;
 writeFileSync(join(binDir, 'herdr'), fakeHerdr, { mode: 0o755 });
 const installerBin = join(scratch, 'installer-bin');
-const fakeHerdrSource = join(scratch, 'fake-herdr-source');
-const fakeInstaller = join(scratch, 'fake-herdr-installer');
-const fakeInstallerLog = join(scratch, 'fake-installer.log');
 mkdirSync(installerBin, { recursive: true });
 symlinkSync(process.execPath, join(installerBin, 'node'));
-writeFileSync(fakeHerdrSource, fakeHerdr, { mode: 0o755 });
-writeFileSync(fakeInstaller, '#!/bin/sh\n/bin/cp "$FAKE_HERDR_SOURCE" "$FAKE_HERDR_INSTALL_DIR/herdr"\n/bin/chmod 755 "$FAKE_HERDR_INSTALL_DIR/herdr"\nprintf invoked > "$FAKE_HERDR_INSTALL_LOG"\n', { mode: 0o755 });
+// The pinned Herdr asset is fetched over http in this smoke, so serve the fake
+// herdr from a separate process: the kit's real download + sha256 verification
+// runs offline, and the packaged CLI can reach a sibling server.
+const fakeHerdrSha = createHash('sha256').update(fakeHerdr).digest('hex');
+const fakeHerdrSource = join(scratch, 'fake-herdr-source');
+const fakeHerdrFetchLog = join(scratch, 'fake-herdr-fetches.log');
+writeFileSync(fakeHerdrSource, fakeHerdr);
+const fakeHerdrServerPath = join(scratch, 'fake-herdr-server.mjs');
+writeFileSync(fakeHerdrServerPath, [
+    "import { createServer } from 'node:http';",
+    "import { appendFileSync, readFileSync } from 'node:fs';",
+    'const [source, log] = process.argv.slice(2);',
+    'const body = readFileSync(source);',
+    "createServer((_request, response) => { appendFileSync(log, 'fetch\\n'); response.end(body); })",
+    "    .listen(0, '127.0.0.1', function () { process.stdout.write(String(this.address().port)); });",
+    '',
+].join('\n'));
+const fakeHerdrServer = spawn(process.execPath, [fakeHerdrServerPath, fakeHerdrSource, fakeHerdrFetchLog], { stdio: ['ignore', 'pipe', 'inherit'] });
+const fakeHerdrPort = await new Promise((resolve) => {
+    let output = '';
+    fakeHerdrServer.stdout.on('data', (chunk) => {
+        output += chunk;
+        if (/^\d+$/.test(output.trim())) resolve(Number(output.trim()));
+    });
+});
+const fakeHerdrUrl = `http://127.0.0.1:${fakeHerdrPort}/herdr`;
+const fakeHerdrFetches = () => (existsSync(fakeHerdrFetchLog) ? readFileSync(fakeHerdrFetchLog, 'utf8').trim().split('\n').filter(Boolean).length : 0);
 writeFileSync(join(binDir, 'pi'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 writeFileSync(join(binDir, 'stty'), '#!/bin/sh\nexec /usr/bin/stty "$@"\n', { mode: 0o755 });
 
@@ -796,12 +819,16 @@ try {
     mkdirSync(refusalHome, { recursive: true });
     const refusal = run(cli, ['setup', '--no-agent-config', '--no-install-herdr'], {
         cwd: installDir,
-        env: cliEnvWithoutHerdr(refusalHome),
+        env: cliEnvWithoutHerdr(refusalHome, {
+            HERDR_INSTALL_DIR: installerBin,
+            MUXR_HERDR_BINARY_URL: fakeHerdrUrl,
+            MUXR_HERDR_BINARY_SHA256: fakeHerdrSha,
+        }),
         allowFailure: true,
     });
     assert.notEqual(refusal.status, 0, '--no-install-herdr accepted a missing Herdr installation');
     assert.match(`${refusal.stdout}${refusal.stderr}`, /herdr is missing/);
-    assert.ok(!existsSync(fakeInstallerLog), '--no-install-herdr executed an installer');
+    assert.equal(fakeHerdrFetches(), 0, '--no-install-herdr fetched the Herdr asset');
 
     const installerHome = join(scratch, 'installer-home');
     mkdirSync(installerHome, { recursive: true });
@@ -813,13 +840,13 @@ try {
         ], {
             cwd: installDir,
             env: cliEnvWithoutHerdr(installerHome, {
-                MUXR_HERDR_INSTALLER: fakeInstaller,
-                FAKE_HERDR_SOURCE: fakeHerdrSource,
-                FAKE_HERDR_INSTALL_DIR: installerBin,
-                FAKE_HERDR_INSTALL_LOG: fakeInstallerLog,
+                HERDR_INSTALL_DIR: installerBin,
+                MUXR_HERDR_BINARY_URL: fakeHerdrUrl,
+                MUXR_HERDR_BINARY_SHA256: fakeHerdrSha,
             }),
         });
-        assert.equal(readFileSync(fakeInstallerLog, 'utf8'), 'invoked');
+        assert.ok(fakeHerdrFetches() > 0, 'setup did not fetch the pinned Herdr asset');
+        assert.equal(readFileSync(join(installerBin, 'herdr'), 'utf8'), fakeHerdr, 'setup did not leave the sha256-verified Herdr binary');
     } finally {
         stopRelayFor(join(installerHome, '.muxr', 'relay'));
     }
@@ -1339,5 +1366,6 @@ else if(a[0]==='view') {
     process.stdout.write(`package smoke passed: ${tarball}\n`);
 } finally {
     stopRelayFor(join(home, '.muxr', 'relay'));
+    fakeHerdrServer.kill();
     rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

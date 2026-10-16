@@ -1,22 +1,18 @@
 import { spawn } from 'node:child_process';
 import {
     existsSync,
-    lstatSync,
     mkdirSync,
-    mkdtempSync,
     openSync,
     readdirSync,
     readFileSync,
     realpathSync,
-    rmSync,
     statSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { ensureHerdr as fetchPinnedHerdr } from '@byokit/herdr/binary';
 import {
     HERDR_INSTALL_HINT,
-    HERDR_INSTALL_URL,
     INTEGRATION_COMMANDS,
     MIN_HERDR,
     atomicWrite,
@@ -179,41 +175,30 @@ export function detectedLifecycleTargets(statuses, all = false) {
     });
 }
 
-/**
- * Run one installer step with the given environment. Its output and stderr go
- * to this process's streams, so the raw cause lands in the log.
- */
-function runInstallerStep(command, args, timeout, env) {
-    return new Promise((resolveStep) => {
-        const child = spawn(command, args, { stdio: 'inherit', timeout, env });
-        child.once('error', (cause) => { process.stderr.write(`${command}: ${cause.message}\n`); resolveStep(false); });
-        child.once('close', (code) => resolveStep(code === 0));
-    });
+/** Where muxr installs the pinned Herdr binary: the configured install dir, else the user's own bin. */
+function herdrInstallDir() {
+    return env('HERDR_INSTALL_DIR') || join(home(), '.local', 'bin');
 }
 
-export async function runHerdrInstaller(env = process.env) {
-    const localInstaller = process.env.MUXR_HERDR_INSTALLER?.trim();
-    if (localInstaller) {
-        const info = lstatSync(localInstaller);
-        if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o111) === 0) {
-            throw new Error('MUXR_HERDR_INSTALLER must be an executable regular file');
-        }
-        print(`  run reviewed local Herdr installer: ${localInstaller}`);
-        if (!await runInstallerStep(localInstaller, [], 300_000, env)) throw new Error('local Herdr installation failed');
-        return;
-    }
-
-    const scratch = mkdtempSync(join(tmpdir(), 'muxr-herdr-install-'));
-    const installer = join(scratch, 'install.sh');
-    try {
-        print(`  download Herdr installer: ${HERDR_INSTALL_URL}`);
-        if (!await runInstallerStep('curl', ['-fsSL', '--connect-timeout', '10', '--max-time', '60', HERDR_INSTALL_URL, '-o', installer], 65_000, env)) {
-            throw new Error('Herdr installer download failed');
-        }
-        if (!await runInstallerStep('sh', [installer], 300_000, env)) throw new Error('Herdr installation failed');
-    } finally {
-        rmSync(scratch, { recursive: true, force: true });
-    }
+/**
+ * Fetch the pinned Herdr binary through the herdr kit's `ensureHerdr`, which
+ * downloads the release asset per platform, verifies its committed sha256 and
+ * refuses anything else (nothing is left behind on a mismatch). muxr never runs
+ * a downloaded installer script. `MUXR_HERDR_BINARY_URL`/`MUXR_HERDR_BINARY_SHA256`
+ * are the kit's own override for a loopback fixture in tests and mirrors; the
+ * download is still hashed against the given digest.
+ */
+export async function installHerdr() {
+    const dir = herdrInstallDir();
+    const url = env('MUXR_HERDR_BINARY_URL');
+    const sha256 = env('MUXR_HERDR_BINARY_SHA256');
+    print(`  download Herdr ${MIN_HERDR.join('.')} (pinned, sha256-checked) into ${dir}`);
+    return fetchPinnedHerdr({
+        dir,
+        version: MIN_HERDR.join('.'),
+        ...(url === undefined ? {} : { url }),
+        ...(sha256 === undefined ? {} : { sha256 }),
+    });
 }
 
 export async function ensureHerdr({ dryRun, noInstall, installRequested }) {
@@ -222,10 +207,10 @@ export async function ensureHerdr({ dryRun, noInstall, installRequested }) {
         if (noInstall && installRequested) throw new Error('choose only one of --install-herdr or --no-install-herdr');
         if (noInstall) throw new Error(`herdr is missing; ${HERDR_INSTALL_HINT}`);
         if (dryRun) {
-            print(`  would install Herdr from ${process.env.MUXR_HERDR_INSTALLER?.trim() || HERDR_INSTALL_URL}`);
+            print(`  would install Herdr ${MIN_HERDR.join('.')} (pinned, sha256-checked) into ${herdrInstallDir()}`);
             return undefined;
         }
-        await runHerdrInstaller();
+        await installHerdr();
         binary = herdrBin();
         if (!binary) throw new Error('herdr installed but is not on PATH; restart the shell and rerun setup');
     }

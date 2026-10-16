@@ -25,12 +25,14 @@ without a terminal.
 - A computer with no Herdr shows one sentence ("muxr runs your agents in Herdr,
   which isn't installed on this computer.") with Install Herdr above the
   pairing offer; the QR stays on screen and pairing never waits for Herdr.
-  Install runs the published herdr.dev installer into the user's own folder
-  (where `herdrBin()` looks, `~/.local/bin` by default; no root),
-  with the user's own environment (AppImage paths stripped), shows Downloading
-  Herdr… then Starting Herdr…, starts the server and clears the notice; the host
-  picks Herdr up without a restart. A failed install reads "Couldn't install
-  Herdr. Check this computer's internet connection, then press Try again."
+  Install fetches the pinned Herdr release asset through the herdr kit's
+  sha256-checked `ensureHerdr` into the user's own folder (where `herdrBin()`
+  looks, `~/.local/bin` by default; no root), never running a downloaded
+  installer script; it shows Downloading Herdr… then Starting Herdr…, starts
+  the server and clears the notice; the host picks Herdr up without a restart.
+  A wrong-hash or failed download is refused leaving nothing behind, and reads
+  "Couldn't install Herdr. Check this computer's internet connection, then
+  press Try again."
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.
 - Closing the window keeps the relay and host running in the tray.
@@ -62,14 +64,16 @@ APK.
    approval card; approve in the window.
 4. The window reads Paired and the phone reaches Home with live machine stats;
    send one prompt from the phone and read the agent's reply.
-5. No-Herdr install: launch with Herdr hidden and `MUXR_HERDR_INSTALLER`
-   pointing at a lab script that runs the real `https://herdr.dev/install.sh`
-   into a lab folder and leaves a `~/.local/bin/herdr` shim routing every call
-   through the lab helper's named session. Read the Herdr notice on the window
-   and the paired phone's Home. With a dead `https_proxy` in the installer,
-   Install reads the "Couldn't install Herdr" sentence and Try again; clear it, choose Try
-   again, and time click→window normal and click→phone Home (≈3 s and ≈6 s on
-   2026-10-12), then report an agent in the lab session and see it on Home.
+5. No-Herdr install: launch with Herdr hidden, `HERDR_INSTALL_DIR` at a lab
+   folder, and `MUXR_HERDR_BINARY_URL`/`MUXR_HERDR_BINARY_SHA256` (the herdr
+   kit's own override) at a loopback fixture server that serves a `herdr` shim
+   routing every call through the lab helper's named session, with that shim's
+   sha256. Read the Herdr notice on the window and the paired phone's Home. Point
+   `MUXR_HERDR_BINARY_URL` at an unreachable address to make Install read the
+   "Couldn't install Herdr" sentence and Try again; point it back at the fixture,
+   choose Try again, and time click→window normal and click→phone Home (≈3 s and
+   ≈6 s on 2026-10-12), then report an agent in the lab session and see it on
+   Home.
 6. Toggle keep-awake and start-at-login and read `settings.json` and the XDG
    autostart file back.
 7. Killed host: once Ready to pair shows, `kill -9` the exact host PID (the
