@@ -1571,8 +1571,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 shell is not "Offline". */}
                             {headerLifecycleLabel !== undefined && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                 <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: headerStatus.color }} />
-                                {/* A narrow header gives the chip the word's room; the dot and the label keep it. */}
-                                {!(preview.shown !== undefined && windowWidth < 340) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
+                                {/* A narrow header gives the chip (or, at the largest text, the
+                                    changes pill) the word's room; the dot and the label keep it. */}
+                                {!(preview.shown !== undefined && windowWidth < 340) && !(changesCount !== null && changesCount > 0 && windowWidth / fontScale < 240) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
                             </View>}
                         </Pressable>
                         <PreviewChip preview={preview.shown} live={preview.live} openable={preview.openable} labelled={preview.openable && preview.tooltip.open} onPress={watchPreview} onLayout={setPreviewChipBox} />
