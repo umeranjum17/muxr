@@ -3207,13 +3207,14 @@ export async function createHerdrSessionSource(
                 await routes.flush();
                 return { status: 'closed', alreadyGone: true };
             }
-            // The close ladder is host behavior: call it directly on the live
-            // Herdr socket instead of routing through a plugin RPC.
+            // The close ladder is host behavior on the kit's closes; only a
+            // confirmed worktree-group close reaches the Herdr socket directly.
             let result: CloseResult;
             try {
                 result = await closeAgent({
                     paneId,
                     ...(options.confirmedScope === undefined ? {} : { confirmedScope: options.confirmedScope }),
+                    kit: client.kit,
                     call: (method, params) => client.call(method, params),
                 });
             } catch (error) {

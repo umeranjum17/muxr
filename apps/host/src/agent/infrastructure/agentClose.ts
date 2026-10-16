@@ -2,13 +2,20 @@
  * The agent-close ladder: close one pane, widening to tab, workspace, then
  * worktree group only with explicit confirmation at every broader scope.
  *
- * This used to live in the workspace-hierarchy plugin folder and ran as a
- * plugin RPC; it is host behavior (session.stop calls it directly), so it
- * lives here as a plain host module. The ladder logic is unchanged.
+ * The pane, tab and workspace steps are the kit's closePane/closeTab/
+ * closeWorkspace: each refuses a close that would widen and names the wider
+ * target, which is the next rung. Only the confirmed worktree-group close is a
+ * raw `workspace.close` on the group root, because the kit has no
+ * confirmed-scope close and Herdr widens that one atomically.
  */
+import type { HerdrKit } from '@byokit/herdr';
 import type { CloseResult, CloseScope } from '@trymuxr/contract';
 
 export type HerdrCall = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+export type CloseKit = Pick<HerdrKit, 'closePane' | 'closeTab' | 'closeWorkspace'>;
+
+/** The wider target a kit close refusal names, or undefined when the close went through. */
+type Wider = { id: string; label: string };
 
 const GONE = new Set(['pane_not_found', 'tab_not_found', 'workspace_not_found']);
 const CLOSE_LADDER = ['pane', 'tab', 'workspace', 'worktreeGroup'] as const;
@@ -91,44 +98,37 @@ function locate(snapshot: Snapshot, paneId: string): Located | undefined {
     };
 }
 
-function liveCloseScope(located: Located): (typeof CLOSE_LADDER)[number] {
-    if (located.paneCount > 1) return 'pane';
-    if (located.tabCount > 1) return 'tab';
-    if (!located.group) return 'workspace';
-    return 'worktreeGroup';
-}
-
-function nextScope(scope: string): CloseScope {
-    return CLOSE_LADDER[CLOSE_LADDER.indexOf(scope as (typeof CLOSE_LADDER)[number]) + 1] as CloseScope;
-}
-
 function nextBroaderScope(attemptedScope: string, confirmedScope: CloseScope | undefined): CloseScope | undefined {
     const attemptedIndex = CLOSE_LADDER.indexOf(attemptedScope as (typeof CLOSE_LADDER)[number]);
     const confirmedIndex = confirmedScope === undefined ? -1 : CLOSE_LADDER.indexOf(confirmedScope);
     return CLOSE_LADDER[Math.max(attemptedIndex, confirmedIndex) + 1] as CloseScope | undefined;
 }
 
-function confirmation(scope: string, located: Located): CloseResult {
+type Labels = Partial<Pick<Located, 'tabLabel' | 'workspaceLabel' | 'group'>>;
+
+function confirmation(scope: string, located: Labels): CloseResult {
     if (scope === 'tab') {
         // Herdr tab labels are often a bare number; name it so the sentence reads.
-        const tab = /^\d+$/.test(located.tabLabel) ? `Tab ${located.tabLabel}` : located.tabLabel;
+        const tabLabel = located.tabLabel ?? 'tab';
+        const tab = /^\d+$/.test(tabLabel) ? `Tab ${tabLabel}` : tabLabel;
         return {
             status: 'confirmationRequired',
             scope,
-            label: located.tabLabel,
+            label: tabLabel,
             message: `Closing ${tab} will close this tab.`,
         };
     }
+    const workspaceLabel = located.workspaceLabel ?? 'workspace';
     if (scope === 'workspace') {
         return {
             status: 'confirmationRequired',
             scope,
-            label: located.workspaceLabel,
-            message: `Closing ${located.workspaceLabel} will close this workspace.`,
+            label: workspaceLabel,
+            message: `Closing ${workspaceLabel} will close this workspace.`,
         };
     }
     const group = located.group;
-    const label = group?.label ?? located.workspaceLabel;
+    const label = group?.label ?? workspaceLabel;
     const impact = group === undefined ? 'its worktree group' : `${group.size} workspaces in this worktree group`;
     return {
         status: 'confirmationRequired',
@@ -157,17 +157,22 @@ async function revalidate(call: HerdrCall, paneId: string): Promise<{ located: L
     }
 }
 
-function invoke(call: HerdrCall, scope: string, located: Located): Promise<unknown> {
-    if (scope === 'pane') return call('pane.close', { pane_id: located.paneId });
-    if (scope === 'tab') return call('tab.close', { tab_id: located.tabId });
-    // Herdr has no group-close RPC; worktreeGroup is explicit consent to the
-    // parent workspace.close widening that live topology reported.
-    return call('workspace.close', { workspace_id: located.workspaceId });
+async function widened(close: Promise<void>): Promise<Wider | undefined> {
+    try {
+        await close;
+        return undefined;
+    } catch (error) {
+        const refusal = error as { code?: unknown; id?: unknown; label?: unknown } | null;
+        if (typeof refusal?.code !== 'string' || !refusal.code.endsWith('-close-would-widen')
+            || typeof refusal.id !== 'string') throw error;
+        return { id: refusal.id, label: typeof refusal.label === 'string' ? refusal.label : '' };
+    }
 }
 
-export async function closeAgent({ paneId, confirmedScope, call }: {
+export async function closeAgent({ paneId, confirmedScope, kit, call }: {
     paneId: string;
     confirmedScope?: CloseScope;
+    kit: CloseKit;
     call: HerdrCall;
 }): Promise<CloseResult> {
     if (typeof paneId !== 'string' || paneId.trim() === '') throw new Error('close requires a paneId');
@@ -175,27 +180,39 @@ export async function closeAgent({ paneId, confirmedScope, call }: {
         && confirmedScope !== 'workspace' && confirmedScope !== 'worktreeGroup') {
         throw new Error('invalid close scope');
     }
-    let attemptedScope: (typeof CLOSE_LADDER)[number] | undefined;
+    const allows = (scope: (typeof CLOSE_LADDER)[number]): boolean =>
+        CLOSE_LADDER.indexOf(scope) <= CLOSE_LADDER.indexOf(confirmedScope ?? 'pane');
+    let attemptedScope: (typeof CLOSE_LADDER)[number] = 'pane';
     try {
-        const live = locate(await snapshot(call), paneId);
-        if (live === undefined) return { status: 'closed', alreadyGone: true };
-        attemptedScope = liveCloseScope(live);
-        const confirmedCeiling = confirmedScope ?? 'pane';
-        if (CLOSE_LADDER.indexOf(attemptedScope) > CLOSE_LADDER.indexOf(confirmedCeiling)) {
-            return confirmation(nextScope(confirmedCeiling), live);
+        const tab = await widened(kit.closePane(paneId));
+        if (tab === undefined) return { status: 'closed' };
+        if (!allows('tab')) return confirmation('tab', { tabLabel: labelOf(tab.label, 'tab') });
+        attemptedScope = 'tab';
+        const workspace = await widened(kit.closeTab(tab.id));
+        if (workspace === undefined) return { status: 'closed' };
+        const workspaceLabel = labelOf(workspace.label, 'workspace');
+        if (!allows('workspace')) return confirmation('workspace', { workspaceLabel });
+        attemptedScope = 'workspace';
+        // The kit refuses only a worktree-group root here.
+        if (await widened(kit.closeWorkspace(workspace.id)) === undefined) return { status: 'closed' };
+        if (!allows('worktreeGroup')) {
+            // The refusal names the root; the sentence also needs the group's repo name and size.
+            const live = locate(await snapshot(call), paneId);
+            return confirmation('worktreeGroup', live ?? { workspaceLabel });
         }
-        await invoke(call, attemptedScope, live);
+        attemptedScope = 'worktreeGroup';
+        // Herdr has no group-close RPC; worktreeGroup is explicit consent to the
+        // root's workspace.close, which Herdr widens to the group atomically.
+        await call('workspace.close', { workspace_id: workspace.id });
         return { status: 'closed' };
     } catch (error) {
         if (isGoneHerdr(error)) {
-            if (attemptedScope === undefined) throw error;
             const latest = await revalidate(call, paneId);
             if (latest.retryable) return { status: 'retryable', message: 'Herdr is temporarily unavailable. Try again.' };
             if (latest.located === undefined) return { status: 'closed', alreadyGone: true };
             throw error;
         }
         if (isNoWidenHerdr(error)) {
-            if (attemptedScope === undefined) throw error;
             const latest = await revalidate(call, paneId);
             if (latest.retryable) return { status: 'retryable', message: 'Herdr is temporarily unavailable. Try again.' };
             if (latest.located === undefined) return { status: 'closed', alreadyGone: true };
