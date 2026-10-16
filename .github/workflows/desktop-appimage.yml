@@ -65,7 +65,9 @@ jobs:
         run: |
           set -euo pipefail
           cd apps/desktop/release
-          appimage="$(basename "$(ls -1 ./*.AppImage | head -n1)")"
+          set -- ./*.AppImage
+          appimage="$(basename "$1")"
+          [ -f "$appimage" ] || { echo "no AppImage found" >&2; exit 1; }
           sha256sum "$appimage" > "$appimage.sha256"
           cat "$appimage.sha256"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
