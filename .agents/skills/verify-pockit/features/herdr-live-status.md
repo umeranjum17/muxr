@@ -11,6 +11,8 @@ the host opening sockets of its own.
 - An agent's status changes (working, blocked, idle) land within a second.
 - The host holds one Herdr socket with no agents, plus exactly one per agent
   (the kit's status watch), and drops it when the pane closes.
+- Applying a saved layout starts each recorded agent through the kit's
+  `startAgent`, and that agent comes up in the new tab.
 
 ## How to get to it (user POV)
 
@@ -32,8 +34,13 @@ Preconditions: a built host (`yarn build`) and the guarded lab helper
 4. After each step count the probe's sockets: `ss -xp | grep "pid=<PID>," | wc -l`.
    Expect 1, 2 with the agent, 1 after close. The log shows
    `kit-lab/w1:p1:pi:working` → `blocked` → `idle` → gone.
-5. SIGTERM the probe (it disposes the source), then teardown; teardown must
-   exit 0.
+5. Layout: `mkdir <scratch>/cwd`, then
+   `node .agents/skills/verify-pockit/features/herdrLayoutLab.mjs <socket> <scratch>/layout <scratch>/cwd`.
+   It applies a split whose first pane records `pi` and must print
+   `PASS layoutApply started pi via the kit` (a real pi; the lab helper gives it a
+   disposable home).
+6. SIGTERM the status probe (it disposes the source), then teardown; teardown
+   must exit 0.
 
 ## Gotchas
 
