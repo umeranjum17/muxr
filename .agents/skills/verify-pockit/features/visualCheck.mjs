@@ -541,11 +541,12 @@ const native = (serial, dir, name, flags) => {
     const refAt = flags.indexOf('--ref'), refPath = refAt < 0 ? undefined : flags[refAt + 1];
     const ref = refPath && existsSync(refPath) ? parseDump(readFileSync(refPath).toString()) : undefined;
     if (!ref) console.log(`image geometry not compared for ${name}: no reference dump`);
-    const found = layoutLeads(parseDump(xml), { W, H, status, nav, end: flags.includes('--end'), ref });
+    const nodes = parseDump(xml);
+    const found = layoutLeads(nodes, { W, H, status, nav, end: flags.includes('--end'), ref });
     let words;
     try { words = ocrWords(png); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    if (words) found.push(...wordSplitLeads(parseDump(xml), words), ...paintedEllipsisLeads(parseDump(xml), words));
-    else console.log('word-split check skipped: tesseract not found');
+    if (words) found.push(...wordSplitLeads(nodes, words), ...paintedEllipsisLeads(nodes, words));
+    else console.log('OCR checks skipped (word split, painted ellipsis): tesseract not found');
     found.push(...stripLeads(png, status?.[3] ?? 0, nav?.[1] ?? H, W));
     for (const line of found) console.log(`DEFECT ${name}: ${line}`);
     console.log(`${found.length ? 'FAIL' : 'clean'} ${name} (${W}x${H}, status bar ${status ? `0-${status[3]}` : 'none'}, nav bar ${nav ? `${nav[1]}-${nav[3]}` : 'none'})`);
