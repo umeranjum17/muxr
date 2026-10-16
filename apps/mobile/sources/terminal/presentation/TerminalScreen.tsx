@@ -44,7 +44,7 @@ import {
     undoSmartPunctuation,
 } from '../domain/promptAvailability';
 import { terminalPaneStatus } from '../domain/terminalAgentStatus';
-import { terminalLineHeight, terminalSurfaceHeight } from '../domain/terminalFloor';
+import { terminalLineHeight, terminalShownHeight, terminalSurfaceHeight } from '../domain/terminalFloor';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { terminalGrid } from '../application/terminalAhead';
 import { createTerminalPan } from '../application/terminalPan';
@@ -407,9 +407,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // estimate can be taller than the surface and grows it: pan the rows it drew.
     const drawnGridHeight = drawnRowHeight !== undefined && grid !== undefined ? grid.rows * drawnRowHeight : 0;
     const pannedHeight = Math.max(surfaceHeight, drawnGridHeight);
+    const shownHeight = terminalShownHeight({ boxHeight: terminalBox?.height ?? 0, surfaceHeight: pannedHeight, rowHeight: terminalRowHeight });
     React.useEffect(() => {
-        pan.layout({ surfaceHeight: pannedHeight, boxHeight: terminalBox?.height ?? 0, rowHeight: terminalRowHeight, holdBottom: choicesVisible });
-    }, [pan, pannedHeight, terminalBox?.height, terminalRowHeight, choicesVisible]);
+        pan.layout({ surfaceHeight: pannedHeight, boxHeight: shownHeight, rowHeight: terminalRowHeight, holdBottom: choicesVisible });
+    }, [pan, pannedHeight, shownHeight, terminalRowHeight, choicesVisible]);
     // The ring is hosted by the screen, never by the terminal renderer. It owns
     // its own open state so that opening it re-renders one small component
     // rather than this whole screen on the frame the bloom starts; the screen
@@ -1671,6 +1672,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         // and the pan picks which of its rows the box shows.
                         style={{ flex: 1, overflow: 'hidden', justifyContent: 'flex-end' }}
                     >
+                        {/* ...cut to whole rows, so none shows half of itself at either edge. */}
+                        <View style={[{ overflow: 'hidden', justifyContent: 'flex-end' }, shownHeight < (terminalBox?.height ?? 0) ? { height: shownHeight } : { flex: 1 }]}>
                         <Animated.View style={[{ flexGrow: 1, minHeight: pannedHeight }, surfacePan]}>
                         <AgentPager
                             key={props.id}
@@ -1705,6 +1708,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         />
                         </AgentPager>
                         </Animated.View>
+                        </View>
                     </View>
 
                     {/* Everything below the terminal is one surface in the
