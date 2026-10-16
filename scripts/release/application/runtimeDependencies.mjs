@@ -26,6 +26,7 @@ export function runtimeDependencies(root = process.cwd()) {
         '@desklink/host': desklinkHost.version,
         '@byokit/accounts': hostPackage.dependencies['@byokit/accounts'],
         '@byokit/realtime': hostPackage.dependencies['@byokit/realtime'],
+        '@byokit/herdr': hostPackage.dependencies['@byokit/herdr'],
         '@byokit/link': hostPackage.dependencies['@byokit/link'],
         '@byokit/relay': hostPackage.dependencies['@byokit/relay'],
         '@byokit/reach': rootPackage.dependencies['@byokit/reach'],

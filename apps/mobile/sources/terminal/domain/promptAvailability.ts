@@ -13,6 +13,25 @@ const CHOICE_LINE = /^\s*(?:[❯›]\s*)?(\d)\.\s+(\S.*?)\s*$/;
 const CURSOR_LINE = /^(\s*)[❯›]\s+(\S.*?)\s*$/;
 const DOWN = '\u001b[B';
 const UP = '\u001b[A';
+const RIGHT = '\u001b[C';
+const LEFT = '\u001b[D';
+/** An escape sequence: SGR and any other CSI, an OSC, or a two-byte escape such as a charset (ESC ( B). */
+const ESCAPE = /(\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[ -/]*[0-~])/;
+/**
+ * OpenCode's permission dialog, " Allow once   Allow always   Reject " in one
+ * row with the selected button drawn on its own background. Its Allow always
+ * opens a Confirm step (Confirm selected) that Herdr does not report as
+ * blocked, so that answer presses Enter once more to confirm it.
+ */
+const OPENCODE_PERMISSION = [
+    { label: 'Allow once', confirm: '' },
+    { label: 'Allow always', confirm: '\r' },
+    { label: 'Reject', confirm: '' },
+];
+/** Screen lines at the bottom that may hold the row: its footer can wrap at phone width. */
+const BUTTON_ROW_LINES = 10;
+/** How many arguments follow 38/48: 2 picks 24-bit r;g;b, 5 picks a palette index. */
+const COLOUR_ARGS: Record<string, number> = { '2': 4, '5': 2 };
 /** Lines a question may show under its last choice: "Esc to cancel", "Press enter to continue". */
 const FOOTER_LINES = 6;
 /** Lines a long choice may wrap onto at phone width before the next one. */
@@ -25,11 +44,89 @@ const WRAP_LINES = 4;
  * Only a run numbered 1..n at the bottom of the screen counts; a numbered list
  * higher up is the agent talking, not asking. A menu with no numbers, such as
  * Claude Code's folder-trust question, answers to arrow presses from its
- * highlighted row and Enter.
+ * highlighted row and Enter. OpenCode's permission buttons sit in one row
+ * and answer to Left/Right presses from the selected one and Enter.
+ *
+ * The screen is Herdr's ANSI read: the selected OpenCode button shows only
+ * in its background colour.
  */
 export function pendingChoices(screen: string, columns?: number): PendingChoice[] {
-    const numbered = numberedChoices(screen);
-    return numbered.length > 0 ? numbered : unnumberedChoices(screen, columns);
+    const text = screen.split(ESCAPE).filter((part) => !part.startsWith('\x1b')).join('');
+    const numbered = numberedChoices(text);
+    if (numbered.length > 0) return numbered;
+    const permission = opencodePermissionChoices(screen);
+    return permission.length > 0 ? permission : unnumberedChoices(text, columns);
+}
+
+/**
+ * OpenCode's permission buttons, found by their labels in one row near the
+ * bottom. At phone width the row is cut off at the grid edge ("Allow alway"),
+ * so a visible button need only start its label, and the chips carry
+ * OpenCode's full labels. The selected button is the one whose background
+ * differs from the row's; when none visible does, it is the one button cut off
+ * entirely. With fewer than two buttons in view, or more than one cut off,
+ * there is no honest answer.
+ */
+function opencodePermissionChoices(screen: string): PendingChoice[] {
+    const lines = screen.split('\n');
+    for (let index = lines.length - 1; index >= Math.max(0, lines.length - BUTTON_ROW_LINES); index--) {
+        const { text, backgrounds } = cells(lines[index]!);
+        const words = [...text.matchAll(/\S+(?: \S+)*/g)];
+        const first = words.findIndex((word) => word[0] === OPENCODE_PERMISSION[0]!.label);
+        if (first === -1) continue;
+        const visible = words.slice(first, first + OPENCODE_PERMISSION.length);
+        if (visible.length < 2 || visible.some((word, button) => !OPENCODE_PERMISSION[button]!.label.startsWith(word[0]))) return [];
+        const start = visible[0]!.index;
+        if (start < 2) return [];
+        // The cell before the first button's padding is the row's own background;
+        // a row with none was read without colour, which hides the selection.
+        const row = backgrounds[start - 2];
+        if (row === undefined || row === '') return [];
+        const lit = visible.flatMap((word, button) => (backgrounds[word.index] === row ? [] : [button]));
+        const hidden = OPENCODE_PERMISSION.length - visible.length;
+        let selected = lit.length === 1 ? lit[0]! : -1;
+        if (lit.length === 0 && hidden === 1) selected = OPENCODE_PERMISSION.length - 1;
+        if (selected === -1) return [];
+        return OPENCODE_PERMISSION.map(({ label, confirm }, button) => {
+            const moves = button > selected ? RIGHT.repeat(button - selected) : LEFT.repeat(selected - button);
+            return { key: `${moves}\r${confirm}`, label };
+        });
+    }
+    return [];
+}
+
+/** A line's text with the background SGR each of its characters is drawn on. */
+function cells(line: string): { text: string; backgrounds: string[] } {
+    let text = '';
+    const backgrounds: string[] = [];
+    let background = '';
+    for (const part of line.split(ESCAPE)) {
+        if (part.startsWith('\x1b')) {
+            if (part.startsWith('\x1b[') && part.endsWith('m')) background = nextBackground(background, part.slice(2, -1));
+            continue;
+        }
+        text += part;
+        for (let unit = 0; unit < part.length; unit++) backgrounds.push(background);
+    }
+    return { text, backgrounds };
+}
+
+function nextBackground(background: string, params: string): string {
+    const codes = params === '' ? ['0'] : params.split(';');
+    let next = background;
+    for (let at = 0; at < codes.length; at++) {
+        const code = codes[at]!;
+        if (code === '38' || code === '48') {
+            const span = COLOUR_ARGS[codes[at + 1] ?? ''] ?? 0;
+            if (code === '48') next = codes.slice(at, at + span + 1).join(';');
+            at += span;
+        } else if (code === '0' || code === '49') {
+            next = '';
+        } else if (/^(?:4[0-7]|10[0-7])$/.test(code)) {
+            next = code;
+        }
+    }
+    return next;
 }
 
 function numberedChoices(screen: string): PendingChoice[] {

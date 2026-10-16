@@ -91,12 +91,19 @@ import {
 } from '../domain/layout.js';
 import { rollupLifecycle } from '../domain/lifecycle.js';
 import { blockedQuestion } from '../domain/blockedQuestion.js';
+import { QUOTA_RETRY_REASON, quotaRetryDetail, tailLines } from '../domain/quotaRetry.js';
 import { reportAgentOutcome } from '../application/reportAgentOutcome.js';
 import { agentKindsFromManifests } from '../domain/agentKinds.js';
 
 const PROMPT_READY_TIMEOUT_MS = 30_000;
 /** How long a blocked alert waits for the kit to read the agent's question before going out without it. */
 const QUESTION_WAIT_MS = 3_000;
+/** Minimum gap between quota-retry pane reads for one settled session. */
+const QUOTA_PROBE_DEBOUNCE_MS = 20_000;
+/** Recent output lines a quota retry loop would print into. */
+const QUOTA_RETRY_TAIL_LINES = 25;
+/** A matching tail this old with no new output is a loop that ended quietly. */
+const QUOTA_RETRY_STALE_MS = 5 * 60_000;
 const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 /** Outlasts Herdr's 5 s window for a prompt to start a turn. */
@@ -508,25 +515,6 @@ export function boundedPaneNamingMetadata(tokens: unknown): { provider?: string;
     return out.provider === undefined && out.model === undefined ? undefined : out;
 }
 
-const EVENT_KINDS = [
-    // pane.agent_status_changed is deliberately NOT here: it is a filtered
-    // subscription (pane_id required) and one invalid kind rejects the whole
-    // batch. Status transitions ride per-pane watches (watchPaneStatus).
-    'pane.agent_detected',
-    'pane.created',
-    'pane.closed',
-    'pane.moved',
-    'pane.exited',
-    'pane.updated',
-    'workspace.created',
-    'workspace.closed',
-    'workspace.renamed',
-    'workspace.updated',
-    'tab.created',
-    'tab.closed',
-    'tab.renamed',
-];
-
 const EMPTY_TOKENS = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 
 const PLAN_MOVE_KINDS: Record<string, string[]> = { claude: ['claude', 'pi'], codex: ['codex', 'pi'] };
@@ -580,8 +568,8 @@ export async function createHerdrSessionSource(
             list: listRealtimeAgents,
             activity: async () => options.lifecycle?.catalog().events ?? [],
             kinds: async () => {
-                const result = await client.call<{ manifests?: Array<{ agent?: string }> }>('server.agent_manifests', {});
-                return agentKindsFromManifests(result.manifests ?? []).filter(executableOnPath);
+                const manifests = (await client.kit.agentKinds()).map((agent) => ({ agent }));
+                return agentKindsFromManifests(manifests).filter(executableOnPath);
             },
             start: startRealtimeAgent,
             sendKeys: sendSessionKeys,
@@ -624,8 +612,15 @@ export async function createHerdrSessionSource(
     /** Last emitted signatures per session, so snapshots publish only real changes. */
     const lastStateSignature = new Map<string, string>();
     const lastInfoSignature = new Map<string, string>();
-    /** pane_id -> close fn for its filtered status subscription. */
-    const statusWatches = new Map<string, () => void>();
+    /**
+     * Sessions whose recent pane output shows a plan/quota retry loop. While
+     * held, a settled idle/done reads as blocked everywhere the lifecycle is
+     * published; the entry clears on the next probe without a match, so the
+     * state returns to normal on its own when the loop ends.
+     */
+    const quotaRetryBySession = new Map<string, { tail: string; settledAt: number }>();
+    const quotaProbeAt = new Map<string, number>();
+    const quotaProbeFlight = new Set<string>();
 
     /** Stamp a freshly spawned pane with who asked for it. Best effort. */
     const lastReadinessBySession = new Map<string, string>();
@@ -955,18 +950,6 @@ export async function createHerdrSessionSource(
         lifecycleEpochByPane.set(paneId, (lifecycleEpochByPane.get(paneId) ?? 0) + 1);
     }
 
-    function ensureStatusWatch(paneId: string): void {
-        if (statusWatches.has(paneId)) return;
-        const close = client.watchPaneStatus(paneId, (agentStatus) => {
-            setLifecycle(paneId, agentStatus);
-            const session = currentSessionByPane(paneId);
-            if (session !== undefined) emitState(session.sessionId);
-            if (needsSessionDiscovery(paneId)) scheduleResnapshot();
-        }, () => {
-            if (needsSessionDiscovery(paneId)) scheduleResnapshot();
-        });
-        statusWatches.set(paneId, close);
-    }
     function needsSessionDiscovery(paneId: string): boolean {
         const agent = agentsByPane.get(paneId);
         return agent !== undefined && publishedAgentSession(agent) === undefined;
@@ -1025,11 +1008,78 @@ export async function createHerdrSessionSource(
         ),
     });
 
-    function lifecycleOf(session: CurrentSession): AgentLifecycle {
+    function rawLifecycleOf(session: CurrentSession): AgentLifecycle {
         const raw = session.agent?.agent_status ?? session.pane.agent_status;
         if (raw === 'idle' || raw === 'working' || raw === 'blocked' || raw === 'done' || raw === 'failed') return raw;
         const historical = options.lifecycle?.current(session.sessionId)?.state;
         return historical === 'starting' || historical === 'failed' ? historical : 'unknown';
+    }
+
+    function lifecycleOf(session: CurrentSession): AgentLifecycle {
+        const raw = rawLifecycleOf(session);
+        // A plan/quota retry loop settles Herdr to idle/done while the pane
+        // keeps retrying: it needs its user, not a finished label.
+        if ((raw === 'idle' || raw === 'done') && quotaRetryBySession.has(session.sessionId)) return 'blocked';
+        return raw;
+    }
+
+    /**
+     * Fire-and-forget quota-retry probe for a settled session: reads the
+     * pane's recent output once per debounce window and holds or releases the
+     * blocked override, re-emitting only on change. A matching tail that
+     * stops growing is a loop that ended quietly, so it releases on its own;
+     * any status change away from settled clears the hold immediately.
+     */
+    function probeQuotaRetry(sessionId: string, paneId: string): void {
+        if (quotaProbeFlight.has(sessionId)) return;
+        quotaProbeFlight.add(sessionId);
+        quotaProbeAt.set(sessionId, Date.now());
+        void (async () => {
+            try {
+                const session = currentSession(sessionId);
+                if (session === undefined || session.paneId !== paneId) return;
+                let text = '';
+                try {
+                    text = (await client.kit.read(paneId, { source: 'recent_unwrapped', lines: 40 })).text ?? '';
+                } catch {
+                    return;
+                }
+                if (text.trim() === '') {
+                    try {
+                        text = (await client.kit.read(paneId, { source: 'visible', ansi: false })).text ?? '';
+                    } catch {
+                        return;
+                    }
+                }
+                const tail = tailLines(text, QUOTA_RETRY_TAIL_LINES);
+                const now = Date.now();
+                if (quotaRetryDetail(tail) === undefined) {
+                    if (quotaRetryBySession.delete(sessionId)) emitState(sessionId);
+                    return;
+                }
+                const held = quotaRetryBySession.get(sessionId);
+                if (held === undefined || held.tail !== tail) {
+                    quotaRetryBySession.set(sessionId, { tail, settledAt: now });
+                    emitState(sessionId);
+                } else if (now - held.settledAt > QUOTA_RETRY_STALE_MS) {
+                    quotaRetryBySession.delete(sessionId);
+                    emitState(sessionId);
+                }
+            } finally {
+                quotaProbeFlight.delete(sessionId);
+            }
+        })();
+    }
+
+    function maybeProbeQuotaRetry(session: CurrentSession, raw: AgentLifecycle): void {
+        if (session.agent === undefined) return;
+        if (raw !== 'idle' && raw !== 'done') {
+            if (quotaRetryBySession.delete(session.sessionId)) emitState(session.sessionId);
+            return;
+        }
+        const last = quotaProbeAt.get(session.sessionId) ?? 0;
+        if (Date.now() - last < QUOTA_PROBE_DEBOUNCE_MS || quotaProbeFlight.has(session.sessionId)) return;
+        probeQuotaRetry(session.sessionId, session.paneId);
     }
 
     function lifecycleForPane(paneId: string, session: CurrentSession | undefined): AgentLifecycle {
@@ -1166,7 +1216,7 @@ export async function createHerdrSessionSource(
             case 'blocked':
                 changed = attention.clear(sessionId, 'failed') || changed;
                 {
-                    const setChanged = attention.set(sessionId, 'waiting', 'Agent needs attention.');
+                    const setChanged = attention.set(sessionId, 'waiting', quotaRetryBySession.get(sessionId) === undefined ? 'Agent needs attention.' : QUOTA_RETRY_REASON);
                     changed = setChanged || changed;
                     const eventId = options.lifecycle?.current(sessionId)?.eventId;
                     if (eventId !== undefined && (setChanged || notifiedBlocked.get(sessionId) !== eventId)) {
@@ -1228,6 +1278,8 @@ export async function createHerdrSessionSource(
         questionWaits.delete(sessionId);
         askedRevisions.delete(sessionId);
         notifiedBlocked.delete(sessionId);
+        quotaRetryBySession.delete(sessionId);
+        quotaProbeAt.delete(sessionId);
         publish(sessionId, { type: 'session.removed' });
     }
 
@@ -1236,6 +1288,7 @@ export async function createHerdrSessionSource(
         if (session === undefined) return;
         if (agentPromptable(session)) launchFailureByPane.delete(session.paneId);
         const agentStatus = lifecycleOf(session);
+        maybeProbeQuotaRetry(session, rawLifecycleOf(session));
         if (session.agent !== undefined) {
             const promptable = agentPromptable(session);
             const detail = readinessDetail(session);
@@ -1339,7 +1392,6 @@ export async function createHerdrSessionSource(
 
         const createdRoutes: string[] = [];
         for (const agent of agentsByPane.values()) {
-            ensureStatusWatch(agent.pane_id);
             if (!listedAgent(agent)) continue;
             const ref = agentSession(agent)!;
             const bound = routes.bind(ref);
@@ -1349,14 +1401,6 @@ export async function createHerdrSessionSource(
         for (const [route, paneId] of paneByAgentRoute) {
             if (!panesById.has(paneId)) paneByAgentRoute.delete(route);
         }
-        for (const [paneId, close] of statusWatches) {
-            if (agentsByPane.has(paneId)) continue;
-            close();
-            statusWatches.delete(paneId);
-            lifecycleEpochByPane.delete(paneId);
-            if (!panesById.has(paneId)) artifacts.dropPane(paneId);
-        }
-        // A pane that left Herdr's tree takes its socket with it.
         await routes.flush();
         reconcileLaunchFailures();
 
@@ -1412,6 +1456,7 @@ export async function createHerdrSessionSource(
         const treesSince = Date.now();
         const routingEpochAtStart = routingEpoch;
         const lifecycleEpochAtStart = new Map(lifecycleEpochByPane);
+        const previousAgentPanes = [...agentsByPane.keys()];
         const result = await client.call<{
             snapshot?: {
                 agents?: AgentRecord[];
@@ -1448,6 +1493,13 @@ export async function createHerdrSessionSource(
         }
         for (const tab of result.snapshot?.tabs ?? []) tabsById.set(tab.tab_id, tab);
         await syncDiscovery();
+        // A pane whose agent left keeps no lifecycle epoch; one that left
+        // Herdr's tree keeps no artifact state either.
+        for (const paneId of previousAgentPanes) {
+            if (nextAgents.has(paneId)) continue;
+            lifecycleEpochByPane.delete(paneId);
+            if (!nextPanes.has(paneId)) artifacts.dropPane(paneId);
+        }
         snapshotReadAt = treesSince;
         snapshotRoutingEpoch = routingEpochAtStart;
     }
@@ -1504,10 +1556,22 @@ export async function createHerdrSessionSource(
     // Resolved at each use, so a Herdr installed after the host started is
     // found without a restart; the kit spawns that exact path for CLI and terminal verbs.
     const resolvedHerdrBin = (): string | undefined => options.herdrBin || process.env.HERDR_BIN || findHerdrBin();
+    /**
+     * The kit opens every per-pane status watch while it bootstraps and only
+     * then starts delivering status frames. Once that set acks, a conversation
+     * Herdr published while the watches were landing is discoverable, so the
+     * mirror re-reads on that edge; muxr holds no watches of its own.
+     */
+    function resnapshotAfterStatusWatch(): void {
+        void client.statusWatchReady()
+            .then(() => [...agentsByPane.keys()].some(needsSessionDiscovery))
+            .then((missing) => (missing === true ? refreshSnapshotFresh().then(emitAllStates) : undefined))
+            .catch(() => {});
+    }
     const client = new KitHerdrClient(() => resolvedHerdrBin() ?? 'herdr', socketPath, () => {
         routingEpoch += 1;
-        void client.subscribeEvents(EVENT_KINDS).catch(() => {});
         void refreshSnapshot().then(emitAllStates).then(() => artifacts.rescanAll()).catch(() => {});
+        resnapshotAfterStatusWatch();
     });
     // The kit reads a blocked agent's question once its status flips; that releases the held alert.
     const stopBlockedWatch = client.kit.onBlocked((entry, change) => {
@@ -1723,6 +1787,8 @@ export async function createHerdrSessionSource(
         throw new Error('herdr agent did not become interactive');
     }
 
+    // The kit taps its own batch socket and its per-pane status watches here;
+    // this host opens no subscription of its own.
     client.onEvent((event) => {
         // Wire kinds arrive dot-style per the subscription schema; tolerate snake_case too.
         const kind = event.type.replace(/_/g, '.');
@@ -1762,16 +1828,19 @@ export async function createHerdrSessionSource(
                 if (paneId !== undefined && agentStatus !== undefined) setLifecycle(paneId, agentStatus);
                 const session = paneId === undefined ? undefined : currentSessionByPane(paneId);
                 if (session !== undefined) emitState(session.sessionId);
-                scheduleResnapshot();
+                // Status rides the kit's per-pane watch and never changes the
+                // tree; only an undiscovered conversation is worth a read.
+                // Detection means a new agent, so it always re-reads.
+                if (kind === 'pane.agent.detected'
+                    || (paneId !== undefined && needsSessionDiscovery(paneId))) scheduleResnapshot();
+                // Detection starts a kit re-bootstrap that opens the new pane's
+                // status watch; wait past this tick so the ready signal is its.
+                if (kind === 'pane.agent.detected') queueMicrotask(resnapshotAfterStatusWatch);
                 return;
             }
             case 'pane.moved': {
                 const previous = typeof event.previous_pane_id === 'string' ? event.previous_pane_id : undefined;
-                if (previous !== undefined) {
-                    statusWatches.get(previous)?.();
-                    statusWatches.delete(previous);
-                    lifecycleEpochByPane.delete(previous);
-                }
+                if (previous !== undefined) lifecycleEpochByPane.delete(previous);
                 scheduleResnapshot();
                 return;
             }
@@ -1805,13 +1874,13 @@ export async function createHerdrSessionSource(
     // A dead herdr must not take the host down with it: the phone needs this
     // process alive to see connected:false instead of a healthy-looking ghost.
     // start() makes one attempt and leaves the reconnect loop armed;
-    // onReconnect resubscribes and resnapshots when herdr comes back.
+    // onReconnect resnapshots when herdr comes back.
     try {
         await client.start();
-        await client.subscribeEvents(EVENT_KINDS);
         await refreshSnapshot();
         emitAllStates();
-        // Seed the backstop before any client subscribes; an empty unchanged
+        resnapshotAfterStatusWatch();
+        // Seed the backstop before a phone connects; an empty unchanged
         // pane must not announce itself thirty seconds after a phone connects.
         await artifacts.rescanAll();
     } catch (cause) {
@@ -1878,8 +1947,6 @@ export async function createHerdrSessionSource(
         const resolvedPaneId = paneId ?? closePaneId(sessionId);
         if (resolvedPaneId !== undefined) {
             forgetLaunch(resolvedPaneId);
-            statusWatches.get(resolvedPaneId)?.();
-            statusWatches.delete(resolvedPaneId);
             lifecycleEpochByPane.delete(resolvedPaneId);
             artifacts.dropPane(resolvedPaneId);
         }
@@ -2557,11 +2624,11 @@ export async function createHerdrSessionSource(
         },
 
         async agentKinds(): Promise<string[]> {
-            const result = await client.call<{ manifests?: Array<{ agent?: string }> }>('server.agent_manifests', {});
             // Herdr's endpoint lists screen-detection manifests, not every
             // launchable integration. OMP and MastraCode report state through
             // hooks, so include them before probing the host PATH.
-            return agentKindsFromManifests(result.manifests ?? []);
+            const manifests = (await client.kit.agentKinds()).map((agent) => ({ agent }));
+            return agentKindsFromManifests(manifests);
         },
 
         async installedAgentKinds(kinds: readonly string[]): Promise<string[]> {
@@ -2763,8 +2830,6 @@ export async function createHerdrSessionSource(
                     agentsByPane.delete(record.paneId);
                     panesById.delete(record.paneId);
                     forgetLaunch(record.paneId);
-                    statusWatches.get(record.paneId)?.();
-                    statusWatches.delete(record.paneId);
                     lifecycleEpochByPane.delete(record.paneId);
                     artifacts.dropPane(record.paneId);
                 },
@@ -2988,14 +3053,14 @@ export async function createHerdrSessionSource(
                 const paneId = newPanes[index];
                 if (kind === undefined || paneId === undefined) continue;
                 const name = `pph_${kind}_${paneId.replace(/[^a-z0-9]/gi, '').toLowerCase()}`.slice(0, 32);
-                // Fire and forget: agent.start blocks on detection, and one agent
+                // Fire and forget: a start blocks on detection, and one agent
                 // failing to come up must not lose the rest of the layout.
                 const args = kind === 'opencode' ? opencodeLaunchArgs() : [];
-                void client
-                    .call('agent.start', {
-                        name, kind, pane_id: paneId, timeout_ms: 30_000,
+                void client.kit
+                    .startAgent({
+                        kind, name, cwd: homedir(), place: { pane: paneId }, timeoutMs: 30_000,
                         ...(args.length === 0 ? {} : { args }),
-                    }, 45_000)
+                    })
                     .catch(() => {});
                 started += 1;
             }
@@ -3381,10 +3446,6 @@ export async function createHerdrSessionSource(
             await settle(() => stopArtifactRetention());
             await settle(() => artifacts.dispose());
             await settle(() => artifactDownloadServer.dispose());
-            await settle(() => {
-                for (const close of statusWatches.values()) close();
-                statusWatches.clear();
-            });
             await settle(() => {
                 for (const abort of voiceStreamAborts.values()) abort.abort();
                 voiceStreamAborts.clear();
