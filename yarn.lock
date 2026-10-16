@@ -10,10 +10,18 @@
     package-manager-detector "^1.3.0"
     tinyexec "^1.0.1"
 
-"@anthropic-ai/sdk@0.124.0":
-  version "0.124.0"
-  resolved "https://registry.yarnpkg.com/@anthropic-ai/sdk/-/sdk-0.124.0.tgz#a490eb61201096a7c5cae78d9b6afe33b12e08e2"
-  integrity sha512-cN5O8i9UVxHeOQAzj/XjshWXG8KiibJDw9OGpH2Z/eR3n/RBxdoLxDJOcfqAJWvjaMDFfHTBADU04hWRJVkDyA==
+"@anthropic-ai/sdk@0.129.0":
+  version "0.129.0"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/sdk/-/sdk-0.129.0.tgz#6cdc34cd804dc0bf7cfb7cb0ff0c802670658150"
+  integrity sha512-MH7LB20kNpGLUpPTe2OG5XvL/KhX8HUO9XyBaFjgFk6TLS4Xjt0VPIuMKywe7POKKPslX+QxSlVok9e+8kG5Nw==
+  dependencies:
+    json-schema-to-ts "^3.1.1"
+    standardwebhooks "^1.0.0"
+
+"@anthropic-ai/sdk@0.133.0":
+  version "0.133.0"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/sdk/-/sdk-0.133.0.tgz#08db7874dde5e2e02b42d12680315efa72fa9799"
+  integrity sha512-jlqUN8p8ESTJj+GJnA4KjzbEfF1waEoGzRT8jwytlYGFFgv+/DUQOxlYGvYw10UzhD1kwLqYzxvA3FrTB2YWuQ==
   dependencies:
     json-schema-to-ts "^3.1.1"
     standardwebhooks "^1.0.0"
@@ -1099,20 +1107,20 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
-"@byokit/accounts@0.18.0":
-  version "0.18.0"
-  resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.18.0.tgz#83ef5f330b468342cd445e4e2f5059901bd4a261"
-  integrity sha512-hJ7gS1IImSgQNJHBRFHbmj42ORfkKGk8uLZeihmFtxYgkyODHzeYx8nGMlXb12kRFd2MikuKBfiZLPEF5FQ54w==
+"@byokit/accounts@0.24.1":
+  version "0.24.1"
+  resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.24.1.tgz#1b30377dcacae3644c79ba8416927814eb5b49a8"
+  integrity sha512-yOCnKWP5uol0m3PR9TMPuUv5Xn4935bnEe+mAmPaFHSoNW12YXrvt2Ijdw11xkXCTwSNkYAi6RCxSuUXQkKVCQ==
   dependencies:
-    "@anthropic-ai/sdk" "0.124.0"
-    "@byokit/secrets" "0.5.0"
-    "@byokit/usage" "0.7.0"
-    "@earendil-works/pi-ai" "0.87.1"
+    "@anthropic-ai/sdk" "0.133.0"
+    "@byokit/secrets" "0.5.1"
+    "@byokit/usage" "0.9.0"
+    "@earendil-works/pi-ai" "1.2.0"
     "@google/genai" "2.21.0"
     "@modelcontextprotocol/sdk" "1.31.0"
-    openai "6.40.0"
+    openai "7.19.0"
     partial-json "0.1.7"
-    undici-types "7.16.0"
+    undici-types "8.11.2"
 
 "@byokit/audio@0.2.0":
   version "0.2.0"
@@ -1126,37 +1134,25 @@
   dependencies:
     "@byokit/audio" "0.2.0"
 
-"@byokit/discover@0.8.1":
-  version "0.8.1"
-  resolved "https://registry.yarnpkg.com/@byokit/discover/-/discover-0.8.1.tgz#8957009f5950d42a37a2bd3a1a51683f9023fbf3"
-  integrity sha512-F8cE6JhoPQor9K4W6++VW7hjrtUpWCuTz2rIN/LK1ZJulashnEfQHE6MrLqR2ADtwzXdyO5WrCU3s6HNx4pDhg==
+"@byokit/herdr@0.11.0":
+  version "0.11.0"
+  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.11.0.tgz#03f8874e196c1c3930d11958dc3a67550fd7b1ca"
+  integrity sha512-t1D+Rhe+pGCxoqGiSVIB6YNmG7G/xzoMyJxmlpK4Yoj1C8MGvMHa3DpJ5FQSD26YAApWKpsurfpPAG7V/DiOlg==
   dependencies:
-    "@byokit/ui" "0.7.0"
-    bonjour-service "^1.4.4"
-    react-native-zeroconf "0.17.3"
-
-"@byokit/herdr@0.8.1":
-  version "0.8.1"
-  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.8.1.tgz#caddd6def26a467d72d95f06d2117b51c0df990f"
-  integrity sha512-u6lJq+zyVNqPRywwCxuuLhWwa7TVH7iL+doL3x2V6ZAFWs4X9nUQIu0Uh+UKejuzrwPfqqwucPL75zDZXBcPjA==
-  dependencies:
-    "@byokit/discover" "0.8.1"
-    "@byokit/pair" "0.10.0"
-    "@byokit/relay" "0.6.1"
     "@byokit/seal" "0.3.0"
     ws "8.22.0"
 
-"@byokit/link@0.7.1", "@byokit/link@0.8.1":
+"@byokit/link@0.8.1":
   version "0.8.1"
   resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.8.1.tgz#8e30bd6cc5738d6a311c72a360a4c32cfd09953d"
   integrity sha512-DzPtR5qsCHMgv6mMkVbqggtZv574Jab5LI42gOvvGHJfkvheOzpJT18vh3twaoOYE0G1wsGw0S/GS/oszBvSxQ==
   dependencies:
     "@byokit/pair" "0.10.0"
 
-"@byokit/pair@0.10.0":
-  version "0.10.0"
-  resolved "https://registry.yarnpkg.com/@byokit/pair/-/pair-0.10.0.tgz#3972fd35cd132c983f53b6069b1c67719db3b4e6"
-  integrity sha512-mriDTPsw0Fd4yuDqETwTA8S5Sl1xdvuVKXvQpdUtUtxDCrFfNTrIidKoQidTS+2S1/2K7eKdJ1jn7iCCiR9zQQ==
+"@byokit/pair@0.10.0", "@byokit/pair@0.10.1":
+  version "0.10.1"
+  resolved "https://registry.yarnpkg.com/@byokit/pair/-/pair-0.10.1.tgz#677416d9d2f0bbaa8bf58591e46dd523d3d6daa5"
+  integrity sha512-HsruHDZCTYjvxU4NNDb7Bq6dOTIlx+g/sjuERLILWr9OAeuf254xZnpRng2Dntp6OjNe1BlV6L4rs40xx0NefQ==
   dependencies:
     "@noble/ciphers" "2.4.0"
     b4a "1.9.0"
@@ -1181,32 +1177,14 @@
   dependencies:
     ws "8.21.3"
 
-"@byokit/relay@0.5.3":
-  version "0.5.3"
-  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.5.3.tgz#1ff97bd278ba50fd82616fcab1eca50e7eb9ec96"
-  integrity sha512-8LJJIhgfB8g6C+dhvQ8BqLfqrlGxRlHDoPGCJakotgr5y28bxk26KbIrjUMaPUHMfRqT1BIfi9UX00o9VQBxDw==
+"@byokit/relay@0.7.1":
+  version "0.7.1"
+  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.7.1.tgz#68567c07bb5dd3e6413cc8b4599238df4d7d0798"
+  integrity sha512-pv5ecc/yX9ACpukuzR006PPzDY2krtLpK+ieW9fqb8vZFI60G+knRjnMWr6uhrrPzG0epeMhgwrj7Qe59QqWRg==
   dependencies:
-    "@byokit/link" "0.7.1"
-    web-push "3.6.7"
-    ws "8.21.3"
-
-"@byokit/relay@0.6.1":
-  version "0.6.1"
-  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.6.1.tgz#da9c08f1328131aab47409e4a40e639b589823f0"
-  integrity sha512-HtyoF5FgJjBFWNyACzOWQbmr82c4RzKQA5Ok+YdcSjI0pd89tb5iD47rCc3uHkuhxlJuIH98S2M4TPqgBJaxxQ==
-  dependencies:
-    "@byokit/pair" "0.10.0"
+    "@byokit/pair" "0.10.1"
     web-push "3.6.7"
     ws "8.22.0"
-
-"@byokit/seal@0.2.0":
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/@byokit/seal/-/seal-0.2.0.tgz#09af4067a8ba786163dcc871e962c4a7322250cf"
-  integrity sha512-rtXgruUruBr9V/6G0LajOFpPfSisOLv7Rc/BRlfRy3SS1QXYCkobj3xDiow9nIcrQUpORoYKH0Xn3UdWo1ufVQ==
-  dependencies:
-    "@noble/ciphers" "2.4.0"
-    "@noble/curves" "2.4.0"
-    "@noble/hashes" "2.4.0"
 
 "@byokit/seal@0.3.0":
   version "0.3.0"
@@ -1217,12 +1195,12 @@
     "@noble/curves" "2.4.0"
     "@noble/hashes" "2.4.0"
 
-"@byokit/secrets@0.5.0":
-  version "0.5.0"
-  resolved "https://registry.yarnpkg.com/@byokit/secrets/-/secrets-0.5.0.tgz#8ee61ee2cd5f6bf68bd3955194c524c7f6622634"
-  integrity sha512-HSV+yLuVQRdd1GWNU6QKip7k5HT7vz1r666wnm1O66FgeyN8O/7OgltmnbAbfVhq6SuZdTbWvmzrt0XkQaoS+Q==
+"@byokit/secrets@0.5.1":
+  version "0.5.1"
+  resolved "https://registry.yarnpkg.com/@byokit/secrets/-/secrets-0.5.1.tgz#2fde3bb076bead860580aaf843f1708a515c6d01"
+  integrity sha512-/pfmcGRYShO4SxKTBXZJ9AiUh1s6NmGBWWklWUF2fzB/ZQ5GpOmhWN7V3N/f/LPX02B2v3a/gydXe4BR804V/Q==
   dependencies:
-    "@byokit/seal" "0.2.0"
+    "@byokit/seal" "0.3.0"
     "@homebridge/dbus-native" "0.7.9"
   optionalDependencies:
     "@napi-rs/keyring" "2.1.0"
@@ -1239,17 +1217,10 @@
   dependencies:
     uqr "0.1.3"
 
-"@byokit/ui@0.7.0":
-  version "0.7.0"
-  resolved "https://registry.yarnpkg.com/@byokit/ui/-/ui-0.7.0.tgz#a09ad4c4c742054204b6d674746cd34ba20ada5f"
-  integrity sha512-lSi4u7RFPA3fExJQR/36QLdi4iZvxfGTlkfqUXlue+KVW5JQd3TrMajJpBgoD1jJPUNA8FzOI5chqL5yqukbtg==
-  dependencies:
-    uqr "0.1.3"
-
-"@byokit/usage@0.7.0":
-  version "0.7.0"
-  resolved "https://registry.yarnpkg.com/@byokit/usage/-/usage-0.7.0.tgz#a7d3c6327df2b915a1a4009dfba34b08c2005c6c"
-  integrity sha512-K8OPqtTKG2dYth3KZfh95cx4qBJYe0iixMaAtAJ0xC/ZTyORsrBGUoJ+RDClY8EFnPmB7phxsO6rWi3OPYWa7g==
+"@byokit/usage@0.9.0":
+  version "0.9.0"
+  resolved "https://registry.yarnpkg.com/@byokit/usage/-/usage-0.9.0.tgz#b207ccb07159461bc6166d5ca10f0ae6903e21ef"
+  integrity sha512-yu7id35ViSOCiu+4OVAaSepMQzaEYtF5UYM6p928djR5zm8HNjr+IuGbedOBQuxhZE2wiWPufFdgiQM0rKJ0tA==
 
 "@ccusage/ccusage-darwin-arm64@20.0.20":
   version "20.0.20"
@@ -1311,26 +1282,26 @@
   resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.5.4.tgz#1790cf0b16ea652f5a8bd848bf79f2d39624d614"
   integrity sha512-8K/cnJbrbtVVXJKilDm6ncim/rfbxQd9OX6IzL2fb4GHs9GN2nJAWz+oERjv1tfmANNzHRqZYQnHHmLFD7/WeQ==
 
-"@earendil-works/pi-ai@0.87.1":
-  version "0.87.1"
-  resolved "https://registry.yarnpkg.com/@earendil-works/pi-ai/-/pi-ai-0.87.1.tgz#7d1f174120d5e6d33f301503677ec3281f217e2a"
-  integrity sha512-X/3PfQBnnoeVdO9Cv8zHghUMglzlgNZYGNzoPnbRoGnHl3Rw3TlA2UKSUB7BRHUOxMryHXYa8dnjWZlbRheDZA==
+"@earendil-works/pi-ai@1.2.0":
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/@earendil-works/pi-ai/-/pi-ai-1.2.0.tgz#2819f257bc4b7b942cc720d926da8e3a80bdb435"
+  integrity sha512-U5/1zXqfV1on7/9sbez03tT4Ru49Lvfb4+zXSDK3DBKF5cRk6KxvAOTOY3HJ4jimlZth+rs7vbJqN6iBQAoNuQ==
   dependencies:
-    "@anthropic-ai/sdk" "0.124.0"
+    "@anthropic-ai/sdk" "0.129.0"
     "@aws-sdk/client-bedrock-runtime" "3.1127.0"
-    "@earendil-works/pi-telemetry" "^0.87.1"
+    "@earendil-works/pi-telemetry" "^1.2.0"
     "@google/genai" "2.21.0"
     "@smithy/node-http-handler" "4.12.1"
     http-proxy-agent "9.1.0"
     https-proxy-agent "9.1.0"
-    openai "6.40.0"
+    openai "7.19.0"
     partial-json "0.1.7"
     typebox "1.3.27"
 
-"@earendil-works/pi-telemetry@^0.87.1":
-  version "0.87.1"
-  resolved "https://registry.yarnpkg.com/@earendil-works/pi-telemetry/-/pi-telemetry-0.87.1.tgz#856ce8c1539d4ea24dee679f1be6e19ae353f04b"
-  integrity sha512-MC6TRQH5lgMXpcN+Vku2WMI2T8BsiUPzMQHGo81uqFZD3/9O79WWJAysEDGuzduP6R4tvtgwMLwmqIxynM10JQ==
+"@earendil-works/pi-telemetry@^1.2.0":
+  version "1.3.0"
+  resolved "https://registry.yarnpkg.com/@earendil-works/pi-telemetry/-/pi-telemetry-1.3.0.tgz#1dd6f59e65c4eb067ff96f51148e59a2069b9d8d"
+  integrity sha512-ERGZr+aXjNJzoUbB7ZzHVH3g5otzMHjHLs2Fyizm12By5X+gBEhod9cJXFOk13S7M8a29Am+Mq21zm73mRJFLg==
 
 "@egjs/hammerjs@^2.0.17":
   version "2.0.17"
@@ -8839,10 +8810,10 @@ open@^8.0.4:
     is-docker "^2.1.1"
     is-wsl "^2.2.0"
 
-openai@6.40.0:
-  version "6.40.0"
-  resolved "https://registry.yarnpkg.com/openai/-/openai-6.40.0.tgz#6dbe044cf0537a91e0a7949878f856e903386afc"
-  integrity sha512-MWtTjd/gQt4jpbji61NTgFWJLoY/PdRJ6wG9/ZDRMYNMlBKrCrSlkLI+KgHP1vR1qT6LKSAyAqIxno6lcK9JiA==
+openai@7.19.0:
+  version "7.19.0"
+  resolved "https://registry.yarnpkg.com/openai/-/openai-7.19.0.tgz#8c02695d0afbdf1d41d5bb78b31bddaad14d99ad"
+  integrity sha512-MX2s3u2L5racTO0CC/SWpCOasJQBCJrqLKXK+l82cAhdeF8mPMBEe/gxMm0ZFa2xpKpOFLRjxv5afYEZbBXmbQ==
 
 ora@^3.4.0:
   version "3.4.0"
@@ -9509,13 +9480,6 @@ react-native-zeroconf@0.14.0:
   version "0.14.0"
   resolved "https://registry.yarnpkg.com/react-native-zeroconf/-/react-native-zeroconf-0.14.0.tgz#7d2b8b446ebf1fa4073b539ef01f88e5bef61cb9"
   integrity sha512-TqjORroaVZrBYLzk3YtviQy8lUl/iiMacknxixRYlmGaqgsv4LJXIYafpnvPa3y2SC4/qu2mvF8D1/VTTxylgQ==
-  dependencies:
-    events "^3.0.0"
-
-react-native-zeroconf@0.17.3:
-  version "0.17.3"
-  resolved "https://registry.yarnpkg.com/react-native-zeroconf/-/react-native-zeroconf-0.17.3.tgz#09f48c09c30e75fb889a220547b166378e1cb53c"
-  integrity sha512-ufos5wh+LXD0I1/0H789GR/shDnhsKMS2CTdcbDB3Rq0RZ+fIXip/LVuxDI1ppp0XqIr8kfC2veU3YATgMhkRA==
   dependencies:
     events "^3.0.0"
 
@@ -10782,10 +10746,10 @@ uc.micro@^3.0.0:
   resolved "https://registry.yarnpkg.com/uc.micro/-/uc.micro-3.0.0.tgz#64d6cb0bfe2a558ce0ec7c8c0dc88a02d898f506"
   integrity sha512-U3PppEkleoTnIfi8BozMx3yju3qc/L6SwqWo2Sw+54PX+PX0q9I+r1Um5HCmqD7n9VDX5/v3vQH/AjA6deDdtw==
 
-undici-types@7.16.0:
-  version "7.16.0"
-  resolved "https://registry.yarnpkg.com/undici-types/-/undici-types-7.16.0.tgz#ffccdff36aea4884cbfce9a750a0580224f58a46"
-  integrity sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==
+undici-types@8.11.2:
+  version "8.11.2"
+  resolved "https://registry.yarnpkg.com/undici-types/-/undici-types-8.11.2.tgz#16d301d79df8676887848cfc76da7d181eb978b2"
+  integrity sha512-iMVNmWZ0leK/goS6eXMizSzmm9CDWtyphwbaCms3DNLqRxDL+mMoNVcZMTyyVgXP0N+Z8neAMzDoUOUJL8veKg==
 
 "undici-types@>=7.24.0 <7.24.7":
   version "7.24.6"

@@ -40,15 +40,15 @@ export function planLaunchEnv(env: NodeJS.ProcessEnv, record: PlanAccountRecord)
     try { return planAccounts(env).launchEnv(record.id); } catch (error) { return planError(error); }
 }
 
-function accountEnvironment(env: NodeJS.ProcessEnv, record: PlanAccountRecord): NodeJS.ProcessEnv {
+async function accountEnvironment(env: NodeJS.ProcessEnv, record: PlanAccountRecord): Promise<NodeJS.ProcessEnv> {
     if (record.found) return { ...env, ...defaultFolderEnv(record) };
     try {
         const kit = planAccounts(env);
-        const codex = kit.usageSource(record.id);
+        const source = await kit.usageSource(record.id);
         // Explicit account unsets win over both inherited values and usage-source settings.
         // Consumers spawn with env as a replacement, so absent keys cannot be re-inherited.
         return launchEnv({ base: env, account: kit.launchEnv(record.id),
-            ...(codex === undefined ? {} : { set: codex.env }),
+            ...(source?.provider === 'codex' ? { set: source.env } : {}),
         }).env;
     } catch (error) { return planError(error); }
 }
@@ -68,7 +68,7 @@ async function providerRooms(provider: PlanProvider, env: NodeJS.ProcessEnv, dep
         const account = record.found ? await defaultAccount(record, env, deps) : fromCliAccount(cli!, record, env);
         let room: Room = { left: 'unknown' };
         if (account.signedIn) {
-            const scoped = accountEnvironment(env, record);
+            const scoped = await accountEnvironment(env, record);
             if (deps.room !== undefined) room = await deps.room(record, scoped);
             else {
                 const windows = await planAccountWindows(provider, scoped, { refresh: true });
