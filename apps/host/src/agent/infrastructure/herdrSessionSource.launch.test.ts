@@ -1093,6 +1093,55 @@ describe('OpenCode account isolation', () => {
         }
     }, 20_000);
 
+    it('pre-allows the attachment folder for an ambient OpenCode pane whatever path creates it', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-paths-'));
+        const bin = join(dir, 'bin');
+        mkdirSync(bin);
+        mkdirSync(join(dir, 'repo'));
+        writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
+        chmodSync(join(bin, 'opencode'), 0o755);
+        // A bare launch resolves its binary from the host's own env; keep the
+        // probe on the fake, and HOME on an empty dir so no real OpenCode
+        // config leaks into the injected content.
+        const saved = { HOME: process.env.HOME, PATH: process.env.PATH };
+        Object.assign(process.env, { HOME: join(dir, 'home'), PATH: `${bin}:${process.env.PATH ?? ''}` });
+        const herdr = fakeHerdr(dir, join(dir, 'repo'));
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const started = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            const split = await source.paneSplit({ sessionId: started.info.id, direction: 'right', kind: 'opencode' });
+            const tab = await source.createTab(started.info.id, { kind: 'opencode' });
+            const otherKind = await source.paneSplit({ sessionId: started.info.id, direction: 'down', kind: 'claude' });
+            expect(split.sessionId).toBeDefined();
+            expect(tab.sessionId).toBeDefined();
+            expect(otherKind.sessionId).toBeDefined();
+            const allow = (index: number) => {
+                const env = (herdr.tabs[index] as { env?: Record<string, string> }).env ?? {};
+                const content = JSON.parse(env.OPENCODE_CONFIG_CONTENT ?? 'null') as
+                    { permission?: { external_directory?: Record<string, string> } } | null;
+                return content?.permission?.external_directory?.[`${join(dir, 'data', 'attachments')}/**`];
+            };
+            expect(allow(0)).toBe('allow'); // session.start
+            expect(allow(1)).toBe('allow'); // pane.split (phone New pane / split sheet)
+            expect(allow(2)).toBe('allow'); // tab.create
+            expect(allow(3)).toBeUndefined(); // a claude pane carries no OpenCode config
+        } finally {
+            for (const [name, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+
     it('passes --standalone only for OpenCode 2.x so two accounts do not share the fixed background port', async () => {
         const run = async (versionOutput: string) => {
             const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-stand-'));
@@ -1168,13 +1217,17 @@ describe('OpenCode account isolation', () => {
             const launchA = planLaunchEnv(env, a.record);
             const go = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchA.set, planUnset: launchA.unset });
             expect('info' in go).toBe(true);
+            const attDir = `${join(dir, 'data', 'attachments')}/**`;
             expect(JSON.parse(readFileSync(config(a.record.folder), 'utf8'))).toEqual({
                 $schema: 'https://opencode.ai/config.json', model: 'opencode-go/muse-spark-1.3-contributor',
+                permission: { external_directory: { [attDir]: 'allow' } },
             });
-            // A model the user set there stands.
+            // A model the user set there stands; the pre-allow still joins it.
             writeFileSync(config(a.record.folder), '{"model": "opencode-go/glm-flash-5.3"}');
             expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchA.set, planUnset: launchA.unset })).toBe(true);
-            expect(readFileSync(config(a.record.folder), 'utf8')).toBe('{"model": "opencode-go/glm-flash-5.3"}');
+            const kept = JSON.parse(readFileSync(config(a.record.folder), 'utf8')) as { model?: string; permission?: { external_directory?: Record<string, string> } };
+            expect(kept.model).toBe('opencode-go/glm-flash-5.3');
+            expect(kept.permission?.external_directory?.[attDir]).toBe('allow');
             const bare = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode' });
             expect('info' in bare).toBe(true);
             const other = await source.start({ cwd: join(dir, 'repo'), kind: 'claude' });
@@ -1185,7 +1238,11 @@ describe('OpenCode account isolation', () => {
             const launchB = planLaunchEnv(env, b.record);
             const otherProvider = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchB.set, planUnset: launchB.unset });
             expect('info' in otherProvider).toBe(true);
-            expect(existsSync(config(b.record.folder, 'opencode.json'))).toBe(false);
+            // No Go credential, so no model default — but the attachment
+            // pre-allow lands for every muxr-owned OpenCode account.
+            const bConfig = JSON.parse(readFileSync(config(b.record.folder, 'opencode.json'), 'utf8')) as { model?: string; permission?: { external_directory?: Record<string, string> } };
+            expect(bConfig.model).toBeUndefined();
+            expect(bConfig.permission?.external_directory?.[attDir]).toBe('allow');
             expect(existsSync(config(b.record.folder))).toBe(false);
             // No launch passes `--model`: OpenCode 2.x has no such flag and exits on it.
             expect(herdr.agents).toHaveLength(5);

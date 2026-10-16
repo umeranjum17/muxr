@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
-import { isSafePaneId, presentAttachmentItems } from './attachments.js';
+import { attachmentFolderId, isSafePaneId, presentAttachmentItems } from './attachments.js';
 
 /** Watcher-shaped scan entries: newest-first metadata with sha256 content ids. */
 function entry(name: string, size: number, at: number, id?: string) {
@@ -43,5 +43,15 @@ describe('prompt attachments listing', () => {
         for (const hostile of ['', '.', '..', '../x', 'a/b', 'a\\b', 'a..b/../c']) {
             expect(isSafePaneId(hostile)).toBe(false);
         }
+    });
+
+    // The saved path lands verbatim in the prompt, so the dump folder must
+    // never carry the internal pane id the agent or user would see.
+    it('names the dump folder of each session with an opaque digest, not its id', () => {
+        const folder = attachmentFolderId('pp_5caa65d9deadbeef');
+        expect(folder).toMatch(/^[0-9a-f]{16}$/);
+        expect(folder).not.toContain('pp_');
+        expect(attachmentFolderId('pp_5caa65d9deadbeef')).toBe(folder);
+        expect(attachmentFolderId('pp_other')).not.toBe(folder);
     });
 });

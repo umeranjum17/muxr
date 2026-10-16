@@ -10,6 +10,7 @@
  * ('.', '..', separators) wherever a pane id is taken at face value.
  * MUXR_HOME is respected through the artifact watcher's root, not here.
  */
+import { createHash } from 'node:crypto';
 import type { SessionArtifactMetadata } from '@trymuxr/contract';
 
 export interface PromptAttachmentItem {
@@ -30,6 +31,15 @@ export interface PromptAttachmentItem {
 /** Same pane-id rule as `muxr share`: only real pane ids resolve inside the dump root. */
 export function isSafePaneId(paneId: string): boolean {
     return paneId !== '' && paneId !== '.' && !paneId.includes('..') && !paneId.includes('/') && !paneId.includes('\\');
+}
+
+/** The prompt-attachment dump folder for one session: a one-way digest of its
+ *  id. The pane id (pp_…) is internal and must never appear in a path the
+ *  agent or the user sees — the saved path lands verbatim in the prompt — so
+ *  the folder name is an opaque digest; it still keeps concurrent sessions in
+ *  separate folders. Old pp_ folders need no migration. */
+export function attachmentFolderId(sessionId: string): string {
+    return createHash('sha256').update(sessionId).digest('hex').slice(0, 16);
 }
 
 const MIME: Record<string, string> = {

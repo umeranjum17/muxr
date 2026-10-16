@@ -144,8 +144,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   same timeline.
 - [Send any file from the phone to a live agent](./attach-any-file.md) —
   the composer's `+` offers Photo Library and Files: a zip, pdf and txt land on
-  the host with their original names against a live Herdr agent that opens each,
-  the 10 MB cap refuses a larger file on the phone, and the host backstop holds;
+  the host with their original names against a live Herdr agent that opens each
+  with no permission prompt (OpenCode's external-directory pre-allow), the saved
+  paths carry an opaque digest folder and never the internal pane id, the 10 MB
+  cap refuses a larger file on the phone, and the host backstop holds;
   images keep their resize/thumbnail path, chips at 393/270 px light and dark.
 - [Pair a phone through the kit files](./pairing-handoff.md) —
   non-TTY `--handoff`, raw two-word kit delivery, verified enrollment,
