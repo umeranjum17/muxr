@@ -1,13 +1,14 @@
 /**
  * P1 flow: the OpenCode launch config over a throwaway account root. The
  * attachment pre-allow lands in the account's own opencode.json, reads-only
- * for exactly muxr's attachment folder, and never touches an ambient launch.
+ * for exactly muxr's attachment folder; an ambient launch carries it as
+ * OPENCODE_CONFIG_CONTENT and never writes the user's config.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { allowOpencodeAttachments } from './opencodeAccounts.js';
+import { allowOpencodeAttachments, opencodeAttachmentEnv } from './opencodeAccounts.js';
 
 let root = '';
 
@@ -72,4 +73,49 @@ it('leaves a config it cannot parse, and an ambient launch, untouched', () => {
     allowOpencodeAttachments({}, join(root, 'atts'));
     expect(existsSync(join(root, 'atts'))).toBe(before);
     expect(existsSync(join(configDir, 'opencode.json'))).toBe(false);
+});
+
+/** An ambient launch: the user's own HOME/XDG, a project at its git root. */
+function ambient(extra: Record<string, string> = {}): { env: NodeJS.ProcessEnv; cwd: string; userConfig: string } {
+    const cwd = join(root, 'project');
+    mkdirSync(join(cwd, '.git'), { recursive: true });
+    const userConfig = join(root, 'user', '.config', 'opencode');
+    return { env: { HOME: join(root, 'user'), XDG_CONFIG_HOME: join(root, 'user', '.config'), ...extra }, cwd, userConfig };
+}
+
+it('pre-allows the folder for an ambient launch through config content, writing no file', () => {
+    const { env, cwd, userConfig } = ambient();
+    const dir = join(root, 'muxr-home', 'host', 'attachments');
+    const injected = opencodeAttachmentEnv(env, dir, cwd);
+    expect(JSON.parse(injected.OPENCODE_CONFIG_CONTENT!)).toEqual({
+        permission: { external_directory: { [`${dir}/**`]: 'allow' }, edit: { [`${dir}/**`]: 'deny' } },
+    });
+    expect(existsSync(userConfig)).toBe(false);
+});
+
+it("carries the user's own string rules in, so edit: ask stays ask", () => {
+    const { env, cwd, userConfig } = ambient();
+    mkdirSync(userConfig, { recursive: true });
+    writeFileSync(join(userConfig, 'opencode.json'), JSON.stringify({ permission: { edit: 'ask', external_directory: 'deny', bash: 'allow' } }));
+    // A project file merges over the global one, as OpenCode does.
+    writeFileSync(join(cwd, 'opencode.json'), JSON.stringify({ permission: { edit: { 'src/**': 'allow' } } }));
+    const dir = join(root, 'atts');
+    const content = JSON.parse(opencodeAttachmentEnv(env, dir, cwd).OPENCODE_CONFIG_CONTENT!) as { permission: Record<string, Record<string, string>> };
+    expect(content.permission.external_directory).toEqual({ '*': 'deny', [`${dir}/**`]: 'allow' });
+    expect(content.permission.edit).toEqual({ 'src/**': 'allow', [`${dir}/**`]: 'deny' });
+    // Only the two rules travel: every other tool keeps the user's own merge.
+    expect(Object.keys(content.permission)).toEqual(['external_directory', 'edit']);
+});
+
+it('injects nothing when the host already sets config content, or a config cannot be read', () => {
+    const own = ambient({ OPENCODE_CONFIG_CONTENT: '{"model":"x"}' });
+    expect(opencodeAttachmentEnv(own.env, join(root, 'atts'), own.cwd)).toEqual({});
+
+    const { env, cwd, userConfig } = ambient();
+    mkdirSync(userConfig, { recursive: true });
+    writeFileSync(join(userConfig, 'opencode.jsonc'), '{ // jsonc\n "permission": { "edit": "ask" } }');
+    expect(opencodeAttachmentEnv(env, join(root, 'atts'), cwd)).toEqual({});
+    rmSync(join(userConfig, 'opencode.jsonc'));
+    writeFileSync(join(userConfig, 'opencode.json'), JSON.stringify({ permission: 'ask' }));
+    expect(opencodeAttachmentEnv(env, join(root, 'atts'), cwd)).toEqual({});
 });

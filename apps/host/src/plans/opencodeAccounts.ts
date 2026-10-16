@@ -174,6 +174,68 @@ function permissionRules(value: unknown): Record<string, unknown> {
         : {};
 }
 
+/** Object order is rule order (last match wins): the permission's own rules
+ *  stand, our two come last, so the one folder is readable, never writable. */
+function attachmentRules(permission: Record<string, unknown>, dir: string): Record<string, Record<string, unknown>> {
+    return {
+        external_directory: { ...permissionRules(permission.external_directory), [`${dir}/**`]: 'allow' },
+        edit: { ...permissionRules(permission.edit), [`${dir}/**`]: 'deny' },
+    };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The config files OpenCode merges before OPENCODE_CONFIG_CONTENT, in its
+ *  order: global, then OPENCODE_CONFIG, then project files from the worktree
+ *  root down to `cwd`. */
+function opencodeConfigFiles(env: NodeJS.ProcessEnv, cwd: string): string[] {
+    const global = join(env.XDG_CONFIG_HOME?.trim() || join(env.HOME?.trim() || homedir(), '.config'), 'opencode');
+    const project: string[] = [];
+    for (let dir = resolve(cwd); ; dir = dirname(dir)) {
+        project.unshift(...['opencode.json', 'opencode.jsonc', join('.opencode', 'opencode.json'), join('.opencode', 'opencode.jsonc')].map((name) => join(dir, name)));
+        if (existsSync(join(dir, '.git')) || dirname(dir) === dir) break;
+    }
+    return [
+        ...['config.json', 'opencode.json', 'opencode.jsonc'].map((name) => join(global, name)),
+        ...(env.OPENCODE_CONFIG?.trim() ? [env.OPENCODE_CONFIG.trim()] : []),
+        ...project,
+    ];
+}
+
+/**
+ * The same read-only pre-allow for an OpenCode started without a muxr
+ * account, as OPENCODE_CONFIG_CONTENT for its pane: muxr never writes the
+ * user's own config. OpenCode deep-merges that content last, and a plain
+ * string rule there (`"edit": "ask"`) would be replaced by our rule map, so
+ * the user's own rules are read — config files only, never auth — and carried
+ * in as `"*"`. Nothing is injected (the prompt stays, never a guess) when the
+ * host already sets OPENCODE_CONFIG_CONTENT, a config cannot be read or parsed
+ * (JSONC comments), or `permission` is one value for every tool.
+ */
+export function opencodeAttachmentEnv(env: NodeJS.ProcessEnv, dir: string, cwd: string): Record<string, string> {
+    if (env.OPENCODE_CONFIG_CONTENT !== undefined || dir === '') return {};
+    const permission: Record<string, unknown> = {};
+    for (const file of opencodeConfigFiles(env, cwd)) {
+        let parsed: unknown;
+        try { parsed = JSON.parse(readFileSync(file, 'utf8')); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+            return {};
+        }
+        if (!isRecord(parsed)) return {};
+        if (parsed.permission === undefined) continue;
+        if (!isRecord(parsed.permission)) return {};
+        // OpenCode's merge: a later rule map joins an earlier one, anything else replaces it.
+        for (const [key, value] of Object.entries(parsed.permission)) {
+            const before = permission[key];
+            permission[key] = isRecord(before) && isRecord(value) ? { ...before, ...value } : value;
+        }
+    }
+    return { OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: attachmentRules(permission, dir) }) };
+}
+
 /**
  * Pre-allows reads of muxr's own prompt-attachment folder in the account's
  * OpenCode config, so an attachment path carried in a prompt never trips the
@@ -204,13 +266,7 @@ export function allowOpencodeAttachments(env: Record<string, string | undefined>
         config = parsed as Record<string, unknown>;
     }
     const permission = permissionRules(config.permission);
-    // Object order is rule order (last match wins): existing rules stand, our
-    // two rules come last, so the one folder is readable and never writable.
-    config.permission = {
-        ...permission,
-        external_directory: { ...permissionRules(permission.external_directory), [`${dir}/**`]: 'allow' },
-        edit: { ...permissionRules(permission.edit), [`${dir}/**`]: 'deny' },
-    };
+    config.permission = { ...permission, ...attachmentRules(permission, dir) };
     mkdirSync(configDir, { recursive: true, mode: 0o700 });
     // Temp file then rename: a failed write leaves the config intact, not truncated.
     const temp = `${target}.${randomBytes(4).toString('hex')}.tmp`;

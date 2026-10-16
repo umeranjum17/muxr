@@ -24,7 +24,10 @@ file and the limit.
   (listing the zip, reading the PDF text, printing the txt) with **no
   permission prompt**: muxr's own attachment folder is pre-allowed read-only
   (`external_directory` allow, `edit` deny) in the account's OpenCode config
-  at launch; other agents already read external paths silently.
+  at launch, or, without an account, as the pane's `OPENCODE_CONFIG_CONTENT`
+  carrying the user's own rules (none when the host already sets it or a
+  config will not parse — the prompt then stays); other agents already read
+  external paths silently.
 - `attach-too-large` a file over the 10 MB cap is refused before upload with a
   plain alert naming the file and the cap; nothing is written host-side.
 - `attach-host-backstop` a request that skips the phone cap is refused by the

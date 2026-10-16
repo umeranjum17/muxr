@@ -34,7 +34,7 @@ import type {
 import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@trymuxr/contract';
 import { hostDesktopForPanes } from '../../desktop/index.js';
 import { attachmentFolderId } from '../../attachments/attachments.js';
-import { allowOpencodeAttachments, defaultOpencodeGoModel, opencodeLaunchArgs } from '../../plans/opencodeAccounts.js';
+import { allowOpencodeAttachments, defaultOpencodeGoModel, opencodeAttachmentEnv, opencodeLaunchArgs } from '../../plans/opencodeAccounts.js';
 import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent, widened } from './agentClose.js';
@@ -2120,14 +2120,20 @@ export async function createHerdrSessionSource(
         const plan = startOptions.planEnv !== undefined || unset.length > 0;
         // A plan account is a verifying overlay: the kit lands it (and the unsets) on the
         // pane's inherited environment and proves it in the pane before agent.start, so a
-        // shell rc cannot redirect the selected account. Without one this is today's launch.
+        // shell rc cannot redirect the selected account. Without one, an OpenCode pane
+        // carries the attachment pre-allow as config content; every other kind, and a
+        // pane without either, keeps today's env.
         const env = plan
             ? {
                 overlay: Object.fromEntries(Object.entries({ ...paneEnvironment(), ...startOptions.planEnv })
                     .filter(([name]) => !unset.includes(name))),
                 unset,
             }
-            : paneEnvironment();
+            : {
+                ...paneEnvironment(),
+                ...(kind === 'opencode' && startOptions.planEnv === undefined
+                    ? opencodeAttachmentEnv(process.env, join(options.dataDir, 'attachments'), cwd) : {}),
+            };
         const launchEnv = startOptions.planEnv?.PATH === undefined ? process.env : { ...process.env, PATH: startOptions.planEnv.PATH };
         const args = kind === 'opencode' ? opencodeLaunchArgs(launchEnv) : [];
         let paneId: string | undefined;
@@ -3075,7 +3081,9 @@ export async function createHerdrSessionSource(
             const applied = await client.call<{ layout?: { tab_id?: string; root?: HerdrLayoutNode } }>(
                 'layout.apply',
                 {
-                    root: toHerdrRootWithEnv(applyOptions.snapshot, paneEnvironment),
+                    root: toHerdrRootWithEnv(applyOptions.snapshot, (index) => kinds[index] === 'opencode'
+                        ? { ...paneEnvironment(), ...opencodeAttachmentEnv(process.env, join(options.dataDir, 'attachments'), homedir()) }
+                        : paneEnvironment()),
                     ...(pane.pane?.workspace_id === undefined ? {} : { workspace_id: pane.pane.workspace_id }),
                     ...(applyOptions.label === undefined ? {} : { tab_label: applyOptions.label }),
                     focus: false,
