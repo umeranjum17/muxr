@@ -26,8 +26,9 @@ const signature = (choices: readonly PendingChoice[]): string =>
  * is one tap instead of a key hunted for in a scrolled row. A tap types the
  * answer's number, or the arrow presses and Enter that reach it, through the
  * same channel the key row writes to, which both selects and confirms it.
- * The screen is read with the passive `pane.read`,
- * so reading it never moves the agent's viewport.
+ * The screen is read with the passive `pane.read`, in colour so a button
+ * selected only by its background shows, and reading it never moves the
+ * agent's viewport.
  */
 export const PendingChoices = React.memo(function PendingChoices({ sessionId, waiting, channel, onVisibilityChange, lineHeight, gridInset, columns }: {
     sessionId: string;
@@ -60,7 +61,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
         let timer: ReturnType<typeof setTimeout>;
         const read = async (): Promise<void> => {
             try {
-                const { text } = await sync.request('pane.read', { sessionId, source: 'visible' });
+                const { text } = await sync.request('pane.read', { sessionId, source: 'visible', ansi: true });
                 if (!alive) return;
                 const next = pendingChoices(text, columns);
                 const nextSignature = signature(next);
@@ -98,7 +99,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
         }
         void (async () => {
             try {
-                const { text } = await sync.request('pane.read', { sessionId, source: 'visible' });
+                const { text } = await sync.request('pane.read', { sessionId, source: 'visible', ansi: true });
                 const fresh = pendingChoices(text, columns);
                 const match = fresh.find((candidate) => candidate.number === undefined && candidate.label === choice.label);
                 if (match === undefined) {
