@@ -66,8 +66,10 @@ function fakeHerdr(dir: string, cwd: string) {
     const handleTabCreate = (params: Record<string, unknown>) => {
         const tab_id = `t${next}`;
         const pane_id = `w1:p${next++}`;
-        tabs.push({ tab_id, workspace_id: 'w1', label: params.label ?? cwd, env: params.env });
-        panes.push({ pane_id, tab_id, workspace_id: 'w1', cwd, env: params.env });
+        // One env per new pane: what the create carried, plus what its shell exports later.
+        const env = params.env ?? {};
+        tabs.push({ tab_id, workspace_id: 'w1', label: params.label ?? cwd, env });
+        panes.push({ pane_id, tab_id, workspace_id: 'w1', cwd, env });
         return { tab: { tab_id }, root_pane: { pane_id } };
     };
     const handleAgentStart = (params: Record<string, unknown>) => {
@@ -128,6 +130,22 @@ function fakeHerdr(dir: string, cwd: string) {
         const pane = panes.find((entry) => entry.pane_id === p.pane_id);
         if (pane === undefined) return {};
         const paneEnv = (pane.env ?? {}) as Record<string, string>;
+        // The kit's verifying overlay: the shell sources a private file of unset/export
+        // steps, then prints its marker once every step held.
+        const sourced = /^set \+x \+v; \. '(.+)'$/.exec(text.trim());
+        if (sourced !== null) {
+            for (const step of readFileSync(sourced[1]!, 'utf8').split(' &&\n').map((entry) => entry.trim())) {
+                const unset = /^unset ([A-Za-z_][A-Za-z0-9_]*)$/.exec(step);
+                const exported = /^export ([A-Za-z_][A-Za-z0-9_]*)='(.*)'$/s.exec(step);
+                const marker = /^printf '%s\\n' '(.+)'$/.exec(step);
+                if (unset !== null) {
+                    delete paneEnv[unset[1]!];
+                    state.sentTexts.push(step);
+                } else if (exported !== null) paneEnv[exported[1]!] = exported[2]!.replaceAll("'\\''", "'");
+                else if (marker !== null) state.paneText += `${marker[1]}\n`;
+            }
+            return {};
+        }
         if (text.startsWith('unset ')) {
             // The shell sheds the names; a later ${NAME+x} probe reads them as absent.
             for (const name of text.trim().slice('unset '.length).split(/\s+/)) delete paneEnv[name];
@@ -251,6 +269,16 @@ function fakeHerdr(dir: string, cwd: string) {
                         break;
                     case 'pane.send_text':
                         reply = { id, result: handlePaneSendText(p) };
+                        break;
+                    case 'tab.rename': {
+                        const tab = tabs.find((entry) => entry.tab_id === p.tab_id);
+                        if (tab !== undefined) tab.label = p.label;
+                        reply = { id, result: {} };
+                        break;
+                    }
+                    case 'pane.process_info':
+                        // An idle shell: the kit sends shell input only to one.
+                        reply = { id, result: { process_info: { shell_pid: 1, foreground_processes: [{ pid: 1, name: 'bash' }] } } };
                         break;
                     case 'pane.close':
                         reply = { id, result: handlePaneClose() };
