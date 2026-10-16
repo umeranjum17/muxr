@@ -41,6 +41,7 @@ Steps:
 - Warm the Google code scanner once with a Scan and Back first; the first Scan on a fresh AVD only downloads the module.
 - Timed journey: `pm clear`, tap the tile (t0), open the lab site's `/desktop` in a lab Chromium, check the sha256 the page shows against the file, start the app, scan, **Pair**, then click `#approve` over CDP when `#words` matches the phone. Stop when the phone's Home shows the computer as connected.
 - Failure that recovers in place: at 270 dp font 2.0, remove the `adb reverse` before Scan. The pair page shows the retryable failure with **Try again**; restore the reverse and tap **Try again** to reach consent, then pair.
+- Drive the phone with Maestro text matchers (`^Add your computer$`, `^Copy link$`, `Link copied\.`, `Sharing link`, `wants to pair with this.*`, `^Pair$`), not pixel taps or uiautomator dumps: a dump chain costs minutes per pass and the desktop's pairing code lasts about 115 s. Read the fresh offer over CDP just before the pairing flow; tile to paired then takes about 100 s.
 - Site: `npx vitest run test/site.journey.test.ts` from `apps/site` covers the offered, foreign-URL and unpublished `/desktop` cases.
 - Pass: the tile and Settings row open the screen; the link QR decodes to the link; one scan reaches consent, the same two words show on both, and Home shows the computer connected.
 
@@ -49,4 +50,6 @@ Steps:
 - The phone's link names the build's public base (`trymuxr.com/desktop`). The lab opens its own site instead, and the "download" is the local AppImage, matched by sha256, until a real release publishes a `linux` asset.
 - No PWA leg: the desktop app mints native-only offers, and the web pair screen rejects those ("Native pairing codes are for phones"), so the entry is hidden on web. Add it to the PWA only once the desktop app can show a browser link.
 - Run each lab from a frozen copy of the script. Editing a running bash script makes it read the new file at the old byte offset.
+- A `google_apis` AVD (no Play Store) has no Google code scanner: **Scan the computer’s QR** shows "Camera scanner unavailable". The app's **OK** leads back to the first-run pairing field; paste the decoded offer there to reach the same consent. That proves pairing, not the camera scan, so use a Play Store AVD when the scan itself is the claim.
+- An expired typed code lands on the manual-error variant (**Scan a new code**, **Paste the new code**, **Back**); recover through **Paste the new code**, not **Enter another code**.
 - `adb shell screenrecord` must be stopped on the device (`kill -2 $(pidof screenrecord)`) and awaited before the pull, or the mp4 has no moov atom.
