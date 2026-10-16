@@ -2174,10 +2174,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
                                     {/* Realtime voice is product code, so its row is always offered. */}
-                                    {canControl && <View style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+                                    {canControl && <View style={{ minHeight: 44, flexDirection: 'row', flexWrap: windowWidth < NARROW_SHEET_WINDOW ? 'wrap' : 'nowrap', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
                                         {/* Its control sits at the end; the label still
                                             starts on the column every other row's does. */}
-                                        <View style={{ width: 18 }} />
+                                        {windowWidth >= NARROW_SHEET_WINDOW && <View style={{ width: 18 }} />}
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Talk to this session</Text>
                                         <RealtimeTalkButton sessionId={props.id} accessibilityLabel="Talk to this session" />
                                     </View>}
