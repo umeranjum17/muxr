@@ -48,7 +48,8 @@ Preconditions:
 
 - A native offer pasted into the web app is refused ("Native pairing codes
   are for phones"), and the web app only accepts the `https://…/pair#` form;
-  an `http://` initial URL shows "That isn't a muxr pairing string."
+  an `http://` initial URL shows "That isn't a muxr pairing string. Open
+  muxr on your computer, or run muxr pair, for a new one."
 - One pending offer per host: `mintPairing()` holding `pair.sock` makes a
   browser mint fail with "another pairing is in progress".
 - Each window length is one item (`5h×2` groups two 5h limits), so the stress
