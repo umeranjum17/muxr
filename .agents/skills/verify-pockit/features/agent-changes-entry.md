@@ -19,6 +19,13 @@ no count.
   stays). The spoken label always reads `Review changes, N files changed`.
 - `changes-row` Pane actions › Inspect starts with `Changes`; the menu's
   quick-actions fallback no longer repeats it.
+- `changes-theme` the changes review follows the app theme, header and body
+  alike, though it opens over the terminal, which is always dark. The terminal
+  draws inside a `ScopedTheme name="dark"`, which Unistyles holds as one
+  shared value while it renders; a scope that once did not finish left it `dark`, so
+  the screen opened from it drew a dark body under a light header in light
+  mode (fixed in `patches/react-native-unistyles+3.1.1.patch`: a scope reads
+  its parent from React context).
 
 ## How to get to it (user POV)
 
@@ -56,9 +63,20 @@ Preconditions:
 5. Capture header and Pane actions at 390 and 270 px, font 1.0 and 2.0, light
    and dark, through `visualCheck.mjs pwa-check`; main shows no pill and no
    Changes row in the same cells.
+6. `changes-theme`: per theme, load the terminal URL itself
+   (`location.href = '<origin>/session/shell:w1:p1'`; reaching it from Home
+   did not leak), open the review from the pill and from Pane actions, and
+   shoot it. Light must be light from header to the last row. In the page,
+   find the Unistyles module (`__r(i)` exporting `UnistylesShadowRegistry`)
+   and read `UnistylesShadowRegistry.getScopedTheme()`: outside every scope it
+   is `undefined`; the defect reads `dark`.
 
 ## Gotchas
 
+- Pane actions' Changes is the sheet's button after `Inspect` (accessible
+  name `Review changes, N files changed`); the `Review changes, N` menuitem
+  is the hidden quick-actions ring, and a scripted click there lands on other
+  rows such as New pane.
 - The edit can come from a shell instead of a model: the pill reads real git
   state through the real host either way. Say so in the PR's Live proof.
 - A shell's own window title is the full cwd; set a short title in the lab
