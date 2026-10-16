@@ -52,7 +52,10 @@ quota. Another model or a stub cannot substitute for that real receipt.
    `terminalLatestLab.mjs`), and record the screen.
 2. First pick Shell and try a prompt. Confirm no session.start/session.prompt
    reaches the lab, the text stays in Home, and the plain reason is visible.
-   Then pick OpenCode, type a unique diagnostic prompt and send once.
+   Then pick OpenCode, type a unique diagnostic prompt and send once. Type it
+   as plain text (`%s` for spaces over adb, or `checkFocusedSecretTyping.mjs`
+   — the skill's Typing note): URL-encoded text reaches the TUI verbatim and
+   only proves the harness encoded it.
 3. Poll the lab's panes with `pane read --source visible`: record when that exact
    prompt appears in OpenCode's TUI. Capture the queued state and the real
    delivered text/model line; record any later Go quota error honestly.

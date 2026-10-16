@@ -225,6 +225,18 @@ shot too. A DEFECT that is a false positive is overridden only by a named line
 in the PR's `## Checks` block: `false lead: <cell> <lead>: <why>`. Reset with
 `wm size reset; wm density reset; settings put system font_scale 1.0`.
 
+Typing a prompt into the app: text reaches the agent exactly as typed, on
+every surface. `adb shell input text` maps only `%s` to a space — every other
+byte lands verbatim, so URL-encoded text like `Reply%20with%20exactly:%20x`
+reaches the agent with literal `%20` in it (that readiness defect was the
+harness, not the product). Write spaces as `%s`
+(`adb shell input text 'Reply%swith%sexactly:%sx'`), or type longer text with
+`scripts/diagnostics/application/checkFocusedSecretTyping.mjs --serial <s>
+--text 'Reply with exactly: x'` (one char per call with a readback). Over the
+PWA, type through real key events (`chrome-devtools-axi type`), never a
+dom-value paste. Never compensate in product code: a literal `%20` a person
+types must reach the agent verbatim, so no surface may decode prompt text.
+
 PWA: serve the export with `scripts/diagnostics/application/serveWebExport.mjs`
 on a free port (it prints the port you pass, so pass a real one, never 0), and open it in Chromium on a
 task-owned Xvfb display with its own `--user-data-dir`,

@@ -82,3 +82,8 @@ Preconditions:
   back as not sent; see [home-composer-first-prompt.md](./home-composer-first-prompt.md).
 - An OpenCode update prompt (`v1.19.0`) may cover the new agent: dismiss it
   with `esc` before reading the footer.
+- Type the diagnostic prompt as plain text (`%s` for spaces over adb, or
+  `checkFocusedSecretTyping.mjs` — see the skill's Typing note). URL-encoded
+  input lands verbatim in the TUI and reads as a harness defect, not a model
+  defect: the PR #843 proof's `Reply%20with%20exactly:%20spark-ok` was typed
+  that way by the harness.
