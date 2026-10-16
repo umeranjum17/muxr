@@ -38,7 +38,7 @@ own whatever the model, so no key is needed: `opencodePermissionLab.mjs` runs
 relay, host and a real OpenCode on a local stand-in model ("Lab stand-in")
 whose first answer reads `/etc/os-release`. Run it from the repo root with
 `HERDR_LAB_HELPER`, `EVIDENCE` and (native) `SERIAL` set, stdin from a fifo:
-`node --input-type=module -e "$(< .agents/skills/verify-muxr/features/opencodePermissionLab.mjs)"`.
+`node --input-type=module -e "$(< .agents/skills/verify-pockit/features/opencodePermissionLab.mjs)"`.
 Its stdin takes `pair` (native, on `SERIAL`) or `pair browser` (writes the
 link for `window.__MUXR_LAB_PAIR__`), `start`, `ask`, `look <name>`, `quit`.
 
