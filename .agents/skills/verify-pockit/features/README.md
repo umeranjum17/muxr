@@ -301,9 +301,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Select a terminal's text on iOS](./terminal-select-text-ios.md) —
   Select Text viewer: Select All, one-tap Copy and a read-only edit menu on
   iPhone and iPad simulators.
-- [Keep terminal tab chip labels inside their row](./terminal-tab-chip.md) —
-  native app over a private stack: a tab chip label keeps its descenders at
-  Android font scale 2.0 and normal font scale is unchanged.
+- [Keep terminal tab and notice chip labels inside their row](./terminal-tab-chip.md) —
+  native app over a private stack: tab chip and notice chip (gesture hint,
+  `Reconnecting…`) labels keep their descenders at Android font scale 2.0 and
+  normal font scale is unchanged.
 - [Keep the terminal key row and prompt field inside their rows at large font](./terminal-keyrow-font-scale.md) —
   native app over a private stack: every key stays reachable and the prompt
   placeholder stays in the rail at Android font scale 2.0; at normal scale the
