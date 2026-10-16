@@ -62,6 +62,12 @@ function labelOf(value: unknown, fallback: string): string {
     return typeof value === 'string' && value.trim() !== '' ? value.trim() : fallback;
 }
 
+// A folder's workspace is labelled with its path; say it as the folder, as Spaces does.
+function workspaceLabelOf(value: unknown, fallback: string): string {
+    const label = labelOf(value, fallback);
+    return /^~?\/./.test(label) ? label.replace(/\/+$/, '').split('/').pop() as string : label;
+}
+
 function worktreeGroup(workspaces: SnapshotWorkspace[], workspace: SnapshotWorkspace | undefined): Located['group'] {
     const worktree = workspace?.worktree;
     if (worktree?.is_linked_worktree !== false || typeof worktree?.repo_key !== 'string') return undefined;
@@ -94,7 +100,7 @@ function locate(snapshot: Snapshot, paneId: string): Located | undefined {
         tabCount,
         group: worktreeGroup(snapshot.workspaces, workspace),
         tabLabel: labelOf(tab.label, 'tab'),
-        workspaceLabel: labelOf(workspace.label, labelOf(workspace.worktree?.repo_name, 'workspace')),
+        workspaceLabel: workspaceLabelOf(workspace.label, labelOf(workspace.worktree?.repo_name, 'workspace')),
     };
 }
 
@@ -194,7 +200,7 @@ export async function closeAgent({ paneId, confirmedScope, kit, call }: {
         attemptedScope = 'tab';
         const workspace = await widened(kit.closeTab(tab.id));
         if (workspace === undefined) return { status: 'closed' };
-        const workspaceLabel = labelOf(workspace.label, 'workspace');
+        const workspaceLabel = workspaceLabelOf(workspace.label, 'workspace');
         if (!allows('workspace')) return confirmation('workspace', { workspaceLabel });
         attemptedScope = 'workspace';
         // The kit refuses only a worktree-group root here, naming the group's repo and size.
