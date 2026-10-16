@@ -51,7 +51,8 @@ try {
     const cWorkspace = (await workspaceOf(c)).workspaceId;
     const workspaceAsk = await source.stop(c.id, { confirmedScope: 'tab' });
     say('workspace ask', workspaceAsk);
-    check(workspaceAsk.status === 'confirmationRequired' && workspaceAsk.scope === 'workspace', 'last tab asks for the workspace');
+    check(workspaceAsk.status === 'confirmationRequired' && workspaceAsk.scope === 'workspace' && workspaceAsk.label === 'workspace',
+        'last tab asks for the workspace by its folder name');
     const workspaceClosed = await source.stop(c.id, { confirmedScope: 'workspace' });
     say('workspace close', workspaceClosed);
     check(workspaceClosed.status === 'closed' && !(await tree()).some((w) => w.workspaceId === cWorkspace), 'confirmed workspace close closes it');

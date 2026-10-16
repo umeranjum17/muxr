@@ -17,6 +17,8 @@ the host opening sockets of its own.
   `closePane`/`closeTab`/`closeWorkspace` refusals, asking before each wider
   close; the group ask names the repo and member count from the kit's refusal,
   and a confirmed group close is the kit's confirmed `closeWorkspace`.
+  A workspace named for its folder path is asked about by the folder name
+  ("Closing umer-app will close this workspace."), never the full path.
 - Starting an agent goes through the kit's `startAgent` label place: a folder
   with no workspace gets one workspace whose only tab carries the task title,
   a second start reuses it in a new labelled tab, a plan account's values reach
@@ -50,8 +52,8 @@ Preconditions: a built host (`yarn build`) and the guarded lab helper
    disposable home).
 6. Close ladder: `node .agents/skills/verify-pockit/features/herdrCloseLab.mjs <socket> <scratch>/close`
    (shells only; it makes its own git repo and linked worktree). It must print a
-   `PASS` line for the split pane, the tab ask and close, the workspace ask and
-   close, and the group ask ("Closing repo will close 2 workspaces in this
+   `PASS` line for the split pane, the tab ask and close, the workspace ask ("Closing workspace will close
+   this workspace.": the folder name, not its path) and close, and the group ask ("Closing repo will close 2 workspaces in this
    worktree group.") and close, then `PASS herdrCloseLab`.
 7. Starts: `node .agents/skills/verify-pockit/features/herdrStartLab.mjs <socket> <scratch>/start`
    (a real `pi`, no sign-in). It must print a `PASS` line for the one labelled
