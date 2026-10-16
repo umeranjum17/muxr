@@ -13,7 +13,7 @@ import { BUILTIN_KEY_CATALOG, modifiedSend, resolveKeyRow, type RowEntry, type T
  * Keys that read better as a mark than as a word. An arrow rendered as the
  * character `\u2190` is a text glyph at text size — the thing on this row a
  * thumb reaches for most, drawn smallest. These are icons, at icon size, and
- * they keep the same 32dp target the text keys have.
+ * they keep the same target the text keys have.
  */
 const KEY_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
     '\u001b[D': 'arrow-back', '\u001b[A': 'arrow-up', '\u001b[B': 'arrow-down', '\u001b[C': 'arrow-forward',
@@ -66,8 +66,7 @@ const cycle = (state: Modifier): Modifier => (state === 'off' ? 'once' : state =
 
 // Memoised: the screen above re-renders on every keystroke in the composer,
 // and rebuilding a dozen key marks per character is work nobody asked for. The
-// row's props are all stable, including the plugin slot the screen memoises
-// before handing it down.
+// row's props are all stable.
 export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, entries, onEdit, onAction }: {
     channel?: { sendText: (text: string) => void };
     /** Draw this row instead of the stored one: the key editor previews its working copy through this same component. */
@@ -106,8 +105,8 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, entr
     // filled caps at a single grey was most of what read as a band of chrome
     // under the terminal; unboxed, the row disappears until it is wanted and
     // an armed modifier is the only thing that takes colour.
-    // Equal padding and no gap: every glyph sits the same 16dp from the next,
-    // whatever its width, instead of a minimum box re-centring the short ones.
+    // Equal padding and no gap: every glyph sits the same distance from the
+    // next (16dp at full size), whatever its width, instead of a minimum box re-centring the short ones.
     // The minimum width tightens with the padding and scale, so a key's width
     // stays linear in both and one measurement of the row sizes the fit.
     const style = (locked = false) => ({
