@@ -1,4 +1,4 @@
-// A real OpenCode in a guarded Herdr lab that stops on its own permission box, paired to a native app.
+// A real OpenCode in a guarded Herdr lab that stops on its own permission box, paired to a native app or the PWA.
 // See opencode-permission-answers.md.
 import { spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';

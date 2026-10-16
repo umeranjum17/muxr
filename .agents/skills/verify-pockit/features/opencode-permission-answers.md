@@ -33,13 +33,18 @@ the composer while the box shows. Tap one.
 Preconditions: real Herdr (the fake stack draws no OpenCode box), a guarded
 non-default lab session (`fm-herdr-lab.sh provision`), the real `opencode`
 first on the lab `PATH`, and the release APK / PWA of
-[agent-trust-answers.md](./agent-trust-answers.md). Pair and run the relay and
-host the same way. The agent is OpenCode on
-`opencode-go/muse-spark-1.3-contributor`, signed in as in
-[opencode-go-default-model.md](./opencode-go-default-model.md).
+[agent-trust-answers.md](./agent-trust-answers.md). The box is OpenCode's
+own whatever the model, so no key is needed: `opencodePermissionLab.mjs` runs
+relay, host and a real OpenCode on a local stand-in model ("Lab stand-in")
+whose first answer reads `/etc/os-release`. Run it from the repo root with
+`HERDR_LAB_HELPER`, `EVIDENCE` and (native) `SERIAL` set, stdin from a fifo:
+`node --input-type=module -e "$(< .agents/skills/verify-muxr/features/opencodePermissionLab.mjs)"`.
+Its stdin takes `pair` (native, on `SERIAL`) or `pair browser` (writes the
+link for `window.__MUXR_LAB_PAIR__`), `start`, `ask`, `look <name>`, `quit`.
 
-1. Start OpenCode from New agent in a scratch folder and send the prompt
-   above. Herdr's `pane get` reads `agent_status: blocked`.
+1. `start`, open the agent on the device, dismiss OpenCode's "Update
+   Available" box with the key row's esc (it eats the first prompt), then
+   `ask`. `look` logs `blocked`.
 2. Capture the chip band, tap `Allow once`, and capture the reply naming the
    distro; `Needs you` is gone and the pane reads `working`, then `idle`.
 3. Prompt again, tap `Reject`, capture OpenCode's rejected tool line and no
