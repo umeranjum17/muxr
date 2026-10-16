@@ -24,7 +24,7 @@ Preconditions: a built host (`yarn build`) and the guarded lab helper
 
 1. Install one EXIT trap that tears the lab down, then `provision` a named lab
    session and read its `socket_path` from `run <session> session list --json`.
-2. `node .agents/skills/verify-muxr/features/herdrStatusLab.mjs <socket> <scratch>`
+2. `node .agents/skills/verify-pockit/features/herdrStatusLab.mjs <socket> <scratch>`
    in the background; keep its PID and log.
 3. `run <session> workspace create --label kit-lab`, then
    `run <session> pane report-agent --source lab --agent pi --state working --seq 1 w1:p1`,
