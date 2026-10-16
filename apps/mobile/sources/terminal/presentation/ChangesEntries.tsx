@@ -11,8 +11,9 @@ import { t } from '@/text';
  * slot; the menu filters it out so only one Changes row ever shows.
  *
  * The pill lives inside the existing title row — a row of its own that appears
- * late would change the header's height and re-attach the terminal. The title
- * shrinks first; the pill holds one line and truncates at its cap.
+ * late would change the header's height and re-attach the terminal. Where the
+ * words would not fit beside the title (a 270 dp phone, the largest text) it
+ * becomes an icon and the count, which never truncate.
  */
 
 function changesLabel(count: number): string {
@@ -23,7 +24,7 @@ function hasChanges(count: number | null): count is number {
     return count !== null && count > 0;
 }
 
-export function HeaderChangesPill({ count, onPress }: { count: number | null; onPress: () => void }) {
+export function HeaderChangesPill({ count, compact = false, onPress }: { count: number | null; compact?: boolean; onPress: () => void }) {
     const { theme } = useUnistyles();
     if (!hasChanges(count)) return null;
     return (
@@ -32,8 +33,9 @@ export function HeaderChangesPill({ count, onPress }: { count: number | null; on
             accessibilityRole="button"
             accessibilityLabel={`Review changes, ${changesLabel(count)}`}
             hitSlop={6}
-            style={({ pressed }) => ({ flexShrink: 0, maxWidth: '42%', opacity: pressed ? 0.6 : 1, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' })}>
-            <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500' }}>{changesLabel(count)}</Text>
+            style={({ pressed }) => ({ flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: 3, opacity: pressed ? 0.6 : 1, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider })}>
+            {compact && <Ionicons name="git-compare-outline" size={11} color={theme.colors.textSecondary} />}
+            <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500' }}>{compact ? count : changesLabel(count)}</Text>
         </Pressable>
     );
 }

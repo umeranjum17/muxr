@@ -189,7 +189,7 @@ function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnis
 }
 
 export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean; preview?: boolean }) => {
-    const { width: windowWidth } = useWindowDimensions();
+    const { width: windowWidth, fontScale } = useWindowDimensions();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const isFocused = useIsFocused();
     const socketStatus = useSocketStatus();
@@ -1563,7 +1563,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 reason opens on tap). In this row, not a new one: chrome that
                                 appears late would re-attach the terminal. */}
                             {identityKnown && (currentPane?.planAccount !== undefined || unknownAccount !== undefined) && <Text numberOfLines={1} accessibilityRole={currentPane?.planAccount === undefined ? 'button' : undefined} onPress={currentPane?.planAccount === undefined ? () => Modal.alert("Couldn't check which account it is on", unknownAccount) : undefined} style={{ flexShrink: 0, maxWidth: '30%', color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>{currentPane?.planAccount ?? 'Account unknown'}</Text>}
-                            {identityKnown && <HeaderChangesPill count={changesCount} onPress={openChanges} />}
+                            {identityKnown && <HeaderChangesPill count={changesCount} compact={windowWidth / fontScale < 360} onPress={openChanges} />}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
                                 is gone; the dot carries the same colour (scout §4.1).

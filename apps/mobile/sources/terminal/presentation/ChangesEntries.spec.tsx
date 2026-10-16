@@ -63,6 +63,11 @@ describe('changes discoverability', () => {
         await TestRenderer.act(async () => { pressable.props.onPress(); });
         expect(onPress).toHaveBeenCalledOnce();
 
+        // A narrow header shows the count alone; the spoken label keeps the words.
+        const compact = await mount(<HeaderChangesPill count={3} compact onPress={onPress} />);
+        expect(textsOf(compact)).toEqual(['3']);
+        expect(compact.root.findByProps({ accessibilityRole: 'button' }).props.accessibilityLabel).toBe('Review changes, 3 files changed');
+
         const zero = await mount(<HeaderChangesPill count={0} onPress={onPress} />);
         expect(zero.toJSON()).toBeNull();
         const unloaded = await mount(<HeaderChangesPill count={null} onPress={onPress} />);
