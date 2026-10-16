@@ -7,7 +7,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -19,6 +19,7 @@ import { startRelay } from '@muxr/relay';
 import { VoiceStreamManager, TerminalManager, type VoiceStreamTransport } from '../../agent/index.js';
 import { LinkEndpoint } from './linkEndpoint.js';
 import type { MachineCryptoState } from '../domain/crypto.js';
+import { removeTestScratch } from '../../../../../scripts/diagnostics/application/testScratchOwner.mjs';
 
 const b64 = (value: Uint8Array | string): string => Buffer.from(value).toString('base64');
 /** @trymuxr/crypto keys are base64 strings; byokit wants base64url bytes. */
@@ -149,7 +150,7 @@ describe('byokit link streams (real relay + real host)', () => {
 
     it('holds a streaming pane at a slow phone instead of queueing its whole output', { timeout: 15_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-pressure-'));
-        cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+        cleanups.push(() => removeTestScratch(dir));
         const bin = join(dir, 'stream.mjs');
         writeFileSync(bin, `#!/usr/bin/env node
 for (let i = 0; i < 200; i++) process.stdout.write(JSON.stringify({ type: 'terminal.frame', full: i === 0, bytes: 'a'.repeat(4096) }) + '\\n');
@@ -187,7 +188,7 @@ setInterval(() => {}, 1000);
 
     it('finishes Latest against the pane after output outruns the phone offset', { timeout: 10_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-bottom-'));
-        cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+        cleanups.push(() => removeTestScratch(dir));
         const scrollFile = join(dir, 'scroll.json');
         writeFileSync(scrollFile, JSON.stringify({ offsetFromBottom: 100, maxOffsetFromBottom: 5_000, burst: 2_500 }));
         const manager = new TerminalManager({
@@ -229,8 +230,9 @@ setInterval(() => {}, 1000);
         // live edge, and a repaint on every line. Away from the live edge its
         // own output does not move the view, so the step is measurable.
         const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-stream-wheel-'));
-        // The program may still be painting while it exits.
-        cleanups.push(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
+        // The program may still be painting while it exits; the shared
+        // removal re-reads the tree and never fails the test.
+        cleanups.push(() => removeTestScratch(dir));
         const bin = join(dir, 'fake-herdr.mjs');
         const screenFile = join(dir, 'screen.txt');
         const stateFile = join(dir, 'state.json');
@@ -315,7 +317,7 @@ process.stdin.on('data', (chunk) => {
         // screen only when a report moves it. The first pane-text read fails as
         // a transient herdr read does, and the step must still be learned.
         const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-read-fail-'));
-        cleanups.push(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
+        cleanups.push(() => removeTestScratch(dir));
         const bin = join(dir, 'fake-herdr.mjs');
         const screenFile = join(dir, 'screen.txt');
         const stateFile = join(dir, 'state.json');
@@ -393,7 +395,7 @@ process.stdin.on('data', (chunk) => {
         // every reading of its screen moves on its own. The rows-per-report must
         // not be read out of that motion: the wheel stays at a report a row.
         const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-live-paint-'));
-        cleanups.push(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
+        cleanups.push(() => removeTestScratch(dir));
         const bin = join(dir, 'fake-herdr.mjs');
         const screenFile = join(dir, 'screen.txt');
         const stateFile = join(dir, 'state.json');
@@ -460,7 +462,7 @@ process.stdin.on('data', (chunk) => {
 
     it('drops every input a view-only device sends', { timeout: 30_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-view-'));
-        cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+        cleanups.push(() => removeTestScratch(dir));
         const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay') } });
         cleanups.push(() => void relay.close());
         const machine = generateKeyPair();
@@ -563,7 +565,7 @@ process.stdin.on('data', (chunk) => {
 
     it('carries terminal and voice streams over the byokit link', { timeout: 60_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-terminal-'));
-        cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+        cleanups.push(() => removeTestScratch(dir));
         const herdrBin = writeFakeHerdr(dir);
         const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay') } });
         cleanups.push(() => void relay.close());
