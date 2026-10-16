@@ -22,6 +22,7 @@ import { storeTempText } from '@/catalog';
 // barrel here would put the client's session in the application's first paint.
 import { desktopAvailable } from '@desklink/react-native/availability';
 import { changesList } from '@/catalog/ops';
+import { HeaderChangesPill, PaneActionsChangesRow } from './ChangesEntries';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
 import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionError, useSessionGitStatus, useSessions, useSocketStatus } from '@/catalog/store';
@@ -188,7 +189,7 @@ function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnis
 }
 
 export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean; preview?: boolean }) => {
-    const { width: windowWidth } = useWindowDimensions();
+    const { width: windowWidth, fontScale } = useWindowDimensions();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const isFocused = useIsFocused();
     const socketStatus = useSocketStatus();
@@ -262,6 +263,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const gitStatus = useSessionGitStatus(props.id);
     const [changesCount, setChangesCount] = React.useState<number | null>(null);
     const [artifactsCount, setArtifactsCount] = React.useState<number | null>(null);
+    // The count refetches on every lifecycle move, so the header pill follows
+    // the agent's edits while the screen stays open — not only on refocus.
     useFocusEffect(React.useCallback(() => {
         let cancelled = false;
         changesList(props.id)
@@ -271,7 +274,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             if (!cancelled && sessionId === props.id) setArtifactsCount(event.total);
         });
         return () => { cancelled = true; unsubscribe(); };
-    }, [props.id]));
+    }, [props.id, storedPane?.agentStatus]));
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
     const [swipeNow, setSwipeNow] = React.useState(Date.now);
     React.useEffect(() => {
@@ -354,6 +357,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         Keyboard.dismiss();
         router.setParams({ desktop: '0' });
     }, []);
+    // The diff, from the header pill and the Pane actions row as well as the ring.
+    const openChanges = React.useCallback(() => {
+        Keyboard.dismiss();
+        setActionsOpen(false);
+        ringRef.current?.close();
+        router.push(`/session/${encodeURIComponent(props.id)}/changes`);
+    }, [props.id]);
     const [previewChipBox, setPreviewChipBox] = React.useState<DesktopOrigin>();
     const [headerRowBottom, setHeaderRowBottom] = React.useState(0);
     // View commands keep a permanent route in Pane actions.
@@ -1553,6 +1563,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 reason opens on tap). In this row, not a new one: chrome that
                                 appears late would re-attach the terminal. */}
                             {identityKnown && (currentPane?.planAccount !== undefined || unknownAccount !== undefined) && <Text numberOfLines={1} accessibilityRole={currentPane?.planAccount === undefined ? 'button' : undefined} onPress={currentPane?.planAccount === undefined ? () => Modal.alert("Couldn't check which account it is on", unknownAccount) : undefined} style={{ flexShrink: 0, maxWidth: '30%', color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>{currentPane?.planAccount ?? 'Account unknown'}</Text>}
+                            {identityKnown && <HeaderChangesPill count={changesCount} compact={windowWidth / fontScale < 360} onPress={openChanges} />}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
                                 is gone; the dot carries the same colour (scout §4.1).
@@ -1560,8 +1571,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 shell is not "Offline". */}
                             {headerLifecycleLabel !== undefined && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                 <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: headerStatus.color }} />
-                                {/* A narrow header gives the chip the word's room; the dot and the label keep it. */}
-                                {!(preview.shown !== undefined && windowWidth < 340) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
+                                {/* A narrow header gives the chip (or, at the largest text, the
+                                    changes pill) the word's room; the dot and the label keep it. */}
+                                {!(preview.shown !== undefined && windowWidth < 340) && !(changesCount !== null && changesCount > 0 && windowWidth / fontScale < 240) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
                             </View>}
                         </Pressable>
                         <PreviewChip preview={preview.shown} live={preview.live} openable={preview.openable} labelled={preview.openable && preview.tooltip.open} onPress={watchPreview} onLayout={setPreviewChipBox} />
@@ -2003,6 +2015,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             }}>
                                 <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
                                     <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>
+                                    <PaneActionsChangesRow count={changesCount} onPress={openChanges} />
                                     <Pressable onPress={() => { setActionsOpen(false); setFindOpen(true); }} accessibilityRole="button" accessibilityLabel="Find in output"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
@@ -2014,7 +2027,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Select text</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
-                                    <TerminalMenuQuickActions slots={ringSlots.filter((slot) => slot.id !== 'computer')} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
+                                    <TerminalMenuQuickActions slots={ringSlots.filter((slot) => slot.id !== 'computer' && slot.id !== 'changes')} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
                                     {desktopAvailable && canControl && <Pressable onPress={openDesktop} accessibilityRole="button" accessibilityLabel="Computer"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="desktop-outline" size={18} color={theme.colors.textSecondary} />
