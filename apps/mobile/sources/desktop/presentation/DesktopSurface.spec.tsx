@@ -629,7 +629,7 @@ it('says the network has no way through when the open never connected, and not f
     await TestRenderer.act(async () => view.unmount());
 });
 
-it('keeps a desktop that dropped after a picture reconnecting, not closed', async () => {
+it('shows Reconnecting for a reconnecting snapshot with a transport failure', async () => {
     openedBefore = true;
     session.snapshot.status = 'reconnecting';
     session.snapshot.presented = true;

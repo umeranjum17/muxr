@@ -39,7 +39,6 @@ const ENDED: Record<string, { detail: string; canRetry: boolean }> = {
 export function describeDesktopFailureDetail(failure: { code: string; message: string } | null): string {
     if (failure?.code === 'consent') return desktopCopy.consentBody;
     if (failure?.code === 'no-screen') return desktopCopy.noScreenBody;
-    if (failure?.code === 'never-connected') return desktopCopy.unreachableBody;
     // The kit files the host's `source` refusal under `platform`; this one
     // reason is a contract value, so it is matched whole, never by substring.
     if (failure?.message === DESKTOP_NO_PICTURE) return desktopCopy.noPictureBody;
