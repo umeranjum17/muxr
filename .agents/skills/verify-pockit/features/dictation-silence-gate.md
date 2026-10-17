@@ -6,20 +6,20 @@ runs Silero VAD (`speech:` on `whisperRnEngine`) before every final decode.
 
 ## Sub-features
 
-- `silence-empty` 120 s of near-silence / room-noise (file-fed) yields empty
+- `silence-empty` 40 s of near-silence / room-noise (file-fed) yields empty
   final text for the composer draft.
 - `quiet-speech` the kit/muxr quiet fixture still produces the intended words.
 - `clean-unchanged` a normal clean fixture still transcribes.
 
 ## How to get to it (user POV)
 
-Open Home, hold the mic, speak or stay quiet, release. The draft above Send
+Open Home, tap Dictate, speak or stay quiet, then tap Stop once. The draft
 shows what dictation settled on.
 
 ## Driving it with the private stack
 
-Preconditions: a task-owned Android emulator with a debug APK built from the
-candidate, with `EXPO_PUBLIC_MUXR_LAB_DICTATE=1` set at bundle time. This is
+Preconditions: a task-owned Android emulator and a release APK built from the
+candidate with `EXPO_PUBLIC_MUXR_LAB_DICTATE=1` set at bundle time. This is
 on-device Whisper, not the relay. Proof is file-fed only (no microphone, no
 speaker playback).
 
@@ -31,28 +31,52 @@ Lab seam: `apps/mobile/sources/utils/dictationLabFeed.ts`, consumed by
 and `finish()` all run as shipped. The flag is inlined at bundle time, so
 production has no branch and no hardware-mic change.
 
-Steps:
-1. Generate the 120 s near-silence take at proof time: PCM noise at about
-   0.003 RMS, 120 s, 16 kHz mono. It is not committed. Quiet and clean takes
-   come from `scripts/dictation/fixtures/quiet.wav` and `clean.wav` (convert to
-   raw PCM16 with the same rate).
-2. For each take, push the PCM into the app's files directory with
-   `adb shell run-as <package> cp` (or `adb push` to a temp path, then
-   `run-as`), then hold the mic on Home in the app, release, and read the
-   composer draft.
-3. Assert: the silence take leaves the draft empty; quiet and clean produce
-   their words. Capture composer-draft screenshots (empty after silence, filled
-   after quiet). Log partials on the silence take, since partials are only held
-   back by the energy gate.
+Run `dictationLab.mjs` from the repo root after `yarn build`:
 
-The 120 s take is longer than the kit's 30 s window, so it also exercises the
-0.5.0 windowing change.
+```sh
+EXPO_PUBLIC_MUXR_LAB_DICTATE=1 node perf/buildPrApk.mjs <out>
+node .agents/skills/verify-pockit/features/dictationLab.mjs --apk <out>/app-release.apk \
+  --evidence <dir> --avd-home <dir> [--launcher <host memory gate>]
+```
+
+Under the host's fleet tools, wrap it in the shared emulator lock with a time
+bound. Pass the memory gate as `--launcher` so the gate meters only the
+emulator. What the script does:
+
+1. Clean data: uninstall, install, grant mic and notifications, then pair
+   through the perf fake stack. An install over old data carries any earlier
+   session or setting across, so a proof must start from an uninstall.
+2. Takes on Home: quiet, the 40 s near-silence (generated at run time, about
+   0.003 RMS), then clean. Quiet and clean come from
+   `scripts/dictation/fixtures/`. Each take feeds the PCM, taps Dictate, taps
+   Stop once, waits for the strip to settle, and saves
+   `<take>-after.png` plus the dump.
+3. An install over that data, then one more quiet take.
+4. One log line saying whether realtime voice opened at any point:
+   `realtime: none opened (…)`. It combines three checks: the voice foreground
+   service running with the microphone type, sampled every 2 s; the app's
+   RECORD_AUDIO app-op; and the realtime pill, sheet or alert seen in any dump.
+
+Assert: silence leaves the draft empty, quiet and clean produce their words,
+and the composer stays visible with `realtime: none opened`.
+
+The 40 s take is longer than the kit's 30 s window, so it also exercises the
+0.5.0 windowing change. A 120 s take was still "Transcribing…" after 15 min
+on a loaded fleet emulator, which does not fit one lock hold.
 
 Optional supporting check: the kit's WER CLI for `@byokit/dictation` 0.5.0 on
 the same fixtures. No result is recorded in this repo; the phone run above is
 the proof. Evidence goes under `~/.no-mistakes/evidence`, not the diff.
 
-This feature is not yet run. Its status is pending until the evidence exists.
+Status: run on a task-owned emulator against a release build of `5acb0161718`
+(lab feed inlined), on 17 Oct 2026. The quiet take settles to the fixture
+words after a clean install and after an install over old data. The 40 s
+silence take leaves the draft empty, and the clean take gives the clean words.
+`realtime: none opened` held over 279 screens. In that run the silence and
+clean takes ran on the open composer screen, because the lab did not yet go back to
+Home after clearing the draft; the draft reader and the return to Home were
+fixed afterwards and checked against that run's saved dumps, not by a fresh
+run. The 40 s silence take took about 10 min to settle at host load around 90.
 
 ## Gotchas
 
@@ -62,3 +86,28 @@ This feature is not yet run. Its status is pending until the evidence exists.
   and the silence case can hallucinate again. Only a successful open is cached,
   so the next take probes again.
 - Live previews are not Silero-gated; only finals and file readings are.
+- The take does not end on its own: the kit keeps recording after the fed
+  file runs dry, until Stop. Tap Stop exactly once, found by its label in a
+  fresh dump. Never tap a remembered coordinate again. After the take, Send sits
+  where Stop was, so a second blind tap sends the draft to a new agent. The
+  next blind tap on that spot hits the agent's "Talk to this session"
+  (`RealtimeTalkButton`, an empty draft's trailing action in
+  `TerminalScreen.tsx`), which starts realtime voice. The realtime sheet then
+  covers the composer and holds the mic, and dictation reports busy. This
+  looks like the app starting a session on its own, but it is the harness
+  tapping Talk. Home has a Talk button too: a lab that reads its icon glyph as
+  the draft and taps it raises "Realtime conversation" right away.
+- `adb root` (needed to copy the feed into a release build's files) restarts
+  adbd and drops `adb reverse`, so pair first, root after, then re-apply the
+  reverse.
+- `perf/flows/pair.yaml` predates the "Let's connect" first run and waits for
+  "Other ways to connect" until it times out. The lab opens the offer as
+  `muxr://pair#<offer>` and taps Pair on the consent card instead.
+- `VoiceOverlayService` running does not mean realtime voice. The same
+  service class runs the herd keep-alive (`dataSync`) while agents work, so it
+  turns on and off as the lab agents cycle. Only the microphone foreground type
+  is realtime.
+- With the composer closed, the draft is a one-line text beside Dictate, not an
+  EditText. Tapping it opens the full composer screen (agent, folder and
+  worktree pickers). Clear the draft there, then go back to Home before the
+  next take: on that screen Dictate's row also holds the agent picker.
