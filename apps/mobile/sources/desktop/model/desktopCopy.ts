@@ -24,6 +24,8 @@ export const desktopCopy = {
     noScreenCommand: 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb xfce4 xfce4-terminal dbus-x11 libpipewire-0.3-0t64 libxkbcommon0 libevdev2',
     consentTitle: 'Screen sharing was not approved',
     consentBody: 'The computer did not answer in time. Another app’s screen-sharing picker may be blocking muxr. Dismiss it on the computer, then try again or run muxr desktop setup there.',
+    unreachableTitle: "Can't show this computer's screen from here",
+    unreachableBody: 'The screen goes straight from your computer to this phone, and this network has no way through. Use the same Wi-Fi, Tailscale, or Direct SSH, then try again.',
     awaitingConsentTitle: 'Waiting for screen sharing',
     awaitingConsentBody: 'If a prompt appears on the computer, approve it there. Another app’s picker may be blocking this request.',
     endedTitle: 'Desktop closed',
