@@ -322,6 +322,7 @@ export function recordTrackedRpc(
     durationMs: number,
 ): void {
     if (!isTrackedConnectionRequest(type)) return;
+    if (type === 'desktop.open') lastPollFailure = undefined;
     if (result.ok) {
         // A desktop polls four times a second; only its failures are news.
         if (type === 'desktop.poll') {
