@@ -54,8 +54,10 @@ async function screen() {
 const labelled = (found, label) => found.find((n) => n.desc === label || n.text === label);
 const center = ({ box: [l, t, r, b] }) => [Math.round((l + r) / 2), Math.round((t + b) / 2)];
 const tap = (label, [x, y]) => { say(`tap ${label}`); return adb(['shell', 'input', 'tap', String(x), String(y)]); };
-// The composer's empty hint is `Ask <agent name>` (HomeDock askPlaceholder); match only those exact strings.
-const placeholders = () => new Set(stack.world.agents.map((agent) => `Ask ${agent.name}`));
+const EMPTY_HINTS = new Set(['Plan, ask, build…', 'Run a command']);
+// The focused composer's empty hint is `Ask <agent>`, where <agent> is the picker's name on that same screen.
+const isEmptyHint = (found, text) => EMPTY_HINTS.has(text)
+    || (text.startsWith('Ask ') && found.some((n) => n.cls === 'android.widget.TextView' && n.text === text.slice(4)));
 // Closed, the composer shows its draft as one line of text left of Dictate; open, it is the EditText.
 function draftField(found) {
     const input = found.find((n) => n.cls === 'android.widget.EditText');
@@ -72,7 +74,7 @@ function draftField(found) {
 const draft = (found) => {
     const field = draftField(found);
     if (field === undefined) throw new Error('no draft field on the settled composer');
-    return placeholders().has(field.text) ? '' : field.text;
+    return isEmptyHint(found, field.text) ? '' : field.text;
 };
 
 // --- realtime watch ----------------------------------------------------------
