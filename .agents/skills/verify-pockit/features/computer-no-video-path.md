@@ -6,8 +6,9 @@ through the relay (mobile data, no shared Wi-Fi, no Tailscale, no Direct SSH)
 never gets a frame. desklink (0.5.8 on) ends such a first open once with its
 own `never-connected` failure code, and the Computer view keys on that code
 alone: it says so in plain words, names what works, and keeps Try again. A
-`transport` failure (a path that formed, then was lost, or never sent a frame)
-keeps the generic failure.
+`transport` failure before the first frame keeps the generic "Couldn't open"
+failure; one after a frame reconnects through the kit's reopen policy and shows
+"Reconnecting…" until the reopens give up.
 
 ## Sub-features
 
@@ -21,8 +22,9 @@ keeps the generic failure.
 - `retry` Try again starts a new open ("Starting desktop…").
 - `large-text` at the largest text the overlay scrolls, so Try again is
   reachable (on main it was cut off).
-- `after-frame` a `transport` failure, before or after a frame, keeps
-  "Couldn't open this computer" (covered by `DesktopSurface.spec.tsx`; a lab
+- `after-frame` a `transport` loss after a frame shows "Reconnecting…" and
+  keeps the picture's reopen policy; "Couldn't open this computer" appears
+  only once the reopens give up (covered by `DesktopSurface.spec.tsx`; a lab
   cannot stage a frame and then cut UDP mid-session without a real desktop
   picture).
 
