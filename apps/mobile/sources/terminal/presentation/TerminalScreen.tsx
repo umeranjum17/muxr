@@ -1554,6 +1554,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         it and the footer one step to the chrome ink. */}
                     <Animated.View
                         aria-hidden={desktopVisible}
+                        accessibilityElementsHidden={desktopVisible}
+                        importantForAccessibility={desktopVisible ? 'no-hide-descendants' : 'auto'}
                         onLayout={(event) => {
                             const bottom = event.nativeEvent.layout.y + event.nativeEvent.layout.height;
                             setHeaderRowBottom(bottom);
@@ -1640,6 +1642,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     {hasStatusRow && (
                         <Pressable
                             aria-hidden={desktopVisible}
+                            accessibilityElementsHidden={desktopVisible}
+                            importantForAccessibility={desktopVisible ? 'no-hide-descendants' : 'auto'}
                             onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)}
                             accessibilityRole="button"
                             accessibilityLabel="Review changes"
@@ -1671,6 +1675,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
 
                     <View
                         aria-hidden={desktopVisible}
+                        accessibilityElementsHidden={desktopVisible}
+                        importantForAccessibility={desktopVisible ? 'no-hide-descendants' : 'auto'}
                         // A new object every layout would re-render this whole
                         // screen on each one, and layout fires repeatedly while
                         // the keyboard is arriving — the transition he called
@@ -1734,7 +1740,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         composer read as the same piece of chrome rather than as
                         three stacked bands, and the whole of it recedes
                         together while the ring is open. */}
-                    <Animated.View style={[{ backgroundColor: railInk, paddingTop: RAILS_TOP_PAD }, railsFollowKeyboard]}>
+                    <Animated.View
+                        aria-hidden={desktopVisible}
+                        accessibilityElementsHidden={desktopVisible}
+                        importantForAccessibility={desktopVisible ? 'no-hide-descendants' : 'auto'}
+                        style={[{ backgroundColor: railInk, paddingTop: RAILS_TOP_PAD }, railsFollowKeyboard]}>
 
                     {/* Tabs row: one chip per tab of this workspace, never
                         its panes -- those are the header's 1/3 and the pager.
@@ -1950,6 +1960,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     {hasTools && !choicesVisible && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
                         <Animated.View
                             aria-hidden={desktopVisible}
+                            accessibilityElementsHidden={desktopVisible}
+                            importantForAccessibility={desktopVisible ? 'no-hide-descendants' : 'auto'}
                             pointerEvents="box-none"
                             onLayout={({ nativeEvent }) => setRingOverlay((current) => (Math.abs(current - nativeEvent.layout.height) < 0.5 ? current : nativeEvent.layout.height))}
                             style={[{ position: 'absolute', left: 0, right: 0, top: terminalBox.top }, ringOverlayBottom]}
