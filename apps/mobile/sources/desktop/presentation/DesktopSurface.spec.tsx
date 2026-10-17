@@ -37,7 +37,7 @@ const session = {
 };
 
 vi.mock('react-native', () => ({
-    ActivityIndicator: 'ActivityIndicator', View: 'View', Pressable: 'Pressable',
+    ActivityIndicator: 'ActivityIndicator', View: 'View', Pressable: 'Pressable', ScrollView: 'ScrollView',
     AppState: { addEventListener: (_event: string, listener: (state: string) => void) => {
         appState.add(listener);
         return { remove: () => appState.delete(listener) };
@@ -581,5 +581,66 @@ it('keeps the mirror view up when the host announces a preview kind this build d
     expect(has('Home')).toBe(false);
     expect(has('Recents')).toBe(false);
 
+    await TestRenderer.act(async () => view.unmount());
+});
+
+it('says the network has no way through when an open never shows a frame, and not after one did', async () => {
+    openedBefore = true;
+    session.snapshot.status = 'idle';
+    session.snapshot.presented = false;
+    let view!: ReturnType<typeof TestRenderer.create>;
+    const root = () => view.root as Rendered;
+    const shows = (text: string) => root().findAll((node) => node.children.includes(text)).length > 0;
+    const become = async (status: string, presented = false, failure: { code: string; message: string } | null = null) => {
+        Object.assign(session.snapshot, { status, presented, failure });
+        await TestRenderer.act(async () => view.update(<DesktopSurface sessionId="N" onExit={() => undefined} />));
+    };
+    const transport = { code: 'transport', message: 'The desktop never sent a picture.' };
+    const noPath = "Can't show this computer's screen from here";
+    const generic = "Couldn't open this computer";
+
+    requestDesktop('computer', 'N');
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="N" onExit={() => undefined} />); });
+
+    // Every reopen the kit spends on it ends the same way: no picture ever came.
+    await become('opening');
+    await become('failed', false, transport);
+    await become('reconnecting');
+    await become('opening');
+    await become('failed', false, transport);
+    expect(shows(noPath)).toBe(true);
+    expect(shows(generic)).toBe(false);
+    expect(root().findAllByProps({ accessibilityLabel: 'Try again' }).length).toBeGreaterThan(0);
+
+    // Try again on a path that works: once a frame showed, a later loss is not the network's verdict.
+    await become('opening');
+    await become('live', true);
+    await become('failed', true, transport);
+    await become('reconnecting');
+    await become('opening');
+    await become('failed', false, transport);
+    expect(shows(generic)).toBe(true);
+    expect(shows(noPath)).toBe(false);
+
+    // A refusal that is not the path keeps its own words.
+    await become('opening');
+    await become('failed', false, { code: 'consent', message: 'timed out' });
+    expect(shows('Screen sharing was not approved')).toBe(true);
+
+    // Native: the engine revokes the open for a lost phone before the kit gives up.
+    const lost = { code: 'revoked', message: 'the connection to the phone was lost' };
+    await become('opening');
+    await become('failed', false, transport);
+    await become('reconnecting');
+    await become('opening');
+    await become('ended', false, lost);
+    expect(shows(noPath)).toBe(true);
+    await become('opening');
+    await become('live', true);
+    await become('ended', true, lost);
+    expect(shows('Desktop closed')).toBe(true);
+    expect(shows(noPath)).toBe(false);
+
+    session.snapshot.failure = null;
     await TestRenderer.act(async () => view.unmount());
 });
