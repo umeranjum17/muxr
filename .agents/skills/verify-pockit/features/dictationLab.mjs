@@ -53,7 +53,7 @@ async function screen() {
 }
 const labelled = (found, label) => found.find((n) => n.desc === label || n.text === label);
 const center = ({ box: [l, t, r, b] }) => [Math.round((l + r) / 2), Math.round((t + b) / 2)];
-const tap = ([x, y]) => adb(['shell', 'input', 'tap', String(x), String(y)]);
+const tap = (label, [x, y]) => { say(`tap ${label}`); return adb(['shell', 'input', 'tap', String(x), String(y)]); };
 // The composer's empty hint is `Ask <agent name>` (HomeDock askPlaceholder); match only those exact strings.
 const placeholders = () => new Set(stack.world.agents.map((agent) => `Ask ${agent.name}`));
 // Closed, the composer shows its draft as one line of text left of Dictate; open, it is the EditText.
@@ -97,6 +97,7 @@ let serviceRuns = 0;
 const watched = { attempts: 0, samples: 0 };
 async function serviceWatch(stopped) {
     let last = null;
+    let dumpSaved = false;
     while (!stopped.done) {
         watched.attempts += 1;
         // VoiceOverlayService also hosts the herd keep-alive (dataSync, 0x1) while agents work; only the
@@ -107,7 +108,9 @@ async function serviceWatch(stopped) {
             const types = dump.includes('VoiceOverlayService') ? [...dump.matchAll(/(?:foregroundServiceType|types)=0x([0-9a-f]+)/gi)].map((m) => parseInt(m[1], 16)) : [];
             const running = types.some((type) => (type & 0x80) !== 0);
             if (running) serviceRuns += 1;
-            if (running !== last) { say(`microphone service ${running ? 'RUNNING' : 'not running'} (${phase}; foreground types ${types.map((t) => `0x${t.toString(16)}`).join(',') || 'none'})`); last = running; }
+            if (!dumpSaved && types.length > 0) { writeFileSync(join(EVIDENCE, 'voice-service-dumpsys.txt'), dump); dumpSaved = true; }
+            const parsed = types.map((t) => `0x${t.toString(16)}`).join(',') || 'none';
+            if (parsed !== last) { say(`foreground service types ${parsed}, microphone ${running ? 'RUNNING' : 'not running'} (${phase})`); last = parsed; }
         }
         await sleep(2000);
     }
@@ -151,14 +154,14 @@ async function take(name, file, expect) {
     await screenshot(join(EVIDENCE, `${name}-before.png`));
     const mic = labelled(await screen(), 'Dictate');
     if (mic === undefined) throw new Error(`${name}: no Dictate control on screen`);
-    await tap(center(mic));
+    await tap('Dictate', center(mic));
     let found = await waitFor(`${name}: recording`, recording, 60);
     await sleep(3000);
     // Exactly one stop, on the stop control as it is right now. A second tap on
     // the same spot after the take settles lands on Send or Talk instead.
     const stop = labelled(await screen(), 'Stop dictation');
     if (stop === undefined) throw new Error(`${name}: Stop dictation gone before the tap`);
-    await tap(center(stop));
+    await tap('Stop dictation', center(stop));
     found = await waitFor(`${name}: settled draft`, settled, 900);
     const text = draft(found);
     await screenshot(join(EVIDENCE, `${name}-after.png`));
@@ -170,9 +173,9 @@ async function take(name, file, expect) {
 async function clearDraft() {
     const field = draftField(await screen());
     if (field === undefined) return;
-    await tap(center(field));
+    await tap('draft field', center(field));
     const input = (await waitFor('open composer', (found) => found.some((n) => n.cls === 'android.widget.EditText'), 30)).find((n) => n.cls === 'android.widget.EditText');
-    await tap(center(input));
+    await tap('composer input', center(input));
     await adb(['shell', 'input', 'keycombination', 'KEYCODE_CTRL_LEFT', 'KEYCODE_A']);
     await adb(['shell', 'input', 'keyevent', 'KEYCODE_DEL']);
     await dismissKeyboard();
@@ -198,7 +201,7 @@ async function openOffer(_flow, { PAIR_CODE }) {
             await sleep(2500);
             const pair = labelled(await screen(), 'Pair');
             if (pair) {
-                await tap(center(pair));
+                await tap('Pair', center(pair));
                 // pairPhone releases the offer when this returns, and the host approves over that
                 // socket, so stay until the phone is connected (the old flow's last wait).
                 await waitFor('connected after Pair', (found) => labelled(found, 'connected') !== undefined, 90);
@@ -216,6 +219,7 @@ async function openOffer(_flow, { PAIR_CODE }) {
 const results = [];
 const stopped = { done: false };
 let emulator;
+let spawned;
 let stack;
 let watch;
 // A lock timeout ends this run with SIGTERM; it must not strand the emulator or stack.
@@ -223,12 +227,15 @@ process.once('SIGTERM', async () => {
     say('RESULT FAIL: terminated');
     stopped.done = true;
     stack?.stop();
+    if (emulator === undefined && spawned !== undefined) {
+        try { process.kill(-spawned.pid, 'SIGKILL'); } catch { /* group already gone */ }
+    }
     await emulator?.stop();
     rmSync(SCRATCH, { recursive: true, force: true });
     process.exit(1);
 });
 try {
-    emulator = await bootOwnedEmulator({ name: 'muxr-dictation-lab', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: opts.launcher ? [opts.launcher] : [] });
+    emulator = await bootOwnedEmulator({ name: 'muxr-dictation-lab', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: opts.launcher ? [opts.launcher] : [], onSpawn: (child) => { spawned = child; } });
     serial = emulator.serial;
     say(`emulator ${serial} booted`);
     stack = await startFakeStack({ panes: 3, agents: 2 });

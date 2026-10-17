@@ -68,15 +68,15 @@ Optional supporting check: the kit's WER CLI for `@byokit/dictation` 0.5.0 on
 the same fixtures. No result is recorded in this repo; the phone run above is
 the proof. Evidence goes under `~/.no-mistakes/evidence`, not the diff.
 
-Status: run on a task-owned emulator against a release build of `5acb0161718`
-(lab feed inlined), on 17 Oct 2026. The quiet take settles to the fixture
-words after a clean install and after an install over old data. The 40 s
-silence take leaves the draft empty, and the clean take gives the clean words.
-`realtime: none opened` held over 279 screens. In that run the silence and
-clean takes ran on the open composer screen, because the lab did not yet go back to
-Home after clearing the draft; the draft reader and the return to Home were
-fixed afterwards and checked against that run's saved dumps, not by a fresh
-run. The 40 s silence take took about 10 min to settle at host load around 90.
+Status: run12, at
+`/home/umer/.treehouse/firstmate-8bf1b0/8/firstmate/data/pock-vad-realtime-mic-claim1/evidence/run12/`,
+logged `realtime: none opened (microphone service samples running=0, RECORD_AUDIO
+never accessed, realtime on screen in 0 of 279 screens)`, with the clean-quiet,
+clean-silence, clean-clean and reinstall-quiet after-screens and their
+`.xml.json` dumps. That run ended `RESULT FAIL`: the clean-silence take read
+`Shell (no agent)` and clean-clean did not pass. It shows no realtime session
+opened; it does not prove the take assertions. A fresh run on the final harness
+follows, and its results go in the PR Checks.
 
 ## Gotchas
 
