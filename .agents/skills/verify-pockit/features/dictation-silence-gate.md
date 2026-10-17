@@ -68,15 +68,16 @@ Optional supporting check: the kit's WER CLI for `@byokit/dictation` 0.5.0 on
 the same fixtures. No result is recorded in this repo; the phone run above is
 the proof. Evidence goes under `~/.no-mistakes/evidence`, not the diff.
 
-Status: run12, at
-`/home/umer/.treehouse/firstmate-8bf1b0/8/firstmate/data/pock-vad-realtime-mic-claim1/evidence/run12/`,
-logged `realtime: none opened (microphone service samples running=0, RECORD_AUDIO
-never accessed, realtime on screen in 0 of 279 screens)`, with the clean-quiet,
-clean-silence, clean-clean and reinstall-quiet after-screens and their
-`.xml.json` dumps. That run ended `RESULT FAIL`: the clean-silence take read
-`Shell (no agent)` and clean-clean did not pass. It shows no realtime session
-opened; it does not prove the take assertions. A fresh run on the final harness
-follows, and its results go in the PR Checks.
+Status: run13, at
+`/home/umer/.treehouse/firstmate-8bf1b0/8/firstmate/data/pock-vad-realtime-mic-claim1/evidence/run13/`,
+passed all four takes: clean-quiet, clean-silence (empty draft), clean-clean,
+and reinstall-quiet after `install -r` over old data. Its log reads `realtime:
+none opened (microphone service samples running=0 of 570 successful dumps in 572
+attempts, RECORD_AUDIO never accessed, realtime on screen in 0 of 204 screens)`.
+Every lab tap is logged by label (Pair, Dictate, Stop dictation, draft field,
+composer input), and none is a Talk control. `voice-service-dumpsys.txt` shows
+`VoiceOverlayService` started by `voiceOverlay.herdStart` with `types=0x00000001`,
+the herd keep-alive, so the microphone-type check reads the real format.
 
 ## Gotchas
 
@@ -94,9 +95,12 @@ follows, and its results go in the PR Checks.
   (`RealtimeTalkButton`, an empty draft's trailing action in
   `TerminalScreen.tsx`), which starts realtime voice. The realtime sheet then
   covers the composer and holds the mic, and dictation reports busy. This
-  looks like the app starting a session on its own, but it is the harness
-  tapping Talk. Home has a Talk button too: a lab that reads its icon glyph as
-  the draft and taps it raises "Realtime conversation" right away.
+  looks like the app starting a session on its own. Home has a Talk button
+  too. In run10 (`evidence/run10/failure.png`) the alert sits over Home with the
+  lab's draft still in the composer. That run's log has no tap labels, so the
+  Talk tap is inferred from the Home Talk glyph, not logged. Run13 shows no
+  session from wake-on-speech or stale data: its reinstall-quiet stage after
+  `install -r` has no microphone type, and `vadStandbyEnabled` is off by default.
 - `adb root` (needed to copy the feed into a release build's files) restarts
   adbd and drops `adb reverse`, so pair first, root after, then re-apply the
   reverse.
