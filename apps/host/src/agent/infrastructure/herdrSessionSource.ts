@@ -1483,9 +1483,6 @@ export async function createHerdrSessionSource(
     // may reuse it, briefly, and never across a revision change or reconnect.
     let lastKitRevision = -1;
     let lastSyncAt = 0;
-    /** Edge-driven re-reads never chase their own tail: at most one per cooldown. */
-    let lastEdgeRereadAt = 0;
-    const EDGE_REREAD_COOLDOWN_MS = 2_000;
 
     function syncFromKit(snap: HerdrSnapshot = client.kit.snapshot()): void {
         const previousPanes = new Set(panesById.keys());
@@ -1567,10 +1564,6 @@ export async function createHerdrSessionSource(
         await client.kit.refresh();
         if (disposed) throw new Error('herdr: source disposed');
         await syncDiscovery();
-    }
-
-    async function refreshSnapshotFresh(): Promise<void> {
-        await refreshSnapshot();
     }
 
     /**
@@ -1844,10 +1837,6 @@ export async function createHerdrSessionSource(
         throw new Error('herdr agent did not become interactive');
     }
 
-    // The kit taps its own batch socket and its per-pane status watches; this host
-    // opens no subscription of its own. The tree arrives via kit.onChange above;
-    // this raw tap only catches detection past the current tick so the status-watch
-    // ready signal belongs to the bootstrap that opens the new pane's watch.
 
     // A dead herdr must not take the host down with it: the phone needs this
     // process alive to see connected:false instead of a healthy-looking ghost.
@@ -2334,7 +2323,7 @@ export async function createHerdrSessionSource(
         const reached = parseHerdrAgentSession(receipt.agentSession);
         if (reached !== undefined && `${receipt.paneId}\u0000${herdrAgentSessionKey(reached)}` === generation) return;
         try {
-            await refreshSnapshotFresh();
+            await refreshSnapshot();
             const current = currentSession(sessionId);
             if (current === undefined || sessionGenerationKey(current) !== generation) {
                 throw new Error('The prompt generation changed before its receipt could be confirmed.');
@@ -2858,7 +2847,7 @@ export async function createHerdrSessionSource(
                     stagedMovePanes.delete(staged);
                 }
                 await tagged;
-                await refreshSnapshotFresh();
+                await refreshSnapshot();
                 emitAllStates();
             });
             if (!moved.ok) {
@@ -2871,7 +2860,7 @@ export async function createHerdrSessionSource(
                 // A lost close ACK can leave only the verified replacement. Preserve its name/account without claiming success.
                 if (replacement && name !== undefined && !panesById.has(record.paneId)) {
                     await renameInHerdr(client, 'agent', moved.live!, name).catch(() => undefined);
-                    await refreshSnapshotFresh();
+                    await refreshSnapshot();
                     emitAllStates();
                 }
                 throw Object.assign(new Error(moved.message), {

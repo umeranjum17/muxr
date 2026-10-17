@@ -1040,6 +1040,57 @@ describe('agent started at the desk in an existing pane', () => {
             rmSync(dir, { recursive: true, force: true });
         }
     }, 20_000);
+
+    it('adopts two desk-detected conversations without a pull, and a refresh-caused bootstrap does not re-arm the edge', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-desk-herd-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        herdr.tabs.push({ tab_id: 'w1:t1', workspace_id: 'w1', label: 'main' });
+        herdr.panes.push({ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
+        herdr.panes.push({ pane_id: 'w1:p2', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            // Two detections back to back: each detection bootstrap's snapshot
+            // carries both conversations, so both routes bind with no phone
+            // pull between or after them.
+            herdr.agents.push({ pane_id: 'w1:p1', agent: 'codex', name: 'ram', agent_status: 'idle',
+                agent_session: { source: 'herdr:codex', agent: 'codex', kind: 'id', value: 'codex-1' } });
+            herdr.agents.push({ pane_id: 'w1:p2', agent: 'pi', name: 'magpie', agent_status: 'idle',
+                agent_session: { source: 'herdr:pi', agent: 'pi', kind: 'id', value: 'pi-1' } });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p1', agent: 'codex' });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p2', agent: 'pi' });
+            await vi.waitFor(async () => {
+                expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ agentKind: 'codex', sessionId: expect.stringMatching(/^pp_/) });
+                expect(treePane(await source.herdrTree(), 'w1:p2')).toMatchObject({ agentKind: 'pi', sessionId: expect.stringMatching(/^pp_/) });
+            }, { timeout: 3_000 });
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            const settled = herdr.state.snapshotCount;
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            expect(herdr.state.snapshotCount).toBe(settled);
+
+            // A sessionless desk agent: the one forced re-read answers it, and
+            // the re-read's own ready edge re-arms nothing.
+            herdr.panes.push({ pane_id: 'w1:p3', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
+            herdr.agents.push({ pane_id: 'w1:p3', agent: 'codex', name: 'wren', agent_status: 'idle' });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p3', agent: 'codex' });
+            await vi.waitFor(async () => expect(treePane(await source.herdrTree(), 'w1:p3').agentKind).toBe('codex'), { timeout: 3_000 });
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            const reads = herdr.state.snapshotCount;
+            await source.refreshHerdr();
+            expect(herdr.state.snapshotCount).toBe(reads + 1);
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            expect(herdr.state.snapshotCount).toBe(reads + 1);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
 });
 
 describe('realtime prompt boundary', () => {
