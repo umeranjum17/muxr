@@ -14,8 +14,8 @@ Try again. A loss after a frame showed keeps the generic failure.
 - `relay-live` native, no UDP path: the picture goes live through the relay;
   Settings -> MACHINES -> machine -> Desktop decoder shows Frames decoded
   rising, and the host log reads "link: desktop picture carried over the link".
-- `nopath` PWA first open, no UDP path: after the kit's reopens (about 4
-  minutes) the view reads "Can't show this computer's screen from here" with
+- `nopath` PWA first open, no UDP path: after the kit's 20 s first-frame
+  bound (`never-connected`) the view reads "Can't show this computer's screen from here" with
   the browser body ("A browser can show the screen only when it reaches your
   computer directly. Open muxr in the app, …") and Try again.
 - `retry` Try again starts a new open ("Starting desktop…").
@@ -53,7 +53,7 @@ Installed PWA (no UDP path):
 5. Pair with `__MUXR_LAB_PAIR__`, `emulate --viewport 270x594x2,mobile,touch`,
    then `node noVideoPathLab.mjs tap <debug> 'Open Pi 1, pi · Idle'`,
    `… tap <debug> 'Pane actions'`, `… tap <debug> Computer`. Poll
-   `document.body.innerText` for `Try again` (about 240 s), then shoot each
+   `document.body.innerText` for `Try again` (about 30 s), then shoot each
    cell and run `visualCheck.mjs pwa-check`; at font 2.0 also scroll to the end.
 
 Native Android (no UDP path; expect `relay-live`, not the message):
@@ -79,7 +79,9 @@ Native Android (no UDP path; expect `relay-live`, not the message):
 
 - The Computer view over a terminal uses a dark scoped theme, so light and
   dark shots look the same on purpose; label the system mode.
-- The message only appears once the kit gives up (8 reopens, about 4
-  minutes); "Starting desktop…" before that is expected.
+- The message appears once the kit gives up: desklink 0.5.8 fails a first
+  open whose path never formed as `never-connected` at 20 s, with no reopens
+  (older kits reopened for about 4 minutes and ended in `transport`).
+  "Starting desktop…" before that is expected.
 - A theme or viewport change after the failure re-renders the same overlay
   without reopening, so one wait covers every cell.
