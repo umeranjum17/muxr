@@ -1,12 +1,12 @@
 # Release channels
 
-`main` is the development stream. Pushing to `main` starts `release.yml`: it runs the full suite and, when the root `package.json` version is not on npm yet, packs, checks and publishes `@trymuxr/cli` with provenance. (The `desktop-appimage.yml` workflow also builds on push, but only keeps an unpublished CI artifact; it is not part of the release stream.) Merging a version-bump PR is therefore an npm release; when that version's candidate GitHub release exists, the same run also points the channel record at it. No app store is touched. Captain-tested commits merge frequently; a release ships from its own `release/<version>` branch instead, cut from a tested `main` commit and carrying fixes cherry-picked from `main` — so the large feature branches under review can never ship an intermediate state. The branch name is the release version: candidate, publication and Android delivery workflows require `release/<semver>`; the branch-cut workflow starts from `main`. Candidate and Android versions must match the branch. The repository workflows below are manual dispatches unless noted otherwise.
+`main` is the development stream. Pushing to `main` starts `release.yml`: it runs the full suite and, when the root `package.json` version is not on npm yet, packs, checks and publishes `@trymuxr/cli` with provenance. (The `desktop-appimage.yml` workflow also builds on push, but only keeps an unpublished CI artifact; it is not part of the release stream.) Merging a version-bump PR is therefore an npm release; when that version's candidate GitHub release exists, the same run also points the channel record at it. No app store is touched. Maintainer-tested commits merge frequently; a release ships from its own `release/<version>` branch instead, cut from a tested `main` commit and carrying fixes cherry-picked from `main` — so the large feature branches under review can never ship an intermediate state. The branch name is the release version: candidate, publication and Android delivery workflows require `release/<semver>`; the branch-cut workflow starts from `main`. Candidate and Android versions must match the branch. The repository workflows below are manual dispatches unless noted otherwise.
 
 ```mermaid
 flowchart LR
  PR[Reviewed PR + local acceptance] --> MAIN[main; push runs release.yml]
  MAIN --> NPM[release.yml: npm when the version is new]
- MAIN --> TEST[Captain tests exact main commit]
+  MAIN --> TEST[Maintainer tests exact main commit]
  TEST --> CUT[Manual cut-release-branch dispatch]
  CUT --> BRANCH["release/<version>; fixes cherry-picked from main"]
  BRANCH --> CANDIDATE[Manual release-candidate dispatch from the branch]
@@ -141,7 +141,7 @@ Release titles are `muxr <version>`. PR and build provenance belongs in the note
 4. Run **mobile closed testing**, then **mobile Android production promotion**, from the release branch with that Internal run ID, exact source commit, version and build number. Main may have advanced; the selected artifact's source and digest remain binding. Production remains protected and rollout is explicit. No Play upload/promotion is implied by a GitHub nightly download.
 5. Mark the GitHub candidate release stable only after the chosen platform promotions succeed. Record each platform separately. Keep previous releases and evidence; halt rollout/advance to a higher mobile build for regressions. Do not rebuild under an existing version/tag or overwrite release assets.
 
-iOS App Store builds are produced on the captain's Mac from the release branch, with no paid cloud build; `mobile-ios-internal.yml` remains a disabled stub. The site lives in this repository at `apps/site`; its `marketing.lock.json` points at a muxr commit and should point at the release branch's commit for the release. Build, test and deployment for it are owned by [apps/site/README.md](../apps/site/README.md).
+iOS App Store builds are produced on the maintainer's Mac from the release branch, with no paid cloud build; `mobile-ios-internal.yml` remains a disabled stub. The site lives in this repository at `apps/site`; its `marketing.lock.json` points at a muxr commit and should point at the release branch's commit for the release. Build, test and deployment for it are owned by [apps/site/README.md](../apps/site/README.md).
 
 npm trusted publishing must name this repository and `release.yml`, with no environment; `release.yml` has no GitHub environment. No npm token is stored in the repository. A trusted-publisher failure leaves the downloadable tarball/APK intact and does not claim registry success.
 

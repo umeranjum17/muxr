@@ -26,7 +26,7 @@ Preconditions:
   `adb -s $SERIAL shell am start` and tap `Pair`.
 
 - Pair a short name (`Umer-test`), then a long one
-  (`extreme-workstation-umer`) so the long name shows as the picker.
+  (`extra-long-workstation-name`) so the long name shows as the picker.
 - After each pairing capture `adb -s $SERIAL exec-out screencap -p` at the
   default display and at the reference phone (`wm size 1080x2376`,
   `wm density 640`) with `settings put system font_scale` 1.3 and 2.0, each in

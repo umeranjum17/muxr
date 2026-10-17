@@ -141,9 +141,9 @@
     {
       "panes": 90,
       "agents": 18,
-      "error": "the herd never reached the phone:  | /home/umer/.maestro/tests/2026-09-03_124058",
+      "error": "the herd never reached the phone:  | /home/user/.maestro/tests/2026-09-03_124058",
       "ok": false,
-      "why": "the herd never reached the phone:  | /home/umer/.maestro/tests/2026-09-03_124058"
+      "why": "the herd never reached the phone:  | /home/user/.maestro/tests/2026-09-03_124058"
     }
   ],
   "limits": {

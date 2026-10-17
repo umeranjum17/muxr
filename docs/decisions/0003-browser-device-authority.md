@@ -3,7 +3,7 @@
 Tier: T3 (credential storage and command authority)
 Status: implemented
 Date: 2026-08-13
-Decider: Umer
+Decider: maintainer
 
 ## Decision
 

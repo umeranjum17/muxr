@@ -26,7 +26,7 @@ export const DICTATION_BIAS_BUDGET = {
     maxPromptChars: 200,
 } as const;
 
-/** Product names the captain dictates, most distinctive first. */
+/** Product names users dictate, most distinctive first. */
 export const BASE_DICTATION_NAMES = [
     'muxr',
     'Herdr',

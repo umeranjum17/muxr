@@ -7,8 +7,8 @@ Idle-terminal redraws also contribute to the reported janky share.
 
 ## Surface
 
-Every number here is from the **physical phone**: OnePlus CPH2649, serial
-`a4b93ea2`, 1080x2376 at 120 Hz, so each frame has an 8.3 ms budget. None of it
+Every number here is from the **physical test phone**: OnePlus CPH2649,
+1080x2376 at 120 Hz, so each frame has an 8.3 ms budget. None of it
 comes from an emulator.
 
 The builds were release, arm64, `APP_ENV=preview`, installed as
@@ -83,7 +83,7 @@ input (even without echo) or output restarts the blink. The cursor remains
 painted by the terminal view; the cell-sized layer was a measurement experiment,
 not the shipped fix. The web terminal (xterm.js) is untouched by the patch.
 
-Before/after on the same phone (CPH2649, a4b93ea2, 120 Hz), same build type
+Before/after on the same phone (CPH2649, 120 Hz), same build type
 (release, arm64, test-signed `com.trymuxr.app.blinklab`), same scenario, same
 method (`perf/ringJank.sh`, 15 s idle windows; GPU ms = `GpuCompleted −
 IssueDrawCommandsStart`):

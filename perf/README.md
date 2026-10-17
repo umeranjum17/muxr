@@ -174,8 +174,7 @@ reports `inconclusive`, never PASS; a qualifying run requires frames, reconnects
 and less than 128 MiB host-process RSS drift after a one-minute warmup. The
 full 60-minute run is preferable for detecting a long tail. An unexpected
 terminal-stream end or child exit by code or signal fails the run. The fake
-Herdr is not evidence that real Herdr's process memory is bounded. This host-only pass never invokes adb, a service command or the
-captain's Herdr session; run it from a dedicated shell pane after `yarn build`.
+Herdr is not evidence that real Herdr's process memory is bounded. This host-only pass never invokes adb, a service command or another Herdr session; run it from a dedicated shell pane after `yarn build`.
 `node perf/hostSoak.reconnect.smoke.mjs` checks the two-minute reconnect path
 against the same isolated stack.
 

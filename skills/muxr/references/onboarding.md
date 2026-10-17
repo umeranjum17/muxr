@@ -148,7 +148,7 @@ muxr state lives under `~/.muxr` unless `MUXR_HOME` is set.
 ## Host settings file
 
 `$MUXR_HOME/config.json` holds the host settings as plain JSON, so an agent
-(or the captain) can read and edit them directly. It is the one file under
+(or the user) can read and edit them directly. It is the one file under
 `~/.muxr` meant for hand editing; never hand-edit the owner-only
 `auth.json`/`selfhost.json` credential files beside it. Copy
 `muxr.config.example.json` from the repo, or run `muxr config init` for the

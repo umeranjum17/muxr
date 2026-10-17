@@ -59,7 +59,7 @@ Paired and the phone lands on Home.
 
 Preconditions: follow ../SKILL.md isolation. Run the AppImage with a
 task-owned `MUXR_HOME`, a relay port free on the host, and the lab Herdr
-session; unset the captain's `HERDR_*` variables and `WAYLAND_DISPLAY`, and run
+session; unset the host's `HERDR_*` variables and `WAYLAND_DISPLAY`, and run
 under a software-GL X display. Pair a task-owned emulator running the release
 APK.
 

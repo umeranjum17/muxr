@@ -133,7 +133,7 @@ it('lists every agent the needs-you count counts until it is answered', async ()
  * A Codex and a pi agent that have finished but have not published a real
  * name yet arrive as lifecycle events whose agentName is Herdr's internal
  * launch id (`pp_<hex>` / `pph_<hex>`). Their Ready · unseen rows once led
- * with that id (seen on Android, FIRSTMATE HOME); they must name the agent the
+ * with that id (seen on Android where HOME names an agent); they must name the agent the
  * way Home names every other one — its kind and task, never the id.
  */
 it('names a finished Codex and pi agent by kind, never a launch id', async () => {
