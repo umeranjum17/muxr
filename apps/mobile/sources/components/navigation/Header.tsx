@@ -10,6 +10,7 @@ import { useHeaderHeight, useIsTablet, useSplitViewLayout } from '@/utils/respon
 import { Typography } from '@/constants/Typography';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { MobileGlassSurface } from '@/components/MobileGlass';
+import { WordWrappingText } from '@/components/WordWrappingText';
 import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import {
     MOBILE_GLASS_CONTROL_RADIUS,
@@ -147,7 +148,10 @@ export const Header = React.memo((props: HeaderProps) => {
                         compactHorizontalPadding && styles.compactCenterContainer,
                     ]}>
                         {typeof title === 'string'
-                            ? <Text style={[styles.title, headerTitleStyle]} numberOfLines={2}>{title}</Text>
+                            // A block of its own: the web row would size the title to its scaled text.
+                            ? <View style={styles.titleBlock}>
+                                <WordWrappingText fontSize={16} style={[styles.title, headerTitleStyle]} numberOfLines={3}>{title}</WordWrappingText>
+                            </View>
                             : title}
                         {subtitle && <Text style={subtitleStyle} numberOfLines={1} ellipsizeMode="tail">{subtitle}</Text>}
                     </View>
@@ -337,6 +341,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         paddingHorizontal: 12,
         minWidth: 0,
     },
+    titleBlock: { flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center' },
     title: {
         ...Typography.default('semiBold'),
         fontSize: 16,
