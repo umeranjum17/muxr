@@ -54,6 +54,7 @@ export class KitHerdrClient implements HerdrCaller {
     private closed = false;
     /** Edge trigger: log the first reconnect failure and the recovery, never every retry. */
     private down = false;
+    private outage = false;
 
     constructor(
         resolveBin: () => string,
@@ -77,7 +78,11 @@ export class KitHerdrClient implements HerdrCaller {
             env: kitEnv,
             path: (process.env.PATH ?? '').split(delimiter).filter((dir) => dir !== ''),
             onState: (state) => {
-                this.connected = state.phase === 'ready';
+                const ready = state.phase === 'ready';
+                const wasReady = this.connected;
+                this.connected = ready;
+                if (!ready && wasReady) this.outage = true;
+                if (ready && !wasReady) this.recover();
             },
         });
     }
@@ -103,6 +108,7 @@ export class KitHerdrClient implements HerdrCaller {
             // Staying up matters more than starting clean: the reconnect loop keeps
             // retrying and onReconnect resubscribes when herdr comes back.
             this.down = true;
+            this.outage = true;
             this.scheduleReconnect();
             throw cause;
         }
@@ -139,6 +145,12 @@ export class KitHerdrClient implements HerdrCaller {
         await this.kit.stop().catch(() => {});
     }
 
+    private recover(): void {
+        if (!this.outage) return;
+        this.outage = false;
+        this.onReconnect();
+    }
+
     private scheduleReconnect(): void {
         if (this.closed || this.reconnectTimer !== undefined) return;
         this.reconnectTimer = setTimeout(() => {
@@ -151,7 +163,7 @@ export class KitHerdrClient implements HerdrCaller {
                         process.stderr.write(`herdr server reachable again at ${this.socketPath}\n`);
                     }
                     this.connected = true;
-                    this.onReconnect();
+                    this.recover();
                 })
                 .catch((cause: unknown) => {
                     if (!this.down) {

@@ -1482,6 +1482,7 @@ export async function createHerdrSessionSource(
     // A voice roster lookup has just paid for this snapshot. Only prompt routing
     // may reuse it, briefly, and never across a revision change or reconnect.
     let lastKitRevision = -1;
+    let lastRefreshRevision = -1;
     let lastSyncAt = 0;
 
     function syncFromKit(): void {
@@ -1561,7 +1562,7 @@ export async function createHerdrSessionSource(
     }
 
     async function reindexKitTree(): Promise<void> {
-        if (!client.connected) return;
+        if (disposed || !client.connected) return;
         syncFromKit();
         await syncDiscovery();
     }
@@ -1569,10 +1570,10 @@ export async function createHerdrSessionSource(
     async function refreshSnapshot(): Promise<void> {
         if (disposed) throw new Error('herdr: source disposed');
         await client.kit.refresh();
+        lastRefreshRevision = client.kit.snapshot().revision;
         if (disposed) throw new Error('herdr: source disposed');
         await reindexKitTree();
     }
-
 
     function emitAllStates(): void {
         for (const session of currentSessions()) emitState(session.sessionId);
@@ -1597,9 +1598,17 @@ export async function createHerdrSessionSource(
             resyncTimer = undefined;
             if (disposed) return;
             void (async () => {
-                await reindexKitTree();
-                if ([...agentsByPane.keys()].some(needsSessionDiscovery)) await refreshSnapshot();
-                emitAllStates();
+                try {
+                    if (!client.connected) return;
+                    syncFromKit();
+                    if ([...agentsByPane.keys()].some(needsSessionDiscovery) && client.kit.snapshot().revision !== lastRefreshRevision) {
+                        await client.kit.refresh();
+                        lastRefreshRevision = client.kit.snapshot().revision;
+                    }
+                } finally {
+                    await reindexKitTree();
+                    emitAllStates();
+                }
             })().catch(() => {});
         }, 500);
     }
