@@ -37,7 +37,7 @@ const session = {
 };
 
 vi.mock('react-native', () => ({
-    ActivityIndicator: 'ActivityIndicator', View: 'View', Pressable: 'Pressable',
+    ActivityIndicator: 'ActivityIndicator', View: 'View', Pressable: 'Pressable', ScrollView: 'ScrollView',
     AppState: { addEventListener: (_event: string, listener: (state: string) => void) => {
         appState.add(listener);
         return { remove: () => appState.delete(listener) };

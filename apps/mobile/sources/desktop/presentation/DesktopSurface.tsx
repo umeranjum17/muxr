@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, AppState, BackHandler, Dimensions, Platform, Pressable, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, Dimensions, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import Animated, { FadeIn, FadeOut, ReduceMotion, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -771,32 +771,35 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                     until the fill is gone, which reads as a cut. */}
                 {overlayShown && (
                     <Animated.View exiting={FadeOut.duration(250).reduceMotion(ReduceMotion.System)} style={[styles.overlay, preview && { bottom: TOOLBAR + bottomInset }]}>
-                        {status.spinner && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
-                        <Text style={[styles.overlayTitle, { color: theme.colors.text }]}>{status.title}</Text>
-                        {status.detail !== undefined && (
-                            <Text style={[styles.overlayDetail, { color: theme.colors.textSecondary }]}>{status.detail}</Text>
-                        )}
-                        {status.command !== undefined && (
-                            <Pressable
-                                onPress={() => void copyCommand(status.command!)}
-                                accessibilityRole="button"
-                                accessibilityLabel={commandCopied ? 'Copied' : 'Copy the command'}
-                                style={({ pressed }) => [styles.command, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }, pressed && styles.pressed]}
-                            >
-                                <Text numberOfLines={3} style={[styles.commandText, { color: theme.colors.text }]}>{status.command}</Text>
-                                <Text style={[styles.commandCopy, { color: theme.colors.textSecondary }]}>{commandCopied ? 'Copied' : 'Copy'}</Text>
-                            </Pressable>
-                        )}
-                        {status.action !== undefined && (
-                            <Pressable
-                                onPress={onStatusAction}
-                                accessibilityRole="button"
-                                accessibilityLabel={status.action}
-                                style={({ pressed }) => [styles.action, { backgroundColor: theme.colors.button.primary.background }, pressed && styles.pressed]}
-                            >
-                                <Text style={[styles.actionLabel, { color: theme.colors.button.primary.tint }]}>{status.action}</Text>
-                            </Pressable>
-                        )}
+                        {/* Scrolls when large text makes the words taller than the screen, so Try again stays reachable. */}
+                        <ScrollView style={styles.overlayScroll} contentContainerStyle={styles.overlayContent}>
+                            {status.spinner && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
+                            <Text style={[styles.overlayTitle, { color: theme.colors.text }]}>{status.title}</Text>
+                            {status.detail !== undefined && (
+                                <Text style={[styles.overlayDetail, { color: theme.colors.textSecondary }]}>{status.detail}</Text>
+                            )}
+                            {status.command !== undefined && (
+                                <Pressable
+                                    onPress={() => void copyCommand(status.command!)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={commandCopied ? 'Copied' : 'Copy the command'}
+                                    style={({ pressed }) => [styles.command, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }, pressed && styles.pressed]}
+                                >
+                                    <Text numberOfLines={3} style={[styles.commandText, { color: theme.colors.text }]}>{status.command}</Text>
+                                    <Text style={[styles.commandCopy, { color: theme.colors.textSecondary }]}>{commandCopied ? 'Copied' : 'Copy'}</Text>
+                                </Pressable>
+                            )}
+                            {status.action !== undefined && (
+                                <Pressable
+                                    onPress={onStatusAction}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={status.action}
+                                    style={({ pressed }) => [styles.action, { backgroundColor: theme.colors.button.primary.background }, pressed && styles.pressed]}
+                                >
+                                    <Text style={[styles.actionLabel, { color: theme.colors.button.primary.tint }]}>{status.action}</Text>
+                                </Pressable>
+                            )}
+                        </ScrollView>
                     </Animated.View>
                 )}
 
@@ -948,11 +951,9 @@ const styles = StyleSheet.create({
         right: 0,
         top: 0,
         bottom: 0,
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 12,
-        paddingHorizontal: 36,
     },
+    overlayScroll: { flex: 1 },
+    overlayContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 36, paddingVertical: 16 },
     overlayTitle: { ...Typography.default(), fontSize: 16, lineHeight: 22, textAlign: 'center' },
     overlayDetail: { ...Typography.default(), fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: -4 },
     command: { alignSelf: 'stretch', borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 10, gap: 6 },
