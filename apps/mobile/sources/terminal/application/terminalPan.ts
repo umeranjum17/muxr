@@ -15,8 +15,7 @@ import { decodeBase64 } from '@/encryption/base64';
  * answers appearing do not move it.
  *
  * The surface moves in whole rows, so one drag line is exactly one row to the
- * surface or to Herdr, never a share of both. Travel under a row is carried into
- * the next drag line rather than dropped. A fraction of overflow stays hidden at
+ * surface or to Herdr, never a share of both. A fraction of overflow stays hidden at
  * the top limit instead of leaving a blank row above the grid.
  *
  * Proof (features/terminalFloorLab.mjs drives these on a 270 dp phone, font 20):
@@ -27,7 +26,7 @@ import { decodeBase64 } from '@/encryption/base64';
  * Gotchas:
  * - A renderer keeps the grid it attached at, so after a font change the grid can stay taller than the floor asks for; the pan covers every row it drew.
  * - Whole rows come from terminalShownHeight in terminalFloor.ts: the screen clips a floor-tall surface to whole rows and hands the pan that height.
- * - A slow drag (600 ms) pans about one row; a quick stroke carries the whole stroke.
+ * - Travel is counted by distance, not time: each row of drag moves the box one row, however fast the stroke.
  *
  * Herdr ends every frame by putting the cursor back (`ESC[row;colH`, then
  * showing or hiding it), so the row comes from the frame itself on both
@@ -57,8 +56,7 @@ export interface TerminalPan {
     layout: (layout: TerminalPanLayout) => void;
     /**
      * Drag travel in Herdr's direction (positive goes back). Returns the whole
-     * lines the surface could not take, for the pane's own scroll; a fraction of
-     * a line is kept for the next call.
+     * lines the surface could not take, for the pane's own scroll.
      */
     pan: (lines: number) => number;
     /** The user typed to the pane or tapped Latest: follow its cursor again. */
@@ -93,7 +91,6 @@ export function createTerminalPan(setOffset: (offset: number) => void, onAbsorbe
     let held: number | undefined;
     let attached: string | undefined;
     let shown = 0;
-    let carry = 0;
 
     /** Whole rows in `px`, so the surface stops on a row line and Herdr's lines stay whole. */
     const wholeRows = (px: number): number => (layout.rowHeight > 0
@@ -125,20 +122,16 @@ export function createTerminalPan(setOffset: (offset: number) => void, onAbsorbe
             show();
         },
         pan(lines) {
-            const travel = carry + lines;
-            const rows = Math.trunc(travel);
-            carry = travel - rows;
-            if (rows === 0) return 0;
-            if (layout.rowHeight <= 0) return rows;
+            if (layout.rowHeight <= 0) return lines;
             const from = held ?? shown;
-            const to = clamp(from + rows * layout.rowHeight);
+            const to = clamp(from + lines * layout.rowHeight);
             if (to !== from) {
                 held = to;
                 show();
             }
             const moved = Math.round((to - from) / layout.rowHeight);
             if (moved !== 0) onAbsorbed(Math.abs(moved));
-            return rows - moved;
+            return lines - moved;
         },
         follow() {
             if (held === undefined) return;
@@ -148,7 +141,6 @@ export function createTerminalPan(setOffset: (offset: number) => void, onAbsorbe
         attach(pane) {
             if (pane !== attached) {
                 held = undefined;
-                carry = 0;
             }
             attached = pane;
             cursor = undefined;

@@ -367,10 +367,9 @@ scrollable rect before and after the bout and compares the largest mean absolute
 difference to 8/255. The strip additionally requires the first visible
 card label to change (or the pixel diff if no label is exposed), the document requires the
 first gutter line number to change, and a terminal fling requires
-`terminal.scroll-rows` > 0 with at least one scroll request, and
-`terminal.scroll-clamped` = 0. `terminal.scroll-rows` counts every row the drag asked for: the rows
-the grid absorbed by panning its own box before the pane scrolled, plus the rows sent to Herdr. So a
-text fixture that overflows its box still reports its whole fling. There is no scroll-to-write
+`terminal.scroll-rows` > 0 and `terminal.scroll-clamped` = 0. `terminal.scroll-rows` counts the rows
+the grid's own box absorbed before the pane scrolled, plus the rows sent to Herdr after each frame's
+travel is netted, so a fling the box fully absorbs still passes the trail. There is no scroll-to-write
 latency: a terminal stream repaints itself whether or not anything was scrolled, so no arriving
 frame can be attributed to a particular scroll, and a duration measured against
 one that cannot be attributed is not a latency. The phone keeps the in-flight

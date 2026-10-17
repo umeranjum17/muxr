@@ -24,6 +24,7 @@ import {
     type TerminalLinkRow,
 } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
+import { recordTerminalScrollRows } from '@/catalog/diagnostics';
 import { FONT_STEPS, TERMINAL_FONTS, clampFontIndex, nearestFontIndex } from '../domain/fontSteps';
 import { TERMINAL_ANSI_SLOTS, type TerminalColorOverrides } from '../domain/terminalColors';
 import { useTerminalColors } from './useTerminalColors';
@@ -443,7 +444,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (lines === 0) return;
             const clamped = Math.max(-40, Math.min(40, lines));
             const rest = panByRef.current(clamped);
-            if (rest !== 0) channel?.scroll(rest, { column: Math.floor(term.cols / 2), row: Math.floor(term.rows / 2) });
+            if (rest !== 0) {
+                recordTerminalScrollRows(Math.abs(rest));
+                channel?.scroll(rest, { column: Math.floor(term.cols / 2), row: Math.floor(term.rows / 2) });
+            }
             scrollAcc -= clamped * cellHeight();
             if (lines !== clamped) scrollAcc = 0;
         };

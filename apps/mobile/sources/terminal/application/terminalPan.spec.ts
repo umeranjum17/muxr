@@ -31,6 +31,7 @@ describe('a grid taller than its box', () => {
         // Past the grid's top row, what is left scrolls the pane.
         expect(pan.pan(10)).toBe(6);
         expect(offset).toBe(18 * row);
+        expect(absorbed).toBe(7);
 
         // New output does not take the box away from where the user put it.
         pan.frame(herdrFrame('streamed reply', 15));
@@ -71,28 +72,6 @@ describe('a grid taller than its box', () => {
         expect(offset).toBe(25 * row - 15 * row + 5 * row);
         pan.attach('c');
         expect(offset).toBe(0);
-
-        // Quarter-row drags: four carry into one whole row, which the surface takes and reports.
-        absorbed = 0;
-        expect(pan.pan(0.25)).toBe(0);
-        expect(pan.pan(0.25)).toBe(0);
-        expect(pan.pan(0.25)).toBe(0);
-        expect(offset).toBe(0);
-        expect(pan.pan(0.25)).toBe(0);
-        expect(offset).toBe(row);
-        expect(absorbed).toBe(1);
-        pan.follow();
-        expect(offset).toBe(0);
-
-        // Travel under a row is carried into the next drag line, never dropped:
-        // two drags of 0.6 row move the surface one row; the 0.2 left waits.
-        pan.layout({ surfaceHeight: 25 * row + 1, boxHeight: 7 * row, rowHeight: row });
-        expect(pan.pan(0.6)).toBe(0);
-        expect(offset).toBe(0);
-        expect(pan.pan(0.6)).toBe(0);
-        expect(offset).toBe(row);
-        expect(pan.pan(1.4)).toBe(0);
-        expect(offset).toBe(2 * row);
 
         // A grid that overflows its box by less than a row does not move; Herdr gets the line.
         pan.layout({ surfaceHeight: 7 * row + 8, boxHeight: 7 * row, rowHeight: row });

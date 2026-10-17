@@ -974,7 +974,7 @@ export function reduceMovement(phase, snapshot = {}) {
         // still. Reporting that as "content did not move" names the symptom and
         // hides the cause; the clamp is gated on its own, where it belongs.
         const atClampedEdge = clamped > 0;
-        const asked = scrollRows > 0 && scrollRequests > 0;
+        const asked = scrollRows > 0;
         if (!asked) reasons.push('terminalTrail');
         if (clamped > 0) reasons.push('clamped');
         return {
