@@ -1,6 +1,6 @@
 # muxr product decisions
 
-Product behavior must not be an accidental framework default or an implementation detail. Umer remains the decider.
+Product behavior must not be an accidental framework default or an implementation detail. The maintainer remains the decider.
 
 ## Tiers
 

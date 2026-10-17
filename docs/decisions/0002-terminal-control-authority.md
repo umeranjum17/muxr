@@ -3,7 +3,7 @@
 Tier: T3 (command authority)  
 Status: accepted  
 Date: 2026-08-12  
-Decider: Umer
+Decider: maintainer
 
 ## Decision
 
