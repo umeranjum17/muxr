@@ -630,3 +630,38 @@ it('says the network has no way through when the open never connected, and not f
     session.snapshot.failure = null;
     await TestRenderer.act(async () => view.unmount());
 });
+
+it("says the live view has no way through when the open never connected, and not for other failures", async () => {
+    session.snapshot.status = 'live';
+    inputEnabled = false;
+    const onExit = vi.fn();
+    let view!: ReturnType<typeof TestRenderer.create>;
+    const root = () => view.root as Rendered;
+    const shows = (text: string) => root().findAll((node) => node.children.includes(text)).length > 0;
+    const become = async (failure: { code: string; message: string } | null) => {
+        Object.assign(session.snapshot, { status: 'failed', failure });
+        await TestRenderer.act(async () => view.update(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android', title: 'Pricing' }} />));
+    };
+    const noPath = "Can't show the emulator from here";
+    const generic = 'The computer did not start the live view.';
+
+    requestDesktop('computer', 'P', true);
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android', title: 'Pricing' }} />); });
+
+    // A first open whose path never formed — the engine revoking a lost phone
+    // among them — is the network's verdict, like on the Computer view.
+    await become({ code: 'never-connected', message: 'No network path to the desktop ever formed.' });
+    expect(shows(noPath)).toBe(true);
+    expect(shows('Live view needs this phone to reach your computer directly or over Tailscale.')).toBe(true);
+    expect(shows(generic)).toBe(false);
+    expect(root().findAllByProps({ accessibilityLabel: 'Try again' }).length).toBeGreaterThan(0);
+
+    // A refusal that is not the path — the host's own, or one this build
+    // cannot name — keeps the computer's words.
+    await become({ code: 'platform', message: 'The host refused the source.' });
+    expect(shows(generic)).toBe(true);
+    expect(shows(noPath)).toBe(false);
+
+    session.snapshot.failure = null;
+    await TestRenderer.act(async () => view.unmount());
+});
