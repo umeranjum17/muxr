@@ -683,7 +683,12 @@ async function streamDesktopTcp(stream: LinkStream, req: LinkRequest, grant: Gra
     const socket = connect({ host: '127.0.0.1', port: args.port });
     process.stderr.write('link: desktop picture carried over the link\n');
     let carried = 0;
-    socket.on('close', () => process.stderr.write(`link: desktop link connection closed after ${carried} bytes to the phone\n`));
+    let finish!: () => void;
+    const closed = new Promise<void>((resolve) => { finish = resolve; });
+    socket.on('close', () => {
+        process.stderr.write(`link: desktop link connection closed after ${carried} bytes to the phone\n`);
+        finish();
+    });
     socket.on('data', (chunk) => {
         carried += chunk.length;
         socket.pause();
@@ -698,6 +703,7 @@ async function streamDesktopTcp(stream: LinkStream, req: LinkRequest, grant: Gra
         socket.on('close', settle);
     });
     stream.onEnd = () => { socket.destroy(); };
+    await closed;
 }
 
 async function streamVoice(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
