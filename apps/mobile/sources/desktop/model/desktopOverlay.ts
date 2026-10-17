@@ -53,8 +53,12 @@ function endedCopy(snapshot: SessionSnapshot): { detail: string; canRetry: boole
  * a retry can actually help. Until a desktop has opened on this device, the
  * start says where the one-time screen-sharing approval appears: on the
  * computer, where the person holding the phone would not think to look.
+ *
+ * `pictured` is whether this open has shown a frame. A transport failure
+ * before any frame is the network having no path for the picture: it goes
+ * straight to the phone, never through the relay that carries everything else.
  */
-export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore = true, consentSecondsLeft: number | null = null): DesktopOverlay {
+export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore = true, consentSecondsLeft: number | null = null, pictured = true): DesktopOverlay {
     if (snapshot.status === 'failed' && snapshot.failure?.code === 'consent') {
         // The prompt was on the computer, where nobody answered it; the host's
         // own wording would only say that it timed out.
@@ -62,6 +66,9 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
     }
     if (snapshot.status === 'failed' && snapshot.failure?.code === 'no-screen') {
         return { title: desktopCopy.noScreenTitle, detail: desktopCopy.noScreenBody, command: desktopCopy.noScreenCommand, spinner: false, canRetry: true };
+    }
+    if (snapshot.status === 'failed' && snapshot.failure?.code === 'transport' && !pictured) {
+        return { title: desktopCopy.unreachableTitle, detail: desktopCopy.unreachableBody, spinner: false, canRetry: true };
     }
     if (snapshot.status === 'failed') {
         return {

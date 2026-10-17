@@ -484,6 +484,15 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     React.useEffect(() => {
         if (live || snapshot.status === 'failed') setResuming(false);
     }, [live, snapshot.status]);
+    // Whether this open has shown a frame. The kit's own reopens pass through
+    // reconnecting and keep it; any other open starts again without one.
+    const [pictured, setPictured] = React.useState(false);
+    const lastStatus = React.useRef(snapshot.status);
+    React.useEffect(() => {
+        if (snapshot.presented) setPictured(true);
+        else if (snapshot.status === 'opening' && lastStatus.current !== 'reconnecting') setPictured(false);
+        lastStatus.current = snapshot.status;
+    }, [snapshot.status, snapshot.presented]);
     // The engine's own reconnect passes through opening again; while it does,
     // the view still says what happened, not that it is starting.
     const [dropped, setDropped] = React.useState(false);
@@ -539,7 +548,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     const consentSecondsLeft = waitingOnOpen && now - openSentAt >= CONSENT_HINT_AFTER_MS
         ? Math.ceil((openSentAt + DESKTOP_CONSENT_WAIT_MS - now) / 1000)
         : null;
-    const described = describeDesktopOverlay(snapshot, openedBefore, consentSecondsLeft);
+    const described = describeDesktopOverlay(snapshot, openedBefore, consentSecondsLeft, pictured);
     const copy = previewKindCopy(kind);
     // A kind this build does not know gets the general gestures and no device
     // keys, so a newer host's unnamed device never blanks the view.
