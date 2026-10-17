@@ -73,6 +73,14 @@ npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
 
+**Trying the newest test build?** Its phone app and computer side must be the same version. Download the computer package from the [muxr 0.2.5 test release](https://github.com/umeranjum17/muxr/releases/tag/v0.2.5-nightly.27.1), then install that file:
+
+```bash
+curl -LO https://github.com/umeranjum17/muxr/releases/download/v0.2.5-nightly.27.1/trymuxr-cli-0.2.5-nightly.27.1.tgz
+npm install -g --ignore-scripts ./trymuxr-cli-0.2.5-nightly.27.1.tgz
+muxr
+```
+
 muxr opens guided setup on a new computer and installs [Herdr](https://herdr.dev) if needed. Choose how your phone reaches it—including a route that works away from home—with the short plan shown under the routes; Enter applies it.
 
 **Prefer a desktop app?** On Linux the same setup runs in one window: it starts the host, installs Herdr if it is missing, starts at login, can keep the computer awake, and pairs with your phone by QR or by two words. Build the AppImage with `yarn desktop:build:linux`, then run `apps/desktop/release/muxr-*.AppImage`. From the phone app, **Add your computer** sends a link and QR to the desktop download (Linux for now; the signed Mac build follows).
@@ -83,9 +91,11 @@ muxr opens guided setup on a new computer and installs [Herdr](https://herdr.dev
 
 Store testing access depends on review and tester availability. [All downloads and checksums →](https://trymuxr.com/downloads)
 
+**Newest test build:** [Android APK 0.2.5](https://github.com/umeranjum17/muxr/releases/download/v0.2.5-nightly.27.1/muxr-0.2.5-389.apk), SHA-256 `1016ad79aaf64cfe70f5f63b6748103c0c8a95f2e5222cb7517223570fb89e46`. Open the file on your phone to install it; Android may first ask you to allow installs from your browser or files app. Pair it with the matching computer package above. Every release, with its APK and checksums, is on the [releases page](https://github.com/umeranjum17/muxr/releases).
+
 ### 3. Pair and take a look
 
-In the app, paste the private link or pairing code your computer shows and tap **Connect**, or tap **Scan the QR** where your phone offers it and scan the computer’s one-use QR. Compare the two matching words, then approve on your computer. Home opens with your agents ready to visit.
+In the app, paste the private link or pairing code your computer shows and tap **Connect**, or tap **Scan the QR** where your phone offers it and scan the computer’s one-use QR. Compare the two matching words, then approve on your computer. Home opens with your agents ready to visit. To pair another phone later, run `muxr pair` on your computer for a fresh code.
 
 **Prefer a browser?** Enable browser access during setup, then run `muxr pair --browser` on your computer and open its link. That control link lasts eight hours. You can add the web app to your Home Screen too.
 
