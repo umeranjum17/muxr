@@ -87,7 +87,10 @@ export function createTerminalPan(setOffset: (offset: number) => void): Terminal
         const excess = Math.max(0, layout.surfaceHeight - layout.boxHeight);
         return layout.rowHeight > 0 ? Math.ceil(excess / layout.rowHeight) * layout.rowHeight : excess;
     };
-    const clamp = (offset: number): number => Math.min(overflow(), Math.max(0, offset));
+    const clamp = (offset: number): number => {
+        const bounded = Math.min(overflow(), Math.max(0, offset));
+        return layout.rowHeight > 0 ? Math.floor(bounded / layout.rowHeight + 1e-9) * layout.rowHeight : bounded;
+    };
     const followed = (): number => (cursor === undefined || layout.rowHeight <= 0
         ? 0
         : clamp(layout.surfaceHeight - (cursor + 1) * layout.rowHeight));

@@ -78,6 +78,9 @@ describe('a grid taller than its box', () => {
         pan.layout({ surfaceHeight: 7 * row + 8, boxHeight: 7 * row, rowHeight: row });
         expect(pan.pan(1)).toBe(0);
         expect(offset).toBe(row);
+        pan.frame(herdrFrame('> ', 7));
+        pan.follow();
+        expect(offset).toBe(0);
 
         // The keyboard closes and the whole grid fits: nothing pans.
         pan.layout({ surfaceHeight: 25 * row, boxHeight: 26 * row, rowHeight: row });
