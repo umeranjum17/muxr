@@ -14,6 +14,68 @@ index 1696d1d..38ac507 100644
      // this will affect only scoped styles as other styles are not yet mounted
      _specs.UnistylesShadowRegistry.flush();
    });
+diff --git a/node_modules/react-native-unistyles/lib/commonjs/components/ScopedTheme.js b/node_modules/react-native-unistyles/lib/commonjs/components/ScopedTheme.js
+index c83eb51..6ff5f67 100644
+--- a/node_modules/react-native-unistyles/lib/commonjs/components/ScopedTheme.js
++++ b/node_modules/react-native-unistyles/lib/commonjs/components/ScopedTheme.js
+@@ -10,6 +10,11 @@ var _AdaptiveTheme = require("./AdaptiveTheme");
+ var _NamedTheme = require("./NamedTheme");
+ var _jsxRuntime = require("react/jsx-runtime");
+ function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e }; }
++// The scope this subtree sits in. A scope restores its parent's theme when its
++// children end, and reading that parent from the registry instead takes in any
++// theme a suspended or discarded render left set, so a dark scope that once
++// did not finish kept every later render outside it dark.
++const ParentScopedTheme = /*#__PURE__*/_react.default.createContext(undefined);
+ const ScopedTheme = ({
+   name,
+   children,
+@@ -18,24 +23,33 @@ const ScopedTheme = ({
+ }) => {
+   const hasAdaptiveThemes = _specs.UnistylesRuntime.hasAdaptiveThemes;
+   const isAdaptiveTheme = invertedAdaptive && hasAdaptiveThemes;
+-  const previousScopedTheme = _specs.UnistylesShadowRegistry.getScopedTheme();
++  const previousScopedTheme = _react.default.useContext(ParentScopedTheme);
+   switch (true) {
+     case name !== undefined:
+-      return /*#__PURE__*/(0, _jsxRuntime.jsx)(_NamedTheme.NamedTheme, {
+-        name: name,
+-        previousScopedTheme: previousScopedTheme,
+-        children: children
++      return /*#__PURE__*/(0, _jsxRuntime.jsx)(ParentScopedTheme.Provider, {
++        value: name,
++        children: /*#__PURE__*/(0, _jsxRuntime.jsx)(_NamedTheme.NamedTheme, {
++          name: name,
++          previousScopedTheme: previousScopedTheme,
++          children: children
++        })
+       });
+     case isAdaptiveTheme:
+-      return /*#__PURE__*/(0, _jsxRuntime.jsx)(_AdaptiveTheme.AdaptiveTheme, {
+-        previousScopedTheme: previousScopedTheme,
+-        children: children
++      return /*#__PURE__*/(0, _jsxRuntime.jsx)(ParentScopedTheme.Provider, {
++        value: _specs.UnistylesRuntime.colorScheme === 'dark' ? 'light' : 'dark',
++        children: /*#__PURE__*/(0, _jsxRuntime.jsx)(_AdaptiveTheme.AdaptiveTheme, {
++          previousScopedTheme: previousScopedTheme,
++          children: children
++        })
+       });
+     case reset:
+-      return /*#__PURE__*/(0, _jsxRuntime.jsx)(_NamedTheme.NamedTheme, {
+-        name: undefined,
+-        previousScopedTheme: previousScopedTheme,
+-        children: children
++      return /*#__PURE__*/(0, _jsxRuntime.jsx)(ParentScopedTheme.Provider, {
++        value: undefined,
++        children: /*#__PURE__*/(0, _jsxRuntime.jsx)(_NamedTheme.NamedTheme, {
++          name: undefined,
++          previousScopedTheme: previousScopedTheme,
++          children: children
++        })
+       });
+     default:
+       return children;
 diff --git a/node_modules/react-native-unistyles/lib/module/components/NamedTheme.js b/node_modules/react-native-unistyles/lib/module/components/NamedTheme.js
 index 6ddb8e7..49d66bf 100644
 --- a/node_modules/react-native-unistyles/lib/module/components/NamedTheme.js
@@ -39,6 +101,73 @@ index 6ddb8e7..49d66bf 100644
      // this will affect only scoped styles as other styles are not yet mounted
      UnistylesShadowRegistry.flush();
    });
+diff --git a/node_modules/react-native-unistyles/lib/module/components/ScopedTheme.js b/node_modules/react-native-unistyles/lib/module/components/ScopedTheme.js
+index f6edfc0..a25afbf 100644
+--- a/node_modules/react-native-unistyles/lib/module/components/ScopedTheme.js
++++ b/node_modules/react-native-unistyles/lib/module/components/ScopedTheme.js
+@@ -1,10 +1,15 @@
+ "use strict";
+ 
+ import React from 'react';
+-import { UnistylesRuntime, UnistylesShadowRegistry } from '../specs';
++import { UnistylesRuntime } from '../specs';
+ import { AdaptiveTheme } from './AdaptiveTheme';
+ import { NamedTheme } from './NamedTheme';
+ import { jsx as _jsx } from "react/jsx-runtime";
++// The scope this subtree sits in. A scope restores its parent's theme when its
++// children end, and reading that parent from the registry instead takes in any
++// theme a suspended or discarded render left set, so a dark scope that once
++// did not finish kept every later render outside it dark.
++const ParentScopedTheme = /*#__PURE__*/React.createContext(undefined);
+ export const ScopedTheme = ({
+   name,
+   children,
+@@ -13,24 +18,33 @@ export const ScopedTheme = ({
+ }) => {
+   const hasAdaptiveThemes = UnistylesRuntime.hasAdaptiveThemes;
+   const isAdaptiveTheme = invertedAdaptive && hasAdaptiveThemes;
+-  const previousScopedTheme = UnistylesShadowRegistry.getScopedTheme();
++  const previousScopedTheme = React.useContext(ParentScopedTheme);
+   switch (true) {
+     case name !== undefined:
+-      return /*#__PURE__*/_jsx(NamedTheme, {
+-        name: name,
+-        previousScopedTheme: previousScopedTheme,
+-        children: children
++      return /*#__PURE__*/_jsx(ParentScopedTheme.Provider, {
++        value: name,
++        children: /*#__PURE__*/_jsx(NamedTheme, {
++          name: name,
++          previousScopedTheme: previousScopedTheme,
++          children: children
++        })
+       });
+     case isAdaptiveTheme:
+-      return /*#__PURE__*/_jsx(AdaptiveTheme, {
+-        previousScopedTheme: previousScopedTheme,
+-        children: children
++      return /*#__PURE__*/_jsx(ParentScopedTheme.Provider, {
++        value: UnistylesRuntime.colorScheme === 'dark' ? 'light' : 'dark',
++        children: /*#__PURE__*/_jsx(AdaptiveTheme, {
++          previousScopedTheme: previousScopedTheme,
++          children: children
++        })
+       });
+     case reset:
+-      return /*#__PURE__*/_jsx(NamedTheme, {
+-        name: undefined,
+-        previousScopedTheme: previousScopedTheme,
+-        children: children
++      return /*#__PURE__*/_jsx(ParentScopedTheme.Provider, {
++        value: undefined,
++        children: /*#__PURE__*/_jsx(NamedTheme, {
++          name: undefined,
++          previousScopedTheme: previousScopedTheme,
++          children: children
++        })
+       });
+     default:
+       return children;
 diff --git a/node_modules/react-native-unistyles/src/components/NamedTheme.tsx b/node_modules/react-native-unistyles/src/components/NamedTheme.tsx
 index d717120..6cec0f7 100644
 --- a/node_modules/react-native-unistyles/src/components/NamedTheme.tsx
@@ -65,3 +194,68 @@ index d717120..6cec0f7 100644
          // this will affect only scoped styles as other styles are not yet mounted
          UnistylesShadowRegistry.flush()
      })
+diff --git a/node_modules/react-native-unistyles/src/components/ScopedTheme.tsx b/node_modules/react-native-unistyles/src/components/ScopedTheme.tsx
+index 4643b00..c0bb949 100644
+--- a/node_modules/react-native-unistyles/src/components/ScopedTheme.tsx
++++ b/node_modules/react-native-unistyles/src/components/ScopedTheme.tsx
+@@ -2,7 +2,7 @@ import React from 'react'
+ 
+ import type { UnistylesThemes } from '../global'
+ 
+-import { UnistylesRuntime, UnistylesShadowRegistry } from '../specs'
++import { UnistylesRuntime } from '../specs'
+ import { AdaptiveTheme } from './AdaptiveTheme'
+ import { NamedTheme } from './NamedTheme'
+ 
+@@ -23,6 +23,12 @@ type ThemeProps =
+           reset: boolean
+       }
+ 
++// The scope this subtree sits in. A scope restores its parent's theme when its
++// children end, and reading that parent from the registry instead takes in any
++// theme a suspended or discarded render left set, so a dark scope that once
++// did not finish kept every later render outside it dark.
++const ParentScopedTheme = React.createContext<keyof UnistylesThemes | undefined>(undefined)
++
+ export const ScopedTheme: React.FunctionComponent<React.PropsWithChildren<ThemeProps>> = ({
+     name,
+     children,
+@@ -31,22 +37,30 @@ export const ScopedTheme: React.FunctionComponent<React.PropsWithChildren<ThemeP
+ }) => {
+     const hasAdaptiveThemes = UnistylesRuntime.hasAdaptiveThemes
+     const isAdaptiveTheme = invertedAdaptive && hasAdaptiveThemes
+-    const previousScopedTheme = UnistylesShadowRegistry.getScopedTheme()
++    const previousScopedTheme = React.useContext(ParentScopedTheme)
+ 
+     switch (true) {
+         case name !== undefined:
+             return (
+-                <NamedTheme name={name as keyof UnistylesThemes} previousScopedTheme={previousScopedTheme}>
+-                    {children}
+-                </NamedTheme>
++                <ParentScopedTheme.Provider value={name}>
++                    <NamedTheme name={name as keyof UnistylesThemes} previousScopedTheme={previousScopedTheme}>
++                        {children}
++                    </NamedTheme>
++                </ParentScopedTheme.Provider>
+             )
+         case isAdaptiveTheme:
+-            return <AdaptiveTheme previousScopedTheme={previousScopedTheme}>{children}</AdaptiveTheme>
++            return (
++                <ParentScopedTheme.Provider value={(UnistylesRuntime.colorScheme === 'dark' ? 'light' : 'dark') as keyof UnistylesThemes}>
++                    <AdaptiveTheme previousScopedTheme={previousScopedTheme}>{children}</AdaptiveTheme>
++                </ParentScopedTheme.Provider>
++            )
+         case reset:
+             return (
+-                <NamedTheme name={undefined} previousScopedTheme={previousScopedTheme}>
+-                    {children}
+-                </NamedTheme>
++                <ParentScopedTheme.Provider value={undefined}>
++                    <NamedTheme name={undefined} previousScopedTheme={previousScopedTheme}>
++                        {children}
++                    </NamedTheme>
++                </ParentScopedTheme.Provider>
+             )
+         default:
+             return children
