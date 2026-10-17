@@ -67,6 +67,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Read a plain Computer failure](./computer-failure.md) —
   real native release app against a guarded Linux lab without ScreenCast:
   plain cause and next step, Try again, themes and 270dp/font 1.3.
+- [Say plainly when the network has no path for the Computer picture](./computer-no-video-path.md) —
+  installed PWA in a UDP-less network namespace and a release APK on an
+  emulator with UDP dropped: the no-path message, Try again, 270dp, largest text.
 - [Keep a tapped desktop field above the keyboard in Computer](./computer-keyboard-fit.md) —
   native Release app on an iPhone simulator, landscape, five fresh launches:
   the tapped password field stays above the keyboard and takes typed text.
