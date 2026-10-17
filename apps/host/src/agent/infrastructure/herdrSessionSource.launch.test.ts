@@ -134,15 +134,22 @@ function fakeHerdr(dir: string, cwd: string) {
         // steps, then prints its marker once every step held.
         const sourced = /^set \+x \+v; \. '(.+)'$/.exec(text.trim());
         if (sourced !== null) {
-            for (const step of readFileSync(sourced[1]!, 'utf8').split(' &&\n').map((entry) => entry.trim())) {
+            const content = readFileSync(sourced[1]!, 'utf8');
+            for (const step of content.split(' &&\n').map((entry) => entry.trim())) {
                 const unset = /^unset ([A-Za-z_][A-Za-z0-9_]*)$/.exec(step);
                 const exported = /^export ([A-Za-z_][A-Za-z0-9_]*)='(.*)'$/s.exec(step);
-                const marker = /^printf '%s\\n' '(.+)'$/.exec(step);
                 if (unset !== null) {
                     delete paneEnv[unset[1]!];
                     state.sentTexts.push(step);
                 } else if (exported !== null) paneEnv[exported[1]!] = exported[2]!.replaceAll("'\\''", "'");
-                else if (marker !== null) state.paneText += `${marker[1]}\n`;
+            }
+            // A real shell prints each bare marker line the file carries: the
+            // overlay's confirmation and, since kit 0.12.0, the agent hint's
+            // function-plus-marker script. Without the print the kit waits out
+            // its whole hint budget on every start.
+            for (const line of content.split('\n').map((entry) => entry.trim())) {
+                const marker = /^printf '%s\\n' '(.+)'$/.exec(line);
+                if (marker !== null) state.paneText += `${marker[1]}\n`;
             }
             return {};
         }
@@ -1103,8 +1110,11 @@ describe('OpenCode account isolation', () => {
         // A bare launch resolves its binary from the host's own env; keep the
         // probe on the fake, and HOME on an empty dir so no real OpenCode
         // config leaks into the injected content.
-        const saved = { HOME: process.env.HOME, PATH: process.env.PATH };
+        const saved = { HOME: process.env.HOME, PATH: process.env.PATH, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, OPENCODE_CONFIG: process.env.OPENCODE_CONFIG, OPENCODE_CONFIG_CONTENT: process.env.OPENCODE_CONFIG_CONTENT };
         Object.assign(process.env, { HOME: join(dir, 'home'), PATH: `${bin}:${process.env.PATH ?? ''}` });
+        delete process.env.XDG_CONFIG_HOME;
+        delete process.env.OPENCODE_CONFIG;
+        delete process.env.OPENCODE_CONFIG_CONTENT;
         const herdr = fakeHerdr(dir, join(dir, 'repo'));
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
@@ -1196,8 +1206,11 @@ describe('OpenCode account isolation', () => {
         // A bare (no-account) launch resolves its binary from the host's own
         // env, so without this it probes whatever opencode is installed on the
         // machine and leaves a stray temp dir. Keep it on the fake.
-        const savedProcessEnv = { HOME: process.env.HOME, PATH: process.env.PATH };
+        const savedProcessEnv = { HOME: process.env.HOME, PATH: process.env.PATH, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, OPENCODE_CONFIG: process.env.OPENCODE_CONFIG, OPENCODE_CONFIG_CONTENT: process.env.OPENCODE_CONFIG_CONTENT };
         Object.assign(process.env, { HOME: env.HOME, PATH: env.PATH });
+        delete process.env.XDG_CONFIG_HOME;
+        delete process.env.OPENCODE_CONFIG;
+        delete process.env.OPENCODE_CONFIG_CONTENT;
         const a = await preparePlanSignIn(env, 'opencode');
         const herdr = fakeHerdr(dir, join(dir, 'repo'));
         const source = await createHerdrSessionSource({
