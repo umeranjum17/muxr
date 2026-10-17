@@ -19,11 +19,6 @@ import { delimiter, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { HerdrKit } from '@byokit/herdr';
 
-export interface HerdrEvent {
-    type: string;
-    [key: string]: unknown;
-}
-
 /** The only shape the session source needs from a socket caller. */
 export interface HerdrCaller {
     call<T>(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<T>;
