@@ -1,37 +1,35 @@
 # Say plainly when the network has no path for the Computer picture
 
-The Computer picture goes straight from the computer to the phone over WebRTC;
-the relay carries only its signaling. A phone that reaches the computer only
-through the relay (mobile data, no shared Wi-Fi, no Tailscale, no Direct SSH)
-never gets a frame. desklink (0.5.8 on) ends such a first open once with its
-own `never-connected` failure code, and the Computer view keys on that code
-alone: it says so in plain words, names what works, and keeps Try again. A
-`transport` failure before the first frame keeps the generic "Couldn't open"
-failure; one after a frame reconnects through the kit's reopen policy and shows
-"Reconnecting…" until the reopens give up.
+The Computer picture goes straight from the computer to the phone over WebRTC
+when it can. When the relay is the only path (mobile data, no shared Wi-Fi, no
+Tailscale, no Direct SSH), the native app carries the engine's loopback
+ICE-TCP candidate over a `desktop.tcp` link stream and goes live anyway; the
+browser cannot dial a JS socket, so the PWA never gets a frame. When an open fails with a `transport` failure before any
+frame showed (or, on native, the engine ends it for a lost phone before any
+frame), the Computer view says so in plain words, names what works, and keeps
+Try again. A loss after a frame showed keeps the generic failure.
 
 ## Sub-features
 
-- `nopath` first open, no UDP path: about 20-25 s after the open (the kit's
-  first-frame bound, the phone peer's ICE `failed`, or the engine revoking the
-  open for the lost phone — its `transport` code reaches the kit through the
-  host — whichever comes first; no reopens) the view reads "Can't show this
-  computer's screen from here" with the Wi-Fi / Tailscale / Direct SSH body
-  and Try again.
+- `relay-live` native, no UDP path: the picture goes live through the relay;
+  Settings -> MACHINES -> machine -> Desktop decoder shows Frames decoded
+  rising, and the host log reads "link: desktop picture carried over the link".
+- `nopath` PWA first open, no UDP path: after the kit's reopens (about 4
+  minutes) the view reads "Can't show this computer's screen from here" with
+  the browser body ("A browser can show the screen only when it reaches your
+  computer directly. Open muxr in the app, …") and Try again.
 - `retry` Try again starts a new open ("Starting desktop…").
 - `large-text` at the largest text the overlay scrolls, so Try again is
   reachable (on main it was cut off).
-- `after-frame` a `transport` loss after a frame shows "Reconnecting…" and
-  keeps the picture's reopen policy; "Couldn't open this computer" appears
-  only once the reopens give up (covered by `DesktopSurface.spec.tsx`; a lab
-  cannot stage a frame and then cut UDP mid-session without a real desktop
-  picture).
+- `after-frame` a transport loss after a frame keeps "Couldn't open this
+  computer" (covered by `DesktopSurface.spec.tsx`; a lab cannot stage a
+  frame and then cut UDP mid-session without a real desktop picture).
 
 ## How to get to it (user POV)
 
 Pair with the lab computer, open the agent, Pane actions -> Computer, and
 wait. Without a video path the Computer view stays on "Starting desktop…"
-until the `nopath` timing above, then shows the message.
+while the kit retries, then shows the message.
 
 ## Driving it with the private stack
 
@@ -55,11 +53,10 @@ Installed PWA (no UDP path):
 5. Pair with `__MUXR_LAB_PAIR__`, `emulate --viewport 270x594x2,mobile,touch`,
    then `node noVideoPathLab.mjs tap <debug> 'Open Pi 1, pi · Idle'`,
    `… tap <debug> 'Pane actions'`, `… tap <debug> Computer`. Poll
-   `document.body.innerText` for `Try again` (see `nopath` for the timing),
-   then shoot each cell and run `visualCheck.mjs pwa-check`; at font 2.0 also
-   scroll to the end.
+   `document.body.innerText` for `Try again` (about 240 s), then shoot each
+   cell and run `visualCheck.mjs pwa-check`; at font 2.0 also scroll to the end.
 
-Native Android (no UDP path):
+Native Android (no UDP path; expect `relay-live`, not the message):
 
 1. Hold the emulator lock; boot a task AVD with a `google_apis` image, then
    `adb -s <s> root` and, for `iptables` and `ip6tables`,
@@ -73,16 +70,16 @@ Native Android (no UDP path):
    `am start -a android.intent.action.VIEW -d 'muxr://pair#<offer>'`.
 4. Set `settings put system font_scale` first: changing it recreates the
    activity and drops the Computer view. Then open the agent -> Pane actions
-   -> Computer, wait for Try again, capture with `visualCheck.mjs` in light
-   and dark (`cmd uimode night yes|no`). Its overlap warnings against
-   "Terminal surface", "^C" and "Prompt…" are the terminal under the overlay
-   in the accessibility tree, not on screen.
+   -> Computer and wait for the picture. Capture with `visualCheck.mjs` in
+   light and dark (`cmd uimode night yes|no`). For the frame counter, enable
+   developer mode (`desktop-decoder-probe.md`) and read Frames decoded.
+   Before the link carrier, this lab showed the `nopath` message instead.
 
 ## Gotchas
 
 - The Computer view over a terminal uses a dark scoped theme, so light and
   dark shots look the same on purpose; label the system mode.
-- The message appears once desklink ends the open as `never-connected` (see
-  `nopath`); "Starting desktop…" before that is expected.
+- The message only appears once the kit gives up (8 reopens, about 4
+  minutes); "Starting desktop…" before that is expected.
 - A theme or viewport change after the failure re-renders the same overlay
   without reopening, so one wait covers every cell.
