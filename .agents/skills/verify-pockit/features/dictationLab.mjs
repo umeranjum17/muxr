@@ -147,12 +147,11 @@ const settled = (found) => labelled(found, 'Dictate') !== undefined && !recordin
 async function take(name, file, expect) {
     phase = name;
     await feed(file);
-    let found = await screen();
-    const mic = labelled(found, 'Dictate');
-    if (mic === undefined) throw new Error(`${name}: no Dictate control on screen`);
     await screenshot(join(EVIDENCE, `${name}-before.png`));
+    const mic = labelled(await screen(), 'Dictate');
+    if (mic === undefined) throw new Error(`${name}: no Dictate control on screen`);
     await tap(center(mic));
-    found = await waitFor(`${name}: recording`, recording, 60);
+    let found = await waitFor(`${name}: recording`, recording, 60);
     await sleep(3000);
     // Exactly one stop, on the stop control as it is right now. A second tap on
     // the same spot after the take settles lands on Send or Talk instead.
@@ -177,14 +176,15 @@ async function clearDraft() {
     await adb(['shell', 'input', 'keyevent', 'KEYCODE_DEL']);
     await dismissKeyboard();
     // The draft opens the full composer screen; the takes run on Home.
-    for (let back = 0; back < 3 && labelled(await screen(), 'Start or open realtime conversation') === undefined; back += 1) {
+    for (let back = 0; back < 3 && !atHome(await screen()); back += 1) {
         await adb(['shell', 'input', 'keyevent', 'KEYCODE_BACK']);
         await sleep(1500);
     }
     await home();
 }
+const atHome = (found) => labelled(found, 'connected') !== undefined && labelled(found, 'Dictate') !== undefined;
 async function home(seconds = 120) {
-    return waitFor('connected Home composer', (found) => labelled(found, 'connected') !== undefined && labelled(found, 'Dictate') !== undefined, seconds);
+    return waitFor('connected Home composer', atHome, seconds);
 }
 // perf/flows/pair.yaml predates the "Let's connect" first run, so the offer opens as
 // a deep link (as in pairing-consent.md) and Pair is tapped on the consent card.

@@ -113,6 +113,11 @@ export async function bootOwnedEmulator(options) {
     // emulator (timeout, device lock, memory gate) is torn down whole and cannot
     // leave a surviving emulator holding a fleet slot.
     const killGroup = (signal) => { try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch { /* already gone */ } } };
+    const terminate = async () => {
+        killGroup('SIGTERM');
+        for (let attempt = 0; attempt < 30 && exited === null; attempt += 1) await sleep(1000);
+        killGroup('SIGKILL');
+    };
     const died = () => `the emulator exited before ${name} booted (${exited.signal ?? `code ${exited.code}`}):\n${tail(log.join(''))}`;
 
     const serial = await (async () => {
@@ -128,16 +133,14 @@ export async function bootOwnedEmulator(options) {
         }
         // A launcher still waiting (a memory gate holding for a slot) would start
         // an emulator nobody owns after this run has given up on it.
-        killGroup('SIGKILL');
+        await terminate();
         throw new Error(`no device for AVD ${name} appeared within ${bootTimeoutMs} ms:\n${tail(log.join(''))}`);
     })();
     setAndroidSerial(serial);
 
     const stop = async () => {
         await run('adb', ['-s', serial, 'emu', 'kill'], { timeout: 15_000 }).catch(() => undefined);
-        killGroup('SIGTERM');
-        for (let attempt = 0; attempt < 30 && exited === null; attempt += 1) await sleep(1000);
-        killGroup('SIGKILL');
+        await terminate();
     };
 
     try {
