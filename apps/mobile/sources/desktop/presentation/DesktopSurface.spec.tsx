@@ -627,6 +627,20 @@ it('says the network has no way through when an open never shows a frame, and no
     await become('failed', false, { code: 'consent', message: 'timed out' });
     expect(shows('Screen sharing was not approved')).toBe(true);
 
+    // Native: the engine revokes the open for a lost phone before the kit gives up.
+    const lost = { code: 'revoked', message: 'the connection to the phone was lost' };
+    await become('opening');
+    await become('failed', false, transport);
+    await become('reconnecting');
+    await become('opening');
+    await become('ended', false, lost);
+    expect(shows(noPath)).toBe(true);
+    await become('opening');
+    await become('live', true);
+    await become('ended', true, lost);
+    expect(shows('Desktop closed')).toBe(true);
+    expect(shows(noPath)).toBe(false);
+
     session.snapshot.failure = null;
     await TestRenderer.act(async () => view.unmount());
 });
