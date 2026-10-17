@@ -14,7 +14,7 @@ import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
 import { AgentRouteStore, isMuxrLaunchSession, shouldAdoptPublishedLaunch, type HerdrAgentSessionRef } from './agentRouteStore.js';
 import { closeAgent, isRetryableHerdr } from './agentClose.js';
 import { RealtimeCodingCoordinator, type RealtimeCoordinationDiagnostic } from './realtimeCoordinator.js';
-import { herdrAgentIsPromptable, isRetryableCloseFailure, mergeHerdrAgentEvent, resolveClosePaneId } from './herdrSessionSource.js';
+import { herdrAgentIsPromptable, isRetryableCloseFailure, resolveClosePaneId } from './herdrSessionSource.js';
 import { HerdrKit } from '@byokit/herdr';
 import type { CloseScope } from '@trymuxr/contract';
 import { createConnection } from 'node:net';
@@ -113,16 +113,6 @@ async function demo(): Promise<void> {
         'an observed live agent failure is classified as runtime failure',
     );
 
-    const readyEventState = { pane_id: 'w1:p1', interactive_ready: true, launch_pending: false };
-    const partialStatusEvent = mergeHerdrAgentEvent(readyEventState, { pane_id: 'w1:p1', agent_status: 'idle' });
-    const explicitReadinessEvent = mergeHerdrAgentEvent(readyEventState, {
-        pane_id: 'w1:p1',
-        interactive_ready: false,
-        launch_pending: true,
-    });
-    assert(partialStatusEvent.interactive_ready === true && partialStatusEvent.launch_pending === false
-        && explicitReadinessEvent.interactive_ready === false && explicitReadinessEvent.launch_pending === true,
-    'partial Herdr events preserve readiness while explicit readiness replaces it');
     const routeDir = mkdtempSync(join(tmpdir(), 'muxr-route-flow-'));
     writeFileSync(join(routeDir, 'herdr-identity.json'), JSON.stringify({
         sessions: [{ sessionId: 'stale', agentName: 'Badger' }],

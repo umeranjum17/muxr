@@ -58,7 +58,7 @@ import type {
     PlanMoveOptions,
 } from '../application/sessionSource.js';
 import { KitHerdrClient } from './herdrKitClient.js';
-import type { AgentStatus, PlaceTarget } from '@byokit/herdr';
+import type { AgentStatus, HerdrSnapshot, PlaceTarget } from '@byokit/herdr';
 import { agentInstallState } from '@byokit/herdr';
 import {
     AgentRouteStore,
@@ -324,14 +324,6 @@ export interface AgentRecord {
     title?: string | null;
     terminal_title?: string | null;
     terminal_title_stripped?: string | null;
-}
-
-/** Partial events preserve readiness unless Herdr explicitly supplies a replacement value. */
-export function mergeHerdrAgentEvent(
-    current: AgentRecord | undefined,
-    incoming: AgentRecord,
-): AgentRecord {
-    return { ...current, ...incoming };
 }
 
 interface CurrentSession {
@@ -1496,8 +1488,7 @@ export async function createHerdrSessionSource(
     let lastEdgeRereadAt = 0;
     const EDGE_REREAD_COOLDOWN_MS = 2_000;
 
-    function syncFromKit(): void {
-        const snap = client.kit.snapshot();
+    function syncFromKit(snap: HerdrSnapshot = client.kit.snapshot()): void {
         const previousPanes = new Set(panesById.keys());
         agentsByPane.clear();
         panesById.clear();
@@ -1584,6 +1575,20 @@ export async function createHerdrSessionSource(
         await refreshSnapshot();
     }
 
+    /**
+     * One poll tick against the push-maintained tree: a landed revision has
+     * already been indexed, so a tick re-reads only when none has moved since
+     * its previous look — and the first look always re-reads, so no host-seeded
+     * launch overlay stands in for Herdr's own record.
+     */
+    function refreshIfStale(): () => Promise<void> {
+        let seen = client.kit.snapshot().revision;
+        return async () => {
+            if (client.kit.snapshot().revision === seen) await refreshSnapshot();
+            seen = client.kit.snapshot().revision;
+        };
+    }
+
     function emitAllStates(): void {
         for (const session of currentSessions()) emitState(session.sessionId);
     }
@@ -1600,9 +1605,9 @@ export async function createHerdrSessionSource(
     });
 
     // The kit tree is the source of truth: every revision re-indexes and republishes.
-    const stopKitTree = client.kit.onChange(() => {
+    const stopKitTree = client.kit.onChange((snap) => {
         if (disposed) return;
-        syncFromKit();
+        syncFromKit(snap);
         void syncDiscovery().then(emitAllStates).catch(() => {});
     });
     // The kit reads a blocked agent's question once its status flips; that releases the held alert.
@@ -1716,8 +1721,9 @@ export async function createHerdrSessionSource(
 
     async function waitForListedAgent(paneId: string, timeoutMs: number): Promise<CurrentSession> {
         const deadline = Date.now() + timeoutMs;
+        const fresh = refreshIfStale();
         while (Date.now() < deadline) {
-            await refreshSnapshot();
+            await fresh();
             const session = bindListedPane(paneId);
             if (session !== undefined) {
                 await routes.flush();
@@ -1737,8 +1743,9 @@ export async function createHerdrSessionSource(
     async function waitForMatchingKind(paneId: string, kind: string, timeoutMs: number, requireConversation = false): Promise<void> {
         const requested = publicAgentKind(kind);
         const deadline = Date.now() + timeoutMs;
+        const fresh = refreshIfStale();
         while (Date.now() < deadline) {
-            await refreshSnapshot();
+            await fresh();
             const agent = agentsByPane.get(paneId);
             if (agent === undefined && !pendingLaunchByPane.has(paneId)) throw new Error('Herdr dropped the agent launch.');
             const detected = publicAgentKind(agent?.agent ?? undefined) ?? publicAgentKind(publishedAgentSession(agent)?.agent);
@@ -1813,13 +1820,14 @@ export async function createHerdrSessionSource(
      */
     async function waitForInteractiveAgent(paneId: string, timeoutMs: number, launched = false): Promise<void> {
         const deadline = Date.now() + timeoutMs;
+        const fresh = refreshIfStale();
         while (Date.now() < deadline) {
             const remaining = Math.max(1_000, deadline - Date.now());
             const waited = await client.kit.wait(
                 { paneId },
                 { until: ['idle', 'working', 'blocked', 'done'], timeoutMs: remaining },
             );
-            await refreshSnapshot().catch(() => undefined);
+            await fresh().catch(() => undefined);
             const agent = agentsByPane.get(paneId);
             const status = waited === 'unknown' ? agent?.agent_status : waited;
             const lifecycle: AgentLifecycle = status === 'idle' || status === 'working' || status === 'blocked'
@@ -2507,8 +2515,9 @@ export async function createHerdrSessionSource(
             });
             const deadline = Date.now() + 5_000;
             let opened: string[] = [];
+            const fresh = refreshIfStale();
             do {
-                await refreshSnapshot();
+                await fresh();
                 opened = actionPanes();
                 if (opened.length > 0) break;
                 await sleep(150);
