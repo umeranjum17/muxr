@@ -1,6 +1,5 @@
 import type { SessionSnapshot } from '@desklink/react-native';
 import { DESKTOP_NO_PICTURE, desktopPortalRestartCommand } from '@trymuxr/contract';
-import { Platform } from 'react-native';
 
 import { desktopCopy, previewCopy, unknownPreviewCopy, type PreviewKindCopy } from './desktopCopy';
 
@@ -60,12 +59,11 @@ function endedCopy(snapshot: SessionSnapshot): { detail: string; canRetry: boole
  * start says where the one-time screen-sharing approval appears: on the
  * computer, where the person holding the phone would not think to look.
  *
- * `pictured` is whether this open has shown a frame. A transport failure, a
- * `never-connected` failure, or a lost connection before any frame is the network
- * having no path for the picture. The app can carry it through the relay as a
- * last resort; a browser cannot, so it says so.
+ * `pictured` is whether this open has shown a frame. A transport failure or a
+ * lost connection before any frame is the network having no path for the picture. The
+ * app can carry it through the relay as a last resort; a `browser` cannot, so it says so.
  */
-export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore = true, consentSecondsLeft: number | null = null, pictured = true): DesktopOverlay {
+export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore = true, consentSecondsLeft: number | null = null, pictured = true, browser = false): DesktopOverlay {
     if (snapshot.status === 'failed' && snapshot.failure?.code === 'consent') {
         // The prompt was on the computer, where nobody answered it; the host's
         // own wording would only say that it timed out.
@@ -86,7 +84,7 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
     const noPath = (snapshot.status === 'failed' && (snapshot.failure?.code === 'transport' || snapshot.failure?.code === 'never-connected'))
         || (snapshot.status === 'ended' && snapshot.failure?.message === 'the connection to the phone was lost');
     if (noPath && !pictured) {
-        const detail = Platform.OS === 'web' ? desktopCopy.unreachableBodyBrowser : desktopCopy.unreachableBody;
+        const detail = browser ? desktopCopy.unreachableBodyBrowser : desktopCopy.unreachableBody;
         return { title: desktopCopy.unreachableTitle, detail, spinner: false, canRetry: true };
     }
     if (snapshot.status === 'failed') {
