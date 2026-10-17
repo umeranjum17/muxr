@@ -4,13 +4,14 @@ The Computer picture goes straight from the computer to the phone over WebRTC;
 the relay carries only its signaling. A phone that reaches the computer only
 through the relay (mobile data, no shared Wi-Fi, no Tailscale, no Direct SSH)
 never gets a frame. When an open fails with a `transport` failure before any
-frame showed, the Computer view says so in plain words, names what works, and
-keeps Try again. A loss after a frame showed keeps the generic failure.
+frame showed (or, on native, the engine ends it for a lost phone before any
+frame), the Computer view says so in plain words, names what works, and keeps
+Try again. A loss after a frame showed keeps the generic failure.
 
 ## Sub-features
 
-- `nopath` first open, no UDP path: after the kit's reopens (about 4 minutes)
-  the view reads "Can't show this computer's screen from here" with the
+- `nopath` first open, no UDP path: after the kit's reopens (about 4 minutes
+  on the PWA; about 36 s on native, where main read "Desktop closed") the view reads "Can't show this computer's screen from here" with the
   Wi-Fi / Tailscale / Direct SSH body and Try again.
 - `retry` Try again starts a new open ("Starting desktop…").
 - `large-text` at the largest text the overlay scrolls, so Try again is
@@ -62,8 +63,12 @@ Native Android (no UDP path):
 3. Install the release APK, set `wm size 1080x2376; wm density 640`, mint a
    native offer (`mintPairing({ kind: 'native' })`) and open it with
    `am start -a android.intent.action.VIEW -d 'muxr://pair#<offer>'`.
-4. Open the agent -> Pane actions -> Computer, wait for Try again, capture
-   with `visualCheck.mjs` in light and dark (`cmd uimode night yes|no`).
+4. Set `settings put system font_scale` first: changing it recreates the
+   activity and drops the Computer view. Then open the agent -> Pane actions
+   -> Computer, wait for Try again, capture with `visualCheck.mjs` in light
+   and dark (`cmd uimode night yes|no`). Its overlap warnings against
+   "Terminal surface", "^C" and "Prompt…" are the terminal under the overlay
+   in the accessibility tree, not on screen.
 
 ## Gotchas
 
