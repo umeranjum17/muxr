@@ -421,7 +421,7 @@ export function recordTerminalScrollTimeout(): void {
     scrollTotals.timedOut = boundedCount(scrollTotals.timedOut + 1);
 }
 
-/** Rows a gesture asked the pane for, so a fling's travel can be judged. */
+/** Rows a gesture asked the pane for, the grid's share included, so a fling's travel can be judged. */
 export function recordTerminalScrollRows(rows: number): void {
     const bounded = boundedCount(rows);
     if (recordConnectionDiagnostic({ event: 'terminal.scroll-rows', rows: bounded }) === undefined) return;

@@ -7,15 +7,21 @@ import { decodeBase64 } from '@/encryption/base64';
  * (terminalFloor.ts), so the keyboard or a large font leaves rows outside it.
  * By default the box follows the pane's cursor -- the row the program writes
  * at, which for an agent is its prompt with the newest reply right above, and
- * for a shell is the last line -- so that row is the box's last one. The
- * terminal's own drag reaches the rest: the surface takes the travel while it
- * can move that way, and only what is left scrolls the pane in Herdr. A drag
- * holds the box where the user put it until they type to the pane, tap Latest
- * or switch panes.
+ * for a shell is the last line -- so that row is the box's last one, and a grid
+ * with no cursor yet shows its bottom rows. The terminal's own drag reaches the
+ * rest: the surface takes the travel while it can move that way, and only what
+ * is left scrolls the pane in Herdr. A drag holds the box where the user put it
+ * until they type to the pane, tap Latest or switch panes; new output does not
+ * move it. Answers to a question appearing bring the box back to the cursor once.
+ *
+ * The surface moves in whole rows. A grid that overflows by a fraction of a row
+ * leaves that fraction blank above its top row, so one drag line is exactly one
+ * row to the surface or to Herdr, never a share of both.
  *
  * Herdr ends every frame by putting the cursor back (`ESC[row;colH`, then
  * showing or hiding it), so the row comes from the frame itself on both
- * renderers; the native one exposes no cursor of its own.
+ * renderers; the native one exposes no cursor of its own. A hidden cursor is
+ * parked, not where the program writes, so its frame leaves the row in place.
  */
 
 /**
@@ -32,8 +38,6 @@ export interface TerminalPanLayout {
     surfaceHeight: number;
     boxHeight: number;
     rowHeight: number;
-    /** A question's answers sit on the grid's bottom rows; while they show, so does the bottom. */
-    holdBottom?: boolean;
 }
 
 export interface TerminalPan {
@@ -78,9 +82,13 @@ export function createTerminalPan(setOffset: (offset: number) => void): Terminal
     let attached: string | undefined;
     let shown = 0;
 
-    const overflow = (): number => Math.max(0, layout.surfaceHeight - layout.boxHeight);
+    /** Whole rows past the box, so the surface stops on a row line and Herdr's lines stay whole. */
+    const overflow = (): number => {
+        const excess = Math.max(0, layout.surfaceHeight - layout.boxHeight);
+        return layout.rowHeight > 0 ? Math.ceil(excess / layout.rowHeight) * layout.rowHeight : excess;
+    };
     const clamp = (offset: number): number => Math.min(overflow(), Math.max(0, offset));
-    const followed = (): number => (cursor === undefined || layout.rowHeight <= 0 || layout.holdBottom === true
+    const followed = (): number => (cursor === undefined || layout.rowHeight <= 0
         ? 0
         : clamp(layout.surfaceHeight - (cursor + 1) * layout.rowHeight));
     const show = (): void => {
@@ -99,9 +107,6 @@ export function createTerminalPan(setOffset: (offset: number) => void): Terminal
             show();
         },
         layout(next) {
-            // A question's answers appearing bring the bottom back once; a
-            // later drag still pans.
-            if (next.holdBottom === true && layout.holdBottom !== true) held = undefined;
             layout = next;
             if (held !== undefined) held = clamp(held);
             show();

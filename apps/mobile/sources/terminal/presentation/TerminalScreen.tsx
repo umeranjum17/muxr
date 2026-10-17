@@ -49,6 +49,7 @@ import { terminalLineHeight, terminalShownHeight, terminalSurfaceHeight } from '
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { terminalGrid } from '../application/terminalAhead';
 import { createTerminalPan } from '../application/terminalPan';
+import { recordTerminalScrollRows } from '@/catalog/diagnostics';
 import { useAttachmentPicker, chooseAttachmentSource } from '@/hooks/useAttachmentPicker';
 import { useDraft } from '@/hooks/useDraft';
 import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
@@ -395,7 +396,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // terminal's own drag pans the rest into view before it scrolls the pane.
     const panOffset = useSharedValue(0);
     const [pan] = React.useState(() => createTerminalPan((offset) => { panOffset.value = offset; }));
-    const panBy = React.useCallback((lines: number) => pan.pan(lines), [pan]);
+    // Travel the surface takes is still the pane's travel, so the fling trail counts it.
+    const panBy = React.useCallback((lines: number) => {
+        const rest = pan.pan(lines);
+        if (rest !== lines) recordTerminalScrollRows(Math.abs(lines - rest));
+        return rest;
+    }, [pan]);
     const surfacePan = useAnimatedStyle(() => ({ transform: [{ translateY: panOffset.value }] }));
     // How far the terminal's visible bottom sits from the one it was last
     // measured at: the rails ride the keyboard frame by frame, while the
@@ -409,14 +415,19 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // overlay stops at the keyboard's top edge, not at the rails' own bottom.
     const ringOverlayBottom = useAnimatedStyle(() => ({ bottom: settledRaise.value > 0 ? settledRaise.value + insets.bottom : 0 }), [insets.bottom]);
     const [choicesVisible, setChoicesVisible] = React.useState(false);
+    // Answers appearing bring the box back to the cursor once; a later drag still pans.
+    const onChoicesVisibilityChange = React.useCallback((visible: boolean) => {
+        setChoicesVisible(visible);
+        if (visible) pan.follow();
+    }, [pan]);
     // A renderer keeps the grid it attached at, so one measured on the first
     // estimate can be taller than the surface and grows it: pan the rows it drew.
     const drawnGridHeight = drawnRowHeight !== undefined && grid !== undefined ? grid.rows * drawnRowHeight : 0;
     const pannedHeight = Math.max(surfaceHeight, drawnGridHeight);
     const shownHeight = terminalShownHeight({ boxHeight: terminalBox?.height ?? 0, surfaceHeight: pannedHeight, rowHeight: terminalRowHeight });
     React.useEffect(() => {
-        pan.layout({ surfaceHeight: pannedHeight, boxHeight: shownHeight, rowHeight: terminalRowHeight, holdBottom: choicesVisible });
-    }, [pan, pannedHeight, shownHeight, terminalRowHeight, choicesVisible]);
+        pan.layout({ surfaceHeight: pannedHeight, boxHeight: shownHeight, rowHeight: terminalRowHeight });
+    }, [pan, pannedHeight, shownHeight, terminalRowHeight]);
     // The ring is hosted by the screen, never by the terminal renderer. It owns
     // its own open state so that opening it re-renders one small component
     // rather than this whole screen on the frame the bloom starts; the screen
@@ -1719,7 +1730,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             sessionId={props.id}
                             waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !latestShown && !scrolledAway && !desktopVisible}
                             channel={channel}
-                            onVisibilityChange={setChoicesVisible}
+                            onVisibilityChange={onChoicesVisibilityChange}
                             lineHeight={terminalRowHeight}
                             gridInset={terminalGridInset}
                             columns={grid?.cols}

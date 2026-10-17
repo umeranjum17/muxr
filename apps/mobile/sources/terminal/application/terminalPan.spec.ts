@@ -15,13 +15,13 @@ describe('a grid taller than its box', () => {
         pan.attach('a');
         const row = 20;
         // 25 floor rows drawn 20 tall; the keyboard leaves room for 7.
-        pan.layout({ surfaceHeight: 25 * row + 1, boxHeight: 7 * row, rowHeight: row });
+        pan.layout({ surfaceHeight: 25 * row, boxHeight: 7 * row, rowHeight: row });
         expect(offset).toBe(0);
 
         // An agent's prompt is on row 14 (1-based), its reply right above:
         // the box ends on that row, not on the status lines under it.
         pan.frame(herdrFrame('> ', 14));
-        const following = 25 * row + 1 - 14 * row;
+        const following = 25 * row - 14 * row;
         expect(offset).toBe(following);
 
         // A drag back pans the surface; the pane is not scrolled.
@@ -29,51 +29,58 @@ describe('a grid taller than its box', () => {
         expect(offset).toBe(following + 3 * row);
         // Past the grid's top row, what is left scrolls the pane.
         expect(pan.pan(10)).toBe(6);
-        expect(offset).toBe(18 * row + 1);
+        expect(offset).toBe(18 * row);
 
         // New output does not take the box away from where the user put it.
         pan.frame(herdrFrame('streamed reply', 15));
-        expect(offset).toBe(18 * row + 1);
+        expect(offset).toBe(18 * row);
 
         // Leaving and coming back to the same pane keeps the drag.
         pan.attach('a');
         pan.frame(herdrFrame('streamed reply', 15));
-        expect(offset).toBe(18 * row + 1);
+        expect(offset).toBe(18 * row);
 
         // Typing follows the cursor again.
         pan.follow();
-        expect(offset).toBe(25 * row + 1 - 15 * row);
+        expect(offset).toBe(25 * row - 15 * row);
 
         // A hidden cursor is parked, not where the program writes.
         pan.frame(herdrFrame('', 3, 'l'));
-        expect(offset).toBe(25 * row + 1 - 15 * row);
+        expect(offset).toBe(25 * row - 15 * row);
 
         // Another pane attached: until its own frame names a cursor, the box
         // shows its bottom, not this pane's row.
         pan.attach('b');
         expect(offset).toBe(0);
         pan.frame(herdrFrame('> ', 15));
-        expect(offset).toBe(25 * row + 1 - 15 * row);
+        expect(offset).toBe(25 * row - 15 * row);
 
         // Forward travel shows the bottom rows first, then scrolls the pane.
         expect(pan.pan(-12)).toBe(-2);
         expect(offset).toBe(0);
 
-        // A question's answers sit on the bottom rows: appearing, they bring
-        // the bottom back from wherever the user dragged.
+        // Answers appearing bring the box back to the cursor once, from
+        // wherever the user dragged; a later drag still pans.
         expect(pan.pan(5)).toBe(0);
         expect(offset).toBe(5 * row);
-        pan.layout({ surfaceHeight: 25 * row + 1, boxHeight: 7 * row, rowHeight: row, holdBottom: true });
-        expect(offset).toBe(0);
+        pan.follow();
+        expect(offset).toBe(25 * row - 15 * row);
 
         // A drag holds until another pane attaches.
         expect(pan.pan(5)).toBe(0);
-        expect(offset).toBe(5 * row);
+        expect(offset).toBe(25 * row - 15 * row + 5 * row);
         pan.attach('c');
         expect(offset).toBe(0);
 
+        // The grid overflows its box by 0.4 of a row: the surface stops on the
+        // next row line, so one drag line is one row for the surface and Herdr
+        // is not sent a rounded share of it.
+        pan.layout({ surfaceHeight: 7 * row + 8, boxHeight: 7 * row, rowHeight: row });
+        expect(pan.pan(1)).toBe(0);
+        expect(offset).toBe(row);
+
         // The keyboard closes and the whole grid fits: nothing pans.
-        pan.layout({ surfaceHeight: 25 * row + 1, boxHeight: 26 * row, rowHeight: row });
+        pan.layout({ surfaceHeight: 25 * row, boxHeight: 26 * row, rowHeight: row });
         expect(offset).toBe(0);
         expect(pan.pan(4)).toBe(4);
     });
