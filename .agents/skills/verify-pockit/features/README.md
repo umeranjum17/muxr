@@ -154,6 +154,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   mismatch/deadline/cancellation cleanup, and missing-setup startup in a container.
 - [Scan a pairing QR from the terminal](./pairing-qr.md) —
   `muxr pair` at normal/narrow widths and inside an isolated Herdr terminal.
+- [Paste an http pairing link](./pair-http-link.md) —
+  the plain-http wrapper a ws:// relay prints (`muxr pair --browser` on a LAN
+  self-host or lab) pastes into the Pair form and reaches consent on the PWA,
+  while a truly truncated token still names the cut-off code.
 - [Lead every pair entry with Scan](./pair-scan-first.md) —
   which action leads on each way into pairing, Scan a new code after an expired
   or refused code, the paste-led page on a device that cannot scan, and a pasted

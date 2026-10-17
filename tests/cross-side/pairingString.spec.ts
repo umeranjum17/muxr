@@ -13,7 +13,7 @@
 import { Host, keyPair } from '@byokit/link';
 import { describe, expect, it } from 'vitest';
 import { pairingIntent } from './host';
-import { decidePairingInput, hostedPairingAuthority, looksLikeLinkOffer, looksLikePairingLink, parsePairingString } from '@/pairing/domain/pairingString';
+import { decidePairingInput, CUTOFF_PAIRING_CODE, hostedPairingAuthority, looksLikeLinkOffer, looksLikePairingLink, parsePairingString } from '@/pairing/domain/pairingString';
 import { redirectSystemPath } from '@/app/+native-intent';
 
 /** Every relay address `muxr setup` can end up printing a QR for. */
@@ -34,6 +34,24 @@ describe('a scanned pairing QR reaches pairing', () => {
                 expect(decidePairingInput(url)).toMatchObject({ ok: true, offer });
             }
             expect(redirectSystemPath({ path: 'muxr-dev://pair#byokit-link:1:bad?', initial: true })).toBe('muxr-dev://pair#byokit-link:1:bad?');
+        } finally { host.close(); }
+    });
+
+    it('pairs a browser link pasted over plain http, and still names a truly cut-off code', async () => {
+        const host = await Host.open({ keys: keyPair(), name: 'Desk', handle: () => ({}), confirm: () => true });
+        try {
+            const offer = host.offer({ urls: [`ws://100.124.161.1:57709/link/v1/${host.id}`], role: 'control' }).text;
+            // `muxr pair --browser` prints exactly this shape when the relay
+            // advertises ws:// (LAN self-host, a lab loopback relay).
+            for (const url of [`http://192.168.1.24:8792/pair#${offer}`, `http://127.0.0.1:35747/pair#${offer}`]) {
+                expect(looksLikeLinkOffer(url)).toBe(true);
+                expect(decidePairingInput(url)).toMatchObject({ ok: true, offer });
+            }
+            // A wrapper whose token was truncated is a dead code: say so, in
+            // the wrapper and bare.
+            const cutoff = `http://127.0.0.1:35747/pair#${offer.slice(0, offer.length - 8)}`;
+            expect(decidePairingInput(cutoff)).toMatchObject({ ok: false, message: CUTOFF_PAIRING_CODE });
+            expect(decidePairingInput(offer.slice(0, offer.length - 8))).toMatchObject({ ok: false, message: CUTOFF_PAIRING_CODE });
         } finally { host.close(); }
     });
 
