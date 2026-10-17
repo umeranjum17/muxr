@@ -3,28 +3,33 @@
 The Computer picture goes straight from the computer to the phone over WebRTC;
 the relay carries only its signaling. A phone that reaches the computer only
 through the relay (mobile data, no shared Wi-Fi, no Tailscale, no Direct SSH)
-never gets a frame. When an open fails with a `transport` failure before any
-frame showed (or, on native, the engine ends it for a lost phone before any
-frame), the Computer view says so in plain words, names what works, and keeps
-Try again. A loss after a frame showed keeps the generic failure.
+never gets a frame. desklink (0.5.8 on) ends such a first open once with its
+own `never-connected` failure code, and the Computer view keys on that code
+alone: it says so in plain words, names what works, and keeps Try again. A
+`transport` failure (a path that formed, then was lost, or never sent a frame)
+keeps the generic failure.
 
 ## Sub-features
 
-- `nopath` first open, no UDP path: after the kit's reopens (about 4 minutes
-  on the PWA; about 36 s on native, where main read "Desktop closed") the view reads "Can't show this computer's screen from here" with the
-  Wi-Fi / Tailscale / Direct SSH body and Try again.
+- `nopath` first open, no UDP path: about 20-25 s after the open (desklink's
+  first-frame bound or the peer's ICE `failed`, whichever comes first; no
+  reopens) the view reads "Can't show this computer's screen from here" with
+  the Wi-Fi / Tailscale / Direct SSH body and Try again. Before the overlay was
+  keyed on `never-connected`, desklink 0.5.8 showed the generic "Couldn't open
+  this computer" here instead.
 - `retry` Try again starts a new open ("Starting desktop…").
 - `large-text` at the largest text the overlay scrolls, so Try again is
   reachable (on main it was cut off).
-- `after-frame` a transport loss after a frame keeps "Couldn't open this
-  computer" (covered by `DesktopSurface.spec.tsx`; a lab cannot stage a
-  frame and then cut UDP mid-session without a real desktop picture).
+- `after-frame` a `transport` failure, before or after a frame, keeps
+  "Couldn't open this computer" (covered by `DesktopSurface.spec.tsx`; a lab
+  cannot stage a frame and then cut UDP mid-session without a real desktop
+  picture).
 
 ## How to get to it (user POV)
 
 Pair with the lab computer, open the agent, Pane actions -> Computer, and
 wait. Without a video path the Computer view stays on "Starting desktop…"
-while the kit retries, then shows the message.
+for about 20 s, then shows the message.
 
 ## Driving it with the private stack
 
@@ -48,7 +53,7 @@ Installed PWA (no UDP path):
 5. Pair with `__MUXR_LAB_PAIR__`, `emulate --viewport 270x594x2,mobile,touch`,
    then `node noVideoPathLab.mjs tap <debug> 'Open Pi 1, pi · Idle'`,
    `… tap <debug> 'Pane actions'`, `… tap <debug> Computer`. Poll
-   `document.body.innerText` for `Try again` (about 240 s), then shoot each
+   `document.body.innerText` for `Try again` (desklink ends the open as `never-connected` within about 20 s), then shoot each
    cell and run `visualCheck.mjs pwa-check`; at font 2.0 also scroll to the end.
 
 Native Android (no UDP path):
@@ -74,7 +79,7 @@ Native Android (no UDP path):
 
 - The Computer view over a terminal uses a dark scoped theme, so light and
   dark shots look the same on purpose; label the system mode.
-- The message only appears once the kit gives up (8 reopens, about 4
-  minutes); "Starting desktop…" before that is expected.
+- The message appears once desklink ends the open as `never-connected`
+  (about 20-25 s on the emulator); "Starting desktop…" before that is expected.
 - A theme or viewport change after the failure re-renders the same overlay
   without reopening, so one wait covers every cell.
