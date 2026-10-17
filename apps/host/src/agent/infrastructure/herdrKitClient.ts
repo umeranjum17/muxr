@@ -51,7 +51,6 @@ export class KitHerdrClient implements HerdrCaller {
     connected = false;
     readonly kit: HerdrKit;
     private reconnectTimer: NodeJS.Timeout | undefined;
-    private started = false;
     private closed = false;
     /** Edge trigger: log the first reconnect failure and the recovery, never every retry. */
     private down = false;
@@ -78,14 +77,7 @@ export class KitHerdrClient implements HerdrCaller {
             env: kitEnv,
             path: (process.env.PATH ?? '').split(delimiter).filter((dir) => dir !== ''),
             onState: (state) => {
-                const ready = state.phase === 'ready';
-                const wasReady = this.connected;
-                this.connected = ready;
-                // The batch socket heals itself; the session source still
-                // re-indexes the kit tree when herdr comes back after an outage.
-                // Every bootstrap reports ready, so only the down-to-ready
-                // transition may read as a reconnect.
-                if (ready && !wasReady && this.started) this.onReconnect();
+                this.connected = state.phase === 'ready';
             },
         });
     }
@@ -105,7 +97,7 @@ export class KitHerdrClient implements HerdrCaller {
     async start(): Promise<void> {
         try {
             await this.kit.start();
-            this.started = true;
+            this.connected = true;
         } catch (cause) {
             if (!KitHerdrClient.isDownError(cause)) throw cause;
             // Staying up matters more than starting clean: the reconnect loop keeps
@@ -158,7 +150,7 @@ export class KitHerdrClient implements HerdrCaller {
                         this.down = false;
                         process.stderr.write(`herdr server reachable again at ${this.socketPath}\n`);
                     }
-                    this.started = true;
+                    this.connected = true;
                     this.onReconnect();
                 })
                 .catch((cause: unknown) => {

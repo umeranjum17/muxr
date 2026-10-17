@@ -1073,18 +1073,17 @@ describe('agent started at the desk in an existing pane', () => {
             await new Promise((resolve) => setTimeout(resolve, 600));
             expect(herdr.state.snapshotCount).toBe(settled);
 
-            // A sessionless desk agent: the one forced re-read answers it, and
-            // the re-read's own ready edge re-arms nothing.
+            // A sessionless desk agent: the debounced re-read answers it once.
+            const beforeSessionless = herdr.state.snapshotCount;
             herdr.panes.push({ pane_id: 'w1:p3', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
             herdr.agents.push({ pane_id: 'w1:p3', agent: 'codex', name: 'wren', agent_status: 'idle' });
             herdr.emit('pane.agent_detected', { pane_id: 'w1:p3', agent: 'codex' });
             await vi.waitFor(async () => expect(treePane(await source.herdrTree(), 'w1:p3').agentKind).toBe('codex'), { timeout: 3_000 });
+            await vi.waitFor(() => expect(herdr.state.snapshotCount).toBe(beforeSessionless + 1), { timeout: 3_000 });
             await new Promise((resolve) => setTimeout(resolve, 600));
-            const reads = herdr.state.snapshotCount;
+            expect(herdr.state.snapshotCount).toBe(beforeSessionless + 1);
             await source.refreshHerdr();
-            expect(herdr.state.snapshotCount).toBe(reads + 1);
-            await new Promise((resolve) => setTimeout(resolve, 600));
-            expect(herdr.state.snapshotCount).toBe(reads + 1);
+            expect(herdr.state.snapshotCount).toBe(beforeSessionless + 2);
         } finally {
             await source.dispose();
             herdr.close();

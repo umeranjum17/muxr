@@ -58,7 +58,7 @@ import type {
     PlanMoveOptions,
 } from '../application/sessionSource.js';
 import { KitHerdrClient } from './herdrKitClient.js';
-import type { AgentStatus, HerdrSnapshot, PlaceTarget } from '@byokit/herdr';
+import type { AgentStatus, PlaceTarget } from '@byokit/herdr';
 import { agentInstallState } from '@byokit/herdr';
 import {
     AgentRouteStore,
@@ -1484,7 +1484,8 @@ export async function createHerdrSessionSource(
     let lastKitRevision = -1;
     let lastSyncAt = 0;
 
-    function syncFromKit(snap: HerdrSnapshot = client.kit.snapshot()): void {
+    function syncFromKit(): void {
+        const snap = client.kit.snapshot();
         const previousPanes = new Set(panesById.keys());
         agentsByPane.clear();
         panesById.clear();
@@ -1559,34 +1560,19 @@ export async function createHerdrSessionSource(
         lastSyncAt = Date.now();
     }
 
+    async function reindexKitTree(): Promise<void> {
+        if (!client.connected) return;
+        syncFromKit();
+        await syncDiscovery();
+    }
+
     async function refreshSnapshot(): Promise<void> {
         if (disposed) throw new Error('herdr: source disposed');
         await client.kit.refresh();
         if (disposed) throw new Error('herdr: source disposed');
-        await syncDiscovery();
+        await reindexKitTree();
     }
 
-    /**
-     * One poll tick against the push-maintained tree: a landed revision has
-     * already been indexed, so a tick re-reads only when none has moved since
-     * its previous look and that look was not itself a re-read — the first look
-     * always re-reads, so no host-seeded launch overlay stands in for Herdr's
-     * own record.
-     */
-    function refreshIfStale(): () => Promise<void> {
-        let seen = client.kit.snapshot().revision;
-        let justRefreshed = false;
-        return async () => {
-            const revision = client.kit.snapshot().revision;
-            if (revision === seen && !justRefreshed) {
-                await refreshSnapshot();
-                justRefreshed = true;
-            } else {
-                justRefreshed = false;
-            }
-            seen = client.kit.snapshot().revision;
-        };
-    }
 
     function emitAllStates(): void {
         for (const session of currentSessions()) emitState(session.sessionId);
@@ -1604,11 +1590,20 @@ export async function createHerdrSessionSource(
     });
 
     // The kit tree is the source of truth: every revision re-indexes and republishes.
-    const stopKitTree = client.kit.onChange((snap) => {
-        if (disposed) return;
-        syncFromKit(snap);
-        void syncDiscovery().then(emitAllStates).catch(() => {});
-    });
+    let resyncTimer: NodeJS.Timeout | undefined;
+    function scheduleResync(): void {
+        if (disposed || resyncTimer !== undefined) return;
+        resyncTimer = setTimeout(() => {
+            resyncTimer = undefined;
+            if (disposed) return;
+            void (async () => {
+                await reindexKitTree();
+                if ([...agentsByPane.keys()].some(needsSessionDiscovery)) await refreshSnapshot();
+                emitAllStates();
+            })().catch(() => {});
+        }, 500);
+    }
+    const stopKitTree = client.kit.onChange(() => scheduleResync());
     // The kit reads a blocked agent's question once its status flips; that releases the held alert.
     const stopBlockedWatch = client.kit.onBlocked((entry, change) => {
         if (change !== 'added') return;
@@ -1720,9 +1715,8 @@ export async function createHerdrSessionSource(
 
     async function waitForListedAgent(paneId: string, timeoutMs: number): Promise<CurrentSession> {
         const deadline = Date.now() + timeoutMs;
-        const fresh = refreshIfStale();
         while (Date.now() < deadline) {
-            await fresh();
+            await refreshSnapshot();
             const session = bindListedPane(paneId);
             if (session !== undefined) {
                 await routes.flush();
@@ -1742,9 +1736,8 @@ export async function createHerdrSessionSource(
     async function waitForMatchingKind(paneId: string, kind: string, timeoutMs: number, requireConversation = false): Promise<void> {
         const requested = publicAgentKind(kind);
         const deadline = Date.now() + timeoutMs;
-        const fresh = refreshIfStale();
         while (Date.now() < deadline) {
-            await fresh();
+            await refreshSnapshot();
             const agent = agentsByPane.get(paneId);
             if (agent === undefined && !pendingLaunchByPane.has(paneId)) throw new Error('Herdr dropped the agent launch.');
             const detected = publicAgentKind(agent?.agent ?? undefined) ?? publicAgentKind(publishedAgentSession(agent)?.agent);
@@ -1819,14 +1812,13 @@ export async function createHerdrSessionSource(
      */
     async function waitForInteractiveAgent(paneId: string, timeoutMs: number, launched = false): Promise<void> {
         const deadline = Date.now() + timeoutMs;
-        const fresh = refreshIfStale();
         while (Date.now() < deadline) {
             const remaining = Math.max(1_000, deadline - Date.now());
             const waited = await client.kit.wait(
                 { paneId },
                 { until: ['idle', 'working', 'blocked', 'done'], timeoutMs: remaining },
             );
-            await fresh().catch(() => undefined);
+            await refreshSnapshot().catch(() => undefined);
             const agent = agentsByPane.get(paneId);
             const status = waited === 'unknown' ? agent?.agent_status : waited;
             const lifecycle: AgentLifecycle = status === 'idle' || status === 'working' || status === 'blocked'
@@ -2510,9 +2502,8 @@ export async function createHerdrSessionSource(
             });
             const deadline = Date.now() + 5_000;
             let opened: string[] = [];
-            const fresh = refreshIfStale();
             do {
-                await fresh();
+                await refreshSnapshot();
                 opened = actionPanes();
                 if (opened.length > 0) break;
                 await sleep(150);
@@ -3469,6 +3460,7 @@ export async function createHerdrSessionSource(
             for (const wait of questionWaits.values()) if (wait !== 'expired') clearTimeout(wait);
             questionWaits.clear();
             askedRevisions.clear();
+            if (resyncTimer !== undefined) clearTimeout(resyncTimer);
             stopKitTree();
             stopBlockedWatch();
             await settle(() => voiceStreams?.closeAll());
