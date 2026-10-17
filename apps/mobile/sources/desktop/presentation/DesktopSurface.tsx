@@ -539,7 +539,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     const consentSecondsLeft = waitingOnOpen && now - openSentAt >= CONSENT_HINT_AFTER_MS
         ? Math.ceil((openSentAt + DESKTOP_CONSENT_WAIT_MS - now) / 1000)
         : null;
-    const described = describeDesktopOverlay(snapshot, openedBefore, consentSecondsLeft, pictured);
+    const described = describeDesktopOverlay(snapshot, openedBefore, consentSecondsLeft);
     const copy = previewKindCopy(kind);
     // A kind this build does not know gets the general gestures and no device
     // keys, so a newer host's unnamed device never blanks the view.
