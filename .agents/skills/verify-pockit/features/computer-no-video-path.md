@@ -4,10 +4,11 @@ The Computer picture goes straight from the computer to the phone over WebRTC
 when it can. When the relay is the only path (mobile data, no shared Wi-Fi, no
 Tailscale, no Direct SSH), the native app carries the engine's loopback
 ICE-TCP candidate over a `desktop.tcp` link stream and goes live anyway; the
-browser cannot dial a JS socket, so the PWA never gets a frame. When an open fails with a `transport` failure before any
-frame showed (or, on native, the engine ends it for a lost phone before any
-frame), the Computer view says so in plain words, names what works, and keeps
-Try again. A loss after a frame showed keeps the generic failure.
+browser cannot dial a JS socket, so the PWA never gets a frame. When an open
+fails with a `transport` or `never-connected` failure before any frame showed
+(or, on native, the engine ends it for a lost phone before any frame), the
+Computer view says so in plain words, names what works, and keeps Try again.
+A loss after a frame showed keeps the generic failure.
 
 ## Sub-features
 
@@ -15,10 +16,10 @@ Try again. A loss after a frame showed keeps the generic failure.
   Settings -> MACHINES -> machine -> Desktop decoder shows Frames decoded
   rising, and the host log reads "link: desktop picture carried over the link".
 - `nopath` PWA first open, no UDP path: after the kit's 20 s first-frame
-  bound (`never-connected`) the view reads "Can't show this computer's screen from here" with
-  the generic body ("The screen goes straight from your computer to this
-  phone, and this network has no way through. …") and Try again. No
-  browser-specific body or Open-in-app step is shown.
+  bound (`never-connected`) the view reads "Can't show this computer's screen
+  from here" with the generic body ("The screen goes straight from your
+  computer to this phone, and this network has no way through. …") and Try
+  again. No browser-specific body is shown.
 - `retry` Try again starts a new open ("Starting desktop…").
 - `large-text` at the largest text the overlay scrolls, so Try again is
   reachable (on main it was cut off).
