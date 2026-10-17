@@ -170,15 +170,15 @@ it('built fake host refuses the default home and starts in an explicit test home
     });
     try {
         // Refused without MUXR_HOME, even though this HOME is a throwaway folder.
-        // A refusal is deterministic, so it exits clean (0), like auth faults.
+        // A refusal is an invocation error: non-zero, so lab scripts stop.
         const withoutHome = spawnHost(['--fake'], {});
-        expect(withoutHome.status).toBe(0);
+        expect(withoutHome.status).toBe(1);
         expect(withoutHome.stderr).toContain('MUXR_HOME');
         expect(withoutHome.stderr).not.toContain('unexpected host startup');
 
         // Refused when MUXR_HOME names the owner's real default ~/.muxr.
         const atOwnerDefault = spawnHost(['--fake'], { MUXR_HOME: join(home, 'owner', '.muxr') });
-        expect(atOwnerDefault.status).toBe(0);
+        expect(atOwnerDefault.status).toBe(1);
         expect(atOwnerDefault.stderr).toContain('MUXR_HOME');
         expect(atOwnerDefault.stderr).not.toContain('unexpected host startup');
 

@@ -245,9 +245,9 @@ if (process.argv.includes('--fake')) {
     catch { /* no passwd entry for this uid: cannot prove the home is safe */ }
     if (muxrHome === undefined || ownerDefault === undefined || resolve(muxrHome) === ownerDefault) {
         process.stderr.write('muxr host: --fake refuses the default muxr home — set MUXR_HOME to a test folder\n');
-        // A deterministic fault cannot heal by restarting: exit clean so a
-        // supervisor (muxr up, systemd) does not burn its restart budget.
-        process.exit(0);
+        // An invocation error: exit non-zero so a lab script stops instead of
+        // carrying on without the host it asked for.
+        process.exit(1);
     }
 }
 const selfhostAuth = readAuthStates();
