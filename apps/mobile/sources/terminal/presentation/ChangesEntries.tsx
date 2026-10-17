@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SheetIcon } from '@/components/SheetIcon';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 
@@ -48,12 +49,12 @@ export function PaneActionsChangesRow({ count, onPress }: { count: number | null
             accessibilityRole="button"
             accessibilityLabel={`Review changes${hasChanges(count) ? `, ${changesLabel(count)}` : ''}`}
             style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-            <Ionicons name="git-compare-outline" size={18} color={theme.colors.textSecondary} />
+            <SheetIcon name="git-compare-outline" size={18} color={theme.colors.textSecondary} />
             <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Changes</Text>
             {hasChanges(count) && <View style={{ minWidth: 24, height: 22, paddingHorizontal: 7, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHighest }}>
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '600' }}>{count}</Text>
             </View>}
-            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+            <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
         </Pressable>
     );
 }
