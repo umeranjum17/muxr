@@ -56,7 +56,7 @@ import type {
     SessionStopOptions,
     PlanMoveOptions,
 } from '../application/sessionSource.js';
-import { KitHerdrClient, type HerdrCaller } from './herdrKitClient.js';
+import { KitHerdrClient } from './herdrKitClient.js';
 import type { AgentStatus, PlaceTarget } from '@byokit/herdr';
 import { agentInstallState } from '@byokit/herdr';
 import {
@@ -379,7 +379,7 @@ function unavailable(kind: 'agent' | 'pane' | 'tab' | 'workspace'): Error {
  * calling Herdr; Herdr's own refusals come back in plain words.
  */
 export async function renameInHerdr(
-    client: HerdrCaller,
+    client: KitHerdrClient,
     target: HerdrRenameTarget,
     id: string,
     name: string,
@@ -392,9 +392,9 @@ export async function renameInHerdr(
     }
     try {
         if (target === 'agent') await client.call('agent.rename', { target: id, name: clean });
-        else if (target === 'pane') await client.call('pane.rename', { pane_id: id, label: clean });
-        else if (target === 'tab') await client.call('tab.rename', { tab_id: id, label: clean });
-        else await client.call('workspace.rename', { workspace_id: id, label: clean });
+        else if (target === 'pane') await client.kit.rename({ pane: id, label: clean });
+        else if (target === 'tab') await client.kit.rename({ tab: id, label: clean });
+        else await client.kit.rename({ workspace: id, label: clean });
     } catch (error) {
         const code = herdrFailureCode(error);
         if (code === 'invalid_agent_name') {
@@ -2083,7 +2083,7 @@ export async function createHerdrSessionSource(
                 const placed = await client.kit.place({ cwd: shellCwd, place, env: paneLaunchEnv(kind, shellCwd, startOptions.planEnv) });
                 paneId = placed.paneId;
                 // kit.place drops the label on a workspace it creates; name the tab either way.
-                if (requestedLabel !== undefined) await client.call('tab.rename', { tab_id: placed.tabId, label: requestedLabel });
+                if (requestedLabel !== undefined) await client.kit.rename({ tab: placed.tabId, label: requestedLabel });
             } catch {
                 return earlyFailure();
             }
@@ -2451,7 +2451,7 @@ export async function createHerdrSessionSource(
     async function focusSession(sessionId: string, assertActive?: () => void): Promise<void> {
         const record = await resolvePane(sessionId);
         assertActive?.();
-        await client.call('pane.focus', { pane_id: record.paneId });
+        await client.kit.focus({ pane: record.paneId });
     }
 
     /** Enabled plugins' global actions, fresh from the registry, display-sorted. */
@@ -3086,17 +3086,16 @@ export async function createHerdrSessionSource(
                 pane_id: record.paneId,
             });
             const kinds = collectKinds(applyOptions.snapshot);
-            const applied = await client.call<{ layout?: { tab_id?: string; root?: HerdrLayoutNode } }>(
-                'layout.apply',
+            const applied = await client.kit.layout(
                 {
                     root: toHerdrRootWithEnv(applyOptions.snapshot, (index) => paneLaunchEnv(kinds[index], homedir())),
-                    ...(pane.pane?.workspace_id === undefined ? {} : { workspace_id: pane.pane.workspace_id }),
-                    ...(applyOptions.label === undefined ? {} : { tab_label: applyOptions.label }),
+                    ...(pane.pane?.workspace_id === undefined ? {} : { workspaceId: pane.pane.workspace_id }),
+                    ...(applyOptions.label === undefined ? {} : { tabLabel: applyOptions.label }),
                     focus: false,
                 },
             );
             const tabId = applied.layout?.tab_id;
-            const appliedRoot = applied.layout?.root;
+            const appliedRoot = applied.layout?.root as HerdrLayoutNode | undefined;
             if (tabId === undefined || appliedRoot === undefined) throw new Error('herdr: layout.apply returned no tab');
 
             // apply preserves tree shape, so the two walks line up position for
@@ -3144,7 +3143,7 @@ export async function createHerdrSessionSource(
                 .filter((tabId): tabId is string => tabId !== undefined);
             const next = neighborId(tabs, currentTabId, direction);
             if (next === undefined) return; // one tab, or the tab is gone: no-op
-            await client.call('tab.focus', { tab_id: next });
+            await client.kit.focus({ tab: next });
         },
 
         async focusWorkspaceNeighbor(sessionId: string, direction: 'next' | 'prev'): Promise<void> {
@@ -3157,7 +3156,7 @@ export async function createHerdrSessionSource(
                 .filter((id): id is string => id !== undefined);
             const next = neighborId(workspaces, workspaceId, direction);
             if (next === undefined) return; // one workspace, or it is gone: no-op
-            await client.call('workspace.focus', { workspace_id: next });
+            await client.kit.focus({ workspace: next });
         },
 
         async closeTab(sessionId: string, tabId: string): Promise<void> {

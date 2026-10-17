@@ -7,6 +7,7 @@ import { Typography } from '@/constants/Typography';
 import { loadAppConfig } from '@/catalog';
 import { setupEmptyState } from '@/commercialization';
 import { useCompactWindow } from '@/components/useCompactWindow';
+import { WordWrappingText } from '@/components/WordWrappingText';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
 // Honest disclosure of what the copyable command does, checked against the
@@ -45,7 +46,7 @@ export function SetupStep(props: {
                         <View style={styles.tag}><Text style={styles.tagText}>{props.tag}</Text></View>
                     )}
                 </View>
-                {props.hint !== undefined && <Text style={styles.stepHint}>{props.hint}</Text>}
+                {props.hint !== undefined && <WordWrappingText fontSize={13} lineHeight={18} style={styles.stepHint}>{props.hint}</WordWrappingText>}
                 {props.children}
             </View>
         </View>
@@ -113,7 +114,10 @@ export function FirstRunSetupCard(props: {
                     onPress={() => setEffectsOpen((open) => !open)}
                 >
                     <Ionicons name={effectsOpen ? 'chevron-down-outline' : 'chevron-forward-outline'} size={13} color={theme.colors.textSecondary} />
-                    <Text style={styles.effectsToggleText}>What running this does</Text>
+                    {/* Its own column: a row would size the label to its scaled text. */}
+                    <View style={styles.effectsToggleLabel}>
+                        <WordWrappingText fontSize={13} style={styles.effectsToggleText}>What running this does</WordWrappingText>
+                    </View>
                 </Pressable>
                 {effectsOpen && (
                     <View style={styles.effectsBody}>
@@ -241,6 +245,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         marginTop: 2,
         minHeight: 32,
     },
+    effectsToggleLabel: { flex: 1 },
     effectsToggleText: {
         ...Typography.default('semiBold'),
         flexShrink: 1,
