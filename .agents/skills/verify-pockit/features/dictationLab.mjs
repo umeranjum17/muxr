@@ -68,7 +68,11 @@ function draftField(found) {
     return found.filter((n) => /\.(EditText|TextView)$/.test(n.cls) && n.box[1] <= row && row <= n.box[3] && n.box[2] <= mic.box[0]
         && n.text !== '' && !/^[\uE000-\uF8FF]+$/.test(n.text)).sort((a, b) => width(b) - width(a))[0];
 }
-const draft = (found) => { const field = draftField(found); return field === undefined || PLACEHOLDER.test(field.text) ? '' : field.text; };
+const draft = (found) => {
+    const field = draftField(found);
+    if (field === undefined) throw new Error('no draft field on the settled composer');
+    return PLACEHOLDER.test(field.text) ? '' : field.text;
+};
 
 // --- realtime watch ----------------------------------------------------------
 // Realtime voice is live while its microphone foreground service runs; its
@@ -89,16 +93,21 @@ function noteRealtime(found) {
     if (seen !== null) { sightings.push(`${phase}: ${seen}`); say(`REALTIME ${phase}: ${seen}`); }
 }
 let serviceRuns = 0;
+const watched = { attempts: 0, samples: 0 };
 async function serviceWatch(stopped) {
     let last = null;
     while (!stopped.done) {
+        watched.attempts += 1;
         // VoiceOverlayService also hosts the herd keep-alive (dataSync, 0x1) while agents work; only the
         // microphone type (0x80) is realtime voice.
-        const dump = await adb(['shell', 'dumpsys', 'activity', 'services', PKG], 30_000).catch(() => '');
-        const types = dump.includes('VoiceOverlayService') ? [...dump.matchAll(/(?:foregroundServiceType|types)=0x([0-9a-f]+)/gi)].map((m) => parseInt(m[1], 16)) : [];
-        const running = types.some((type) => (type & 0x80) !== 0);
-        if (running) serviceRuns += 1;
-        if (running !== last) { say(`microphone service ${running ? 'RUNNING' : 'not running'} (${phase}; foreground types ${types.map((t) => `0x${t.toString(16)}`).join(',') || 'none'})`); last = running; }
+        const dump = await adb(['shell', 'dumpsys', 'activity', 'services', PKG], 30_000).catch(() => null);
+        if (dump !== null) {
+            watched.samples += 1;
+            const types = dump.includes('VoiceOverlayService') ? [...dump.matchAll(/(?:foregroundServiceType|types)=0x([0-9a-f]+)/gi)].map((m) => parseInt(m[1], 16)) : [];
+            const running = types.some((type) => (type & 0x80) !== 0);
+            if (running) serviceRuns += 1;
+            if (running !== last) { say(`microphone service ${running ? 'RUNNING' : 'not running'} (${phase}; foreground types ${types.map((t) => `0x${t.toString(16)}`).join(',') || 'none'})`); last = running; }
+        }
         await sleep(2000);
     }
 }
@@ -147,7 +156,9 @@ async function take(name, file, expect) {
     await sleep(3000);
     // Exactly one stop, on the stop control as it is right now. A second tap on
     // the same spot after the take settles lands on Send or Talk instead.
-    await tap(center(labelled(found, 'Stop dictation')));
+    const stop = labelled(await screen(), 'Stop dictation');
+    if (stop === undefined) throw new Error(`${name}: Stop dictation gone before the tap`);
+    await tap(center(stop));
     found = await waitFor(`${name}: settled draft`, settled, 900);
     const text = draft(found);
     await screenshot(join(EVIDENCE, `${name}-after.png`));
@@ -259,8 +270,9 @@ try {
     const appops = (await adb(['shell', 'cmd', 'appops', 'get', PKG, 'RECORD_AUDIO'])).trim();
     say(`appops: ${appops}`);
     const micUsed = /(^|; )time=|running/.test(appops);
-    const clear = sightings.length === 0 && serviceRuns === 0 && !micUsed;
-    say(`realtime: ${clear ? 'none opened' : 'OPENED'} (microphone service samples running=${serviceRuns}, RECORD_AUDIO ${micUsed ? 'accessed' : 'never accessed'}, realtime on screen in ${sightings.length} of ${screensRead} screens)`);
+    const watchOk = watched.samples > 0 && watched.samples * 2 >= watched.attempts;
+    const clear = watchOk && sightings.length === 0 && serviceRuns === 0 && !micUsed;
+    say(`realtime: ${clear ? 'none opened' : 'OPENED'} (microphone service samples running=${serviceRuns} of ${watched.samples} successful dumps in ${watched.attempts} attempts, RECORD_AUDIO ${micUsed ? 'accessed' : 'never accessed'}, realtime on screen in ${sightings.length} of ${screensRead} screens)`);
 
     say(`RESULT ${clear && results.every((r) => r.ok) ? 'PASS' : 'FAIL'}`);
 } catch (error) {
