@@ -571,8 +571,16 @@ try {
     for (const dependency of licenseInventory.dependencies) {
         if (dependency.transitiveOf !== undefined) {
             assert.equal(dependency.declaredRange, null);
-            assert.ok(['ccusage', '@desklink/host'].includes(dependency.transitiveOf), `${dependency.name} is transitive of ${dependency.transitiveOf}`);
-            assert.equal(dependency.auditedVersion, packageJson.dependencies[dependency.transitiveOf]);
+            // Only the synthetic platform entries are pinned to the parent's
+            // root version. Genuine transitive closure entries resolve their
+            // own version from the parent's manifest (for example ws@8.21.3
+            // via @desklink/host), so the pin check stays on the platform names.
+            if (dependency.transitiveOf === 'ccusage' && dependency.name.startsWith('@ccusage/ccusage-')) {
+                assert.equal(dependency.auditedVersion, packageJson.dependencies.ccusage);
+            }
+            if (dependency.transitiveOf === '@desklink/host' && dependency.name.startsWith('@desklink/host-')) {
+                assert.equal(dependency.auditedVersion, packageJson.dependencies['@desklink/host']);
+            }
         } else {
             assert.equal(dependency.declaredRange, dependency.bundled ? null : packageJson.dependencies[dependency.name]);
         }
@@ -585,6 +593,25 @@ try {
     for (const target of ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']) {
         assert.ok(licenseInventory.dependencies.some((dependency) => dependency.name === `@ccusage/ccusage-${target}` && dependency.transitiveOf === 'ccusage'), `${target} ccusage binary missing from license audit`);
     }
+    // The inventory covers the installed production closure, not just the
+    // declared top level: a transitive production package npm installs must
+    // be audited with its parent recorded.
+    const anthropicSdk = licenseInventory.dependencies.filter((dependency) => dependency.name === '@anthropic-ai/sdk');
+    assert.ok(anthropicSdk.length > 0, 'transitive @anthropic-ai/sdk missing from license audit');
+    assert.ok(anthropicSdk.every((dependency) => dependency.transitiveOf !== undefined), '@anthropic-ai/sdk must be audited as a transitive dependency');
+    assert.ok(anthropicSdk.some((dependency) => dependency.transitiveOf === '@byokit/accounts'), '@anthropic-ai/sdk must be audited transitively via @byokit/accounts');
+    // npm installs required peers into the shipped closure, so the inventory
+    // must name them. react-native is reachable only through
+    // react-native-zeroconf's peer edge, so this assertion fails if the peer
+    // walk stops.
+    assert.ok(
+        licenseInventory.dependencies.some((dependency) => dependency.name === 'zod' && dependency.transitiveOf !== undefined),
+        'peer-installed zod missing from license audit',
+    );
+    assert.ok(
+        licenseInventory.dependencies.some((dependency) => dependency.name === 'react-native' && dependency.transitiveOf === 'react-native-zeroconf'),
+        'peer-installed react-native missing from license audit',
+    );
 
     // The desktop AppImage carries its own generated inventory through the
     // same generator: audit the snapshot's real desktop bundles, lay the output
@@ -633,6 +660,34 @@ try {
     const installedDesklinkRoot = join(installDir, 'node_modules', '@desklink', 'host');
     const installedDesklink = JSON.parse(readFileSync(join(installedDesklinkRoot, 'package.json'), 'utf8'));
     assert.equal(installedDesklink.version, packageJson.dependencies['@desklink/host']);
+    // The inventory promises to name every production package a consumer
+    // install materializes. This is why the shipped package.json pins the
+    // peer-installed react-native: an unbounded peer range would let npm
+    // resolve today's latest here, bringing in dependencies the audit never
+    // walked and shipping them without a license entry.
+    const shippedInventoryNames = new Set(licenseInventory.dependencies.map((dependency) => dependency.name));
+    const consumerPackageNames = new Set();
+    const collectConsumerPackages = (dir) => {
+        const modules = join(dir, 'node_modules');
+        if (!existsSync(modules)) return;
+        const visit = (packageDir) => {
+            const manifest = join(packageDir, 'package.json');
+            if (existsSync(manifest)) {
+                const { name } = JSON.parse(readFileSync(manifest, 'utf8'));
+                if (typeof name === 'string') consumerPackageNames.add(name);
+            }
+            collectConsumerPackages(packageDir);
+        };
+        for (const entry of readdirSync(modules)) {
+            if (entry.startsWith('.')) continue;
+            if (entry.startsWith('@')) {
+                for (const child of readdirSync(join(modules, entry))) visit(join(modules, entry, child));
+            } else visit(join(modules, entry));
+        }
+    };
+    collectConsumerPackages(installDir);
+    const unaudited = [...consumerPackageNames].filter((name) => name !== packageJson.name && !shippedInventoryNames.has(name));
+    assert.deepEqual(unaudited.sort(), [], `consumer install materialized packages missing from the license inventory: ${unaudited.sort().join(', ')}`);
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     // The marketplace mirror consumes this published byte contract.
