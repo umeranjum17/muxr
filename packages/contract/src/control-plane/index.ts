@@ -36,7 +36,7 @@ export type {
     WatchSettlement,
     LayoutSnapshot,
 } from './domain/requests.js';
-export { RPC_CLIENT_TIMEOUT_MS, DESKTOP_CONSENT_WAIT_MS, DESKTOP_NO_PICTURE, DESKTOP_PORTAL_BUSY, desktopPortalBusy, desktopPortalRestartCommand, HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure, requestRequiresE2ee, sanitizeRequestErrorMessage } from './domain/requests.js';
+export { RPC_CLIENT_TIMEOUT_MS, DESKTOP_CONSENT_WAIT_MS, DESKTOP_NO_PICTURE, desktopPortalBusy, desktopPortalRestartCommand, HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure, requestRequiresE2ee, sanitizeRequestErrorMessage } from './domain/requests.js';
 
 export type { ClientFrame, MachineHello, PluginsInvalidatedFrame, HostFrame, ProtocolCompatibility, ProtocolRange } from './domain/envelope.js';
 export {

@@ -64,10 +64,10 @@ function engineCommand(resolved) {
 }
 
 /**
- * The command that restarts a portal backend that does not answer a ping, or
- * undefined. A backend whose share picker is open or hung answers nothing, so
- * the prompt this setup waits for can never appear. The host checks the same
- * way before a phone's open (`apps/host/src/desktop/infrastructure/portalBackends.ts`).
+ * The command that restarts a portal backend that answers no ping, or
+ * undefined. A backend is silent only when two pings in a row time out, the
+ * same rule as `apps/host/src/desktop/infrastructure/portalBackends.ts`; the
+ * two copies must stay aligned because this script cannot import the host.
  */
 async function silentPortalRestart() {
     const run = promisify(execFile);
@@ -78,12 +78,14 @@ async function silentPortalRestart() {
     } catch {
         return undefined;
     }
+    const answersPing = async (name) => {
+        const started = Date.now();
+        return run('busctl', ['--user', '--timeout=2', 'call', name, '/org/freedesktop/portal/desktop', 'org.freedesktop.DBus.Peer', 'Ping'], { timeout: 3000 })
+            .then(() => true, () => Date.now() - started < 2000);
+    };
     const names = listed.split('\n').map((line) => line.split(/\s+/)[0] ?? '').filter((name) => name.startsWith(prefix) && /^[a-z0-9_-]{1,40}$/.test(name.slice(prefix.length)));
     for (const name of names) {
-        const started = Date.now();
-        const answered = await run('busctl', ['--user', '--timeout=2', 'call', name, '/org/freedesktop/portal/desktop', 'org.freedesktop.DBus.Peer', 'Ping'], { timeout: 3000 })
-            .then(() => true, () => Date.now() - started < 2000);
-        if (!answered) return `systemctl --user restart xdg-desktop-portal-${name.slice(prefix.length)}`;
+        if (!(await answersPing(name)) && !(await answersPing(name))) return `systemctl --user restart xdg-desktop-portal-${name.slice(prefix.length)}`;
     }
     return undefined;
 }

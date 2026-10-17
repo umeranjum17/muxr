@@ -276,7 +276,7 @@ export class DesktopSessions {
                 throw new EngineRefused('desktop-unavailable', error instanceof Error ? error.message : 'the virtual screen did not start');
             }
         }
-        if (source?.kind !== 'x11') {
+        if (source?.kind !== 'x11' && this.opening === 0) {
             // A portal backend that cannot answer a ping cannot show a prompt
             // either: say so now rather than after the whole consent wait.
             const [silent] = await silentPortalBackends();
