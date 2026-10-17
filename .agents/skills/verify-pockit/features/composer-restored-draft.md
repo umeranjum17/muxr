@@ -65,6 +65,5 @@ top or bottom edge, the rail's controls on its last line.
   measure and the eye are the proof.
 - At 270 dp with font 2.0 (Home lists `Pi 1` below the fold) tap the Live
   row `Pi 1. …` instead of `Open Pi 1`.
-- At PWA font 2.0 the rail leaves the text about one letter wide, on main as
-  well; the draft wraps a letter or two per line there. That cramped rail is
-  pre-existing.
+- At PWA font 2.0 the field has the rail's first line to itself
+  (`agent-narrow-chrome.md`), so the draft wraps whole words there.
