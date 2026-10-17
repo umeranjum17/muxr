@@ -660,6 +660,34 @@ try {
     const installedDesklinkRoot = join(installDir, 'node_modules', '@desklink', 'host');
     const installedDesklink = JSON.parse(readFileSync(join(installedDesklinkRoot, 'package.json'), 'utf8'));
     assert.equal(installedDesklink.version, packageJson.dependencies['@desklink/host']);
+    // The inventory promises to name every production package a consumer
+    // install materializes. This is why the shipped package.json pins the
+    // peer-installed react-native: an unbounded peer range would let npm
+    // resolve today's latest here, bringing in dependencies the audit never
+    // walked and shipping them without a license entry.
+    const shippedInventoryNames = new Set(licenseInventory.dependencies.map((dependency) => dependency.name));
+    const consumerPackageNames = new Set();
+    const collectConsumerPackages = (dir) => {
+        const modules = join(dir, 'node_modules');
+        if (!existsSync(modules)) return;
+        const visit = (packageDir) => {
+            const manifest = join(packageDir, 'package.json');
+            if (existsSync(manifest)) {
+                const { name } = JSON.parse(readFileSync(manifest, 'utf8'));
+                if (typeof name === 'string') consumerPackageNames.add(name);
+            }
+            collectConsumerPackages(packageDir);
+        };
+        for (const entry of readdirSync(modules)) {
+            if (entry.startsWith('.')) continue;
+            if (entry.startsWith('@')) {
+                for (const child of readdirSync(join(modules, entry))) visit(join(modules, entry, child));
+            } else visit(join(modules, entry));
+        }
+    };
+    collectConsumerPackages(installDir);
+    const unaudited = [...consumerPackageNames].filter((name) => name !== packageJson.name && !shippedInventoryNames.has(name));
+    assert.deepEqual(unaudited.sort(), [], `consumer install materialized packages missing from the license inventory: ${unaudited.sort().join(', ')}`);
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     // The marketplace mirror consumes this published byte contract.
