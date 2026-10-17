@@ -16,8 +16,9 @@ Try again. A loss after a frame showed keeps the generic failure.
   rising, and the host log reads "link: desktop picture carried over the link".
 - `nopath` PWA first open, no UDP path: after the kit's 20 s first-frame
   bound (`never-connected`) the view reads "Can't show this computer's screen from here" with
-  the browser body ("A browser can show the screen only when it reaches your
-  computer directly. Open muxr in the app, …") and Try again.
+  the generic body ("The screen goes straight from your computer to this
+  phone, and this network has no way through. …") and Try again. No
+  browser-specific body or Open-in-app step is shown.
 - `retry` Try again starts a new open ("Starting desktop…").
 - `large-text` at the largest text the overlay scrolls, so Try again is
   reachable (on main it was cut off).
