@@ -243,7 +243,7 @@ The script:
 
 1. defaults to `arm64-v8a`;
 2. applies and verifies required native patches;
-3. validates the bundled Whisper Base model checksum;
+3. validates the bundled Whisper Base and Silero VAD model checksums;
 4. builds TypeScript and focused native/voice tests;
 5. runs `eas build --local` and writes exactly one APK.
 

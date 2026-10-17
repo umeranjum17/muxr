@@ -1,12 +1,18 @@
 # Read whole words at large text
 
 Drive the real unpaired app; no relay or Herdr is needed for the pair
-screens. The shared `WordWrappingText` keeps the pair title, comparison words,
-the pair card's field label and hint intact by measuring words with the same
-font and fitting the whole block to its widest word. Button labels (Connect)
-are plain Text, not WordWrappingText; they are fitted only by the pair
-screen's narrow mode, which tightens the Connect bar padding under ~200
-text-scaled dp (208 dp at font 2.0). The new agent screen's worktree hint
+screens. The shared `WordWrappingText` keeps words whole by measuring them with
+the same font and fitting the whole block to its widest word. It carries the
+pair title, comparison words, the pair card's field label and hint, the
+first-run "Let’s connect" title and setup-card hint and "What running this
+does" toggle, every `<Header title="…">` string title (up to three lines), and
+every wrapping `ActionButton` label (Connect, Scan the QR, Install muxr). A
+button passes its row width as `lineWidth`: the label sits in a row sized to
+its own text, and measuring that box shrank the label with every scale. Under
+~200 text-scaled dp (`useCompactWindow`: 270 dp and 393 dp at font 2.0, 208 dp
+PWA) the pair screen drops its hero icon and the Connect icon, so the title
+stays clear of the sticky Connect bar at rest; the bar itself stays sticky so
+the keyboard never covers Connect. The new agent screen's worktree hint
 (`Use a separate worktree` / `A fresh checkout on its own branch, so this
 folder stays untouched.`) is plain Text: at a narrow width its row stacks so
 the copy keeps the full width and stays whole, instead of sharing the row with
@@ -32,7 +38,12 @@ unpaired.
    270 dp, font 2.0, light and dark. Capture initial and scrolled states
    through `visualCheck.mjs <serial> <dir> <name> [--end]`.
 3. PWA: run `visualCheck.mjs pwa-check <shot>.png <name>` on the same page
-   immediately after every shot. `word split across lines: "Securely"`,
+   immediately after every shot. At 208 dp font 2.0 the first-run cells
+   must show `Connect a machine`, `Let’s connect` and the Connect button whole,
+   and the pair cell its whole title above the Connect bar. The Install muxr
+   invite renders only in a browser tab (never in the installed PWA), so a
+   standalone capture that shows it was taken before display-mode settled:
+   retake it. `word split across lines: "Securely"`,
    `"Connect"`, `"Pairing"` and `"computer"` identify the reported regressions on
    the pair screens; `"worktree"` and `"untouched"` on `/new-agent`. Their
    candidate words must remain on one line; multi-word titles can wrap
