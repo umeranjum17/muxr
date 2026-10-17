@@ -58,11 +58,11 @@ function endedCopy(snapshot: SessionSnapshot): { detail: string; canRetry: boole
  * start says where the one-time screen-sharing approval appears: on the
  * computer, where the person holding the phone would not think to look.
  *
- * `pictured` is whether this open has shown a frame. A transport failure or a
- * lost connection before any frame is the network having no path for the picture: it goes
- * straight to the phone, never through the relay that carries everything else.
+ * A session the kit ends as `never-connected` is the network having no path
+ * for the picture: it goes straight to the phone, never through the relay that
+ * carries everything else.
  */
-export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore = true, consentSecondsLeft: number | null = null, pictured = true): DesktopOverlay {
+export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore = true, consentSecondsLeft: number | null = null): DesktopOverlay {
     if (snapshot.status === 'failed' && snapshot.failure?.code === 'consent') {
         // The prompt was on the computer, where nobody answered it; the host's
         // own wording would only say that it timed out.
@@ -71,11 +71,7 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
     if (snapshot.status === 'failed' && snapshot.failure?.code === 'no-screen') {
         return { title: desktopCopy.noScreenTitle, detail: desktopCopy.noScreenBody, command: desktopCopy.noScreenCommand, spinner: false, canRetry: true };
     }
-    // Native reaches the same no-path open as the engine revoking it for a lost
-    // phone, before the kit's reopens give up.
-    const noPath = (snapshot.status === 'failed' && snapshot.failure?.code === 'transport')
-        || (snapshot.status === 'ended' && snapshot.failure?.message === 'the connection to the phone was lost');
-    if (noPath && !pictured) {
+    if (snapshot.status === 'failed' && snapshot.failure?.code === 'never-connected') {
         return { title: desktopCopy.unreachableTitle, detail: desktopCopy.unreachableBody, spinner: false, canRetry: true };
     }
     if (snapshot.status === 'failed') {
@@ -150,7 +146,7 @@ export function describePreviewOverlay(snapshot: SessionSnapshot, kind: PreviewK
     const failure = snapshot.failure?.message ?? '';
     const unreachable = { title: copy.unreachableTitle, detail: previewCopy.unreachableBody, spinner: false, action: { label: 'Try again', exit: false } };
     if (snapshot.status === 'failed') {
-        if (snapshot.failure?.code === 'transport') return unreachable;
+        if (snapshot.failure?.code === 'never-connected' || snapshot.failure?.code === 'transport') return unreachable;
         return { title: copy.failedTitle, detail: previewCopy.failedBody, spinner: false, action: { label: 'Try again', exit: false } };
     }
     if (snapshot.status === 'ended') {

@@ -395,4 +395,33 @@ describe('a headless emulator in an agent pane', () => {
             await targets.closeAll();
         }
     });
+
+    it('keeps the engine revocation code on the emulator-mirror path', async () => {
+        const targets = new DevicePreviewTargets({
+            mirrors: {
+                open: async () => ({
+                    session: {
+                        generation: 1,
+                        geometry: { source: { width: 540, height: 1200 }, encoded: { width: 540, height: 1200 }, origin: { x: 0, y: 0 } },
+                        source: { kind: 'encoded', width: 540, height: 1200, origin: { x: 0, y: 0 } },
+                    },
+                    width: 540,
+                    height: 1200,
+                }),
+                engineFor: () => ({ drainSignaling: () => [{ kind: 'revoked', reason: 'no path', code: 'transport' }] }),
+                close: async () => undefined,
+                closeAll: async () => undefined,
+            } as never,
+            listSessions: async () => [{ id: 'sess-1', paneId: 'pane-1' }],
+            previewFor: (paneId) => paneId === 'pane-1' ? { kind: 'android', since: Date.now() } : undefined,
+            serialForPane: (paneId) => paneId === 'pane-1' ? 'emulator-5572' : undefined,
+        });
+        try {
+            const opened = await targets.openTarget('sess-1', { permissions: ['view'] }, { deviceId: 'phone-1' });
+            const polled = await targets.poll(opened.desktopId, 0);
+            expect(polled.events).toContainEqual({ kind: 'revoked', reason: 'no path', code: 'transport' });
+        } finally {
+            await targets.closeAll();
+        }
+    });
 });

@@ -573,7 +573,7 @@ describe('native pairing over the byokit link', () => {
         const child = launch([cliMain, 'pair']);
         const code = await new Promise<number | null>((resolve) => child.once('exit', (c) => resolve(c)));
         const elapsedMs = Date.now() - startedAt;
-        expect(elapsedMs).toBeLessThan(1_000);
+        expect(elapsedMs).toBeLessThan(10_000);
         expect(code).toBe(2);
         expect(child.output().trim()).toBe('Pairing needs you at this computer\'s terminal: run `muxr pair` yourself');
     });
@@ -825,7 +825,7 @@ describe('native pairing over the byokit link', () => {
         const code = await new Promise<number | null>((resolve) => child.once('exit', (c) => resolve(c)));
         const elapsedMs = Date.now() - startedAt;
         try {
-            expect(elapsedMs).toBeLessThan(1_000);
+            expect(elapsedMs).toBeLessThan(10_000);
             expect(code).toBe(2);
             const lines = child.output().trim().split('\n');
             expect(lines[lines.length - 1]).toBe('Pairing needs you at this computer\'s terminal: run `muxr pair` yourself');

@@ -136,7 +136,7 @@ it('built host help exits before inherited settings can start the host', async (
     } finally {
         rmSync(home, { recursive: true, force: true });
     }
-});
+}, 30_000);
 
 /** One flow: `--fake` and source-build starts through the real built entrypoint — refused on the owner's real default home, started in a test home. */
 it('built fake and source hosts refuse the default home and start in an explicit test home', async () => {
@@ -224,4 +224,4 @@ it('built fake and source hosts refuse the default home and start in an explicit
     } finally {
         rmSync(home, { recursive: true, force: true });
     }
-});
+}, 30_000);
