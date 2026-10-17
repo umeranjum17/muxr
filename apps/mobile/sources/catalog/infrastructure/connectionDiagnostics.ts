@@ -314,6 +314,8 @@ export function socketCloseReason(code: number): ConnectionDiagnosticSocketClose
     return 'other';
 }
 
+let lastPollFailure: string | undefined;
+
 export function recordTrackedRpc(
     type: string,
     result: { ok: true } | { ok: false; error: unknown },
@@ -322,15 +324,24 @@ export function recordTrackedRpc(
     if (!isTrackedConnectionRequest(type)) return;
     if (result.ok) {
         // A desktop polls four times a second; only its failures are news.
-        if (type === 'desktop.poll') return;
+        if (type === 'desktop.poll') {
+            lastPollFailure = undefined;
+            return;
+        }
         recordConnectionDiagnostic({ event: 'rpc', request: type, outcome: 'ok', durationMs: boundedDuration(durationMs) });
         return;
     }
     const code = connectionDiagnosticCode(result.error);
+    const outcome = connectionDiagnosticOutcome(result.error);
+    if (type === 'desktop.poll') {
+        const failure = `${outcome}:${code ?? ''}`;
+        if (failure === lastPollFailure) return;
+        lastPollFailure = failure;
+    }
     recordConnectionDiagnostic({
         event: 'rpc',
         request: type,
-        outcome: connectionDiagnosticOutcome(result.error),
+        outcome,
         durationMs: boundedDuration(durationMs),
         ...(code === undefined ? {} : { code }),
     });
