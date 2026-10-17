@@ -72,6 +72,8 @@ user-visible behavior, then exactly four H2 sections in this order:
   the tapped password field stays above the keyboard and takes typed text.
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
+- [Keep a source-build host off the real muxr home](./host-home-guard.md) —
+  built host under a throwaway HOME, refused without MUXR_HOME, runs with one.
 - [Follow a Herdr agent's status live](./herdr-live-status.md) —
   host session source on a guarded lab Herdr: tree follows new panes, status
   working/blocked/idle lands, socket count 1 → 2 → 1; no baseline needed.

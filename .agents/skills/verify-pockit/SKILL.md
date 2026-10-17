@@ -77,7 +77,7 @@ writeFileSync(join(home, "selfhost.json"), JSON.stringify({ version: 1, machine,
 OWNER_SECRET="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")))' "$RUN_ROOT/relay/mint-secret")"
 
 # 3. Host with the fake session source. Ready when its own log says online.
-#    MUXR_HOME is required: a --fake host refuses the default ~/.muxr.
+#    MUXR_HOME is required: a --fake or source-build host refuses the default ~/.muxr.
 MUXR_HOME="$MUXR_HOME" MUXR_MODE=selfhost MUXR_DATA_DIR="$MUXR_HOME/host" \
   node apps/host/dist/main.js --fake >"$RUN_ROOT/host.log" 2>&1 &
 HOST_PID=$!

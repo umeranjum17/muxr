@@ -138,8 +138,8 @@ it('built host help exits before inherited settings can start the host', async (
     }
 });
 
-/** One flow: `--fake` through the real built entrypoint — refused on the owner's real default home, started in a test home. */
-it('built fake host refuses the default home and starts in an explicit test home', async () => {
+/** One flow: `--fake` and source-build starts through the real built entrypoint — refused on the owner's real default home, started in a test home. */
+it('built fake and source hosts refuse the default home and start in an explicit test home', async () => {
     const { mkdtempSync, mkdirSync, rmSync } = await import('node:fs');
     const { spawnSync } = await import('node:child_process');
     const { join, resolve } = await import('node:path');
@@ -199,12 +199,28 @@ it('built fake host refuses the default home and starts in an explicit test home
         expect(started.stderr).not.toContain('MUXR_HOME');
         expect(started.stderr).not.toContain('unexpected host startup');
 
-        // A normal (non-fake) start without MUXR_HOME is unchanged: it gets
-        // past the fake-home guard into host startup work (the herdr client
-        // spawn trips the stub) instead of being refused.
-        const normal = spawnHost([], { MUXR_MODE: 'local' });
-        expect(normal.status).toBe(97);
-        expect(normal.stderr).toContain('unexpected host startup');
+        // A normal start from this source build is refused the same way
+        // (17 Oct: a source lab host replaced the owner's host on the link).
+        const sourceWithoutHome = spawnHost([], { MUXR_MODE: 'local' });
+        expect(sourceWithoutHome.status).toBe(1);
+        expect(sourceWithoutHome.stderr).toContain('a source build refuses the default muxr home');
+        expect(sourceWithoutHome.stderr).not.toContain('unexpected host startup');
+        const sourceAtOwnerDefault = spawnHost([], { MUXR_MODE: 'local', MUXR_HOME: join(home, 'owner', '.muxr') });
+        expect(sourceAtOwnerDefault.status).toBe(1);
+        expect(sourceAtOwnerDefault.stderr).toContain('MUXR_HOME');
+
+        // With a test home it gets past the guard into host startup work
+        // (the herdr client spawn trips the stub).
+        const sourceInTestHome = spawnHost([], { MUXR_MODE: 'local', MUXR_HOME: testHome });
+        expect(sourceInTestHome.status).toBe(97);
+        expect(sourceInTestHome.stderr).toContain('unexpected host startup');
+
+        // The shipped bundles (installed CLI, desktop app) define
+        // MUXR_PACKAGED=1 at bundle time: their normal start without
+        // MUXR_HOME is unchanged.
+        const installed = spawnHost([], { MUXR_MODE: 'local', MUXR_PACKAGED: '1' });
+        expect(installed.status).toBe(97);
+        expect(installed.stderr).toContain('unexpected host startup');
     } finally {
         rmSync(home, { recursive: true, force: true });
     }
