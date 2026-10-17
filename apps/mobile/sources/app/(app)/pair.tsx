@@ -100,7 +100,8 @@ export default function PairScreen() {
     React.useEffect(() => () => { if (successTimer.current !== undefined) clearTimeout(successTimer.current); }, []);
     // The hero icon has no room once the keyboard takes half the screen: it
     // renders cut off under the header. Hide it while the keyboard is open
-    // instead of showing a clipped badge. Closed is the scroll view's own hide
+    // instead of showing a clipped badge. The narrow layout drops it too, with
+    // the Connect icon: beside the sticky bar they left no room for the title. Closed is the scroll view's own hide
     // event: it lands after its last scroll restore, React Native's lands before.
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
     React.useEffect(() => {
@@ -312,7 +313,7 @@ export default function PairScreen() {
         <PairScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={[styles.screen, narrow && styles.narrowScreen, { paddingTop: 12, paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" {...(browser ? {} : { bottomOffset: 120 })}>
             <View style={[styles.hero, narrow && styles.narrowHero]}>
-                {!keyboardOpen && (
+                {!keyboardOpen && !narrow && (
                     <View style={styles.iconBadge}>
                         <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
                     </View>
@@ -478,14 +479,14 @@ export default function PairScreen() {
             // without shrinking the aware scroll.
             <ConnectBar style={[styles.ctaBar, narrow && styles.narrowCtaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
                 {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
-                <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" wrap disabled={!pairingValue.trim()} onPress={connectManual} />
+                <ActionButton testID="ssh-connect" title="Connect" icon={narrow ? undefined : 'link-outline'} wrap disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
         {!sshRoute && manualForm && showField && (
             // Same anchored bar as the SSH route: the manual Connect must stay
             // above the keyboard on short viewports.
             <ConnectBar style={[styles.ctaBar, narrow && styles.narrowCtaBar, { paddingBottom: insets.bottom + 8 }]} {...connectBarOffset}>
-                <ActionButton title="Connect" icon="link-outline" variant={canScan ? 'secondary' : 'primary'} wrap disabled={!pairingValue.trim()} onPress={connectManual} />
+                <ActionButton title="Connect" icon={narrow ? undefined : 'link-outline'} variant={canScan ? 'secondary' : 'primary'} wrap disabled={!pairingValue.trim()} onPress={connectManual} />
             </ConnectBar>
         )}
         </View>

@@ -1,10 +1,15 @@
 import * as React from 'react';
 import { ScrollView, Text, View, type TextProps } from 'react-native';
 
-/** Wrap whole words. A word wider than the line scales the whole block by one factor until its widest word fits. */
-export function WordWrappingText({ children, style, fontSize, lineHeight, ...props }:
-    Omit<TextProps, 'children'> & { children: string; fontSize: number; lineHeight?: number }) {
-    const [width, setWidth] = React.useState(0);
+/**
+ * Wrap whole words. A word wider than the line scales the whole block by one factor until its widest word fits.
+ * `lineWidth` is the line to fit when a row parent sizes this block to its own text: measuring that
+ * box would shrink it with every scale.
+ */
+export function WordWrappingText({ children, style, fontSize, lineHeight, lineWidth, ...props }:
+    Omit<TextProps, 'children'> & { children: string; fontSize: number; lineHeight?: number; lineWidth?: number }) {
+    const [measuredWidth, setWidth] = React.useState(0);
+    const width = lineWidth ?? measuredWidth;
     const [wordWidths, setWordWidths] = React.useState<Record<string, number>>({});
     const words = [...new Set(children.split(/\s+/).filter(Boolean))];
     const widest = Math.max(0, ...words.map((word) => wordWidths[word] ?? 0));
