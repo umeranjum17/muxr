@@ -444,9 +444,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (lines === 0) return;
             const clamped = Math.max(-40, Math.min(40, lines));
             const rest = panByRef.current(clamped);
-            if (rest !== 0) {
+            if (rest !== 0 && channel) {
+                channel.scroll(rest, { column: Math.floor(term.cols / 2), row: Math.floor(term.rows / 2) });
                 recordTerminalScrollRows(Math.abs(rest));
-                channel?.scroll(rest, { column: Math.floor(term.cols / 2), row: Math.floor(term.rows / 2) });
             }
             scrollAcc -= clamped * cellHeight();
             if (lines !== clamped) scrollAcc = 0;
