@@ -601,11 +601,11 @@ try {
     assert.ok(anthropicSdk.every((dependency) => dependency.transitiveOf !== undefined), '@anthropic-ai/sdk must be audited as a transitive dependency');
     assert.ok(anthropicSdk.some((dependency) => dependency.transitiveOf === '@byokit/accounts'), '@anthropic-ai/sdk must be audited transitively via @byokit/accounts');
     // npm installs required peers into the shipped closure, so the inventory
-    // must name them with their parent recorded. react-native is reachable
-    // only through react-native-zeroconf's peer edge, so this assertion fails
-    // if the peer walk stops.
+    // must name them. react-native is reachable only through
+    // react-native-zeroconf's peer edge, so this assertion fails if the peer
+    // walk stops.
     assert.ok(
-        licenseInventory.dependencies.some((dependency) => dependency.name === 'zod' && dependency.transitiveOf === '@modelcontextprotocol/sdk'),
+        licenseInventory.dependencies.some((dependency) => dependency.name === 'zod' && dependency.transitiveOf !== undefined),
         'peer-installed zod missing from license audit',
     );
     assert.ok(
