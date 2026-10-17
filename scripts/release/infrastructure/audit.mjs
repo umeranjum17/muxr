@@ -9,15 +9,28 @@ const permissiveLicenses = new Set([
     'BSD-2-Clause',
     'BSD-3-Clause',
     'CC0-1.0',
+    // caniuse-lite ships CC-BY-4.0 attribution-licensed browser data through
+    // the peer-installed react-native closure; Python-2.0 is the PSF license
+    // on argparse reached in the audited workspace closure.
+    'CC-BY-4.0',
     'ISC',
     'MIT',
     'MPL-2.0',
+    'Python-2.0',
     'Unlicense',
 ]);
 
 export function assertPermissiveLicense({ name, version, license }) {
+    // npm license fields carry SPDX expressions (for example type-fest's
+    // "(MIT OR CC0-1.0)" or node-forge's "(BSD-3-Clause OR GPL-2.0)"). OR is
+    // the recipient's choice, so an expression is approved when any one
+    // alternative is fully allow-listed, while every atom of an AND still
+    // applies. A plain copyleft or unapproved license keeps failing.
     const ids = Array.isArray(license) ? license : [license];
-    if (ids.length && ids.every((id) => permissiveLicenses.has(id))) return;
+    const approved = (id) => String(id).replace(/[()]/g, '')
+        .split(/\s+OR\s+/)
+        .some((alternative) => alternative.split(/\s+AND\s+/).every((atom) => permissiveLicenses.has(atom)));
+    if (ids.length && ids.some(approved)) return;
     const reason = /(?:^|[^A-Z])(?:A?GPL|LGPL)/i.test(String(license)) ? 'copyleft' : 'unknown/non-approved';
     throw new Error(`license audit: ${reason} license ${license || '<missing>'} for ${name}@${version}`);
 }
