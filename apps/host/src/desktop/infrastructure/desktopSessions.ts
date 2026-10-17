@@ -3,10 +3,11 @@ import { join } from 'node:path';
 
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
 import type { EngineCapabilities, EngineEvent, SourceRequest } from '@desklink/host';
-import { DESKTOP_CONSENT_WAIT_MS, DESKTOP_NO_PICTURE } from '@trymuxr/contract';
+import { DESKTOP_CONSENT_WAIT_MS, DESKTOP_NO_PICTURE, desktopPortalBusy } from '@trymuxr/contract';
 import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@trymuxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
+import { silentPortalBackends } from './portalBackends.js';
 import { PortalGrant } from './portalGrant.js';
 import { VirtualDisplay } from './virtualDisplay.js';
 
@@ -275,6 +276,16 @@ export class DesktopSessions {
                 throw new EngineRefused('desktop-unavailable', error instanceof Error ? error.message : 'the virtual screen did not start');
             }
         }
+        if (source?.kind !== 'x11') {
+            // A portal backend that cannot answer a ping cannot show a prompt
+            // either: say so now rather than after the whole consent wait.
+            const [silent] = await silentPortalBackends();
+            if (silent !== undefined) {
+                this.options.onDiagnostic?.(`desktop open refused: ${silent.name} does not answer (${silent.restartCommand})`);
+                await this.stopIfIdle();
+                throw new EngineRefused('portal-busy', desktopPortalBusy(silent.restartCommand));
+            }
+        }
         const takeGrant = (): string | undefined => {
             if (source?.kind === 'x11') return undefined;
             try {
@@ -308,6 +319,8 @@ export class DesktopSessions {
         // share that never showed anything still earns one, and saving it would
         // restore the same failing source on every later open.
         this.earnedGrant = undefined;
+        const started = Date.now();
+        this.options.onDiagnostic?.(`desktop open: ${source?.kind ?? 'portal'} source, ${restoreToken === undefined ? 'no saved grant' : 'saved grant'}${timeout === undefined ? '' : `, waits up to ${timeout} ms for approval`}`);
         const opened = await client.openSession(openParams, timeout).catch(async (error: unknown) => {
             if (!captureNeverStarted(error)) throw error;
             // A restored grant whose capture never started points at a source
@@ -333,11 +346,13 @@ export class DesktopSessions {
                 existing.events.push({ kind: 'revoked', reason: 'another device opened this computer' });
             }
         }).catch(async (error: unknown) => {
+            this.options.onDiagnostic?.(`desktop open failed after ${Date.now() - started} ms: ${(error as { code?: unknown }).code ?? 'error'}`);
             this.earnedGrant = undefined;
             this.opening -= 1;
             await this.stopIfIdle();
             throw error;
         });
+        this.options.onDiagnostic?.(`desktop open: engine opened in ${Date.now() - started} ms`);
         this.saveGrant(opened.sessionId);
         if (owner !== undefined && !owner.isConnected()) {
             await client.closeSession(opened.sessionId).catch(() => undefined);

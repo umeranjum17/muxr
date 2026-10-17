@@ -7,7 +7,8 @@
  * no machine, session, channel, ticket, terminal text, payload bytes, or keys.
  */
 
-export type ConnectionDiagnosticRequest = 'herdr.tree' | 'terminal.attach' | 'terminal.detach' | 'session.prompt' | 'session.start';
+export type ConnectionDiagnosticRequest = 'herdr.tree' | 'terminal.attach' | 'terminal.detach' | 'session.prompt' | 'session.start'
+    | 'desktop.open' | 'desktop.answer' | 'desktop.poll';
 export type ConnectionDiagnosticOutcome = 'ok' | 'rejected' | 'timeout' | 'unavailable';
 export type ConnectionDiagnosticCode =
     | 'not-connected'
@@ -28,7 +29,9 @@ export type ConnectionDiagnosticCode =
     | 'ticket-invalid'
     | 'device-revoked'
     | 'ticket-issue-failed'
-    | 'start-launch-failed';
+    | 'start-launch-failed'
+    | 'consent-timeout'
+    | 'portal-busy';
 export type ConnectionDiagnosticSocketState = 'connecting' | 'open' | 'stale' | 'closed';
 export type ConnectionDiagnosticReconnectReason = 'dead-socket' | 'stale' | 'closed';
 export type ConnectionDiagnosticChannelPhase = 'attach' | 'socket-open' | 'live' | 'reconnecting' | 'disconnected';
@@ -98,7 +101,7 @@ const MAX_EVENTS = 64;
 const MAX_FRAME_COUNT = 1_000_000;
 const STORAGE_KEY = 'connection-diagnostics-v1';
 const PRIVACY_HEADER = 'Redacted: durations, counts, and enums only. No ids, URLs, IPs, bytes, content, tickets, or keys.';
-const TRACKED = new Set<string>(['herdr.tree', 'terminal.attach', 'terminal.detach', 'session.prompt', 'session.start']);
+const TRACKED = new Set<string>(['herdr.tree', 'terminal.attach', 'terminal.detach', 'session.prompt', 'session.start', 'desktop.open', 'desktop.answer', 'desktop.poll']);
 const SOCKET_STATES = new Set<string>(['connecting', 'open', 'stale', 'closed']);
 const RECONNECT_REASONS = new Set<string>(['dead-socket', 'stale', 'closed']);
 const CHANNEL_PHASES = new Set<string>(['attach', 'socket-open', 'live', 'reconnecting', 'disconnected']);
@@ -164,6 +167,8 @@ const CODES: Record<string, true> = {
     'device-revoked': true,
     'ticket-issue-failed': true,
     'start-launch-failed': true,
+    'consent-timeout': true,
+    'portal-busy': true,
 };
 
 /**
@@ -316,6 +321,8 @@ export function recordTrackedRpc(
 ): void {
     if (!isTrackedConnectionRequest(type)) return;
     if (result.ok) {
+        // A desktop polls four times a second; only its failures are news.
+        if (type === 'desktop.poll') return;
         recordConnectionDiagnostic({ event: 'rpc', request: type, outcome: 'ok', durationMs: boundedDuration(durationMs) });
         return;
     }

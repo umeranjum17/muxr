@@ -260,6 +260,27 @@ export const DESKTOP_CONSENT_WAIT_MS = 110_000;
  */
 export const DESKTOP_NO_PICTURE = 'The computer shared a window or screen, but no picture came from it.';
 
+/**
+ * The `desktop.open` refusal for a computer whose screen-sharing service does
+ * not answer, because a sharing prompt there is open or stuck without a
+ * window. The host follows it with the one command that restarts that
+ * service; the phone matches it to show that command with Copy.
+ */
+export const DESKTOP_PORTAL_BUSY = 'Screen sharing on the computer is busy: a sharing prompt there is open or stuck.';
+const PORTAL_RESTART = /^systemctl --user restart xdg-desktop-portal-[a-z0-9_-]{1,40}$/;
+
+export function desktopPortalBusy(restartCommand: string): string {
+    return `${DESKTOP_PORTAL_BUSY} To clear it, run: ${restartCommand}`;
+}
+
+/** The restart command in a `desktopPortalBusy` refusal, or undefined for any other message. */
+export function desktopPortalRestartCommand(message: string): string | undefined {
+    const prefix = `${DESKTOP_PORTAL_BUSY} To clear it, run: `;
+    if (!message.startsWith(prefix)) return undefined;
+    const command = message.slice(prefix.length);
+    return PORTAL_RESTART.test(command) ? command : undefined;
+}
+
 export interface RequestMap extends PeerRequestMap {
     // --- live desktop -------------------------------------------------------
     /**
