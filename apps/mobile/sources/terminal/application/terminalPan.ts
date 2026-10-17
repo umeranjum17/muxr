@@ -27,6 +27,7 @@ import { decodeBase64 } from '@/encryption/base64';
  * Gotchas:
  * - A renderer keeps the grid it attached at, so after a font change the grid can stay taller than the floor asks for; the pan covers every row it drew.
  * - Whole rows come from terminalShownHeight in terminalFloor.ts: the screen clips a floor-tall surface to whole rows and hands the pan that height.
+ * - A slow drag (600 ms) pans about one row; a quick stroke carries the whole stroke.
  *
  * Herdr ends every frame by putting the cursor back (`ESC[row;colH`, then
  * showing or hiding it), so the row comes from the frame itself on both
@@ -86,7 +87,7 @@ function cursorRow(base64: string): number | undefined {
  * `setOffset` gets how far the surface sits below its bottom-aligned place, in
  * points: 0 shows the grid's bottom rows, the overflow shows its top ones.
  */
-export function createTerminalPan(setOffset: (offset: number) => void): TerminalPan {
+export function createTerminalPan(setOffset: (offset: number) => void, onAbsorbed: (rows: number) => void): TerminalPan {
     let layout: TerminalPanLayout = { surfaceHeight: 0, boxHeight: 0, rowHeight: 0 };
     let cursor: number | undefined;
     let held: number | undefined;
@@ -135,7 +136,9 @@ export function createTerminalPan(setOffset: (offset: number) => void): Terminal
                 held = to;
                 show();
             }
-            return rows - Math.round((to - from) / layout.rowHeight);
+            const moved = Math.round((to - from) / layout.rowHeight);
+            if (moved !== 0) onAbsorbed(Math.abs(moved));
+            return rows - moved;
         },
         follow() {
             if (held === undefined) return;

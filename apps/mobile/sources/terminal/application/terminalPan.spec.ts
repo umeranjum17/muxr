@@ -11,7 +11,8 @@ function herdrFrame(text: string, cursorRow: number, cursor: 'h' | 'l' = 'h'): s
 describe('a grid taller than its box', () => {
     it('follows the cursor, pans before the pane scrolls, and holds where the user put it until they type', () => {
         let offset = 0;
-        const pan = createTerminalPan((next) => { offset = next; });
+        let absorbed = 0;
+        const pan = createTerminalPan((next) => { offset = next; }, (rows) => { absorbed += rows; });
         pan.attach('a');
         const row = 20;
         // 25 floor rows drawn 20 tall, plus the pixel terminalSurfaceHeight adds; the keyboard leaves room for 7.
@@ -69,6 +70,18 @@ describe('a grid taller than its box', () => {
         expect(pan.pan(5)).toBe(0);
         expect(offset).toBe(25 * row - 15 * row + 5 * row);
         pan.attach('c');
+        expect(offset).toBe(0);
+
+        // Quarter-row drags: four carry into one whole row, which the surface takes and reports.
+        absorbed = 0;
+        expect(pan.pan(0.25)).toBe(0);
+        expect(pan.pan(0.25)).toBe(0);
+        expect(pan.pan(0.25)).toBe(0);
+        expect(offset).toBe(0);
+        expect(pan.pan(0.25)).toBe(0);
+        expect(offset).toBe(row);
+        expect(absorbed).toBe(1);
+        pan.follow();
         expect(offset).toBe(0);
 
         // Travel under a row is carried into the next drag line, never dropped:

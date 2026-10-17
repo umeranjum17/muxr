@@ -207,7 +207,6 @@ try {
             if (!header || !tabs) throw new Error('no terminal on screen; open the agent first');
             const [top, bottom] = [Number(header[3]) + 40, Number(tabs[2]) - 40];
             const [from, to] = direction === 'up' ? [bottom, top] : [top, bottom];
-            // A slow drag pans about a row; a quick one carries the whole stroke.
             for (let stroke = 0; stroke < 3; stroke++) adb('shell', 'input', 'swipe', '540', String(from), '540', String(to), '250');
             mark(`dragged the terminal ${direction}`);
         },

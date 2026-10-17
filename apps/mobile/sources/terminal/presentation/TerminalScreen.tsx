@@ -395,13 +395,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // A grid taller than its box shows the rows around the pane's cursor; the
     // terminal's own drag pans the rest into view before it scrolls the pane.
     const panOffset = useSharedValue(0);
-    const [pan] = React.useState(() => createTerminalPan((offset) => { panOffset.value = offset; }));
+    const [pan] = React.useState(() => createTerminalPan((offset) => { panOffset.value = offset; }, recordTerminalScrollRows));
     // Travel the surface takes is still the pane's travel, so the fling trail counts it.
-    const panBy = React.useCallback((lines: number) => {
-        const rest = pan.pan(lines);
-        if (rest !== lines) recordTerminalScrollRows(Math.abs(lines - rest));
-        return rest;
-    }, [pan]);
+    const panBy = pan.pan;
     const surfacePan = useAnimatedStyle(() => ({ transform: [{ translateY: panOffset.value }] }));
     // How far the terminal's visible bottom sits from the one it was last
     // measured at: the rails ride the keyboard frame by frame, while the
