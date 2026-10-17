@@ -123,10 +123,11 @@ export function desklinkPlatformDependencies({ root }) {
 
 /**
  * Audit one distribution's full dependency set: inlined, platform and installed.
- * `closure` is the AppImage mode: it audits the whole installed production
- * closure instead of only the declared names, and a package that ships no
- * license text is recorded from its package.json license and author instead of
- * failing. The npm packer keeps the declared-only set and strict text checks.
+ * `closure` audits the whole installed production closure instead of only the
+ * declared names, and a package that ships no license text is recorded from
+ * its package.json license and author instead of failing. Both the npm CLI
+ * packer and the desktop AppImage builder audit in closure mode, since npm
+ * and electron-builder both ship the transitive production packages.
  */
 export function licenseInventory({ bundles, root, rootPackage, declared, closure = false }) {
     const bundled = bundledDependenciesFromMetafiles(bundles, { allowDeclaredOnly: closure });

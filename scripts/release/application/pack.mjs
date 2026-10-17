@@ -94,6 +94,11 @@ const dependencies = licenseInventory({
     root,
     rootPackage,
     declared: runtimeDependencies,
+    // Audit the whole installed production closure npm ships, not just the
+    // declared top-level names: transitive production packages (for example
+    // @byokit/accounts -> @anthropic-ai/sdk) are installed beside the CLI
+    // and must pass the same license allow-list.
+    closure: true,
 });
 writeThirdPartyInventory({
     inventoryPath: join(out, 'THIRD_PARTY_LICENSES.json'),

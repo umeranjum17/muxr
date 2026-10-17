@@ -571,8 +571,9 @@ try {
     for (const dependency of licenseInventory.dependencies) {
         if (dependency.transitiveOf !== undefined) {
             assert.equal(dependency.declaredRange, null);
-            assert.ok(['ccusage', '@desklink/host'].includes(dependency.transitiveOf), `${dependency.name} is transitive of ${dependency.transitiveOf}`);
-            assert.equal(dependency.auditedVersion, packageJson.dependencies[dependency.transitiveOf]);
+            if (['ccusage', '@desklink/host'].includes(dependency.transitiveOf)) {
+                assert.equal(dependency.auditedVersion, packageJson.dependencies[dependency.transitiveOf]);
+            }
         } else {
             assert.equal(dependency.declaredRange, dependency.bundled ? null : packageJson.dependencies[dependency.name]);
         }
@@ -585,6 +586,13 @@ try {
     for (const target of ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']) {
         assert.ok(licenseInventory.dependencies.some((dependency) => dependency.name === `@ccusage/ccusage-${target}` && dependency.transitiveOf === 'ccusage'), `${target} ccusage binary missing from license audit`);
     }
+    // The inventory covers the installed production closure, not just the
+    // declared top level: a transitive production package npm installs must
+    // be audited with its parent recorded.
+    const anthropicSdk = licenseInventory.dependencies.filter((dependency) => dependency.name === '@anthropic-ai/sdk');
+    assert.ok(anthropicSdk.length > 0, 'transitive @anthropic-ai/sdk missing from license audit');
+    assert.ok(anthropicSdk.every((dependency) => dependency.transitiveOf !== undefined), '@anthropic-ai/sdk must be audited as a transitive dependency');
+    assert.ok(anthropicSdk.some((dependency) => dependency.transitiveOf === '@byokit/accounts'), '@anthropic-ai/sdk must be audited transitively via @byokit/accounts');
 
     // The desktop AppImage carries its own generated inventory through the
     // same generator: audit the snapshot's real desktop bundles, lay the output
