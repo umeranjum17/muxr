@@ -61,9 +61,9 @@ function endedCopy(snapshot: SessionSnapshot): { detail: string; canRetry: boole
  *
  * `pictured` is whether this open has shown a frame. A transport failure or a
  * lost connection before any frame is the network having no path for the picture. The
- * app can carry it through the relay as a last resort; a `browser` cannot, so it says so.
+ * app can carry it through the relay as a last resort.
  */
-export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore = true, consentSecondsLeft: number | null = null, pictured = true, browser = false): DesktopOverlay {
+export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore = true, consentSecondsLeft: number | null = null, pictured = true): DesktopOverlay {
     if (snapshot.status === 'failed' && snapshot.failure?.code === 'consent') {
         // The prompt was on the computer, where nobody answered it; the host's
         // own wording would only say that it timed out.
@@ -84,8 +84,7 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
     const noPath = (snapshot.status === 'failed' && (snapshot.failure?.code === 'transport' || snapshot.failure?.code === 'never-connected'))
         || (snapshot.status === 'ended' && snapshot.failure?.message === 'the connection to the phone was lost');
     if (noPath && !pictured) {
-        const detail = browser ? desktopCopy.unreachableBodyBrowser : desktopCopy.unreachableBody;
-        return { title: desktopCopy.unreachableTitle, detail, spinner: false, canRetry: true };
+        return { title: desktopCopy.unreachableTitle, detail: desktopCopy.unreachableBody, spinner: false, canRetry: true };
     }
     if (snapshot.status === 'failed') {
         return {

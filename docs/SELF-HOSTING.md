@@ -76,7 +76,7 @@ Automation uses:
 | *(Works only on this Wi-Fi)* | Kept only for a computer already set up on it. Home network only. |
 | *(choose Direct SSH in the native app)* | Pair through the host's loopback relay over SSH; see [Direct SSH](#direct-ssh). |
 
-The computer's screen (**Computer**) goes straight from the computer to the phone when they can reach each other. When the only way between them is the relay (a temporary link, or your own server while the phone is on mobile data), the native app carries the picture through the relay instead, still end-to-end encrypted. That path is slower, about 7 Mbps at 300 ms round trip. A browser cannot use it, so the installed web app shows the screen only on the same Wi-Fi, Tailscale, or another direct path.
+The computer's screen (**Computer**) goes straight from the computer to the phone when they can reach each other. When the only way between them is the relay (a temporary link, or your own server while the phone is on mobile data), the native app carries the picture through the relay instead, still end-to-end encrypted. That path is slower; its throughput is an estimate of about 7 Mbps at 300 ms round trip, not a measured figure. A browser cannot use it, so the installed web app shows the screen only on the same Wi-Fi, Tailscale, or another direct path.
 
 For either Tailscale route, install the free Tailscale app on your phone and sign in to the same account before pairing.
 Nearby mDNS discovery is only a locator for an already-paired native app; it

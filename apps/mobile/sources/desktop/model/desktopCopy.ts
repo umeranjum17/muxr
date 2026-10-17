@@ -29,7 +29,6 @@ export const desktopCopy = {
     portalBusyNoticeBody: 'The screen-share window on the computer is stuck. Close it there, then tap Try again.',
     unreachableTitle: "Can't show this computer's screen from here",
     unreachableBody: 'The screen goes straight from your computer to this phone, and this network has no way through. Use the same Wi-Fi, Tailscale, or Direct SSH, then try again.',
-    unreachableBodyBrowser: 'A browser can show the screen only when it reaches your computer directly. Open muxr in the app, or use the same Wi-Fi or Tailscale, then try again.',
     awaitingConsentTitle: 'Waiting for screen sharing',
     awaitingConsentBody: 'If a prompt appears on the computer, approve it there. Another app’s picker may be blocking this request.',
     endedTitle: 'Desktop closed',
