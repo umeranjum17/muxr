@@ -584,7 +584,7 @@ it('keeps the mirror view up when the host announces a preview kind this build d
     await TestRenderer.act(async () => view.unmount());
 });
 
-it('says the network has no way through when an open never shows a frame, and not after one did', async () => {
+it('says the network has no way through when the open never connected, and not for other failures', async () => {
     openedBefore = true;
     session.snapshot.status = 'idle';
     session.snapshot.presented = false;
@@ -602,23 +602,21 @@ it('says the network has no way through when an open never shows a frame, and no
     requestDesktop('computer', 'N');
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="N" onExit={() => undefined} />); });
 
-    // Every reopen the kit spends on it ends the same way: no picture ever came.
+    // The kit ends a first open whose path never formed once, with its own code.
     await become('opening');
-    await become('failed', false, transport);
-    await become('reconnecting');
-    await become('opening');
-    await become('failed', false, transport);
+    await become('failed', false, { code: 'never-connected', message: 'No network path to the desktop ever formed.' });
     expect(shows(noPath)).toBe(true);
     expect(shows(generic)).toBe(false);
     expect(root().findAllByProps({ accessibilityLabel: 'Try again' }).length).toBeGreaterThan(0);
 
-    // Try again on a path that works: once a frame showed, a later loss is not the network's verdict.
+    // A path that formed but gave no frame, or was lost after one, is not the network's verdict.
+    await become('opening');
+    await become('failed', false, transport);
+    expect(shows(generic)).toBe(true);
+    expect(shows(noPath)).toBe(false);
     await become('opening');
     await become('live', true);
     await become('failed', true, transport);
-    await become('reconnecting');
-    await become('opening');
-    await become('failed', false, transport);
     expect(shows(generic)).toBe(true);
     expect(shows(noPath)).toBe(false);
 
@@ -626,20 +624,6 @@ it('says the network has no way through when an open never shows a frame, and no
     await become('opening');
     await become('failed', false, { code: 'consent', message: 'timed out' });
     expect(shows('Screen sharing was not approved')).toBe(true);
-
-    // Native: the engine revokes the open for a lost phone before the kit gives up.
-    const lost = { code: 'revoked', message: 'the connection to the phone was lost' };
-    await become('opening');
-    await become('failed', false, transport);
-    await become('reconnecting');
-    await become('opening');
-    await become('ended', false, lost);
-    expect(shows(noPath)).toBe(true);
-    await become('opening');
-    await become('live', true);
-    await become('ended', true, lost);
-    expect(shows('Desktop closed')).toBe(true);
-    expect(shows(noPath)).toBe(false);
 
     session.snapshot.failure = null;
     await TestRenderer.act(async () => view.unmount());
