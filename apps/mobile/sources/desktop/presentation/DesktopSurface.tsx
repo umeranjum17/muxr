@@ -772,7 +772,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                 {overlayShown && (
                     <Animated.View exiting={FadeOut.duration(250).reduceMotion(ReduceMotion.System)} style={[styles.overlay, preview && { bottom: TOOLBAR + bottomInset }]}>
                         {/* Scrolls when large text makes the words taller than the screen, so Try again stays reachable. */}
-                        <ScrollView style={styles.overlayScroll} contentContainerStyle={styles.overlayContent}>
+                        <ScrollView style={styles.overlayScroll} contentContainerStyle={[styles.overlayContent, { paddingBottom: 16 + (preview ? 0 : insets.bottom) }]}>
                             {status.spinner && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                             <Text style={[styles.overlayTitle, { color: theme.colors.text }]}>{status.title}</Text>
                             {status.detail !== undefined && (
