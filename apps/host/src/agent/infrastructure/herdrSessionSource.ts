@@ -1578,13 +1578,21 @@ export async function createHerdrSessionSource(
     /**
      * One poll tick against the push-maintained tree: a landed revision has
      * already been indexed, so a tick re-reads only when none has moved since
-     * its previous look — and the first look always re-reads, so no host-seeded
-     * launch overlay stands in for Herdr's own record.
+     * its previous look and that look was not itself a re-read — the first look
+     * always re-reads, so no host-seeded launch overlay stands in for Herdr's
+     * own record.
      */
     function refreshIfStale(): () => Promise<void> {
         let seen = client.kit.snapshot().revision;
+        let justRefreshed = false;
         return async () => {
-            if (client.kit.snapshot().revision === seen) await refreshSnapshot();
+            const revision = client.kit.snapshot().revision;
+            if (revision === seen && !justRefreshed) {
+                await refreshSnapshot();
+                justRefreshed = true;
+            } else {
+                justRefreshed = false;
+            }
             seen = client.kit.snapshot().revision;
         };
     }
