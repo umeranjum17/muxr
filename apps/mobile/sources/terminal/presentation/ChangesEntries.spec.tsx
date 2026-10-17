@@ -17,6 +17,7 @@ vi.mock('react-native', () => ({
     Pressable: 'Pressable',
     Text: 'Text',
     View: 'View',
+    useWindowDimensions: () => ({ width: 393, height: 852, scale: 3, fontScale: 1 }),
 }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: { create: (value: unknown) => value },
