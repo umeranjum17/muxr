@@ -159,6 +159,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
         async request<T>(method: string, params?: Record<string, unknown>): Promise<T> {
             switch (method) {
                 case 'session.open': {
+                    closeForwards();
                     carrier = sshRouteActive() ? 'ssh' : linkTcpBridgeSupported && options.target === undefined ? 'link' : null;
                     options.onOpenSent?.();
                     const opened = await sync.request('desktop.open', {
