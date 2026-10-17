@@ -292,8 +292,8 @@ has no direct path, its ICE-over-TCP connection to the engine's loopback
 candidate rides a `desktop.tcp` link stream (DTLS inside Noise, so still blind
 here). The host opens only a port that device's own session announced. A
 browser cannot dial a socket the page holds, so the PWA needs a direct path.
-Older app builds and pre-cutover pairings must update and pair again. For connection
-routes and pairing instructions, see [Self-hosting](SELF-HOSTING.md).
+Older app builds and pre-cutover pairings must update and pair again. For
+connection routes and pairing instructions, see [Self-hosting](SELF-HOSTING.md).
 
 ## Not built
 
