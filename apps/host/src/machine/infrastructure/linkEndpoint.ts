@@ -681,7 +681,11 @@ async function streamDesktopTcp(stream: LinkStream, req: LinkRequest, grant: Gra
         throw new PublicLinkError('desktop: that connection is not open to this device');
     }
     const socket = connect({ host: '127.0.0.1', port: args.port });
+    process.stderr.write('link: desktop picture carried over the link\n');
+    let carried = 0;
+    socket.on('close', () => process.stderr.write(`link: desktop link connection closed after ${carried} bytes to the phone\n`));
     socket.on('data', (chunk) => {
+        carried += chunk.length;
         socket.pause();
         stream.write(chunk).then(() => socket.resume(), () => socket.destroy());
     });
