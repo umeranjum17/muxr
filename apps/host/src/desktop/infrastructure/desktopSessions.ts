@@ -686,7 +686,11 @@ function toDesktopEvent(event: { event: string; params: Record<string, unknown> 
                 firstFrame: event.params.firstFrame === true,
             };
         case 'session.revoked':
-            return { kind: 'revoked', reason: String(event.params.reason ?? 'the desktop session ended') };
+            return {
+                kind: 'revoked',
+                reason: String(event.params.reason ?? 'the desktop session ended'),
+                ...(typeof event.params.code === 'string' ? { code: event.params.code } : {}),
+            };
         default:
             // A notification this host does not know — a restore token, or a
             // newer engine's addition — is not a reason to end the session.
