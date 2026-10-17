@@ -223,11 +223,13 @@ const stopped = { done: false };
 let emulator;
 let spawned;
 let stack;
+let stackStarting = Promise.resolve();
 let watch;
 // A lock timeout ends this run with SIGTERM; it must not strand the emulator or stack.
 process.once('SIGTERM', async () => {
     say('RESULT FAIL: terminated');
     stopped.done = true;
+    await stackStarting.catch(() => undefined);
     stack?.stop();
     if (emulator === undefined && spawned !== undefined) {
         try { process.kill(-spawned.pid, 'SIGKILL'); } catch { /* group already gone */ }
@@ -240,7 +242,8 @@ try {
     emulator = await bootOwnedEmulator({ name: 'muxr-dictation-lab', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: opts.launcher ? [opts.launcher] : [], onSpawn: (child) => { spawned = child; } });
     serial = emulator.serial;
     say(`emulator ${serial} booted`);
-    stack = await startFakeStack({ panes: 3, agents: 2 });
+    stackStarting = startFakeStack({ panes: 3, agents: 2 }).then((started) => { stack = started; });
+    await stackStarting;
     say(`fake stack relay port ${stack.relayPort}`);
     watch = serviceWatch(stopped);
     const quiet = await pcm('quiet', join(FIXTURES, 'quiet.wav'));
