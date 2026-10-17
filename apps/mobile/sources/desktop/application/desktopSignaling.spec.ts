@@ -1,3 +1,5 @@
+import { createElement } from 'react';
+import TestRenderer, { act } from 'react-test-renderer';
 import { expect, it, vi } from 'vitest';
 
 const { request, ssh } = vi.hoisted(() => ({
@@ -11,6 +13,14 @@ vi.mock('@/connection', () => ({
     closeSshForward: ssh.close,
 }));
 
+vi.mock('react-native', () => ({ Platform: { OS: 'android' }, AppState: { addEventListener: () => ({ remove: () => undefined }) } }));
+vi.mock('expo-modules-core', () => ({
+    requireOptionalNativeModule: () => ({ createSession: () => 'native-1', isAvailable: () => true, setInputEnabled: () => true, closeSession: () => true, addListener: () => ({ remove: () => undefined }) }),
+}));
+
+import { desktopCopy } from '../model/desktopCopy';
+import { describeDesktopOverlay } from '../model/desktopOverlay';
+import { useDesktopSession, type DesktopSession } from '../../../../../node_modules/@desklink/react-native/src/useDesktopSession';
 import { createDesktopSignaling } from './desktopSignaling';
 
 it('delivers the initial offer, candidate and revocation even when polling wins the subscription race', async () => {
@@ -89,5 +99,32 @@ it('carries the picture through the SSH connection when that is the only way to 
     expect(direct.open).not.toHaveProperty('loopbackTcp');
     expect(direct.received.map((event) => event.kind)).toEqual(['description']);
     expect(ssh.open).not.toHaveBeenCalled();
+    request.mockReset();
+});
+
+it('ends a first open the engine revokes for a lost path as the no-connection message', async () => {
+    let served = false;
+    request.mockImplementation(async (method: string) => {
+        if (method === 'desktop.open') return { desktopId: 'desktop-3', generation: 1, source: {}, geometry: {} };
+        if (method === 'desktop.poll') {
+            const events = served ? [] : [{ kind: 'revoked', reason: 'the connection to the phone was lost', code: 'transport' }];
+            served = true;
+            return { cursor: 1, events };
+        }
+        return { closed: true };
+    });
+    const signaling = createDesktopSignaling({ permissions: ['view'] });
+    let session!: DesktopSession;
+    const Probe = () => {
+        session = useDesktopSession({ authorize: async () => ({ signaling, session: { permissions: ['view'] } }) });
+        return null;
+    };
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(createElement(Probe)); });
+    await act(async () => { await session.connect(); });
+    await vi.waitFor(() => expect(session.snapshot.status).toBe('failed'), { timeout: 5000 });
+    expect(session.snapshot.failure?.code).toBe('never-connected');
+    expect(describeDesktopOverlay(session.snapshot)).toMatchObject({ title: desktopCopy.unreachableTitle, detail: desktopCopy.unreachableBody });
+    act(() => renderer.unmount());
     request.mockReset();
 });
