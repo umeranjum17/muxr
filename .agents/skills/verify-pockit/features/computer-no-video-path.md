@@ -17,8 +17,7 @@ failure; one after a frame reconnects through the kit's reopen policy and shows
   open for the lost phone — its `transport` code reaches the kit through the
   host — whichever comes first; no reopens) the view reads "Can't show this
   computer's screen from here" with the Wi-Fi / Tailscale / Direct SSH body
-  and Try again. Before the overlay was keyed on `never-connected`, desklink
-  0.5.8 showed the generic "Couldn't open this computer" here instead.
+  and Try again.
 - `retry` Try again starts a new open ("Starting desktop…").
 - `large-text` at the largest text the overlay scrolls, so Try again is
   reachable (on main it was cut off).
@@ -32,7 +31,7 @@ failure; one after a frame reconnects through the kit's reopen policy and shows
 
 Pair with the lab computer, open the agent, Pane actions -> Computer, and
 wait. Without a video path the Computer view stays on "Starting desktop…"
-for about 20 s, then shows the message.
+until the `nopath` timing above, then shows the message.
 
 ## Driving it with the private stack
 
@@ -56,8 +55,9 @@ Installed PWA (no UDP path):
 5. Pair with `__MUXR_LAB_PAIR__`, `emulate --viewport 270x594x2,mobile,touch`,
    then `node noVideoPathLab.mjs tap <debug> 'Open Pi 1, pi · Idle'`,
    `… tap <debug> 'Pane actions'`, `… tap <debug> Computer`. Poll
-   `document.body.innerText` for `Try again` (desklink ends the open as `never-connected` within about 20 s), then shoot each
-   cell and run `visualCheck.mjs pwa-check`; at font 2.0 also scroll to the end.
+   `document.body.innerText` for `Try again` (see `nopath` for the timing),
+   then shoot each cell and run `visualCheck.mjs pwa-check`; at font 2.0 also
+   scroll to the end.
 
 Native Android (no UDP path):
 
@@ -82,8 +82,7 @@ Native Android (no UDP path):
 
 - The Computer view over a terminal uses a dark scoped theme, so light and
   dark shots look the same on purpose; label the system mode.
-- The message appears once desklink ends the open as `never-connected`
-  (about 20-25 s on the emulator; sooner when the engine's ICE gives up first
-  and it revokes the open); "Starting desktop…" before that is expected.
+- The message appears once desklink ends the open as `never-connected` (see
+  `nopath`); "Starting desktop…" before that is expected.
 - A theme or viewport change after the failure re-renders the same overlay
   without reopening, so one wait covers every cell.

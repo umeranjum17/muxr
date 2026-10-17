@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
+import TestRenderer from 'react-test-renderer';
 import { expect, it, vi } from 'vitest';
 
 const { request, ssh } = vi.hoisted(() => ({
@@ -119,12 +119,12 @@ it('ends a first open the engine revokes for a lost path as the no-connection me
         session = useDesktopSession({ authorize: async () => ({ signaling, session: { permissions: ['view'] } }) });
         return null;
     };
-    let renderer!: TestRenderer.ReactTestRenderer;
-    act(() => { renderer = TestRenderer.create(createElement(Probe)); });
-    await act(async () => { await session.connect(); });
+    let renderer!: ReturnType<typeof TestRenderer.create>;
+    TestRenderer.act(() => { renderer = TestRenderer.create(createElement(Probe)); });
+    await TestRenderer.act(async () => { await session.connect(); });
     await vi.waitFor(() => expect(session.snapshot.status).toBe('failed'), { timeout: 5000 });
     expect(session.snapshot.failure?.code).toBe('never-connected');
     expect(describeDesktopOverlay(session.snapshot)).toMatchObject({ title: desktopCopy.unreachableTitle, detail: desktopCopy.unreachableBody });
-    act(() => renderer.unmount());
+    TestRenderer.act(() => renderer.unmount());
     request.mockReset();
 });

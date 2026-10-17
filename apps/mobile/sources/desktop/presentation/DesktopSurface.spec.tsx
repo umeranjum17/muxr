@@ -20,7 +20,7 @@ const appState = vi.hoisted(() => new Set<(state: string) => void>());
 const platform = vi.hoisted(() => ({ OS: 'web' }));
 const orientation: string[] = [];
 const session = {
-    snapshot: { status: 'live', failure: null, diagnostics: {}, presented: true },
+    snapshot: { status: 'live', failure: null as { code: string; message: string } | null, diagnostics: {}, presented: true },
     nativeId: 'surface',
     connect: vi.fn(async () => { await authorize(); }),
     close: vi.fn(async () => undefined),
