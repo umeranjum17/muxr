@@ -608,7 +608,7 @@ describe('native pairing over the byokit link', () => {
     it('lists and revokes a link-paired phone from the host record', async () => {
         const state = readSelfhostState();
         const paired = state.machine.crypto.devices;
-        expect(paired).toHaveLength(7);
+        expect(paired).toHaveLength(8);
         const target = paired[0]!;
         const listing = launch([cliMain, 'devices', 'list']);
         await until(() => (listing.exitCode === null ? undefined : listing.exitCode), 'devices list finishes');
