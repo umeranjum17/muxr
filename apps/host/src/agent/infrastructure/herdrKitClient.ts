@@ -86,10 +86,13 @@ export class KitHerdrClient implements HerdrCaller {
             path: (process.env.PATH ?? '').split(delimiter).filter((dir) => dir !== ''),
             onState: (state) => {
                 const ready = state.phase === 'ready';
+                const wasReady = this.connected;
                 this.connected = ready;
                 // The batch socket heals itself; the session source still
                 // re-indexes the kit tree when herdr comes back after an outage.
-                if (ready && this.started) this.onReconnect();
+                // Every bootstrap reports ready, so only the down-to-ready
+                // transition may read as a reconnect.
+                if (ready && !wasReady && this.started) this.onReconnect();
             },
         });
         // The kit taps its own batch and per-pane status sockets through

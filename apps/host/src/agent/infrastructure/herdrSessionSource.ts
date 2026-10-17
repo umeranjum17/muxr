@@ -1401,7 +1401,6 @@ export async function createHerdrSessionSource(
         rehydratePendingLaunches();
         adoptPublishedLaunches();
         await sweepStaleLaunches();
-        restoreInFlightLaunches();
         const liveRefs: HerdrAgentSessionRef[] = [];
         const seenRefs = new Set<string>();
         for (const agent of agentsByPane.values()) {
@@ -1567,7 +1566,6 @@ export async function createHerdrSessionSource(
         if (disposed) throw new Error('herdr: source disposed');
         await client.kit.refresh();
         if (disposed) throw new Error('herdr: source disposed');
-        syncFromKit();
         await syncDiscovery();
     }
 
