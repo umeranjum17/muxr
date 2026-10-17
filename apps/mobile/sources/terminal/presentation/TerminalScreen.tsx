@@ -191,6 +191,11 @@ function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnis
 
 export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean; preview?: boolean }) => {
     const { width: windowWidth, fontScale } = useWindowDimensions();
+    // The installed PWA takes the system text size as page zoom, so at the
+    // largest text a 270 dp phone is 135 CSS px wide and every fixed-size
+    // control doubles against it. Native never gets this narrow (its controls
+    // keep their size; only text grows), so it keeps the full header and rail.
+    const narrowChrome = windowWidth < NARROW_SHEET_WINDOW;
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const isFocused = useIsFocused();
     const socketStatus = useSocketStatus();
@@ -1560,8 +1565,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             gap: 2,
                             // The back glyph starts on the rail's glyph column
                             // (16) and the ⋮ sits over the trailing circle's centre.
-                            paddingLeft: 10,
-                            paddingRight: 11,
+                            paddingLeft: narrowChrome ? 4 : 10,
+                            paddingRight: narrowChrome ? 4 : 11,
                             paddingTop: 0,
                             backgroundColor: theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'],
                         }, ringRecede]}
@@ -1571,17 +1576,19 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
                         <Pressable onPress={() => { setActionsOpen(false); setOverviewOpen(true); }} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentWhoLine(labels)}${currentPane?.planAccount !== undefined ? `. On ${currentPane.planAccount}` : unknownAccount === undefined ? '' : '. Account unknown'}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. Open panes` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
-                            {identityKnown && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
+                            {/* A narrow header keeps the task and the status dot; the
+                                glyph, the name and the status word stay in the label. */}
+                            {identityKnown && !narrowChrome && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
                             {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{contextTitle}</Text>}
                             {/* Whose task it is, after the task: the same order as the
                                 Spaces row that opened this. A name is short, so the task
                                 gives way first. */}
-                            {identityKnown && contextName !== undefined && <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: '40%', color: theme.colors.textSecondary, fontSize: 13 }}>{contextName}</Text>}
+                            {identityKnown && contextName !== undefined && !narrowChrome && <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: '40%', color: theme.colors.textSecondary, fontSize: 13 }}>{contextName}</Text>}
                             {/* The plan account it runs on, only when there is a choice of
                                 account, or "Account unknown" when its check failed (the
                                 reason opens on tap). In this row, not a new one: chrome that
                                 appears late would re-attach the terminal. */}
-                            {identityKnown && (currentPane?.planAccount !== undefined || unknownAccount !== undefined) && <Text numberOfLines={1} accessibilityRole={currentPane?.planAccount === undefined ? 'button' : undefined} onPress={currentPane?.planAccount === undefined ? () => Modal.alert("Couldn't check which account it is on", unknownAccount) : undefined} style={{ flexShrink: 0, maxWidth: '30%', color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>{currentPane?.planAccount ?? 'Account unknown'}</Text>}
+                            {identityKnown && !narrowChrome && (currentPane?.planAccount !== undefined || unknownAccount !== undefined) && <Text numberOfLines={1} accessibilityRole={currentPane?.planAccount === undefined ? 'button' : undefined} onPress={currentPane?.planAccount === undefined ? () => Modal.alert("Couldn't check which account it is on", unknownAccount) : undefined} style={{ flexShrink: 0, maxWidth: '30%', color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>{currentPane?.planAccount ?? 'Account unknown'}</Text>}
                             {identityKnown && <HeaderChangesPill count={changesCount} compact={windowWidth / fontScale < 360} onPress={openChanges} />}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
@@ -1592,15 +1599,17 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: headerStatus.color }} />
                                 {/* A narrow header gives the chip (or, at the largest text, the
                                     changes pill) the word's room; the dot and the label keep it. */}
-                                {!(preview.shown !== undefined && windowWidth < 340) && !(changesCount !== null && changesCount > 0 && windowWidth / fontScale < 240) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
+                                {!narrowChrome && !(preview.shown !== undefined && windowWidth < 340) && !(changesCount !== null && changesCount > 0 && windowWidth / fontScale < 240) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
                             </View>}
                         </Pressable>
                         <PreviewChip preview={preview.shown} live={preview.live} openable={preview.openable} labelled={preview.openable && preview.tooltip.open} onPress={watchPreview} onLayout={setPreviewChipBox} />
                         {/* Position in the tab and the way into the pane overview:
                             borderless and tiny; loading shows as such, never as 0/0.
                             At one pane it says nothing, and what the overview
-                            offers there (new pane, close) is on the rail and in ⋮. */}
-                        {(!treeLoaded || located === undefined || paneTotal > 1) && <Pressable
+                            offers there (new pane, close) is on the rail and in ⋮.
+                            A narrow header leaves it to the title, which opens
+                            the same overview. */}
+                        {!narrowChrome && (!treeLoaded || located === undefined || paneTotal > 1) && <Pressable
                             onPress={() => { setActionsOpen(false); setOverviewOpen(true); }}
                             disabled={!treeLoaded || located === undefined}
                             accessibilityRole="button"
@@ -1894,11 +1903,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         slab carrying five: a leading circle, the field — the
                         only container here — and one trailing circle that is
                         the realtime agent while the field is empty and becomes
-                        send the moment there is something to send. */}
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 8, paddingTop: 4, paddingBottom: insets.bottom + 8 }}>
-                        {!dictationActive && attachmentAction}
+                        send the moment there is something to send. A narrow
+                        rail cannot fit a field between the two circles, so
+                        the field takes the first line and the circles,
+                        microphone included, the second. */}
+                    <View style={{ flexDirection: 'row', flexWrap: narrowChrome ? 'wrap' : 'nowrap', alignItems: 'flex-end', gap: 8, paddingHorizontal: 8, paddingTop: 4, paddingBottom: insets.bottom + 8 }}>
+                        {!dictationActive && !narrowChrome && attachmentAction}
                         <View style={{
                             flex: 1,
+                            flexBasis: narrowChrome ? '100%' : undefined,
                             minHeight: RAIL_MEASURE,
                             // A pill, always: the radius is half the collapsed
                             // height, so the field keeps the rail's one round
@@ -1915,10 +1928,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             {dictationActive ? <DictationStrip dictation={dictation} control={inField} /> : <>
                                 {composerInput}
                                 {clearAction}
-                                {dictateAction}
+                                {!narrowChrome && dictateAction}
                             </>}
                         </View>
-                        {!dictationActive && trailingAction}
+                        {!dictationActive && narrowChrome && <View style={{ width: '100%', flexDirection: 'row', gap: 4 }}>
+                            {attachmentAction}
+                            {railEnd(<DictateAction dictation={dictation} control={endCircle(false)} />)}
+                            <View style={{ marginLeft: 'auto' }}>{trailingAction}</View>
+                        </View>}
+                        {!dictationActive && !narrowChrome && trailingAction}
                     </View>
                     </View>}
                     </Animated.View>

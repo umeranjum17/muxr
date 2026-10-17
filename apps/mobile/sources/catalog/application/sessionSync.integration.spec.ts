@@ -583,28 +583,28 @@ describe('session sync flow', () => {
         const { startAgent } = await import('@/spawn/application/StartAgent');
         const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
         const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
-        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/umer' } } as never;
+        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/user' } } as never;
         const cwds = () => request.mock.calls.map(([, params]) => (params as { cwd: string }).cwd);
 
         // New agent: the person picks their project folder.
-        await expect(startAgent({ directory: '/home/umer/notes-app', kinds: ['shell'], squad: false, worktree: false }))
+        await expect(startAgent({ directory: '/home/user/notes-app', kinds: ['shell'], squad: false, worktree: false }))
             .resolves.toMatchObject({ ok: true });
         // Home's Start, with no folder picked there, goes to the same folder, not ~.
         useNewSessionDraft.setState({ selectedPath: null, agentType: 'shell', input: '', attachments: [] });
         await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
         // A folder picked on Home is what New agent opens on next.
-        useNewSessionDraft.getState().setPath('/home/umer/api');
+        useNewSessionDraft.getState().setPath('/home/user/api');
         await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
 
-        expect(cwds()).toEqual(['/home/umer/notes-app', '/home/umer/notes-app', '/home/umer/api']);
-        expect(savedConnection.lastSessionCwd).toBe('/home/umer/api');
+        expect(cwds()).toEqual(['/home/user/notes-app', '/home/user/notes-app', '/home/user/api']);
+        expect(savedConnection.lastSessionCwd).toBe('/home/user/api');
     });
 
     it('frees Home right after the spawn while the first prompt delivers', async () => {
         const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
         const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
         const { isFirstPromptQueued, useQueuedFirstPrompts } = await import('@/terminal/application/queuedFirstPrompts');
-        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/umer' } } as never;
+        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/user' } } as never;
         request.mockImplementation(async (method: string) => {
             if (method === 'plans.list') return { providers: [], autoTermsAcknowledged: true, autoTermsNote: '' };
             if (method !== 'session.start') throw new Error(`unexpected request: ${method}`);
@@ -618,7 +618,7 @@ describe('session sync flow', () => {
         let releaseDelivery!: () => void;
         sendMessage.mockReset().mockImplementationOnce(() => new Promise<void>((resolve) => { releaseDelivery = resolve; }));
         useQueuedFirstPrompts.setState({});
-        useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'opencode', input: 'queued hello', attachments: [] });
+        useNewSessionDraft.setState({ selectedPath: '/home/user/notes-app', agentType: 'opencode', input: 'queued hello', attachments: [] });
         let routed: string | undefined;
         const started = await startSessionFromDraft({ machines: [machine], navigateToSession: (id) => { routed = id; } });
         // Home is gated on the spawn alone: this returns while delivery hangs.
@@ -637,7 +637,7 @@ describe('session sync flow', () => {
         const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
         const { useQueuedFirstPrompts } = await import('@/terminal/application/queuedFirstPrompts');
         const { readFileBytes } = await import('@/utils/readFileBytes');
-        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/umer' } } as never;
+        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/user' } } as never;
         const shot = { id: 'shot', uri: 'blob:shot', mimeType: 'image/png', size: 3, name: 'shot.png' };
         vi.mocked(readFileBytes).mockResolvedValue(new Uint8Array([1, 2, 3]));
         request.mockImplementation(async (method: string) => {
@@ -654,7 +654,7 @@ describe('session sync flow', () => {
         sendMessage.mockReset().mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { failDelivery = reject; }));
         modalAlert.mockClear();
         useQueuedFirstPrompts.setState({});
-        useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'shell', input: 'hello again', attachments: [shot] });
+        useNewSessionDraft.setState({ selectedPath: '/home/user/notes-app', agentType: 'shell', input: 'hello again', attachments: [shot] });
         expect(await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined })).toBeNull();
         expect(request).not.toHaveBeenCalled();
         expect(sendMessage).not.toHaveBeenCalled();
@@ -686,7 +686,7 @@ describe('session sync flow', () => {
         const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
         const { useQueuedFirstPrompts } = await import('@/terminal/application/queuedFirstPrompts');
         const { readFileBytes } = await import('@/utils/readFileBytes');
-        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/umer' } } as never;
+        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/user' } } as never;
         const shot = { id: 'shot', uri: 'blob:shot', mimeType: 'image/png', size: 3, name: 'shot.png' };
         vi.mocked(readFileBytes).mockResolvedValue(new Uint8Array([1, 2, 3]));
         request.mockImplementation(async (method: string) => {
@@ -703,7 +703,7 @@ describe('session sync flow', () => {
         sendMessage.mockReset();
         modalAlert.mockClear();
         useQueuedFirstPrompts.setState({});
-        useNewSessionDraft.setState({ selectedPath: '/home/umer/notes-app', agentType: 'opencode', input: 'hello again', attachments: [shot] });
+        useNewSessionDraft.setState({ selectedPath: '/home/user/notes-app', agentType: 'opencode', input: 'hello again', attachments: [shot] });
         const started = await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined });
         expect(started).toBe('doomed');
         await vi.waitFor(() => expect(modalAlert).toHaveBeenCalledTimes(1));

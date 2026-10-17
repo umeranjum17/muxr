@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
 import type { EngineCapabilities, EngineEvent, SourceRequest } from '@desklink/host';
-import { DESKTOP_CONSENT_WAIT_MS } from '@trymuxr/contract';
+import { DESKTOP_CONSENT_WAIT_MS, DESKTOP_NO_PICTURE } from '@trymuxr/contract';
 import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@trymuxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
@@ -173,6 +173,8 @@ export class DesktopSessions {
 
     private readonly environment: NodeJS.ProcessEnv = process.env;
     private readonly portalGrant: PortalGrant | undefined;
+    /** The grant the portal returned for the latest open, saved only once that open succeeds. */
+    private earnedGrant: { sessionId: string; token: string } | undefined;
     private readonly virtualDisplay: VirtualDisplay;
 
     constructor(options: DesktopEngineOptions = {}, private readonly x11SocketDirectory = X11_SOCKET_DIRECTORY) {
@@ -301,19 +303,28 @@ export class DesktopSessions {
             // desktop and saves the grant that stops later opens asking.
         };
         const timeout = source?.kind !== 'x11' && request.awaitConsent === true ? DESKTOP_CONSENT_WAIT_MS : undefined;
+        // A grant the portal hands back is kept only once its open succeeds,
+        // which the engine allows only after capture delivers a first frame: a
+        // share that never showed anything still earns one, and saving it would
+        // restore the same failing source on every later open.
+        this.earnedGrant = undefined;
         const opened = await client.openSession(openParams, timeout).catch(async (error: unknown) => {
-            if (!(error instanceof EngineRefused) || error.code !== 'source' || error.message !== 'capture did not start within 10s') throw error;
-            // The portal may have selected a screen while another screencast
-            // starved PipeWire. Its replacement grant is single-use too.
-            const rotated = takeGrant();
-            if (rotated !== undefined) {
+            if (!captureNeverStarted(error)) throw error;
+            // A restored grant whose capture never started points at a source
+            // that is gone: ask again, so the portal shows its picker. A fresh
+            // choice may have lost to another screencast starving PipeWire;
+            // the grant it just earned gets one more go without a second picker.
+            const retryToken = restoreToken === undefined ? this.earnedGrant?.token : undefined;
+            this.earnedGrant = undefined;
+            if (restoreToken !== undefined || retryToken !== undefined) {
+                const { restoreToken: _spent, ...fresh } = openParams;
                 try {
-                    return await client.openSession({ ...openParams, restoreToken: rotated }, timeout);
+                    return await client.openSession(retryToken === undefined ? fresh : { ...fresh, restoreToken: retryToken }, timeout);
                 } catch (retryError) {
-                    if (!(retryError instanceof EngineRefused) || retryError.code !== 'source' || retryError.message !== 'capture did not start within 10s') throw retryError;
+                    if (!captureNeverStarted(retryError)) throw retryError;
                 }
             }
-            throw new EngineRefused('source', 'Screen sharing started, but this computer did not receive video. Close other screen-sharing apps on the computer, then try again.');
+            throw new EngineRefused('source', DESKTOP_NO_PICTURE);
         }).finally(() => {
             for (const existing of this.sessions.values()) {
                 if (existing.revoked || existing.client !== client) continue;
@@ -322,10 +333,12 @@ export class DesktopSessions {
                 existing.events.push({ kind: 'revoked', reason: 'another device opened this computer' });
             }
         }).catch(async (error: unknown) => {
+            this.earnedGrant = undefined;
             this.opening -= 1;
             await this.stopIfIdle();
             throw error;
         });
+        this.saveGrant(opened.sessionId);
         if (owner !== undefined && !owner.isConnected()) {
             await client.closeSession(opened.sessionId).catch(() => undefined);
             this.opening -= 1;
@@ -467,6 +480,18 @@ export class DesktopSessions {
         await client?.stop().catch(() => undefined);
     }
 
+    /** Persist the grant `sessionId` earned, now that its open has succeeded. */
+    private saveGrant(sessionId: string): void {
+        const earned = this.earnedGrant;
+        if (earned?.sessionId !== sessionId) return;
+        this.earnedGrant = undefined;
+        try {
+            this.portalGrant?.replace(earned.token);
+        } catch {
+            this.options.onDiagnostic?.('Desktop grant could not be saved; next open will require portal consent.');
+        }
+    }
+
     private missingEngineReason(): string {
         return explainMissingEngine(this.options.enginePath) ?? 'The desktop engine is unavailable.';
     }
@@ -566,13 +591,8 @@ export class DesktopSessions {
                         onEvent: (event) => {
                             if (event.event === 'session.restoreToken') {
                                 if (typeof event.params.token !== 'string' || event.params.token === '') return;
-                                // Save immediately, including before session.open answers:
-                                // polling/closing the phone must not lose a rotated token.
-                                try {
-                                    this.portalGrant?.replace(event.params.token);
-                                } catch {
-                                    this.options.onDiagnostic?.('Desktop grant could not be saved; next open will require portal consent.');
-                                }
+                                const sessionId = String(event.params.sessionId ?? '');
+                                this.earnedGrant = { sessionId, token: event.params.token };
                                 return;
                             }
                             this.routeEngineEvent(event);
@@ -617,6 +637,14 @@ export class DesktopSessions {
 function engineSessionIdOf(event: EngineEvent): string | undefined {
     const sessionId = (event.params as { sessionId?: unknown }).sessionId;
     return typeof sessionId === 'string' ? sessionId : undefined;
+}
+
+/**
+ * The portal granted a source but no picture came from it. A refused or
+ * cancelled picker is a `source` error too, and is never retried.
+ */
+function captureNeverStarted(error: unknown): boolean {
+    return error instanceof EngineRefused && error.code === 'source' && error.message.startsWith('capture ');
 }
 
 function toDesktopEvent(event: { event: string; params: Record<string, unknown> }): DesktopEvent | null {

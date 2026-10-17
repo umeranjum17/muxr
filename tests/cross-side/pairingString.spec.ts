@@ -27,7 +27,7 @@ describe('a scanned pairing QR reaches pairing', () => {
     it('routes a real native link offer through app schemes and HTTPS to the Pair screen', async () => {
         const host = await Host.open({ keys: keyPair(), name: 'Desk', handle: () => ({}), confirm: () => true });
         try {
-            const offer = host.offer({ urls: [`ws://100.124.161.1:57709/link/v1/${host.id}`], role: 'control' }).text;
+            const offer = host.offer({ urls: [`ws://100.64.0.10:57709/link/v1/${host.id}`], role: 'control' }).text;
             for (const url of [offer, ...['muxr', 'muxr-dev', 'muxr-preview'].map((scheme) => `${scheme}://pair#${offer}`), `https://relay.example.test/pair#${offer}`]) {
                 expect(looksLikeLinkOffer(url)).toBe(true);
                 expect(redirectSystemPath({ path: url, initial: true })).toBe(`/pair?offer=${encodeURIComponent(offer)}`);
@@ -40,7 +40,7 @@ describe('a scanned pairing QR reaches pairing', () => {
     it('pairs a browser link pasted over plain http, and still names a truly cut-off code', async () => {
         const host = await Host.open({ keys: keyPair(), name: 'Desk', handle: () => ({}), confirm: () => true });
         try {
-            const offer = host.offer({ urls: [`ws://100.124.161.1:57709/link/v1/${host.id}`], role: 'control' }).text;
+            const offer = host.offer({ urls: [`ws://100.64.0.10:57709/link/v1/${host.id}`], role: 'control' }).text;
             // `muxr pair --browser` prints exactly this shape when the relay
             // advertises ws:// (LAN self-host, a lab loopback relay).
             for (const url of [`http://192.168.1.24:8792/pair#${offer}`, `http://127.0.0.1:35747/pair#${offer}`]) {
@@ -124,7 +124,7 @@ describe('a scanned pairing QR reaches pairing', () => {
     it('recognises a real compact offer the way the small-terminal QR prints it', async () => {
         const host = await Host.open({ keys: keyPair(), name: 'Desk', handle: () => ({}), confirm: () => true });
         try {
-            const compact = host.compactOffer({ urls: [`ws://100.124.161.1:57709/link/v1/${host.id}`], role: 'control' }).text;
+            const compact = host.compactOffer({ urls: [`ws://100.64.0.10:57709/link/v1/${host.id}`], role: 'control' }).text;
             // The scanner gate, the paste taxonomy, and the consent name all
             // read the compact shape; anything else carrying the link tag is
             // a cut-off code, never a silent ignore.

@@ -26,12 +26,16 @@ import { QUOTA_RETRY_REASON } from '../domain/quotaRetry.js';
  * until the process is detected, which is the boot window under test.
  */
 function fakeHerdr(dir: string, cwd: string) {
-    const workspaces = [{ workspace_id: 'w1', label: cwd }];
+    const workspaces: Array<{ workspace_id: string; label: string; worktree?: {
+        repo_key?: string; repo_name?: string; checkout_path?: string; is_linked_worktree?: boolean;
+    } }> = [{ workspace_id: 'w1', label: cwd }];
     const tabs: Record<string, unknown>[] = [];
     const panes: Record<string, unknown>[] = [];
     const agents: Record<string, unknown>[] = [];
     /** Like herdr, a pushed event reaches only the sockets subscribed to it; status is per pane. */
     const subscribers = new Map<Socket, Array<{ type: string; pane_id?: string }>>();
+    /** Every wire method the kit sends, so a test can pin which closes a ladder issued. */
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const state: {
         failSnapshot: boolean;
         failSnapshotAfterPrompt: boolean;
@@ -111,7 +115,33 @@ function fakeHerdr(dir: string, cwd: string) {
             },
         };
     };
-    const handlePaneClose = () => ({});
+    const handlePaneClose = (paneId: unknown) => {
+        const index = panes.findIndex((pane) => pane.pane_id === paneId);
+        if (index !== -1) panes.splice(index, 1);
+        for (let i = agents.length - 1; i >= 0; i -= 1) {
+            if (agents[i]?.pane_id === paneId) agents.splice(i, 1);
+        }
+        return {};
+    };
+    // The kit's guarded closes read the live tree before closing: counts come
+    // from the registries, like Herdr derives them.
+    const handleTabGet = (tabId: unknown) => {
+        const tab = tabs.find((entry) => entry.tab_id === tabId);
+        if (tab === undefined) return { error: { code: 'tab_not_found', message: 'tab not found' } };
+        return { tab: { ...tab, pane_count: panes.filter((pane) => pane.tab_id === tabId).length } };
+    };
+    const handleWorkspaceGet = (workspaceId: unknown) => {
+        const workspace = workspaces.find((entry) => entry.workspace_id === workspaceId);
+        if (workspace === undefined) return { error: { code: 'workspace_not_found', message: 'workspace not found' } };
+        return { workspace: { ...workspace, tab_count: tabs.filter((tab) => tab.workspace_id === workspaceId).length } };
+    };
+    const dropTab = (tabId: unknown) => {
+        for (let i = panes.length - 1; i >= 0; i -= 1) {
+            if (panes[i]?.tab_id === tabId) handlePaneClose(panes[i]?.pane_id);
+        }
+        const index = tabs.findIndex((tab) => tab.tab_id === tabId);
+        if (index !== -1) tabs.splice(index, 1);
+    };
     const handleLayoutApply = (params: Record<string, unknown>) => {
         const tab_id = `t${next}`;
         const assign = (node: Record<string, unknown>): Record<string, unknown> => {
@@ -197,6 +227,7 @@ function fakeHerdr(dir: string, cwd: string) {
                     continue;
                 }
                 const p = params ?? {};
+                calls.push({ method, params: p });
                 let reply: unknown;
                 switch (method) {
                     case 'ping':
@@ -224,6 +255,16 @@ function fakeHerdr(dir: string, cwd: string) {
                     case 'pane.get':
                         reply = { id, result: { pane: panes.find((pane) => pane.pane_id === p.pane_id) } };
                         break;
+                    case 'tab.get': {
+                        const answer = handleTabGet(p.tab_id);
+                        reply = 'error' in answer ? { id, ...answer } : { id, result: answer };
+                        break;
+                    }
+                    case 'workspace.get': {
+                        const answer = handleWorkspaceGet(p.workspace_id);
+                        reply = 'error' in answer ? { id, ...answer } : { id, result: answer };
+                        break;
+                    }
                     case 'worktree.create':
                         reply = { id, result: { workspace: { workspace_id: 'w1', worktree: { checkout_path: cwd } } } };
                         break;
@@ -288,8 +329,34 @@ function fakeHerdr(dir: string, cwd: string) {
                         reply = { id, result: { process_info: { shell_pid: 1, foreground_processes: [{ pid: 1, name: 'bash' }] } } };
                         break;
                     case 'pane.close':
-                        reply = { id, result: handlePaneClose() };
+                        reply = { id, result: handlePaneClose(p.pane_id) };
                         break;
+                    case 'tab.close':
+                        dropTab(p.tab_id);
+                        reply = { id, result: {} };
+                        break;
+                    case 'workspace.close': {
+                        if (p.close_group === true) {
+                            const target = workspaces.find((entry) => entry.workspace_id === p.workspace_id) as
+                                | { worktree?: { repo_key?: string } } | undefined;
+                            const key = target?.worktree?.repo_key;
+                            for (const member of workspaces.filter((entry) =>
+                                key !== undefined && (entry as { worktree?: { repo_key?: string } }).worktree?.repo_key === key)) {
+                                for (const tab of tabs.filter((entry) => entry.workspace_id === member.workspace_id)) {
+                                    dropTab(tab.tab_id);
+                                }
+                                workspaces.splice(workspaces.indexOf(member), 1);
+                            }
+                        } else {
+                            for (const tab of tabs.filter((entry) => entry.workspace_id === p.workspace_id)) {
+                                dropTab(tab.tab_id);
+                            }
+                            const index = workspaces.findIndex((entry) => entry.workspace_id === p.workspace_id);
+                            if (index !== -1) workspaces.splice(index, 1);
+                        }
+                        reply = { id, result: {} };
+                        break;
+                    }
                     case 'layout.apply':
                         reply = { id, result: handleLayoutApply(p) };
                         break;
@@ -310,9 +377,11 @@ function fakeHerdr(dir: string, cwd: string) {
     return {
         socketPath,
         state,
+        calls,
         agents,
         tabs,
         panes,
+        workspaces,
         emit(type: string, data: Record<string, unknown>): void {
             for (const [socket, subscriptions] of subscribers) {
                 if (wants(subscriptions, type, data.pane_id)) socket.write(`${JSON.stringify({ event: type, data })}\n`);
@@ -713,6 +782,107 @@ describe('new panes share the host desktop', () => {
             checkDesktop(herdr.tabs.at(-1)?.env);
         } finally {
             vi.unstubAllEnvs();
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
+});
+
+describe('start rollback and worktree-group close ride the kit ladder', () => {
+    it('a shell start that fails mid-ladder closes only the tab it created', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-ladder-rollback-'));
+        const herdr = fakeHerdr(dir, dir);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const first = await source.start({ cwd: dir, kind: 'shell' });
+            if (!('info' in first)) throw new Error('first shell start rejected');
+            const firstPane = first.info.id.slice('shell:'.length);
+            const tabsBefore = herdr.tabs.map((tab) => tab.tab_id);
+
+            // The tab exists, then the post-place snapshot read fails: the
+            // start fails mid-ladder and the kit's confirmed closes roll back.
+            herdr.state.failSnapshot = true;
+            const failed = await source.start({ cwd: dir, kind: 'shell' });
+            herdr.state.failSnapshot = false;
+            expect('info' in failed).toBe(false);
+            if ('info' in failed) throw new Error('failed start returned a session');
+            expect(failed.acceptance).toMatchObject({ outcome: 'failed', code: 'start-launch-failed' });
+
+            // One tab close for the created tab; no pane, tab or workspace
+            // close touches the first shell.
+            const closes = herdr.calls.filter((call) =>
+                call.method === 'pane.close' || call.method === 'tab.close' || call.method === 'workspace.close');
+            expect(closes).toHaveLength(1);
+            expect(closes[0]?.method).toBe('tab.close');
+            const closedTab = (closes[0]?.params as { tab_id?: string }).tab_id;
+            expect(tabsBefore).not.toContain(closedTab);
+
+            // The first shell is still listed; the failed start left no pane.
+            await source.refreshHerdr();
+            expect(treePane(await source.herdrTree(), firstPane)).toMatchObject({ sessionId: first.info.id });
+            expect(herdr.panes.some((pane) => pane.tab_id === closedTab)).toBe(false);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it('stop walks pane, tab, workspace and worktree-group confirmation before the atomic group close', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-ladder-group-'));
+        const herdr = fakeHerdr(dir, dir);
+        // A worktree group: w1 roots lab-repo, w2 is its linked checkout.
+        Object.assign(herdr.workspaces[0]!, {
+            label: 'Work',
+            worktree: { repo_key: 'lab-repo', repo_name: 'lab-repo', is_linked_worktree: false },
+        });
+        herdr.workspaces.push({
+            workspace_id: 'w2', label: 'Linked',
+            worktree: { repo_key: 'lab-repo', repo_name: 'lab-repo', is_linked_worktree: true },
+        });
+        herdr.tabs.push(
+            { tab_id: 'w1:t1', workspace_id: 'w1', label: 'main' },
+            { tab_id: 'w2:t1', workspace_id: 'w2', label: 'linked' },
+        );
+        herdr.panes.push(
+            { pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', cwd: dir },
+            { pane_id: 'w2:p1', tab_id: 'w2:t1', workspace_id: 'w2', cwd: dir },
+        );
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            await source.refreshHerdr();
+            expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId: 'shell:w1:p1' });
+
+            // Each rung refuses with the next scope; nothing closes until the group is confirmed.
+            await expect(source.stop('shell:w1:p1', {})).resolves.toMatchObject({ status: 'confirmationRequired', scope: 'tab' });
+            await expect(source.stop('shell:w1:p1', { confirmedScope: 'tab' }))
+                .resolves.toMatchObject({ status: 'confirmationRequired', scope: 'workspace' });
+            await expect(source.stop('shell:w1:p1', { confirmedScope: 'workspace' }))
+                .resolves.toMatchObject({ status: 'confirmationRequired', scope: 'worktreeGroup', label: 'lab-repo' });
+            expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId: 'shell:w1:p1' });
+            expect(treePane(await source.herdrTree(), 'w2:p1')).toMatchObject({ sessionId: 'shell:w2:p1' });
+
+            // The confirmed group close is one atomic workspace.close; no
+            // member closes one by one first.
+            await expect(source.stop('shell:w1:p1', { confirmedScope: 'worktreeGroup' })).resolves.toEqual({ status: 'closed' });
+            expect(herdr.calls.filter((call) =>
+                call.method === 'pane.close' || call.method === 'tab.close' || call.method === 'workspace.close')).toEqual([
+                { method: 'workspace.close', params: { workspace_id: 'w1', close_group: true } },
+            ]);
+            await source.refreshHerdr();
+            expect((await source.herdrTree()).workspaces).toEqual([]);
+        } finally {
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });

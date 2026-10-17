@@ -93,7 +93,7 @@ Ghostty view). Keeping it out avoids a second parallel UI-test runtime.
 
 JVM instrumentation tests are deterministic unit-scale UI checks. An agent
 cannot "run Espresso" exploratorily; it can only author tests that gradle
-runs. Wrong layer for the captain's ask (replace manual device QA).
+runs. Wrong layer for replacing manual device QA.
 
 ### Research LLM phone agents (AndroidWorld, AppAgent, MobileAgent) — evidence, not infrastructure
 

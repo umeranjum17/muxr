@@ -252,10 +252,10 @@ and nothing post-install survives a month or pushes a pane past 512 MiB of
 removable files.
 The sweep stats names and never reads a byte — hashing this root costs 17 GiB of
 I/O — and writes what it removed, under which policy, to
-`$MUXR_HOME/artifact-retention.json`. The captain's tree was measured at
-**39 GB / 21,491 files / 258 pane directories** and stays as it is until he runs
-`muxr artifacts prune`, which applies the same policy to the existing history
-after showing him the plan.
+`$MUXR_HOME/artifact-retention.json`. One measured tree was
+**39 GB / 21,491 files / 258 pane directories**; existing history stays as it is
+until `muxr artifacts prune` runs, which applies the same policy to the existing
+history after showing the plan.
 
 ## Push notifications
 

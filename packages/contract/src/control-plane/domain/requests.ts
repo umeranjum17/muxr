@@ -253,6 +253,13 @@ export interface DesktopCapabilities {
  */
 export const DESKTOP_CONSENT_WAIT_MS = 110_000;
 
+/**
+ * The `desktop.open` refusal for a share the portal granted that never sent a
+ * picture (a restored window that closed, or one another screencast starved).
+ * The phone matches it exactly to say so in its own words.
+ */
+export const DESKTOP_NO_PICTURE = 'The computer shared a window or screen, but no picture came from it.';
+
 export interface RequestMap extends PeerRequestMap {
     // --- live desktop -------------------------------------------------------
     /**

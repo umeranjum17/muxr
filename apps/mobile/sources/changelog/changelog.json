@@ -1,6 +1,217 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.5",
+            "title": "Shorter pairing, alerts you can answer, and a computer app",
+            "summary": "Since 0.2.4: pairing is shorter, with scannable codes, a first-run screen matched to your computer, and an install that reaches computers away from home. Attention alerts now carry the agent's question and can be answered from the alert. A new computer app sets up and pairs from one window. The web app installs to the home screen and works offline. Update the phone app and computer together.",
+            "features": [
+                {
+                    "title": "Start the first agent in one tap",
+                    "detail": "Home starts the first agent in one tap. Folder-trust questions take one tap too, and the start opens in the folder you used last. No blocking notice appears over the first agent."
+                },
+                {
+                    "title": "Answer alerts from the alert",
+                    "detail": "Attention alerts carry the agent's question, and answering from the alert clears it everywhere: the alert, the list and the counts all agree."
+                },
+                {
+                    "title": "One shared attention count",
+                    "detail": "A single needs-you count is shared by the app, its icon and the installed web app badge, so the number matches wherever you look."
+                },
+                {
+                    "title": "Pairing in fewer steps",
+                    "detail": "Codes scan even from small computer screens, scanning is the primary way to pair, the spoken words are read once and end on a check mark, and a phone that was closed resumes against its computer without scanning again."
+                },
+                {
+                    "title": "Setup that fits your computer",
+                    "detail": "A phone-first Add your computer screen carries the desktop download, pasting a link connects first, the install step matches the computer in front of you, and a first phone pairs from the computer with one command and no terminal."
+                },
+                {
+                    "title": "Away-from-home routes by default",
+                    "detail": "Setup leads with the route that works away from home, warns on home-network-only choices, and the browser-pair command offers the route switch while you are home."
+                },
+                {
+                    "title": "A computer app on Linux",
+                    "detail": "One window runs guided setup, pairs the phone by QR or two words, starts at login and can keep the computer awake. It installs the agent runner when it is missing and reaches Ready even on computers without one."
+                },
+                {
+                    "title": "Send any file to an agent",
+                    "detail": "Attach any file type from the phone to an agent. Attachments stay with the draft when you leave and come back, and survive a failed first prompt."
+                },
+                {
+                    "title": "Answer permission questions on the card",
+                    "detail": "When an agent asks permission, the question arrives on the answer card and your answer goes straight back to the waiting agent."
+                },
+                {
+                    "title": "Accounts with private areas",
+                    "detail": "Each account on the Go agent route keeps a private area, conversations move between accounts, and Go agents start on the newest Go model through the account's own setup."
+                },
+                {
+                    "title": "Open any folder from Files",
+                    "detail": "Files opens any folder on the computer, not only agent projects, and the desktop Computer view opens agent pages."
+                },
+                {
+                    "title": "Move an agent to another computer",
+                    "detail": "A Computers sheet switches which computer an agent runs on."
+                },
+                {
+                    "title": "Find the agent's changes",
+                    "detail": "The header pill and the pane actions lead to what the agent changed, ready for review."
+                },
+                {
+                    "title": "Versioned pages that work offline",
+                    "detail": "Shareable versioned pages render on the phone with an offline preview, and shared files replay only to the phone that joins."
+                },
+                {
+                    "title": "Install the web app",
+                    "detail": "Install the web app to the home screen from a browser tab, with its own badge, a themed launch screen and an offline shell for the next cold start."
+                },
+                {
+                    "title": "The computer on iPhone",
+                    "detail": "The native iPhone app shows the computer desktop and drives the simulator from the phone."
+                },
+                {
+                    "title": "Terminals that fit the screen",
+                    "detail": "Terminals taller than their box pan to every row and render whole rows; the key row fits the screen width so the arrows stay on it."
+                },
+                {
+                    "title": "Plain connection words",
+                    "detail": "The connection screen names transports in plain words, an unreachable computer says what to try next, and a version mismatch is one quiet Home line."
+                },
+                {
+                    "title": "SSH you can verify",
+                    "detail": "An in-app dialog asks you to confirm the computer's fingerprint before signing in, and key login works on Android."
+                },
+                {
+                    "title": "A fresh start-agent flow",
+                    "detail": "Starting an agent guides with installed-agent readiness, keeps your own default choice, and names started agents by their kind instead of an id."
+                },
+                {
+                    "title": "Spaces you arrange",
+                    "detail": "Reorder spaces by hand, mark favourites per agent, and pins stay scoped to each paired computer."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Pairing words stay whole",
+                    "detail": "Pairing and first-run words stay whole at the largest text, first-run content clears the status bar, and the install command wraps instead of cutting off."
+                },
+                {
+                    "title": "Pasted links connect",
+                    "detail": "A pasted link pairs instead of reading cut off, and browser pairing over secure links works again."
+                },
+                {
+                    "title": "Codes that last",
+                    "detail": "Pairing codes stop running out before they connect, approval is asked again after Enter, and a bad code tells the truth."
+                },
+                {
+                    "title": "First prompts arrive once",
+                    "detail": "The first Home prompt arrives once the new agent is ready, stays ordered and restored when delivery fails, and a stalled first prompt is cleared before the app reports it not sent."
+                },
+                {
+                    "title": "Terminals recover by themselves",
+                    "detail": "Terminal panes recover after the link or host drops, leftover modes from a crashed agent are reset, and returning from a long background marks the terminal stale at once."
+                },
+                {
+                    "title": "Nothing hides under the keyboard",
+                    "detail": "The diff view, pane actions, the changes review, option sheets and the new-agent fields stay clear of the keyboard and the Start button at narrow widths and large text."
+                },
+                {
+                    "title": "Whole text at the largest size",
+                    "detail": "Header titles wrap to two lines, Accounts and New agent rows read whole, the computer name shortens with an ellipsis, and tiles, sheets, notices and terminal chips stop clipping at the largest text."
+                },
+                {
+                    "title": "Dictation hears speech only",
+                    "detail": "Non-speech labels never reach the draft, dictation waits for real speech, the meter answers quiet distant speech, and each turn carries its own context."
+                },
+                {
+                    "title": "Smooth scrolling on tablets",
+                    "detail": "Long agent output scrolls smoothly and the Latest button works on tablets."
+                },
+                {
+                    "title": "Quiet iPhone typing",
+                    "detail": "Smart punctuation stops rewriting terminal input, and the iPhone edit menu offers read-only copy actions."
+                },
+                {
+                    "title": "Faster cold starts",
+                    "detail": "The installed web app starts faster: heavy viewers and payloads stay out of the cold path, and the diff highlights every language again."
+                },
+                {
+                    "title": "Only the joiner sees the replay",
+                    "detail": "A joining phone replays only its own stream, view-only links send no input, and each change publishes one update."
+                },
+                {
+                    "title": "Honest empty states",
+                    "detail": "A Live preview with nothing to show says so, unknown previews keep their view up, and computers with no agents say so on both ends."
+                },
+                {
+                    "title": "No modal over the first agent",
+                    "detail": "Setup notices never cover the first agent, and the consent card stops paying the status bar twice."
+                },
+                {
+                    "title": "Accounts read clearly",
+                    "detail": "Same-name account rows lead with what tells them apart, the added notice names accounts as the list does, sign-in lands on Accounts, and a start says which account it lands on."
+                },
+                {
+                    "title": "Usage numbers stay whole",
+                    "detail": "Quota figures lead with the window and wrap whole, a failed activity scan retries on refresh, and plan costs are stated before you commit."
+                },
+                {
+                    "title": "Moves end on a working terminal",
+                    "detail": "Moving a running agent, or a start that finds the agent out of room, ends on a working terminal with the situation stated."
+                },
+                {
+                    "title": "Screen share asks again",
+                    "detail": "A restored screen share that shows nothing asks to share again instead of staying blank."
+                },
+                {
+                    "title": "Shorter setup wizard",
+                    "detail": "First-run setup is route, review and Start; the command comes before the scan, and notifications are explained before they are asked for."
+                },
+                {
+                    "title": "Setup outside a terminal",
+                    "detail": "Setup and pairing work without a terminal, stop re-minting codes, and reach the shared guard on computers and CI alike."
+                },
+                {
+                    "title": "Names, not ids",
+                    "detail": "Started agents and devices are named by kind and device, never by launch ids."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Desktop engine release prerequisite",
+                    "status": "passed",
+                    "detail": "npm serves the pinned desktop host 0.5.3 with its Linux and Mac engine packages, as checked during preparation. This checks availability, not desktop behaviour on the release candidate."
+                },
+                {
+                    "title": "Automated checks on the release candidate",
+                    "status": "not-run",
+                    "detail": "The full suite and signed Android and computer candidate build had not run for this version when these notes were written. Checks on the individual changes are not acceptance of the combined release."
+                },
+                {
+                    "title": "Mac and iPhone acceptance",
+                    "status": "not-run",
+                    "detail": "The combined candidate has not been run on a Mac host with an iPhone."
+                },
+                {
+                    "title": "Real-phone voice and dictation",
+                    "status": "not-run",
+                    "detail": "Realtime voice and dictation on a real phone have not been checked for this candidate."
+                },
+                {
+                    "title": "Android acceptance",
+                    "status": "not-run",
+                    "detail": "The exact signed candidate has not been installed or accepted on an Android phone or emulator."
+                }
+            ],
+            "knownLimits": [
+                "Update the phone app and computer together: new phone features (file attach, folder opening, permission answers, offline pages) depend on the new computer, and mixed versions were not tested. Install the phone candidate first, then update the computer before reconnecting.",
+                "Voice can take a moment to connect when it starts.",
+                "The computer app on Linux is new: it sets up and pairs from one window, and the signed Mac build follows.",
+                "A self-hosted computer and relay are required.",
+                "This is a candidate for acceptance. npm latest and Play production are not updated by building it; a successful build does not prove phone, microphone or desktop behaviour."
+            ]
+        },
+        {
             "appVersion": "0.2.4",
             "title": "iPhone and Mac polish, Files from the terminal, and voice on BYOKit",
             "summary": "Folder suggestions and dialogs stay above the iPhone keyboard, tapped paths open in Files, the iPhone app can connect over SSH, and voice, dictation and usage now run on BYOKit. Update the phone app and computer together.",
@@ -529,7 +740,7 @@
                     "evidence": {
                         "testedCommit": "9fa34265",
                         "environment": "not run",
-                        "checkedBy": "umer",
+                        "checkedBy": "maintainer",
                         "checkedAt": "2026-09-09"
                     }
                 }
@@ -584,7 +795,7 @@
                     "evidence": {
                         "testedCommit": "76b57dd0",
                         "environment": "not run",
-                        "checkedBy": "umer",
+                        "checkedBy": "maintainer",
                         "checkedAt": "2026-09-08"
                     }
                 },
@@ -595,7 +806,7 @@
                     "evidence": {
                         "testedCommit": "76b57dd0",
                         "environment": "not run",
-                        "checkedBy": "umer",
+                        "checkedBy": "maintainer",
                         "checkedAt": "2026-09-08"
                     }
                 },
@@ -606,7 +817,7 @@
                     "evidence": {
                         "testedCommit": "76b57dd0",
                         "environment": "not run",
-                        "checkedBy": "umer",
+                        "checkedBy": "maintainer",
                         "checkedAt": "2026-09-08"
                     }
                 }

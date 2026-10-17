@@ -56,7 +56,7 @@ app's existing `react-native-webrtc` ships.
 
 ## Product source ownership
 
-Repository history attributes muxr-authored commits to Umer Anjum. The
+Repository history attributes muxr-authored commits to the maintainer. The
 mobile and relay foundations inherited MIT-licensed work from Happy, and parts
 of the former lifecycle/notification model were derived from MIT-licensed PI
 WEB. Those notices and the MIT terms remain in `NOTICE` and `LICENSES/MIT.txt`.
@@ -72,7 +72,12 @@ under an earlier license keep the rights that accompanied those copies.
 and also bundles the relay entry (`apps/relay/dist/main.js`) so `muxr self-host`
 can run from the packed CLI. The external runtime dependency list is owned by
 [`runtimeDependencies`](../scripts/release/application/runtimeDependencies.mjs),
-which packing and the desktop AppImage both derive from.
+which packing and the desktop AppImage both derive from. Packing audits the
+whole installed production closure npm ships — required peers included — not
+only that list, and pins the peer-installed `react-native` (an unbounded peer
+of `react-native-zeroconf`) to its audited version in the published
+`package.json`, so a consumer install resolves exactly the closure the
+inventory names.
 Dependencies outside that selection are bundled when imported. Packing audits
 both bundled and external dependencies and generates
 `THIRD_PARTY_LICENSES.json` with their versions, licenses, distribution status
@@ -107,18 +112,21 @@ through the same generator as the npm packer
 Its inventory covers: the dependencies inlined into the host, relay, voice,
 main and preload bundles; the installed production closure electron-builder
 copies into `resources/app/node_modules` (every declared runtime dependency and
-each installed package reachable through its `dependencies` or
-`optionalDependencies`, nested copies included, with `transitiveOf` naming the
+each installed package reachable through its `dependencies`,
+`optionalDependencies` or required `peerDependencies` — optional peers only
+when installed — nested copies included, with `transitiveOf` naming the
 parent); the ccusage and desklink platform entries (optional packages, audited
-by name); and the Electron runtime shell. The npm CLI inventory keeps the
-declared runtime dependencies only. Chromium is covered through Electron's own
+by name); and the Electron runtime shell. The npm CLI inventory audits the
+same installed production closure through the same generator. Chromium is covered through Electron's own
 `LICENSES.chromium.html`, never a hand-written list. A closure package that ships
 no license file is recorded from its `package.json` SPDX license and author with
 `licenseFile: "none"`; no license text is written for it, and the allow-list
 still applies. The shared allow-list is permissive SPDX ids (`0BSD`, `Apache-2.0`,
-`Apache2`, `BSD-2-Clause`, `BSD-3-Clause`, `BlueOak-1.0.0`, `CC0-1.0`, `ISC`, `MIT`,
-`MPL-2.0`, `Unlicense`); `BlueOak-1.0.0` is admitted for `sax`, a transitive
-dependency of the desktop closure. The build fails on a copyleft or unknown/non-approved license
+`Apache2`, `BSD-2-Clause`, `BSD-3-Clause`, `BlueOak-1.0.0`, `CC-BY-4.0`, `CC0-1.0`, `ISC`, `MIT`,
+`MPL-2.0`, `Python-2.0`, `Unlicense`); `BlueOak-1.0.0` is admitted for `sax`, a transitive
+dependency of the desktop closure, `CC-BY-4.0` for caniuse-lite's browser data
+and `Python-2.0` for argparse reached through the audited closure. An SPDX `OR`
+expression passes when any one alternative is allow-listed. The build fails on a copyleft or unknown/non-approved license
 before packaging, and the generated `THIRD_PARTY_LICENSES.json` ships at
 `resources/app/` beside `LICENSES/`, with each dependency's exact license text
 under `resources/app/LICENSES/npm/`. With `--package`, the build runs
@@ -145,10 +153,11 @@ This inventory does not replace store-release verification of native binaries.
 
 Every package build asks esbuild for an in-memory metafile, resolves each
 `node_modules` input to the exact package copy that supplied it (including nested
-copies), and audits both inlined and external runtime dependencies. Packaging
-fails when a dependency has a missing, unknown/non-approved, GPL, LGPL, or AGPL
-license, or (npm packer only) when its license text cannot be found; the AppImage
-records such a package as declared-only ([Linux AppImage](#linux-appimage)). The
+copies), and audits both the inlined packages and the installed production
+closure. Packaging fails when a dependency has a missing, unknown/non-approved,
+GPL, LGPL, or AGPL license; a dependency that ships no license text is recorded
+as declared-only instead of failing, in both artifacts
+([Linux AppImage](#linux-appimage)). The
 published npm output contains:
 
 - `THIRD_PARTY_LICENSES.json` — package names, consumer-facing declared semver ranges, concrete locally audited install versions, licenses, and bundle status, without repository source paths;

@@ -120,7 +120,7 @@ function auditDesktopDependencies({ root, appDir, bundles }) {
     const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
     const desktopPackage = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'));
     return [
-        ...licenseInventory({ bundles, root, rootPackage, declared: runtimeDependencies(root), closure: true }),
+        ...licenseInventory({ bundles, root, rootPackage, declared: runtimeDependencies(root) }),
         ...installedDependencies({ root, declared: { electron: desktopPackage.devDependencies.electron }, bundledNames: new Set() }),
     ];
 }

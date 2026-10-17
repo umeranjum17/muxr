@@ -2,7 +2,7 @@
 
 ## How decisions get made
 
-muxr is a single-maintainer project. Umer Anjum is the decider. There is no
+muxr is a single-maintainer project. The maintainer is the decider. There is no
 committee, no vote, and no implied consensus process. Contributions are welcome;
 the decision to merge or to set direction stays with the maintainer.
 

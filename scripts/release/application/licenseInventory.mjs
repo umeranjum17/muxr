@@ -11,7 +11,7 @@ import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/aud
  */
 
 /** Resolve every node_modules package inlined by the given esbuild bundles and audit it. */
-export function bundledDependenciesFromMetafiles(bundles, { allowDeclaredOnly = false } = {}) {
+export function bundledDependenciesFromMetafiles(bundles) {
     const bundledPackagePaths = new Set(
         bundles
             .flatMap(({ root, metafile }) => Object.keys(metafile.inputs).map((input) => packagePathFromInput(root, input)))
@@ -19,7 +19,7 @@ export function bundledDependenciesFromMetafiles(bundles, { allowDeclaredOnly = 
     );
     return [...bundledPackagePaths]
         .sort()
-        .map((path) => ({ ...packageInfoFromPath(path, true, { allowDeclaredOnly }), declaredRange: null }));
+        .map((path) => ({ ...packageInfoFromPath(path, true, { allowDeclaredOnly: true }), declaredRange: null }));
 }
 
 /** Audit installed (not inlined) dependencies by their declared ranges. */
@@ -44,9 +44,11 @@ function resolveInstalled(fromDir, name) {
 /**
  * The production closure electron-builder copies into node_modules: each
  * declared package, then every `dependencies` and installed
- * `optionalDependencies` entry reached from it, resolved the way Node resolves
- * them so nested copies (a second ws under @desklink/host) are audited too.
- * Packages already audited at the same version are skipped.
+ * `optionalDependencies` entry reached from it, plus the `peerDependencies`
+ * npm installs itself (required peers always, optional ones only when
+ * present), resolved the way Node resolves them so nested copies (a second ws
+ * under @desklink/host) are audited too. Packages already audited at the same
+ * version are skipped.
  */
 export function installedClosure({ root, declared, audited }) {
     const found = new Map();
@@ -60,8 +62,13 @@ export function installedClosure({ root, declared, audited }) {
         if (found.has(manifest)) continue;
         const info = packageInfoFromPath(manifest, false, { allowDeclaredOnly: true });
         found.set(manifest, { ...info, declaredRange: next.declaredRange, transitiveOf: next.transitiveOf });
-        const { dependencies = {}, optionalDependencies = {} } = JSON.parse(readFileSync(manifest, 'utf8'));
-        for (const [edges, optional] of [[dependencies, false], [optionalDependencies, true]]) {
+        const { dependencies = {}, optionalDependencies = {}, peerDependencies = {}, peerDependenciesMeta = {} } = JSON.parse(readFileSync(manifest, 'utf8'));
+        const requiredPeers = {};
+        const optionalPeers = {};
+        for (const [name, range] of Object.entries(peerDependencies)) {
+            (peerDependenciesMeta[name]?.optional === true ? optionalPeers : requiredPeers)[name] = range;
+        }
+        for (const [edges, optional] of [[dependencies, false], [optionalDependencies, true], [requiredPeers, false], [optionalPeers, true]]) {
             for (const name of Object.keys(edges).sort()) {
                 queue.push({ fromDir: dirname(manifest), name, declaredRange: null, transitiveOf: info.name, optional });
             }
@@ -122,19 +129,16 @@ export function desklinkPlatformDependencies({ root }) {
 }
 
 /**
- * Audit one distribution's full dependency set: inlined, platform and installed.
- * `closure` is the AppImage mode: it audits the whole installed production
- * closure instead of only the declared names, and a package that ships no
- * license text is recorded from its package.json license and author instead of
- * failing. The npm packer keeps the declared-only set and strict text checks.
+ * Audit one distribution's full dependency set: inlined, platform and the
+ * installed production closure. A package that ships no license text is
+ * recorded from its package.json license and author instead of failing. Both
+ * the npm CLI packer and the desktop AppImage builder audit through here,
+ * since npm and electron-builder both ship the transitive production packages.
  */
-export function licenseInventory({ bundles, root, rootPackage, declared, closure = false }) {
-    const bundled = bundledDependenciesFromMetafiles(bundles, { allowDeclaredOnly: closure });
-    const bundledNames = new Set(bundled.map(({ name }) => name));
+export function licenseInventory({ bundles, root, rootPackage, declared }) {
+    const bundled = bundledDependenciesFromMetafiles(bundles);
     const platform = [...ccusagePlatformDependencies({ root, rootPackage }), ...desklinkPlatformDependencies({ root })];
-    const installed = closure
-        ? installedClosure({ root, declared, audited: [...bundled, ...platform] })
-        : installedDependencies({ root, declared, bundledNames });
+    const installed = installedClosure({ root, declared, audited: [...bundled, ...platform] });
     return [...bundled, ...platform, ...installed];
 }
 
