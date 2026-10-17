@@ -602,7 +602,9 @@ it('says the network has no way through when the open never connected, and not f
     requestDesktop('computer', 'N');
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="N" onExit={() => undefined} />); });
 
-    // The kit ends a first open whose path never formed once, with its own code.
+    // The kit ends a first open whose path never formed once, with its own
+    // code — from its first-frame bound, or from the engine revoking the open
+    // for a lost phone, whose transport code reaches it through the host.
     await become('opening');
     await become('failed', false, { code: 'never-connected', message: 'No network path to the desktop ever formed.' });
     expect(shows(noPath)).toBe(true);

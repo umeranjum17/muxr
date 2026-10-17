@@ -631,6 +631,30 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
         await desktop.closeAll();
     }, 20_000);
 
+    it('forwards the engine revocation code so the phone can tell a lost path from a final end', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
+        const scriptPath = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        writeFileSync(
+            scriptPath,
+            STUB.replace(
+                "    case 'session.open':",
+                "    case 'session.open':\n      setTimeout(() => out({ event: 'session.revoked', params: { sessionId: session.id, reason: 'the connection to the phone was lost', code: 'transport' } }), 15);",
+            ),
+        );
+        writeFileSync(log, '');
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
+
+        const opened = await desktop.open({ permissions: ['view'] });
+        await new Promise((resolve) => setTimeout(resolve, 80));
+
+        // The code rides with the reason, so the phone's kit ends the first
+        // open as never-connected instead of a closed desktop.
+        const polled = await desktop.poll(opened.desktopId, 0);
+        expect(polled.events).toContainEqual({ kind: 'revoked', reason: 'the connection to the phone was lost', code: 'transport' });
+        await desktop.closeAll();
+    }, 20_000);
+
     it('re-probes the engine after a failed probe instead of caching the failure', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
         const scriptPath = join(directory, 'engine.cjs');

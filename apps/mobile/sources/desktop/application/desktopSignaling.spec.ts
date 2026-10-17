@@ -23,7 +23,8 @@ it('delivers the initial offer, candidate and revocation even when polling wins 
             return { cursor: 3, events: [
                 { kind: 'offer', sdp: 'v=0 offer' },
                 { kind: 'candidate', candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 },
-                { kind: 'revoked', reason: 'the desktop ended' },
+                // The engine revoking the open for a lost phone, before any frame.
+                { kind: 'revoked', reason: 'the connection to the phone was lost', code: 'transport' },
             ] };
         }
         throw new Error(`unexpected request: ${method}`);
@@ -38,7 +39,7 @@ it('delivers the initial offer, candidate and revocation even when polling wins 
     expect(received).toEqual([
         { kind: 'description', description: { type: 'offer', sdp: 'v=0 offer' } },
         { kind: 'candidate', candidate: { candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 } },
-        { kind: 'revoked', reason: 'the desktop ended' },
+        { kind: 'revoked', reason: 'the connection to the phone was lost', code: 'transport' },
     ]);
     expect(request).toHaveBeenCalledTimes(2);
     await signaling.request('session.close');

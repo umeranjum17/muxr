@@ -11,12 +11,13 @@ keeps the generic failure.
 
 ## Sub-features
 
-- `nopath` first open, no UDP path: about 20-25 s after the open (desklink's
-  first-frame bound or the peer's ICE `failed`, whichever comes first; no
-  reopens) the view reads "Can't show this computer's screen from here" with
-  the Wi-Fi / Tailscale / Direct SSH body and Try again. Before the overlay was
-  keyed on `never-connected`, desklink 0.5.8 showed the generic "Couldn't open
-  this computer" here instead.
+- `nopath` first open, no UDP path: about 20-25 s after the open (the kit's
+  first-frame bound, the phone peer's ICE `failed`, or the engine revoking the
+  open for the lost phone — its `transport` code reaches the kit through the
+  host — whichever comes first; no reopens) the view reads "Can't show this
+  computer's screen from here" with the Wi-Fi / Tailscale / Direct SSH body
+  and Try again. Before the overlay was keyed on `never-connected`, desklink
+  0.5.8 showed the generic "Couldn't open this computer" here instead.
 - `retry` Try again starts a new open ("Starting desktop…").
 - `large-text` at the largest text the overlay scrolls, so Try again is
   reachable (on main it was cut off).
@@ -80,6 +81,7 @@ Native Android (no UDP path):
 - The Computer view over a terminal uses a dark scoped theme, so light and
   dark shots look the same on purpose; label the system mode.
 - The message appears once desklink ends the open as `never-connected`
-  (about 20-25 s on the emulator); "Starting desktop…" before that is expected.
+  (about 20-25 s on the emulator; sooner when the engine's ICE gives up first
+  and it revokes the open); "Starting desktop…" before that is expected.
 - A theme or viewport change after the failure re-renders the same overlay
   without reopening, so one wait covers every cell.

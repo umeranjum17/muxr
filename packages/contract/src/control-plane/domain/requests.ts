@@ -229,7 +229,9 @@ export type DesktopEvent =
           sdpMLineIndex: number | null;
       }
     | { kind: 'state'; capture: string; transport: string; firstFrame: boolean }
-    | { kind: 'revoked'; reason: string };
+    /** The engine's own revocation code (`transport` is a lost path, `lease` and
+     *  `error` final); absent for the host's own ends, which are final. */
+    | { kind: 'revoked'; reason: string; code?: string };
 
 /**
  * What the host's desktop engine can actually do right now. `input: false` means
