@@ -74,8 +74,9 @@ passed all four takes: clean-quiet, clean-silence (empty draft), clean-clean,
 and reinstall-quiet after `install -r` over old data. Its log reads `realtime:
 none opened (microphone service samples running=0 of 570 successful dumps in 572
 attempts, RECORD_AUDIO never accessed, realtime on screen in 0 of 204 screens)`.
-Every lab tap is logged by label (Pair, Dictate, Stop dictation, draft field,
-composer input), and none is a Talk control. `voice-service-dumpsys.txt` shows
+Every tap the lab's own steps make is logged by label (Pair, Dictate, Stop
+dictation, draft field, composer input), and none is a Talk control. The shared
+dismiss helpers tap by coordinate or send BACK without a log line. `voice-service-dumpsys.txt` shows
 `VoiceOverlayService` started by `voiceOverlay.herdStart` with `types=0x00000001`,
 the herd keep-alive, so the microphone-type check reads the real format.
 

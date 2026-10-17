@@ -56,8 +56,8 @@ const center = ({ box: [l, t, r, b] }) => [Math.round((l + r) / 2), Math.round((
 const tap = (label, [x, y]) => { say(`tap ${label}`); return adb(['shell', 'input', 'tap', String(x), String(y)]); };
 const EMPTY_HINTS = new Set(['Plan, ask, build…', 'Run a command']);
 // The focused composer's empty hint is `Ask <agent>`, where <agent> is the picker's name on that same screen.
-const isEmptyHint = (found, text) => EMPTY_HINTS.has(text)
-    || (text.startsWith('Ask ') && found.some((n) => n.cls === 'android.widget.TextView' && n.text === text.slice(4)));
+const isEmptyHint = (found, field) => EMPTY_HINTS.has(field.text)
+    || (field.text.startsWith('Ask ') && found.some((n) => n.cls === 'android.widget.TextView' && n.text === field.text.slice(4) && n.box[1] >= field.box[3]));
 // Closed, the composer shows its draft as one line of text left of Dictate; open, it is the EditText.
 function draftField(found) {
     const input = found.find((n) => n.cls === 'android.widget.EditText');
@@ -74,7 +74,7 @@ function draftField(found) {
 const draft = (found) => {
     const field = draftField(found);
     if (field === undefined) throw new Error('no draft field on the settled composer');
-    return isEmptyHint(found, field.text) ? '' : field.text;
+    return isEmptyHint(found, field) ? '' : field.text;
 };
 
 // --- realtime watch ----------------------------------------------------------
