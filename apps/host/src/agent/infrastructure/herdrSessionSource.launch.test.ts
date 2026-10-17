@@ -343,11 +343,20 @@ function fakeHerdr(dir: string, cwd: string) {
                         break;
                     }
                     case 'agent.send_keys':
+                        // A shell pane has no agent: Herdr refuses, and the
+                        // kit falls back to the pane's own key path.
+                        if (!agents.some((agent) => agent.pane_id === p.target)) {
+                            reply = { id, error: { code: 'agent_not_found', message: 'no agent on pane' } };
+                            break;
+                        }
                         // The agent's own line editing: ctrl+u empties a line, backspace joins the one above.
                         for (const key of (p.keys ?? []) as string[]) {
                             if (key === 'ctrl+u') state.input = state.input.slice(0, state.input.lastIndexOf('\n') + 1);
                             else if (key === 'backspace') state.input = state.input.slice(0, -1);
                         }
+                        reply = { id, result: {} };
+                        break;
+                    case 'pane.send_keys':
                         reply = { id, result: {} };
                         break;
                     case 'pane.read':
@@ -943,6 +952,10 @@ describe('agent started at the desk in an existing pane', () => {
         });
         try {
             expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId: 'shell:w1:p1' });
+            // A shell pane has no agent, so the kit lands the abort on the pane itself.
+            await source.abort('shell:w1:p1');
+            expect(herdr.calls.filter((call) => call.method.endsWith('send_keys')).map((call) => call.method))
+                .toEqual(['agent.send_keys', 'pane.send_keys']);
 
             // Codex starts in the shell. Herdr detects its kind and name, but
             // Codex has no session until its first turn.
@@ -974,6 +987,11 @@ describe('agent started at the desk in an existing pane', () => {
             await vi.waitFor(async () => expect(treePane(await source.herdrTree(), 'w1:p1').agentStatus).toBe('working'));
             await new Promise((resolve) => setTimeout(resolve, 600));
             expect(herdr.state.snapshotCount).toBe(reads);
+
+            herdr.calls.length = 0;
+            await source.abort(treePane(await source.herdrTree(), 'w1:p1').sessionId!);
+            expect(herdr.calls.filter((call) => call.method.endsWith('send_keys')).map((call) => call.method))
+                .toEqual(['agent.send_keys']);
         } finally {
             await source.dispose();
             herdr.close();

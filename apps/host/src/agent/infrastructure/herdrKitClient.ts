@@ -87,8 +87,8 @@ export class KitHerdrClient implements HerdrCaller {
             onState: (state) => {
                 const ready = state.phase === 'ready';
                 this.connected = ready;
-                // The batch socket heals itself; the mirror still needs its
-                // resync pass when herdr comes back after an outage.
+                // The batch socket heals itself; the session source still
+                // re-indexes the kit tree when herdr comes back after an outage.
                 if (ready && this.started) this.onReconnect();
             },
         });
@@ -147,8 +147,8 @@ export class KitHerdrClient implements HerdrCaller {
 
     /**
      * Resolves when the kit's own per-pane `pane.agent_status_changed` watches
-     * have acked for the latest bootstrap. The session source re-reads its
-     * mirror on that edge: a session Herdr published while the watches were
+     * have acked for the latest bootstrap. The session source re-reads the
+     * kit tree on that edge: a session Herdr published while the watches were
      * still landing reaches no event until they accept.
      */
     async statusWatchReady(): Promise<void> {
