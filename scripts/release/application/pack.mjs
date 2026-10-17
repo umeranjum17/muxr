@@ -95,6 +95,7 @@ const dependencies = licenseInventory({
     rootPackage,
     declared: runtimeDependencies,
 });
+const reactNative = dependencies.find((dependency) => dependency.name === 'react-native');
 writeThirdPartyInventory({
     inventoryPath: join(out, 'THIRD_PARTY_LICENSES.json'),
     licenseDir: join(out, 'LICENSES', 'npm'),
@@ -200,7 +201,16 @@ const pkg = {
         'skills/',
         'web/',
     ],
-    dependencies: runtimeDependencies,
+    // react-native-zeroconf declares react-native as an unbounded required
+    // peer (>=0.60), so left to itself a consumer install resolves today's
+    // latest — a dependency tree the audit never walked. Pin the audited
+    // version so consumers install exactly the closure the inventory names.
+    // ponytail: pins only this peer; surface required-peer edges from
+    // installedClosure if another package drifts the same way.
+    dependencies: {
+        ...runtimeDependencies,
+        ...(reactNative === undefined ? {} : { 'react-native': reactNative.auditedVersion }),
+    },
     repository: { type: 'git', url: 'git+https://github.com/umeranjum17/muxr.git' },
     homepage: 'https://trymuxr.com',
 };
