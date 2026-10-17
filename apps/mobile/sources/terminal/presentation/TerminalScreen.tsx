@@ -195,7 +195,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // largest text a 270 dp phone is 135 CSS px wide and every fixed-size
     // control doubles against it. Native never gets this narrow (its controls
     // keep their size; only text grows), so it keeps the full header and rail.
-    const narrowChrome = windowWidth < 240;
+    const narrowChrome = windowWidth < NARROW_SHEET_WINDOW;
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const isFocused = useIsFocused();
     const socketStatus = useSocketStatus();

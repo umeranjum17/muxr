@@ -2,7 +2,7 @@
 
 The installed PWA takes the system text size as page zoom, so at the largest
 text a 270 dp phone lays the agent screen out at 135 CSS px and every
-fixed-size control doubles against the width. Below 240 px the agent screen
+fixed-size control doubles against the width. Below 252 px (`NARROW_SHEET_WINDOW`) the agent screen
 keeps its header and composer whole: the header shows the task title and the
 status dot only, and the composer rail puts the field on its own line with
 `+`, the microphone and Talk (or Send) on the line under it. Native never gets
