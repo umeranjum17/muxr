@@ -37,6 +37,7 @@ import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { AgentPager } from './AgentPager';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
+import { NARROW_SHEET_WINDOW, SheetIcon } from '@/components/SheetIcon';
 import { agentBesideName, agentLabels, agentStatusColor, agentWhoLine, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, renameInHerdr, renamePane, resolveTabPane, showTabActions, tabLabel, useNavigateToSession } from '@/herd';
 import {
     terminalComposerText,
@@ -44,7 +45,7 @@ import {
     undoSmartPunctuation,
 } from '../domain/promptAvailability';
 import { terminalPaneStatus } from '../domain/terminalAgentStatus';
-import { terminalLineHeight, terminalSurfaceHeight } from '../domain/terminalFloor';
+import { terminalLineHeight, terminalShownHeight, terminalSurfaceHeight } from '../domain/terminalFloor';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { terminalGrid } from '../application/terminalAhead';
 import { createTerminalPan } from '../application/terminalPan';
@@ -407,9 +408,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // estimate can be taller than the surface and grows it: pan the rows it drew.
     const drawnGridHeight = drawnRowHeight !== undefined && grid !== undefined ? grid.rows * drawnRowHeight : 0;
     const pannedHeight = Math.max(surfaceHeight, drawnGridHeight);
+    const shownHeight = terminalShownHeight({ boxHeight: terminalBox?.height ?? 0, surfaceHeight: pannedHeight, rowHeight: terminalRowHeight });
     React.useEffect(() => {
-        pan.layout({ surfaceHeight: pannedHeight, boxHeight: terminalBox?.height ?? 0, rowHeight: terminalRowHeight, holdBottom: choicesVisible });
-    }, [pan, pannedHeight, terminalBox?.height, terminalRowHeight, choicesVisible]);
+        pan.layout({ surfaceHeight: pannedHeight, boxHeight: shownHeight, rowHeight: terminalRowHeight, holdBottom: choicesVisible });
+    }, [pan, pannedHeight, shownHeight, terminalRowHeight, choicesVisible]);
     // The ring is hosted by the screen, never by the terminal renderer. It owns
     // its own open state so that opening it re-renders one small component
     // rather than this whole screen on the frame the bloom starts; the screen
@@ -1431,8 +1433,16 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 maxFontSizeMultiplier={1.5}
                 accessibilityLabel="Prompt"
                 // Web: remove the focus ring; the rail is not a browser widget.
+                // A textarea never grows on its own, and react-native-web
+                // measures only typed text, so a restored draft stayed one
+                // row with its second line cut. `field-sizing` grows it to
+                // the same 120 for any text, and the vertical air moves
+                // outside the box: a textarea scrolls its text through its
+                // padding, so a full field showed a sliver of the next line.
+                // Empty, it keeps its one row: sized to the placeholder, a
+                // narrow rail wrapped "Prompt…" a letter per line.
                 style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingLeft: 14, paddingRight: 2, paddingVertical: 8, fontSize: 15, maxHeight: 120,
-                    ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } as any : {}) }}
+                    ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0, fieldSizing: draft === '' ? 'fixed' : 'content', paddingVertical: 0, marginVertical: 8, maxHeight: 104 } as any : {}) }}
             />;
             // In-field controls are circles on one size, like everything else
             // on this rail: the screen has exactly two shapes, a round control
@@ -1671,6 +1681,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         // and the pan picks which of its rows the box shows.
                         style={{ flex: 1, overflow: 'hidden', justifyContent: 'flex-end' }}
                     >
+                        {/* ...cut to whole rows, so none shows half of itself at either edge. */}
+                        <View style={[{ overflow: 'hidden', justifyContent: 'flex-end' }, shownHeight < (terminalBox?.height ?? 0) ? { height: shownHeight } : { flex: 1 }]}>
                         <Animated.View style={[{ flexGrow: 1, minHeight: pannedHeight }, surfacePan]}>
                         <AgentPager
                             key={props.id}
@@ -1705,6 +1717,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         />
                         </AgentPager>
                         </Animated.View>
+                        </View>
                     </View>
 
                     {/* Everything below the terminal is one surface in the
@@ -2006,10 +2019,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             <Pressable onPress={() => setActionsOpen(false)} accessibilityLabel="Close pane actions" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
                             <AnimatedPopup style={{
                                 flexShrink: 1,
-                                minWidth: 236,
-                                maxWidth: 320,
+                                // Never wider than a narrow window (an installed PWA at the
+                                // largest text is 135 px); there the rows drop their icons (SheetIcon).
+                                ...(windowWidth < NARROW_SHEET_WINDOW
+                                    ? { minWidth: windowWidth - 16, maxWidth: windowWidth - 16, marginLeft: 8 }
+                                    : { minWidth: 236, maxWidth: 320, marginLeft: 16 }),
                                 marginRight: 8,
-                                marginLeft: 16,
                                 marginTop: headerBottom + 8,
                                 marginBottom: (keyboardVisible ? keyboardHeight : insets.bottom) + 8,
                                 borderRadius: 14,
@@ -2027,40 +2042,40 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                     <PaneActionsChangesRow count={changesCount} onPress={openChanges} />
                                     <Pressable onPress={() => { setActionsOpen(false); setFindOpen(true); }} accessibilityRole="button" accessibilityLabel="Find in output"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="search" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
                                     </Pressable>
                                     <Pressable onPress={() => { setActionsOpen(false); void selectScreenText(); }} accessibilityRole="button" accessibilityLabel="Select text"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="text-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="text-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Select text</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     <TerminalMenuQuickActions slots={ringSlots.filter((slot) => slot.id !== 'computer' && slot.id !== 'changes')} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
                                     {desktopAvailable && canControl && <Pressable onPress={openDesktop} accessibilityRole="button" accessibilityLabel="Computer"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="desktop-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="desktop-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); setComputersOpen(true); }} accessibilityRole="button" accessibilityLabel="Computers"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="layers-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="layers-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computers</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     {preview.row && <Pressable onPress={() => watchPreview()} disabled={!preview.openable} accessibilityRole="button"
                                         accessibilityLabel={t(preview.openable ? WATCH_LABEL[preview.row.kind] : 'preview.reconnecting')}
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: preview.openable ? 1 : 0.5 })}>
-                                        <Ionicons name={previewIcon(preview.row.kind)} size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name={previewIcon(preview.row.kind)} size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{t(preview.openable ? WATCH_LABEL[preview.row.kind] : 'preview.reconnecting')}</Text>
-                                        {preview.openable && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
+                                        {preview.openable && <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
                                     </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="document-text-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="document-text-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Conversation history</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     {/* Files, git history, and prompt attachments are host product
                                         code now: these rows replace the retired add-on's session
@@ -2073,66 +2088,66 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         } });
                                     }} accessibilityRole="button" accessibilityLabel="Files"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="folder-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="folder-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Files</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/commits`); }} accessibilityRole="button" accessibilityLabel="Git history"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="git-branch-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="git-branch-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Git history</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/attachments`); }} accessibilityRole="button" accessibilityLabel={`Prompt attachments${artifactsCount !== null && artifactsCount > 0 ? `, ${artifactsCount}` : ''}`}
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="attach-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="attach-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Prompt attachments</Text>
                                         {artifactsCount !== null && <View style={{ minWidth: 24, height: 22, paddingHorizontal: 7, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHighest }}>
                                             <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '600' }}>{artifactsCount}</Text>
                                         </View>}
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/artifacts`); }} accessibilityRole="button" accessibilityLabel={`Shared Artifacts${artifactsCount === null ? '' : `, ${t('sessionArtifacts.title', { count: artifactsCount })}`}`}
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="albums-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="albums-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Shared Artifacts</Text>
                                         {artifactsCount !== null && <View style={{ minWidth: 24, height: 22, paddingHorizontal: 7, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHighest }}>
                                             <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '600' }}>{artifactsCount}</Text>
                                         </View>}
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     <Pressable onPress={() => { setActionsOpen(false); router.push('/usage'); }} accessibilityRole="button" accessibilityLabel={t('usage.title')}
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="speedometer-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="speedometer-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{t('usage.title')}</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     {canControl && <MoveAccountRow sessionId={props.id} agentKind={paneKind} working={paneLifecycle === 'working'} onOpen={() => setActionsOpen(false)} />}
                                     {canControl && (
                                         <View>
                                             {currentPane !== undefined && <Pressable onPress={renameThisPane} accessibilityRole="button" accessibilityLabel={shell ? 'Rename pane' : 'Rename agent'}
                                                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                                <Ionicons name="pencil-outline" size={18} color={theme.colors.textSecondary} />
+                                                <SheetIcon name="pencil-outline" size={18} color={theme.colors.textSecondary} />
                                                 <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{shell ? 'Rename pane' : 'Rename agent'}</Text>
                                             </Pressable>}
                                             {currentTab !== undefined && <Pressable onPress={() => renameTab(currentTab.tabId, tabLabel(currentTab, workspaceTabs.indexOf(currentTab)))} accessibilityRole="button" accessibilityLabel="Rename tab"
                                                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                                <Ionicons name="pricetag-outline" size={18} color={theme.colors.textSecondary} />
+                                                <SheetIcon name="pricetag-outline" size={18} color={theme.colors.textSecondary} />
                                                 <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Rename tab</Text>
                                             </Pressable>}
                                             <Pressable onPress={newTab} accessibilityRole="button" accessibilityLabel="New tab"
                                                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                                <Ionicons name="add" size={18} color={theme.colors.textSecondary} />
+                                                <SheetIcon name="add" size={18} color={theme.colors.textSecondary} />
                                                 <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>New tab</Text>
                                             </Pressable>
                                             <Pressable onPress={() => splitPane('right')} accessibilityRole="button" accessibilityLabel="New pane to the right"
                                                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                                <Ionicons name="git-commit-outline" size={18} color={theme.colors.textSecondary} />
+                                                <SheetIcon name="git-commit-outline" size={18} color={theme.colors.textSecondary} />
                                                 <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>New pane to the right</Text>
                                             </Pressable>
                                             <Pressable onPress={() => splitPane('down')} accessibilityRole="button" accessibilityLabel="New pane below"
                                                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                                <Ionicons name="git-commit-outline" size={18} color={theme.colors.textSecondary} style={{ transform: [{ rotate: '90deg' }] }} />
+                                                <SheetIcon name="git-commit-outline" size={18} color={theme.colors.textSecondary} style={{ transform: [{ rotate: '90deg' }] }} />
                                                 <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>New pane below</Text>
                                             </Pressable>
                                         </View>
@@ -2141,7 +2156,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         accessibilityLabel={socketStatus.status === 'connected' ? 'Focus in Herdr' : 'Focus in Herdr, unavailable: not connected'}
                                         accessibilityState={{ disabled: socketStatus.status !== 'connected' || focusPending, busy: focusPending }}
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: socketStatus.status === 'connected' ? 1 : 0.5 })}>
-                                        <Ionicons name="locate-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="locate-outline" size={18} color={theme.colors.textSecondary} />
                                         <View style={{ flex: 1 }}>
                                             <Text style={{ color: theme.colors.text, fontSize: 15 }}>Focus in Herdr</Text>
                                             {socketStatus.status !== 'connected' && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>Not connected</Text>}
@@ -2154,15 +2169,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         when the terminal cannot fit the card. */}
                                     {recentTerminalLinks(props.id).length > 0 && <Pressable onPress={showRecentLinks} accessibilityRole="button" accessibilityLabel="Recent links"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="link-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="link-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Recent links</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
                                     {/* Realtime voice is product code, so its row is always offered. */}
-                                    {canControl && <View style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+                                    {canControl && <View style={{ minHeight: 44, flexDirection: 'row', flexWrap: windowWidth < NARROW_SHEET_WINDOW ? 'wrap' : 'nowrap', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
                                         {/* Its control sits at the end; the label still
                                             starts on the column every other row's does. */}
-                                        <View style={{ width: 18 }} />
+                                        {windowWidth >= NARROW_SHEET_WINDOW && <View style={{ width: 18 }} />}
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Talk to this session</Text>
                                         <RealtimeTalkButton sessionId={props.id} accessibilityLabel="Talk to this session" />
                                     </View>}
@@ -2175,9 +2190,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                     <Pressable onPress={() => openControls(canControl ? 'keys' : 'appearance')} accessibilityRole="button" accessibilityLabel="Terminal controls"
                                         accessibilityHint="Keys, snippets, recent links, type size and the keyboard"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="options-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="options-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Terminal controls</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                 </ScrollView>
                                 {/* Closing the pane is the one row here that destroys
@@ -2186,7 +2201,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 {canControl && !stopping && (
                                     <Pressable onPress={() => { setActionsOpen(false); stopSession(); }} accessibilityRole="button" accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
                                         style={({ pressed }) => ({ minHeight: 44, marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="stop-circle-outline" size={18} color={theme.colors.status.error} />
+                                        <SheetIcon name="stop-circle-outline" size={18} color={theme.colors.status.error} />
                                         <Text style={{ flex: 1, color: theme.colors.status.error, fontSize: 15 }}>{shell ? 'Close pane' : 'Stop agent'}</Text>
                                     </Pressable>
                                 )}

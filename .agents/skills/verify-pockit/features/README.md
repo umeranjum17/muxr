@@ -72,6 +72,8 @@ user-visible behavior, then exactly four H2 sections in this order:
   the tapped password field stays above the keyboard and takes typed text.
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
+- [Keep a source-build host off the real muxr home](./host-home-guard.md) —
+  built host under a throwaway HOME, refused without MUXR_HOME, runs with one.
 - [Follow a Herdr agent's status live](./herdr-live-status.md) —
   host session source on a guarded lab Herdr: tree follows new panes, status
   working/blocked/idle lands, socket count 1 → 2 → 1; no baseline needed.
@@ -154,6 +156,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   mismatch/deadline/cancellation cleanup, and missing-setup startup in a container.
 - [Scan a pairing QR from the terminal](./pairing-qr.md) —
   `muxr pair` at normal/narrow widths and inside an isolated Herdr terminal.
+- [Paste an http pairing link](./pair-http-link.md) —
+  the plain-http wrapper a ws:// relay prints (`muxr pair --browser` on a LAN
+  self-host or lab) pastes into the Pair form and reaches consent on the PWA,
+  while a truly truncated token still names the cut-off code.
 - [Lead every pair entry with Scan](./pair-scan-first.md) —
   which action leads on each way into pairing, Scan a new code after an expired
   or refused code, the paste-led page on a device that cannot scan, and a pasted
@@ -286,6 +292,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Type and send prompts in the web app without a crash](./web-prompt-typing.md) —
   web export on an Android emulator at 270 dp with Gboard: five sends to a
   real OpenCode agent, each reply shown, no React #185 screen.
+- [Show a restored long draft whole in the agent's prompt field](./composer-restored-draft.md) —
+  PWA and native over a fake-Herdr stack, main vs candidate: a 12-line draft
+  restored on reopening the agent grows the field to six whole lines like a
+  typed one; an empty field stays one row.
 - [Keep an agent's grid tall enough when the keyboard opens](./terminal-keyboard-floor.md) —
   native app at 270 dp over a real Herdr lab: the keyboard leaves the pane at
   24 rows or more, OpenCode stays up and answers on OpenCode Go; the box follows

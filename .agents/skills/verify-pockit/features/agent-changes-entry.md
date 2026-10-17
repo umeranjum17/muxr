@@ -19,6 +19,25 @@ no count.
   stays). The spoken label always reads `Review changes, N files changed`.
 - `changes-row` Pane actions › Inspect starts with `Changes`; the menu's
   quick-actions fallback no longer repeats it.
+- `changes-theme` the changes review follows the app theme, header and body
+  alike, though it opens over the terminal, which is always dark. The terminal
+  draws inside a `ScopedTheme name="dark"`, which Unistyles holds as one
+  shared value while it renders; a scope that once did not finish left it `dark`, so
+  the screen opened from it drew a dark body under a light header in light
+  mode (fixed in `patches/react-native-unistyles+3.1.1.patch`: a scope reads
+  its parent from React context).
+- `changes-large-text` at width ÷ font scale under 200 (270 dp or 393 dp at
+  font 2.0) the review's scope chips and Lines added / Lines removed / Files
+  wrap onto more lines, and each file row drops its kind icon and chevron,
+  wraps its name and shows its `+N / −N` under the path (a long one-word name
+  breaks mid-word; the path keeps one line, ellipsized). At normal sizes a
+  name longer than its row ends in `…` as before (`pwa-check` and OCR flag it
+  as a lead).
+- `sheet-narrow` under a 252 px window (`NARROW_SHEET_WINDOW`: the installed
+  PWA at font 2.0) Pane actions fills the window less 16 px, its rows drop their
+  icons and chevrons (`SheetIcon`) so labels wrap by word and counts stay
+  inside, and the talk row wraps its button under the label. At 252 px and up
+  (every native phone) it is pixel-identical to before.
 
 ## How to get to it (user POV)
 
@@ -56,14 +75,36 @@ Preconditions:
 5. Capture header and Pane actions at 390 and 270 px, font 1.0 and 2.0, light
    and dark, through `visualCheck.mjs pwa-check`; main shows no pill and no
    Changes row in the same cells.
+6. `changes-theme`: per theme, load the terminal URL itself
+   (`location.href = '<origin>/session/shell:w1:p1'`; reaching it from Home
+   did not leak), open the review from the pill and from Pane actions, and
+   shoot it. Light must be light from header to the last row. In the page,
+   find the Unistyles module (`__r(i)` exporting `UnistylesShadowRegistry`)
+   and read `UnistylesShadowRegistry.getScopedTheme()`: outside every scope it
+   is `undefined`; the defect reads `dark`.
+7. Large text: give the repo a change with a long name (e.g.
+   `billing/monthly_statement_reconciliation_report.py`) and capture the
+   review (tap the pill) and Pane actions (with `-scrolled`) in the full
+   native + PWA matrix. At 270/2.0 every scope chip, summary label and count is
+   on screen, and the PWA sheet sits inside the 135 px viewport. On native,
+   `muxr://session/<session id>` (e.g. `shell:w1:p1`) opens the pane for each
+   cell; on the PWA, set `location.href` to `/session/<id>` and tap the pill
+   (a reload straight onto `/changes` lands on the agent screen).
 
 ## Gotchas
 
+- Pane actions' Changes is the sheet's button after `Inspect` (accessible
+  name `Review changes, N files changed`); the `Review changes, N` menuitem
+  is the hidden quick-actions ring, and a scripted click there lands on other
+  rows such as New pane.
 - The edit can come from a shell instead of a model: the pill reads real git
   state through the real host either way. Say so in the PR's Live proof.
 - A shell's own window title is the full cwd; set a short title in the lab
   pane (`printf '\033]0;calc\007'`) so shots carry no scratch path.
 - `pwa-check` flags the terminal canvas (`text over text: ""`) and every
   control under the open menu sheet (`covered control`) on main as well;
-  compare against main's cell before calling a lead new. At font 2.0 the Pane
-  actions sheet runs off the left edge on main too.
+  compare against main's cell before calling a lead new. Native Pane actions
+  also reports `overlap … "Terminal surface"` for every row: the sheet floats
+  over the terminal by design.
+- Name the lab pane (`herdr pane rename w1:p1 calc`), or the shell's title
+  puts the scratch path in the header.

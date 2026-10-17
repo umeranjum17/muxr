@@ -15,6 +15,7 @@ leaves room for 7; with the floor it keeps running and answers.
 - `floor-reply` a prompt typed with the keyboard open reaches OpenCode, which answers from `opencode-go/muse-spark-1.3-contributor`.
 - `floor-follow` with the keyboard up, the box ends on the cursor's row (OpenCode's prompt), so the reply above it shows; the status lines under the prompt are off the bottom.
 - `floor-pan` with terminal font 20 (about 22 columns, 41 rows) and the keyboard closed, a downward drag shows the grid's top rows before OpenCode scrolls; an upward drag brings the status lines back. Typing to the pane follows the cursor again.
+- `floor-whole-rows` while the grid is taller than its box, the box shows whole rows only: its last row is never cut in half at the bottom edge, and the leftover sits as a blank band above the first row. The hard case is a program whose cursor is near the top (`nvim -u NONE notes.txt` on a 100-line file), so the box shows the grid's top rows; at 270 dp and font 2.0 a main build cut the row under the box in half.
 - `floor-roomy` on a 393 dp-class screen nothing changes when the grid already holds 24 rows or more.
 - `floor-pwa` the same in the installed PWA.
 
@@ -53,6 +54,10 @@ Preconditions:
    `pan down` (quick drags inside the visible box) and capture the top rows;
    `pan up` and capture the bottom ones.
 7. Repeat at density 420 (`adb shell wm density 420`), and in light and dark.
+   For `floor-whole-rows`, a plain shell pane is enough (no OpenCode, no key):
+   in a lab workspace run `seq -f 'row %g of the notes for Umer' 1 100 > notes.txt; nvim -u NONE notes.txt`,
+   open that pane, and look at the box's bottom edge at 270 and 393 dp, font 1.0
+   and 2.0. Every row ends above the tabs row; none shows only its top half.
 8. `quit` stops the panes, the host and the relay, and tears the lab down.
 
 Before #844 the same `kbd` read 7 rows and `CRASHED` on a 270 dp phone. Before
@@ -94,3 +99,12 @@ keyboard up, and at font 20 its top rows could not be reached.
   PWA's service worker keeps a stale bundle across a rebuild: unregister it and
   clear its caches before reloading.
 - The terminal screen is dark in the light theme too.
+- Whole rows come from `terminalShownHeight` in `terminalFloor.ts`: the screen
+  clips a floor-tall surface to whole rows and hands the pan that height.
+- On the PWA, run Chromium with `--force-device-scale-factor=2` (and
+  `--ozone-platform=x11` on a private Xvfb, since the distro wrapper otherwise
+  picks Wayland). A window whose real DPR differs from the emulated one keeps
+  xterm's WebGL canvas at the old DPR, so every row paints about 12% taller than
+  its cell and the box looks cut where it is not. The export keeps the same
+  `index-*.js` name across a rebuild, so clear the HTTP cache too
+  (`Network.clearBrowserCache` over CDP), not only the service worker.

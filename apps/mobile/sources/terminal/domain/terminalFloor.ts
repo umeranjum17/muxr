@@ -34,3 +34,14 @@ export function terminalSurfaceHeight(input: { boxHeight: number; cols?: number;
     const rows = Math.max(MIN_TERMINAL_ROWS, input.cols !== undefined && input.cols > 0 ? Math.ceil(MIN_TERMINAL_CELLS / input.cols) : 0);
     return Math.max(input.boxHeight, rows * rowHeight + 1);
 }
+
+/**
+ * How much of a box the terminal shows. A surface taller than its box is
+ * shown as whole rows, bottom-aligned, with the leftover blank above them:
+ * whichever rows the pan picks, none is cut at the box's edge.
+ */
+export function terminalShownHeight(input: { boxHeight: number; surfaceHeight: number; rowHeight: number }): number {
+    if (input.surfaceHeight <= input.boxHeight || input.rowHeight <= 0) return input.boxHeight;
+    // The small allowance keeps a box that is whole rows to within float error from losing one.
+    return Math.floor(input.boxHeight / input.rowHeight + 0.01) * input.rowHeight;
+}

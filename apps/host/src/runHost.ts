@@ -2,8 +2,8 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, 
 import type { Grant, LinkStream } from '@byokit/link';
 import { isPeerCapabilities, parseLifecycleNotificationLevel, relayControlUrl } from '@trymuxr/contract';
 import { createConnection } from 'node:net';
-import { homedir, hostname } from 'node:os';
-import { dirname, join } from 'node:path';
+import { homedir, hostname, userInfo } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, labHerdrSocket, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
 import { localRelayBase } from '../../../scripts/setup/infrastructure/selfhost.mjs';
@@ -229,6 +229,28 @@ function readAuthStates() {
         const code = (error as NodeJS.ErrnoException)?.code;
         if (process.argv.includes('--retire-machine-peers') || process.argv.includes('--check-host-stopped')) process.exit(1);
         process.exit(error instanceof NonRecoverableAuthError || code === 'EACCES' || code === 'EPERM' ? 0 : 1);
+    }
+}
+// A fake host, or any host run from a source build, that inherits the real
+// setup state reads the owner's selfhost.json, dials the real relay as the
+// real machine and replaces the owner's own host on the link (17 Oct
+// incidents). Such a start must name its own home, set explicitly, and never
+// the owner's real ~/.muxr. Only the shipped bundles (the installed CLI's
+// host.js and the desktop app's host.mjs) define MUXR_PACKAGED at bundle
+// time; a source build reads the real environment, where nothing sets it.
+// The default comes from the passwd entry (os.userInfo ignores $HOME), so a
+// lab that already redirected $HOME may still name $HOME/.muxr.
+const fake = process.argv.includes('--fake');
+if (fake || process.env.MUXR_PACKAGED !== '1') {
+    const muxrHome = env('MUXR_HOME');
+    let ownerDefault: string | undefined;
+    try { ownerDefault = resolve(join(userInfo().homedir, '.muxr')); }
+    catch { /* no passwd entry for this uid: cannot prove the home is safe */ }
+    if (muxrHome === undefined || ownerDefault === undefined || resolve(muxrHome) === ownerDefault) {
+        process.stderr.write(`muxr host: ${fake ? '--fake' : 'a source build'} refuses the default muxr home — set MUXR_HOME to a test folder\n`);
+        // An invocation error: exit non-zero so a lab script stops instead of
+        // carrying on without the host it asked for.
+        process.exit(1);
     }
 }
 const selfhostAuth = readAuthStates();

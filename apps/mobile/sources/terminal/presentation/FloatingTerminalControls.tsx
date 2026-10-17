@@ -3,6 +3,7 @@ import { BackHandler, PanResponder, Pressable, StyleSheet, Text, View } from 're
 import Animated, { Easing, FadeIn, FadeOut, interpolateColor, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
+import { SheetIcon } from '@/components/SheetIcon';
 import { hapticsLight, hapticsSelection } from '@/components/haptics';
 import { RING_CAPTION_WIDTH, clusterLayout, ringFan, slotUnderFinger, type ClusterLayout } from '../domain/ringGeometry';
 
@@ -60,9 +61,9 @@ export function TerminalMenuQuickActions({ slots, terminalHeight, hasTools, onCl
     return slots.filter((slot) => slot.id !== 'arrows').map((slot) => (
         <Pressable key={slot.id} onPress={() => { onClose(); slot.run(); }} accessibilityRole="button" accessibilityLabel={slot.label}
             style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-            <Ionicons name={slot.icon} size={18} color={theme.colors.textSecondary} />
+            <SheetIcon name={slot.icon} size={18} color={theme.colors.textSecondary} />
             <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{slot.label}</Text>
-            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+            <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
         </Pressable>
     ));
 }
