@@ -408,7 +408,7 @@ describe('a headless emulator in an agent pane', () => {
                     width: 540,
                     height: 1200,
                 }),
-                engineFor: () => ({ drainSignaling: () => [{ kind: 'revoked', reason: 'no path', code: 'never-connected' }] }),
+                engineFor: () => ({ drainSignaling: () => [{ kind: 'revoked', reason: 'no path', code: 'transport' }] }),
                 close: async () => undefined,
                 closeAll: async () => undefined,
             } as never,
@@ -419,7 +419,7 @@ describe('a headless emulator in an agent pane', () => {
         try {
             const opened = await targets.openTarget('sess-1', { permissions: ['view'] }, { deviceId: 'phone-1' });
             const polled = await targets.poll(opened.desktopId, 0);
-            expect(polled.events).toContainEqual({ kind: 'revoked', reason: 'no path', code: 'never-connected' });
+            expect(polled.events).toContainEqual({ kind: 'revoked', reason: 'no path', code: 'transport' });
         } finally {
             await targets.closeAll();
         }
