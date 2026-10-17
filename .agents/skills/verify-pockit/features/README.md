@@ -290,6 +290,10 @@ user-visible behavior, then exactly four H2 sections in this order:
   PWA and native over a fake-Herdr stack, main vs candidate: a 12-line draft
   restored on reopening the agent grows the field to six whole lines like a
   typed one; an empty field stays one row.
+- [Keep the agent title and composer controls whole on a narrow PWA](./agent-narrow-chrome.md) —
+  PWA main vs candidate at 135 px (270 dp, font 2.0) and 393 px, plus the
+  native cell: the title stays whole and the rail wraps to field over
+  `+` · microphone · Talk with nothing overlapping.
 - [Keep an agent's grid tall enough when the keyboard opens](./terminal-keyboard-floor.md) —
   native app at 270 dp over a real Herdr lab: the keyboard leaves the pane at
   24 rows or more, OpenCode stays up and answers on OpenCode Go; the box follows
