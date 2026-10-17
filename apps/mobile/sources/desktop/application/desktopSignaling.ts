@@ -1,9 +1,10 @@
 import { DESKTOP_CONSENT_WAIT_MS, DESKTOP_LOOPBACK_TCP, type DesktopEvent } from '@trymuxr/contract';
 import type { SessionEvent, Signaling } from '@desklink/react-native';
+import { Platform } from 'react-native';
 
 import { sync } from '@/catalog';
 import { closeSshForward, openSshForward, sshRouteActive } from '@/connection';
-import { linkTcpBridgeSupported, openLinkTcpBridge, type TcpCarrier } from '../infrastructure/linkTcpBridge';
+import { openLinkTcpBridge, type TcpCarrier } from '../infrastructure/linkTcpBridge';
 
 /**
  * An open may wait on the screen-sharing prompt on the computer. The phone
@@ -161,7 +162,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
             switch (method) {
                 case 'session.open': {
                     closeForwards();
-                    carrier = sshRouteActive() ? 'ssh' : linkTcpBridgeSupported && options.target === undefined ? 'link' : null;
+                    carrier = sshRouteActive() ? 'ssh' : Platform.OS !== 'web' && options.target === undefined ? 'link' : null;
                     options.onOpenSent?.();
                     const opened = await sync.request('desktop.open', {
                         permissions: options.permissions,

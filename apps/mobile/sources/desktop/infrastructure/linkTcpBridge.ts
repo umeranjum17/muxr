@@ -8,9 +8,6 @@ export interface TcpCarrier {
     close: () => void;
 }
 
-/** Native WebRTC dials a local port, so the picture can ride the link here. */
-export const linkTcpBridgeSupported = true;
-
 /**
  * A port on this phone's loopback for the desktop engine's passive TCP
  * candidate: each connection the phone's WebRTC makes to it is carried to that

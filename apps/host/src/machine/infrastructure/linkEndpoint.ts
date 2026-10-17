@@ -675,7 +675,7 @@ async function streamDesktop(stream: LinkStream, req: LinkRequest, grant: Grant,
  */
 async function streamDesktopTcp(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
     const args = req.args as { desktopId?: unknown; port?: unknown } | null;
-    if (!trusted(grant, options.currentCrypto()) || args === null || typeof args !== 'object'
+    if (!trusted(grant, options.currentCrypto()) || grant.role !== 'control' || args === null || typeof args !== 'object'
         || typeof args.desktopId !== 'string' || typeof args.port !== 'number'
         || options.desktopTcp?.(args.desktopId, args.port, muxrDeviceIdOf(grant)!) !== true) {
         throw new PublicLinkError('desktop: that connection is not open to this device');
