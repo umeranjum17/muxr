@@ -20,7 +20,7 @@ const appState = vi.hoisted(() => new Set<(state: string) => void>());
 const platform = vi.hoisted(() => ({ OS: 'web' }));
 const orientation: string[] = [];
 const session = {
-    snapshot: { status: 'live', failure: null, diagnostics: {}, presented: true },
+    snapshot: { status: 'live', failure: null as { code: string; message: string } | null, diagnostics: {}, presented: true },
     nativeId: 'surface',
     connect: vi.fn(async () => { await authorize(); }),
     close: vi.fn(async () => undefined),
@@ -584,7 +584,7 @@ it('keeps the mirror view up when the host announces a preview kind this build d
     await TestRenderer.act(async () => view.unmount());
 });
 
-it('says the network has no way through when an open never shows a frame, and not after one did', async () => {
+it('says the network has no way through when the open never connected, and not for other failures', async () => {
     openedBefore = true;
     session.snapshot.status = 'idle';
     session.snapshot.presented = false;
@@ -602,23 +602,21 @@ it('says the network has no way through when an open never shows a frame, and no
     requestDesktop('computer', 'N');
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="N" onExit={() => undefined} />); });
 
-    // Every reopen the kit spends on it ends the same way: no picture ever came.
+    // A first open whose path never formed ends as the kit's `never-connected`.
     await become('opening');
-    await become('failed', false, transport);
-    await become('reconnecting');
-    await become('opening');
-    await become('failed', false, transport);
+    await become('failed', false, { code: 'never-connected', message: 'No network path to the desktop ever formed.' });
     expect(shows(noPath)).toBe(true);
     expect(shows(generic)).toBe(false);
     expect(root().findAllByProps({ accessibilityLabel: 'Try again' }).length).toBeGreaterThan(0);
 
-    // Try again on a path that works: once a frame showed, a later loss is not the network's verdict.
+    // A path that formed but gave no frame, or was lost after one, is not the network's verdict.
+    await become('opening');
+    await become('failed', false, transport);
+    expect(shows(generic)).toBe(true);
+    expect(shows(noPath)).toBe(false);
     await become('opening');
     await become('live', true);
     await become('failed', true, transport);
-    await become('reconnecting');
-    await become('opening');
-    await become('failed', false, transport);
     expect(shows(generic)).toBe(true);
     expect(shows(noPath)).toBe(false);
 
@@ -627,18 +625,63 @@ it('says the network has no way through when an open never shows a frame, and no
     await become('failed', false, { code: 'consent', message: 'timed out' });
     expect(shows('Screen sharing was not approved')).toBe(true);
 
-    // Native: the engine revokes the open for a lost phone before the kit gives up.
-    const lost = { code: 'revoked', message: 'the connection to the phone was lost' };
-    await become('opening');
-    await become('failed', false, transport);
-    await become('reconnecting');
-    await become('opening');
-    await become('ended', false, lost);
+    session.snapshot.failure = null;
+    await TestRenderer.act(async () => view.unmount());
+});
+
+it('shows Reconnecting for a reconnecting snapshot with a transport failure', async () => {
+    openedBefore = true;
+    session.snapshot.status = 'reconnecting';
+    session.snapshot.presented = true;
+    session.snapshot.failure = { code: 'transport', message: 'the connection to the phone was lost' };
+    let view!: ReturnType<typeof TestRenderer.create>;
+    const shows = (text: string) => (view.root as Rendered).findAll((node) => node.children.includes(text)).length > 0;
+
+    requestDesktop('computer', 'R');
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="R" onExit={() => undefined} />); });
+    expect(shows('Reconnecting…')).toBe(true);
+    expect(shows('Desktop closed')).toBe(false);
+
+    session.snapshot.failure = null;
+    await TestRenderer.act(async () => view.unmount());
+});
+
+it("says the live view has no way through when the open never connected, and not for other failures", async () => {
+    session.snapshot.status = 'live';
+    inputEnabled = false;
+    const onExit = vi.fn();
+    let view!: ReturnType<typeof TestRenderer.create>;
+    const root = () => view.root as Rendered;
+    const shows = (text: string) => root().findAll((node) => node.children.includes(text)).length > 0;
+    const become = async (failure: { code: string; message: string } | null, presented = true) => {
+        Object.assign(session.snapshot, { status: 'failed', failure, presented });
+        await TestRenderer.act(async () => view.update(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android', title: 'Pricing' }} />));
+    };
+    const noPath = "Can't show the emulator from here";
+    const generic = 'The computer did not start the live view.';
+
+    requestDesktop('computer', 'P', true);
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android', title: 'Pricing' }} />); });
+
+    // A first open whose path never formed is the network's verdict, like on the Computer view.
+    await become({ code: 'never-connected', message: 'No network path to the desktop ever formed.' });
     expect(shows(noPath)).toBe(true);
-    await become('opening');
-    await become('live', true);
-    await become('ended', true, lost);
-    expect(shows('Desktop closed')).toBe(true);
+    expect(shows('Live view needs this phone to reach your computer directly or over Tailscale.')).toBe(true);
+    expect(shows(generic)).toBe(false);
+    expect(root().findAllByProps({ accessibilityLabel: 'Try again' }).length).toBeGreaterThan(0);
+
+    // A transport failure gets the unreachable copy with or without a frame.
+    await become({ code: 'transport', message: 'The desktop never sent a picture.' }, false);
+    expect(shows(noPath)).toBe(true);
+    expect(shows(generic)).toBe(false);
+    await become({ code: 'transport', message: 'The desktop never sent a picture.' }, true);
+    expect(shows(noPath)).toBe(true);
+    expect(shows(generic)).toBe(false);
+
+    // A refusal that is not the path — the host's own, or one this build
+    // cannot name — keeps the computer's words.
+    await become({ code: 'platform', message: 'The host refused the source.' });
+    expect(shows(generic)).toBe(true);
     expect(shows(noPath)).toBe(false);
 
     session.snapshot.failure = null;

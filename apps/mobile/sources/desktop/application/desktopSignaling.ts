@@ -111,7 +111,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
             case 'state':
                 return { kind: 'state', capture: event.capture, transport: event.transport, firstFrame: event.firstFrame };
             case 'revoked':
-                return { kind: 'revoked', reason: event.reason };
+                return { kind: 'revoked', reason: event.reason, ...(event.code === undefined ? {} : { code: event.code }) };
             default:
                 return null;
         }

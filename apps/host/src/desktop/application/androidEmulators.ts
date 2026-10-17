@@ -558,7 +558,12 @@ export class DesklinkEncodedEngine implements EncodedEngine {
                     firstFrame: params.firstFrame === true,
                 });
             } else if (raw.event === 'session.revoked') {
-                out.push({ kind: 'revoked', reason: String((raw.params as { reason?: unknown }).reason ?? 'the desktop session ended') });
+                const params = raw.params as { reason?: unknown; code?: unknown };
+                out.push({
+                    kind: 'revoked',
+                    reason: String(params.reason ?? 'the desktop session ended'),
+                    ...(typeof params.code === 'string' ? { code: params.code } : {}),
+                });
             }
         }
         return out;
@@ -1298,7 +1303,11 @@ export class DevicePreviewTargets {
                     firstFrame: signal.firstFrame === true,
                 });
             } else {
-                this.append(desktopId, { kind: 'revoked', reason: String(signal.reason ?? 'the desktop session ended') });
+                this.append(desktopId, {
+                    kind: 'revoked',
+                    reason: String(signal.reason ?? 'the desktop session ended'),
+                    ...(typeof signal.code === 'string' ? { code: signal.code } : {}),
+                });
             }
         }
         const backlog = this.backlog.get(desktopId) ?? { events: [], appended: 0 };
