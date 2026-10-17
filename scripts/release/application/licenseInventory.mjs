@@ -11,7 +11,7 @@ import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/aud
  */
 
 /** Resolve every node_modules package inlined by the given esbuild bundles and audit it. */
-export function bundledDependenciesFromMetafiles(bundles, { allowDeclaredOnly = false } = {}) {
+export function bundledDependenciesFromMetafiles(bundles) {
     const bundledPackagePaths = new Set(
         bundles
             .flatMap(({ root, metafile }) => Object.keys(metafile.inputs).map((input) => packagePathFromInput(root, input)))
@@ -19,7 +19,7 @@ export function bundledDependenciesFromMetafiles(bundles, { allowDeclaredOnly = 
     );
     return [...bundledPackagePaths]
         .sort()
-        .map((path) => ({ ...packageInfoFromPath(path, true, { allowDeclaredOnly }), declaredRange: null }));
+        .map((path) => ({ ...packageInfoFromPath(path, true, { allowDeclaredOnly: true }), declaredRange: null }));
 }
 
 /** Audit installed (not inlined) dependencies by their declared ranges. */
@@ -136,7 +136,7 @@ export function desklinkPlatformDependencies({ root }) {
  * since npm and electron-builder both ship the transitive production packages.
  */
 export function licenseInventory({ bundles, root, rootPackage, declared }) {
-    const bundled = bundledDependenciesFromMetafiles(bundles, { allowDeclaredOnly: true });
+    const bundled = bundledDependenciesFromMetafiles(bundles);
     const platform = [...ccusagePlatformDependencies({ root, rootPackage }), ...desklinkPlatformDependencies({ root })];
     const installed = installedClosure({ root, declared, audited: [...bundled, ...platform] });
     return [...bundled, ...platform, ...installed];
