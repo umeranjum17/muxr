@@ -670,10 +670,13 @@ it("says the live view has no way through when the open never connected, and not
     expect(shows(generic)).toBe(false);
     expect(root().findAllByProps({ accessibilityLabel: 'Try again' }).length).toBeGreaterThan(0);
 
-    // Before a frame, a transport failure is not the network's verdict.
+    // A transport failure gets the unreachable copy with or without a frame.
     await become({ code: 'transport', message: 'The desktop never sent a picture.' }, false);
-    expect(shows(generic)).toBe(true);
-    expect(shows(noPath)).toBe(false);
+    expect(shows(noPath)).toBe(true);
+    expect(shows(generic)).toBe(false);
+    await become({ code: 'transport', message: 'The desktop never sent a picture.' }, true);
+    expect(shows(noPath)).toBe(true);
+    expect(shows(generic)).toBe(false);
 
     // A refusal that is not the path — the host's own, or one this build
     // cannot name — keeps the computer's words.
