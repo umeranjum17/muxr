@@ -600,11 +600,17 @@ try {
     assert.ok(anthropicSdk.length > 0, 'transitive @anthropic-ai/sdk missing from license audit');
     assert.ok(anthropicSdk.every((dependency) => dependency.transitiveOf !== undefined), '@anthropic-ai/sdk must be audited as a transitive dependency');
     assert.ok(anthropicSdk.some((dependency) => dependency.transitiveOf === '@byokit/accounts'), '@anthropic-ai/sdk must be audited transitively via @byokit/accounts');
-    // npm installs a required peer (zod for @modelcontextprotocol/sdk) into the
-    // shipped closure, so the inventory must name it with its parent recorded.
+    // npm installs required peers into the shipped closure, so the inventory
+    // must name them with their parent recorded. react-native is reachable
+    // only through react-native-zeroconf's peer edge, so this assertion fails
+    // if the peer walk stops.
     assert.ok(
         licenseInventory.dependencies.some((dependency) => dependency.name === 'zod' && dependency.transitiveOf === '@modelcontextprotocol/sdk'),
         'peer-installed zod missing from license audit',
+    );
+    assert.ok(
+        licenseInventory.dependencies.some((dependency) => dependency.name === 'react-native' && dependency.transitiveOf === 'react-native-zeroconf'),
+        'peer-installed react-native missing from license audit',
     );
 
     // The desktop AppImage carries its own generated inventory through the
