@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { DESKTOP_NO_PICTURE } from '@trymuxr/contract';
+
 import { DesktopSessions, hostDesktopForPanes, type DesktopEngineOptions } from '../infrastructure/desktopSessions.js';
 
 afterEach(() => vi.unstubAllEnvs());
@@ -157,32 +159,65 @@ describe('desktop sessions, host side', () => {
         expect(sent[4]?.params).toMatchObject({ session_id: 'engine-session-1', candidate: 'candidate:2', sdp_mid: '0', sdp_m_line_index: 0 });
     }, 20_000);
 
-    it('retries a starved portal capture once with the rotated grant, without another picker', async () => {
-        const directory = mkdtempSync(join(tmpdir(), 'desklink-starved-'));
+    it('keeps a portal grant only from an open that started capture, and asks again when a restored one shows nothing', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-restore-'));
         const script = join(directory, 'engine.cjs');
         const log = join(directory, 'received.jsonl');
+        const grantPath = join(directory, 'desktop', 'portal-restore-token');
         writeFileSync(log, '');
+        // The portal hands back a grant before capture starts, whatever happens
+        // next; the engine answers an open only once capture has a frame.
+        // 'closed-window' restores a source that never sends a picture;
+        // 'starved' is a fresh choice another screencast keeps from starting
+        // once; 'nothing' never starts at all.
         writeFileSync(script, STUB.replace("    case 'session.open':", `
-    case 'session.open':
-      if (request.params.restore_token !== 'rotated') {
-        out({ event: 'session.restoreToken', params: { sessionId: session.id, token: 'rotated' } });
+    case 'session.open': {
+      const token = request.params.restore_token;
+      const mode = require('node:fs').readFileSync(process.argv[3], 'utf8');
+      out({ event: 'session.restoreToken', params: { sessionId: session.id, token: 'earned-' + (token ?? 'picker') } });
+      if (token === 'closed-window' || mode === 'nothing' || (mode === 'starved' && token === undefined)) {
         return out({ id: request.id, error: { code: 'source', message: 'capture did not start within 10s' } });
       }
-`));
-        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [script, log], stateRoot: directory }, PORTAL_HOST);
+    }
+    case 'unused':`));
+        const mode = join(directory, 'mode');
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [script, log, mode], stateRoot: directory }, PORTAL_HOST);
+        const opens = () => readFileSync(log, 'utf8').trim().split('\n')
+            .map((line) => JSON.parse(line) as { method: string; params: { restore_token?: string } })
+            .filter((request) => request.method === 'session.open')
+            .map((request) => request.params.restore_token ?? 'picker');
+        const grant = () => existsSync(grantPath) ? readFileSync(grantPath, 'utf8') : null;
         try {
-            const opened = await desktop.open({ permissions: ['view'], awaitConsent: true });
-            expect(opened.source.kind).toBe('monitor');
-            const opens = readFileSync(log, 'utf8').trim().split('\n')
-                .map((line) => JSON.parse(line) as { method: string; params: { restore_token?: string } })
-                .filter((request) => request.method === 'session.open');
-            expect(opens.map((request) => request.params.restore_token)).toEqual([undefined, 'rotated']);
-            expect(existsSync(join(directory, 'desktop', 'portal-restore-token'))).toBe(false);
+            // A fresh choice starved once retries with its own grant, no second
+            // picker, and keeps the grant of the open that started.
+            writeFileSync(mode, 'starved');
+            await desktop.open({ permissions: ['view'], awaitConsent: true });
+            await desktop.closeAll();
+            expect(opens()).toEqual(['picker', 'earned-picker']);
+            expect(grant()).toBe('earned-earned-picker');
+
+            // The window it restores has closed since: the host asks again with
+            // the picker instead of saving or replaying the dead grant.
+            writeFileSync(mode, 'shown');
+            writeFileSync(grantPath, 'closed-window', { mode: 0o600 });
+            const recovered = await desktop.open({ permissions: ['view'], awaitConsent: true });
+            expect(recovered.source.kind).toBe('monitor');
+            expect(grant()).toBe('earned-picker');
+            await desktop.closeAll();
+            expect(opens().slice(2)).toEqual(['closed-window', 'picker']);
+
+            // Nothing ever shows: the phone is told so at once, in the words it
+            // knows, and the next open asks again.
+            writeFileSync(mode, 'nothing');
+            await expect(desktop.open({ permissions: ['view'], awaitConsent: true }))
+                .rejects.toMatchObject({ code: 'source', message: DESKTOP_NO_PICTURE });
+            expect(opens().slice(4)).toEqual(['earned-picker', 'picker']);
+            expect(grant()).toBeNull();
         } finally {
             await desktop.closeAll();
             rmSync(directory, { recursive: true, force: true });
         }
-    });
+    }, 20_000);
 
     it('keeps a private rotating portal grant across host restarts without sending it to the phone', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'desklink-grant-'));

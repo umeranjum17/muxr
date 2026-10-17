@@ -8,6 +8,7 @@ When a computer cannot share its screen, its Computer view explains the failure 
 - Existing consent and no-screen guidance remains intact.
 - The opening error notice uses the same product copy as the overlay.
 - A short 270dp viewport at font scale 1.3 keeps the full message and retry visible.
+- A share the portal granted that never sends a picture (a restored window that has closed) recovers through the portal's picker, or ends in the plain no-picture reason; Try again opens anew, and no grant from a share without a first frame is saved or replayed.
 
 ## How to get to it (user POV)
 
@@ -26,9 +27,20 @@ Preconditions: follow ../SKILL.md isolation. For this native journey use a guard
 7. Record Try again -> failure with native screenrecord. Inspect decoded frames and duration before accepting the recording; a requested duration is not evidence of that duration.
 8. Save screenshots, recording, device geometry, APK identity and command results outside the repo. Stop exact owned processes, tear down through the guarded helper, and verify the default-session tripwire. Delete task scratch, not evidence.
 
+## Dead restored share (no picture)
+
+The real portal may not be driven by a lab, so a stdio proxy stands in for it in front of the real engine (`DESKLINK_ENGINE=<proxy>` on the lab host, args `serve`). The proxy answers a portal `session.open` that carries a seeded "closed window" restore token by emitting a rotated `session.restoreToken` and, 10 s later, the engine's own `capture did not start within 10s` `source` error. Any other portal open is "the person picked": forward it to the real engine as an `x11` source on a private Xvfb display showing a lab page, and emit a fresh restore token for the returned session. A mode file that makes every portal open fail gives the no-picture case.
+
+1. Seed `<MUXR_HOME>/desktop/portal-restore-token` (dir 700, file 600) with the closed-window token before the host's first open.
+2. Computer: the share must recover to the lab page within one capture timeout, with no generic failure. The host log shows the dead grant tried once, then an open without a grant. The grant file holds the new token only after the first frame.
+3. Switch the proxy to "every open fails", leave and re-enter Computer: the phone says the computer could not share that window and to pick one again (not the generic "allow screen sharing" copy), and no grant is saved (the dead one was spent on the open).
+4. Try again must send a new `session.open` (proxy log) without the failed share's token. Clear the mode, and Try again shows the picture.
+5. Before/after: on a build without the fix, the dead token is replayed on every Try again and saved again.
+
 ## Gotchas
 
 - The engine's `source` refusal becomes the client's `platform` failure. Do not substring-match log-only messages or force an unsupported `source` value into SessionSnapshot.
 - Changing display density/font/night mode may reopen the last pairing intent. Back out to Home and re-enter the shell's Computer view; do not approve an expired offer.
 - A blank capture, a development client, or an overlay test alone cannot prove the release UI. Report missing proof explicitly.
+- A pairing offer expires in minutes, and a pending pair-socket request blocks a new offer ("another pairing is in progress"). Approve on the phone at once, or drop the pending request and ask again.
 - Never share pairing offers, grants or whole private logs in evidence.
