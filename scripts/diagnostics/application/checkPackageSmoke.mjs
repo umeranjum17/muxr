@@ -571,8 +571,15 @@ try {
     for (const dependency of licenseInventory.dependencies) {
         if (dependency.transitiveOf !== undefined) {
             assert.equal(dependency.declaredRange, null);
-            if (['ccusage', '@desklink/host'].includes(dependency.transitiveOf)) {
-                assert.equal(dependency.auditedVersion, packageJson.dependencies[dependency.transitiveOf]);
+            // Only the synthetic platform entries are pinned to the parent's
+            // root version. Genuine transitive closure entries resolve their
+            // own version from the parent's manifest (for example ws@8.21.3
+            // via @desklink/host), so the pin check stays on the platform names.
+            if (dependency.transitiveOf === 'ccusage' && dependency.name.startsWith('@ccusage/ccusage-')) {
+                assert.equal(dependency.auditedVersion, packageJson.dependencies.ccusage);
+            }
+            if (dependency.transitiveOf === '@desklink/host' && dependency.name.startsWith('@desklink/host-')) {
+                assert.equal(dependency.auditedVersion, packageJson.dependencies['@desklink/host']);
             }
         } else {
             assert.equal(dependency.declaredRange, dependency.bundled ? null : packageJson.dependencies[dependency.name]);
