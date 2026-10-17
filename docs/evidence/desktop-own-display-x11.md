@@ -2,7 +2,7 @@
 
 **This is a stand-in, not the acceptance journey.** It drives an X server this
 task started; it never touches the real desktop. The real-device journey was
-completed on 2026-09-25: physical test phone `a4b93ea2` ran muxr for 25 minutes
+completed on 2026-09-25: a physical Android test phone ran muxr for 25 minutes
 against the npm-linked build (APK from `dfb017cb7`; the host launched the
 published 0.1.0 prebuilt from `node_modules/@desklink/host-linux-x64-gnu`).
 Remote desktop used portal capture of the owner's real Wayland desktop: opening
@@ -15,7 +15,7 @@ results table is in the pull request description.
 
 Run on 2026-09-21/22 against **Xvfb `:99`** with a purpose-written X client
 (desklink's `packages/desktop-host/engine/examples/x11_target.rs`) as the thing being driven.
-No part of this touched the captain's session: his desktop was neither captured
+No part of this touched a live user session: no real desktop was captured
 nor injected into.
 
 The X11 stand-in did not exercise portal consent or `uinput` input; those
@@ -137,7 +137,7 @@ transfer on a real compositor, or any statement about a real desktop at all.
 
 ## Not covered here
 
-- **Portal consent and `uinput` input**: both need the captain's own session.
+- **Portal consent and `uinput` input**: both need a live user session.
 - **Clipboard transfer**: the engine's clipboard uses the compositor's clipboard
   protocol, which an X display has none of. On `:99` the request is answered in
   1ms with `Could not find wayland compositor`, which is the honest degraded

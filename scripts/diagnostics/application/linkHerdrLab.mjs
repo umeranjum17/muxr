@@ -5,7 +5,8 @@ import { machineIdentity } from '../../setup/index.mjs';
 import { linkLabClient } from './linkLabClient.mjs';
 import { waitForRelay } from './waitForRelay.mjs';
 
-const helper = process.env.HERDR_LAB_HELPER || '/home/umer/firstmate/bin/fm-herdr-lab.sh';
+const helper = process.env.HERDR_LAB_HELPER;
+if (!helper) throw new Error('HERDR_LAB_HELPER is not set: point it at a Herdr lab helper script to run the lab link.');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {}) {

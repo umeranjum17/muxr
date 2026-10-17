@@ -83,7 +83,7 @@ keyboard up, and at font 20 its top rows could not be reached.
   before `signin`, and never `pane read` the sign-in pane.
 - At 270 dp the New agent Folder field scrolls under the sticky Start button;
   scroll on until it clears, or the tap lands on `Start OpenCode in ~`.
-- An agent the phone starts in a folder under `/home/umer` meets mise's
+- An agent the phone starts in a folder under `/home/user` meets mise's
   "config files are not trusted" prompt (the lab HOME is not the real one);
   `mise trust ~/.config/mise/config.toml` in a lab pane records the trust in
   the lab's own state only. Do it before `signin` too, or the sign-in waits

@@ -4,7 +4,7 @@ name: desktop-appimage
 # computer without a terminal -- from a clean checkout and keep it as a workflow
 # artifact for testing. This workflow never publishes: no GitHub release asset,
 # no npm publish, no site change, no store upload. Public release waits on the
-# captain's own testing.
+# maintainer's own testing.
 #
 # `yarn desktop:build:linux` is the exact local path (apps/desktop/scripts/build.mjs)
 # and it already audits the shipped licenses and runs electron-builder with

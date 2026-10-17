@@ -56,7 +56,7 @@ app's existing `react-native-webrtc` ships.
 
 ## Product source ownership
 
-Repository history attributes muxr-authored commits to Umer Anjum. The
+Repository history attributes muxr-authored commits to the maintainer. The
 mobile and relay foundations inherited MIT-licensed work from Happy, and parts
 of the former lifecycle/notification model were derived from MIT-licensed PI
 WEB. Those notices and the MIT terms remain in `NOTICE` and `LICENSES/MIT.txt`.

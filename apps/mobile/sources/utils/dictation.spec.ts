@@ -275,9 +275,9 @@ describe('on-device dictation flow', () => {
                 id: 'session-a', activeAt: 1, updatedAt: 1,
                 metadata: {
                     summary: { text: 'Repair Crewhouse login with OpenClaw' },
-                    path: '/home/umer/pockit',
+                    path: '/home/user/pockit',
                     workspaceLabel: 'pockit',
-                    worktree: { repo: 'pockit', branch: 'main', path: '/home/umer/pockit' },
+                    worktree: { repo: 'pockit', branch: 'main', path: '/home/user/pockit' },
                 },
             },
             'session-b': { id: 'session-b', activeAt: 2, updatedAt: 2 },

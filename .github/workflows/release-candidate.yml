@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_commit:
-        description: Exact 40-character release-branch commit tested by the captain
+        description: Exact 40-character release-branch commit tested by the maintainer
         required: true
         type: string
       channel:
@@ -43,7 +43,7 @@ jobs:
         with:
           node-version: 22
       - id: select
-        name: Select the captain-tested main commit and channel
+        name: Select the maintainer-tested main commit and channel
         env:
           GH_TOKEN: ${{ github.token }}
           REQUESTED_CHANNEL: ${{ inputs.channel || 'nightly' }}

@@ -102,7 +102,7 @@ const TRUST_SCREEN = [
     '─'.repeat(60),
     ' Accessing workspace:',
     '',
-    ' /home/umer/notes-app',
+    ' /home/user/notes-app',
     '',
     ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source',
     ' project, or work from your team). If not, take a moment to review what\'s in this folder first.',

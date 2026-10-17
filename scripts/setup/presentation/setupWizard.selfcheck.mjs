@@ -45,12 +45,12 @@ async function checkWizard() {
         if (!tailscaleInstalled) return { status: null, error: { code: 'ENOENT' }, stdout: '', stderr: '' };
         if (args.join(' ') === 'status --json') return { status: 0, stdout: JSON.stringify({
             BackendState: tailscaleConnected ? 'Running' : 'NeedsLogin',
-            Self: tailscaleConnected ? { DNSName: 'umer.tailnet.ts.net.', TailscaleIPs: ['100.64.0.8'] } : {},
+            Self: tailscaleConnected ? { DNSName: 'laptop.tailnet.ts.net.', TailscaleIPs: ['100.64.0.8'] } : {},
         }), stderr: '' };
         assert.deepEqual(args, ['serve', 'status', '--json']);
         if (serveStatus === 'disabled') return { status: 1, stdout: '', stderr: 'Serve is not enabled on your tailnet' };
         return { status: 0, stdout: JSON.stringify(serveStatus === 'occupied' ? {
-            Web: { 'umer.tailnet.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:9999' } } } },
+            Web: { 'laptop.tailnet.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:9999' } } } },
         } : {}), stderr: '' };
     };
     try {

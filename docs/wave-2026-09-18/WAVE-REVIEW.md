@@ -192,7 +192,7 @@ Summaries only; the full reports stay in the wave workspace, out of this reposit
 | Item | What's needed |
 |------|---------------|
 | [#336](https://github.com/umeranjum17/muxr/pull/336) CI manual-dispatch | Remove `suite` from branch protection |
-| 8 design docs | Captain review (in the wave workspace) |
+| 8 design docs | Maintainer review (in the wave workspace) |
 
 ---
 

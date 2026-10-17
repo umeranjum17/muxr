@@ -62,7 +62,7 @@ serve that very `apps/mobile/dist` with the repo static server on a free port
    PID), reload, and confirm `#root` has children, the splash is `display:none`,
    and the app's own screen renders instead of a browser error page.
 6. Native comparison: build a release APK (`scripts/buildAndroidLocal.sh` needs
-   the captain's signing secrets, so instead generate a throwaway keystore and
+    the maintainer's signing secrets, so instead generate a throwaway keystore and
    run `:app:assembleRelease` with `-PreactNativeArchitectures=x86_64` and the
    `-Prelease*` properties), install it on an x86_64 emulator, launch, and
    screenshot the OS splash (it shows for several seconds). The native mark and

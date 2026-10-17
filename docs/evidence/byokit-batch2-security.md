@@ -24,7 +24,7 @@ Mutation proof: disabling install-bundle signature verification in the emitted
 runtime made the new tampered-signature assertion fail with “Missing expected
 exception.” Restoring verification made the crypto self-check pass.
 
-Known gaps for captain testing: actual native/PWA notification delivery and taps,
+Known gaps for manual device testing: actual native/PWA notification delivery and taps,
 and Tailscale Serve ownership preservation plus unavailable/ambiguous Serve state.
 Push tests capture Expo sends and simulate service-worker clients. No physical
 push credentials or real delivery targets were supplied; they remain out of scope

@@ -11,7 +11,7 @@ muxr is pre-1.0. Only the `main` branch of this repository receives security fix
 Report vulnerabilities privately. Do not open a public issue.
 
 - Preferred: open a private security advisory on the GitHub repository (Security, then Advisories, then Report a vulnerability).
-- Fallback: email umeranjum17@gmail.com.
+- Fallback: if private advisories are unavailable, open an issue asking for a private contact channel (without details).
 
 Acknowledgement within 7 days. Include enough detail to reproduce the issue, which boundary it crosses, and what you expect the impact to be.
 

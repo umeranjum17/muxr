@@ -10,4 +10,4 @@ Candidate: `fm/pock-usage-quotas1` at the committed implementation change.
 
 The unavailable-plan frames at 270dp/360dp were removed because the Expo developer menu covered the screen; they were recaptured from a release build, with no developer overlay, in the follow-up change's private evidence. The 1.3-scale frames above predate that change: they show the truncated window labels and the old "reopen Usage in a minute" notice it fixed.
 
-The native emulator was isolated from the captain devices and connected only to the lab host/relay. No credentials or quota payloads are included in this evidence note or filenames.
+The native emulator was isolated from personal devices and connected only to the lab host/relay. No credentials or quota payloads are included in this evidence note or filenames.
