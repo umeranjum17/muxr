@@ -472,7 +472,12 @@ export class DesklinkEncodedEngine implements EncodedEngine {
     private client: EngineClient | null = null;
     private session: EncodedEngineSession | null = null;
     private live: ((event: EncodedEngineEvent) => void) | null = null;
-    private readonly consumed = new Set<unknown>();
+    /**
+     * Signaling the live listener did not consume, in arrival order. The
+     * client no longer retains events once `onEvent` is set, so this push
+     * path is the only delivery; `drainSignaling` reads here instead.
+     */
+    private readonly queued: RawEngineEvent[] = [];
 
     constructor(options: DesklinkEncodedEngineOptions = {}) {
         this.options = options;
@@ -530,11 +535,7 @@ export class DesklinkEncodedEngine implements EncodedEngine {
     drainSignaling(): Array<{ kind: 'offer' | 'candidate' | 'state' | 'revoked'; [key: string]: unknown }> {
         if (this.client === null || this.session === null) return [];
         const out: Array<{ kind: 'offer' | 'candidate' | 'state' | 'revoked'; [key: string]: unknown }> = [];
-        for (const event of this.client.drainEvents(this.session.sessionId)) {
-            if (this.consumed.has(event)) {
-                this.consumed.delete(event);
-                continue;
-            }
+        for (const event of this.queued.splice(0)) {
             const raw = event as unknown as RawEngineEvent;
             if (raw.event === 'session.description') {
                 const description = (raw.params as { description?: { sdp?: string } }).description;
@@ -572,7 +573,7 @@ export class DesklinkEncodedEngine implements EncodedEngine {
             const client = this.client;
             const sessionId = this.session.sessionId;
             this.session = null;
-            client.drainEvents(sessionId);
+            this.queued.length = 0;
             await client.closeSession(sessionId).catch(() => undefined);
         }
     }
@@ -581,17 +582,18 @@ export class DesklinkEncodedEngine implements EncodedEngine {
         const client = this.client;
         this.client = null;
         this.session = null;
+        this.queued.length = 0;
         await client?.stop().catch(() => undefined);
     }
 
     private handleLive(event: RawEngineEvent): void {
         if (this.session === null || event.params.sessionId !== this.session.sessionId) return;
         if (event.event === 'session.keyframeRequest') {
-            this.consumed.add(event);
             this.live?.({ kind: 'keyframeRequest' });
         } else if (event.event === 'session.input' && event.params.input !== undefined) {
-            this.consumed.add(event);
             this.live?.({ kind: 'input', input: event.params.input });
+        } else {
+            this.queued.push(event);
         }
     }
 }

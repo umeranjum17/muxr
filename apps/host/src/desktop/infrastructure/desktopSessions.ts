@@ -2,7 +2,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
-import type { EngineCapabilities, SourceRequest } from '@desklink/host';
+import type { EngineCapabilities, EngineEvent, SourceRequest } from '@desklink/host';
 import { DESKTOP_CONSENT_WAIT_MS } from '@trymuxr/contract';
 import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@trymuxr/contract';
 
@@ -163,6 +163,13 @@ export class DesktopSessions {
     private readonly disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
     /** The reason the last start attempt failed, when the engine resolved but did not come up. */
     private startFailure: string | null = null;
+    /**
+     * Engine events that arrived before their session was registered, in
+     * arrival order. The client delivers every event through `onEvent`, so an
+     * event racing the `open` that created its session waits here until the
+     * record exists; the first poll then delivers it. Bounded with the backlog.
+     */
+    private readonly pendingEngineEvents: EngineEvent[] = [];
 
     private readonly environment: NodeJS.ProcessEnv = process.env;
     private readonly portalGrant: PortalGrant | undefined;
@@ -311,7 +318,6 @@ export class DesktopSessions {
             for (const existing of this.sessions.values()) {
                 if (existing.revoked || existing.client !== client) continue;
                 existing.revoked = true;
-                existing.client.drainEvents(existing.engineSessionId);
                 existing.appended += 1;
                 existing.events.push({ kind: 'revoked', reason: 'another device opened this computer' });
             }
@@ -321,7 +327,6 @@ export class DesktopSessions {
             throw error;
         });
         if (owner !== undefined && !owner.isConnected()) {
-            client.drainEvents(opened.sessionId);
             await client.closeSession(opened.sessionId).catch(() => undefined);
             this.opening -= 1;
             await this.stopIfIdle();
@@ -344,9 +349,9 @@ export class DesktopSessions {
             appended: 0,
             revoked: false,
         });
-        // The offer is already queued on the engine client; the first poll
-        // delivers it, which keeps one delivery path instead of two.
-        this.drain(desktopId);
+        // The offer arrives through `onEvent` into the session backlog; the
+        // first poll delivers it, which keeps one delivery path instead of two.
+        this.deliverPending(desktopId);
         this.opening -= 1;
         return { desktopId, generation: opened.generation, geometry: opened.geometry, source: opened.source };
     }
@@ -370,7 +375,7 @@ export class DesktopSessions {
 
     async poll(desktopId: string, cursor: number, connectionId?: string, deviceId?: string): Promise<{ cursor: number; events: DesktopEvent[] }> {
         const session = this.require(desktopId, connectionId, deviceId);
-        this.drain(desktopId);
+        this.deliverPending(desktopId);
         // The oldest notification still retained. A client that has seen
         // everything gets exactly what arrived since; a client whose cursor
         // predates the backlog (or belongs to an earlier session) is given the
@@ -396,7 +401,7 @@ export class DesktopSessions {
             throw new EngineRefused('session', 'that desktop session belongs to another device');
         }
         this.sessions.delete(desktopId);
-        session.client.drainEvents(session.engineSessionId);
+        this.forgetPending(session.engineSessionId);
         try {
             await session.client.closeSession(session.engineSessionId);
         } catch {
@@ -477,29 +482,68 @@ export class DesktopSessions {
         return session;
     }
 
-    /** Move everything the engine queued into this session's event list. */
-    private drain(desktopId: string): void {
+    /**
+     * Move the events the engine pushed before their session was registered
+     * into that session's backlog, oldest first. A replaced session must never
+     * receive another session's notifications, so only its own move.
+     */
+    private deliverPending(desktopId: string): void {
         const session = this.sessions.get(desktopId);
-        // The engine's queue belongs to the session it is currently serving; a
-        // replaced session must never drain another session's notifications.
-        if (session === undefined || session.revoked) return;
-        for (const event of session.client.drainEvents(session.engineSessionId)) {
-            const translated = toDesktopEvent(event);
-            if (translated === null) continue;
-            if (translated.kind === 'revoked') {
-                // The engine ended this session on its own (a lease expiry). The
-                // poll delivering this notification must also forget the record,
-                // the same way a replaced session does.
-                session.revoked = true;
+        if (session === undefined || session.revoked || this.pendingEngineEvents.length === 0) return;
+        const rest: EngineEvent[] = [];
+        for (const event of this.pendingEngineEvents) {
+            if (engineSessionIdOf(event) === session.engineSessionId) this.appendEngineEvent(session, event);
+            else rest.push(event);
+        }
+        this.pendingEngineEvents.length = 0;
+        this.pendingEngineEvents.push(...rest);
+    }
+
+    /** Drop the stragglers of a session that will never be registered now. */
+    private forgetPending(engineSessionId: string): void {
+        for (let index = this.pendingEngineEvents.length - 1; index >= 0; index -= 1) {
+            const event = this.pendingEngineEvents[index];
+            if (event !== undefined && engineSessionIdOf(event) === engineSessionId) this.pendingEngineEvents.splice(index, 1);
+        }
+    }
+
+    /**
+     * File one pushed engine event into its session's backlog. The client no
+     * longer retains events once `onEvent` is set, so this push path is the
+     * only delivery; an event for no live session waits in the pending buffer
+     * instead of being lost to the race with `open`.
+     */
+    private routeEngineEvent(event: EngineEvent): void {
+        const sessionId = engineSessionIdOf(event);
+        const session = sessionId === undefined
+            ? undefined
+            : [...this.sessions.values()].find((candidate) => !candidate.revoked && candidate.engineSessionId === sessionId);
+        if (session === undefined) {
+            this.pendingEngineEvents.push(event);
+            if (this.pendingEngineEvents.length > MAX_BACKLOG) {
+                this.pendingEngineEvents.splice(0, this.pendingEngineEvents.length - MAX_BACKLOG);
             }
-            session.appended += 1;
-            session.events.push(translated);
-            // A client that fell further behind than the backlog is worth cannot
-            // be served an exact delta, so only the most recent notifications are
-            // kept and its cursor is corrected on the next poll.
-            if (session.events.length > MAX_BACKLOG) {
-                session.events.splice(0, session.events.length - MAX_BACKLOG);
-            }
+            return;
+        }
+        this.appendEngineEvent(session, event);
+    }
+
+    private appendEngineEvent(session: LiveSession, event: EngineEvent): void {
+        const translated = toDesktopEvent(event);
+        if (translated === null) return;
+        if (translated.kind === 'revoked') {
+            // The engine ended this session on its own (a lease expiry). The
+            // poll delivering this notification must also forget the record,
+            // the same way a replaced session does.
+            session.revoked = true;
+        }
+        session.appended += 1;
+        session.events.push(translated);
+        // A client that fell further behind than the backlog is worth cannot
+        // be served an exact delta, so only the most recent notifications are
+        // kept and its cursor is corrected on the next poll.
+        if (session.events.length > MAX_BACKLOG) {
+            session.events.splice(0, session.events.length - MAX_BACKLOG);
         }
     }
 
@@ -520,15 +564,18 @@ export class DesktopSessions {
                         requestTimeoutMs: ENGINE_REQUEST_TIMEOUT_MS,
                         ...(this.options.onDiagnostic === undefined ? {} : { onDiagnostic: this.options.onDiagnostic }),
                         onEvent: (event) => {
-                            if (event.event !== 'session.restoreToken') return;
-                            if (typeof event.params.token !== 'string' || event.params.token === '') return;
-                            // Save immediately, including before session.open answers:
-                            // polling/closing the phone must not lose a rotated token.
-                            try {
-                                this.portalGrant?.replace(event.params.token);
-                            } catch {
-                                this.options.onDiagnostic?.('Desktop grant could not be saved; next open will require portal consent.');
+                            if (event.event === 'session.restoreToken') {
+                                if (typeof event.params.token !== 'string' || event.params.token === '') return;
+                                // Save immediately, including before session.open answers:
+                                // polling/closing the phone must not lose a rotated token.
+                                try {
+                                    this.portalGrant?.replace(event.params.token);
+                                } catch {
+                                    this.options.onDiagnostic?.('Desktop grant could not be saved; next open will require portal consent.');
+                                }
+                                return;
                             }
+                            this.routeEngineEvent(event);
                         },
                         onExit: () => {
                             // The engine died: tell every attached client the
@@ -565,6 +612,11 @@ export class DesktopSessions {
         })();
         return this.starting;
     }
+}
+
+function engineSessionIdOf(event: EngineEvent): string | undefined {
+    const sessionId = (event.params as { sessionId?: unknown }).sessionId;
+    return typeof sessionId === 'string' ? sessionId : undefined;
 }
 
 function toDesktopEvent(event: { event: string; params: Record<string, unknown> }): DesktopEvent | null {
