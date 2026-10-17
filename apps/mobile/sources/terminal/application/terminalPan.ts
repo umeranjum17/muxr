@@ -11,12 +11,22 @@ import { decodeBase64 } from '@/encryption/base64';
  * with no cursor yet shows its bottom rows. The terminal's own drag reaches the
  * rest: the surface takes the travel while it can move that way, and only what
  * is left scrolls the pane in Herdr. A drag holds the box where the user put it
- * until they type to the pane, tap Latest or switch panes; new output does not
- * move it. Answers to a question appearing bring the box back to the cursor once.
+ * until they type to the pane, tap Latest or switch panes; new output and
+ * answers appearing do not move it.
  *
- * The surface moves in whole rows. A grid that overflows by a fraction of a row
- * leaves that fraction blank above its top row, so one drag line is exactly one
- * row to the surface or to Herdr, never a share of both.
+ * The surface moves in whole rows, so one drag line is exactly one row to the
+ * surface or to Herdr, never a share of both. Travel under a row is carried into
+ * the next drag line rather than dropped. A fraction of overflow stays hidden at
+ * the top limit instead of leaving a blank row above the grid.
+ *
+ * Proof (features/terminalFloorLab.mjs drives these on a 270 dp phone, font 20):
+ * - floor-pan with the keyboard closed, a downward drag shows the grid's top rows before the pane scrolls; an upward drag brings the status lines back. Typing to the pane follows the cursor again.
+ * - floor-follow with the keyboard up, the box ends on the cursor's row (the prompt), so the reply above it shows; the status lines under the prompt are off the bottom.
+ * - floor-whole-rows while the grid is taller than its box, the box's bottom row is never cut in half at its bottom edge. The hard case is a program whose cursor is near the top (`nvim -u NONE notes.txt` on a 100-line file), so the box shows the grid's top rows.
+ *
+ * Gotchas:
+ * - A renderer keeps the grid it attached at, so after a font change the grid can stay taller than the floor asks for; the pan covers every row it drew.
+ * - Whole rows come from terminalShownHeight in terminalFloor.ts: the screen clips a floor-tall surface to whole rows and hands the pan that height.
  *
  * Herdr ends every frame by putting the cursor back (`ESC[row;colH`, then
  * showing or hiding it), so the row comes from the frame itself on both
@@ -45,8 +55,9 @@ export interface TerminalPan {
     frame: (base64: string) => void;
     layout: (layout: TerminalPanLayout) => void;
     /**
-     * Drag travel in Herdr's direction (positive goes back). Returns what the
-     * surface could not take, for the pane's own scroll.
+     * Drag travel in Herdr's direction (positive goes back). Returns the whole
+     * lines the surface could not take, for the pane's own scroll; a fraction of
+     * a line is kept for the next call.
      */
     pan: (lines: number) => number;
     /** The user typed to the pane or tapped Latest: follow its cursor again. */
@@ -81,16 +92,14 @@ export function createTerminalPan(setOffset: (offset: number) => void): Terminal
     let held: number | undefined;
     let attached: string | undefined;
     let shown = 0;
+    let carry = 0;
 
-    /** Whole rows past the box, so the surface stops on a row line and Herdr's lines stay whole. */
-    const overflow = (): number => {
-        const excess = Math.max(0, layout.surfaceHeight - layout.boxHeight);
-        return layout.rowHeight > 0 ? Math.ceil(excess / layout.rowHeight) * layout.rowHeight : excess;
-    };
-    const clamp = (offset: number): number => {
-        const bounded = Math.min(overflow(), Math.max(0, offset));
-        return layout.rowHeight > 0 ? Math.floor(bounded / layout.rowHeight + 1e-9) * layout.rowHeight : bounded;
-    };
+    /** Whole rows in `px`, so the surface stops on a row line and Herdr's lines stay whole. */
+    const wholeRows = (px: number): number => (layout.rowHeight > 0
+        ? Math.floor(px / layout.rowHeight + 1e-9) * layout.rowHeight
+        : px);
+    const overflow = (): number => wholeRows(Math.max(0, layout.surfaceHeight - layout.boxHeight));
+    const clamp = (offset: number): number => wholeRows(Math.min(overflow(), Math.max(0, offset)));
     const followed = (): number => (cursor === undefined || layout.rowHeight <= 0
         ? 0
         : clamp(layout.surfaceHeight - (cursor + 1) * layout.rowHeight));
@@ -115,13 +124,18 @@ export function createTerminalPan(setOffset: (offset: number) => void): Terminal
             show();
         },
         pan(lines) {
-            if (lines === 0 || layout.rowHeight <= 0 || overflow() === 0) return lines;
+            const travel = carry + lines;
+            const rows = Math.trunc(travel);
+            carry = travel - rows;
+            if (rows === 0) return 0;
+            if (layout.rowHeight <= 0) return rows;
             const from = held ?? shown;
-            const to = clamp(from + lines * layout.rowHeight);
-            if (to === from) return lines;
-            held = to;
-            show();
-            return Math.round(lines - (to - from) / layout.rowHeight);
+            const to = clamp(from + rows * layout.rowHeight);
+            if (to !== from) {
+                held = to;
+                show();
+            }
+            return rows - Math.round((to - from) / layout.rowHeight);
         },
         follow() {
             if (held === undefined) return;
@@ -129,7 +143,10 @@ export function createTerminalPan(setOffset: (offset: number) => void): Terminal
             show();
         },
         attach(pane) {
-            if (pane !== attached) held = undefined;
+            if (pane !== attached) {
+                held = undefined;
+                carry = 0;
+            }
             attached = pane;
             cursor = undefined;
             show();

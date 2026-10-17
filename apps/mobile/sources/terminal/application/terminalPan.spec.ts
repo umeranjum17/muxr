@@ -14,8 +14,8 @@ describe('a grid taller than its box', () => {
         const pan = createTerminalPan((next) => { offset = next; });
         pan.attach('a');
         const row = 20;
-        // 25 floor rows drawn 20 tall; the keyboard leaves room for 7.
-        pan.layout({ surfaceHeight: 25 * row, boxHeight: 7 * row, rowHeight: row });
+        // 25 floor rows drawn 20 tall, plus the pixel terminalSurfaceHeight adds; the keyboard leaves room for 7.
+        pan.layout({ surfaceHeight: 25 * row + 1, boxHeight: 7 * row, rowHeight: row });
         expect(offset).toBe(0);
 
         // An agent's prompt is on row 14 (1-based), its reply right above:
@@ -59,8 +59,7 @@ describe('a grid taller than its box', () => {
         expect(pan.pan(-12)).toBe(-2);
         expect(offset).toBe(0);
 
-        // Answers appearing bring the box back to the cursor once, from
-        // wherever the user dragged; a later drag still pans.
+        // Typing brings the box back to the cursor from wherever the drag left it.
         expect(pan.pan(5)).toBe(0);
         expect(offset).toBe(5 * row);
         pan.follow();
@@ -72,15 +71,24 @@ describe('a grid taller than its box', () => {
         pan.attach('c');
         expect(offset).toBe(0);
 
-        // The grid overflows its box by 0.4 of a row: the surface stops on the
-        // next row line, so one drag line is one row for the surface and Herdr
-        // is not sent a rounded share of it.
-        pan.layout({ surfaceHeight: 7 * row + 8, boxHeight: 7 * row, rowHeight: row });
-        expect(pan.pan(1)).toBe(0);
+        // Travel under a row is carried into the next drag line, never dropped:
+        // two drags of 0.6 row move the surface one row; the 0.2 left waits.
+        pan.layout({ surfaceHeight: 25 * row + 1, boxHeight: 7 * row, rowHeight: row });
+        expect(pan.pan(0.6)).toBe(0);
+        expect(offset).toBe(0);
+        expect(pan.pan(0.6)).toBe(0);
         expect(offset).toBe(row);
+        expect(pan.pan(1.4)).toBe(0);
+        expect(offset).toBe(2 * row);
+
+        // A grid that overflows its box by less than a row does not move; Herdr gets the line.
+        pan.layout({ surfaceHeight: 7 * row + 8, boxHeight: 7 * row, rowHeight: row });
+        expect(pan.pan(1)).toBe(1);
+        expect(offset).toBe(0);
+        pan.layout({ surfaceHeight: 25 * row + 1, boxHeight: 7 * row, rowHeight: row });
         pan.frame(herdrFrame('> ', 7));
         pan.follow();
-        expect(offset).toBe(0);
+        expect(offset).toBe(18 * row);
 
         // The keyboard closes and the whole grid fits: nothing pans.
         pan.layout({ surfaceHeight: 25 * row, boxHeight: 26 * row, rowHeight: row });

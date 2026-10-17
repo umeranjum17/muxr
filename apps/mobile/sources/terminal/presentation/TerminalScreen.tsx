@@ -415,11 +415,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // overlay stops at the keyboard's top edge, not at the rails' own bottom.
     const ringOverlayBottom = useAnimatedStyle(() => ({ bottom: settledRaise.value > 0 ? settledRaise.value + insets.bottom : 0 }), [insets.bottom]);
     const [choicesVisible, setChoicesVisible] = React.useState(false);
-    // Answers appearing bring the box back to the cursor once; a later drag still pans.
-    const onChoicesVisibilityChange = React.useCallback((visible: boolean) => {
-        setChoicesVisible(visible);
-        if (visible) pan.follow();
-    }, [pan]);
     // A renderer keeps the grid it attached at, so one measured on the first
     // estimate can be taller than the surface and grows it: pan the rows it drew.
     const drawnGridHeight = drawnRowHeight !== undefined && grid !== undefined ? grid.rows * drawnRowHeight : 0;
@@ -1730,7 +1725,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             sessionId={props.id}
                             waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !latestShown && !scrolledAway && !desktopVisible}
                             channel={channel}
-                            onVisibilityChange={onChoicesVisibilityChange}
+                            onVisibilityChange={setChoicesVisible}
                             lineHeight={terminalRowHeight}
                             gridInset={terminalGridInset}
                             columns={grid?.cols}

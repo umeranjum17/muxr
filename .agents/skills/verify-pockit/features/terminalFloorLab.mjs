@@ -3,9 +3,7 @@
 // Sub-features (proof criteria):
 // - floor-keyboard tapping the prompt box on a 270 dp phone opens the keyboard and the pane keeps at least 24 rows in Herdr; OpenCode stays up.
 // - floor-reply a prompt typed with the keyboard open reaches OpenCode, which answers from opencode-go/muse-spark-1.3-contributor.
-// - floor-follow with the keyboard up, the box ends on the cursor's row (OpenCode's prompt), so the reply above it shows; the status lines under the prompt are off the bottom.
-// - floor-pan with terminal font 20 (about 22 columns, 41 rows) and the keyboard closed, a downward drag shows the grid's top rows before OpenCode scrolls; an upward drag brings the status lines back. Typing to the pane follows the cursor again.
-// - floor-whole-rows while the grid is taller than its box, the box shows whole rows only: its last row is never cut in half at the bottom edge, and the leftover sits as a blank band above the first row. The hard case is a program whose cursor is near the top (`nvim -u NONE notes.txt` on a 100-line file), so the box shows the grid's top rows; at 270 dp and font 2.0 a main build cut the row under the box in half.
+// - floor-follow, floor-pan and floor-whole-rows: their criteria are in the header of apps/mobile/sources/terminal/application/terminalPan.ts; steps 5-7 drive them.
 // - floor-roomy on a 393 dp-class screen nothing changes when the grid already holds 24 rows or more.
 // - floor-pwa the same in the installed PWA.
 //
@@ -43,7 +41,7 @@
 //    For floor-whole-rows, a plain shell pane is enough (no OpenCode, no key):
 //    in a lab workspace run `seq -f 'row %g of the notes for Umer' 1 100 > notes.txt; nvim -u NONE notes.txt`,
 //    open that pane, and look at the box's bottom edge at 270 and 393 dp, font 1.0
-//    and 2.0. Every row ends above the tabs row; none shows only its top half.
+//    and 2.0 against terminalPan.ts's floor-whole-rows criterion.
 // 8. `quit` stops the panes, the host and the relay, and tears the lab down.
 //
 // Before #844 the same `kbd` read 7 rows and CRASHED on a 270 dp phone. Before
@@ -72,16 +70,11 @@
 // - On web at 270 dp, typing used to throw React error #185 (maximum update
 //   depth) into "Something went wrong". Not the floor: the per-keystroke draft
 //   write is gone (see web-prompt-typing.md). If it shows again, Retry recovers.
-// - A slow drag (600 ms) pans about one row on native; `pan` uses quick strokes.
-//   Android's font scale does not change the terminal font; only Text size does.
-// - A renderer keeps the grid it attached at, so after a font change the grid can
-//   stay taller than the floor asks for; the pan covers every row it drew.
+// - Android's font scale does not change the terminal font; only Text size does.
 // - On web, emulate the phone at DPR 1: at DPR 4 xterm draws giant glyphs. The
 //   PWA's service worker keeps a stale bundle across a rebuild: unregister it and
 //   clear its caches before reloading.
 // - The terminal screen is dark in the light theme too.
-// - Whole rows come from terminalShownHeight in terminalFloor.ts: the screen
-//   clips a floor-tall surface to whole rows and hands the pan that height.
 // - On the PWA, run Chromium with --force-device-scale-factor=2 (and
 //   --ozone-platform=x11 on a private Xvfb, since the distro wrapper otherwise
 //   picks Wayland). A window whose real DPR differs from the emulated one keeps
