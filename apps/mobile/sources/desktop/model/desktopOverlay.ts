@@ -1,4 +1,5 @@
 import type { SessionSnapshot } from '@desklink/react-native';
+import { DESKTOP_NO_PICTURE } from '@trymuxr/contract';
 
 import { desktopCopy, previewCopy, unknownPreviewCopy, type PreviewKindCopy } from './desktopCopy';
 
@@ -38,6 +39,9 @@ const ENDED: Record<string, { detail: string; canRetry: boolean }> = {
 export function describeDesktopFailureDetail(failure: { code: string; message: string } | null): string {
     if (failure?.code === 'consent') return desktopCopy.consentBody;
     if (failure?.code === 'no-screen') return desktopCopy.noScreenBody;
+    // The kit files the host's `source` refusal under `platform`; this one
+    // reason is a contract value, so it is matched whole, never by substring.
+    if (failure?.message === DESKTOP_NO_PICTURE) return desktopCopy.noPictureBody;
     return desktopCopy.failedBody;
 }
 

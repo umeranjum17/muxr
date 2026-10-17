@@ -18,6 +18,7 @@ export const desktopCopy = {
     reconnectingBody: 'The desktop connection dropped. Trying once more.',
     failedTitle: "Couldn't open this computer",
     failedBody: 'This computer could not share its screen. Check that screen sharing is allowed on it, then try again.',
+    noPictureBody: 'The computer could not share that window. Tap Try again, then pick a window or screen on the computer.',
     noScreenTitle: 'This computer has no screen to share',
     noScreenBody: "It's a server without a desktop. Run this on it once, then tap Try again. (Ubuntu 24.04)",
     noScreenCommand: 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb xfce4 xfce4-terminal dbus-x11 libpipewire-0.3-0t64 libxkbcommon0 libevdev2',
