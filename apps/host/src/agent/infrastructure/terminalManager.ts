@@ -312,6 +312,8 @@ export class TerminalManager {
         let wheelMeasureTries = 0;
         let wheelMeasured: number | undefined;
         let wheelPainting = false;
+        // A step waiting on the pane's answer; the next one starts after it.
+        let wheelAsking = false;
         attachment.resetWheelMeasure = (): void => {
             wheelMeasureTries = 0;
             wheelMeasured = undefined;
@@ -483,7 +485,7 @@ export class TerminalManager {
         const wheelStep = (): number => attachment.wheelStep ?? 1;
         const turnWheel = (): void => {
             wheelTimer = undefined;
-            if (finished || Math.abs(wheelRows) < wheelStep() || childExited || wheelMeasuring) return;
+            if (finished || Math.abs(wheelRows) < wheelStep() || childExited || wheelMeasuring || wheelAsking) return;
             if (wheelPainting) {
                 wheelPainting = false;
             } else if (attachment.wheelStep === undefined && wheelMeasureTries < WHEEL_MEASURE_TRIES && this.options.readPaneText !== undefined) {
@@ -503,11 +505,28 @@ export class TerminalManager {
             }
             wheelBurst += 1;
             wheelSentAt = now;
-            if (!sendWheel()) return;
-            // Rows short of a whole report wait for the finger's next move.
-            if (Math.abs(wheelRows) >= wheelStep()) wheelTimer = setTimeout(turnWheel, WHEEL_TICK_MS);
+            wheelAsking = true;
+            void sendWheel().then((sent) => {
+                wheelAsking = false;
+                // Rows short of a whole report wait for the finger's next move.
+                if (sent && Math.abs(wheelRows) >= wheelStep()) wheelTimer = setTimeout(turnWheel, WHEEL_TICK_MS);
+            });
         };
-        const sendWheel = (): boolean => {
+        /**
+         * Every step asks whose pane it is before Herdr turns it into a wheel
+         * report: a fling's rows are still owed when its program exits, and
+         * those must stop at once instead of reaching the shell.
+         */
+        const sendWheel = async (): Promise<boolean> => {
+            await this.probeForeground(attachment);
+            if (finished || childExited || Math.abs(wheelRows) < wheelStep()) return false;
+            if (!wheelReportsAllowed(attachment.foregroundPids)) {
+                wheelRows = 0;
+                clearTimeout(wheelTimer);
+                wheelTimer = undefined;
+                void this.restoreStaleModes(attachment).then(() => this.scheduleScrollState(attachment));
+                return false;
+            }
             const up = wheelRows > 0;
             wheelRows += up ? -wheelStep() : wheelStep();
             try {
@@ -545,7 +564,7 @@ export class TerminalManager {
                 const up = wheelRows > 0;
                 const direction = up ? 1 : -1;
                 const sentAt = Date.now();
-                if (!sendWheel()) return;
+                if (!(await sendWheel())) return;
                 // Read until the report shows: a streaming program paints its own
                 // frames meanwhile, and a busy host paints the report late.
                 let step: number | undefined;

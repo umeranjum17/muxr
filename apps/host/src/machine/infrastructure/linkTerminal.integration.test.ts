@@ -7,7 +7,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -310,6 +310,48 @@ process.stdin.on('data', (chunk) => {
             cleanups.push(() => clearInterval(timer));
         }), 4_000, 'Latest completion');
         expect(state().back).toBe(0);
+    });
+
+    it('stops a fling the moment its program exits instead of typing the rest into the shell', { timeout: 20_000 }, async () => {
+        // A 500-row fling starts against a live full-screen program. The program
+        // exits mid-drain, so Herdr's foreground becomes the pane's own shell,
+        // and the rows still owed must not reach that shell as wheel reports.
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-exit-wheel-'));
+        cleanups.push(() => removeTestScratch(dir));
+        const exitFile = join(dir, 'agent-exited');
+        const wheelLog = join(dir, 'wheel.log');
+        const manager = new TerminalManager({
+            resolvePane: async () => 'pane-1',
+            focusSession: async () => undefined,
+            readPaneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),
+            paneForegroundPids: async () => (existsSync(exitFile) ? [] : [4242]),
+            openTerminal: openTerminalFor(writeFakeHerdr(dir)),
+        });
+        cleanups.push(() => manager.closeAll());
+        let input!: (line: string) => void;
+        const results: Array<{ type: string; state?: string }> = [];
+        const socket = {
+            isOpen: true,
+            send: (line: string) => { results.push(JSON.parse(line)); },
+            onLine: (listener: (line: string) => void) => { input = listener; return () => undefined; },
+            onEnd: () => () => undefined,
+            close: () => undefined,
+        };
+        await manager.attach({ sessionId: 's1', channel: 'exit-wheel', cols: 20, rows: 10, socket });
+        await waitForScreen(results);
+
+        const reportTimes = (): number[] => (existsSync(wheelLog) ? readFileSync(wheelLog, 'utf8') : '')
+            .split('\n').filter(Boolean).map((line) => Number(line.split(' ')[1]));
+        input(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 500, column: 10, row: 5 }));
+        const deadline = Date.now() + 5_000;
+        while (reportTimes().length < 20 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(reportTimes().length).toBeGreaterThanOrEqual(20);
+
+        const exitedAt = Date.now();
+        writeFileSync(exitFile, '');
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        // One report may already be past the foreground probe when the exit lands.
+        expect(reportTimes().filter((at) => at > exitedAt).length).toBeLessThanOrEqual(1);
     });
 
     it('learns the program wheel step after a failed pane read', { timeout: 20_000 }, async () => {

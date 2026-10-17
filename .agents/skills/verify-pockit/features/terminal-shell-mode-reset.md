@@ -9,6 +9,9 @@ only when no live job remains, including when the crash preceded attachment.
 ## Sub-features
 
 - `wheel-gate` shell foreground: drop the swipe, never send a program wheel.
+- `wheel-gate-mid-drain` a fling outlives its program: every queued wheel step
+  asks the pane's foreground again, so the rows still owed stop once the
+  program exits and the shell receives no wheel escapes.
 - `mode-reset` an observed program dies: restore primary-screen scrollback.
 - `mode-reset-unseen` a program dies before any terminal attachment: restore
   scrollback without needing a previously observed owner pid.
@@ -58,6 +61,14 @@ close terminal streams, the paired link, host and relay before teardown.
    keeps its screen. Keep the existing wheel-proxy/per-frame-probe findings
    out of this change; this proof does not qualify their performance or claim
    that foreground implies mouse reporting.
+7. Mid-drain exit (`wheel-gate-mid-drain`): a program that repaints on every
+   wheel report and dies after 20 of them, without `?1049l` or `?1000l`. Send a
+   500-row `terminal.scroll` up as the fling. Once 20 reports have landed the
+   program exits; 4 s later the pane's foreground must be the shell alone, no
+   further report may reach the program's log, and `pane read` must show no
+   `\d+;\d+;\d+M` wheel escape text. The same run against the pre-fix manager
+   prints those escapes, so an empty screen is real evidence only with that
+   control beside it.
 
 ## Native capture
 
