@@ -1,9 +1,9 @@
 /**
  * HerdrKit-backed transport adapter. HerdrKit owns the socket, the event
  * batch and the per-pane status watches; this class keeps the exact surface
- * the session source was written against (positional timeouts, onEvent
- * fan-out, a connected flag, status-watch readiness) so every
- * `client.call(m, p, t)` site rides the kit without edits.
+ * the session source was written against (positional timeouts, a connected
+ * flag, status-watch readiness) so every `client.call(m, p, t)` site rides
+ * the kit without edits.
  *
  * The kit already opens the batch socket and one filtered status socket per
  * agent pane during its own bootstrap, and taps both through `onEvent`, so
@@ -55,8 +55,6 @@ export class KitHerdrClient implements HerdrCaller {
     /** Live event-socket state, surfaced on `herdr.tree` so the phone can tell a dead herdr from a quiet one. */
     connected = false;
     readonly kit: HerdrKit;
-    private readonly listeners = new Set<(event: HerdrEvent) => void>();
-    private offKitEvent: (() => void) | undefined;
     private reconnectTimer: NodeJS.Timeout | undefined;
     private started = false;
     private closed = false;
@@ -94,12 +92,6 @@ export class KitHerdrClient implements HerdrCaller {
                 // transition may read as a reconnect.
                 if (ready && !wasReady && this.started) this.onReconnect();
             },
-        });
-        // The kit taps its own batch and per-pane status sockets through
-        // `onEvent`; one registration fans out to every session-source listener
-        // instead of muxr opening a second subscription of its own.
-        this.offKitEvent = this.kit.onEvent((event) => {
-            for (const listener of this.listeners) listener(event);
         });
     }
 
@@ -143,11 +135,6 @@ export class KitHerdrClient implements HerdrCaller {
         ) as T;
     }
 
-    onEvent(listener: (event: HerdrEvent) => void): () => void {
-        this.listeners.add(listener);
-        return () => this.listeners.delete(listener);
-    }
-
     /**
      * Resolves when the kit's own per-pane `pane.agent_status_changed` watches
      * have acked for the latest bootstrap. The session source re-reads the
@@ -162,9 +149,6 @@ export class KitHerdrClient implements HerdrCaller {
         this.closed = true;
         this.connected = false;
         if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
-        this.offKitEvent?.();
-        this.offKitEvent = undefined;
-        this.listeners.clear();
         await this.kit.stop().catch(() => {});
     }
 
