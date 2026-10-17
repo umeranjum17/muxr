@@ -42,7 +42,7 @@ export function describeDesktopFailureDetail(failure: { code: string; message: s
     // The kit files the host's `source` refusal under `platform`; this one
     // reason is a contract value, so it is matched whole, never by substring.
     if (failure?.message === DESKTOP_NO_PICTURE) return desktopCopy.noPictureBody;
-    if (failure !== null && desktopPortalRestartCommand(failure.message) !== undefined) return desktopCopy.portalBusyBody;
+    if (failure && desktopPortalRestartCommand(failure.message) !== undefined) return desktopCopy.portalBusyBody;
     return desktopCopy.failedBody;
 }
 
@@ -71,7 +71,7 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
     }
     // The computer's own sharing service is wedged: the host refused at once
     // and named the command that restarts it.
-    const restart = snapshot.status === 'failed' && snapshot.failure !== null ? desktopPortalRestartCommand(snapshot.failure.message) : undefined;
+    const restart = snapshot.status === 'failed' && snapshot.failure ? desktopPortalRestartCommand(snapshot.failure.message) : undefined;
     if (restart !== undefined) {
         return { title: desktopCopy.portalBusyTitle, detail: desktopCopy.portalBusyBody, command: restart, spinner: false, canRetry: true };
     }
