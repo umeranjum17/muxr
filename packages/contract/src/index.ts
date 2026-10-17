@@ -124,6 +124,8 @@ export type {
 export {
     DESKTOP_CONSENT_WAIT_MS,
     DESKTOP_NO_PICTURE,
+    desktopPortalBusy,
+    desktopPortalRestartCommand,
     HERDR_AGENT_NAME_MAX,
     HERDR_NAME_MAX,
     MISSING_CWD_ERROR_PREFIX,

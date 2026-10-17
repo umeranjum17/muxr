@@ -1,16 +1,18 @@
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:net';
+import { connect, createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DESKTOP_NO_PICTURE } from '@trymuxr/contract';
+import { DESKTOP_NO_PICTURE, desktopPortalBusy } from '@trymuxr/contract';
 
 import { DesktopSessions, hostDesktopForPanes, type DesktopEngineOptions } from '../infrastructure/desktopSessions.js';
 
 afterEach(() => vi.unstubAllEnvs());
 
-const HOST_SCREEN_ENV = ['DISPLAY', 'WAYLAND_DISPLAY', 'XDG_SESSION_TYPE', 'XDG_RUNTIME_DIR', 'XAUTHORITY', 'MUXR_DESKTOP_SOURCE', 'MUXR_DESKTOP_X11_DISPLAY', 'PATH'];
+// The session bus too: a portal open pings the real desktop's portal backends otherwise.
+const HOST_SCREEN_ENV = ['DISPLAY', 'WAYLAND_DISPLAY', 'XDG_SESSION_TYPE', 'XDG_RUNTIME_DIR', 'XAUTHORITY', 'MUXR_DESKTOP_SOURCE', 'MUXR_DESKTOP_X11_DISPLAY', 'PATH', 'DBUS_SESSION_BUS_ADDRESS'];
 
 /** The host's own environment is the only one the desktop reads: stub it for this case, unset keys cleared. */
 function hostDesktop(options: DesktopEngineOptions, environment: NodeJS.ProcessEnv, x11SocketDirectory?: string): DesktopSessions {
@@ -102,6 +104,93 @@ function sessionsFor(stub: { path: string; log: string }): DesktopSessions {
         engineArguments: [stub.path, stub.log],
     }, PORTAL_HOST);
 }
+
+/** Just enough of the D-Bus wire format to own a name and answer a ping. */
+class Wire {
+    readonly bytes: number[] = [];
+    align(to: number): void { while (this.bytes.length % to !== 0) this.bytes.push(0); }
+    u32(value: number): void { this.align(4); const word = Buffer.alloc(4); word.writeUInt32LE(value); this.bytes.push(...word); }
+    string(value: string): void { this.u32(Buffer.byteLength(value)); this.bytes.push(...Buffer.from(value), 0); }
+    signature(value: string): void { this.bytes.push(value.length, ...Buffer.from(value), 0); }
+}
+
+function busMessage(type: 1 | 2, serial: number, fields: Array<[number, string, (wire: Wire) => void]>, body?: { signature: string; write: (wire: Wire) => void }): Buffer {
+    const payload = new Wire();
+    body?.write(payload);
+    const header = new Wire();
+    for (const [code, signature, write] of [...fields, ...(body === undefined ? [] : [[8, 'g', (wire: Wire) => wire.signature(body.signature)] as const])]) {
+        header.align(8);
+        header.bytes.push(code);
+        header.signature(signature);
+        write(header);
+    }
+    const message = new Wire();
+    message.bytes.push(0x6c, type, 0, 1);
+    message.u32(payload.bytes.length);
+    message.u32(serial);
+    message.u32(header.bytes.length);
+    message.bytes.push(...header.bytes);
+    message.align(8);
+    message.bytes.push(...payload.bytes);
+    return Buffer.from(message.bytes);
+}
+
+function busCall(serial: number, member: string, body?: { signature: string; write: (wire: Wire) => void }): Buffer {
+    return busMessage(1, serial, [
+        [1, 'o', (wire) => wire.string('/org/freedesktop/DBus')],
+        [2, 's', (wire) => wire.string('org.freedesktop.DBus')],
+        [3, 's', (wire) => wire.string(member)],
+        [6, 's', (wire) => wire.string('org.freedesktop.DBus')],
+    ], body);
+}
+
+/** A connection owning `name`: a live backend answers pings, a wedged one reads and never replies. */
+function busNameOwner(path: string, name: string, answers: boolean): Socket {
+    const socket = connect(path);
+    let authed = false;
+    let pending = Buffer.alloc(0);
+    let serial = 3;
+    socket.write(`\0AUTH EXTERNAL ${Buffer.from(String(process.getuid!())).toString('hex')}\r\n`);
+    socket.on('data', (chunk: Buffer) => {
+        if (!authed) {
+            authed = true;
+            socket.write('BEGIN\r\n');
+            socket.write(busCall(1, 'Hello'));
+            socket.write(busCall(2, 'RequestName', { signature: 'su', write: (wire) => { wire.string(name); wire.u32(4); } }));
+            return;
+        }
+        pending = Buffer.concat([pending, chunk]);
+        while (pending.length >= 16) {
+            const fieldsLength = pending.readUInt32LE(12);
+            const total = 16 + Math.ceil(fieldsLength / 8) * 8 + pending.readUInt32LE(4);
+            if (pending.length < total) return;
+            const message = pending.subarray(0, total);
+            pending = pending.subarray(total);
+            if (!answers || message[1] !== 1) continue;
+            const fields: Record<number, string> = {};
+            for (let at = 16; at < 16 + fieldsLength;) {
+                at = Math.ceil(at / 8) * 8;
+                const code = message[at]!;
+                const kind = String.fromCharCode(message[at + 2]!);
+                at += 4;
+                if (kind === 'u') { at = Math.ceil(at / 4) * 4 + 4; continue; }
+                const length = kind === 'g' ? message[at]! : message.readUInt32LE(at = Math.ceil(at / 4) * 4);
+                const start = at + (kind === 'g' ? 1 : 4);
+                fields[code] = message.subarray(start, start + length).toString();
+                at = start + length + 1;
+            }
+            if (fields[3] !== 'Ping' || fields[7] === undefined) continue;
+            const caller = fields[7];
+            socket.write(busMessage(2, serial++, [
+                [5, 'u', (wire) => wire.u32(message.readUInt32LE(8))],
+                [6, 's', (wire) => wire.string(caller)],
+            ]));
+        }
+    });
+    return socket;
+}
+
+const busTools = spawnSync('dbus-daemon', ['--version']).status === 0 && spawnSync('busctl', ['--version']).status === 0;
 
 describe('desktop sessions, host side', () => {
     it('reports capabilities, opens a session, returns its notifications and closes it', async () => {
@@ -375,6 +464,46 @@ describe('desktop sessions, host side', () => {
             rmSync(directory, { recursive: true, force: true });
         }
     }, 20_000);
+
+    it.skipIf(!busTools)('refuses at once while a portal backend is wedged, and opens once it answers again', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-portal-busy-'));
+        const busPath = join(directory, 'bus');
+        // A private session bus: never the real desktop's.
+        const daemon = spawn('dbus-daemon', ['--session', '--nofork', `--address=unix:path=${busPath}`], { stdio: 'ignore' });
+        const owners: Socket[] = [];
+        try {
+            await vi.waitFor(() => expect(existsSync(busPath)).toBe(true), { timeout: 5000 });
+            const stub = stubEngine();
+            const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [stub.path, stub.log] },
+                { ...PORTAL_HOST, PATH: process.env.PATH, DBUS_SESSION_BUS_ADDRESS: `unix:path=${busPath}` });
+            owners.push(busNameOwner(busPath, 'org.freedesktop.impl.portal.desktop.alive', true));
+            const wedged = busNameOwner(busPath, 'org.freedesktop.impl.portal.desktop.test', false);
+            owners.push(wedged);
+            const owned = () => spawnSync('busctl', ['--user', 'list', '--acquired', '--no-legend', '--no-pager'], { encoding: 'utf8' }).stdout;
+            await vi.waitFor(() => expect(owned()).toMatch(/desktop\.alive[\s\S]*desktop\.test|desktop\.test[\s\S]*desktop\.alive/), { timeout: 5000 });
+
+            // The wedged backend's share picker would never appear, so the
+            // phone hears why at once, not after the whole consent wait.
+            const started = Date.now();
+            await expect(desktop.open({ permissions: ['view'], awaitConsent: true })).rejects.toMatchObject({
+                code: 'portal-busy',
+                message: desktopPortalBusy('systemctl --user restart xdg-desktop-portal-test'),
+            });
+            expect(Date.now() - started).toBeLessThan(10_000);
+            expect(stub.sent().filter((line) => line.includes('"session.open"'))).toEqual([]);
+
+            // Restarted, the backend answers, and the open goes through.
+            wedged.destroy();
+            await vi.waitFor(() => expect(owned()).not.toMatch(/desktop\.test/), { timeout: 5000 });
+            const opened = await desktop.open({ permissions: ['view'], awaitConsent: true });
+            expect(opened.desktopId).toBeTruthy();
+            await desktop.closeAll();
+        } finally {
+            for (const owner of owners) owner.destroy();
+            daemon.kill();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    }, 30_000);
 
     it('refuses control up front when the machine has no input backend', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));

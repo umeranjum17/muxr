@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { promisify } from 'node:util';
 
 import { atomicWrite, ensurePrivateDir, error, executable, print, stateDir } from '../infrastructure/runtime.mjs';
 
@@ -62,6 +64,33 @@ function engineCommand(resolved) {
 }
 
 /**
+ * The command that restarts a portal backend that answers no ping, or
+ * undefined. A backend is silent only when two pings in a row time out, the
+ * same rule as `apps/host/src/desktop/infrastructure/portalBackends.ts`; the
+ * two copies must stay aligned because this script cannot import the host.
+ */
+async function silentPortalRestart() {
+    const run = promisify(execFile);
+    const prefix = 'org.freedesktop.impl.portal.desktop.';
+    let listed;
+    try {
+        listed = (await run('busctl', ['--user', 'list', '--acquired', '--no-legend', '--no-pager'], { timeout: 2000 })).stdout;
+    } catch {
+        return undefined;
+    }
+    const answersPing = async (name) => {
+        const started = Date.now();
+        return run('busctl', ['--user', '--timeout=2', 'call', name, '/org/freedesktop/portal/desktop', 'org.freedesktop.DBus.Peer', 'Ping'], { timeout: 3000 })
+            .then(() => true, () => Date.now() - started < 2000);
+    };
+    const names = listed.split('\n').map((line) => line.split(/\s+/)[0] ?? '').filter((name) => name.startsWith(prefix) && /^[a-z0-9_-]{1,40}$/.test(name.slice(prefix.length)));
+    for (const name of names) {
+        if (!(await answersPing(name)) && !(await answersPing(name))) return `systemctl --user restart xdg-desktop-portal-${name.slice(prefix.length)}`;
+    }
+    return undefined;
+}
+
+/**
  * The one-time screen-sharing approval, done at the computer.
  *
  * A Wayland desktop shows a prompt before the first capture. Answered here,
@@ -90,6 +119,12 @@ export async function approveScreenSharing({ force = false, pairingDone = false 
         return force ? 1 : 0;
     }
 
+    const restart = await silentPortalRestart();
+    if (restart !== undefined) {
+        print('Screen sharing is busy: a sharing prompt on this computer is open or stuck, so it cannot ask now.');
+        print(`  Close it. If none is showing, run \`${restart}\`, then \`muxr desktop setup\` again.`);
+        return force ? 1 : 0;
+    }
     asked = true;
     print('');
     print('Screen sharing');

@@ -126,6 +126,11 @@ the terminal, so port 22 is the only inbound port the server needs.
 3. Pair the native app with **Connect over SSH** ([Direct SSH](#direct-ssh)),
    open an agent, and tap **Computer**.
 
+If the phone says **Screen sharing is busy**, the server's screen-sharing service
+is not answering, usually a sharing prompt left open with no window. Close it on
+the server, or copy the restart command the Computer screen shows and run it
+there, then tap **Try again**.
+
 The prebuilt desktop engine supports Linux x64 (glibc 2.36 or newer) and macOS
 arm64. The macOS engine starts by default; set `DESKLINK_MACOS=0` to opt out.
 Other Arm servers need it

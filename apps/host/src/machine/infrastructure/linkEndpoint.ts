@@ -596,6 +596,18 @@ async function streamDesktop(stream: LinkStream, req: LinkRequest, grant: Grant,
     let work = Promise.resolve();
     let finish!: () => void;
     const ended = new Promise<void>((resolve) => { finish = resolve; });
+    // The Computer request path in the host log: every open, answer and close,
+    // and the first failing poll or candidate of each desktop, so a stalled
+    // phone shows how far its request got. Never SDP, candidates or grants.
+    const quietFailures = new Set<string>();
+    const note = (frame: ClientFrame & { requestId: string }, started: number, failure?: string): void => {
+        const loud = frame.type === 'desktop.open' || frame.type === 'desktop.answer' || frame.type === 'desktop.close';
+        const desktopId = (frame as { params?: { desktopId?: unknown } }).params?.desktopId;
+        const key = `${frame.type} ${typeof desktopId === 'string' ? desktopId : ''}`;
+        if (!loud && (failure === undefined || quietFailures.has(key))) return;
+        if (!loud) quietFailures.add(key);
+        process.stderr.write(`link: ${frame.type}${typeof desktopId === 'string' ? ` ${desktopId}` : ''} from device ${deviceId} ${failure === undefined ? 'ok' : `failed (${failure})`} in ${Date.now() - started} ms\n`);
+    };
     options.onDeviceConnection?.(deviceId, true);
     options.onDesktopConnection?.(connectionId, true);
     stream.onEnd = () => finish();
@@ -620,11 +632,15 @@ async function streamDesktop(stream: LinkStream, req: LinkRequest, grant: Grant,
                 }
                 if (!permits(grant, frame, options.canView)) {
                     noteDenied(grant, 'desktop');
+                    note(frame, Date.now(), 'permission-denied');
                     await stream.write(JSON.stringify({ type: 'result', requestId: frame.requestId, ok: false, error: VIEW_ONLY_REFUSAL, code: 'permission-denied' }) + '\n');
                     return;
                 }
+                const started = Date.now();
                 try {
                     const response = await options.answer(frame, deviceId, connectionId);
+                    const refused = response as { ok?: unknown; code?: unknown } | undefined;
+                    note(frame, started, refused?.ok === false ? String(refused.code ?? 'refused') : undefined);
                     if (!trusted(grant, options.currentCrypto())) {
                         stream.end('desktop device is no longer trusted');
                         return;
@@ -632,6 +648,7 @@ async function streamDesktop(stream: LinkStream, req: LinkRequest, grant: Grant,
                     if (response !== undefined) await stream.write(JSON.stringify(response) + '\n');
                 } catch (error) {
                     const value = error as { code?: unknown };
+                    note(frame, started, typeof value.code === 'string' ? value.code : 'error');
                     await stream.write(JSON.stringify({
                         type: 'result', requestId: frame.requestId, ok: false,
                         error: error instanceof Error ? error.message : String(error),
