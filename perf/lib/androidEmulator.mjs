@@ -113,9 +113,10 @@ export async function bootOwnedEmulator(options) {
     // emulator (timeout, device lock, memory gate) is torn down whole and cannot
     // leave a surviving emulator holding a fleet slot.
     const killGroup = (signal) => { try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch { /* already gone */ } } };
+    const groupAlive = () => { try { process.kill(-child.pid, 0); return true; } catch { return false; } };
     const terminate = async () => {
         killGroup('SIGTERM');
-        for (let attempt = 0; attempt < 30 && exited === null; attempt += 1) await sleep(1000);
+        for (let attempt = 0; attempt < 30 && groupAlive(); attempt += 1) await sleep(1000);
         killGroup('SIGKILL');
     };
     const died = () => `the emulator exited before ${name} booted (${exited.signal ?? `code ${exited.code}`}):\n${tail(log.join(''))}`;
