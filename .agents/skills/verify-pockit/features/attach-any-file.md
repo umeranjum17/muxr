@@ -37,6 +37,17 @@ file and the limit.
 - `attach-survives-leaving` a chip leaves with its agent screen and comes back
   with the draft text: attach, go Home, reopen the agent, the chip is there and
   Send carries its path. Sending (or clearing) the draft clears the chip too.
+- `attach-chips-catalog-refresh` a chip survives a catalog refresh that lands
+  mid-draft: with the chip on the composer, make the host push a new catalog
+  (rename the agent's pane, or create a workspace), the open screen re-labels
+  live, and the chip and draft are unchanged; Send still carries the saved
+  path.
+- `attach-chips-failed-first-prompt` a failed first prompt's restored text and
+  chip survive leaving and reopening the agent: attach on Home's dock, send,
+  break the route while the delivery is in flight, dismiss the failure alert,
+  the agent composer shows the text and the chip, then Back and reopen — both
+  are back, and the chip's send reuses the first attempt's saved path (no
+  second upload under the host's attachments).
 
 ## How to get to it (user POV)
 
@@ -72,6 +83,27 @@ Preconditions:
    chip; Send runs `ls -l <host path>` and the shell lists the saved file. On a
    build without the fix the chip is gone and the shell gets a bare `ls -l`.
    Reopen once more after sending: no chip and no text come back.
+7. A catalog refresh keeps the chip: with the chip and a draft (`ls -l`) on an
+   open shell pane, rename that pane through the guarded lab helper
+   (`herdr pane rename <pane-id> <new-label>` — target the pane's id, not the
+   list tail, or a spawned agent's pane takes the rename) and create a
+   workspace. The open screen's header re-labels live — that is the proof the
+   refresh landed mid-draft. The chip and draft are unchanged; Send runs and
+   the shell lists the saved file. Proven on the installed PWA at 393 px and on
+   an Android emulator release APK.
+8. A failed first prompt keeps text and chip across a remount: on Home's dock
+   pick an agent whose TUI stays up in a fresh lab HOME (Claude Code's
+   sign-in screen qualifies; OpenCode 1.x exits there and its retired route
+   leaves no agent composer to restore into), type a unique prompt, attach a
+   file, and send. Once the file lands under the lab host's `attachments/`
+   (poll the folder), `kill -STOP` the lab's own relay PID, wait out the
+   timeout alert ("Your computer didn't answer in time." / "The agent did not
+   take the prompt. Send it again."), tap OK: the agent composer shows the
+   text and the chip. Then Back and reopen the agent from its Live card: both
+   are back. `kill -CONT` the relay. The host's attachments folder for that
+   session still holds exactly one copy of the file — the restored chip reuses
+   the saved path. Proven on the installed PWA at 393 px and on an Android
+   emulator release APK.
 
 ## Gotchas
 
@@ -86,3 +118,18 @@ Preconditions:
   16 MB per-message reassembly ceiling.
 - Opening or previewing a sent file inside muxr is out of scope; the phone chip
   is not tappable for a preview.
+- Pairing an emulator to the lab needs the machine's relay address rewritten
+  for the emulator's NAT: start the lab with `MUXR_RELAY_HOST=10.0.2.2` (or
+  patch `selfhost.json`'s `relayUrl` and restart the lab host by its own PID)
+  so the pairing offer and the stored grant dial `ws://10.0.2.2:<port>`; a
+  `127.0.0.1` offer pairs up to the consent screen and then cannot finish.
+- The dock's agent selection can drop back to Shell after the file-picker
+  round trip; Send then refuses with "Shell has no agent". Re-pick the agent
+  on the dock (the draft and chips survive) and send again.
+- The dock's agent list comes from the lab host's own PATH: a lab host
+  restarted with a stripped PATH lists only Shell, so restart it with the
+  original environment or the agent you need is not selectable.
+- The failure alert can read either way — the link timeout
+  ("Your computer didn't answer in time.") or the host's stall report
+  ("The agent did not take the prompt. Send it again.") — depending on which
+  side gave up first; both run the same restore, and both count.
