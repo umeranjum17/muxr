@@ -51,7 +51,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
      * only; a browser cannot). Device previews keep to SSH for now.
      */
     let carrier: 'ssh' | 'link' | null = null;
-    const carriers = new Map<number, Promise<TcpCarrier>>();
+    const carriers = new Map<string, Promise<TcpCarrier>>();
 
     const closeForwards = (): void => {
         for (const carried of carriers.values()) void carried.then((local) => local.close(), () => undefined);
@@ -64,12 +64,13 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
         if (loopback === null) return candidate;
         if (carrier === null || desktopId === null) return null;
         const enginePort = Number(loopback[2]);
-        let carried = carriers.get(enginePort);
+        const key = `${desktopId}:${enginePort}`;
+        let carried = carriers.get(key);
         if (carried === undefined) {
             carried = carrier === 'ssh'
                 ? openSshForward(enginePort).then((port) => ({ port, close: () => void closeSshForward(port) }))
                 : openLinkTcpBridge(desktopId, enginePort);
-            carriers.set(enginePort, carried);
+            carriers.set(key, carried);
         }
         try {
             return `${loopback[1]}127.0.0.1 ${(await carried).port}${loopback[3]}`;

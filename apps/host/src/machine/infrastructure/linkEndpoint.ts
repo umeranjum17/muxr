@@ -692,8 +692,10 @@ async function streamDesktopTcp(stream: LinkStream, req: LinkRequest, grant: Gra
     socket.on('end', () => stream.end());
     socket.on('error', (error) => stream.end(`desktop: ${error.message}`));
     stream.onData = (chunk) => new Promise<void>((resolve) => {
-        if (socket.write(chunk)) resolve();
-        else socket.once('drain', resolve);
+        if (socket.write(chunk)) { resolve(); return; }
+        const settle = (): void => { socket.off('drain', settle); socket.off('close', settle); resolve(); };
+        socket.on('drain', settle);
+        socket.on('close', settle);
     });
     stream.onEnd = () => { socket.destroy(); };
 }

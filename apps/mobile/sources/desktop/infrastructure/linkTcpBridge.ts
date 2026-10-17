@@ -36,8 +36,10 @@ export async function openLinkTcpBridge(desktopId: string, enginePort: number): 
             socket.on('end', () => stream.end());
             socket.on('close', () => stream.end());
             stream.onData = (chunk) => new Promise<void>((resolve) => {
-                if (socket.write(chunk)) resolve();
-                else socket.once('drain', resolve);
+                if (socket.write(chunk)) { resolve(); return; }
+                const settle = (): void => { socket.off('drain', settle); socket.off('close', settle); resolve(); };
+                socket.on('drain', settle);
+                socket.on('close', settle);
             });
             stream.onEnd = () => { socket.destroy(); };
             socket.resume();
