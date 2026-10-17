@@ -147,7 +147,7 @@ export function describePreviewOverlay(snapshot: SessionSnapshot, kind: PreviewK
     const failure = snapshot.failure?.message ?? '';
     const unreachable = { title: copy.unreachableTitle, detail: previewCopy.unreachableBody, spinner: false, action: { label: 'Try again', exit: false } };
     if (snapshot.status === 'failed') {
-        if (snapshot.failure?.code === 'transport' || snapshot.failure?.code === 'never-connected') return unreachable;
+        if (snapshot.failure?.code === 'never-connected' || (snapshot.failure?.code === 'transport' && snapshot.presented)) return unreachable;
         return { title: copy.failedTitle, detail: previewCopy.failedBody, spinner: false, action: { label: 'Try again', exit: false } };
     }
     if (snapshot.status === 'ended') {

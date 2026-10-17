@@ -602,9 +602,7 @@ it('says the network has no way through when the open never connected, and not f
     requestDesktop('computer', 'N');
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="N" onExit={() => undefined} />); });
 
-    // The kit ends a first open whose path never formed once, with its own
-    // code — from its first-frame bound, or from the engine revoking the open
-    // for a lost phone, whose transport code reaches it through the host.
+    // A first open whose path never formed ends as the kit's `never-connected`.
     await become('opening');
     await become('failed', false, { code: 'never-connected', message: 'No network path to the desktop ever formed.' });
     expect(shows(noPath)).toBe(true);
@@ -631,6 +629,23 @@ it('says the network has no way through when the open never connected, and not f
     await TestRenderer.act(async () => view.unmount());
 });
 
+it('keeps a desktop that dropped after a picture reconnecting, not closed', async () => {
+    openedBefore = true;
+    session.snapshot.status = 'reconnecting';
+    session.snapshot.presented = true;
+    session.snapshot.failure = { code: 'transport', message: 'the connection to the phone was lost' };
+    let view!: ReturnType<typeof TestRenderer.create>;
+    const shows = (text: string) => (view.root as Rendered).findAll((node) => node.children.includes(text)).length > 0;
+
+    requestDesktop('computer', 'R');
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="R" onExit={() => undefined} />); });
+    expect(shows('Reconnecting…')).toBe(true);
+    expect(shows('Desktop closed')).toBe(false);
+
+    session.snapshot.failure = null;
+    await TestRenderer.act(async () => view.unmount());
+});
+
 it("says the live view has no way through when the open never connected, and not for other failures", async () => {
     session.snapshot.status = 'live';
     inputEnabled = false;
@@ -638,8 +653,8 @@ it("says the live view has no way through when the open never connected, and not
     let view!: ReturnType<typeof TestRenderer.create>;
     const root = () => view.root as Rendered;
     const shows = (text: string) => root().findAll((node) => node.children.includes(text)).length > 0;
-    const become = async (failure: { code: string; message: string } | null) => {
-        Object.assign(session.snapshot, { status: 'failed', failure });
+    const become = async (failure: { code: string; message: string } | null, presented = true) => {
+        Object.assign(session.snapshot, { status: 'failed', failure, presented });
         await TestRenderer.act(async () => view.update(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android', title: 'Pricing' }} />));
     };
     const noPath = "Can't show the emulator from here";
@@ -648,13 +663,17 @@ it("says the live view has no way through when the open never connected, and not
     requestDesktop('computer', 'P', true);
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'android', title: 'Pricing' }} />); });
 
-    // A first open whose path never formed — the engine revoking a lost phone
-    // among them — is the network's verdict, like on the Computer view.
+    // A first open whose path never formed is the network's verdict, like on the Computer view.
     await become({ code: 'never-connected', message: 'No network path to the desktop ever formed.' });
     expect(shows(noPath)).toBe(true);
     expect(shows('Live view needs this phone to reach your computer directly or over Tailscale.')).toBe(true);
     expect(shows(generic)).toBe(false);
     expect(root().findAllByProps({ accessibilityLabel: 'Try again' }).length).toBeGreaterThan(0);
+
+    // Before a frame, a transport failure is not the network's verdict.
+    await become({ code: 'transport', message: 'The desktop never sent a picture.' }, false);
+    expect(shows(generic)).toBe(true);
+    expect(shows(noPath)).toBe(false);
 
     // A refusal that is not the path — the host's own, or one this build
     // cannot name — keeps the computer's words.
