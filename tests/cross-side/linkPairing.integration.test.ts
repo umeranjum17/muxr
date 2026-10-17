@@ -437,6 +437,23 @@ describe('native pairing over the byokit link', () => {
         } finally { phone.platform = 'android'; }
     }, 90_000);
 
+    it('pairs an http-wrapped paste, the shape a plain-ws relay prints', async () => {
+        const { pairing, offer } = await showPairingQr({ approve: () => true });
+        // `muxr pair --browser` prints exactly this wrapper when the relay
+        // advertises plain ws:// — webOrigin is then undefined and the base
+        // falls back to relayUrl with ws→http (linkPair.mjs). The phone
+        // pastes it into Pair; only the token in the fragment pairs.
+        const wrapped = `http://127.0.0.1:${port}/pair#${offer}`;
+        const decided = decidePairingInput(wrapped);
+        expect(decided).toMatchObject({ ok: true, offer });
+        if (!decided.ok) return;
+        let phoneWords = '';
+        const stored = await runPhonePairing(decided.link, { onWords: (words) => { phoneWords = words; } });
+        await pairing;
+        expect(phoneWords).not.toBe('');
+        expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
+    }, 90_000);
+
     it('pairs over a forwarded link when the advertised relay is unreachable', async () => {
         const { pairing, offer } = await showPairingQr({ approve: () => true });
         const payload = JSON.parse(Buffer.from(offer.slice('byokit-link:1:'.length), 'base64url').toString('utf8')) as { urls: string[] };
@@ -591,7 +608,7 @@ describe('native pairing over the byokit link', () => {
     it('lists and revokes a link-paired phone from the host record', async () => {
         const state = readSelfhostState();
         const paired = state.machine.crypto.devices;
-        expect(paired).toHaveLength(7);
+        expect(paired).toHaveLength(8);
         const target = paired[0]!;
         const listing = launch([cliMain, 'devices', 'list']);
         await until(() => (listing.exitCode === null ? undefined : listing.exitCode), 'devices list finishes');
