@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
 import type { EngineCapabilities, EngineEvent, SourceRequest } from '@desklink/host';
-import { DESKTOP_CONSENT_WAIT_MS, DESKTOP_NO_PICTURE, desktopPortalBusy } from '@trymuxr/contract';
+import { DESKTOP_CONSENT_WAIT_MS, DESKTOP_LOOPBACK_TCP, DESKTOP_NO_PICTURE, desktopPortalBusy } from '@trymuxr/contract';
 import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@trymuxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
@@ -125,6 +125,8 @@ interface LiveSession extends DesktopSessionRecord {
     appended: number;
     /** The engine closed this session because another one replaced it. */
     revoked: boolean;
+    /** The loopback TCP ports this session's own candidates named: the only ones a `desktop.tcp` stream may dial. */
+    loopbackPorts: Set<number>;
 }
 
 export const X11_SOCKET_DIRECTORY = '/tmp/.X11-unix';
@@ -376,6 +378,7 @@ export class DesktopSessions {
             events: [],
             appended: 0,
             revoked: false,
+            loopbackPorts: new Set(),
         });
         // The offer arrives through `onEvent` into the session backlog; the
         // first poll delivers it, which keeps one delivery path instead of two.
@@ -438,6 +441,12 @@ export class DesktopSessions {
         }
         await this.stopIfIdle();
         return { closed: true };
+    }
+
+    /** Whether `deviceId` may carry a TCP connection to `port`: a loopback candidate of its own live session. */
+    loopbackPort(desktopId: string, port: number, deviceId: string): boolean {
+        const session = this.sessions.get(desktopId);
+        return session !== undefined && !session.revoked && session.ownerDeviceId === deviceId && session.loopbackPorts.has(port);
     }
 
     /** A device owns its desktop sessions across replacement streams and link reconnects. */
@@ -571,6 +580,8 @@ export class DesktopSessions {
     private appendEngineEvent(session: LiveSession, event: EngineEvent): void {
         const translated = toDesktopEvent(event);
         if (translated === null) return;
+        const loopback = translated.kind === 'candidate' ? DESKTOP_LOOPBACK_TCP.exec(translated.candidate) : null;
+        if (loopback !== null) session.loopbackPorts.add(Number(loopback[2]));
         if (translated.kind === 'revoked') {
             // The engine ended this session on its own (a lease expiry). The
             // poll delivering this notification must also forget the record,

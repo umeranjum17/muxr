@@ -613,6 +613,7 @@ async function main(): Promise<void> {
                             },
                         },
                         onDesktopConnection: host.setLinkDesktopConnection,
+                        desktopTcp: host.desktopLoopbackPort,
                         onDeviceConnection: host.setLinkDeviceConnection,
                         onDeviceRevoked: (deviceId, removed) => host.closeDeviceDesktopSessions(deviceId, removed),
                         onStatus: (status) => {

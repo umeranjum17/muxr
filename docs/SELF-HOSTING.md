@@ -73,6 +73,8 @@ Automation uses:
 | `--tailscale-direct` | Uses the tailnet IP directly. |
 | `--configure-only --advertise <ws-url>` | Writes Tailscale-only headless state without starting anything; see [Headless cloud machine](#headless-cloud-machine-tailscale-only). |
 | *(detected private network)* | Uses the address on an existing NetBird, WireGuard, ZeroTier, or similar interface. The phone must join that same private network. |
+
+The computer's screen (**Computer**) goes straight from the computer to the phone when they can reach each other. When the only way between them is the relay (a temporary link, or your own server while the phone is on mobile data), the native app carries the picture through the relay instead, still end-to-end encrypted. That path is slower, about 7 Mbps at 300 ms round trip. A browser cannot use it, so the installed web app shows the screen only on the same Wi-Fi, Tailscale, or another direct path.
 | *(Works only on this Wi-Fi)* | Kept only for a computer already set up on it. Home network only. |
 | *(choose Direct SSH in the native app)* | Pair through the host's loopback relay over SSH; see [Direct SSH](#direct-ssh). |
 

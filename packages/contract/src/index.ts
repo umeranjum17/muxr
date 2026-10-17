@@ -123,6 +123,7 @@ export type {
 } from './control-plane/index.js';
 export {
     DESKTOP_CONSENT_WAIT_MS,
+    DESKTOP_LOOPBACK_TCP,
     DESKTOP_NO_PICTURE,
     desktopPortalBusy,
     desktopPortalRestartCommand,
