@@ -26,6 +26,7 @@ export const desktopCopy = {
     consentBody: 'The computer did not answer in time. Another app’s screen-sharing picker may be blocking muxr. Dismiss it on the computer, then try again or run muxr desktop setup there.',
     portalBusyTitle: 'Screen sharing is busy',
     portalBusyBody: 'A sharing prompt on the computer is open or stuck. Close it, or run this there, then tap Try again.',
+    portalBusyNoticeBody: 'The screen-share window on the computer is stuck. Close it there, then tap Try again.',
     unreachableTitle: "Can't show this computer's screen from here",
     unreachableBody: 'The screen goes straight from your computer to this phone, and this network has no way through. Use the same Wi-Fi, Tailscale, or Direct SSH, then try again.',
     awaitingConsentTitle: 'Waiting for screen sharing',

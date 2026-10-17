@@ -42,7 +42,7 @@ export function describeDesktopFailureDetail(failure: { code: string; message: s
     // The kit files the host's `source` refusal under `platform`; this one
     // reason is a contract value, so it is matched whole, never by substring.
     if (failure?.message === DESKTOP_NO_PICTURE) return desktopCopy.noPictureBody;
-    if (failure && desktopPortalRestartCommand(failure.message) !== undefined) return desktopCopy.portalBusyBody;
+    if (failure && desktopPortalRestartCommand(failure.message) !== undefined) return desktopCopy.portalBusyNoticeBody;
     return desktopCopy.failedBody;
 }
 
