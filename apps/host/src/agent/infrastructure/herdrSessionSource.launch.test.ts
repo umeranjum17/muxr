@@ -62,9 +62,7 @@ function fakeHerdr(dir: string, cwd: string) {
         input: string;
         /** The note a handoff turn's agent writes into its result file; unset means it writes none. */
         handoffNote?: string;
-        /** Only the handoff journey reads the agent; the others keep Herdr's answer they were written against. */
-        answerAgentGet: boolean;
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0, holdPrompts: 0, input: '', answerAgentGet: false };
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0, holdPrompts: 0, input: '' };
     const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
@@ -110,7 +108,7 @@ function fakeHerdr(dir: string, cwd: string) {
     };
     const handleAgentGet = (params: Record<string, unknown>) => {
         const agent = agents.find((entry) => entry.pane_id === params.target);
-        return agent === undefined ? undefined : { agent: { terminal_id: 'terminal-one', cwd, ...agent } };
+        return agent === undefined ? undefined : { agent: { interactive_ready: true, terminal_id: 'terminal-one', cwd, ...agent } };
     };
     const handleAgentPrompt = (params: Record<string, unknown>) => {
         if (state.failSnapshotAfterPrompt) state.failSnapshot = true;
@@ -313,6 +311,13 @@ function fakeHerdr(dir: string, cwd: string) {
                     case 'agent.start':
                         reply = { id, result: handleAgentStart(p) };
                         break;
+                    case 'agent.get': {
+                        const answer = handleAgentGet(p);
+                        reply = answer === undefined
+                            ? { id, error: { code: 'agent_not_found', message: String(p.target) } }
+                            : { id, result: answer };
+                        break;
+                    }
                     case 'agent.wait': {
                         reply = { id, result: handleAgentWait(p) };
                         // The close test delays the reply past teardown: the
@@ -329,25 +334,26 @@ function fakeHerdr(dir: string, cwd: string) {
                         }
                         break;
                     }
-                    case 'agent.get': {
-                        const agent = state.answerAgentGet ? handleAgentGet(p) : undefined;
-                        if (!state.answerAgentGet) reply = { id, error: { code: 'method_not_found', message: method } };
-                        else reply = agent === undefined
-                            ? { id, error: { code: 'agent_not_found', message: 'agent not found' } }
-                            : { id, result: agent };
-                        break;
-                    }
                     case 'agent.prompt': {
                         const answer = handleAgentPrompt(p);
                         reply = 'error' in answer ? { id, ...answer } : { id, result: answer };
                         break;
                     }
                     case 'agent.send_keys':
+                        // A shell pane has no agent: Herdr refuses, and the
+                        // kit falls back to the pane's own key path.
+                        if (!agents.some((agent) => agent.pane_id === p.target)) {
+                            reply = { id, error: { code: 'agent_not_found', message: 'no agent on pane' } };
+                            break;
+                        }
                         // The agent's own line editing: ctrl+u empties a line, backspace joins the one above.
                         for (const key of (p.keys ?? []) as string[]) {
                             if (key === 'ctrl+u') state.input = state.input.slice(0, state.input.lastIndexOf('\n') + 1);
                             else if (key === 'backspace') state.input = state.input.slice(0, -1);
                         }
+                        reply = { id, result: {} };
+                        break;
+                    case 'pane.send_keys':
                         reply = { id, result: {} };
                         break;
                     case 'pane.read':
@@ -943,6 +949,10 @@ describe('agent started at the desk in an existing pane', () => {
         });
         try {
             expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId: 'shell:w1:p1' });
+            // A shell pane has no agent, so the kit lands the abort on the pane itself.
+            await source.abort('shell:w1:p1');
+            expect(herdr.calls.filter((call) => call.method.endsWith('send_keys')).map((call) => [call.method, call.params.keys]))
+                .toEqual([['agent.send_keys', ['escape']], ['pane.send_keys', ['escape']]]);
 
             // Codex starts in the shell. Herdr detects its kind and name, but
             // Codex has no session until its first turn.
@@ -974,6 +984,11 @@ describe('agent started at the desk in an existing pane', () => {
             await vi.waitFor(async () => expect(treePane(await source.herdrTree(), 'w1:p1').agentStatus).toBe('working'));
             await new Promise((resolve) => setTimeout(resolve, 600));
             expect(herdr.state.snapshotCount).toBe(reads);
+
+            herdr.calls.length = 0;
+            await source.abort(treePane(await source.herdrTree(), 'w1:p1').sessionId!);
+            expect(herdr.calls.filter((call) => call.method.endsWith('send_keys')).map((call) => [call.method, call.params.keys]))
+                .toEqual([['agent.send_keys', ['escape']]]);
         } finally {
             await source.dispose();
             herdr.close();
@@ -1017,6 +1032,57 @@ describe('agent started at the desk in an existing pane', () => {
             }, { timeout: 3_000 });
         } finally {
             herdr.state.releaseSnapshot?.();
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+
+    it('adopts two desk-detected conversations and a sessionless desk agent', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-desk-herd-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        herdr.tabs.push({ tab_id: 'w1:t1', workspace_id: 'w1', label: 'main' });
+        herdr.panes.push({ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
+        herdr.panes.push({ pane_id: 'w1:p2', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            // Two detections back to back: each detection bootstrap's snapshot
+            // carries both conversations, so both routes bind with no phone
+            // pull between or after them.
+            herdr.agents.push({ pane_id: 'w1:p1', agent: 'codex', name: 'ram', agent_status: 'idle',
+                agent_session: { source: 'herdr:codex', agent: 'codex', kind: 'id', value: 'codex-1' } });
+            herdr.agents.push({ pane_id: 'w1:p2', agent: 'pi', name: 'magpie', agent_status: 'idle',
+                agent_session: { source: 'herdr:pi', agent: 'pi', kind: 'id', value: 'pi-1' } });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p1', agent: 'codex' });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p2', agent: 'pi' });
+            await vi.waitFor(async () => {
+                expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ agentKind: 'codex', sessionId: expect.stringMatching(/^pp_/) });
+                expect(treePane(await source.herdrTree(), 'w1:p2')).toMatchObject({ agentKind: 'pi', sessionId: expect.stringMatching(/^pp_/) });
+            }, { timeout: 3_000 });
+
+            // A sessionless desk agent: the kit re-reads it on each status push until its session lands; the host does not re-read.
+            herdr.panes.push({ pane_id: 'w1:p3', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
+            herdr.agents.push({ pane_id: 'w1:p3', agent: 'codex', name: 'wren', agent_status: 'idle' });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p3', agent: 'codex' });
+            await vi.waitFor(async () => expect(treePane(await source.herdrTree(), 'w1:p3').agentKind).toBe('codex'), { timeout: 3_000 });
+            Object.assign(herdr.agents.at(-1)!, {
+                agent_status: 'done',
+                agent_session: { source: 'herdr:codex', agent: 'codex', kind: 'id', value: 'codex-3' },
+            });
+            herdr.emit('pane.agent_status_changed', { pane_id: 'w1:p3', agent: 'codex', agent_status: 'done' });
+            await vi.waitFor(async () => expect(treePane(await source.herdrTree(), 'w1:p3')).toMatchObject({
+                agentKind: 'codex', agentStatus: 'done', sessionId: expect.stringMatching(/^pp_/),
+            }), { timeout: 3_000 });
+            expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ agentKind: 'codex', sessionId: expect.stringMatching(/^pp_/) });
+            expect(treePane(await source.herdrTree(), 'w1:p2')).toMatchObject({ agentKind: 'pi', sessionId: expect.stringMatching(/^pp_/) });
+            expect(treePane(await source.herdrTree(), 'w1:p3')).toMatchObject({ agentKind: 'codex' });
+        } finally {
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });
@@ -1541,7 +1607,6 @@ describe('handoff: the agent writes its own note', () => {
         const herdr = fakeHerdr(dir, cwd);
         const note = 'Finish the launch test: the handoff case is the only one left.';
         herdr.state.handoffNote = note;
-        herdr.state.answerAgentGet = true;
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
             dataDir: join(dir, 'data'),

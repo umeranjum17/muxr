@@ -106,7 +106,6 @@ const QUOTA_PROBE_DEBOUNCE_MS = 20_000;
 const QUOTA_RETRY_TAIL_LINES = 25;
 /** A matching tail this old with no new output is a loop that ended quietly. */
 const QUOTA_RETRY_STALE_MS = 5 * 60_000;
-const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 /** Outlasts Herdr's 5 s window for a prompt to start a turn. */
 const PROMPT_RECEIPT_TIMEOUT_MS = 8_000;
@@ -116,7 +115,6 @@ const PROMPT_SETTLE_MS = 1_500;
 const PROMPT_SETTLE_CAP_MS = 20_000;
 /** One bounded agent turn; the kit's own default is 300 s. */
 const HANDOFF_TIMEOUT_MS = 240_000;
-const STATUS_WATCH_WAIT_MS = 5_000;
 const HANDOFF_NOTE_MAX = 8_000;
 
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
@@ -325,14 +323,6 @@ export interface AgentRecord {
     title?: string | null;
     terminal_title?: string | null;
     terminal_title_stripped?: string | null;
-}
-
-/** Partial events preserve readiness unless Herdr explicitly supplies a replacement value. */
-export function mergeHerdrAgentEvent(
-    current: AgentRecord | undefined,
-    incoming: AgentRecord,
-): AgentRecord {
-    return { ...current, ...incoming };
 }
 
 interface CurrentSession {
@@ -651,8 +641,6 @@ export async function createHerdrSessionSource(
 
     const workspacesById = new Map<string, WorkspaceRecord>();
     const tabsById = new Map<string, TabRecord>();
-    /** Local lifecycle epochs stop an older in-flight snapshot replacing a newer status event. */
-    const lifecycleEpochByPane = new Map<string, number>();
     /** Last emitted signatures per session, so snapshots publish only real changes. */
     const lastStateSignature = new Map<string, string>();
     const lastInfoSignature = new Map<string, string>();
@@ -793,10 +781,7 @@ export async function createHerdrSessionSource(
 
     async function sweepStaleLaunches(): Promise<void> {
         for (const paneId of [...pendingLaunchByPane.keys()]) {
-            if (agentsByPane.has(paneId)) {
-                seenLaunchPane.add(paneId);
-                continue;
-            }
+            if (agentsByPane.has(paneId)) continue;
             if (!seenLaunchPane.has(paneId)) continue;
             const pending = pendingLaunchByPane.get(paneId)!;
             const binding = routes.all().find((row) => herdrAgentSessionKey(row.agentSession) === herdrAgentSessionKey(pending));
@@ -986,23 +971,7 @@ export async function createHerdrSessionSource(
         });
     }
 
-    function setLifecycle(paneId: string, agentStatus: string): void {
-        const agent = agentsByPane.get(paneId);
-        if (agent !== undefined) agentsByPane.set(paneId, { ...agent, agent_status: agentStatus });
-        const pane = panesById.get(paneId);
-        if (pane !== undefined) panesById.set(paneId, { ...pane, agent_status: agentStatus });
-        lifecycleEpochByPane.set(paneId, (lifecycleEpochByPane.get(paneId) ?? 0) + 1);
-    }
-
-    function needsSessionDiscovery(paneId: string): boolean {
-        const agent = agentsByPane.get(paneId);
-        return agent !== undefined && publishedAgentSession(agent) === undefined;
-    }
-
     const modifiedBySession = new Map<string, string>();
-    let resnapshotTimer: NodeJS.Timeout | undefined;
-    let resnapshotRunning = false;
-    let resnapshotQueued = false;
 
     function publish(sessionId: string, event: SessionEventBody): void {
         modifiedBySession.set(sessionId, new Date().toISOString());
@@ -1410,11 +1379,27 @@ export async function createHerdrSessionSource(
     }
 
     /** Bind routes to current Herdr generations and remove every vanished generation first. */
+    let discoveryChain: Promise<void> = Promise.resolve();
+
     async function syncDiscovery(): Promise<void> {
+        // Discovery now runs on every kit revision, so overlapping runs would
+        // interleave: one run's forget could retire a binding before another
+        // run's failure report for it publishes. Chain them instead.
+        const previous = discoveryChain;
+        let release!: () => void;
+        discoveryChain = new Promise<void>((resolve) => { release = resolve; });
+        await Promise.race([previous, sleep(PROMPT_REBIND_TIMEOUT_MS, undefined, { ref: false })]);
+        try {
+            await syncDiscoveryInner();
+        } finally {
+            release();
+        }
+    }
+
+    async function syncDiscoveryInner(): Promise<void> {
         rehydratePendingLaunches();
         adoptPublishedLaunches();
         await sweepStaleLaunches();
-        restoreInFlightLaunches();
         const liveRefs: HerdrAgentSessionRef[] = [];
         const seenRefs = new Set<string>();
         for (const agent of agentsByPane.values()) {
@@ -1489,108 +1474,100 @@ export async function createHerdrSessionSource(
         }
     }
 
+    // The tree lives in the kit: snapshot() is the current tree, onChange fires on
+    // every revision, refresh() re-reads after our own mutations. The flat maps are a
+    // thin index over kit.snapshot(), rebuilt on every sync, plus pending-launch
+    // overlays the kit does not carry yet. No manual event patching.
     // A voice roster lookup has just paid for this snapshot. Only prompt routing
-    // may reuse it, briefly, and never across a routing event or reconnect.
-    let snapshotReadAt = 0;
-    let routingEpoch = 0;
-    let snapshotRoutingEpoch = -1;
+    // may reuse it, and never across a revision change or reconnect.
+    let lastKitRevision = -1;
 
-    async function refreshSnapshotOnce(): Promise<void> {
-        if (disposed) throw new Error('herdr: source disposed');
-        const treesSince = Date.now();
-        const routingEpochAtStart = routingEpoch;
-        const lifecycleEpochAtStart = new Map(lifecycleEpochByPane);
-        const previousAgentPanes = [...agentsByPane.keys()];
-        const result = await client.call<{
-            snapshot?: {
-                agents?: AgentRecord[];
-                panes?: PaneRecord[];
-                workspaces?: WorkspaceRecord[];
-                tabs?: TabRecord[];
-            };
-        }>('session.snapshot');
-        if (disposed) throw new Error('herdr: source disposed');
-        const nextAgents = new Map<string, AgentRecord>();
-        const nextPanes = new Map<string, PaneRecord>();
-        for (const incoming of result.snapshot?.agents ?? []) {
-            const changedWhileReading = lifecycleEpochByPane.get(incoming.pane_id) !== lifecycleEpochAtStart.get(incoming.pane_id);
-            const currentStatus = agentsByPane.get(incoming.pane_id)?.agent_status;
-            nextAgents.set(incoming.pane_id, changedWhileReading && currentStatus !== undefined
-                ? { ...incoming, agent_status: currentStatus }
-                : incoming);
-        }
-        for (const incoming of result.snapshot?.panes ?? []) {
-            const changedWhileReading = lifecycleEpochByPane.get(incoming.pane_id) !== lifecycleEpochAtStart.get(incoming.pane_id);
-            const currentStatus = panesById.get(incoming.pane_id)?.agent_status;
-            nextPanes.set(incoming.pane_id, changedWhileReading && currentStatus !== undefined
-                ? { ...incoming, agent_status: currentStatus }
-                : incoming);
-        }
+    function syncFromKit(): void {
+        const snap = client.kit.snapshot();
+        const previousPanes = new Set(panesById.keys());
         agentsByPane.clear();
         panesById.clear();
         workspacesById.clear();
         tabsById.clear();
-        for (const [paneId, agent] of nextAgents) agentsByPane.set(paneId, agent);
-        for (const [paneId, pane] of nextPanes) panesById.set(paneId, pane);
-        for (const workspace of result.snapshot?.workspaces ?? []) {
-            workspacesById.set(workspace.workspace_id, workspace);
-        }
-        for (const tab of result.snapshot?.tabs ?? []) tabsById.set(tab.tab_id, tab);
-        await syncDiscovery();
-        // A pane whose agent left keeps no lifecycle epoch; one that left
-        // Herdr's tree keeps no artifact state either.
-        for (const paneId of previousAgentPanes) {
-            if (nextAgents.has(paneId)) continue;
-            lifecycleEpochByPane.delete(paneId);
-            if (!nextPanes.has(paneId)) artifacts.dropPane(paneId);
-        }
-        snapshotReadAt = treesSince;
-        snapshotRoutingEpoch = routingEpochAtStart;
-    }
-
-    let snapshotInFlight: Promise<void> | undefined;
-    async function refreshSnapshot(): Promise<void> {
-        if (snapshotInFlight !== undefined) return snapshotInFlight;
-        const request = refreshSnapshotOnce();
-        snapshotInFlight = request;
-        try {
-            await request;
-        } catch (cause) {
-            snapshotReadAt = 0;
-            throw cause;
-        } finally {
-            if (snapshotInFlight === request) snapshotInFlight = undefined;
-        }
-    }
-
-    async function refreshSnapshotFresh(): Promise<void> {
-        while (snapshotInFlight !== undefined) await snapshotInFlight.catch(() => {});
-        await refreshSnapshot();
-    }
-
-    function scheduleResnapshot(): void {
-        if (disposed) return;
-        if (resnapshotRunning) {
-            resnapshotQueued = true;
-            return;
-        }
-        if (resnapshotTimer !== undefined) return;
-        resnapshotTimer = setTimeout(() => {
-            resnapshotTimer = undefined;
-            resnapshotRunning = true;
-            void (async () => {
-                const older = snapshotInFlight;
-                if (older !== undefined) await older.catch(() => {});
-                await refreshSnapshot();
-                emitAllStates();
-            })().catch(() => {}).finally(() => {
-                resnapshotRunning = false;
-                if (resnapshotQueued) {
-                    resnapshotQueued = false;
-                    scheduleResnapshot();
+        for (const ws of snap.workspaces) {
+            const workspace: WorkspaceRecord = {
+                workspace_id: ws.id,
+                label: ws.label,
+                focused: ws.focused,
+                number: ws.number,
+            };
+            if (ws.tokens !== undefined) workspace.tokens = { ...ws.tokens };
+            if (ws.worktree !== undefined) {
+                const worktree: NonNullable<WorkspaceRecord['worktree']> = {
+                    checkout_path: ws.worktree.checkoutPath,
+                };
+                if (ws.worktree.repoKey !== undefined) worktree.repo_key = ws.worktree.repoKey;
+                if (ws.worktree.repoName !== undefined) worktree.repo_name = ws.worktree.repoName;
+                if (ws.worktree.repoRoot !== undefined) worktree.repo_root = ws.worktree.repoRoot;
+                if (ws.worktree.isLinkedWorktree !== undefined) worktree.is_linked_worktree = ws.worktree.isLinkedWorktree;
+                workspace.worktree = worktree;
+            }
+            workspacesById.set(ws.id, workspace);
+            for (const tab of ws.tabs) {
+                tabsById.set(tab.id, { tab_id: tab.id, workspace_id: ws.id, label: tab.label });
+                for (const pane of tab.panes) {
+                    const record: PaneRecord = {
+                        pane_id: pane.id,
+                        tab_id: tab.id,
+                        workspace_id: ws.id,
+                        focused: pane.focused,
+                    };
+                    if (pane.cwd !== undefined) record.cwd = pane.cwd;
+                    if (pane.foregroundCwd !== undefined) record.foreground_cwd = pane.foregroundCwd;
+                    if (pane.agentStatus !== undefined) record.agent_status = pane.agentStatus;
+                    if (pane.displayAgent !== undefined) record.display_agent = pane.displayAgent;
+                    if (pane.label !== undefined) record.label = pane.label;
+                    if (pane.terminalTitle !== undefined) record.terminal_title_stripped = pane.terminalTitle;
+                    if (pane.tokens !== undefined) record.tokens = { ...pane.tokens };
+                    panesById.set(pane.id, record);
+                    if (pane.agent !== undefined) {
+                        // Seen means listed by the kit tree itself, never by the
+                        // pending-launch overlay below: the sweep condemns a
+                        // vanished launch only once Herdr really carried it.
+                        seenLaunchPane.add(pane.id);
+                        const agent: AgentRecord = {
+                            pane_id: pane.id,
+                            tab_id: tab.id,
+                            workspace_id: ws.id,
+                            agent_status: pane.agent.status,
+                        };
+                        if (pane.agent.kind !== undefined) agent.agent = pane.agent.kind;
+                        if (pane.agent.name !== undefined) agent.name = pane.agent.name;
+                        if (pane.agent.displayAgent !== undefined) agent.display_agent = pane.agent.displayAgent;
+                        if (pane.agent.agentSession !== undefined) agent.agent_session = pane.agent.agentSession as HerdrAgentSessionRef;
+                        if (pane.agent.cwd !== undefined) agent.cwd = pane.agent.cwd;
+                        if (pane.agent.foregroundCwd !== undefined) agent.foreground_cwd = pane.agent.foregroundCwd;
+                        if (pane.agent.launchPending !== undefined) agent.launch_pending = pane.agent.launchPending;
+                        if (pane.agent.interactiveReady !== undefined) agent.interactive_ready = pane.agent.interactiveReady;
+                        if (pane.agent.title !== undefined) agent.title = pane.agent.title;
+                        agentsByPane.set(pane.id, agent);
+                    }
                 }
-            });
-        }, 500);
+            }
+        }
+        restoreInFlightLaunches();
+        for (const paneId of previousPanes) {
+            if (!panesById.has(paneId)) artifacts.dropPane(paneId);
+        }
+        lastKitRevision = snap.revision;
+    }
+
+    async function reindexKitTree(): Promise<void> {
+        if (disposed || !client.connected) return;
+        syncFromKit();
+        await syncDiscovery();
+    }
+
+    async function refreshSnapshot(): Promise<void> {
+        if (disposed) throw new Error('herdr: source disposed');
+        await client.kit.refresh();
+        if (disposed) throw new Error('herdr: source disposed');
+        await reindexKitTree();
     }
 
     function emitAllStates(): void {
@@ -1601,43 +1578,38 @@ export async function createHerdrSessionSource(
     // found without a restart; the kit spawns that exact path for CLI and terminal verbs.
     const resolvedHerdrBin = (): string | undefined => options.herdrBin || process.env.HERDR_BIN || findHerdrBin();
     const handoffsInFlight = new Set<string>();
-    let statusRefreshRunning = false;
-    let statusRefreshQueued = false;
-    /**
-     * A detection re-bootstraps the kit, which opens the pane's status watch.
-     * A status that changed before that watch acked was never pushed, and the
-     * kit announces only a phase change, not each re-bootstrap. `refresh()`
-     * settles once the status watches have acked, so read the snapshot then.
-     */
-    function refreshAfterStatusWatch(): Promise<void> {
-        if (statusRefreshRunning) {
-            statusRefreshQueued = true;
-            return Promise.resolve();
-        }
-        statusRefreshRunning = true;
-        const watchTimeout = new AbortController();
-        const watchesAcked = Promise.race([
-            client.kit.refresh(),
-            sleep(STATUS_WATCH_WAIT_MS, undefined, { signal: watchTimeout.signal }).then(() => { throw new Error('status watches did not ack in time'); }),
-        ]).finally(() => watchTimeout.abort());
-        return watchesAcked
-            .then(() => refreshSnapshotFresh().then(emitAllStates))
-            .catch((cause) => {
-                process.stderr.write(`herdr status refresh failed: ${cause instanceof Error ? cause.message : String(cause)}\n`);
-                scheduleResnapshot();
-            })
-            .finally(() => {
-                statusRefreshRunning = false;
-                if (statusRefreshQueued) {
-                    statusRefreshQueued = false;
-                    void refreshAfterStatusWatch();
-                }
-            });
-    }
     const client = new KitHerdrClient(() => resolvedHerdrBin() ?? 'herdr', socketPath, () => {
-        routingEpoch += 1;
-        void refreshSnapshot().then(emitAllStates).then(() => artifacts.rescanAll()).catch(() => {});
-        void refreshAfterStatusWatch();
+        if (disposed) return;
+        void reindexKitTree().then(emitAllStates).then(() => artifacts.rescanAll()).catch(() => {});
+    });
+
+    // The kit tree is the source of truth: every revision re-indexes and republishes.
+    let resyncTimer: NodeJS.Timeout | undefined;
+    function scheduleResync(): void {
+        if (disposed || resyncTimer !== undefined) return;
+        resyncTimer = setTimeout(() => {
+            resyncTimer = undefined;
+            if (disposed) return;
+            void (async () => {
+                try {
+                    if (!client.connected) return;
+                    syncFromKit();
+                } finally {
+                    if (!disposed && client.connected) await syncDiscovery();
+                }
+            })().catch(() => {});
+        }, 500);
+    }
+    // A status move emits its own sessions at once; only the tree re-sync waits for the debounce.
+    const stopKitTree = client.kit.onChange((_snapshot, changed) => {
+        if (changed.length > 0 && !disposed && client.connected) {
+            syncFromKit();
+            for (const paneId of changed) {
+                const session = currentSessionByPane(paneId);
+                if (session !== undefined) emitState(session.sessionId);
+            }
+        }
+        scheduleResync();
     });
     // The kit reads a blocked agent's question once its status flips; that releases the held alert.
     const stopBlockedWatch = client.kit.onBlocked((entry, change) => {
@@ -1864,98 +1836,15 @@ export async function createHerdrSessionSource(
         throw new Error('herdr agent did not become interactive');
     }
 
-    // The kit taps its own batch socket and its per-pane status watches here;
-    // this host opens no subscription of its own.
-    client.onEvent((event) => {
-        // Wire kinds arrive dot-style per the subscription schema; tolerate snake_case too.
-        const kind = event.type.replace(/_/g, '.');
-        if (['pane.moved', 'pane.closed', 'pane.exited', 'pane.agent.detected',
-            'tab.closed', 'workspace.closed'].includes(kind)) routingEpoch += 1;
-        const pane = (event.pane ?? event.agent) as AgentRecord | PaneRecord | undefined;
-        if (pane !== undefined && typeof pane.pane_id === 'string') {
-            const currentPaneStatus = panesById.get(pane.pane_id)?.agent_status;
-            panesById.set(pane.pane_id, {
-                ...panesById.get(pane.pane_id),
-                ...pane,
-                ...(currentPaneStatus === undefined ? {} : { agent_status: currentPaneStatus }),
-            });
-            if ('agent' in pane || 'name' in pane || 'agent_session' in pane) {
-                const current = agentsByPane.get(pane.pane_id);
-                const merged = mergeHerdrAgentEvent(current, pane as AgentRecord);
-                agentsByPane.set(pane.pane_id, {
-                    ...merged,
-                    pane_id: pane.pane_id,
-                    ...(current?.agent_status === undefined ? {} : { agent_status: current.agent_status }),
-                });
-            }
-        }
-        switch (kind) {
-            case 'pane.updated': {
-                // No immediate emit: a working agent animates its terminal title
-                // several times a second, and each tick changes taskTitle, so an
-                // immediate emit would push a session.updated per tick. The
-                // debounced snapshot below coalesces them to ~500ms cadence.
-                scheduleResnapshot();
-                return;
-            }
-            case 'pane.agent.status.changed':
-            case 'pane.agent.detected': {
-                const paneId = typeof event.pane_id === 'string' ? event.pane_id : pane?.pane_id;
-                const agentStatus = typeof event.agent_status === 'string' ? event.agent_status : pane?.agent_status;
-                if (paneId !== undefined && agentStatus !== undefined) setLifecycle(paneId, agentStatus);
-                const session = paneId === undefined ? undefined : currentSessionByPane(paneId);
-                if (session !== undefined) emitState(session.sessionId);
-                // Status rides the kit's per-pane watch and never changes the
-                // tree; only an undiscovered conversation is worth a read.
-                // Detection starts a kit re-bootstrap that opens the new pane's
-                // status watch; wait for its ready signal, then read once.
-                if (kind === 'pane.agent.detected') void refreshAfterStatusWatch();
-                else if (paneId !== undefined && needsSessionDiscovery(paneId)) scheduleResnapshot();
-                return;
-            }
-            case 'pane.moved': {
-                const previous = typeof event.previous_pane_id === 'string' ? event.previous_pane_id : undefined;
-                if (previous !== undefined) lifecycleEpochByPane.delete(previous);
-                scheduleResnapshot();
-                return;
-            }
-            case 'workspace.created':
-            case 'workspace.closed':
-            case 'workspace.renamed':
-            case 'workspace.updated': {
-                const workspace = event.workspace as WorkspaceRecord | undefined;
-                if (workspace !== undefined && typeof workspace.workspace_id === 'string') {
-                    workspacesById.set(workspace.workspace_id, {
-                        ...workspacesById.get(workspace.workspace_id),
-                        ...workspace,
-                    });
-                }
-                scheduleResnapshot();
-                return;
-            }
-            case 'tab.created':
-            case 'tab.closed':
-            case 'tab.renamed':
-            case 'pane.created':
-            case 'pane.closed':
-            case 'pane.exited':
-                scheduleResnapshot();
-                return;
-            default:
-                return;
-        }
-    });
 
     // A dead herdr must not take the host down with it: the phone needs this
     // process alive to see connected:false instead of a healthy-looking ghost.
     // start() makes one attempt and leaves the reconnect loop armed;
-    // onReconnect resnapshots when herdr comes back.
+    // onReconnect re-indexes the kit tree when herdr comes back.
     try {
         await client.start();
         await refreshSnapshot();
         emitAllStates();
-        // The mirror settles on the status watches before a phone can connect.
-        await refreshAfterStatusWatch();
         // Seed the backstop before a phone connects; an empty unchanged
         // pane must not announce itself thirty seconds after a phone connects.
         await artifacts.rescanAll();
@@ -1973,10 +1862,8 @@ export async function createHerdrSessionSource(
     }
 
     async function resolvePane(sessionId: string, reusePromptSnapshot = false): Promise<CurrentSession> {
-        const snapshotAge = Date.now() - snapshotReadAt;
         const recentPromptSnapshot = reusePromptSnapshot && client.connected
-            && snapshotRoutingEpoch === routingEpoch
-            && snapshotAge >= 0 && snapshotAge <= PROMPT_SNAPSHOT_MAX_AGE_MS;
+            && client.kit.snapshot().revision === lastKitRevision;
         if (recentPromptSnapshot) {
             const cached = currentSession(sessionId);
             // A miss must discover the target rather than reject from a cache.
@@ -2023,7 +1910,6 @@ export async function createHerdrSessionSource(
         const resolvedPaneId = paneId ?? closePaneId(sessionId);
         if (resolvedPaneId !== undefined) {
             forgetLaunch(resolvedPaneId);
-            lifecycleEpochByPane.delete(resolvedPaneId);
             artifacts.dropPane(resolvedPaneId);
         }
         if (sessionId.startsWith(SHELL_ROUTE_PREFIX)) knownShells.delete(sessionId);
@@ -2241,6 +2127,10 @@ export async function createHerdrSessionSource(
             launched = true;
             if (paneId === undefined) throw new Error('herdr: the start placed no pane');
             recordStartedAgent(paneId, kind, launchName);
+            // The answer carries the pane's cwd, workspace label and worktree, which
+            // only the kit tree has; read it once if the tree has not listed the pane yet.
+            syncFromKit();
+            if (!seenLaunchPane.has(paneId)) await refreshSnapshot();
             const session = bindListedPane(paneId) ?? await waitForListedAgent(paneId, 5_000);
             const publishedKind = publicAgentKind(kind);
             options.onAgentLaunchDiagnostic?.('ok', {
@@ -2434,7 +2324,7 @@ export async function createHerdrSessionSource(
         const reached = parseHerdrAgentSession(receipt.agentSession);
         if (reached !== undefined && `${receipt.paneId}\u0000${herdrAgentSessionKey(reached)}` === generation) return;
         try {
-            await refreshSnapshotFresh();
+            await refreshSnapshot();
             const current = currentSession(sessionId);
             if (current === undefined || sessionGenerationKey(current) !== generation) {
                 throw new Error('The prompt generation changed before its receipt could be confirmed.');
@@ -2949,7 +2839,6 @@ export async function createHerdrSessionSource(
                     agentsByPane.delete(record.paneId);
                     panesById.delete(record.paneId);
                     forgetLaunch(record.paneId);
-                    lifecycleEpochByPane.delete(record.paneId);
                     artifacts.dropPane(record.paneId);
                 },
             }).finally(async () => {
@@ -2958,7 +2847,7 @@ export async function createHerdrSessionSource(
                     stagedMovePanes.delete(staged);
                 }
                 await tagged;
-                await refreshSnapshotFresh();
+                await refreshSnapshot();
                 emitAllStates();
             });
             if (!moved.ok) {
@@ -2971,7 +2860,7 @@ export async function createHerdrSessionSource(
                 // A lost close ACK can leave only the verified replacement. Preserve its name/account without claiming success.
                 if (replacement && name !== undefined && !panesById.has(record.paneId)) {
                     await renameInHerdr(client, 'agent', moved.live!, name).catch(() => undefined);
-                    await refreshSnapshotFresh();
+                    await refreshSnapshot();
                     emitAllStates();
                 }
                 throw Object.assign(new Error(moved.message), {
@@ -3573,7 +3462,6 @@ export async function createHerdrSessionSource(
                     firstError ??= error;
                 }
             };
-            if (resnapshotTimer !== undefined) clearTimeout(resnapshotTimer);
             // agentWatch arms one guard timer per session, up to an hour out:
             // without this a script that only watched never exits.
             for (const guard of watches.values()) clearTimeout(guard);
@@ -3581,6 +3469,8 @@ export async function createHerdrSessionSource(
             for (const wait of questionWaits.values()) if (wait !== 'expired') clearTimeout(wait);
             questionWaits.clear();
             askedRevisions.clear();
+            if (resyncTimer !== undefined) clearTimeout(resyncTimer);
+            stopKitTree();
             stopBlockedWatch();
             await settle(() => voiceStreams?.closeAll());
             await settle(() => codingCoordinator?.close());

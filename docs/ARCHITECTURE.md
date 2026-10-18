@@ -103,8 +103,8 @@ removed grants, and web secure-store reset clear it.
 
 | app concept | herdr | call |
 |---|---|---|
-| machine | the host running `herdr server` | `ping`, `session.snapshot` |
-| session | **a pane with an agent in it** | `agent.list`, `pane.list` |
+| machine | the host running `herdr server` | `ping`, kit `snapshot()` / `refresh()` |
+| session | **a pane with an agent in it** | kit tree (`snapshot()` / `onChange`) |
 | session.start | workspace-per-cwd → tab → agent in the selected pane | kit `startAgent` with a workspace label place (`{ workspace: cwd }`; `{ workspace: 'new' }` for a worktree) and the kit's verifying env overlay for plan-account env, or `place: { pane }` when the pane already exists (squad kinds, splits); kit `place` for shells and labelled tabs |
 | session.prompt | submit text to the agent | `agent.prompt` |
 | session.abort | interrupt | kit `sendKeys` with escape (the kit falls back to `pane.send_keys` for a plain shell route) |
@@ -121,9 +121,8 @@ removed grants, and web secure-store reset clear it.
 Sessions started at the desk show up on the phone once Herdr detects the agent
 kind on the pane. A pane Herdr detected but has not published a session for
 yet (Codex 0.159 publishes none) stands in on a pane route the host adopts
-onto the real session when it arrives. The host rechecks missing sessions
-when pane status changes and after the per-pane status watch is acknowledged,
-even if an older snapshot was in flight.
+onto the real session when it arrives. The host indexes the kit's current tree
+on revisions and refreshes it after host-triggered mutations.
 
 ## Facts worth knowing (verified against herdr 0.9.1)
 
@@ -131,14 +130,13 @@ even if an older snapshot was in flight.
   `events.subscribe` holds a socket open — one subscribe per socket; a second
   interleaves acks with events. The kit owns this: the host's
   [`herdrKitClient.ts`](../apps/host/src/agent/infrastructure/herdrKitClient.ts)
-  (`KitHerdrClient`) opens no subscription sockets of its own; the kit holds
-  one batch event socket and one filtered `pane.agent_status_changed` socket
-  per agent pane, and the host taps both through the kit's `onEvent`.
+  (`KitHerdrClient`) opens no subscription sockets of its own; the kit owns
+  event subscriptions and supplies the canonical workspace/tab/pane tree via
+  `snapshot()` and revision notifications via `onChange`.
 - **Filtered subscription kinds reject the whole batch.** `pane.agent_status_changed`
   needs a `pane_id`; including it in the batch errors everything (with an
   invisible `id:""` error frame) and zero events flow. Status transitions ride
-  the kit's per-pane status watches, which the host reads through `onEvent`
-  and `statusWatchReady`.
+  the kit's per-pane status watches and are reflected in its tree.
 - **There are no raw `terminal.*` socket methods.** Frames come from a kit
   terminal session (`source.herdrTerminal`, one `TerminalSession` per attached
   channel), which emits herdr's own NDJSON terminal protocol — the only

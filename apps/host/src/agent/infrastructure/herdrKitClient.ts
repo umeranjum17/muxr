@@ -1,9 +1,9 @@
 /**
  * HerdrKit-backed transport adapter. HerdrKit owns the socket, the event
  * batch and the per-pane status watches; this class keeps the exact surface
- * the session source was written against (positional timeouts, onEvent
- * fan-out, a connected flag, status-watch readiness) so every
- * `client.call(m, p, t)` site rides the kit without edits.
+ * the session source was written against (positional timeouts, a connected
+ * flag, status-watch readiness) so every `client.call(m, p, t)` site rides
+ * the kit without edits.
  *
  * The kit already opens the batch socket and one filtered status socket per
  * agent pane during its own bootstrap, and taps both through `onEvent`, so
@@ -18,11 +18,6 @@ import { homedir } from 'node:os';
 import { delimiter, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { HerdrKit } from '@byokit/herdr';
-
-export interface HerdrEvent {
-    type: string;
-    [key: string]: unknown;
-}
 
 /** The only shape the session source needs from a socket caller. */
 export interface HerdrCaller {
@@ -55,13 +50,11 @@ export class KitHerdrClient implements HerdrCaller {
     /** Live event-socket state, surfaced on `herdr.tree` so the phone can tell a dead herdr from a quiet one. */
     connected = false;
     readonly kit: HerdrKit;
-    private readonly listeners = new Set<(event: HerdrEvent) => void>();
-    private offKitEvent: (() => void) | undefined;
     private reconnectTimer: NodeJS.Timeout | undefined;
-    private started = false;
     private closed = false;
     /** Edge trigger: log the first reconnect failure and the recovery, never every retry. */
     private down = false;
+    private outage = false;
 
     constructor(
         resolveBin: () => string,
@@ -86,17 +79,11 @@ export class KitHerdrClient implements HerdrCaller {
             path: (process.env.PATH ?? '').split(delimiter).filter((dir) => dir !== ''),
             onState: (state) => {
                 const ready = state.phase === 'ready';
+                const wasReady = this.connected;
                 this.connected = ready;
-                // The batch socket heals itself; the mirror still needs its
-                // resync pass when herdr comes back after an outage.
-                if (ready && this.started) this.onReconnect();
+                if (!ready && wasReady) this.outage = true;
+                if (ready && !wasReady) this.recover();
             },
-        });
-        // The kit taps its own batch and per-pane status sockets through
-        // `onEvent`; one registration fans out to every session-source listener
-        // instead of muxr opening a second subscription of its own.
-        this.offKitEvent = this.kit.onEvent((event) => {
-            for (const listener of this.listeners) listener(event);
         });
     }
 
@@ -115,12 +102,13 @@ export class KitHerdrClient implements HerdrCaller {
     async start(): Promise<void> {
         try {
             await this.kit.start();
-            this.started = true;
+            this.connected = true;
         } catch (cause) {
             if (!KitHerdrClient.isDownError(cause)) throw cause;
             // Staying up matters more than starting clean: the reconnect loop keeps
             // retrying and onReconnect resubscribes when herdr comes back.
             this.down = true;
+            this.outage = true;
             this.scheduleReconnect();
             throw cause;
         }
@@ -140,29 +128,17 @@ export class KitHerdrClient implements HerdrCaller {
         ) as T;
     }
 
-    onEvent(listener: (event: HerdrEvent) => void): () => void {
-        this.listeners.add(listener);
-        return () => this.listeners.delete(listener);
-    }
-
-    /**
-     * Resolves when the kit's own per-pane `pane.agent_status_changed` watches
-     * have acked for the latest bootstrap. The session source re-reads its
-     * mirror on that edge: a session Herdr published while the watches were
-     * still landing reaches no event until they accept.
-     */
-    async statusWatchReady(): Promise<void> {
-        await this.kit.statusWatchReady();
-    }
-
     async close(): Promise<void> {
         this.closed = true;
         this.connected = false;
         if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
-        this.offKitEvent?.();
-        this.offKitEvent = undefined;
-        this.listeners.clear();
         await this.kit.stop().catch(() => {});
+    }
+
+    private recover(): void {
+        if (!this.outage) return;
+        this.outage = false;
+        this.onReconnect();
     }
 
     private scheduleReconnect(): void {
@@ -176,8 +152,8 @@ export class KitHerdrClient implements HerdrCaller {
                         this.down = false;
                         process.stderr.write(`herdr server reachable again at ${this.socketPath}\n`);
                     }
-                    this.started = true;
-                    this.onReconnect();
+                    this.connected = true;
+                    this.recover();
                 })
                 .catch((cause: unknown) => {
                     if (!this.down) {
