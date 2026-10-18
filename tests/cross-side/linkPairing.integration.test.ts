@@ -310,6 +310,9 @@ describe('native pairing over the byokit link', () => {
                         await expect(runPhonePairing(offered.offer, { onWords: async (words) => { lateWords = words; } }))
                             .rejects.toBeInstanceOf(PairingNeedsNewCode);
                         current = (await nextOffer(command, offered.wordsFile)).offered;
+                        // The ran-out line rides only on the offer that follows the code that ran out.
+                        expect(offered.notice).toBeUndefined();
+                        expect(current.notice).toBe('That code ran out before you said yes. Scan the new QR below');
                         // The first code's words land after it ran out, while the next code is open.
                         deliver(offered.wordsFile, lateWords);
                     }
