@@ -277,7 +277,7 @@ function quietLine(payload: UsageFigures): string[] {
 function vitalsFigures(vitals: UsageFigures['vitals']): string[] {
     const facts = vitals === undefined ? undefined : vitalsFacts(vitals);
     if (facts === undefined) return [];
-    return [t(facts.state === 'busy' ? 'plugins.rightNow.busy' : 'plugins.rightNow.healthy')];
+    return [t('plugins.rightNow.up')];
 }
 
 

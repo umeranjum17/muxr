@@ -135,8 +135,6 @@ export const en = {
             disk: 'Disk',
             load: 'load',
             up: 'up',
-            healthy: 'Healthy',
-            busy: 'Busy',
         },
     },
 
