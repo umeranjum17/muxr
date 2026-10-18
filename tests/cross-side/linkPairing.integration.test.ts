@@ -36,7 +36,7 @@ import {
     type DeviceGrant,
     type LinkStatus,
 } from '@byokit/pair';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { cliMain, hostMain, hostRoot, pairingIntent, relayMain, waitForRelay } from './host.js';
 import { machineIdentity } from './hostSetup.js';
 import type { StoredHostedGrant } from '../../apps/mobile/sources/pairing/application/linkPairing.js';
@@ -285,87 +285,87 @@ describe('native pairing over the byokit link', () => {
             if (command.exitCode !== null) throw new Error(command.output());
             const file = existsSync(outbox) ? readdirSync(outbox).find((name) => name.endsWith('.json')) : undefined;
             if (file === undefined) return undefined;
-            const offerPath = join(outbox, file);
-            const offered = JSON.parse(readFileSync(offerPath, 'utf8'));
-            return offered.wordsFile === previousWords ? undefined : { offerPath, offered };
+            const offered = JSON.parse(readFileSync(join(outbox, file), 'utf8'));
+            return offered.wordsFile === previousWords ? undefined : { offerPath: join(outbox, file), offered };
         }, 'handoff offer', 60_000);
-        try {
-            for (const mode of ['wrong', 'cancel', 'expires', 'matching']) {
-                // Keep the short host window for the matching journey's deliberately late claim too.
-                await startHost(mode === 'wrong' || mode === 'expires' || mode === 'matching' ? '20000' : undefined);
-                const matches = mode === 'matching';
-                const before = readSelfhostState().machine.crypto.devices.length;
-                // The 3 s cap falls while the phone's claim waits for words; the 20 s code runs out first.
-                const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11',
-                    ...(mode === 'expires' ? { MUXR_PAIR_HANDOFF_WAIT_MS: '3000' } : {}) }, workDir);
-                const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
-                let shownWords = '';
-                let noticeOffer: { offerPath: string; offered: any } | undefined;
-                try {
-                    let { offerPath, offered } = await nextOffer(command);
-                    expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
-                    expect(offered.version).toBe(1);
-                    let current = offered;
-                    if (matches) {
-                        let lateWords = '';
-                        await expect(runPhonePairing(offered.offer, { onWords: async (words) => { lateWords = words; } }))
-                            .rejects.toBeInstanceOf(PairingNeedsNewCode);
-                        current = (await nextOffer(command, offered.wordsFile)).offered;
-                        // The ran-out line rides only on the offer that follows the code that ran out.
-                        expect(offered.notice).toBeUndefined();
-                        expect(current.notice).toBe('That code ran out before you said yes. Scan the new QR below');
-                        // The first code's words land after it ran out, while the next code is open.
-                        deliver(offered.wordsFile, lateWords);
-                        ({ offerPath, offered } = await nextOffer(command, offered.wordsFile));
-                    }
-                    const pairing = runPhonePairing(current.offer, { onWords: async (words) => {
-                        shownWords = words;
-                        if (mode === 'cancel') {
-                            // Let the computer enter the actual SAS approval wait,
-                            // then its CLI closes the local socket during cancel.
-                            await new Promise((resolve) => setTimeout(resolve, 300));
-                            command.kill('SIGTERM');
-                            return;
-                        }
-                        if (mode === 'expires') return;
-                        deliver(current.wordsFile, matches ? words : 'wrong words');
-                    } });
-                    if (matches) await pairing;
-                    else if (mode === 'wrong') {
-                        await until(() => (shownWords === '' ? undefined : true), 'phone shows words');
-                        await new Promise((resolve) => setTimeout(resolve, 1_000));
-                        expect(command.exitCode).toBeNull();
-                        await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
-                        noticeOffer = await nextOffer(command, current.wordsFile);
-                        expect(noticeOffer.offered.wordsFile).not.toBe(current.wordsFile);
-                        expect(noticeOffer.offered.notice).toBe('That code ran out before you said yes. Scan the new QR below');
+        // Only this journey shortens the code; the shared host gets the production length back.
+        onTestFinished(() => startHost());
+        for (const mode of ['wrong', 'cancel', 'expires', 'matching']) {
+            // The matching journey's deliberately late first claim needs the short code too.
+            await startHost(mode === 'cancel' ? undefined : '20000');
+            const matches = mode === 'matching';
+            const before = readSelfhostState().machine.crypto.devices.length;
+            // The 3 s cap falls while the phone's claim waits for words; the 20 s code runs out first.
+            const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11',
+                ...(mode === 'expires' ? { MUXR_PAIR_HANDOFF_WAIT_MS: '3000' } : {}) }, workDir);
+            const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
+            let shownWords = '';
+            let notice: string | undefined;
+            try {
+                const first = await nextOffer(command);
+                const offerPath = first.offerPath;
+                let offered = first.offered;
+                expect(offered.wordsFile).toMatch(/^muxr-pair-[0-9a-f]{24}-[0-9a-f]{12}\.words$/);
+                expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
+                expect(offered.version).toBe(1);
+                if (matches) {
+                    let lateWords = '';
+                    await expect(runPhonePairing(offered.offer, { onWords: async (words) => { lateWords = words; } }))
+                        .rejects.toBeInstanceOf(PairingNeedsNewCode);
+                    offered = (await nextOffer(command, first.offered.wordsFile)).offered;
+                    // The ran-out line rides only on the offer that follows the code that ran out.
+                    expect(first.offered.notice).toBeUndefined();
+                    expect(offered.notice).toBe('That code ran out before you said yes. Scan the new QR below');
+                    // The first code's words land after it ran out, while the next code is open.
+                    deliver(first.offered.wordsFile, lateWords);
+                }
+                const pairing = runPhonePairing(offered.offer, { onWords: async (words) => {
+                    shownWords = words;
+                    if (mode === 'cancel') {
+                        // Let the computer enter the actual SAS approval wait,
+                        // then its CLI closes the local socket during cancel.
+                        await new Promise((resolve) => setTimeout(resolve, 300));
                         command.kill('SIGTERM');
-                    } else if (mode === 'expires') {
-                        await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
-                        await expect(pairing).rejects.toThrow('The code ran out. Scan the new QR on your computer');
-                    } else await expect(pairing).rejects.toThrow();
-                    if (mode === 'cancel') {
-                        await until(() => host!.output().includes('Pairing connection lost; this pairing attempt ended.') ? true : undefined,
-                            'host contains the peer reset without crashing');
+                        return;
                     }
-                    offered = current;
-                    expect(await exited).toBe(matches ? 0 : 1);
-                    expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
-                    expect(existsSync(offerPath)).toBe(false);
-                    expect(existsSync(join(workDir, '.byokit', 'inbox', offered.wordsFile))).toBe(false);
-                    expect(command.output()).not.toContain(offered.offer);
-                    expect(shownWords).not.toBe('');
-                    expect(command.output()).not.toContain(shownWords);
-                    if (mode === 'wrong') expect(noticeOffer!.offered.notice).toBe('That code ran out before you said yes. Scan the new QR below');
-                    if (mode === 'cancel') {
-                        expect(host!.exitCode).toBeNull();
-                        expect(host!.signalCode).toBeNull();
-                        expect(host!.output().match(/Pairing connection lost; this pairing attempt ended\./g)).toHaveLength(1);
-                    }
-                } finally { await stop(command); }
-            }
-        } finally {
-            await startHost();
+                    if (mode === 'expires') return;
+                    deliver(offered.wordsFile, matches ? words : 'wrong words');
+                } });
+                if (matches) await pairing;
+                else if (mode === 'wrong') {
+                    await until(() => (shownWords === '' ? undefined : true), 'phone shows words');
+                    await new Promise((resolve) => setTimeout(resolve, 1_000));
+                    expect(command.exitCode).toBeNull();
+                    await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
+                    // The computer carries the ran-out line on the next offer, never on its own output.
+                    const next = await nextOffer(command, offered.wordsFile);
+                    expect(next.offered.wordsFile).not.toBe(offered.wordsFile);
+                    notice = next.offered.notice;
+                    command.kill('SIGTERM');
+                } else if (mode === 'expires') {
+                    await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
+                    await expect(pairing).rejects.toThrow('The code ran out. Scan the new QR on your computer');
+                } else await expect(pairing).rejects.toThrow();
+                expect(await exited).toBe(matches ? 0 : 1);
+                expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
+                expect(existsSync(offerPath)).toBe(false);
+                expect(existsSync(join(workDir, '.byokit', 'inbox', offered.wordsFile))).toBe(false);
+                expect(command.output()).not.toContain(offered.offer);
+                expect(shownWords).not.toBe('');
+                expect(command.output()).not.toContain(shownWords);
+                if (mode === 'wrong') expect(notice).toBe('That code ran out before you said yes. Scan the new QR below');
+                if (mode === 'cancel') {
+                    await until(() => host!.output().includes('Pairing connection lost; this pairing attempt ended.') ? true : undefined,
+                        'host contains the peer reset without crashing');
+                    expect(host!.exitCode).toBeNull();
+                    expect(host!.signalCode).toBeNull();
+                    expect(host!.output().match(/Pairing connection lost; this pairing attempt ended\./g)).toHaveLength(1);
+                }
+                if (matches) {
+                    expect(existsSync(join(inbox, first.offered.wordsFile))).toBe(false);
+                    expect(command.output()).not.toContain(first.offered.offer);
+                }
+            } finally { await stop(command); }
         }
 
         const second = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
