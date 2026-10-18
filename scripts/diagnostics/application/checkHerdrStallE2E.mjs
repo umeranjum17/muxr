@@ -84,8 +84,8 @@ try {
 
     // 1. Herdr alone: its socket stays open, so only the host's call timeouts can tell.
     freeze([herdrServerPid(socket)]);
-    await until(async () => { await attach(sessionId); return lab.hostOutput().includes('herdr: not answering'); },
-        'host journal: herdr not answering', FREEZE_MS);
+    await until(async () => !await attach(sessionId) && lab.hostOutput().includes('herdr: not answering'),
+        'failed attach and host journal: herdr not answering', FREEZE_MS);
     thaw();
     await until(() => attach(sessionId), 'attach after Herdr resumed', RECOVER_MS);
     await until(() => lab.hostOutput().includes('herdr: answering again'), 'host journal: herdr answering again', RECOVER_MS);
