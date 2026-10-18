@@ -98,6 +98,8 @@ const safeCodes: Record<string, true> = {
     'output-unavailable': true,
     'prompt-not-sent': true,
     'prompt-outcome-unknown': true,
+    'handoff-busy': true,
+    'handoff-failed': true,
     'capability-revoked': true,
     'request-invalid': true,
     'operation-timeout': true,

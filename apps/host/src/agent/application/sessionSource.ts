@@ -75,6 +75,11 @@ export interface SessionPromptOptions {
     firstPrompt?: boolean;
 }
 
+export interface SessionHandoffOptions {
+    sessionId: string;
+    targetName: string;
+}
+
 export interface SessionShellOptions {
     sessionId: string;
     command: string;
@@ -238,6 +243,8 @@ export interface SessionSource {
     abort(sessionId: string): Promise<void>;
     reload(sessionId: string): Promise<void>;
     prompt(options: SessionPromptOptions): Promise<void>;
+    /** The agent writes its own handoff note; nothing else in the conversation changes. */
+    handoff(options: SessionHandoffOptions): Promise<{ note: string }>;
     status(sessionId: string): Promise<SessionStatus>;
     shell(options: SessionShellOptions): Promise<SessionShellOutcome | null>;
     readFile(options: SessionReadFileOptions): Promise<{ content: string }>;

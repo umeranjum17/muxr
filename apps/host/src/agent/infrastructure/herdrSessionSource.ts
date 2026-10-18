@@ -45,6 +45,7 @@ import { ArtifactWatcher } from './artifactWatcher.js';
 import { ArtifactDownloadServer } from './artifactDownloads.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
 import type {
+    SessionHandoffOptions,
     SessionListOptions,
     SessionOpenOptions,
     SessionPromptOptions,
@@ -113,6 +114,9 @@ const PROMPT_RECEIPT_TIMEOUT_MS = 8_000;
 const PROMPT_SETTLE_MS = 1_500;
 /** Keeps the whole first-prompt hold (ready 30 s, rebind 10 s, settle, receipt 8 s) inside the phone's 75 s. */
 const PROMPT_SETTLE_CAP_MS = 20_000;
+/** One bounded agent turn; the kit's own default is 300 s. */
+const HANDOFF_TIMEOUT_MS = 240_000;
+const HANDOFF_NOTE_MAX = 8_000;
 
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
 const HEADED_BROWSER = ' Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11.';
@@ -351,6 +355,42 @@ function agentRouteError(code: 'agent-unavailable' | 'agent-not-ready' | 'agent-
 function promptNotSent(cause: unknown): Error {
     const detail = cause instanceof Error ? cause.message : String(cause);
     return Object.assign(new Error(detail), { code: 'prompt-not-sent', cause });
+}
+
+const HANDOFF_RESULT_SCHEMA = {
+    type: 'object',
+    properties: { note: { type: 'string', minLength: 1, maxLength: HANDOFF_NOTE_MAX } },
+    required: ['note'],
+    additionalProperties: false,
+};
+
+function isHandoffNote(value: unknown): value is { note: string } {
+    const note = (value as { note?: unknown } | null)?.note;
+    return typeof note === 'string' && note.trim() !== '' && note.length <= HANDOFF_NOTE_MAX;
+}
+
+function handoffPrompt(targetName: string): string {
+    return [
+        `This conversation is being continued on another computer, "${targetName}", by a fresh agent that cannot see this one.`,
+        `Write the handoff note for that agent in plain text, at most ${HANDOFF_NOTE_MAX} characters: the goal, what is done, what is left, the decisions made and why, the folder and branch, and anything it must not redo.`,
+        'Change no files and run nothing that changes state while you write it.',
+    ].join(' ');
+}
+
+const HANDOFF_TURN_FAILURES: Record<string, string> = {
+    'turn-timeout': 'The agent did not finish its handoff note in time.',
+    'turn-unavailable': 'The agent went away while it wrote its handoff note.',
+    'turn-watch-lost': 'Herdr lost track of the agent while it wrote its handoff note.',
+};
+
+/** The kit refuses a turn before typing when the agent is not idle or done. */
+function handoffError(cause: unknown): Error {
+    const code = (cause as { code?: unknown } | null)?.code;
+    if (code === 'turn-busy' || code === 'turn-not-idle') {
+        return Object.assign(new Error('Wait for this conversation to finish before continuing it.'), { code: 'handoff-busy', cause });
+    }
+    const reason = typeof code === 'string' ? HANDOFF_TURN_FAILURES[code] : undefined;
+    return Object.assign(new Error(`${reason ?? 'The agent did not write a handoff note.'} It is still here.`), { code: 'handoff-failed', cause });
 }
 
 /** Listed-agent gate. Omitted interactive_ready is ready when lifecycle is live. Starting stays closed. */
@@ -1563,6 +1603,18 @@ export async function createHerdrSessionSource(
      * Herdr published while the watches were landing is discoverable, so the
      * mirror re-reads on that edge; muxr holds no watches of its own.
      */
+    /**
+     * A detection re-bootstraps the kit, which opens the pane's status watch.
+     * A status that changed before that watch acked was never pushed, and the
+     * kit announces only a phase change, not each re-bootstrap. `refresh()`
+     * settles once the status watches have acked, so read the snapshot then.
+     */
+    function refreshAfterStatusWatch(): void {
+        void client.kit.refresh()
+            .then(() => refreshSnapshotFresh().then(emitAllStates))
+            .catch(() => {});
+    }
+
     function resnapshotAfterStatusWatch(): void {
         void client.statusWatchReady()
             .then(() => [...agentsByPane.keys()].some(needsSessionDiscovery))
@@ -1847,7 +1899,7 @@ export async function createHerdrSessionSource(
                     || (paneId !== undefined && needsSessionDiscovery(paneId))) scheduleResnapshot();
                 // Detection starts a kit re-bootstrap that opens the new pane's
                 // status watch; wait past this tick so the ready signal is its.
-                if (kind === 'pane.agent.detected') queueMicrotask(resnapshotAfterStatusWatch);
+                if (kind === 'pane.agent.detected') refreshAfterStatusWatch();
                 return;
             }
             case 'pane.moved': {
@@ -3297,6 +3349,27 @@ export async function createHerdrSessionSource(
             await promptSession(promptOptions.sessionId, promptOptions.text, promptOptions.firstPrompt === true);
         },
 
+        /**
+         * The agent writes its own note as one kit turn with no file scan: the
+         * kit points it at a JSON result file in the agent's folder and reads
+         * and removes that file itself. Only an idle or done agent takes it.
+         */
+        async handoff(handoffOptions: SessionHandoffOptions): Promise<{ note: string }> {
+            const session = await resolvePane(handoffOptions.sessionId);
+            if (session.agent === undefined) throw agentUnavailable();
+            const end = await client.kit.runTurn({ paneId: session.paneId, ...(session.agent.name ? { name: session.agent.name } : {}) }, {
+                prompt: handoffPrompt(handoffOptions.targetName),
+                cwd: cwdForSession(session.sessionId) ?? '',
+                timeoutMs: HANDOFF_TIMEOUT_MS,
+                files: false,
+                result: { schema: HANDOFF_RESULT_SCHEMA, validate: isHandoffNote, maxBytes: HANDOFF_NOTE_MAX * 4 },
+            }).catch((cause: unknown) => { throw handoffError(cause); });
+            if (end.result.state === 'valid') return { note: end.result.value.note };
+            const reason = end.result.state === 'invalid'
+                ? 'The agent wrote a handoff note muxr could not read.'
+                : 'The agent did not write a handoff note.';
+            throw Object.assign(new Error(`${reason} It is still here.`), { code: 'handoff-failed' });
+        },
 
         async status(sessionId: string): Promise<SessionStatus> {
             await resolvePane(sessionId);

@@ -485,6 +485,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         )),
         'session.prompt': async ({ peerMutation: _peerMutation, ...params }) =>
             useCaseData(await promptAgent(source, params)),
+        'session.handoff': (params) => source.handoff(params),
         'session.status': async (params) => useCaseData(
             await readAgentSession(source, { view: 'status', sessionId: params.sessionId }),
         ) as Awaited<ReturnType<SessionSource['status']>>,

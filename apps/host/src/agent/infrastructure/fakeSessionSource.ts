@@ -17,6 +17,7 @@ import {
     type SessionStatus,
 } from '@trymuxr/contract';
 import type {
+    SessionHandoffOptions,
     SessionListOptions,
     SessionOpenOptions,
     SessionPromptOptions,
@@ -283,6 +284,11 @@ export function createFakeSessionSource(): SessionSource {
             for (const event of scriptedTurn(options.sessionId, session, demoWrite)) emit(options.sessionId, event);
         },
 
+
+        async handoff(options: SessionHandoffOptions) {
+            requireSession(options.sessionId);
+            return { note: `Fake handoff note for ${options.targetName}.` };
+        },
 
         async status(sessionId) {
             requireSession(sessionId);
