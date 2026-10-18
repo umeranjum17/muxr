@@ -394,7 +394,7 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   session with `fm-herdr-lab.sh name` and `provision`, with
   `FM_HERDR_LAB_STATE_DIR` in scratch (mode 700). Before launching the host,
   isolate its ambient stores and socket: `export HOME="$RUN_ROOT/home"`; then
-  `mkdir -p "$HOME" "$HOME/.config" "$HOME/.local/share" "$HOME/.cache" "$HOME/.local/state"`
+  `mkdir -p "$HOME" "$HOME/.config" "$HOME/.local/share" "$HOME/.cache" "$HOME/.local/state" "$MUXR_HOME"`
   and export `XDG_CONFIG_HOME="$HOME/.config"
   XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
   XDG_STATE_HOME="$HOME/.local/state"`; `unset HERDR_SOCKET_PATH`. Run the host
@@ -434,14 +434,16 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   `connected`. Open every shot before reporting.
 - **Cleanup.** On every iOS exit, run each line independently; do not let an earlier failure skip a later line:
   ```sh
-  for pid in "${IOS_HOST_PID:-}" "${IOS_RELAY_PID:-}" "${PAIR_PID:-}"; do [ -z "$pid" ] || kill "$pid" 2>/dev/null; done
-  fm-herdr-lab.sh teardown <session>
-  if [ -e "$RUN_ROOT/slot-claimed" ]; then scp <mac-user>@<mac-ip>:~/fm-verify-pockit-ios1/<RUN_ID>/build.log "$EVIDENCE/ios-build.log"; fi
-  if [ -e "$RUN_ROOT/slot-claimed" ]; then ssh <mac-user>@<mac-ip> 'if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then xcrun simctl shutdown <UDID> || exit; fi; if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then echo "<UDID> remains booted" >&2; exit 1; fi; rm -rf -- ~/fm-verify-pockit-ios1/<RUN_ID>'; fi
-  if [ -e "$RUN_ROOT/slot-claimed" ]; then "$SLOT" release; fi
-  if ! "$SLOT" status >"$EVIDENCE/ios-slot-final-status.log"; then echo "slot status failed"; fi
-  if ! grep -q '^lock: free$' "$EVIDENCE/ios-slot-final-status.log"; then echo "slot lock is not free"; fi
-  if ! grep -q '^iOS booted: 0$' "$EVIDENCE/ios-slot-final-status.log"; then echo "booted simulator remains"; fi
+  cleanup_failed=0
+  for pid in "${IOS_HOST_PID:-}" "${IOS_RELAY_PID:-}" "${PAIR_PID:-}"; do [ -z "$pid" ] || kill "$pid" 2>/dev/null || cleanup_failed=1; done
+  fm-herdr-lab.sh teardown <session> || cleanup_failed=1
+  if [ -e "$RUN_ROOT/slot-claimed" ]; then scp <mac-user>@<mac-ip>:~/fm-verify-pockit-ios1/<RUN_ID>/build.log "$EVIDENCE/ios-build.log" || cleanup_failed=1; fi
+  if [ -e "$RUN_ROOT/slot-claimed" ]; then ssh <mac-user>@<mac-ip> 'if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then xcrun simctl shutdown <UDID> || exit; fi; if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then echo "<UDID> remains booted" >&2; exit 1; fi; rm -rf -- ~/fm-verify-pockit-ios1/<RUN_ID>' || cleanup_failed=1; fi
+  if [ -e "$RUN_ROOT/slot-claimed" ]; then "$SLOT" release || cleanup_failed=1; fi
+  if ! "$SLOT" status >"$EVIDENCE/ios-slot-final-status.log"; then echo "slot status failed"; cleanup_failed=1; fi
+  if ! grep -q '^lock: free$' "$EVIDENCE/ios-slot-final-status.log"; then echo "slot lock is not free"; cleanup_failed=1; fi
+  if ! grep -q '^iOS booted: 0$' "$EVIDENCE/ios-slot-final-status.log"; then echo "booted simulator remains"; cleanup_failed=1; fi
+  [ "$cleanup_failed" -eq 0 ] || exit 1
   ```
   Each cleanup line is a separate step and must be attempted even if an earlier
   one fails. The stop targets `<UDID>` only after an exact booted-device match.
