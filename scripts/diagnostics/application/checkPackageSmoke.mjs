@@ -1184,14 +1184,14 @@ try {
     const upgradedLocalState = JSON.parse(readFileSync(localSelfhostPath, 'utf8'));
     upgradedLocalState.machineCredential = 'machinetok_stale-upgrade';
     writeFileSync(localSelfhostPath, `${JSON.stringify(upgradedLocalState, null, 2)}\n`, { mode: 0o600 });
-    const host = spawn(cli, ['up', '--fake'], { cwd: installDir, env: { ...env, MUXR_HOME: join(home, '.muxr'), MUXR_MODE: 'selfhost' }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let hostOutput = '';
-    host.stdout.on('data', (chunk) => { hostOutput += chunk; });
-    host.stderr.on('data', (chunk) => { hostOutput += chunk; });
+    const hostLog = join(scratch, 'packaged-host.log');
+    const hostLogFd = openSync(hostLog, 'a', 0o600);
+    const host = spawn(cli, ['up', '--fake'], { cwd: installDir, env: { ...env, MUXR_HOME: join(home, '.muxr'), MUXR_MODE: 'selfhost' }, stdio: ['ignore', hostLogFd, hostLogFd] });
+    closeSync(hostLogFd);
     await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`packaged host did not start\n${hostOutput}`)), 10_000);
+        const timer = setTimeout(() => reject(new Error(`packaged host did not start\n${readFileSync(hostLog, 'utf8')}`)), 10_000);
         const poll = setInterval(() => {
-            if (hostOutput.includes('(fake)')
+            if (readFileSync(hostLog, 'utf8').includes('(fake)')
                 && existsSync(join(home, '.muxr', 'relay', 'relay.pid'))
                 && existsSync(join(home, '.muxr', 'host', 'peer', 'cli.json'))) {
                 clearTimeout(timer);
