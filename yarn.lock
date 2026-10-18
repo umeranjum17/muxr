@@ -6185,10 +6185,10 @@ expo-linking@55.0.8, expo-linking@~55.0.0:
     expo-constants "~55.0.8"
     invariant "^2.2.4"
 
-expo-localization@55.0.9, expo-localization@~55.0.0:
-  version "55.0.9"
-  resolved "https://registry.yarnpkg.com/expo-localization/-/expo-localization-55.0.9.tgz#00b4150d24aa443d9bc210bee3bdae8556fa7730"
-  integrity sha512-ABRg4wEt15OCp9/3XOLC4ltPVvXmJgeCKNTJ4Nb8N6byuHITJHvZ3PwcC2YGpTzlAqfGbcs3rJdfg1ObT54PJQ==
+expo-localization@55.0.19, expo-localization@~55.0.19:
+  version "55.0.19"
+  resolved "https://registry.yarnpkg.com/expo-localization/-/expo-localization-55.0.19.tgz#257eeddc8b5f080a243065c78b5f5e2720dc1ed6"
+  integrity sha512-rw8pcC4QL8HC3K8Vs5pdVCB+ayFkaVD0f+Ul+jHgM6W7XdzGtCzd0x7rI3M/9PzP1YpAgQ4jYZid/g+UKi9IIA==
   dependencies:
     rtl-detect "^1.0.2"
 
@@ -9320,9 +9320,9 @@ react-native-device-info@14.1.1, react-native-device-info@^14.1.1:
   integrity sha512-lXFpe6DJmzbQXNLWxlMHP2xuTU5gwrKAvI8dCAZuERhW9eOXSubOQIesk9lIBnsi9pI19GMrcpJEvs4ARPRYmw==
 
 react-native-drawer-layout@^4.2.2:
-  version "4.2.11"
-  resolved "https://registry.yarnpkg.com/react-native-drawer-layout/-/react-native-drawer-layout-4.2.11.tgz#54eca13c2502040ca89a58296c388000dedbbd24"
-  integrity sha512-Aua+LAZJ6L3v7ESHsNtxN2sO+hFQKsSz3EDKOLIpWni6PdQEJGFT0Mc2UnEsvFdfV743aHfODTAaHxsJ2D0uFw==
+  version "4.2.12"
+  resolved "https://registry.yarnpkg.com/react-native-drawer-layout/-/react-native-drawer-layout-4.2.12.tgz#dd863622d5b3dc09b8becfb6c5ce527f1dbaaad8"
+  integrity sha512-qYmntEctkMSodN7pnC2llV21nswImLFPHJeT3PJXSJqZdU4jzDATR8iVi66sXkrtoOLJ2+EvXxgd7sMMpV4ViA==
   dependencies:
     color "^4.2.3"
     use-latest-callback "^0.2.4"
