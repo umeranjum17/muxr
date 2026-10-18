@@ -128,10 +128,7 @@ function writeDesktop(res: ServerResponse, stable: ChannelRelease | undefined, c
     const pairNote = '<p>The computer then shows a one-use QR. On your phone, tap <strong>Scan the computer’s QR</strong>, check that the same two words show on both, and approve on the computer.</p>';
     let offer: string;
     if (linux !== undefined && stable !== undefined) {
-        // The button rides the channel route, not the asset URL, so a page
-    // opened today still downloads the current release after the catalog
-    // advances. The route only serves while this record vouches for it.
-    offer = `<p class="lede">Get the muxr app for this computer, open it, and pair your phone. No terminal needed.</p>
+        offer = `<p class="lede">Get the muxr app for this computer, open it, and pair your phone. No terminal needed.</p>
 <p><a class="button primary" href="/downloads/stable/linux">Download for Linux</a></p>
 <p>muxr ${escapeHtml(stable.version)} for Linux, ${escapeHtml(size(linux.bytes))}. In the downloaded file’s Properties, allow it to run as a program, then open it.</p>
 ${pairNote}
