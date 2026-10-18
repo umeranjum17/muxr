@@ -41,8 +41,8 @@ export async function pairHandoff(state) {
                 atomicWrite(offerPath, text);
                 print(`Pairing offer ready in the kit outbox: ${offerPath}. Waiting for the phone’s two words.`);
             },
-            approve: async ({ words }) => {
-                while (!controller.signal.aborted) {
+            approve: async ({ words }, runOut) => {
+                while (!controller.signal.aborted && !runOut.aborted) {
                     let fd;
                     try {
                         fd = openSync(wordsPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -61,6 +61,7 @@ export async function pairHandoff(state) {
                     }
                     await sleep(100, undefined, { signal: controller.signal }).catch(() => {});
                 }
+                if (runOut.aborted) return false;
                 throw new Error('pairing handoff timed out or was cancelled');
             },
         });
