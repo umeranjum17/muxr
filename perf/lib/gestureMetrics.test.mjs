@@ -251,9 +251,9 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     // grew by since its own mark -- never the difference of what happens to
     // still be in the ring. There is no scroll-to-write latency here: terminal
     // history has no host answer a phone can attribute a repaint to.
-    const mark = parseRedactedTrail('terminal.scroll seq=10 requests=1 rows=20 clamped=0 timedOut=0');
+    const mark = parseRedactedTrail('terminal.scroll seq=10 requests=1 rows=20 clamped=0 timedOut=0 absorbed=0');
     const closing = parseRedactedTrail('2026-09-08T00:00:01Z #21 rpc session.start ok 5ms'
-        + '\nterminal.scroll seq=30 requests=5 rows=100 clamped=0 timedOut=0');
+        + '\nterminal.scroll seq=30 requests=5 rows=100 clamped=0 timedOut=0 absorbed=0');
     const trail = trailSince(closing, mark);
     assert.equal(trail.ok, true);
     // A mark taken before the phone has scrolled at all still carries a cursor,
@@ -269,7 +269,7 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.equal(trail.agentPages, 1);
     // Totals only ever grow; going backwards is a restart, not a quiet phase.
     assert.equal(trailSince(parseRedactedTrail(
-        'terminal.scroll seq=2 requests=1 rows=4 clamped=0 timedOut=0',
+        'terminal.scroll seq=2 requests=1 rows=4 clamped=0 timedOut=0 absorbed=0',
     ), mark).ok, false);
     const terminalMoved = reduceMovement('terminal text fling', {
         before: { crop: still },
@@ -988,7 +988,7 @@ test('the diagnostics read keeps swiping through identical pages', async () => {
     // The app freezes one string: its header, its body, then the totals line.
     const HEADER = 'Redacted: durations, counts, and enums only. No ids, URLs, IPs, bytes, content, tickets, or keys.';
     const body = (tail) => `<node text="${HEADER}&#10;2026-09-08T00:00:00Z #7 rpc session.start ok 5ms${tail}" class="android.widget.TextView" bounds="[85,249][995,1900]" />`;
-    const report = body('&#10;terminal.scroll seq=30 requests=5 rows=100 clamped=0 timedOut=0');
+    const report = body('&#10;terminal.scroll seq=30 requests=5 rows=100 clamped=0 timedOut=0 absorbed=0');
     const control = (label) => `<node text="${label}" class="android.widget.TextView" bounds="[40,300][600,360]" />`;
     const deps = (pages) => {
         let index = 0;
