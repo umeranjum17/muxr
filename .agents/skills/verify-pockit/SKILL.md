@@ -436,10 +436,11 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   for pid in "${IOS_HOST_PID:-}" "${IOS_RELAY_PID:-}" "${PAIR_PID:-}"; do [ -z "$pid" ] || kill "$pid" 2>/dev/null; done
   fm-herdr-lab.sh teardown <session>
   if [ -e "$RUN_ROOT/slot-claimed" ]; then scp <mac-user>@<mac-ip>:~/fm-verify-pockit-ios1/<RUN_ID>/build.log "$EVIDENCE/ios-build.log"; fi
-  if [ -e "$RUN_ROOT/slot-claimed" ]; then ssh <mac-user>@<mac-ip> 'if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then xcrun simctl shutdown <UDID>; fi; rm -rf -- ~/fm-verify-pockit-ios1/<RUN_ID>'; fi
+  if [ -e "$RUN_ROOT/slot-claimed" ]; then ssh <mac-user>@<mac-ip> 'if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then xcrun simctl shutdown <UDID> || exit; fi; if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then echo "<UDID> remains booted" >&2; exit 1; fi; rm -rf -- ~/fm-verify-pockit-ios1/<RUN_ID>'; fi
   if [ -e "$RUN_ROOT/slot-claimed" ]; then "$SLOT" release; fi
-  "$SLOT" status | tee "$EVIDENCE/ios-slot-final-status.log"
-  grep -q '^lock: free$' "$EVIDENCE/ios-slot-final-status.log" && grep -q '^iOS booted: 0$' "$EVIDENCE/ios-slot-final-status.log"
+  if ! "$SLOT" status >"$EVIDENCE/ios-slot-final-status.log"; then echo "slot status failed"; fi
+  if ! grep -q '^lock: free$' "$EVIDENCE/ios-slot-final-status.log"; then echo "slot lock is not free"; fi
+  if ! grep -q '^iOS booted: 0$' "$EVIDENCE/ios-slot-final-status.log"; then echo "booted simulator remains"; fi
   ```
   Each cleanup line is a separate step and must be attempted even if an earlier
   one fails. The stop targets `<UDID>` only after an exact booted-device match.
