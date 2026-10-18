@@ -383,7 +383,7 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   `HERDR_SESSION=<lab session>`, and **unset `HERDR_SOCKET_PATH`**: an inherited
   one is the owner's default socket, and the host refuses it. Wait for
   `link relay: online`.
-- **Pair.** Start `node .agents/skills/verify-pockit/features/iosPair.mjs
+- **Pair.** Start `HERDR_SESSION=<lab session> node .agents/skills/verify-pockit/features/iosPair.mjs
   <MUXR_HOME> <link-file>` in the background. It writes `muxr://pair#<offer>` and
   prints the approval words, then answers yes: the two words are the consent
   step, so confirm the phone shows the same words. Offers expire in about two
