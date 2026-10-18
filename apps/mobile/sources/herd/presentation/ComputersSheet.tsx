@@ -1,6 +1,6 @@
 /**
- * The Computers sheet, opened over an agent. It lists the one cloud computer
- * (coming later) and every computer this phone has paired, marks the one the
+ * The Computers sheet, opened over an agent. It offers cloud setup and lists
+ * every computer this phone has paired, marking the one the
  * agent runs on, and lets the person point the agent at another online
  * computer. One list, built on the pairing grants the app already keeps —
  * there is no second registry of computers.
@@ -11,7 +11,7 @@
  */
 
 import * as React from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
@@ -214,12 +214,12 @@ export function ComputersSheet({ visible, sessionId, onClose }: { visible: boole
         <View>
             <ItemGroup title="Cloud computer" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
                 <Item
-                    title="Cloud computer"
+                    title="Add a cloud computer"
                     titleStyle={{ color: theme.colors.text }}
-                    subtitle="Coming soon"
+                    subtitle={Platform.OS === 'web' ? 'Set up from the muxr phone app' : 'Boat · from $0.036 an hour'}
                     subtitleStyle={{ color: theme.colors.textSecondary }}
-                    disabled
-                    showChevron={false}
+                    showChevron
+                    onPress={() => { onClose(); router.push('/cloud-computer'); }}
                     icon={<Ionicons name="cloud-outline" size={29} color={theme.colors.textSecondary} />}
                 />
             </ItemGroup>

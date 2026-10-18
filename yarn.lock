@@ -1107,6 +1107,11 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
+"@byokit/cloud@0.1.0":
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/@byokit/cloud/-/cloud-0.1.0.tgz#5d1ed5c1a5c51e833b053ed6efb14e823974ccb4"
+  integrity sha512-q1zKqDBOI6aEOX065Eld6VwVlvSf0sua1ttcepAsg1Er9/2rE+qJLsmUhm7rttJSjh3wlcrtWA43jzHXX5f5DQ==
+
 "@byokit/accounts@0.24.1":
   version "0.24.1"
   resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.24.1.tgz#1b30377dcacae3644c79ba8416927814eb5b49a8"

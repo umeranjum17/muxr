@@ -2,10 +2,10 @@
 
 An unpaired native app and installed PWA open directly on **Have a connect
 link?**, with a private-link/code field and **Connect**. Native also offers
-**Scan the QR** where the scanner is available, and **SSH login** where the
-existing SSH transport is available. **Cloud account** is disabled with no
-handler until the BYOKit cloud seams ship. No provider client or enrolment
-runs here. **More ways & timing** reveals the existing computer setup card
+**Scan the QR** where the scanner is available, **SSH login** where the
+existing SSH transport is available, and an active **Cloud computer** entry.
+That entry opens the cloud checklist on native and a phone-app instruction on
+PWA. **More ways & timing** reveals the existing computer setup card
 and optional HTTPS, tunnel, Tailscale and local-network routes.
 
 ## Sub-features
@@ -17,8 +17,8 @@ and optional HTTPS, tunnel, Tailscale and local-network routes.
   grant storage or second consent flow in the shell.
 - `ssh-entry`: native SSH login opens `/pair?route=ssh`, unchanged. The browser
   has no SSH transport and does not offer an actionable SSH entry.
-- `cloud-parked`: Cloud account is visibly disabled, labelled Soon, and
-  cannot navigate or call a provider.
+- `cloud-entry`: Cloud computer is an active native entry to the checklist;
+  PWA directs setup to the muxr phone app.
 - `setup-details`: More ways reveals the existing copyable command and its
   effects disclosure; a ready-link timing estimate explicitly excludes setup.
 
@@ -35,8 +35,9 @@ capturing, and confirm PWA `display-mode: standalone`. Capture with
    Tailscale prerequisite. Ensure the field, Connect, alternatives and footer
    wrap without overlap at the narrow/largest-text extremes; there the card
    heading stacks above its Fastest badge instead of shrinking to a sliver.
-2. Tap Cloud account: it remains disabled with no navigation or request.
-   Tap native SSH login: the existing SSH form opens. Return to the shell.
+2. Tap Cloud computer: native opens the cloud checklist; PWA shows the phone-app
+   instruction. Do not start a Boat claim. Tap native SSH login: the existing SSH
+   form opens. Return to the shell.
 3. Expand More ways & timing, scroll to the end, and capture the command,
    effects disclosure and optional routes. At the narrow/largest-text extreme,
    the command card stacks its text and Copy instead of squeezing them beside

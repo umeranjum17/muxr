@@ -113,17 +113,13 @@ export function FirstRunConnection() {
                     )}
                     <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel="Cloud account. Coming soon, no action yet."
-                        accessibilityState={{ disabled: true }}
-                        disabled
-                        style={[styles.wayTile, { flexBasis: 112 * fontScale }, styles.wayTileDisabled]}
+                        accessibilityLabel={browser ? 'Cloud computer. Set up from the muxr phone app.' : 'Add a cloud computer. Boat, 2 to 5 minutes.'}
+                        style={({ pressed }) => [styles.wayTile, { flexBasis: 112 * fontScale }, pressed && styles.wayTilePressed]}
+                        onPress={() => router.push('/cloud-computer')}
                     >
                         <Ionicons name="cloud-outline" size={22} color={styles.wayIcon.color} />
-                        <Text style={styles.wayTitle}>Cloud account</Text>
-                        <Text style={styles.waySub}>Boat · 2–5 min</Text>
-                        <View style={styles.soonBadge}>
-                            <Text style={styles.soonText}>Soon</Text>
-                        </View>
+                        <Text style={styles.wayTitle}>Cloud computer</Text>
+                        <Text style={styles.waySub}>{browser ? 'Set up from the muxr phone app' : 'Boat · 2–5 min'}</Text>
                     </Pressable>
                     {sshAvailable && (
                         <Pressable
@@ -285,9 +281,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     wayTilePressed: {
         opacity: 0.85,
     },
-    wayTileDisabled: {
-        opacity: 0.7,
-    },
     wayIcon: {
         color: theme.colors.textSecondary,
     },
@@ -302,18 +295,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         fontSize: 12,
         lineHeight: 16,
         alignSelf: 'stretch',
-        color: theme.colors.textSecondary,
-    },
-    soonBadge: {
-        borderRadius: 999,
-        backgroundColor: theme.colors.surfaceHighest,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        marginTop: 2,
-    },
-    soonText: {
-        ...Typography.default('semiBold'),
-        fontSize: 11,
         color: theme.colors.textSecondary,
     },
     footer: {
