@@ -1,11 +1,31 @@
+/*
+ * Starts a real Herdr lab session and links a host to it through a relay.
+ *
+ * MUXR_LAB_LINK_WAIT_MS (milliseconds) overrides how long the link waits for
+ * the host to bind its pair socket and reach the relay. Unset, the wait is 25 s
+ * on an idle machine and grows with the 1-minute load average per CPU, up to 180 s.
+ */
 import { execFileSync, spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpus, loadavg } from 'node:os';
 import { join } from 'node:path';
 import { machineIdentity } from '../../setup/index.mjs';
 import { linkLabClient } from './linkLabClient.mjs';
 import { waitForRelay } from './waitForRelay.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const BASE_WAIT_MS = 25_000;
+const MAX_WAIT_MS = 180_000;
+
+export function linkWaitMs(env, load, cpuCount) {
+    if (env.MUXR_LAB_LINK_WAIT_MS) {
+        const override = Number(env.MUXR_LAB_LINK_WAIT_MS);
+        if (!Number.isFinite(override) || override <= 0) throw new Error(`MUXR_LAB_LINK_WAIT_MS must be a positive number of milliseconds, got "${env.MUXR_LAB_LINK_WAIT_MS}"`);
+        return override;
+    }
+    return Math.min(MAX_WAIT_MS, Math.round(BASE_WAIT_MS * (1 + load / Math.max(1, cpuCount))));
+}
 
 export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {}) {
     const helper = process.env.HERDR_LAB_HELPER;
@@ -66,9 +86,14 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
         // A relay bound for a device elsewhere on the network is dialled at that address too.
         const host = start(['apps/host/dist/main.js'], { MUXR_MODE: 'selfhost', MUXR_DATA_DIR: hostDir,
             ...(process.env.MUXR_RELAY_HOST ? { MUXR_RELAY_URL: `ws://${process.env.MUXR_RELAY_HOST}:${port}/relay` } : {}) });
-        const deadline = Date.now() + 25_000;
+        const load = loadavg()[0];
+        const cpuCount = cpus().length;
+        const waitMs = linkWaitMs(process.env, load, cpuCount);
+        const waited = `${(waitMs / 1000).toFixed(1)}s`;
+        console.log(`lab link wait ${waited} (1-min load ${load.toFixed(2)} on ${cpuCount} CPUs)`);
+        const deadline = Date.now() + waitMs;
         while (!existsSync(join(hostDir, 'pair.sock'))) {
-            if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host did not start: ${host.output()}`);
+            if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host did not start within ${waited}: ${host.output()}`);
             await sleep(100);
         }
         // The pairing server listens before the host's own relay link is up, so a
@@ -76,7 +101,7 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
         // for the host's own online line first; on a loaded machine this is the
         // difference between a proven journey and a flaky refusal.
         while (!host.output().includes('link relay: online')) {
-            if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host never reached the relay: ${host.output()}`);
+            if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host never reached the relay within ${waited}: ${host.output()}`);
             await sleep(100);
         }
         link = await linkLabClient(join(hostDir, 'pair.sock'), onEvent);
