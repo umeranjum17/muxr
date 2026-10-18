@@ -106,7 +106,6 @@ const QUOTA_PROBE_DEBOUNCE_MS = 20_000;
 const QUOTA_RETRY_TAIL_LINES = 25;
 /** A matching tail this old with no new output is a loop that ended quietly. */
 const QUOTA_RETRY_STALE_MS = 5 * 60_000;
-const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 /** Outlasts Herdr's 5 s window for a prompt to start a turn. */
 const PROMPT_RECEIPT_TIMEOUT_MS = 8_000;
@@ -1389,7 +1388,7 @@ export async function createHerdrSessionSource(
         const previous = discoveryChain;
         let release!: () => void;
         discoveryChain = new Promise<void>((resolve) => { release = resolve; });
-        await previous;
+        await Promise.race([previous, sleep(PROMPT_REBIND_TIMEOUT_MS, undefined, { ref: false })]);
         try {
             await syncDiscoveryInner();
         } finally {
@@ -1480,10 +1479,8 @@ export async function createHerdrSessionSource(
     // thin index over kit.snapshot(), rebuilt on every sync, plus pending-launch
     // overlays the kit does not carry yet. No manual event patching.
     // A voice roster lookup has just paid for this snapshot. Only prompt routing
-    // may reuse it, briefly, and never across a revision change or reconnect.
+    // may reuse it, and never across a revision change or reconnect.
     let lastKitRevision = -1;
-    let lastRefreshRevision = -1;
-    let lastSyncAt = 0;
 
     function syncFromKit(): void {
         const snap = client.kit.snapshot();
@@ -1558,7 +1555,6 @@ export async function createHerdrSessionSource(
             if (!panesById.has(paneId)) artifacts.dropPane(paneId);
         }
         lastKitRevision = snap.revision;
-        lastSyncAt = Date.now();
     }
 
     async function reindexKitTree(): Promise<void> {
@@ -1567,14 +1563,9 @@ export async function createHerdrSessionSource(
         await syncDiscovery();
     }
 
-    async function refreshKitTree(): Promise<void> {
-        await client.kit.refresh();
-        lastRefreshRevision = client.kit.snapshot().revision;
-    }
-
     async function refreshSnapshot(): Promise<void> {
         if (disposed) throw new Error('herdr: source disposed');
-        await refreshKitTree();
+        await client.kit.refresh();
         if (disposed) throw new Error('herdr: source disposed');
         await reindexKitTree();
     }
@@ -1589,9 +1580,7 @@ export async function createHerdrSessionSource(
     const handoffsInFlight = new Set<string>();
     const client = new KitHerdrClient(() => resolvedHerdrBin() ?? 'herdr', socketPath, () => {
         if (disposed) return;
-        syncFromKit();
-        emitAllStates();
-        void artifacts.rescanAll().catch(() => {});
+        void reindexKitTree().then(emitAllStates).then(() => artifacts.rescanAll()).catch(() => {});
     });
 
     // The kit tree is the source of truth: every revision re-indexes and republishes.
@@ -1605,18 +1594,23 @@ export async function createHerdrSessionSource(
                 try {
                     if (!client.connected) return;
                     syncFromKit();
-                    if ([...agentsByPane.keys()].some(needsSessionDiscovery) && client.kit.snapshot().revision !== lastRefreshRevision) {
-                        await refreshKitTree();
-                        syncFromKit();
-                    }
                 } finally {
                     if (!disposed && client.connected) await syncDiscovery();
-                    emitAllStates();
                 }
             })().catch(() => {});
         }, 500);
     }
-    const stopKitTree = client.kit.onChange(() => scheduleResync());
+    // A status move emits its own sessions at once; only the tree re-sync waits for the debounce.
+    const stopKitTree = client.kit.onChange((_snapshot, changed) => {
+        if (changed.length > 0 && !disposed && client.connected) {
+            syncFromKit();
+            for (const paneId of changed) {
+                const session = currentSessionByPane(paneId);
+                if (session !== undefined) emitState(session.sessionId);
+            }
+        }
+        scheduleResync();
+    });
     // The kit reads a blocked agent's question once its status flips; that releases the held alert.
     const stopBlockedWatch = client.kit.onBlocked((entry, change) => {
         if (change !== 'added') return;
@@ -1868,10 +1862,8 @@ export async function createHerdrSessionSource(
     }
 
     async function resolvePane(sessionId: string, reusePromptSnapshot = false): Promise<CurrentSession> {
-        const snapshotAge = Date.now() - lastSyncAt;
         const recentPromptSnapshot = reusePromptSnapshot && client.connected
-            && client.kit.snapshot().revision === lastKitRevision
-            && snapshotAge >= 0 && snapshotAge <= PROMPT_SNAPSHOT_MAX_AGE_MS;
+            && client.kit.snapshot().revision === lastKitRevision;
         if (recentPromptSnapshot) {
             const cached = currentSession(sessionId);
             // A miss must discover the target rather than reject from a cache.

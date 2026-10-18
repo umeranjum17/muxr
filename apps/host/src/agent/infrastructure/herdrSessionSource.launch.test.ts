@@ -313,6 +313,13 @@ function fakeHerdr(dir: string, cwd: string) {
                     case 'agent.start':
                         reply = { id, result: handleAgentStart(p) };
                         break;
+                    case 'agent.get': {
+                        const agent = agents.find((entry) => entry.pane_id === p.target);
+                        reply = agent === undefined
+                            ? { id, error: { code: 'agent_not_found', message: String(p.target) } }
+                            : { id, result: { agent: { interactive_ready: true, ...agent } } };
+                        break;
+                    }
                     case 'agent.wait': {
                         reply = { id, result: handleAgentWait(p) };
                         // The close test delays the reply past teardown: the
@@ -1069,12 +1076,19 @@ describe('agent started at the desk in an existing pane', () => {
                 expect(treePane(await source.herdrTree(), 'w1:p2')).toMatchObject({ agentKind: 'pi', sessionId: expect.stringMatching(/^pp_/) });
             }, { timeout: 3_000 });
 
-            // A sessionless desk agent: the debounced re-read answers it.
+            // A sessionless desk agent: the kit re-reads it on each status push until its session lands; the host does not re-read.
             herdr.panes.push({ pane_id: 'w1:p3', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
             herdr.agents.push({ pane_id: 'w1:p3', agent: 'codex', name: 'wren', agent_status: 'idle' });
             herdr.emit('pane.agent_detected', { pane_id: 'w1:p3', agent: 'codex' });
             await vi.waitFor(async () => expect(treePane(await source.herdrTree(), 'w1:p3').agentKind).toBe('codex'), { timeout: 3_000 });
-            await source.refreshHerdr();
+            Object.assign(herdr.agents.at(-1)!, {
+                agent_status: 'done',
+                agent_session: { source: 'herdr:codex', agent: 'codex', kind: 'id', value: 'codex-3' },
+            });
+            herdr.emit('pane.agent_status_changed', { pane_id: 'w1:p3', agent: 'codex', agent_status: 'done' });
+            await vi.waitFor(async () => expect(treePane(await source.herdrTree(), 'w1:p3')).toMatchObject({
+                agentKind: 'codex', agentStatus: 'done', sessionId: expect.stringMatching(/^pp_/),
+            }), { timeout: 3_000 });
             expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ agentKind: 'codex', sessionId: expect.stringMatching(/^pp_/) });
             expect(treePane(await source.herdrTree(), 'w1:p2')).toMatchObject({ agentKind: 'pi', sessionId: expect.stringMatching(/^pp_/) });
             expect(treePane(await source.herdrTree(), 'w1:p3')).toMatchObject({ agentKind: 'codex' });

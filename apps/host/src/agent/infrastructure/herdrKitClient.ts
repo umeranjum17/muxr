@@ -128,16 +128,6 @@ export class KitHerdrClient implements HerdrCaller {
         ) as T;
     }
 
-    /**
-     * Resolves when the kit's own per-pane `pane.agent_status_changed` watches
-     * have acked for the latest bootstrap. The session source re-reads the
-     * kit tree on that edge: a session Herdr published while the watches were
-     * still landing reaches no event until they accept.
-     */
-    async statusWatchReady(): Promise<void> {
-        await this.kit.statusWatchReady();
-    }
-
     async close(): Promise<void> {
         this.closed = true;
         this.connected = false;
