@@ -1218,14 +1218,7 @@ async function drivePhase(phase, screen, hz, ready) {
             },
             attachRecords: attaches.rows.length,
             geometryRecords: closing.rows.length,
-            terminal: {
-                scrollRequests: trail.scrollRequests,
-                rowsRequested: trail.rowsRequested,
-                rowsSent: trail.rowsRequested,
-                rowsPerSecond: 0,
-                clamped: trail.clamped,
-                timedOut: trail.timedOut,
-            },
+            terminal: terminalTotals(trail, 0),
         };
     }
     return undefined;
