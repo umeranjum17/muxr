@@ -288,6 +288,7 @@ export class LinkEndpoint {
         // Device connections start only after the client dials, which is after
         // this assignment; the push handler needs the finished endpoint.
         let endpoint: LinkEndpoint;
+        const pairCodeOverride = Number(process.env.MUXR_PAIR_CODE_MS);
         const host = await Host.open({
             stream: (stream: LinkStream, req: LinkRequest, grant: Grant) => {
                 if (req.op === 'voice') return streamVoice(stream, req, grant, options);
@@ -298,8 +299,8 @@ export class LinkEndpoint {
             },
             keys,
             name: options.machineName,
-            // MUXR_PAIR_CODE_MS shortens a code for the cross-side expiry journey only.
-            pairMs: Number(process.env.MUXR_PAIR_CODE_MS) || 120_000,
+            // MUXR_PAIR_CODE_MS is a test knob: only the cross-side expiry journey shortens the code with it.
+            pairMs: Number.isSafeInteger(pairCodeOverride) && pairCodeOverride > 0 ? pairCodeOverride : 120_000,
             grants: options.grants,
             confirm: (request, { signal }) => endpoint?.pairing?.confirm(request, { signal }) ?? false,
             allow: (req, grant) => {

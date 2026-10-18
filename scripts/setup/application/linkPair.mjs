@@ -249,7 +249,11 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     };
     const showOffer = async (offer) => {
         latest = offer;
-        if (presentOffer !== undefined) return presentOffer(offer);
+        if (presentOffer !== undefined) {
+            const carried = notice;
+            notice = undefined;
+            return presentOffer(offer, carried);
+        }
         const code = offerCode(offer, intent);
         const shown = code ?? (richTerminal() ? compactOffer(offer, intent) : undefined) ?? { text: offer.text, expires: offer.expires };
         if (page === undefined && richTerminal() && code === undefined) page = await startPairingPage(intent);

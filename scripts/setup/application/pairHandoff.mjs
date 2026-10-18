@@ -24,9 +24,9 @@ export async function pairHandoff(state) {
         chmodSync(dir, 0o700);
     }
     const stem = `muxr-pair-${randomBytes(12).toString('hex')}`;
-    const wordsFile = `${stem}.words`;
     const offerPath = join(outbox, `${stem}.json`);
-    const wordsPath = join(inbox, wordsFile);
+    const wordsPaths = [];
+    let wordsPath;
     const controller = new AbortController();
     const cancel = () => controller.abort();
     const timer = setTimeout(cancel, WAIT_MS);
@@ -35,17 +35,21 @@ export async function pairHandoff(state) {
     try {
         return await linkPair(state, {
             signal: controller.signal,
-            presentOffer: (offer) => {
-                const text = `${JSON.stringify({ version: 1, offer: offer.text, expiresAt: offer.expires, wordsFile })}\n`;
+            presentOffer: (offer, notice) => {
+                const wordsFile = `${stem}-${randomBytes(6).toString('hex')}.words`;
+                wordsPath = join(inbox, wordsFile);
+                wordsPaths.push(wordsPath);
+                const text = `${JSON.stringify({ version: 1, offer: offer.text, expiresAt: offer.expires, wordsFile, notice })}\n`;
                 if (Buffer.byteLength(text) > LIMIT) throw new Error('pairing offer exceeds the 64 KB handoff limit');
                 atomicWrite(offerPath, text);
                 print(`Pairing offer ready in the kit outbox: ${offerPath}. Waiting for the phone’s two words.`);
             },
             approve: async ({ words }, runOut) => {
+                const path = wordsPath;
                 while (!controller.signal.aborted && !runOut.aborted) {
                     let fd;
                     try {
-                        fd = openSync(wordsPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+                        fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
                     } catch (cause) {
                         if (cause.code !== 'ENOENT') throw cause;
                     }
@@ -71,6 +75,6 @@ export async function pairHandoff(state) {
         process.off('SIGINT', cancel);
         process.off('SIGTERM', cancel);
         rmSync(offerPath, { force: true });
-        rmSync(wordsPath, { force: true });
+        for (const file of wordsPaths) rmSync(file, { force: true });
     }
 }

@@ -141,8 +141,13 @@ async function startMachine(): Promise<void> {
             mintSecret: JSON.parse(readFileSync(join(home, 'relay', 'mint-secret'), 'utf8')),
         }, null, 2)}\n`, { mode: 0o600 });
     }
-    // A code runs out after 20 s, so the expiry journey does not wait the production two minutes.
-    host = launch([hostMain, '--fake'], { MUXR_MODE: 'selfhost', MUXR_PAIR_CODE_MS: '20000' });
+    await startHost();
+}
+
+async function startHost(pairMs?: string): Promise<void> {
+    await stop(host);
+    rmSync(join(home, 'host', 'pair.sock'), { force: true });
+    host = launch([hostMain, '--fake'], { MUXR_MODE: 'selfhost', ...(pairMs === undefined ? {} : { MUXR_PAIR_CODE_MS: pairMs }) });
     const running = host;
     await until(() => (existsSync(join(home, 'host', 'pair.sock')) ? true : undefined), `host pairing socket (${running.output()})`);
 }
@@ -570,28 +575,34 @@ describe('native pairing over the byokit link', () => {
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     }, 90_000);
 
-    it('says the code ran out, not declined, and a late yes pairs nothing', async () => {
-        const before = readSelfhostState().machine.crypto.devices.length;
-        let lateYes: ((yes: boolean) => void) | undefined;
-        // The person never answers in time; the prompt ignores the abort so a yes can still arrive late.
-        const { pairing, offer, output, abort } = await showPairingQr({ approve: () => new Promise<boolean>((resolve) => { lateYes = resolve; }) });
-        try {
-            const refused = runPhonePairing(offer);
-            await expect(refused).rejects.toBeInstanceOf(PairingNeedsNewCode);
-            await expect(refused).rejects.toThrow('The code ran out. Scan the new QR on your computer');
-            // The computer closes the prompt and shows a new code with the notice above it.
-            await until(() => (output().includes('That code ran out before you said yes. Scan the new QR below') ? true : undefined), 'ran-out notice on the computer', 30_000);
-            lateYes?.(true);
-            // The same code again is refused on the phone before it reaches the computer, as the offer's own expiry.
-            const spent = runPhonePairing(offer);
-            await expect(spent).rejects.toThrow('That pairing code has run out. Open muxr on your computer, or run muxr pair, for a new one.');
-            expect(readSelfhostState().machine.crypto.devices).toHaveLength(before);
-            expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
-        } finally {
-            await abort();
-            await expect(pairing).rejects.toThrow('cancelled');
-        }
-    }, 90_000);
+    describe('a code that runs out', () => {
+        // Only this journey shortens the code; the shared host keeps the production length.
+        beforeAll(() => startHost('20000'));
+        afterAll(() => startHost());
+
+        it('says the code ran out, not declined, and a late yes pairs nothing', async () => {
+            const before = readSelfhostState().machine.crypto.devices.length;
+            let lateYes: ((yes: boolean) => void) | undefined;
+            // The person never answers in time; the prompt ignores the abort so a yes can still arrive late.
+            const { pairing, offer, output, abort } = await showPairingQr({ approve: () => new Promise<boolean>((resolve) => { lateYes = resolve; }) });
+            try {
+                const refused = runPhonePairing(offer);
+                await expect(refused).rejects.toBeInstanceOf(PairingNeedsNewCode);
+                await expect(refused).rejects.toThrow('The code ran out. Scan the new QR on your computer');
+                // The computer closes the prompt and shows a new code with the notice above it.
+                await until(() => (output().includes('That code ran out before you said yes. Scan the new QR below') ? true : undefined), 'ran-out notice on the computer', 30_000);
+                lateYes?.(true);
+                // The same code again is refused on the phone before it reaches the computer, as the offer's own expiry.
+                const spent = runPhonePairing(offer);
+                await expect(spent).rejects.toThrow('That pairing code has run out. Open muxr on your computer, or run muxr pair, for a new one.');
+                expect(readSelfhostState().machine.crypto.devices).toHaveLength(before);
+                expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
+            } finally {
+                await abort();
+                await expect(pairing).rejects.toThrow('cancelled');
+            }
+        }, 90_000);
+    });
 
     it('exits 2 asking for the person when a non-TTY caller runs muxr pair', async () => {
         // launch() gives the child no TTY, the way an AI agent or script does.
