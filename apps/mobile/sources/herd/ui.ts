@@ -12,6 +12,7 @@ export * from './presentation/LiveTerminalsRow';
 export * from './presentation/MainView';
 export * from './presentation/AgentPickerSheet';
 export * from './presentation/ComputersSheet';
+export * from './presentation/ContinueSheet';
 export * from './presentation/PaneMap';
 export * from './presentation/PaneOverviewSheet';
 export * from './presentation/RecentActivity';
