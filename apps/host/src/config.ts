@@ -61,6 +61,12 @@ export function muxrConfigPath(env: Record<string, string | undefined>): string 
     return join(muxrHomeDir(env), MUXR_CONFIG_FILENAME);
 }
 
+/** The start folder phones get now: env first, then the file as it is on disk, so a desktop save reaches the running host. */
+export function liveDefaultStartFolder(env: Record<string, string | undefined>): string | undefined {
+    return folderFrom('MUXR_DEFAULT_START_FOLDER', clean(env.MUXR_DEFAULT_START_FOLDER))
+        ?? readMuxrConfigFile(muxrConfigPath(env)).defaultStartFolder;
+}
+
 function fail(path: string, key: string, reason: string): never {
     throw new MuxrConfigError(path, key, reason);
 }

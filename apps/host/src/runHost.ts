@@ -12,7 +12,7 @@ import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from '
 import type { MachineCryptoState } from './machine/index.js';
 import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, fileRelayClientStore, hostPlatformLabel, LinkEndpoint, writeSelfhostCrypto } from './machine/index.js';
 import { HostDiagnosticsJournal } from './diagnostics/index.js';
-import { muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
+import { liveDefaultStartFolder, muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
 import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
 
 function linkStreamTransport(stream: LinkStream): VoiceStreamTransport {
@@ -264,6 +264,16 @@ try {
 } catch (error) {
     process.stderr.write(`muxr: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);
+}
+// Re-read on every machines.list so a folder the desktop saves reaches phones
+// without a host restart. A file that turned unreadable keeps the startup value.
+function currentDefaultStartFolder(): string | undefined {
+    try {
+        return liveDefaultStartFolder(process.env);
+    } catch (error) {
+        process.stderr.write(`muxr: start folder unreadable, using startup value: ${error instanceof Error ? error.message : String(error)}\n`);
+        return hostConfig.defaultStartFolder;
+    }
 }
 function defaultRelayUrl(): string {
     if (selfhostAuth?.relayLocation === 'remote' && selfhostAuth.relayUrl !== undefined) return selfhostAuth.relayUrl;
@@ -552,7 +562,7 @@ async function main(): Promise<void> {
         ...(diagnostics === undefined ? {} : { diagnostics }),
         hostVersion,
         ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
-        ...(hostConfig.defaultStartFolder === undefined ? {} : { defaultStartFolder: hostConfig.defaultStartFolder }),
+        defaultStartFolder: currentDefaultStartFolder,
     });
 
     // A dead host must never leave --takeover streams holding the desk's panes.

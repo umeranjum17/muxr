@@ -35,8 +35,8 @@ export interface HostOptions {
     terminals?: TerminalManager;
     hostVersion?: string;
     connectionMode?: string;
-    /** The setup-chosen start folder this machine reports to phones. */
-    defaultStartFolder?: string;
+    /** The setup-chosen start folder this machine reports to phones, read at each request. */
+    defaultStartFolder?: () => string | undefined;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
     token?: string;

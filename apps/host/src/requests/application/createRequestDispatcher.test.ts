@@ -11,6 +11,7 @@ import { hostPlatformLabel } from '../../machine/index.js';
 import { HerdrKit, agentInstallState } from '@byokit/herdr';
 import { AgentCatalog } from './agentCatalog.js';
 import { DevicePreviewTargets } from '../../desktop/index.js';
+import { liveDefaultStartFolder } from '../../config.js';
 
 function dispatcherWithSpy(): { dispatch: ReturnType<typeof createRequestDispatcher>['dispatch']; started: string[] } {
     const started: string[] = [];
@@ -1036,4 +1037,29 @@ describe('machine.shell process group', () => {
         expect(result.stdout).toBe('a'.repeat(600_000));
         expect(result.stderr).toBe('b'.repeat(600_000));
     }, 30_000);
+});
+
+describe('machine start folder flow', () => {
+    it('serves the folder saved to config.json without restarting the host', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-start-folder-'));
+        try {
+            const env = { MUXR_HOME: home };
+            const request = { type: 'machines.list', requestId: 'machines', params: {} } as never;
+            writeFileSync(join(home, 'config.json'), JSON.stringify({ defaultStartFolder: '/work/first' }));
+            const { dispatch } = createRequestDispatcher({
+                source: {} as never,
+                domain: {} as never,
+                machineId: 'm1',
+                hostVersion: '0.0.0',
+                defaultStartFolder: () => liveDefaultStartFolder(env),
+            });
+            await expect(dispatch(request, 'device-1'))
+                .resolves.toMatchObject({ ok: true, data: [{ defaultStartFolder: '/work/first' }] });
+            writeFileSync(join(home, 'config.json'), JSON.stringify({ defaultStartFolder: '/work/second' }));
+            await expect(dispatch(request, 'device-1'))
+                .resolves.toMatchObject({ ok: true, data: [{ defaultStartFolder: '/work/second' }] });
+        } finally {
+            rmSync(home, { recursive: true, force: true });
+        }
+    });
 });

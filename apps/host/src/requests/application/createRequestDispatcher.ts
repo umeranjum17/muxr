@@ -83,8 +83,8 @@ export interface RequestDispatcherOptions {
     hostVersion: string;
     connectionMode?: string;
     pairedDeviceCount?: () => number;
-    /** The setup-chosen start folder this machine reports to phones. */
-    defaultStartFolder?: string;
+    /** The setup-chosen start folder this machine reports to phones, read at each request. */
+    defaultStartFolder?: () => string | undefined;
     /** Distinguish local-only artifact preparation from hosted clients. */
     relayUrl?: string;
     terminals?: TerminalManager;
@@ -536,15 +536,18 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'unread.acknowledge': async (params) => domain.unread.acknowledge(params.sessionId, params.throughSeq),
         'attention.catalog': async () => domain.attention.catalog(),
         'lifecycle.catalog': async () => domain.lifecycle.catalog(),
-        'machines.list': async () => listMachines({
-            machineId,
-            ...(options.machineName === undefined ? {} : { machineName: options.machineName }),
-            hostVersion,
-            platform: hostPlatformLabel(),
-            ...(options.connectionMode === undefined ? {} : { connectionMode: options.connectionMode }),
-            ...(options.pairedDeviceCount === undefined ? {} : { pairedDeviceCount: options.pairedDeviceCount() }),
-            ...(options.defaultStartFolder === undefined ? {} : { defaultStartFolder: options.defaultStartFolder }),
-        }).data,
+        'machines.list': async () => {
+            const defaultStartFolder = options.defaultStartFolder?.();
+            return listMachines({
+                machineId,
+                ...(options.machineName === undefined ? {} : { machineName: options.machineName }),
+                hostVersion,
+                platform: hostPlatformLabel(),
+                ...(options.connectionMode === undefined ? {} : { connectionMode: options.connectionMode }),
+                ...(options.pairedDeviceCount === undefined ? {} : { pairedDeviceCount: options.pairedDeviceCount() }),
+                ...(defaultStartFolder === undefined ? {} : { defaultStartFolder }),
+            }).data;
+        },
         'machine.hello': async () => machineHello(machineId, hostVersion),
         'machine.shell': (params) => runMachineShell(params.command, params.cwd),
         'machine.listDir': (params) => listDir(params.path),
