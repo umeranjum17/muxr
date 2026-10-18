@@ -466,6 +466,11 @@ describe('desktop setup project folder', () => {
         expect(suggestProjectFolder(home)).toBe(freshRepo);
         expect(oldRepo).not.toBe(freshRepo);
 
+        const crowdedHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-crowded-'));
+        for (let index = 0; index < 64; index += 1) repo(crowdedHome, `repo-${String(index).padStart(2, '0')}`, 1_700_000_000_000 + index);
+        const newestRepo = repo(crowdedHome, 'zzz-newest', 1_790_000_000_000);
+        expect(suggestProjectFolder(crowdedHome)).toBe(newestRepo);
+
         const muxrHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-home-'));
         expect(readSavedFolder(muxrHome)).toBeUndefined();
         expect(saveFolder(muxrHome, freshRepo)).toBe(freshRepo);

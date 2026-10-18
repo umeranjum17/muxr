@@ -32,9 +32,10 @@ function childDirs(root) {
     try {
         return readdirSync(root, { withFileTypes: true })
             .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-            .sort((left, right) => left.name.localeCompare(right.name))
+            .map((entry) => ({ path: join(root, entry.name), mtime: mtimeOf(join(root, entry.name)) }))
+            .sort((left, right) => right.mtime - left.mtime)
             .slice(0, 64)
-            .map((entry) => join(root, entry.name));
+            .map((entry) => entry.path);
     } catch {
         return [];
     }
