@@ -466,10 +466,21 @@ describe('desktop setup project folder', () => {
         expect(suggestProjectFolder(home)).toBe(freshRepo);
         expect(oldRepo).not.toBe(freshRepo);
 
+        const hiddenHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-hidden-'));
+        for (let index = 0; index < 30; index += 1) {
+            mkdirSync(join(hiddenHome, `.hidden-${String(index).padStart(2, '0')}`));
+        }
+        for (let index = 0; index < 34; index += 1) {
+            mkdirSync(join(hiddenHome, `busy-${String(index).padStart(2, '0')}`));
+        }
+        mkdirSync(join(hiddenHome, 'zz-repo', '.git'), { recursive: true });
+        expect(suggestProjectFolder(hiddenHome)).toBe(join(hiddenHome, 'zz-repo'));
+
         const crowdedHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-crowded-'));
         for (let index = 0; index < 80; index += 1) {
             mkdirSync(join(crowdedHome, `busy-${String(index).padStart(2, '0')}`));
         }
+        mkdirSync(join(crowdedHome, 'zz-repo', '.git'), { recursive: true });
         expect(suggestProjectFolder(crowdedHome)).toBeNull();
 
         const muxrHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-home-'));
