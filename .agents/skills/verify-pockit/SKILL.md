@@ -391,15 +391,15 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   with the fields Launch step 2 writes, but `relayUrl` `ws://<tailnet ip>:<port>`,
   and its mint secret from `$RUN_ROOT/relay/mint-secret`. Herdr: provision a lab
   session with `fm-herdr-lab.sh name` and `provision`, with
-  `FM_HERDR_LAB_STATE_DIR` in scratch (mode 700). Run the host without `--fake`
-  from the repo root with task-owned HOME/XDG stores:
-  `MUXR_MODE=selfhost MUXR_DATA_DIR="$MUXR_HOME/host" MUXR_HOME="$MUXR_HOME" HERDR_SESSION=<lab session> node apps/host/dist/main.js >"$RUN_ROOT/ios-host.log" 2>&1 &`,
-  then `IOS_HOST_PID=$!`. **Unset `HERDR_SOCKET_PATH`** first: an inherited
-  one is the owner's default socket, and the host refuses it. Isolate the host's
-  ambient stores before launching it: `export HOME="$RUN_ROOT/home"`; then
-  `mkdir -p "$HOME"` and export `XDG_CONFIG_HOME="$HOME/.config"
+  `FM_HERDR_LAB_STATE_DIR` in scratch (mode 700). Before launching the host,
+  isolate its ambient stores and socket: `export HOME="$RUN_ROOT/home"`; then
+  `mkdir -p "$HOME" "$HOME/.config" "$HOME/.local/share" "$HOME/.cache" "$HOME/.local/state"`
+  and export `XDG_CONFIG_HOME="$HOME/.config"
   XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
-  XDG_STATE_HOME="$HOME/.local/state"`. Wait for `link relay: online` in
+  XDG_STATE_HOME="$HOME/.local/state"`; `unset HERDR_SOCKET_PATH`. Run the host
+  without `--fake` from the repo root with task-owned HOME/XDG stores:
+  `MUXR_MODE=selfhost MUXR_DATA_DIR="$MUXR_HOME/host" MUXR_HOME="$MUXR_HOME" HERDR_SESSION=<lab session> node apps/host/dist/main.js >"$RUN_ROOT/ios-host.log" 2>&1 &`,
+  then `IOS_HOST_PID=$!`. Wait for `link relay: online` in
   `ios-host.log`.
 - **Pair.** Only after this run's `slot-claimed` marker exists. Words handoff:
   the host offers, the phone shows two words, and the host grants only when the
