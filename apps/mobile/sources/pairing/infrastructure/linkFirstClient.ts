@@ -503,6 +503,7 @@ export class LinkFirstClient implements SessionClient {
             this.options.onPermanentError?.(protocolMismatchMessage(compatibility.reason, hello?.hostVersion));
             return;
         }
+        this.lostAt = undefined;
         this.online = true;
         this.setState('open', true);
         // The registration may have ridden the relay HTTP API while the link
