@@ -516,6 +516,23 @@ export function trailSince(after, before) {
 }
 
 /**
+ * What a fling sent to Herdr, from its own trail. Absorbed rows are not in it:
+ * the rate counts only rows really sent, so a pan-only fling reports none.
+ */
+export function terminalTotals(trail, seconds) {
+    return {
+        scrollRequests: trail.scrollRequests,
+        rowsRequested: trail.rowsRequested,
+        rowsSent: trail.rowsRequested,
+        rowsPerSecond: seconds > 0 ? Number((trail.rowsRequested / seconds).toFixed(1)) : 0,
+        absorbedRows: trail.absorbedRows,
+        clamped: trail.clamped,
+        timedOut: trail.timedOut,
+        agentPages: trail.agentPages,
+    };
+}
+
+/**
  * One JSONL body, parsed strictly, so a reader can tell an empty series apart
  * from one it failed to collect.
  *

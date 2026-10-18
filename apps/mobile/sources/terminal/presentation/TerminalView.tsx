@@ -126,12 +126,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     scrollGateRef.current ??= createTerminalScrollGate({
         send: (lines) => {
             const size = lastSizeRef.current;
-            if (size === null) return;
+            const channel = channelRef.current;
+            if (size === null || !channel) return false;
             const origin = scrollOriginRef.current;
-            channelRef.current?.scroll(lines, {
+            channel.scroll(lines, {
                 column: Math.min(size.cols - 1, Math.floor((origin ? origin.x / origin.width : .5) * size.cols)),
                 row: Math.min(size.rows - 1, Math.floor((origin ? origin.y / origin.height : .5) * size.rows)),
             });
+            return true;
         },
         onDiscarded: recordTerminalScrollClamped,
         onSent: recordTerminalScrollRows,

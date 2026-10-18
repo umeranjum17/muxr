@@ -39,6 +39,7 @@ import {
     reduceJank,
     reduceMovement,
     reduceGridTransitions,
+    terminalTotals,
     trailSince,
     verdict,
 } from './gestureMetrics.mjs';
@@ -335,9 +336,12 @@ test('baseline bout fixtures reduce to the documented failures', () => {
     assert.equal(reduceMovement('terminal text fling', {
         before: { crop: still }, after: { crop: shifted }, terminal: panOnly,
     }).proven, false);
-    assert.ok(verdict('terminal text fling', {
-        ...flingJank, terminal: { scrollRequests: 0, rowsRequested: 0, rowsPerSecond: 0, clamped: 0, timedOut: 0 },
-    }, EMULATOR_LIMITS).failures.includes('terminalRowsPerSecond'));
+    const sentRate = terminalTotals(trailSince(
+        parseRedactedTrail('terminal.scroll seq=3 requests=1 rows=20 clamped=0 timedOut=0 absorbed=100'),
+        parseRedactedTrail('terminal.scroll seq=0 requests=0 rows=0 clamped=0 timedOut=0 absorbed=0'),
+    ), 1);
+    assert.equal(sentRate.rowsPerSecond, 20);
+    assert.ok(verdict('terminal text fling', { ...flingJank, terminal: sentRate }, EMULATOR_LIMITS).failures.includes('terminalRowsPerSecond'));
 
     const emptyDump = parseJankDump(read('gfxinfo-before.txt'), { hz });
     assert.equal(emptyDump.frames, 0);

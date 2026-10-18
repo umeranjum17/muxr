@@ -22,8 +22,8 @@ export const MAX_SCROLL_LINES = 400;
 export const SCROLL_ACK_TIMEOUT_MS = 250;
 
 export interface TerminalScrollGateOptions {
-    /** Hand one coalesced scroll to the pane's channel. */
-    send: (lines: number) => void;
+    /** Hand one coalesced scroll to the pane's channel; false when nothing went out. */
+    send: (lines: number) => boolean;
     /** Travel the gate threw away: clamped overflow, or a new gesture starting. */
     onDiscarded: (lines: number) => void;
     /** Travel that actually went out. */
@@ -77,10 +77,13 @@ export function createTerminalScrollGate(options: TerminalScrollGateOptions): Te
         // feel arbitrary. Count what it eats.
         const clamped = Math.max(-MAX_SCROLL_LINES, Math.min(MAX_SCROLL_LINES, lines));
         if (clamped !== lines) options.onDiscarded(Math.abs(lines - clamped));
-        options.onSent(Math.abs(clamped));
         inFlight = true;
         ackTimer = setTimeout(timeOut, SCROLL_ACK_TIMEOUT_MS);
-        options.send(clamped);
+        if (!options.send(clamped)) {
+            release();
+            return;
+        }
+        options.onSent(Math.abs(clamped));
     }
 
     function release(): void {

@@ -84,6 +84,7 @@ import {
     stripPosition,
     stripScroller,
     TERMINAL_SURFACE,
+    terminalTotals,
     trailSince,
     verdict,
 } from './lib/gestureMetrics.mjs';
@@ -986,17 +987,7 @@ async function drivePhase(phase, screen, hz, ready) {
         const measured = await measureBout((opts) => scrollBout({ width, height, seconds, ...opts }), hz, { surface: 'terminal', screen, phase, prepared });
         const trail = await sinceEntry();
         if (!trail.ok) return { ...measured, trailUnavailable: trail.why };
-        const terminal = {
-            scrollRequests: trail.scrollRequests,
-            rowsRequested: trail.rowsRequested,
-            rowsSent: trail.rowsRequested,
-            rowsPerSecond: seconds > 0 ? Number((trail.rowsRequested / seconds).toFixed(1)) : 0,
-            absorbedRows: trail.absorbedRows,
-            clamped: trail.clamped,
-            timedOut: trail.timedOut,
-            agentPages: trail.agentPages,
-        };
-        return withTrailMovement(measured, phase, terminal);
+        return withTrailMovement(measured, phase, terminalTotals(trail, seconds));
     }
     if (phase.drive === 'zoomTapNavigate') {
         const before = prepared.before;
