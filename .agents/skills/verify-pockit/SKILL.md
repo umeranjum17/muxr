@@ -371,7 +371,8 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   apps/mobile/ios/muxr.xcworkspace -scheme muxr -configuration Release -sdk
   iphonesimulator -derivedDataPath ~/fm-verify-pockit-ios1/dd
   CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO
-  DEBUG_INFORMATION_FORMAT=dwarf build`. The app is
+  DEBUG_INFORMATION_FORMAT=dwarf build 2>&1 | tee ~/fm-verify-pockit-ios1/build.log`
+  (Cleanup copies this log out). The app is
   `~/fm-verify-pockit-ios1/dd/Build/Products/Release-iphonesimulator/muxr.app`
   (`com.trymuxr.app`); `xcrun simctl install <UDID> <app>`.
 - **Host.** Set the home explicitly: `MUXR_HOME="$RUN_ROOT/muxr-home"`, the same
@@ -399,18 +400,21 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   Mac; points are the screenshot pixels divided by 3. Find the button with a shot
   or `axe describe-ui`. When the phone shows its two words, read them from a
   simulator screenshot and write exactly those words to
-  `$RUN_ROOT/kit/.byokit/inbox/<wordsFile>` with mode 0600 (`umask 077`). Wrong
-  words refuse pairing. Wait for the CLI to exit 0. Handoff refuses once a phone
+  `$RUN_ROOT/kit/words.tmp` with mode 0600 (`umask 077`), then `mv` it to
+  `$RUN_ROOT/kit/.byokit/inbox/<wordsFile>`, so the host never polls a partial
+  file. Wrong words refuse pairing. Wait for the CLI to exit 0. Handoff refuses once a phone
   is paired, so use a fresh lab host.
 - **Capture.** `xcrun simctl ui <UDID> appearance dark|light`, wait a few
-  seconds, then `$SLOT ios-shot <file>`. Home shows the paired machine as
+  seconds, then `$SLOT ios-shot "$EVIDENCE/ios-home-<appearance>.png"`. Home shows the paired machine as
   `connected`. Open every shot before reporting.
 - **Cleanup.** Kill the exact host and relay PIDs the run started, then
-  `fm-herdr-lab.sh teardown <session>`, and remove the Mac scratch by its literal
-  path (`rm -rf -- /Users/you/fm-verify-pockit-ios1`). Only if
+  `fm-herdr-lab.sh teardown <session>`. Copy the build log out with
+  `scp <mac-user>@<mac-ip>:fm-verify-pockit-ios1/build.log "$EVIDENCE/ios-build.log"`,
+  then remove the Mac scratch by its literal path
+  (`rm -rf -- /Users/you/fm-verify-pockit-ios1`). Only if
   `$RUN_ROOT/slot-claimed` exists, run `$SLOT stop`, `$SLOT release`, then confirm
-  `xcrun simctl list devices booted` is empty. Evidence goes to
-  `~/.no-mistakes/evidence/<task>/`: screenshots, build log, command notes.
+  `xcrun simctl list devices booted` is empty. Screenshots and command notes
+  already sit in `$EVIDENCE`, the run's single evidence root.
 
 The Android and PWA Visual check above does not cover these shots: they prove a
 simulator Home, not the matrix.
