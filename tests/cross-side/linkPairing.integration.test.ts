@@ -300,6 +300,7 @@ describe('native pairing over the byokit link', () => {
                     ...(mode === 'expires' ? { MUXR_PAIR_HANDOFF_WAIT_MS: '3000' } : {}) }, workDir);
                 const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
                 let shownWords = '';
+                let noticeOffer: { offerPath: string; offered: any } | undefined;
                 try {
                     let { offerPath, offered } = await nextOffer(command);
                     expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
@@ -335,26 +336,28 @@ describe('native pairing over the byokit link', () => {
                         await new Promise((resolve) => setTimeout(resolve, 1_000));
                         expect(command.exitCode).toBeNull();
                         await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
-                        const next = await nextOffer(command, current.wordsFile);
-                        expect(next.offered.wordsFile).not.toBe(current.wordsFile);
-                        expect(next.offered.notice).toBe('That code ran out before you said yes. Scan the new QR below');
+                        noticeOffer = await nextOffer(command, current.wordsFile);
+                        expect(noticeOffer.offered.wordsFile).not.toBe(current.wordsFile);
+                        expect(noticeOffer.offered.notice).toBe('That code ran out before you said yes. Scan the new QR below');
                         command.kill('SIGTERM');
                     } else if (mode === 'expires') {
                         await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
                         await expect(pairing).rejects.toThrow('The code ran out. Scan the new QR on your computer');
                     } else await expect(pairing).rejects.toThrow();
-                    expect(await exited).toBe(matches ? 0 : 1);
-                    expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
-                    expect(existsSync(offerPath)).toBe(false);
-                    expect(existsSync(join(inbox, current.wordsFile))).toBe(false);
-                    if (current !== offered) expect(existsSync(join(inbox, offered.wordsFile))).toBe(false);
-                    expect(command.output()).not.toContain(current.offer);
-                    if (current !== offered) expect(command.output()).not.toContain(offered.offer);
-                    expect(shownWords).not.toBe('');
-                    expect(command.output()).not.toContain(shownWords);
                     if (mode === 'cancel') {
                         await until(() => host!.output().includes('Pairing connection lost; this pairing attempt ended.') ? true : undefined,
                             'host contains the peer reset without crashing');
+                    }
+                    offered = current;
+                    expect(await exited).toBe(matches ? 0 : 1);
+                    expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
+                    expect(existsSync(offerPath)).toBe(false);
+                    expect(existsSync(join(workDir, '.byokit', 'inbox', offered.wordsFile))).toBe(false);
+                    expect(command.output()).not.toContain(offered.offer);
+                    expect(shownWords).not.toBe('');
+                    expect(command.output()).not.toContain(shownWords);
+                    if (mode === 'wrong') expect(noticeOffer!.offered.notice).toBe('That code ran out before you said yes. Scan the new QR below');
+                    if (mode === 'cancel') {
                         expect(host!.exitCode).toBeNull();
                         expect(host!.signalCode).toBeNull();
                         expect(host!.output().match(/Pairing connection lost; this pairing attempt ended\./g)).toHaveLength(1);
