@@ -1609,10 +1609,10 @@ export async function createHerdrSessionSource(
      * kit announces only a phase change, not each re-bootstrap. `refresh()`
      * settles once the status watches have acked, so read the snapshot then.
      */
-    function refreshAfterStatusWatch(): void {
+    function refreshAfterStatusWatch(): Promise<void> {
         if (statusRefreshRunning) {
             statusRefreshQueued = true;
-            return;
+            return Promise.resolve();
         }
         statusRefreshRunning = true;
         const watchTimeout = new AbortController();
@@ -1620,7 +1620,7 @@ export async function createHerdrSessionSource(
             client.kit.refresh(),
             sleep(STATUS_WATCH_WAIT_MS, undefined, { signal: watchTimeout.signal }).then(() => { throw new Error('status watches did not ack in time'); }),
         ]).finally(() => watchTimeout.abort());
-        void watchesAcked
+        return watchesAcked
             .then(() => refreshSnapshotFresh().then(emitAllStates))
             .catch((cause) => {
                 process.stderr.write(`herdr status refresh failed: ${cause instanceof Error ? cause.message : String(cause)}\n`);
@@ -1630,14 +1630,14 @@ export async function createHerdrSessionSource(
                 statusRefreshRunning = false;
                 if (statusRefreshQueued) {
                     statusRefreshQueued = false;
-                    refreshAfterStatusWatch();
+                    void refreshAfterStatusWatch();
                 }
             });
     }
     const client = new KitHerdrClient(() => resolvedHerdrBin() ?? 'herdr', socketPath, () => {
         routingEpoch += 1;
         void refreshSnapshot().then(emitAllStates).then(() => artifacts.rescanAll()).catch(() => {});
-        refreshAfterStatusWatch();
+        void refreshAfterStatusWatch();
     });
     // The kit reads a blocked agent's question once its status flips; that releases the held alert.
     const stopBlockedWatch = client.kit.onBlocked((entry, change) => {
@@ -1909,7 +1909,7 @@ export async function createHerdrSessionSource(
                 // tree; only an undiscovered conversation is worth a read.
                 // Detection starts a kit re-bootstrap that opens the new pane's
                 // status watch; wait for its ready signal, then read once.
-                if (kind === 'pane.agent.detected') refreshAfterStatusWatch();
+                if (kind === 'pane.agent.detected') void refreshAfterStatusWatch();
                 else if (paneId !== undefined && needsSessionDiscovery(paneId)) scheduleResnapshot();
                 return;
             }
@@ -1954,7 +1954,8 @@ export async function createHerdrSessionSource(
         await client.start();
         await refreshSnapshot();
         emitAllStates();
-        refreshAfterStatusWatch();
+        // The mirror settles on the status watches before a phone can connect.
+        await refreshAfterStatusWatch();
         // Seed the backstop before a phone connects; an empty unchanged
         // pane must not announce itself thirty seconds after a phone connects.
         await artifacts.rescanAll();
