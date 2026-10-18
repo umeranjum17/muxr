@@ -6,16 +6,23 @@ import { compactAge } from '@/utils/compactAge';
  *  Impossible figures (a zero ceiling would divide by zero) read as no
  *  vitals rather than as a fabricated percentage. */
 export interface VitalsFacts {
+    /** Healthy unless the run queue is at least the core count, or memory is nearly full. */
+    state: 'healthy' | 'busy';
     memoryPercent: number;
     diskPercent?: number;
     load: string;
     uptime: string;
 }
 
+/** Memory share at which the machine counts as busy, whatever its load. */
+const BUSY_MEMORY_PERCENT = 90;
+
 export function vitalsFacts(vitals: UsageVitals): VitalsFacts | undefined {
     if (vitals.memoryTotal <= 0 || vitals.uptimeSeconds < 0 || !Number.isFinite(vitals.load1)) return undefined;
+    const memoryPercent = share(vitals.memoryUsed, vitals.memoryTotal);
     const facts: VitalsFacts = {
-        memoryPercent: share(vitals.memoryUsed, vitals.memoryTotal),
+        state: memoryPercent >= BUSY_MEMORY_PERCENT || (vitals.cpus !== undefined && vitals.load1 >= vitals.cpus) ? 'busy' : 'healthy',
+        memoryPercent,
         load: Number(vitals.load1.toFixed(1)).toString(),
         uptime: compactAge(vitals.uptimeSeconds * 1_000),
     };
