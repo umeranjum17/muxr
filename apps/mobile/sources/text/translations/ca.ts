@@ -127,6 +127,8 @@ export const ca: TranslationStructure = {
             refreshNow: 'Actualitza l’ús ara',
             refreshThrottled: ({ seconds }: { seconds: number }) => `Actualització disponible en ${seconds} s`,
             refreshIn: ({ seconds }: { seconds: number }) => `en ${seconds} s`,
+            healthy: 'Bé',
+            busy: 'Ocupat',
             notConnected: 'Límits del pla no connectats',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `es renova en ${time}`,

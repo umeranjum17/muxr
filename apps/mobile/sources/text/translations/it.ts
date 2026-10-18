@@ -127,6 +127,8 @@ export const it: TranslationStructure = {
             refreshNow: 'Aggiorna l’utilizzo ora',
             refreshThrottled: ({ seconds }: { seconds: number }) => `Aggiornamento disponibile tra ${seconds} s`,
             refreshIn: ({ seconds }: { seconds: number }) => `tra ${seconds} s`,
+            healthy: 'Bene',
+            busy: 'Occupato',
             notConnected: 'Limiti del piano non connessi',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `si rinnova tra ${time}`,

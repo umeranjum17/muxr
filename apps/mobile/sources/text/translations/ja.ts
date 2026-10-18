@@ -130,6 +130,8 @@ export const ja: TranslationStructure = {
             refreshNow: '使用量を今すぐ更新',
             refreshThrottled: ({ seconds }: { seconds: number }) => `${seconds} 秒後に更新できます`,
             refreshIn: ({ seconds }: { seconds: number }) => `${seconds} 秒後`,
+            healthy: '正常',
+            busy: '混雑',
             notConnected: 'プラン制限に未接続',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `リセットまで ${time}`,

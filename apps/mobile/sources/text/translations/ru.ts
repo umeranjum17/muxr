@@ -138,6 +138,8 @@ export const ru: TranslationStructure = {
             refreshNow: 'Обновить данные сейчас',
             refreshThrottled: ({ seconds }: { seconds: number }) => `Обновление доступно через ${seconds} с`,
             refreshIn: ({ seconds }: { seconds: number }) => `через ${seconds} с`,
+            healthy: 'В норме',
+            busy: 'Занят',
             notConnected: 'Лимиты плана не подключены',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `обновится через ${time}`,
