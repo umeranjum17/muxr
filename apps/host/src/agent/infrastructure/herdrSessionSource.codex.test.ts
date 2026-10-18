@@ -117,6 +117,7 @@ describe('Codex without a Herdr agent_session', () => {
             herdr.replaceDuringPrompt();
             await expect(source.prompt({ sessionId: codex.sessionId!, text: 'Continue.' }))
                 .rejects.toMatchObject({ code: 'prompt-outcome-unknown' });
+            expect(herdr.calls.filter((call) => call.method === 'session.snapshot')).toHaveLength(1);
             expect(herdr.calls.filter((call) => call.method === 'agent.prompt')).toHaveLength(1);
 
             // The old route cannot send another prompt after confirmation sees
@@ -124,6 +125,7 @@ describe('Codex without a Herdr agent_session', () => {
             herdr.calls.length = 0;
             await expect(source.prompt({ sessionId: codex.sessionId!, text: 'Private follow-up.' }))
                 .rejects.toMatchObject({ code: 'prompt-not-sent' });
+            expect(herdr.calls.some((call) => call.method === 'session.snapshot')).toBe(true);
             expect(herdr.calls.filter((call) => call.method === 'agent.prompt')).toHaveLength(0);
         } finally {
             await source.close();
