@@ -3365,9 +3365,11 @@ export async function createHerdrSessionSource(
         async handoff(handoffOptions: SessionHandoffOptions): Promise<{ note: string }> {
             const session = await resolvePane(handoffOptions.sessionId);
             if (session.agent === undefined) throw agentUnavailable();
+            const cwd = cwdForSession(session.sessionId);
+            if (!cwd) throw Object.assign(new Error('Herdr does not report this agent\'s folder, so its handoff note cannot be written.'), { code: 'handoff-failed' });
             const end = await client.kit.runTurn({ paneId: session.paneId, ...(session.agent.name ? { name: session.agent.name } : {}) }, {
                 prompt: handoffPrompt(handoffOptions.targetName),
-                cwd: cwdForSession(session.sessionId) ?? '',
+                cwd,
                 timeoutMs: HANDOFF_TIMEOUT_MS,
                 files: false,
                 result: { schema: HANDOFF_RESULT_SCHEMA, validate: isHandoffNote, maxBytes: HANDOFF_NOTE_MAX * 4 },

@@ -127,6 +127,12 @@ export function viewOnlyRequestAllowed(request: ClientRequest): boolean {
     return VIEW_ONLY_REQUESTS.has(request.type);
 }
 
+const HANDOFF_TARGET_NAME_MAX = 64;
+
+function handoffTargetNameOk(name: unknown): name is string {
+    return typeof name === 'string' && name.trim() !== '' && name.length <= HANDOFF_TARGET_NAME_MAX && !/\p{Cc}/u.test(name);
+}
+
 function desktopOrThrow(options: RequestDispatcherOptions): DesktopSessions {
     if (options.desktop === undefined) throw new Error('This host has no desktop engine.');
     return options.desktop;
@@ -485,7 +491,12 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         )),
         'session.prompt': async ({ peerMutation: _peerMutation, ...params }) =>
             useCaseData(await promptAgent(source, params)),
-        'session.handoff': (params) => source.handoff(params),
+        'session.handoff': (params) => {
+            if (!handoffTargetNameOk(params.targetName)) {
+                throw Object.assign(new Error(`Name the computer to continue on, in one line of at most ${HANDOFF_TARGET_NAME_MAX} characters.`), { code: 'handoff-invalid' });
+            }
+            return source.handoff(params);
+        },
         'session.status': async (params) => useCaseData(
             await readAgentSession(source, { view: 'status', sessionId: params.sessionId }),
         ) as Awaited<ReturnType<SessionSource['status']>>,

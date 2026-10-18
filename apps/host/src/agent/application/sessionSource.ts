@@ -243,7 +243,7 @@ export interface SessionSource {
     abort(sessionId: string): Promise<void>;
     reload(sessionId: string): Promise<void>;
     prompt(options: SessionPromptOptions): Promise<void>;
-    /** The agent writes its own handoff note; nothing else in the conversation changes. */
+    /** The agent writes a handoff note and returns it; no files are changed. */
     handoff(options: SessionHandoffOptions): Promise<{ note: string }>;
     status(sessionId: string): Promise<SessionStatus>;
     shell(options: SessionShellOptions): Promise<SessionShellOutcome | null>;
