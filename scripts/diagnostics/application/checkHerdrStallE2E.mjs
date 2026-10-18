@@ -16,7 +16,8 @@ import { linkHerdrLab } from './linkHerdrLab.mjs';
 import { requestLab } from './linkLabClient.mjs';
 
 const FREEZE_MS = 60_000;
-const RECOVER_MS = 15_000;
+const STALL_MS = 20_000;
+const RECOVER_MS = 10_000;
 
 const root = mkdtempSync(join(tmpdir(), 'muxr-herdr-stall-'));
 const workdir = join(root, 'cwd');
@@ -52,7 +53,7 @@ function herdrServerPid(socket) {
 }
 
 /** One terminal attach, resolved with true once the host answers it ok. */
-async function attach(sessionId) {
+async function attach(sessionId, timeoutMs = RECOVER_MS) {
     const stream = await lab.link.stream('terminal', { sessionId, channel: newTerminalChannel(), requestId: nextRequestId('lab'), cols: 80, rows: 24 });
     try {
         return await new Promise((resolve) => {
@@ -67,7 +68,7 @@ async function attach(sessionId) {
                     if (frame.type === 'result') resolve(frame.ok === true);
                 }
             };
-            setTimeout(() => resolve(false), RECOVER_MS);
+            setTimeout(() => resolve(false), timeoutMs);
         });
     } finally {
         try { stream.end(); } catch { /* the host already closed it */ }
@@ -82,12 +83,15 @@ try {
     if (!await attach(sessionId)) throw new Error('baseline terminal attach failed');
     process.stdout.write('ok: baseline attach\n');
 
-    // 1. Herdr alone: its socket stays open, so only the host's call timeouts can tell.
+    // 1. Herdr alone: its socket stays open, so the kit liveness state must
+    // make the existing tree report the runtime unavailable without an attach.
     freeze([herdrServerPid(socket)]);
-    await until(async () => !await attach(sessionId) && lab.hostOutput().includes('herdr: not answering'),
-        'failed attach and host journal: herdr not answering', FREEZE_MS);
+    await until(async () => (await requestLab(lab.link, 'herdr.tree')).connected === false,
+        'herdr.tree disconnected within 20s of Herdr stalling', STALL_MS);
     thaw();
-    await until(() => attach(sessionId), 'attach after Herdr resumed', RECOVER_MS);
+    await until(async () => (await requestLab(lab.link, 'herdr.tree')).connected === true,
+        'herdr.tree healthy after Herdr resumed', RECOVER_MS);
+    if (!await attach(sessionId, RECOVER_MS)) throw new Error('attach failed within 10s after Herdr resumed');
     await until(() => lab.hostOutput().includes('herdr: answering again'), 'host journal: herdr answering again', RECOVER_MS);
     process.stdout.write('ok: host journals a stalled Herdr and its recovery\n');
 

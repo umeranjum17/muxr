@@ -158,20 +158,25 @@ export const HerdView = React.memo(({
     // to the build default on a fresh install — only the persisted pairing
     // grants can tell "never paired" from "paired but the machine is off".
     const neverPaired = connection.mode === 'hosted' && hasPairedGrant === false;
+    const runtimeOffline = connection.mode === 'hosted' && hasPairedGrant === true
+        && socketStatus.status === 'connected' && herdrConnected === false;
+    const [runtimeStalledSince, setRuntimeStalledSince] = React.useState<number | null>(null);
+    React.useEffect(() => {
+        setRuntimeStalledSince((since) => runtimeOffline ? since ?? Date.now() : null);
+    }, [runtimeOffline]);
+    const runtimeBusy = runtimeOffline;
     // The link is still retrying with nothing wrong reported: a slow host, not a failure.
-    const busySince = connection.mode === 'hosted' && hasPairedGrant === true
+    const busySince = runtimeBusy ? runtimeStalledSince ?? Date.now() : connection.mode === 'hosted' && hasPairedGrant === true
         && socketStatus.status === 'connecting' && socketStatus.error === null ? socketStatus.connectingSince : null;
     // Past a short connect the busy card speaks for Home on its own.
     const busy = useBusyConnecting(busySince);
     const hostOffline = connection.mode === 'hosted' && hasPairedGrant === true && attempted
         && (socketStatus.status === 'error' || socketStatus.status === 'disconnected'
             || (socketStatus.status === 'connecting' && error !== null && busySince === null));
-    const runtimeOffline = connection.mode === 'hosted' && hasPairedGrant === true
-        && socketStatus.status === 'connected' && herdrConnected === false;
     React.useEffect(() => {
         if (socketStatus.status === 'connected' && error === null && !runtimeOffline) setRetryFailed(false);
     }, [error, runtimeOffline, socketStatus.status]);
-    const needsRecovery = hostOffline || runtimeOffline || retrying || retryFailed;
+    const needsRecovery = hostOffline || (!runtimeOffline && (retrying || retryFailed));
     // The header must hear link-down separately from recovery: a dead agent
     // runtime keeps the link up, so the header stays truthful while the card
     // below carries the runtime message. Both derive from the same store read.
