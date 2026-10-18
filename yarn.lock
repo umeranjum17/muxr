@@ -1134,10 +1134,10 @@
   dependencies:
     "@byokit/audio" "0.2.0"
 
-"@byokit/herdr@0.16.0":
-  version "0.16.0"
-  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.16.0.tgz#32d7f4b95dde04b03176257ad4348d80bd0f553a"
-  integrity sha512-0bYE73v6PL2J3y3LhN9Sn7f42sP+JuTMP7d2wwR90mH4np4ENTA5VnlTthuNfTWEDilYipgY/TyGCHFuvkRohA==
+"@byokit/herdr@0.16.1":
+  version "0.16.1"
+  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.16.1.tgz#bf5273e1dcb110c0ff9e17ab78f51ceec47a3f37"
+  integrity sha512-MRVsCXo63ULs3EonH6sMx6aKY2P18XfMYmI9YaONTToVNkd3kqHi2ZxQX2p3s2YLJef/mlyaI8JGZWdixOESxA==
   dependencies:
     "@byokit/seal" "0.3.1"
     ws "8.22.0"

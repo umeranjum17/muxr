@@ -85,6 +85,9 @@ rules, with no H2 sections.
 - [Follow a Herdr agent's status live](./herdr-live-status.md) —
   host session source on a guarded lab Herdr: tree follows new panes, status
   working/blocked/idle lands, socket count 1 → 2 → 1; no baseline needed.
+- [Show a stalled computer as busy and recovering](./herdr-stall-recovery.md) —
+  named Herdr lab freeze: tree goes unavailable within 20s, returns healthy and
+  attaches within 10s; iPad Home records busy copy and agents recovering alone.
 
 - [Read the desktop receiver's decoder and frame rate (developer probe)](./desktop-decoder-probe.md) —
   developer-mode-only machine row and `/debug/decode` route: absent until ten

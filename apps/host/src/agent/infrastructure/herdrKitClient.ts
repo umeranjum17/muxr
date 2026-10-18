@@ -46,24 +46,17 @@ export async function labHerdrSocket(bin: string, socketPath: string | undefined
     return named.socket_path;
 }
 
-/** Consecutive timed-out calls before a connected Herdr is logged as not answering. */
-const STALL_TIMEOUTS = 2;
-
 export class KitHerdrClient implements HerdrCaller {
     /** Live event-socket state, surfaced on `herdr.tree` so the phone can tell a dead herdr from a quiet one. */
     connected = false;
-    /** Every Herdr request, through `call()` or a kit method, rides this view
-     *  so the stall count sees all of them. */
     readonly kit: HerdrKit;
     private reconnectTimer: NodeJS.Timeout | undefined;
     private closed = false;
     /** Edge trigger: log the first reconnect failure and the recovery, never every retry. */
     private down = false;
     private outage = false;
-    /** A starved Herdr keeps its socket open and stops answering, so no
-     *  disconnect ever fires; count its timeouts to journal the stall. */
-    private timedOut = 0;
-    private silentSince: number | undefined;
+    /** Timestamp for the active kit-reported stall, used for the recovery journal line. */
+    private stalledSince: number | undefined;
 
     constructor(
         resolveBin: () => string,
@@ -89,6 +82,14 @@ export class KitHerdrClient implements HerdrCaller {
             onState: (state) => {
                 const ready = state.phase === 'ready';
                 const wasReady = this.connected;
+                if (state.phase === 'stalled' && wasReady) {
+                    this.stalledSince = Date.now();
+                    process.stderr.write('herdr: not answering (2 calls timed out)\n');
+                }
+                if (ready && this.stalledSince !== undefined) {
+                    process.stderr.write(`herdr: answering again after ${Math.round((Date.now() - this.stalledSince) / 1000)}s\n`);
+                    this.stalledSince = undefined;
+                }
                 this.connected = ready;
                 if (!ready && wasReady) this.outage = true;
                 if (ready && !wasReady) this.recover();
@@ -98,7 +99,7 @@ export class KitHerdrClient implements HerdrCaller {
             get: (target, key) => {
                 const value: unknown = Reflect.get(target, key, target);
                 if (typeof value !== 'function') return value;
-                return (...args: unknown[]) => this.observed(value.apply(target, args));
+                return (...args: unknown[]) => value.apply(target, args);
             },
         });
     }
@@ -142,33 +143,6 @@ export class KitHerdrClient implements HerdrCaller {
             params as never,
             timeoutMs === undefined ? undefined : { timeoutMs },
         ) as T;
-    }
-
-    private observed(result: unknown): unknown {
-        if (!(result instanceof Promise)) return result;
-        const started = Date.now();
-        return result.then((value: unknown) => {
-            this.answered();
-            return value;
-        }, (cause: unknown) => {
-            if (cause instanceof Error && cause.message === 'herdr: request timed out') this.missed(started);
-            // A refusal is still an answer; a closed socket is the reconnect loop's to report.
-            else if (!KitHerdrClient.isDownError(cause)) this.answered();
-            throw cause;
-        });
-    }
-
-    private missed(started: number): void {
-        this.silentSince ??= started;
-        if (++this.timedOut === STALL_TIMEOUTS) process.stderr.write(`herdr: not answering (${this.timedOut} calls timed out)\n`);
-    }
-
-    private answered(): void {
-        if (this.timedOut >= STALL_TIMEOUTS && this.silentSince !== undefined) {
-            process.stderr.write(`herdr: answering again after ${Math.round((Date.now() - this.silentSince) / 1000)}s\n`);
-        }
-        this.timedOut = 0;
-        this.silentSince = undefined;
     }
 
     async close(): Promise<void> {
