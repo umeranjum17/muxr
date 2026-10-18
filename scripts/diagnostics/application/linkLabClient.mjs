@@ -3,8 +3,7 @@ import WebSocket from 'ws';
 import { DeviceLink, pairWithOffer } from '@byokit/link';
 import { nextRequestId } from '@trymuxr/contract';
 
-async function until(check, what, timeoutMs) {
-    const deadline = Date.now() + timeoutMs;
+async function until(check, what, deadline) {
     while (Date.now() < deadline) {
         const result = check();
         if (result) return result;
@@ -14,7 +13,7 @@ async function until(check, what, timeoutMs) {
 }
 
 /** The real running host's owner-only socket approves one lab device, then its machine link proves it. */
-export async function linkLabClient(socketPath, onEvent, timeoutMs = 20_000) {
+export async function linkLabClient(socketPath, onEvent, deadline = Date.now() + 20_000) {
     const socket = createConnection(socketPath);
     let text = '';
     let offer;
@@ -39,17 +38,17 @@ export async function linkLabClient(socketPath, onEvent, timeoutMs = 20_000) {
     try {
         await connected;
         socket.write(`${JSON.stringify({ intent: { kind: 'native', authority: 'control', personal: false }, lab: true })}\n`);
-        await until(() => { if (error) throw new Error(error); return offer; }, 'link offer', timeoutMs);
+        await until(() => { if (error) throw new Error(error); return offer; }, 'link offer', deadline);
         const grant = await pairWithOffer(offer, { name: 'Lab device', onWords: () => undefined, WebSocket });
         pairing = new DeviceLink(grant, { WebSocket });
-        await until(() => pairing.status === 'online', 'approved pairing link', timeoutMs);
+        await until(() => pairing.status === 'online', 'approved pairing link', deadline);
         const answer = await pairing.request('pair.complete', { deviceName: 'Lab device' });
         machine = new DeviceLink({ v: 1, secretKey: grant.secretKey, host: answer.machineBoxPublicKey,
             hostName: answer.machineName, urls: [answer.linkUrl],
             device: { id: '', name: 'Lab device', role: 'control' } }, { WebSocket, ...(onEvent === undefined ? {} : { onEvent }) });
-        await until(() => machine.status === 'online', 'machine link admits lab device', timeoutMs);
+        await until(() => machine.status === 'online', 'machine link admits lab device', deadline);
         await pairing.request('pair.verified', {});
-        await until(() => { if (error) throw new Error(error); return result; }, 'machine proof accepted', timeoutMs);
+        await until(() => { if (error) throw new Error(error); return result; }, 'machine proof accepted', deadline);
         return machine;
     } catch (cause) {
         machine?.stop();

@@ -69,8 +69,9 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
         const waitMs = linkWaitMs(load, cpuCount);
         const waited = `${(waitMs / 1000).toFixed(1)}s`;
         console.log(`lab link wait ${waited} (1-min load ${load.toFixed(2)} on ${cpuCount} CPUs)`);
+        const deadline = Date.now() + waitMs;
         const relay = start(['apps/relay/dist/main.js'], { MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: relayDir, MUXR_RELAY_MDNS: '0' });
-        const port = await waitForRelay(relay, waitMs);
+        const port = await waitForRelay(relay, deadline - Date.now());
         const machine = machineIdentity(undefined);
         const owner = JSON.parse(readFileSync(join(relayDir, 'mint-secret'), 'utf8'));
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, machine, relayPort: port,
@@ -79,7 +80,6 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
         // A relay bound for a device elsewhere on the network is dialled at that address too.
         const host = start(['apps/host/dist/main.js'], { MUXR_MODE: 'selfhost', MUXR_DATA_DIR: hostDir,
             ...(process.env.MUXR_RELAY_HOST ? { MUXR_RELAY_URL: `ws://${process.env.MUXR_RELAY_HOST}:${port}/relay` } : {}) });
-        const deadline = Date.now() + waitMs;
         while (!existsSync(join(hostDir, 'pair.sock'))) {
             if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host did not start within ${waited}: ${host.output()}`);
             await sleep(100);
@@ -92,7 +92,7 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
             if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host never reached the relay within ${waited}: ${host.output()}`);
             await sleep(100);
         }
-        link = await linkLabClient(join(hostDir, 'pair.sock'), onEvent, waitMs);
+        link = await linkLabClient(join(hostDir, 'pair.sock'), onEvent, deadline);
         return { link, env, machine, port, session, wrapper,
             herdr: (args, timeout = 10_000) => execFileSync(wrapper, args, { encoding: 'utf8', timeout }),
             stop: () => stop(link) };
