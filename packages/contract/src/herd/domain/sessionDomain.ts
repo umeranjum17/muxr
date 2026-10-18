@@ -74,4 +74,6 @@ export interface MachineInfo {
     pairedDeviceCount?: number;
     /** Where a newcomer's first agent starts. Absent when never chosen. */
     defaultStartFolder?: string;
+    /** This computer's home directory. Absent for older hosts. */
+    homeDir?: string;
 }

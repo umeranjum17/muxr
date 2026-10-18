@@ -546,6 +546,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 ...(options.connectionMode === undefined ? {} : { connectionMode: options.connectionMode }),
                 ...(options.pairedDeviceCount === undefined ? {} : { pairedDeviceCount: options.pairedDeviceCount() }),
                 ...(defaultStartFolder === undefined ? {} : { defaultStartFolder }),
+                homeDir: homedir(),
             }).data;
         },
         'machine.hello': async () => machineHello(machineId, hostVersion),
