@@ -359,9 +359,10 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   `RUN_ROOT="$(mktemp -d /tmp/muxr-verify-XXXXXX)"`, and define `EVIDENCE` as in Evidence above.
   Set `RUN_ID` to this run's unique id. In the Mac shell set
   `MAC_RUN="$HOME/fm-verify-pockit-ios1/$RUN_ID"`.
-  `SLOT=~/firstmate/data/fm-mac-slot1/fm-mac-slot.sh`. Run `$SLOT claim`; only on
-  success, `touch "$RUN_ROOT/slot-claimed"`, then run `$SLOT boot ios <UDID>`. A failed claim ends the
-  drive without any Mac-side work, stop, or release.
+  `SLOT=~/firstmate/data/fm-mac-slot1/fm-mac-slot.sh`. Run
+  `if "$SLOT" claim; then if ! touch "$RUN_ROOT/slot-claimed"; then "$SLOT" release; exit 1; fi; else exit 1; fi`,
+  then run `$SLOT boot ios <UDID>`. If recording the successful claim fails, release
+  it immediately and end the drive; a failed claim ends without Mac-side work, stop, or release.
 - **Build.** Mac scratch is the per-run `$MAC_RUN`. Only after the local marker exists,
   create it and `touch "$MAC_RUN/slot-claimed"` in the same SSH call, then copy the archive and extract into `$MAC_RUN/<sha>`. Linux:
   `git archive --format=tar <sha> -o "$RUN_ROOT/src.tar"`. Mac, through
