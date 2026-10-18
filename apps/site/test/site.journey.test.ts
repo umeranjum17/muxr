@@ -112,8 +112,11 @@ describe('published site journey', () => {
         };
         try {
             const offered = await desktopPage();
-            expect(offered).toContain(`href="${asset('muxr-0.2.9.AppImage')}"`);
+            // The button rides the channel route, never the asset URL, so an
+            // open page keeps downloading the current release.
+            expect(offered).toContain('href="/downloads/stable/linux"');
             expect(offered).toContain('Download for Linux');
+            expect(offered).toContain('b'.repeat(64));
             expect(offered).toContain('npm install -g --ignore-scripts @trymuxr/cli@latest');
 
             // A download pointing anywhere but the release's own asset is never offered.
@@ -127,6 +130,51 @@ describe('published site journey', () => {
             expect(unpublished).not.toContain('Download for Linux');
             expect(unpublished).toContain('not published yet');
             expect(unpublished).toContain('npm install -g --ignore-scripts @trymuxr/cli@latest');
+
+            // The channel's linux route redirects at the record's own asset,
+            // and answers 404 — never another channel's bytes — when the
+            // record carries no validated desktop download.
+            const linuxLocation = async () => {
+                const site = createSiteServer();
+                await new Promise<void>((ready) => site.listen(0, '127.0.0.1', () => ready()));
+                const address = site.address();
+                if (address === null || typeof address === 'string') throw new Error('site did not bind');
+                try {
+                    const res = await fetch(`http://127.0.0.1:${address.port}/downloads/stable/linux`, { redirect: 'manual' });
+                    await res.arrayBuffer();
+                    return res;
+                } finally {
+                    await new Promise<void>((closed) => site.close(() => closed()));
+                }
+            };
+            catalog = stable({ url: asset('muxr-0.2.9.AppImage'), sha256: 'b'.repeat(64), bytes: 120_000_000 });
+            const linuxRedirect = await linuxLocation();
+            expect(linuxRedirect.status).toBe(302);
+            expect(linuxRedirect.headers.get('location')).toBe(asset('muxr-0.2.9.AppImage'));
+
+            // The digest file lists every artifact the channel serves.
+            const site = createSiteServer();
+            await new Promise<void>((ready) => site.listen(0, '127.0.0.1', () => ready()));
+            const sumsAddress = site.address();
+            if (sumsAddress === null || typeof sumsAddress === 'string') throw new Error('site did not bind');
+            try {
+                const sums = await fetch(`http://127.0.0.1:${sumsAddress.port}/downloads/stable/checksums`);
+                expect(sums.status).toBe(200);
+                const body = await sums.text();
+                expect(body).toContain(`${'a'.repeat(64)}  muxr-0.2.9-400.apk`);
+                expect(body).toContain(`${'b'.repeat(64)}  muxr-0.2.9.AppImage`);
+            } finally {
+                await new Promise<void>((closed) => site.close(() => closed()));
+            }
+
+            catalog = stable({ url: 'https://example.com/muxr-0.2.9.AppImage', sha256: 'b'.repeat(64), bytes: 120_000_000 });
+            const foreignLinux = await linuxLocation();
+            expect(foreignLinux.status).toBe(404);
+            expect(foreignLinux.headers.get('location')).toBeNull();
+
+            catalog = stable(undefined);
+            const missingLinux = await linuxLocation();
+            expect(missingLinux.status).toBe(404);
         } finally {
             delete process.env.MUXR_RELEASE_CATALOG_URL;
             await new Promise<void>((closed) => fixture.close(() => closed()));

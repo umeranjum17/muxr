@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, readFileSync, readdirSync, renameSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { verifyRelease } from './verifyRelease.mjs';
 import { sealRelease } from './sealRelease.mjs';
@@ -26,6 +26,16 @@ export async function publishCandidate() {
         || await digestFile(join(androidDirectory, aab[0])) !== android.artifactSha256) throw new Error('Android artifact mismatch');
     const signer = readFileSync(join(androidDirectory, 'signer.txt'), 'utf8').match(/certificate SHA-256 digest: ([a-f0-9]{64})/i)?.[1].toLowerCase();
     if (!signer) throw new Error('Missing verified Android signer');
+    // The Linux desktop app ships in the same release from the same source
+    // commit. Exactly one AppImage joins the candidate directory, so the seal
+    // below hashes it like every other artifact and the catalog derives the
+    // desktop download from that sealed record, never from a later upload.
+    const appimageDirectory = join(RUNNER_TEMP, 'appimage');
+    const appimages = readdirSync(appimageDirectory).filter((name) => name.endsWith('.AppImage'));
+    if (appimages.length !== 1) throw new Error('Exactly one Linux AppImage artifact is required');
+    const appimageName = appimages[0];
+    if (statSync(join(appimageDirectory, appimageName)).size < 1) throw new Error('Linux AppImage artifact is empty');
+    copyFileSync(join(appimageDirectory, appimageName), join(directory, appimageName));
     renameSync(join(directory, 'release-manifest.json'), join(directory, 'npm-manifest.json'));
     // The Android artifact carries its own report, rendered from the same source
     // with the build code in it. The candidate's report is already verified

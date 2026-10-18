@@ -2,6 +2,7 @@ import type { ServerResponse } from 'node:http';
 import { drawing, escapeHtml, INSTALL, term, writeHtml, writeMessage } from './website.js';
 import {
     apkFilename,
+    linuxFilename,
     CHANNELS,
     isChannel,
     ReleaseCatalogUnavailable,
@@ -128,7 +129,7 @@ function writeDesktop(res: ServerResponse, stable: ChannelRelease | undefined, c
     let offer: string;
     if (linux !== undefined && stable !== undefined) {
         offer = `<p class="lede">Get the muxr app for this computer, open it, and pair your phone. No terminal needed.</p>
-<p><a class="button primary" href="${escapeHtml(linux.url)}">Download for Linux</a></p>
+<p><a class="button primary" href="/downloads/stable/linux">Download for Linux</a></p>
 <p>muxr ${escapeHtml(stable.version)} for Linux, ${escapeHtml(size(linux.bytes))}. In the downloaded file’s Properties, allow it to run as a program, then open it.</p>
 ${pairNote}
 <details><summary>Verify the download</summary><p>Run <code>sha256sum ${escapeHtml(name)}</code> and compare it with:</p><p><code>${escapeHtml(linux.sha256)}</code></p></details>
@@ -214,7 +215,7 @@ export function createDownloadRoutes(channels: ReleaseChannels) {
             action = segments[2];
         } else return false;
 
-        if (action !== undefined && !['android', 'release', 'checksums'].includes(action)) return false;
+        if (action !== undefined && !['android', 'linux', 'release', 'checksums'].includes(action)) return false;
 
         try {
             const catalog = await channels.catalog();
@@ -234,8 +235,17 @@ export function createDownloadRoutes(channels: ReleaseChannels) {
             const release = resolution.release;
             if (api) { json(res, 200, { channel: resolution.channel, ...release }); return true; }
             if (action === 'android') redirect(res, release.android.url);
+            else if (action === 'linux') {
+                if (release.linux === undefined) {
+                    writeMessage(res, 404, 'No Linux download yet', 'This channel has no published Linux desktop app yet. The desktop page shows the terminal install that pairs the same way.', '/desktop');
+                } else redirect(res, release.linux.url);
+            }
             else if (action === 'release') redirect(res, release.releaseUrl);
-            else if (action === 'checksums') plain(res, `${release.android.sha256}  ${apkFilename(release)}\n`);
+            else if (action === 'checksums') {
+                const lines = [`${release.android.sha256}  ${apkFilename(release)}`];
+                if (release.linux !== undefined) lines.push(`${release.linux.sha256}  ${linuxFilename(release)}`);
+                plain(res, `${lines.join('\n')}\n`);
+            }
             else writeChannel(res, resolution.channel, release);
             return true;
         } catch (error) {

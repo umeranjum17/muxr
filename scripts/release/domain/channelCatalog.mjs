@@ -29,6 +29,22 @@ function recordedChannel(channel) {
     return Object.hasOwn(RECORDED_TAGS, channel);
 }
 
+function linuxNameOf(url) {
+    return typeof url === 'string' ? url.split('/').pop() ?? '' : '';
+}
+
+/** The desktop download is optional, but never loose: when present it is the
+ * release's own AppImage with its manifest digest, or the entry is invalid. */
+function validLinux(linux, tag) {
+    if (linux === undefined) return true;
+    if (linux === null || typeof linux !== 'object') return false;
+    const name = linuxNameOf(linux.url);
+    return name.endsWith('.AppImage')
+        && linux.url === assetUrl(CANONICAL_REPOSITORY, tag, name)
+        && /^[0-9a-f]{64}$/.test(linux.sha256 ?? '')
+        && Number.isSafeInteger(linux.bytes) && linux.bytes > 0;
+}
+
 function belongsToChannel(version, channel) {
     const parsed = releaseVersion(version);
     if (Object.hasOwn(channelTags, channel)) return parsed.channel === channel && parsed.legacy === false;
@@ -72,6 +88,7 @@ function validEntry(entry, channel) {
     const manifestAllowed = manifestExact || (entry.manifestUrl === null && legacy);
     const apkName = typeof android.url === 'string' ? android.url.split('/').pop() : '';
     return release.appVersion === entry.appVersion
+        && validLinux(entry.linux, entry.tag)
         && entry.npmDistTag === RECORDED_TAGS[channel]
         && entry.releaseUrl === `https://github.com/${CANONICAL_REPOSITORY}/releases/tag/${entry.tag}`
         && manifestAllowed
@@ -93,6 +110,8 @@ export function channelEntry({ repository = CANONICAL_REPOSITORY, tag, manifest,
     const artifacts = Array.isArray(manifest.artifacts) ? manifest.artifacts : [];
     const apks = artifacts.filter((item) => item?.name?.endsWith('.apk'));
     if (apks.length !== 1) throw new Error('Exactly one Android APK artifact is required');
+    const appimages = artifacts.filter((item) => item?.name?.endsWith('.AppImage'));
+    if (appimages.length > 1) throw new Error('At most one Linux AppImage artifact is allowed');
     const android = manifest.android;
     if (!android || !Number.isSafeInteger(android.versionCode) || typeof android.applicationId !== 'string') {
         throw new Error('Release manifest carries no Android build identity');
@@ -112,6 +131,13 @@ export function channelEntry({ repository = CANONICAL_REPOSITORY, tag, manifest,
             versionCode: android.versionCode,
             applicationId: android.applicationId,
         },
+        ...(appimages.length === 1 ? {
+            linux: {
+                url: assetUrl(repository, tag, appimages[0].name),
+                sha256: appimages[0].sha256,
+                bytes: appimages[0].bytes,
+            },
+        } : {}),
     };
     if (!validEntry(entry, release.channel)) throw new Error('Derived channel entry is invalid');
     return { channel: release.channel, entry };
@@ -160,17 +186,35 @@ export function publicRecordMismatch(entry, record, channel) {
     for (const field of ['url', 'sha256', 'bytes', 'versionCode', 'applicationId']) {
         if (record.android?.[field] !== entry.android[field]) return `served android.${field} ${JSON.stringify(record.android?.[field])}, expected ${JSON.stringify(entry.android[field])}`;
     }
+    if (entry.linux !== undefined || record.linux !== undefined) {
+        for (const field of ['url', 'sha256', 'bytes']) {
+            if (record.linux?.[field] !== entry.linux?.[field]) return `served linux.${field} ${JSON.stringify(record.linux?.[field])}, expected ${JSON.stringify(entry.linux?.[field])}`;
+        }
+    }
     return undefined;
 }
 
-/** The checksum page must carry the APK's own digest line, not a summary. */
-export function checksumLineMismatch(entry, text) {
-    if (typeof text !== 'string' || text.trim() === '') return 'served no checksums';
-    const name = entry.android.url.split('/').pop();
+/** A digest line pairs one artifact's sha256 with its filename, nothing else. */
+function digestLine(text, sha, name) {
     for (const line of text.split('\n')) {
         const parts = line.trim().split(/\s+/);
         if (parts.length !== 2) continue;
-        if (parts[0] === entry.android.sha256 && parts[1].replace(/^\*/, '') === name) return undefined;
+        if (parts[0] === sha && parts[1].replace(/^\*/, '') === name) return true;
     }
-    return `no line pairing ${entry.android.sha256} with ${name}`;
+    return false;
+}
+
+/**
+ * The checksum page must carry each served artifact's own digest line, not a
+ * summary: the APK always, and the AppImage whenever the entry carries one.
+ */
+export function checksumLineMismatch(entry, text) {
+    if (typeof text !== 'string' || text.trim() === '') return 'served no checksums';
+    const apkName = entry.android.url.split('/').pop();
+    if (!digestLine(text, entry.android.sha256, apkName)) return `no line pairing ${entry.android.sha256} with ${apkName}`;
+    if (entry.linux !== undefined) {
+        const linuxName = entry.linux.url.split('/').pop();
+        if (!digestLine(text, entry.linux.sha256, linuxName)) return `no line pairing ${entry.linux.sha256} with ${linuxName}`;
+    }
+    return undefined;
 }

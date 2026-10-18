@@ -54,6 +54,9 @@ export async function verifyPublicRelease({
         expect: (value) => publicRecordMismatch(entry, value, expected.channel),
     });
     const android = await requireRedirect(`${site}/downloads/${expected.channel}/android`, entry.android.url, { deadline });
+    if (entry.linux !== undefined) {
+        await requireRedirect(`${site}/downloads/${expected.channel}/linux`, entry.linux.url, { deadline });
+    }
     await requireRedirect(`${site}/downloads/${expected.channel}/release`, entry.releaseUrl, { deadline });
     await readPublicText(`${site}/downloads/${expected.channel}/checksums`, {
         deadline,
