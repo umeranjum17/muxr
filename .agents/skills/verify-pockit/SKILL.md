@@ -1,6 +1,6 @@
 ---
 name: verify-pockit
-description: Verify muxr's self-hosted relay/host, public CLI and phone screens the way a user drives them, from this pockit checkout and without touching the owner's installed muxr. Use before claiming a host, relay, Shared Artifacts, naming, retention, CLI or phone/PWA UI change works (every UI change runs the Visual check), when a check fails and you need a live instance to reproduce against, or when asked to run the verify-pockit flow.
+description: Verify muxr's self-hosted relay/host, public CLI and phone screens the way a user drives them, from this pockit checkout and without touching the owner's installed muxr. Use before claiming a host, relay, Shared Artifacts, naming, retention, CLI or phone/PWA/iOS Simulator UI change works (every UI change runs the Visual check), when a check fails and you need a live instance to reproduce against, or when asked to run the verify-pockit flow.
 license: Apache-2.0
 ---
 
@@ -343,6 +343,64 @@ visual check: PASS            (or: visual check: FAIL: <shot>: <defect>; …)
 
 Not yet part of this check; a later step will be wired in here.
 Do not report a design check as run until it is.
+
+## iOS Simulator path (Mac)
+
+Proves a Release iOS build on a simulator this task booted, paired to a private
+host, with Home captured dark and light. The Mac is shared: it takes one device
+at a time through the Mac slot, and it has about 10 GiB free for a Release build.
+
+- **Preconditions.** `fm-mac-slot.sh status` shows `lock: free`, `boot: none`,
+  `iOS booted: 0`. A booted simulator this task did not boot = blocked, naming
+  it. Only use a simulator with a creation receipt in the slot's
+  `.ios-devices.json` (`0A257D0B-1E70-4752-94A7-AC0C78CEAA11`, `fm-iPhone 17 Pro`).
+  Check disk first: `ssh <mac-user>@<mac-ip> 'df -h ~'`.
+- **Slot.** `SLOT=~/firstmate/data/fm-mac-slot1/fm-mac-slot.sh`;
+  `$SLOT claim`, then `$SLOT boot ios <UDID>`. Release on every exit path:
+  `$SLOT stop`, then `$SLOT release`; `status` must show `lock: free` and
+  `iOS booted: 0`.
+- **Build.** Scratch on the Mac is `~/fm-verify-pockit-ios1`, removed at the end.
+  Linux: `git archive --format=tar <sha> -o <scratch>/src.tar`, copy it to the
+  Mac and extract into `~/fm-verify-pockit-ios1/<sha>`. Mac, through
+  `fm-mem-gate.sh` and backgrounded, from that folder with
+  `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` (pod install fails on the ssh default
+  locale): `yarn install --frozen-lockfile --non-interactive`, `yarn build`,
+  `node scripts/diagnostics/application/syncIosFramework.mjs --verify`,
+  `(cd apps/mobile/ios && pod install)`, then `xcodebuild -workspace
+  apps/mobile/ios/muxr.xcworkspace -scheme muxr -configuration Release -sdk
+  iphonesimulator -derivedDataPath ~/fm-verify-pockit-ios1/dd
+  CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO
+  DEBUG_INFORMATION_FORMAT=dwarf build`. The app is
+  `~/fm-verify-pockit-ios1/dd/Build/Products/Release-iphonesimulator/muxr.app`
+  (`com.trymuxr.app`); `xcrun simctl install <UDID> <app>`.
+- **Host.** Relay on the tailnet address: `MUXR_RELAY_PORT=0
+  MUXR_RELAY_HOST=<tailnet ip> MUXR_RELAY_DATA_DIR=<run>/relay MUXR_RELAY_MDNS=0`,
+  port read from its stdout line, `/health` ok. Write `selfhost.json` as in
+  Launch with `relayUrl` `ws://<tailnet ip>:<port>`. Herdr: provision a lab
+  session with `fm-herdr-lab.sh name` and `provision`, with
+  `FM_HERDR_LAB_STATE_DIR` in scratch (mode 700). Run the host without `--fake`
+  under the lab's XDG root (`<state>/<session>.xdg-root`) with
+  `HERDR_SESSION=<lab session>`, and **unset `HERDR_SOCKET_PATH`**: an inherited
+  one is the owner's default socket, and the host refuses it. Wait for
+  `link relay: online`.
+- **Pair.** Start `node .agents/skills/verify-pockit/features/iosPair.mjs
+  <MUXR_HOME> <link-file>` in the background. It writes `muxr://pair#<offer>` and
+  prints the approval words, then answers yes: the two words are the consent
+  step, so confirm the phone shows the same words. Offers expire in about two
+  minutes, so open the link at once with `xcrun simctl openurl <UDID> '<link>'`
+  over ssh. Tap Pair with `axe tap -x <pt> -y <pt>` on the Mac; points are the
+  screenshot pixels divided by 3. Find the button with a shot or `axe describe-ui`.
+- **Capture.** `xcrun simctl ui <UDID> appearance dark|light`, wait a few
+  seconds, then `$SLOT ios-shot <file>`. Home shows the paired machine as
+  `connected`. Open every shot before reporting.
+- **Cleanup.** Kill the exact host and relay PIDs the run started, then
+  `fm-herdr-lab.sh teardown <session>`, `$SLOT stop`, `$SLOT release`, and remove
+  the Mac scratch by its literal path (`rm -rf -- /Users/you/fm-verify-pockit-ios1`).
+  Confirm `xcrun simctl list devices booted` is empty. Evidence goes to
+  `~/.no-mistakes/evidence/<task>/`: screenshots, build log, command notes.
+
+The Android and PWA Visual check above does not cover these shots: they prove a
+simulator Home, not the matrix.
 
 ## Cleanup
 
