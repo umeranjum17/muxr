@@ -367,7 +367,8 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` (pod install fails on the ssh default
   locale): `yarn install --frozen-lockfile --non-interactive`, `yarn build`,
   `node scripts/diagnostics/application/syncIosFramework.mjs --verify`,
-  `(cd apps/mobile/ios && pod install)`, then `xcodebuild -workspace
+  `(cd apps/mobile/ios && pod install)`, then, with `set -o pipefail` first so
+  the status is xcodebuild's and not tee's, `xcodebuild -workspace
   apps/mobile/ios/muxr.xcworkspace -scheme muxr -configuration Release -sdk
   iphonesimulator -derivedDataPath ~/fm-verify-pockit-ios1/dd
   CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO
@@ -376,12 +377,14 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   `~/fm-verify-pockit-ios1/dd/Build/Products/Release-iphonesimulator/muxr.app`
   (`com.trymuxr.app`); `xcrun simctl install <UDID> <app>`.
 - **Host.** Set the home explicitly: `MUXR_HOME="$RUN_ROOT/muxr-home"`, the same
-  home Launch uses, and `mkdir -p "$MUXR_HOME"`. Relay on the tailnet address:
+  home Launch uses, and `mkdir -p "$MUXR_HOME"`. Relay on the tailnet address,
+  run in the background as `IOS_RELAY_PID=$!`:
   `MUXR_RELAY_PORT=0 MUXR_RELAY_HOST=<tailnet ip> MUXR_RELAY_DATA_DIR=$RUN_ROOT/relay MUXR_RELAY_MDNS=0`,
   port read from its stdout line, `/health` ok. Write `$MUXR_HOME/selfhost.json`
   as in Launch with `relayUrl` `ws://<tailnet ip>:<port>`. Herdr: provision a lab
   session with `fm-herdr-lab.sh name` and `provision`, with
   `FM_HERDR_LAB_STATE_DIR` in scratch (mode 700). Run the host without `--fake`
+  in the background as `IOS_HOST_PID=$!`
   with `MUXR_MODE=selfhost MUXR_DATA_DIR="$MUXR_HOME/host"` and
   `MUXR_HOME="$MUXR_HOME"`, under the lab's XDG root (`<state>/<session>.xdg-root`)
   with `HERDR_SESSION=<lab session>`, and **unset `HERDR_SOCKET_PATH`**: an
@@ -407,11 +410,12 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
 - **Capture.** `xcrun simctl ui <UDID> appearance dark|light`, wait a few
   seconds, then `$SLOT ios-shot "$EVIDENCE/ios-home-<appearance>.png"`. Home shows the paired machine as
   `connected`. Open every shot before reporting.
-- **Cleanup.** Kill the exact host and relay PIDs the run started, then
+- **Cleanup.** Kill `$IOS_HOST_PID` and `$IOS_RELAY_PID` (the PIDs the Host step
+  recorded), then
   `fm-herdr-lab.sh teardown <session>`. Copy the build log out with
   `scp <mac-user>@<mac-ip>:fm-verify-pockit-ios1/build.log "$EVIDENCE/ios-build.log"`,
   then remove the Mac scratch by its literal path
-  (`rm -rf -- /Users/you/fm-verify-pockit-ios1`). Only if
+  (`ssh <mac-user>@<mac-ip> 'rm -rf -- ~/fm-verify-pockit-ios1'`). Only if
   `$RUN_ROOT/slot-claimed` exists, run `$SLOT stop`, `$SLOT release`, then confirm
   `xcrun simctl list devices booted` is empty. Screenshots and command notes
   already sit in `$EVIDENCE`, the run's single evidence root.
