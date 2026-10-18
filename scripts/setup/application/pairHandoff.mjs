@@ -8,7 +8,6 @@ import { linkPair } from './linkPair.mjs';
 
 const LIMIT = 64 * 1024;
 const WAIT_MS = 120_000;
-const CODE_MS = 300_000;
 
 function readWords(path) {
     let fd;
@@ -55,7 +54,7 @@ export async function pairHandoff(state) {
             presentOffer: (offer, notice) => {
                 const wordsFile = `${stem}-${randomBytes(6).toString('hex')}.words`;
                 const wordsPath = join(inbox, wordsFile);
-                openOffers.set(wordsPath, offer.expires + CODE_MS);
+                openOffers.set(wordsPath, offer.expires + offer.pairMs);
                 const text = `${JSON.stringify({ version: 1, offer: offer.text, expiresAt: offer.expires, wordsFile, notice })}\n`;
                 if (Buffer.byteLength(text) > LIMIT) throw new Error('pairing offer exceeds the 64 KB handoff limit');
                 atomicWrite(offerPath, text);
