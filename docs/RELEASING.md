@@ -123,7 +123,7 @@ The catalog update is idempotent and backfills any retained release without rebu
 
 Public surfaces do not converge instantly: the raw catalog is served by a CDN that holds a branch file for minutes and ignores a cache-busting query, and the website adds its own short TTL. Verification therefore waits for convergence against **one shared deadline across every surface**, rather than giving each its own window and multiplying the worst case. The catalog write is confirmed through the branch API, which is authoritative and uncached, so that wait happens once per publication.
 
-Verification is bound to the release being published, not to whatever a surface reports: the expected record is derived from the exact tag, and the check fails unless the catalog, `/api/releases/<channel>`, every download redirect (including the Linux one once the release carries an AppImage) and the checksum line all carry that record, the npm dist-tag names that version, and GitHub's prerelease/Latest status is right for the channel.
+Verification is bound to the release being published, not to whatever a surface reports: the expected record is derived from the exact tag, and the check fails unless the catalog, `/api/releases/<channel>`, every download redirect (including the Linux one once the release carries an AppImage) and the checksum lines all carry that record, the npm dist-tag names that version, and GitHub's prerelease/Latest status is right for the channel.
 
 Splitting the commands lets an initial migration seed the catalog before the website routes exist; the normal release path always runs all of them, and there is no bypass flag in CI.
 

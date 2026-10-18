@@ -112,8 +112,11 @@ describe('published site journey', () => {
         };
         try {
             const offered = await desktopPage();
-            expect(offered).toContain(`href="${asset('muxr-0.2.9.AppImage')}"`);
+            // The button rides the channel route, never the asset URL, so an
+            // open page keeps downloading the current release.
+            expect(offered).toContain('href="/downloads/stable/linux"');
             expect(offered).toContain('Download for Linux');
+            expect(offered).toContain('b'.repeat(64));
             expect(offered).toContain('npm install -g --ignore-scripts @trymuxr/cli@latest');
 
             // A download pointing anywhere but the release's own asset is never offered.
@@ -148,6 +151,21 @@ describe('published site journey', () => {
             const linuxRedirect = await linuxLocation();
             expect(linuxRedirect.status).toBe(302);
             expect(linuxRedirect.headers.get('location')).toBe(asset('muxr-0.2.9.AppImage'));
+
+            // The digest file lists every artifact the channel serves.
+            const site = createSiteServer();
+            await new Promise<void>((ready) => site.listen(0, '127.0.0.1', () => ready()));
+            const sumsAddress = site.address();
+            if (sumsAddress === null || typeof sumsAddress === 'string') throw new Error('site did not bind');
+            try {
+                const sums = await fetch(`http://127.0.0.1:${sumsAddress.port}/downloads/stable/checksums`);
+                expect(sums.status).toBe(200);
+                const body = await sums.text();
+                expect(body).toContain(`${'a'.repeat(64)}  muxr-0.2.9-400.apk`);
+                expect(body).toContain(`${'b'.repeat(64)}  muxr-0.2.9.AppImage`);
+            } finally {
+                await new Promise<void>((closed) => site.close(() => closed()));
+            }
 
             catalog = stable({ url: 'https://example.com/muxr-0.2.9.AppImage', sha256: 'b'.repeat(64), bytes: 120_000_000 });
             const foreignLinux = await linuxLocation();

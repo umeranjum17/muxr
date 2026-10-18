@@ -210,6 +210,13 @@ export function apkFilename(release: ChannelRelease): string {
     return name;
 }
 
+/** The AppImage filename as published, taken from the URL rather than rebuilt. */
+export function linuxFilename(release: ChannelRelease): string {
+    const name = release.linux?.url.split('/').pop() ?? '';
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.AppImage$/.test(name)) throw new ReleaseCatalogUnavailable('invalid linux filename');
+    return name;
+}
+
 type CatalogResponse = { ok: boolean; status: number; json: () => Promise<unknown> };
 type CatalogFetch = (url: string, init: { signal: AbortSignal }) => Promise<CatalogResponse>;
 

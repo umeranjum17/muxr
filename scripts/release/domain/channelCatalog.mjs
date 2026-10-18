@@ -194,14 +194,27 @@ export function publicRecordMismatch(entry, record, channel) {
     return undefined;
 }
 
-/** The checksum page must carry the APK's own digest line, not a summary. */
-export function checksumLineMismatch(entry, text) {
-    if (typeof text !== 'string' || text.trim() === '') return 'served no checksums';
-    const name = entry.android.url.split('/').pop();
+/** A digest line pairs one artifact's sha256 with its filename, nothing else. */
+function digestLine(text, sha, name) {
     for (const line of text.split('\n')) {
         const parts = line.trim().split(/\s+/);
         if (parts.length !== 2) continue;
-        if (parts[0] === entry.android.sha256 && parts[1].replace(/^\*/, '') === name) return undefined;
+        if (parts[0] === sha && parts[1].replace(/^\*/, '') === name) return true;
     }
-    return `no line pairing ${entry.android.sha256} with ${name}`;
+    return false;
+}
+
+/**
+ * The checksum page must carry each served artifact's own digest line, not a
+ * summary: the APK always, and the AppImage whenever the entry carries one.
+ */
+export function checksumLineMismatch(entry, text) {
+    if (typeof text !== 'string' || text.trim() === '') return 'served no checksums';
+    const apkName = entry.android.url.split('/').pop();
+    if (!digestLine(text, entry.android.sha256, apkName)) return `no line pairing ${entry.android.sha256} with ${apkName}`;
+    if (entry.linux !== undefined) {
+        const linuxName = entry.linux.url.split('/').pop();
+        if (!digestLine(text, entry.linux.sha256, linuxName)) return `no line pairing ${entry.linux.sha256} with ${linuxName}`;
+    }
+    return undefined;
 }

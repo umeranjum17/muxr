@@ -2,6 +2,7 @@ import type { ServerResponse } from 'node:http';
 import { drawing, escapeHtml, INSTALL, term, writeHtml, writeMessage } from './website.js';
 import {
     apkFilename,
+    linuxFilename,
     CHANNELS,
     isChannel,
     ReleaseCatalogUnavailable,
@@ -127,8 +128,11 @@ function writeDesktop(res: ServerResponse, stable: ChannelRelease | undefined, c
     const pairNote = '<p>The computer then shows a one-use QR. On your phone, tap <strong>Scan the computer’s QR</strong>, check that the same two words show on both, and approve on the computer.</p>';
     let offer: string;
     if (linux !== undefined && stable !== undefined) {
-        offer = `<p class="lede">Get the muxr app for this computer, open it, and pair your phone. No terminal needed.</p>
-<p><a class="button primary" href="${escapeHtml(linux.url)}">Download for Linux</a></p>
+        // The button rides the channel route, not the asset URL, so a page
+    // opened today still downloads the current release after the catalog
+    // advances. The route only serves while this record vouches for it.
+    offer = `<p class="lede">Get the muxr app for this computer, open it, and pair your phone. No terminal needed.</p>
+<p><a class="button primary" href="/downloads/stable/linux">Download for Linux</a></p>
 <p>muxr ${escapeHtml(stable.version)} for Linux, ${escapeHtml(size(linux.bytes))}. In the downloaded file’s Properties, allow it to run as a program, then open it.</p>
 ${pairNote}
 <details><summary>Verify the download</summary><p>Run <code>sha256sum ${escapeHtml(name)}</code> and compare it with:</p><p><code>${escapeHtml(linux.sha256)}</code></p></details>
@@ -244,7 +248,13 @@ export function createDownloadRoutes(channels: ReleaseChannels) {
                 } else redirect(res, release.linux.url);
             }
             else if (action === 'release') redirect(res, release.releaseUrl);
-            else if (action === 'checksums') plain(res, `${release.android.sha256}  ${apkFilename(release)}\n`);
+            // The digest file lists every artifact this channel serves, so a
+            // downloader can verify the desktop app the same way as the APK.
+            else if (action === 'checksums') {
+                const lines = [`${release.android.sha256}  ${apkFilename(release)}`];
+                if (release.linux !== undefined) lines.push(`${release.linux.sha256}  ${linuxFilename(release)}`);
+                plain(res, `${lines.join('\n')}\n`);
+            }
             else writeChannel(res, resolution.channel, release);
             return true;
         } catch (error) {
