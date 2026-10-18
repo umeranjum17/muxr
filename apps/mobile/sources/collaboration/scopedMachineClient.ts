@@ -1,4 +1,4 @@
-import type { PeerRequestMap, PeerRequestType } from '@trymuxr/contract';
+import type { PeerRequestType, RequestParams, RequestResult } from '@trymuxr/contract';
 import { MuxrRequestError } from '@/pairing';
 import { LinkFirstClient } from '@/pairing/client';
 import type { StoredHostedGrant } from '@/pairing/e2ee';
@@ -6,14 +6,17 @@ import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { PeerHostResponseError } from './computerCollaboration';
 
+type ScopedMachineRequestType = PeerRequestType | 'session.start' | 'session.list' | 'session.prompt' | 'herdr.agentKinds';
+
 /** Request one paired machine without changing the app's active connection. */
-export async function requestPairedMachine<T extends PeerRequestType>(
+export async function requestPairedMachine<T extends ScopedMachineRequestType>(
     grant: StoredHostedGrant,
     type: T,
-    params: PeerRequestMap[T]['params'],
-): Promise<PeerRequestMap[T]['result']> {
+    params: RequestParams<T>,
+    timeoutMs = 12_000,
+): Promise<RequestResult<T>> {
     if (getCachedConnectionSettings().machineId === grant.machineId) {
-        try { return await sync.request(type, params, 12_000); }
+        try { return await sync.request(type, params, timeoutMs); }
         catch (cause) {
             if (cause instanceof MuxrRequestError) throw new PeerHostResponseError(cause.message, cause.code);
             throw cause;
@@ -22,7 +25,7 @@ export async function requestPairedMachine<T extends PeerRequestType>(
     const client = await openPairedMachine(grant);
     try {
         try {
-            return await client.request(type, params);
+            return await client.request(type, params, timeoutMs);
         } catch (cause) {
             if (cause instanceof MuxrRequestError) throw new PeerHostResponseError(cause.message, cause.code);
             throw cause;
