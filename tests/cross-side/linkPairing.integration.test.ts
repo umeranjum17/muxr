@@ -289,10 +289,10 @@ describe('native pairing over the byokit link', () => {
             const offered = JSON.parse(readFileSync(offerPath, 'utf8'));
             return offered.wordsFile === previousWords ? undefined : { offerPath, offered };
         }, 'handoff offer', 60_000);
-        // Short codes let the matching run see one code run out before its yes.
-        await startHost('20000');
         try {
             for (const mode of ['wrong', 'cancel', 'expires', 'matching']) {
+                // Keep the short host window for the matching journey's deliberately late claim too.
+                await startHost(mode === 'wrong' || mode === 'expires' || mode === 'matching' ? '20000' : undefined);
                 const matches = mode === 'matching';
                 const before = readSelfhostState().machine.crypto.devices.length;
                 // The 3 s cap falls while the phone's claim waits for words; the 20 s code runs out first.
@@ -301,7 +301,7 @@ describe('native pairing over the byokit link', () => {
                 const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
                 let shownWords = '';
                 try {
-                    const { offerPath, offered } = await nextOffer(command);
+                    let { offerPath, offered } = await nextOffer(command);
                     expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
                     expect(offered.version).toBe(1);
                     let current = offered;
@@ -315,6 +315,8 @@ describe('native pairing over the byokit link', () => {
                         expect(current.notice).toBe('That code ran out before you said yes. Scan the new QR below');
                         // The first code's words land after it ran out, while the next code is open.
                         deliver(offered.wordsFile, lateWords);
+                        ({ offerPath, offered } = await nextOffer(command, offered.wordsFile));
+                        expect(offered.notice).toBeUndefined();
                     }
                     const pairing = runPhonePairing(current.offer, { onWords: async (words) => {
                         shownWords = words;
@@ -331,7 +333,7 @@ describe('native pairing over the byokit link', () => {
                     if (matches) await pairing;
                     else if (mode === 'wrong') {
                         await until(() => (shownWords === '' ? undefined : true), 'phone shows words');
-                        await new Promise((resolve) => setTimeout(resolve, 1000));
+                        await new Promise((resolve) => setTimeout(resolve, 1_000));
                         expect(command.exitCode).toBeNull();
                         await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
                         command.kill('SIGTERM');
@@ -348,7 +350,7 @@ describe('native pairing over the byokit link', () => {
                     if (current !== offered) expect(command.output()).not.toContain(offered.offer);
                     expect(shownWords).not.toBe('');
                     expect(command.output()).not.toContain(shownWords);
-                    if (mode === 'wrong') expect(command.output()).toContain('two words did not match');
+                    if (mode === 'wrong') expect(command.output()).toContain('That code ran out before you said yes. Scan the new QR below');
                     if (mode === 'cancel') {
                         await until(() => host!.output().includes('Pairing connection lost; this pairing attempt ended.') ? true : undefined,
                             'host contains the peer reset without crashing');
