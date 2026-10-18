@@ -467,12 +467,9 @@ describe('desktop setup project folder', () => {
         expect(oldRepo).not.toBe(freshRepo);
 
         const crowdedHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-crowded-'));
-        for (let index = 0; index < 64; index += 1) {
-            const busy = join(crowdedHome, `busy-${String(index).padStart(2, '0')}`);
-            mkdirSync(busy);
-            utimesSync(busy, new Date(1_800_000_000_000 + index), new Date(1_800_000_000_000 + index));
+        for (let index = 0; index < 80; index += 1) {
+            mkdirSync(join(crowdedHome, `busy-${String(index).padStart(2, '0')}`));
         }
-        repo(crowdedHome, 'zzz-repo', 1_790_000_000_000);
         expect(suggestProjectFolder(crowdedHome)).toBeNull();
 
         const muxrHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-home-'));

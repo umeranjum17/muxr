@@ -32,11 +32,9 @@ function isGitRepo(path) {
 function childDirs(root) {
     try {
         return readdirSync(root, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-            .map((entry) => ({ path: join(root, entry.name), mtime: mtimeOf(join(root, entry.name)) }))
-            .sort((left, right) => right.mtime - left.mtime)
             .slice(0, 64)
-            .map((entry) => entry.path);
+            .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+            .map((entry) => join(root, entry.name));
     } catch {
         return [];
     }
@@ -52,11 +50,11 @@ export function suggestProjectFolder(homeDir) {
     for (const root of SEARCH_ROOTS) {
         const base = root === '' ? homeDir : join(homeDir, root);
         for (const dir of childDirs(base)) {
-            if (isGitRepo(dir)) candidates.push(dir);
+            if (isGitRepo(dir)) candidates.push({ path: dir, mtime: mtimeOf(dir) });
         }
     }
-    candidates.sort((left, right) => mtimeOf(right) - mtimeOf(left));
-    return candidates[0] ?? null;
+    candidates.sort((left, right) => right.mtime - left.mtime);
+    return candidates[0]?.path ?? null;
 }
 
 /** The saved choice, or undefined when setup never asked. A broken file reads as never asked; the host itself refuses to start on it. */
@@ -76,12 +74,13 @@ export function saveFolder(muxrHome, folder) {
     if (trimmed === '') throw new Error('Enter a folder, or ~ for your home folder.');
     if (trimmed !== '~' && !isAbsolute(trimmed)) throw new Error('Enter an absolute folder path, or ~ for your home folder.');
     if (trimmed !== '~') {
+        let stats;
         try {
-            if (!statSync(trimmed).isDirectory()) throw new Error(`This is not a folder: ${trimmed}`);
-        } catch (error) {
-            if (error instanceof Error && error.message.startsWith('This is not a folder')) throw error;
+            stats = statSync(trimmed);
+        } catch {
             throw new Error(`Cannot reach this folder: ${trimmed}`);
         }
+        if (!stats.isDirectory()) throw new Error(`This is not a folder: ${trimmed}`);
     }
     const path = join(muxrHome, 'config.json');
     let parsed = {};
