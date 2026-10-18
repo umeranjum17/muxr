@@ -464,7 +464,7 @@ export function reduceJank(before, after, { hz } = {}) {
 export function parseRedactedTrail(text) {
     const body = String(text);
     const firstFrames = [...body.matchAll(/terminal\.first-frame\s+(\d+)/g)].map((match) => Number(match[1]));
-    const summary = /terminal\.scroll seq=(\d+) requests=(\d+) rows=(\d+) clamped=(\d+) timedOut=(\d+) absorbed=(\d+)/.exec(body);
+    const summary = /terminal\.scroll seq=(\d+) requests=(\d+) rows=(\d+) clamped=(\d+) timedOut=(\d+)(?: absorbed=(\d+))?/.exec(body);
     // Every line in the body is `<iso> #<seq> <summary>`, so an event a phase
     // did not cause can be told apart from one it did.
     const agentPages = [...body.matchAll(/#(\d+) (?:agent\.page\b|rpc session\.start\b)/g)].map((match) => Number(match[1]));
@@ -480,7 +480,7 @@ export function parseRedactedTrail(text) {
         clamped: summary === null ? 0 : Number(summary[4]),
         timedOut: summary === null ? 0 : Number(summary[5]),
         // Rows the grid's own pan absorbed. Never sent to Herdr, so never in rowsRequested.
-        absorbedRows: summary === null ? 0 : Number(summary[6]),
+        absorbedRows: summary === null ? 0 : summary[6] === undefined ? undefined : Number(summary[6]),
         firstFrameMs: firstFrames.at(-1),
         agentPages,
     };
