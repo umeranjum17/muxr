@@ -180,7 +180,7 @@ function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: 
                         {plan.figures.map((figure, index) => (
                             <View key={figure.name} style={{ flexDirection: 'row', alignItems: 'baseline', maxWidth: '100%' }}>
                                 <Text style={{ marginRight: 4, flexShrink: namesVisible ? 1 : 0, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{`${namesVisible ? figure.name : tags[index]}${figure.cells.length > 1 ? `×${figure.cells.length}` : ''}`}</Text>
-                                <Text style={{ flexShrink: 0, fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: figureColor(theme, figure.cells[0]!) }}>{`${figure.cells[0]!.left}%`}</Text>
+                                <Text style={{ flexShrink: 0, fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: figureColor(theme, figure.cells[0]!) }}>{t('plugins.limits.percentLeft', { percent: figure.cells[0]!.left })}</Text>
                             </View>
                         ))}
                     </View>
@@ -268,23 +268,18 @@ function FactsLine({ note, parts }: { note?: React.ReactNode; parts: string[] })
  *  limit figures are is not a machine fact, and sharing this line with them
  *  is what wrapped a lone fragment onto a second row; the refresh control
  *  owns it now, since it is the control that acts on it. */
-function quietLine(payload: UsageFigures, percent = (value: number) => `${value}%`): string[] {
-    return payload.vitals === undefined ? [] : vitalsFigures(payload.vitals, percent);
+function quietLine(payload: UsageFigures): string[] {
+    return vitalsFigures(payload.vitals);
 }
 
-/** The figures the host could read, in order; a filesystem it could not stat
- *  drops its own figure and leaves the rest of the line standing. */
-function vitalsFigures(vitals: UsageFigures['vitals'], percent = (value: number) => `${value}%`): string[] {
+/** The machine's state as one plain word. The figures behind it are a tap on
+ *  the computer's name (see hostVitalsDetails), not a server line here. */
+function vitalsFigures(vitals: UsageFigures['vitals']): string[] {
     const facts = vitals === undefined ? undefined : vitalsFacts(vitals);
     if (facts === undefined) return [];
-    const { memoryPercent, diskPercent, load, uptime } = facts;
-    return [
-        `${t('plugins.rightNow.memory')} ${percent(memoryPercent)}`,
-        ...(diskPercent === undefined ? [] : [`${t('plugins.rightNow.disk')} ${percent(diskPercent)}`]),
-        `${t('plugins.rightNow.load')} ${load}`,
-        `${t('plugins.rightNow.up')} ${uptime}`,
-    ];
+    return [t(facts.state === 'busy' ? 'plugins.rightNow.busy' : 'plugins.rightNow.healthy')];
 }
+
 
 /** The age of the limit figures, once it is old enough to be worth saying. */
 function disclosedAge(payload: UsageFigures | undefined): string | undefined {
@@ -315,7 +310,7 @@ function cardAccessibilityLabel(payload: UsageFigures): string {
     } else {
         parts.push(emptyLine(payload));
     }
-    const quiet = quietLine(payload, (percent) => t('plugins.limits.percentUsed', { percent }));
+    const quiet = quietLine(payload);
     if (quiet.length > 0) parts.push(quiet.join(', '));
     parts.push(t('plugins.rightNow.opensUsage'));
     return parts.join('. ');
