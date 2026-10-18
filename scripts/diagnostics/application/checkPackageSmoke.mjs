@@ -1338,7 +1338,10 @@ else if(a[0]==='view') {
     for (let attempt = 0; attempt < 30 && await fetch(`http://127.0.0.1:${relayServicePort}/health`).then((response) => response.ok).catch(() => false); attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    const relayService = spawn(cli, ['up'], { cwd: installDir, env: { ...relayEnv, MUXR_MODE: 'relay' }, stdio: 'ignore' });
+    const relayServiceLog = join(scratch, 'packaged-relay-service.log');
+    const relayServiceLogFd = openSync(relayServiceLog, 'a', 0o600);
+    const relayService = spawn(cli, ['up'], { cwd: installDir, env: { ...relayEnv, MUXR_MODE: 'relay' }, stdio: ['ignore', relayServiceLogFd, relayServiceLogFd] });
+    closeSync(relayServiceLogFd);
     await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('packaged relay-only service did not start')), 10_000);
         const poll = setInterval(async () => {
