@@ -57,6 +57,7 @@ export class KitHerdrClient implements HerdrCaller {
     private closed = false;
     /** Edge trigger: log the first reconnect failure and the recovery, never every retry. */
     private down = false;
+    private outage = false;
     /** A starved Herdr keeps its socket open and stops answering, so no
      *  disconnect ever fires; count its timeouts to journal the stall. */
     private timedOut = 0;
