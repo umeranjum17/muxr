@@ -320,7 +320,8 @@ rules, with no H2 sections.
   2.0), Pane actions › Changes, both opening the changes review.
 - [Stay connected to a busy computer](./busy-computer.md) —
   homeLoad at 300 panes / 150 agents, then a frozen lab host on an emulator:
-  busy card through the offline grace, explanation only after it.
+  busy card through the offline grace (up to 5 min for a link that was
+  online), explanation only after it; host journals a stalled Herdr.
 - [Select a terminal's text on iOS](./terminal-select-text-ios.md) —
   Select Text viewer: Select All, one-tap Copy and a read-only edit menu on
   iPhone and iPad simulators.

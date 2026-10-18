@@ -311,6 +311,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
     const socketStatus = useSocketStatus();
     const { workspaces: homeWorkspaces, loaded: homeTreeLoaded } = useHerdrTree();
     const [hasPairedGrant, setHasPairedGrant] = React.useState(false);
+    const [splitMachineName, setSplitMachineName] = React.useState<string | undefined>(undefined);
     const [retryingHome, setRetryingHome] = React.useState(false);
     const [splitRetryFailed, setSplitRetryFailed] = React.useState(false);
     const [splitHostRequestFailed, setSplitHostRequestFailed] = React.useState(false);
@@ -334,7 +335,10 @@ export const MainView = React.memo(({ liveCardBadge }: {
     React.useEffect(() => {
         let cancelled = false;
         void listPairedGrants().then((grants) => {
-            if (!cancelled) setHasPairedGrant(grants.some((grant) => grant.machineId === getCachedConnectionSettings().machineId));
+            if (cancelled) return;
+            const active = grants.find((grant) => grant.machineId === getCachedConnectionSettings().machineId);
+            setHasPairedGrant(active !== undefined);
+            setSplitMachineName(active?.machineName);
         }).catch(() => undefined);
         return () => { cancelled = true; };
     }, [socketStatus.status]);
@@ -517,7 +521,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
                             onRetry={() => void retrySplitConnection()}
                             onFeedback={setHomeRecoveryFeedback}
                         />
-                    ) : splitBusy && splitBusySince !== null ? <BusyConnectingCard since={splitBusySince} /> : null}
+                    ) : splitBusy && splitBusySince !== null ? <BusyConnectingCard since={splitBusySince} computer={splitMachineName || 'Your computer'} /> : null}
                     {/* The same order as the phone: plans and machine first, then Live,
                         then what to start. */}
                     {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} />}

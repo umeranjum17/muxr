@@ -112,6 +112,12 @@ const OFFLINE_GRACE_MS = 30_000;
 /** How often the relay is asked again while the link stays offline. */
 const OFFLINE_RECHECK_MS = 10_000;
 
+/** How long a link that was online stays "busy, reconnecting" before the
+ *  phone explains it as unreachable. A starved host froze for over five
+ *  minutes on 18 Oct and came back on the next redial with nothing done on
+ *  the computer, so sending the person there sooner is wrong. */
+const BUSY_BOUND_MS = 5 * 60_000;
+
 /** One byokit link, including its terminal, desktop, voice and push streams. */
 export class LinkFirstClient implements SessionClient {
     private link: DeviceLink | undefined;
@@ -120,6 +126,8 @@ export class LinkFirstClient implements SessionClient {
         return deriveLinkGrant(this.options.hostedGrant) !== undefined;
     }
     private online = false;
+    /** When this client's link last went from online to offline. */
+    private lostAt: number | undefined;
     private closed = false;
     private retryTimer: ReturnType<typeof setTimeout> | undefined;
     private retryAttempt = 0;
@@ -477,6 +485,7 @@ export class LinkFirstClient implements SessionClient {
         if (status === 'offline') this.watchOffline();
         if (this.online) {
             this.online = false;
+            this.lostAt = Date.now();
             this.setState('connecting', true);
         }
     }
@@ -570,6 +579,9 @@ export class LinkFirstClient implements SessionClient {
             clearTimeout(timer);
         }
         if (this.closed || this.online || generation !== this.healthGeneration) return;
+        // A link that answered minutes ago is a busy computer: stay connecting,
+        // so Home shows the busy card, and keep rechecking until the bound.
+        if (!permanent && !refused && this.lostAt !== undefined && Date.now() - this.lostAt < BUSY_BOUND_MS) return;
         if (permanent) this.stopLink();
         this.setState(permanent ? 'stale' : 'closed', true);
         this.options.onPermanentError?.(message);

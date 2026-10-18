@@ -216,7 +216,7 @@ export const HerdView = React.memo(({
             onRetry={() => void retryConnection()}
             onFeedback={setRecoveryFeedback}
         />
-    ) : busy && busySince !== null ? <BusyConnectingCard since={busySince} /> : null;
+    ) : busy && busySince !== null ? <BusyConnectingCard since={busySince} computer={machineName || 'Your computer'} /> : null;
 
     // First paint draws the screen's known shape (design-system home.md §4):
     // three skeleton blocks at the gutter, no spinner.
