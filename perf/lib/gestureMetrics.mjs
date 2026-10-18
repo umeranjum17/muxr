@@ -464,7 +464,7 @@ export function reduceJank(before, after, { hz } = {}) {
 export function parseRedactedTrail(text) {
     const body = String(text);
     const firstFrames = [...body.matchAll(/terminal\.first-frame\s+(\d+)/g)].map((match) => Number(match[1]));
-    const summary = /terminal\.scroll seq=(\d+) requests=(\d+) rows=(\d+) clamped=(\d+) timedOut=(\d+)/.exec(body);
+    const summary = /terminal\.scroll seq=(\d+) requests=(\d+) rows=(\d+) clamped=(\d+) timedOut=(\d+)(?: absorbed=(\d+))?/.exec(body);
     // Every line in the body is `<iso> #<seq> <summary>`, so an event a phase
     // did not cause can be told apart from one it did.
     const agentPages = [...body.matchAll(/#(\d+) (?:agent\.page\b|rpc session\.start\b)/g)].map((match) => Number(match[1]));
@@ -479,6 +479,8 @@ export function parseRedactedTrail(text) {
         rowsRequested: summary === null ? 0 : Number(summary[3]),
         clamped: summary === null ? 0 : Number(summary[4]),
         timedOut: summary === null ? 0 : Number(summary[5]),
+        // Rows the grid's own pan absorbed. Never sent to Herdr, so never in rowsRequested.
+        absorbedRows: summary?.[6] === undefined ? 0 : Number(summary[6]),
         firstFrameMs: firstFrames.at(-1),
         agentPages,
     };
@@ -497,7 +499,7 @@ export function trailSince(after, before) {
     // Totals only ever grow. Going backwards means the app restarted or the
     // trail was cleared under us, and nothing across that break is comparable.
     if (after.seq < before.seq
-        || ['scrollRequests', 'rowsRequested', 'clamped', 'timedOut'].some((key) => (after[key] ?? 0) < (before[key] ?? 0))) {
+        || ['scrollRequests', 'rowsRequested', 'absorbedRows', 'clamped', 'timedOut'].some((key) => (after[key] ?? 0) < (before[key] ?? 0))) {
         return { ok: false, why: 'the phone trail restarted during the phase' };
     }
     const since = (key) => (after[key] ?? 0) - (before[key] ?? 0);
@@ -506,6 +508,7 @@ export function trailSince(after, before) {
         seq: after.seq,
         scrollRequests: since('scrollRequests'),
         rowsRequested: since('rowsRequested'),
+        absorbedRows: since('absorbedRows'),
         clamped: since('clamped'),
         timedOut: since('timedOut'),
         agentPages: (after.agentPages ?? []).filter((seq) => seq > before.seq).length,

@@ -991,6 +991,7 @@ async function drivePhase(phase, screen, hz, ready) {
             rowsRequested: trail.rowsRequested,
             rowsSent: trail.rowsRequested,
             rowsPerSecond: seconds > 0 ? Number((trail.rowsRequested / seconds).toFixed(1)) : 0,
+            absorbedRows: trail.absorbedRows,
             clamped: trail.clamped,
             timedOut: trail.timedOut,
             agentPages: trail.agentPages,

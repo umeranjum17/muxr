@@ -323,6 +323,22 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         terminal: flingTerminal,
     }, EMULATOR_LIMITS).failures, ['no input-driven frame']);
 
+    // A fling the grid's own pan absorbs whole sends no request. Its rows are
+    // absorbed, not sent, so it cannot pass the throughput gate on travel the
+    // phone never asked Herdr for.
+    const panOnly = trailSince(
+        parseRedactedTrail('terminal.scroll seq=3 requests=0 rows=0 clamped=0 timedOut=0 absorbed=40'),
+        parseRedactedTrail('terminal.scroll seq=0 requests=0 rows=0 clamped=0 timedOut=0 absorbed=0'),
+    );
+    assert.equal(panOnly.rowsRequested, 0);
+    assert.equal(panOnly.absorbedRows, 40);
+    assert.equal(reduceMovement('terminal text fling', {
+        before: { crop: still }, after: { crop: shifted }, terminal: panOnly,
+    }).proven, false);
+    assert.ok(verdict('terminal text fling', {
+        ...flingJank, terminal: { scrollRequests: 0, rowsRequested: 0, rowsPerSecond: 0, clamped: 0, timedOut: 0 },
+    }, EMULATOR_LIMITS).failures.includes('terminalRowsPerSecond'));
+
     const emptyDump = parseJankDump(read('gfxinfo-before.txt'), { hz });
     assert.equal(emptyDump.frames, 0);
     assert.equal(emptyDump.p95Ms, undefined);
