@@ -360,11 +360,10 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   Set `RUN_ID` to this run's unique id. In the Mac shell set
   `MAC_RUN="$HOME/fm-verify-pockit-ios1/$RUN_ID"`.
   `SLOT=~/firstmate/data/fm-mac-slot1/fm-mac-slot.sh`. Run `$SLOT claim`; only on
-  success, `touch "$EVIDENCE/slot-claimed"`, then run `$SLOT boot ios <UDID>`. The
-  marker lives in evidence, which cleanup never deletes. A failed claim ends the
+  success, `touch "$RUN_ROOT/slot-claimed"`, then run `$SLOT boot ios <UDID>`. A failed claim ends the
   drive without any Mac-side work, stop, or release.
-- **Build.** Mac scratch is the per-run `$MAC_RUN`. Only after the marker exists,
-  create it, copy the archive and extract into `$MAC_RUN/<sha>`. Linux:
+- **Build.** Mac scratch is the per-run `$MAC_RUN`. Only after the local marker exists,
+  create it and `touch "$MAC_RUN/slot-claimed"` in the same SSH call, then copy the archive and extract into `$MAC_RUN/<sha>`. Linux:
   `git archive --format=tar <sha> -o "$RUN_ROOT/src.tar"`. Mac, through
   `fm-mem-gate.sh` and backgrounded, from that folder with
   `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` (pod install fails on the ssh default
@@ -423,16 +422,18 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   `mv` it to `$RUN_ROOT/kit/.byokit/inbox/<wordsFile>`, so the host never reads a
   partial file. Then `wait "$PAIR_PID"` and require exit 0. Wrong words refuse
   pairing. Handoff refuses once a phone is paired, so use a fresh lab host.
-- **Capture.** `ssh <mac-user>@<mac-ip> 'xcrun simctl ui <UDID> appearance dark|light'`, wait a few
-  seconds, then `$SLOT ios-shot "$EVIDENCE/ios-home-<appearance>.png"`. Home shows the paired machine as
+- **Capture.** Run `ssh <mac-user>@<mac-ip> 'xcrun simctl ui <UDID> appearance dark'`, wait a few
+  seconds, then `$SLOT ios-shot "$EVIDENCE/ios-home-dark.png"`. Run
+  `ssh <mac-user>@<mac-ip> 'xcrun simctl ui <UDID> appearance light'`, wait a few
+  seconds, then `$SLOT ios-shot "$EVIDENCE/ios-home-light.png"`. Home shows the paired machine as
   `connected`. Open every shot before reporting.
 - **Cleanup.** On every iOS exit, run each line independently; do not let an earlier failure skip a later line:
   ```sh
   for pid in "${IOS_HOST_PID:-}" "${IOS_RELAY_PID:-}" "${PAIR_PID:-}"; do [ -z "$pid" ] || kill "$pid" 2>/dev/null; done
   fm-herdr-lab.sh teardown <session>
-  if [ -e "$EVIDENCE/slot-claimed" ]; then scp <mac-user>@<mac-ip>:~/fm-verify-pockit-ios1/<RUN_ID>/build.log "$EVIDENCE/ios-build.log"; fi
-  if [ -e "$EVIDENCE/slot-claimed" ]; then ssh <mac-user>@<mac-ip> 'if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then xcrun simctl shutdown <UDID>; fi; rm -rf -- ~/fm-verify-pockit-ios1/<RUN_ID>'; fi
-  if [ -e "$EVIDENCE/slot-claimed" ]; then "$SLOT" release; fi
+  if [ -e "$RUN_ROOT/slot-claimed" ]; then scp <mac-user>@<mac-ip>:~/fm-verify-pockit-ios1/<RUN_ID>/build.log "$EVIDENCE/ios-build.log"; fi
+  if [ -e "$RUN_ROOT/slot-claimed" ]; then ssh <mac-user>@<mac-ip> 'if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then xcrun simctl shutdown <UDID>; fi; rm -rf -- ~/fm-verify-pockit-ios1/<RUN_ID>'; fi
+  if [ -e "$RUN_ROOT/slot-claimed" ]; then "$SLOT" release; fi
   "$SLOT" status | tee "$EVIDENCE/ios-slot-final-status.log"
   grep -q '^lock: free$' "$EVIDENCE/ios-slot-final-status.log" && grep -q '^iOS booted: 0$' "$EVIDENCE/ios-slot-final-status.log"
   ```
@@ -457,5 +458,4 @@ Close any Herdr workspaces/panes this run created, then stop and delete only
 the non-default session you created. Never kill by process name. Never remove
 the evidence directory. If a drive failed midway, run this same cleanup before
 retrying so broken attempts strand no processes or ports. On an iOS drive, run the
-iOS Cleanup bullet as well. Its claim marker is in `$EVIDENCE`, so the `rm -rf "$RUN_ROOT"`
-above does not affect it and the two can run in either order.
+iOS Cleanup bullet as well, before removing `$RUN_ROOT` so its claim marker remains available.
