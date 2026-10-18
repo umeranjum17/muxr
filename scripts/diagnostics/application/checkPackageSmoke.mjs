@@ -9,6 +9,8 @@ import {
     lstatSync,
     mkdirSync,
     mkdtempSync,
+    openSync,
+    closeSync,
     readFileSync,
     realpathSync,
     readdirSync,
@@ -91,14 +93,28 @@ writeFileSync(fakeHerdrServerPath, [
     "    .listen(0, '127.0.0.1', function () { process.stdout.write(String(this.address().port)); });",
     '',
 ].join('\n'));
-const fakeHerdrServer = spawn(process.execPath, [fakeHerdrServerPath, fakeHerdrSource, fakeHerdrFetchLog], { stdio: ['ignore', 'pipe', 'inherit'] });
-const fakeHerdrPort = await new Promise((resolve) => {
-    let output = '';
-    fakeHerdrServer.stdout.on('data', (chunk) => {
-        output += chunk;
-        if (/^\d+$/.test(output.trim())) resolve(Number(output.trim()));
+const fakeHerdrServerLog = join(scratch, 'fake-herdr-server.log');
+const fakeHerdrServerLogFd = openSync(fakeHerdrServerLog, 'a', 0o600);
+const fakeHerdrServer = spawn(process.execPath, [fakeHerdrServerPath, fakeHerdrSource, fakeHerdrFetchLog], { stdio: ['ignore', fakeHerdrServerLogFd, fakeHerdrServerLogFd] });
+closeSync(fakeHerdrServerLogFd);
+let fakeHerdrServerError;
+fakeHerdrServer.once('error', (error) => { fakeHerdrServerError = error; });
+const fakeHerdrServerDeadline = Date.now() + 10_000;
+let fakeHerdrPort;
+while (Date.now() < fakeHerdrServerDeadline) {
+    const output = readFileSync(fakeHerdrServerLog, 'utf8').trim();
+    if (/^\d+$/.test(output)) { fakeHerdrPort = Number(output); break; }
+    if (fakeHerdrServerError || fakeHerdrServer.exitCode !== null) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+}
+if (fakeHerdrPort === undefined) {
+    if (fakeHerdrServer.exitCode === null && fakeHerdrServer.signalCode === null) fakeHerdrServer.kill('SIGTERM');
+    await new Promise((resolve) => {
+        if (fakeHerdrServer.exitCode !== null || fakeHerdrServer.signalCode !== null) resolve();
+        else fakeHerdrServer.once('exit', resolve);
     });
-});
+    throw new Error(`fake Herdr server did not start: ${fakeHerdrServerError?.message ?? readFileSync(fakeHerdrServerLog, 'utf8')}`);
+}
 const fakeHerdrUrl = `http://127.0.0.1:${fakeHerdrPort}/herdr`;
 const fakeHerdrFetches = () => (existsSync(fakeHerdrFetchLog) ? readFileSync(fakeHerdrFetchLog, 'utf8').trim().split('\n').filter(Boolean).length : 0);
 writeFileSync(join(binDir, 'pi'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
@@ -1421,6 +1437,10 @@ else if(a[0]==='view') {
     process.stdout.write(`package smoke passed: ${tarball}\n`);
 } finally {
     stopRelayFor(join(home, '.muxr', 'relay'));
-    fakeHerdrServer.kill();
+    if (fakeHerdrServer.exitCode === null && fakeHerdrServer.signalCode === null) fakeHerdrServer.kill('SIGTERM');
+    await new Promise((resolve) => {
+        if (fakeHerdrServer.exitCode !== null || fakeHerdrServer.signalCode !== null) resolve();
+        else fakeHerdrServer.once('exit', resolve);
+    });
     rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

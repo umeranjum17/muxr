@@ -9,11 +9,10 @@
  * here even when the source still mentions the right strings.
  */
 import { createServer } from 'node:net';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, closeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { waitForRelay } from './waitForRelay.mjs';
 
 const failures = [];
 const check = (name, ok, detail = '') => {
@@ -54,6 +53,8 @@ try {
     writeFileSync(join(root, 'assets', 'app-a1b2c3d4e5.js'), 'console.log("app");');
     writeFileSync(join(root, 'canvaskit.wasm'), Buffer.concat([Buffer.from([0x00, 0x61, 0x73, 0x6d]), Buffer.alloc(1024)]));
 
+    const relayLog = join(root, 'relay.log');
+    const relayLogFd = openSync(relayLog, 'a', 0o600);
     const relay = spawn('node', ['apps/relay/dist/main.js'], {
         env: {
             ...process.env,
@@ -65,10 +66,19 @@ try {
             // Serving the PWA pins browser origins to where it is published.
             MUXR_ALLOWED_ORIGINS: 'https://desk.example.ts.net',
         },
-        stdio: ['ignore', 'pipe', 'inherit'],
+        stdio: ['ignore', relayLogFd, relayLogFd],
     });
+    closeSync(relayLogFd);
     children.push(relay);
-    const relayPort = await waitForRelay(relay);
+    let relayPort;
+    const relayDeadline = Date.now() + 10_000;
+    while (Date.now() < relayDeadline) {
+        const match = /^relay listening on wss?:\/\/\S+:(\d+)\s*$/m.exec(readFileSync(relayLog, 'utf8'));
+        if (match) { relayPort = Number(match[1]); break; }
+        if (relay.exitCode !== null) throw new Error(`relay exited before listening: ${readFileSync(relayLog, 'utf8')}`);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (relayPort === undefined) throw new Error(`relay did not report a port: ${readFileSync(relayLog, 'utf8')}`);
     const relayBase = `http://127.0.0.1:${relayPort}`;
 
     // A phone on the Direct SSH route dials the relay through a local forward
@@ -127,10 +137,12 @@ try {
 
     // Same assertions against the static export server (local preview path).
     const staticPort = await freePort();
+    const staticLogFd = openSync(join(root, 'static.log'), 'a', 0o600);
     children.push(spawn(process.execPath, ['scripts/diagnostics/application/serveWebExport.mjs'], {
         env: { ...process.env, MUXR_WEB_EXPORT_DIR: root, MUXR_WEB_PORT: String(staticPort) },
-        stdio: ['ignore', 'ignore', 'inherit'],
+        stdio: ['ignore', staticLogFd, staticLogFd],
     }));
+    closeSync(staticLogFd);
     await new Promise((resolve, reject) => {
         const deadline = setTimeout(() => reject(new Error('static server did not come up')), 10_000);
         const probe = async () => {
@@ -161,7 +173,7 @@ try {
 } catch (cause) {
     check('web serving flow completed', false, cause instanceof Error ? cause.message : String(cause));
 } finally {
-    for (const child of children) child.kill();
+    for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
     await Promise.all(children.map((child) => new Promise((resolve) => {
         if (child.exitCode !== null || child.signalCode !== null) resolve();
         else {

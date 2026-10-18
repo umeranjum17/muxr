@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanTestScratch, processGroup, processStart, removeTestScratch, scratchEntries, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
 
@@ -17,6 +17,15 @@ try {
     const missing = spawnSync(process.execPath, [wrapper, '--', 'muxr-selfcheck-command-that-does-not-exist'], { env, encoding: 'utf8' });
     assert.equal(missing.status, 1);
     assert.deepEqual(readdirSync(base), ['bin']);
+    const childPidFile = join(base, 'inherited-child.pid');
+    const inherited = spawnSync(process.execPath, [wrapper, '--', process.execPath, '-e',
+        'const {spawn}=require("node:child_process");const {writeFileSync}=require("node:fs");const child=spawn(process.execPath,["-e","setInterval(()=>{},1000)"]);writeFileSync(process.argv[1],String(child.pid));process.exit(0)',
+        childPidFile], { env, encoding: 'utf8', timeout: 3000 });
+    const inheritedChild = Number(readFileSync(childPidFile, 'utf8'));
+    try { process.kill(inheritedChild, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+    unlinkSync(childPidFile);
+    assert.equal(inherited.error, undefined, 'test wrapper must close even when a grandchild inherits child stdio');
+    assert.equal(inherited.status, 0, inherited.stderr);
     const failure = spawnSync(process.execPath, [wrapper, '--', 'npx', 'vitest', 'run'], { env, encoding: 'utf8' });
     assert.equal(failure.status, 1);
     assert.match(failure.stderr, /FAIL: host test scratch leftovers:\n.*\/leak-check-injected/);

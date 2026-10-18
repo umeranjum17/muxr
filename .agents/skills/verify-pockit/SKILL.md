@@ -30,8 +30,14 @@ uses only repo-shipped commands — no new harness.
   session, never run `herdr server stop` or any server-wide operation.
 - Never touch ports 8792–8793 or any already-listening port; pick your own
   naming port (below) and port 0 for the relay.
-- Cleanup kills only the exact PIDs this run started and removes only this
-  run's scratch directory. Evidence is written elsewhere and must survive.
+- Cleanup kills only the exact PIDs this run started, waits for them to exit,
+  and removes only this run's scratch directory. Evidence is written elsewhere
+  and must survive.
+- Every long-lived process started by a proof (Metro, test/lab servers,
+  emulators, adb servers or watchers) must send stdin from `/dev/null` and
+  stdout/stderr to a task log (`>"$RUN_ROOT/<name>.log" 2>&1 </dev/null &`),
+  record its PID, and be stopped and awaited in cleanup, including failure
+  paths. Never leave a process attached to the agent's stdout pipe.
 
 ## Launch
 
