@@ -48,13 +48,6 @@ describe('muxr config file', () => {
         expect(fromFile.relayUrl).toBe('ws://file:1');
     });
 
-    it('takes the setup start folder from the environment over the file', () => {
-        const file = parseMuxrConfigFile(PATH, JSON.stringify({ defaultStartFolder: '/home/user/old' }));
-        const resolved = resolveHostConfig({ argv: [], env: { MUXR_DEFAULT_START_FOLDER: '/home/user/api' }, file, defaults: DEFAULTS });
-        expect(resolved.defaultStartFolder).toBe('/home/user/api');
-        expect(() => resolveHostConfig({ argv: [], env: { MUXR_DEFAULT_START_FOLDER: 'relative' }, file: {}, defaults: DEFAULTS })).toThrow('absolute path');
-    });
-
     it('reports a broken file with path and key and never half-applies', () => {
         const cases: Array<[string, string, string]> = [
             ['{oops', '(file)', 'malformed JSON'],

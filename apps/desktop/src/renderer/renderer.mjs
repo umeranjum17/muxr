@@ -33,7 +33,6 @@ let expiresAt = 0;
 
 const TITLES = {
     starting: 'Starting…',
-    project: 'Choose your project folder',
     online: 'Ready to pair',
     approval: 'Waiting for approval',
     paired: 'Paired',
@@ -42,7 +41,7 @@ const TITLES = {
 };
 
 function show(which) {
-    for (const [name, element] of Object.entries(cards)) element.hidden = name !== which;
+    for (const [name, element] of Object.entries(cards)) if (name !== 'project') element.hidden = name !== which;
 }
 
 function drawQr(matrix) {
@@ -93,17 +92,15 @@ window.muxr.onState((state) => {
     showHerdrNotice(herdr);
     dot.className = `dot ${herdr === undefined ? state.phase : herdr.status === 'installing' ? 'starting' : 'error'}`;
     title.textContent = herdr === undefined ? (TITLES[state.phase] ?? 'muxr') : herdr.status === 'installing' ? 'Setting up Herdr…' : 'Needs attention';
-    // Setup's one folder question comes before pairing, and only once.
-    if (state.needsProjectFolder === true && ['starting', 'online'].includes(state.phase)) {
-        if (herdr === undefined) title.textContent = TITLES.project;
+    // Setup's one folder question sits beside the pairing offer until it is saved.
+    const askProject = state.needsProjectFolder === true && ['starting', 'online'].includes(state.phase);
+    cards.project.hidden = !askProject;
+    if (askProject) {
         if (!projectShown && typeof state.projectFolderSuggestion === 'string') projectInput.value = state.projectFolderSuggestion;
-        projectShown = true;
         projectNoRepo.hidden = state.projectFolderNoRepo !== true;
         projectError.hidden = true;
-        show('project');
-        return;
     }
-    projectShown = false;
+    projectShown = askProject;
     if (state.phase === 'starting') { show('starting'); }
     else if (state.phase === 'online') {
         if (state.code !== undefined) {

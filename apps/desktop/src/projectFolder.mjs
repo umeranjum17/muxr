@@ -33,8 +33,10 @@ function childDirs(root) {
     try {
         return readdirSync(root, { withFileTypes: true })
             .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+            .map((entry) => entry.name)
+            .sort()
             .slice(0, 64)
-            .map((entry) => join(root, entry.name));
+            .map((name) => join(root, name));
     } catch {
         return [];
     }

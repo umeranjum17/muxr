@@ -460,11 +460,10 @@ describe('desktop setup project folder', () => {
 
     it('preselects the most recently used git repo and saves the choice beside host state', () => {
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-projects-'));
-        const oldRepo = repo(home, 'old-notes', 1_700_000_000_000);
+        repo(home, 'old-notes', 1_700_000_000_000);
         const freshRepo = repo(home, 'api', 1_790_000_000_000);
         mkdirSync(join(home, 'not-a-repo'));
         expect(suggestProjectFolder(home)).toBe(freshRepo);
-        expect(oldRepo).not.toBe(freshRepo);
 
         const hiddenHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-hidden-'));
         for (let index = 0; index < 30; index += 1) {

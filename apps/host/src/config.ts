@@ -61,10 +61,9 @@ export function muxrConfigPath(env: Record<string, string | undefined>): string 
     return join(muxrHomeDir(env), MUXR_CONFIG_FILENAME);
 }
 
-/** The start folder phones get now: env first, then the file as it is on disk, so a desktop save reaches the running host. */
+/** The start folder phones get now, read from the file so a desktop save reaches the running host. */
 export function liveDefaultStartFolder(env: Record<string, string | undefined>): string | undefined {
-    return folderFrom('MUXR_DEFAULT_START_FOLDER', clean(env.MUXR_DEFAULT_START_FOLDER))
-        ?? readMuxrConfigFile(muxrConfigPath(env)).defaultStartFolder;
+    return readMuxrConfigFile(muxrConfigPath(env)).defaultStartFolder;
 }
 
 function fail(path: string, key: string, reason: string): never {
@@ -183,14 +182,6 @@ function portFrom(source: string, raw: string | undefined): number | undefined {
     return port;
 }
 
-function folderFrom(source: string, raw: string | undefined): string | undefined {
-    if (raw === undefined) return undefined;
-    if (raw !== '~' && !isAbsolute(raw)) {
-        throw new Error(`${source} must be "~" or an absolute path`);
-    }
-    return raw;
-}
-
 /**
  * One precedence chain per key: flag > environment > config file > default.
  * The `defaults` carry today's fallbacks (setup state, hostname, builtin
@@ -231,6 +222,6 @@ export function resolveHostConfig(options: {
             ?? portFrom('MUXR_HOST_HTTP_PORT', clean(env.MUXR_HOST_HTTP_PORT))
             ?? file.hostHttpPort
             ?? defaults.hostHttpPort,
-        defaultStartFolder: folderFrom('MUXR_DEFAULT_START_FOLDER', clean(env.MUXR_DEFAULT_START_FOLDER)) ?? file.defaultStartFolder ?? defaults.defaultStartFolder,
+        defaultStartFolder: file.defaultStartFolder ?? defaults.defaultStartFolder,
     };
 }
