@@ -1,6 +1,6 @@
 import { createHook } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -60,7 +60,11 @@ function fakeHerdr(dir: string, cwd: string) {
         holdPrompts: number;
         /** The agent's unsubmitted input line, which a later prompt is typed onto. */
         input: string;
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0, holdPrompts: 0, input: '' };
+        /** The note a handoff turn's agent writes into its result file; unset means it writes none. */
+        handoffNote?: string;
+        /** Only the handoff journey reads the agent; the others keep Herdr's answer they were written against. */
+        answerAgentGet: boolean;
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0, holdPrompts: 0, input: '', answerAgentGet: false };
     const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
@@ -85,10 +89,34 @@ function fakeHerdr(dir: string, cwd: string) {
     const handleAgentWait = (params: Record<string, unknown>) => ({
         agent: agents.find((agent) => agent.pane_id === params.target),
     });
+    /** The agent works, writes its result file where the turn asked, and goes idle. */
+    const answerHandoffTurn = (paneId: string, text: string) => {
+        const path = JSON.parse(/JSON file at (".+?\.json")/.exec(text)![1]!) as string;
+        const turnId = JSON.parse(/"turnId":("[^"]+")/.exec(text)![1]!) as string;
+        const agent = agents.find((entry) => entry.pane_id === paneId);
+        const later = (run: () => void, ms: number) => {
+            const timer = setTimeout(() => { pendingReplies.delete(timer); run(); }, ms);
+            pendingReplies.add(timer);
+        };
+        later(() => {
+            if (agent !== undefined) agent.agent_status = 'working';
+            emitEvent('pane.agent_status_changed', { pane_id: paneId, agent_status: 'working' });
+        }, 5);
+        later(() => {
+            if (state.handoffNote !== undefined) writeFileSync(path, JSON.stringify({ turnId, result: { note: state.handoffNote } }));
+            if (agent !== undefined) agent.agent_status = 'idle';
+            emitEvent('pane.agent_status_changed', { pane_id: paneId, agent_status: 'idle' });
+        }, 30);
+    };
+    const handleAgentGet = (params: Record<string, unknown>) => {
+        const agent = agents.find((entry) => entry.pane_id === params.target);
+        return agent === undefined ? undefined : { agent: { terminal_id: 'terminal-one', cwd, ...agent } };
+    };
     const handleAgentPrompt = (params: Record<string, unknown>) => {
         if (state.failSnapshotAfterPrompt) state.failSnapshot = true;
         const text = String(params.text ?? '');
         state.prompts.push(text);
+        if (text.includes('.byokit-turn-')) answerHandoffTurn(String(params.target), text);
         const lost = state.losePrompts > 0 || state.drawingReads > 0 || state.holdPrompts > 0;
         if (state.losePrompts > 0) state.losePrompts -= 1;
         else if (state.holdPrompts > 0) {
@@ -198,6 +226,12 @@ function fakeHerdr(dir: string, cwd: string) {
         }
         return {};
     };
+    /** Like herdr, a pushed event reaches only the sockets subscribed to it. */
+    const emitEvent = (type: string, data: Record<string, unknown>): void => {
+        for (const [socket, subscriptions] of subscribers) {
+            if (wants(subscriptions, type, data.pane_id)) socket.write(`${JSON.stringify({ event: type, data })}\n`);
+        }
+    };
     const server = createServer((socket) => {
         let buffer = '';
         socket.on('data', (chunk) => {
@@ -295,6 +329,14 @@ function fakeHerdr(dir: string, cwd: string) {
                         }
                         break;
                     }
+                    case 'agent.get': {
+                        const agent = state.answerAgentGet ? handleAgentGet(p) : undefined;
+                        if (!state.answerAgentGet) reply = { id, error: { code: 'method_not_found', message: method } };
+                        else reply = agent === undefined
+                            ? { id, error: { code: 'agent_not_found', message: 'agent not found' } }
+                            : { id, result: agent };
+                        break;
+                    }
                     case 'agent.prompt': {
                         const answer = handleAgentPrompt(p);
                         reply = 'error' in answer ? { id, ...answer } : { id, result: answer };
@@ -382,11 +424,7 @@ function fakeHerdr(dir: string, cwd: string) {
         tabs,
         panes,
         workspaces,
-        emit(type: string, data: Record<string, unknown>): void {
-            for (const [socket, subscriptions] of subscribers) {
-                if (wants(subscriptions, type, data.pane_id)) socket.write(`${JSON.stringify({ event: type, data })}\n`);
-            }
-        },
+        emit: emitEvent,
         watching(type: string, paneId: string): boolean {
             return [...subscribers.values()].some((subscriptions) => wants(subscriptions, type, paneId));
         },
@@ -1488,6 +1526,55 @@ describe('OpenCode account isolation', () => {
                 if (value === undefined) delete process.env[key];
                 else process.env[key] = value;
             }
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+});
+
+describe('handoff: the agent writes its own note', () => {
+    it('returns the note its agent wrote, refuses a busy agent before typing, and leaves no result file behind', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-handoff-'));
+        const cwd = join(dir, 'repo');
+        mkdirSync(cwd, { recursive: true });
+        const herdr = fakeHerdr(dir, cwd);
+        const note = 'Finish the launch test: the handoff case is the only one left.';
+        herdr.state.handoffNote = note;
+        herdr.state.answerAgentGet = true;
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const started = await source.start({ cwd, kind: 'claude' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            Object.assign(herdr.agents[0]!, {
+                agent: 'claude',
+                agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
+            });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p1' });
+            await source.refreshHerdr();
+
+            await expect(source.handoff({ sessionId: started.info.id, targetName: 'Laptop' })).resolves.toEqual({ note });
+            expect(herdr.state.prompts.filter((text) => text.includes('.byokit-turn-'))).toHaveLength(1);
+            expect(readdirSync(cwd).filter((name) => name.startsWith('.byokit-turn-'))).toEqual([]);
+            expect(herdr.agents[0]!.agent_status).toBe('idle');
+
+            const firstTurn = source.handoff({ sessionId: started.info.id, targetName: 'Laptop' });
+            await expect(source.handoff({ sessionId: started.info.id, targetName: 'Laptop' }))
+                .rejects.toMatchObject({ code: 'handoff-busy' });
+            await expect(firstTurn).resolves.toEqual({ note });
+            expect(herdr.state.prompts.filter((text) => text.includes('.byokit-turn-'))).toHaveLength(2);
+
+            herdr.agents[0]!.agent_status = 'working';
+            const sent = herdr.state.prompts.length;
+            await expect(source.handoff({ sessionId: started.info.id, targetName: 'Laptop' }))
+                .rejects.toMatchObject({ code: 'handoff-busy' });
+            expect(herdr.state.prompts).toHaveLength(sent);
+        } finally {
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });

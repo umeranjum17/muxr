@@ -45,6 +45,7 @@ import { ArtifactWatcher } from './artifactWatcher.js';
 import { ArtifactDownloadServer } from './artifactDownloads.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
 import type {
+    SessionHandoffOptions,
     SessionListOptions,
     SessionOpenOptions,
     SessionPromptOptions,
@@ -113,6 +114,10 @@ const PROMPT_RECEIPT_TIMEOUT_MS = 8_000;
 const PROMPT_SETTLE_MS = 1_500;
 /** Keeps the whole first-prompt hold (ready 30 s, rebind 10 s, settle, receipt 8 s) inside the phone's 75 s. */
 const PROMPT_SETTLE_CAP_MS = 20_000;
+/** One bounded agent turn; the kit's own default is 300 s. */
+const HANDOFF_TIMEOUT_MS = 240_000;
+const STATUS_WATCH_WAIT_MS = 5_000;
+const HANDOFF_NOTE_MAX = 8_000;
 
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
 const HEADED_BROWSER = ' Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11.';
@@ -351,6 +356,44 @@ function agentRouteError(code: 'agent-unavailable' | 'agent-not-ready' | 'agent-
 function promptNotSent(cause: unknown): Error {
     const detail = cause instanceof Error ? cause.message : String(cause);
     return Object.assign(new Error(detail), { code: 'prompt-not-sent', cause });
+}
+
+const HANDOFF_RESULT_SCHEMA = {
+    type: 'object',
+    properties: { note: { type: 'string' } },
+    required: ['note'],
+    additionalProperties: false,
+};
+
+function isHandoffNote(value: unknown): value is { note: string } {
+    const note = (value as { note?: unknown } | null)?.note;
+    return typeof note === 'string' && note.trim() !== '' && note.length <= HANDOFF_NOTE_MAX;
+}
+
+function handoffPrompt(targetName: string): string {
+    return [
+        `This conversation is being continued on another computer, "${targetName}", by a fresh agent that cannot see this one.`,
+        `Write the handoff note for that agent in plain text, at most ${HANDOFF_NOTE_MAX} characters: the goal, what is done, what is left, the decisions made and why, the folder and branch, and anything it must not redo.`,
+        'Change no files and run nothing that changes state while you write it.',
+    ].join(' ');
+}
+
+const HANDOFF_TURN_FAILURES: Record<string, string> = {
+    'turn-timeout': 'The agent did not finish its handoff note in time.',
+    'turn-unavailable': 'The agent went away while it wrote its handoff note.',
+    'turn-watch-lost': 'Herdr lost track of the agent while it wrote its handoff note.',
+    'result-invalid': 'The agent wrote a handoff note muxr could not read.',
+    'result-missing': 'The agent did not write a handoff note.',
+};
+
+/** The kit refuses a turn before typing when the agent is not idle or done. */
+function handoffError(cause: unknown): Error {
+    const code = (cause as { code?: unknown } | null)?.code;
+    if (code === 'turn-busy' || code === 'turn-not-idle') {
+        return Object.assign(new Error('Wait for this conversation to finish before continuing it.'), { code: 'handoff-busy', cause });
+    }
+    const reason = typeof code === 'string' ? HANDOFF_TURN_FAILURES[code] : undefined;
+    return Object.assign(new Error(`${reason ?? 'The agent did not write a handoff note.'} It is still here.`), { code: 'handoff-failed', cause });
 }
 
 /** Listed-agent gate. Omitted interactive_ready is ready when lifecycle is live. Starting stays closed. */
@@ -1557,22 +1600,44 @@ export async function createHerdrSessionSource(
     // Resolved at each use, so a Herdr installed after the host started is
     // found without a restart; the kit spawns that exact path for CLI and terminal verbs.
     const resolvedHerdrBin = (): string | undefined => options.herdrBin || process.env.HERDR_BIN || findHerdrBin();
+    const handoffsInFlight = new Set<string>();
+    let statusRefreshRunning = false;
+    let statusRefreshQueued = false;
     /**
-     * The kit opens every per-pane status watch while it bootstraps and only
-     * then starts delivering status frames. Once that set acks, a conversation
-     * Herdr published while the watches were landing is discoverable, so the
-     * mirror re-reads on that edge; muxr holds no watches of its own.
+     * A detection re-bootstraps the kit, which opens the pane's status watch.
+     * A status that changed before that watch acked was never pushed, and the
+     * kit announces only a phase change, not each re-bootstrap. `refresh()`
+     * settles once the status watches have acked, so read the snapshot then.
      */
-    function resnapshotAfterStatusWatch(): void {
-        void client.statusWatchReady()
-            .then(() => [...agentsByPane.keys()].some(needsSessionDiscovery))
-            .then((missing) => (missing === true ? refreshSnapshotFresh().then(emitAllStates) : undefined))
-            .catch(() => {});
+    function refreshAfterStatusWatch(): Promise<void> {
+        if (statusRefreshRunning) {
+            statusRefreshQueued = true;
+            return Promise.resolve();
+        }
+        statusRefreshRunning = true;
+        const watchTimeout = new AbortController();
+        const watchesAcked = Promise.race([
+            client.kit.refresh(),
+            sleep(STATUS_WATCH_WAIT_MS, undefined, { signal: watchTimeout.signal }).then(() => { throw new Error('status watches did not ack in time'); }),
+        ]).finally(() => watchTimeout.abort());
+        return watchesAcked
+            .then(() => refreshSnapshotFresh().then(emitAllStates))
+            .catch((cause) => {
+                process.stderr.write(`herdr status refresh failed: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+                scheduleResnapshot();
+            })
+            .finally(() => {
+                statusRefreshRunning = false;
+                if (statusRefreshQueued) {
+                    statusRefreshQueued = false;
+                    void refreshAfterStatusWatch();
+                }
+            });
     }
     const client = new KitHerdrClient(() => resolvedHerdrBin() ?? 'herdr', socketPath, () => {
         routingEpoch += 1;
         void refreshSnapshot().then(emitAllStates).then(() => artifacts.rescanAll()).catch(() => {});
-        resnapshotAfterStatusWatch();
+        void refreshAfterStatusWatch();
     });
     // The kit reads a blocked agent's question once its status flips; that releases the held alert.
     const stopBlockedWatch = client.kit.onBlocked((entry, change) => {
@@ -1842,12 +1907,10 @@ export async function createHerdrSessionSource(
                 if (session !== undefined) emitState(session.sessionId);
                 // Status rides the kit's per-pane watch and never changes the
                 // tree; only an undiscovered conversation is worth a read.
-                // Detection means a new agent, so it always re-reads.
-                if (kind === 'pane.agent.detected'
-                    || (paneId !== undefined && needsSessionDiscovery(paneId))) scheduleResnapshot();
                 // Detection starts a kit re-bootstrap that opens the new pane's
-                // status watch; wait past this tick so the ready signal is its.
-                if (kind === 'pane.agent.detected') queueMicrotask(resnapshotAfterStatusWatch);
+                // status watch; wait for its ready signal, then read once.
+                if (kind === 'pane.agent.detected') void refreshAfterStatusWatch();
+                else if (paneId !== undefined && needsSessionDiscovery(paneId)) scheduleResnapshot();
                 return;
             }
             case 'pane.moved': {
@@ -1891,7 +1954,8 @@ export async function createHerdrSessionSource(
         await client.start();
         await refreshSnapshot();
         emitAllStates();
-        resnapshotAfterStatusWatch();
+        // The mirror settles on the status watches before a phone can connect.
+        await refreshAfterStatusWatch();
         // Seed the backstop before a phone connects; an empty unchanged
         // pane must not announce itself thirty seconds after a phone connects.
         await artifacts.rescanAll();
@@ -3297,6 +3361,29 @@ export async function createHerdrSessionSource(
             await promptSession(promptOptions.sessionId, promptOptions.text, promptOptions.firstPrompt === true);
         },
 
+        /**
+         * The agent writes its own note as one kit turn with no file scan: the
+         * kit points it at a JSON result file in the agent's folder and reads
+         * and removes that file itself. Only an idle or done agent takes it.
+         */
+        async handoff(handoffOptions: SessionHandoffOptions): Promise<{ note: string }> {
+            const session = await resolvePane(handoffOptions.sessionId);
+            if (session.agent === undefined) throw agentUnavailable();
+            const cwd = cwdForSession(session.sessionId);
+            if (!cwd) throw Object.assign(new Error('Herdr does not report this agent\'s folder, so its handoff note cannot be written.'), { code: 'handoff-failed' });
+            if (handoffsInFlight.has(session.sessionId)) throw handoffError({ code: 'turn-busy' });
+            handoffsInFlight.add(session.sessionId);
+            const target = { paneId: session.paneId, ...(session.agent.name ? { name: session.agent.name } : {}) };
+            const end = await Promise.resolve().then(() => client.kit.runTurn(target, {
+                prompt: handoffPrompt(handoffOptions.targetName),
+                cwd,
+                timeoutMs: HANDOFF_TIMEOUT_MS,
+                files: false,
+                result: { schema: HANDOFF_RESULT_SCHEMA, validate: isHandoffNote, maxBytes: HANDOFF_NOTE_MAX * 4 },
+            })).catch((cause: unknown) => { throw handoffError(cause); }).finally(() => handoffsInFlight.delete(session.sessionId));
+            if (end.result.state === 'valid') return { note: end.result.value.note };
+            throw handoffError({ code: end.result.state === 'invalid' ? 'result-invalid' : 'result-missing' });
+        },
 
         async status(sessionId: string): Promise<SessionStatus> {
             await resolvePane(sessionId);

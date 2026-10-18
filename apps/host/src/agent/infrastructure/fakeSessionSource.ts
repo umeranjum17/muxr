@@ -17,6 +17,7 @@ import {
     type SessionStatus,
 } from '@trymuxr/contract';
 import type {
+    SessionHandoffOptions,
     SessionListOptions,
     SessionOpenOptions,
     SessionPromptOptions,
@@ -91,6 +92,7 @@ function scriptedTurn(sessionId: string, session: SessionInfo, demoWrite: { path
 export function createFakeSessionSource(): SessionSource {
     const listeners = new Set<(sessionId: string, event: SessionEventBody) => void>();
     const sessions = new Map<string, SessionInfo>();
+    const handoffsInFlight = new Set<string>();
     let counter = 0;
 
     function emit(sessionId: string, event: SessionEventBody): void {
@@ -283,6 +285,20 @@ export function createFakeSessionSource(): SessionSource {
             for (const event of scriptedTurn(options.sessionId, session, demoWrite)) emit(options.sessionId, event);
         },
 
+
+        async handoff(options: SessionHandoffOptions) {
+            requireSession(options.sessionId);
+            if (handoffsInFlight.has(options.sessionId)) {
+                throw Object.assign(new Error('Wait for this conversation to finish before continuing it.'), { code: 'handoff-busy' });
+            }
+            handoffsInFlight.add(options.sessionId);
+            try {
+                await Promise.resolve();
+                return { note: `Fake handoff note for ${options.targetName}.` };
+            } finally {
+                handoffsInFlight.delete(options.sessionId);
+            }
+        },
 
         async status(sessionId) {
             requireSession(sessionId);

@@ -76,6 +76,8 @@ rules, with no H2 sections.
 - [Keep a tapped desktop field above the keyboard in Computer](./computer-keyboard-fit.md) —
   native Release app on an iPhone simulator, landscape, five fresh launches:
   the tapped password field stays above the keyboard and takes typed text.
+- [Hand a conversation to another computer](./session-handoff.md) —
+  the agent writes its own handoff note over a real lab Herdr with a stand-in agent; busy agents refused with handoff-busy and no prompt sent.
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
 - [Keep a source-build host off the real muxr home](./host-home-guard.md) —

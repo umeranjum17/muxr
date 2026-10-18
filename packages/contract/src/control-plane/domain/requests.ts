@@ -614,6 +614,15 @@ export interface RequestMap extends PeerRequestMap {
         result: null;
     };
     /**
+     * Ask the agent to write its own handoff note for continuing this
+     * conversation on the computer named `targetName`. Only an idle or done
+     * agent takes it: a working or blocked one refuses with `handoff-busy`.
+     */
+    'session.handoff': {
+        params: { sessionId: string; targetName: string };
+        result: { note: string };
+    };
+    /**
      * Answer the question an agent is blocked on with one key: `y`, `n` or a
      * choice number. With `eventId` the host refuses once that blocked event is
      * no longer the one waiting.

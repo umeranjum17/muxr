@@ -1134,12 +1134,12 @@
   dependencies:
     "@byokit/audio" "0.2.0"
 
-"@byokit/herdr@0.12.0":
-  version "0.12.0"
-  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.12.0.tgz#d178b7924801d0d88807acc291bb4a915b50d7bd"
-  integrity sha512-vq/AERg4W/6vDd9aaWTXfPrUZHjWyDpFTQRbOLXGpvzL+4i54qrYM0YFBhdPZzGWdmjXn8M9XlRl+kaHol2WPg==
+"@byokit/herdr@0.14.0":
+  version "0.14.0"
+  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.14.0.tgz#e8a682a06e68cf46bb6a92f9c60fcae8355a5baa"
+  integrity sha512-SjRUWIWvc6owqqpfUPflQJiNnUVeTCuvlTEsm8TzjshGR/BWLDOQYusd3MFuE3sTsPIML6xIwzcfF7pasHjFNA==
   dependencies:
-    "@byokit/seal" "0.3.0"
+    "@byokit/seal" "0.3.1"
     ws "8.22.0"
 
 "@byokit/link@0.8.1":
@@ -1190,6 +1190,15 @@
   version "0.3.0"
   resolved "https://registry.yarnpkg.com/@byokit/seal/-/seal-0.3.0.tgz#cba9da99465365327cd1dc07c60ee2d3248b852e"
   integrity sha512-HhuLfAiCwN4rQsr68B79AuD02hJeckrGh0y7saITCN7Fdal5d07OYR76pdV8ZhE2xiE+3aAAwZAdDonBQpg2gg==
+  dependencies:
+    "@noble/ciphers" "2.4.0"
+    "@noble/curves" "2.4.0"
+    "@noble/hashes" "2.4.0"
+
+"@byokit/seal@0.3.1":
+  version "0.3.1"
+  resolved "https://registry.yarnpkg.com/@byokit/seal/-/seal-0.3.1.tgz#b6f7d48f58bb734a553cbcc53a040366324783f1"
+  integrity sha512-MjehvrD8mCB3O1u/nFv8taFijYV2OxCj387Qrk0ZErxiv3Ry2sXtYVHFMLiq32J1kT7mpBpYpcuPK970eJkzdg==
   dependencies:
     "@noble/ciphers" "2.4.0"
     "@noble/curves" "2.4.0"
