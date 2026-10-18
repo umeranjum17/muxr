@@ -5,7 +5,7 @@ A paired iPad can stay on Home while Herdr stops answering: muxr marks the runti
 ## Sub-features
 
 - A ready Herdr that becomes silent changes the host's existing `herdr.tree.connected` value to false, then back to true on recovery.
-- Home uses the existing busy/reconnecting card during the 10-minute grace bound and does not show a restart command; after the bound it uses the normal runtime recovery card.
+- Home uses the busy/reconnecting card for the entire stalled interval, with no restart text or daemon restart command. The normal recovery card remains for a genuinely offline host.
 - The host journals the stalled and recovered transitions once each.
 
 ## How to get to it (user POV)
@@ -23,5 +23,5 @@ Preconditions: Use the parent skill's iOS Simulator path with a task-owned simul
 
 ## Gotchas
 
-- A false runtime liveness value is distinct from a disconnected phone link. Preserve the link and use the existing Home busy card until the 10-minute bound.
+- A false runtime liveness value is distinct from a disconnected phone link. Preserve the link and use the existing Home busy card until Herdr answers again.
 - `herdr: answering again` is emitted from the kit's `stalled` to `ready` transition, not from counting unrelated API call timeouts.

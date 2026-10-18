@@ -164,14 +164,7 @@ export const HerdView = React.memo(({
     React.useEffect(() => {
         setRuntimeStalledSince((since) => runtimeOffline ? since ?? Date.now() : null);
     }, [runtimeOffline]);
-    const [runtimePastBusyBound, setRuntimePastBusyBound] = React.useState(false);
-    React.useEffect(() => {
-        setRuntimePastBusyBound(false);
-        if (runtimeStalledSince === null) return;
-        const timer = setTimeout(() => setRuntimePastBusyBound(true), Math.max(0, runtimeStalledSince + 10 * 60_000 - Date.now()));
-        return () => clearTimeout(timer);
-    }, [runtimeStalledSince]);
-    const runtimeBusy = runtimeOffline && (runtimeStalledSince === null || !runtimePastBusyBound);
+    const runtimeBusy = runtimeOffline;
     // The link is still retrying with nothing wrong reported: a slow host, not a failure.
     const busySince = runtimeBusy ? runtimeStalledSince ?? Date.now() : connection.mode === 'hosted' && hasPairedGrant === true
         && socketStatus.status === 'connecting' && socketStatus.error === null ? socketStatus.connectingSince : null;
@@ -183,7 +176,7 @@ export const HerdView = React.memo(({
     React.useEffect(() => {
         if (socketStatus.status === 'connected' && error === null && !runtimeOffline) setRetryFailed(false);
     }, [error, runtimeOffline, socketStatus.status]);
-    const needsRecovery = hostOffline || (runtimeOffline && !runtimeBusy) || retrying || retryFailed;
+    const needsRecovery = hostOffline || (!runtimeOffline && (retrying || retryFailed));
     // The header must hear link-down separately from recovery: a dead agent
     // runtime keeps the link up, so the header stays truthful while the card
     // below carries the runtime message. Both derive from the same store read.
