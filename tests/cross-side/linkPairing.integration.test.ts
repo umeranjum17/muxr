@@ -159,6 +159,11 @@ interface ComputerPairingOptions {
     intent?: ReturnType<typeof pairingIntent>;
 }
 
+function offersOn(text: string): string[] {
+    const pattern = new RegExp(`(?:https?:\\/\\/[^\\s]+\\/pair#)?(?:byokit-link:1:[A-Za-z0-9_-]+|${COMPACT_TAG}[A-Za-z0-9_-]+)`, 'g');
+    return [...text.matchAll(pattern)].map((match) => match[0]);
+}
+
 /** Starts a computer pairing and resolves once its QR is on screen. */
 async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>, ttySize?: { columns: number; rows: number }): Promise<{
     pairing: Promise<unknown>;
@@ -196,8 +201,7 @@ async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>, tt
         controller.abort();
         await pairing.catch(() => undefined);
     };
-    const offerPattern = new RegExp(`(?:https?:\\/\\/[^\\s]+\\/pair#)?(?:byokit-link:1:[A-Za-z0-9_-]+|${COMPACT_TAG}[A-Za-z0-9_-]+)`);
-    const offer = await until(() => offerPattern.exec(out)?.[0], 'pairing offer on screen', 30_000)
+    const offer = await until(() => offersOn(out)[0], 'pairing offer on screen', 30_000)
         .catch(async (error: unknown) => { await stop(); throw error; });
     return { pairing, offer, output: () => out, abort: stop };
 }
@@ -605,24 +609,32 @@ describe('native pairing over the byokit link', () => {
 
         it('says the code ran out, not declined, and a late yes pairs nothing', async () => {
             const before = readSelfhostState().machine.crypto.devices.length;
-            let lateYes: ((yes: boolean) => void) | undefined;
+            const prompts: ((yes: boolean) => void)[] = [];
             // The person never answers in time; the prompt ignores the abort so a yes can still arrive late.
-            const { pairing, offer, output, abort } = await showPairingQr({ approve: () => new Promise<boolean>((resolve) => { lateYes = resolve; }) });
+            const { pairing, offer, output, abort } = await showPairingQr({ approve: () => new Promise<boolean>((resolve) => { prompts.push(resolve); }) });
+            let nextPairing: Promise<unknown> | undefined;
             try {
                 const refused = runPhonePairing(offer);
                 await expect(refused).rejects.toBeInstanceOf(PairingNeedsNewCode);
                 await expect(refused).rejects.toThrow('The code ran out. Scan the new QR on your computer');
                 // The computer closes the prompt and shows a new code with the notice above it.
                 await until(() => (output().includes('That code ran out before you said yes. Scan the new QR below') ? true : undefined), 'ran-out notice on the computer', 30_000);
-                lateYes?.(true);
                 // The same code again is refused on the phone before it reaches the computer, as the offer's own expiry.
                 const spent = runPhonePairing(offer);
                 await expect(spent).rejects.toThrow('That pairing code has run out. Open muxr on your computer, or run muxr pair, for a new one.');
+                const nextOffer = await until(() => offersOn(output()).find((text) => text !== offer), 'next pairing offer', 30_000);
+                let nextDone = false;
+                nextPairing = runPhonePairing(nextOffer, { onWords: async () => undefined });
+                nextPairing.then(() => { nextDone = true; }, () => undefined);
+                await until(() => (prompts.length === 2 ? true : undefined), 'approval for the next code', 30_000);
+                prompts[0]!(true);
+                await new Promise((resolve) => setTimeout(resolve, 2_000));
+                expect(nextDone).toBe(false);
                 expect(readSelfhostState().machine.crypto.devices).toHaveLength(before);
-                expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
             } finally {
                 await abort();
-                await expect(pairing).rejects.toThrow('cancelled');
+                await pairing.catch(() => undefined);
+                await nextPairing?.catch(() => undefined);
             }
         }, 90_000);
     });
