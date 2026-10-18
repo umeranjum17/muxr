@@ -384,25 +384,26 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   explicitly: `export MUXR_HOME="$RUN_ROOT/muxr-home"` and `mkdir -p "$MUXR_HOME"`.
   On this path run one relay and one host of its own under that home; do not start
   Launch's loopback relay or its `--fake` host.
-  Relay on the tailnet address, in the background as `IOS_RELAY_PID=$!`:
-  `MUXR_RELAY_PORT=0 MUXR_RELAY_HOST=<tailnet ip> MUXR_RELAY_DATA_DIR="$RUN_ROOT/relay" MUXR_RELAY_MDNS=0`,
-  port read from its stdout line, `/health` ok. Write `$MUXR_HOME/selfhost.json`
+  From the repo root, start the relay on the tailnet address:
+  `MUXR_RELAY_PORT=0 MUXR_RELAY_HOST=<tailnet ip> MUXR_RELAY_DATA_DIR="$RUN_ROOT/relay" MUXR_RELAY_MDNS=0 node apps/relay/dist/main.js >"$RUN_ROOT/ios-relay.log" 2>&1 &`,
+  then `IOS_RELAY_PID=$!`. Read its port from the `relay listening on ws://…:<port>` line in `ios-relay.log`
+  with the same `sed` and 100-try loop as Launch step 1, then check `/health` ok. Write `$MUXR_HOME/selfhost.json`
   with the fields Launch step 2 writes, but `relayUrl` `ws://<tailnet ip>:<port>`,
   and its mint secret from `$RUN_ROOT/relay/mint-secret`. Herdr: provision a lab
   session with `fm-herdr-lab.sh name` and `provision`, with
   `FM_HERDR_LAB_STATE_DIR` in scratch (mode 700). Run the host without `--fake`
-  in the background as `IOS_HOST_PID=$!`, with
-  `MUXR_MODE=selfhost MUXR_DATA_DIR="$MUXR_HOME/host" MUXR_HOME="$MUXR_HOME"`,
-  under the lab's XDG root (`<state>/<session>.xdg-root`) with
-  `HERDR_SESSION=<lab session>`, and **unset `HERDR_SOCKET_PATH`**: an inherited
+  from the repo root, under the lab's XDG root (`<state>/<session>.xdg-root`):
+  `MUXR_MODE=selfhost MUXR_DATA_DIR="$MUXR_HOME/host" MUXR_HOME="$MUXR_HOME" HERDR_SESSION=<lab session> node apps/host/dist/main.js >"$RUN_ROOT/ios-host.log" 2>&1 &`,
+  then `IOS_HOST_PID=$!`. **Unset `HERDR_SOCKET_PATH`** first: an inherited
   one is the owner's default socket, and the host refuses it. Wait for
-  `link relay: online`.
+  `link relay: online` in `ios-host.log`.
 - **Pair.** Words handoff: the host offers, the phone shows two words, and the
   host grants only when the agent delivers the same two words. Never approve
   without them. From a task-owned kit directory, with the same home and lab
   session, run in the background as `PAIR_PID=$!`:
-  `mkdir -p "$RUN_ROOT/kit" && cd "$RUN_ROOT/kit" && MUXR_HOME="$RUN_ROOT/muxr-home" HERDR_SESSION=<lab session> node "$REPO/scripts/cli.mjs" pair --handoff`,
-  where `REPO` is the repo root, captured before the `cd`. The offer lands in
+  `REPO="$PWD"`, `mkdir -p "$RUN_ROOT/kit"`, `cd "$RUN_ROOT/kit"`, then
+  `MUXR_HOME="$RUN_ROOT/muxr-home" HERDR_SESSION=<lab session> node "$REPO/scripts/cli.mjs" pair --handoff >"$RUN_ROOT/pair.log" 2>&1 &`
+  with `PAIR_PID=$!` on its own line, so `$!` is node and not a subshell. The offer lands in
   `$RUN_ROOT/kit/.byokit/outbox/muxr-pair-*.json`, and its `wordsFile` names the
   inbox file. Once the offer exists, hand the link to the Mac as a file: it is
   never on an ssh command line, never printed, and never teed into evidence.
