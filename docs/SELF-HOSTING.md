@@ -76,6 +76,8 @@ Automation uses:
 | *(Works only on this Wi-Fi)* | Kept only for a computer already set up on it. Home network only. |
 | *(choose Direct SSH in the native app)* | Pair through the host's loopback relay over SSH; see [Direct SSH](#direct-ssh). |
 
+The computer's screen (**Computer**) goes straight from the computer to the phone when they can reach each other. When the only way between them is the relay (a temporary link, or your own server while the phone is on mobile data), the native app carries the picture through the relay instead, still end-to-end encrypted. That path is slower; its throughput is an estimate of about 7 Mbps at 300 ms round trip, not a measured figure. A browser cannot use it, so the installed web app shows the screen only on the same Wi-Fi, Tailscale, or another direct path.
+
 For either Tailscale route, install the free Tailscale app on your phone and sign in to the same account before pairing.
 Nearby mDNS discovery is only a locator for an already-paired native app; it
 never grants a new device access. A new phone still needs a one-time link offer, and the PWA cannot scan local
@@ -103,7 +105,7 @@ Connection & updates also exports and installs the login key. The private key's 
 
 Before any login, muxr probes the SSH server's `SHA256:` host-key fingerprint without sending login material and asks you to confirm it. A saved route with no confirmed pin is refused until you confirm it. A changed fingerprint blocks the new connection and tells you to review the machine rather than silently trusting a replacement; saving the route again from **Settings → Connection & updates → Direct SSH** then shows the new fingerprint for confirmation before it replaces the pin, and closes any tunnel still using the old key. The SSH user must be allowed to log in and the muxr relay must be listening on the configured loopback port. PWA does not show this control because browsers cannot open native SSH connections; use an away-from-home route, or the Wi-Fi-only route while both are home.
 
-SSH forwards the loopback relay for pairing and control; it does not authorize a device, replace a grant, or remove E2EE. The desktop picture and controls use WebRTC, not that relay: directly when the phone can reach the computer, or over TCP through a second forward on the same SSH connection when it cannot, so a phone that can reach only SSH (port 22) still views and controls the desktop. Tailscale needs less per-device credential setup and reconnects without a separate SSH session; see the [route picker](#reaching-the-relay-from-your-phone) for its recommendation policy.
+SSH forwards the loopback relay for pairing and control; it does not authorize a device, replace a grant, or remove E2EE. The desktop picture and controls use WebRTC: directly when the phone can reach the computer, or over TCP through a second forward on the same SSH connection when it cannot, so a phone that can reach only SSH (port 22) still views and controls the desktop. The relay-carried picture described under [Reaching the relay from your phone](#reaching-the-relay-from-your-phone) applies only when this route is not active. Tailscale needs less per-device credential setup and reconnects without a separate SSH session; see the [route picker](#reaching-the-relay-from-your-phone) for its recommendation policy.
 
 ### Remote desktop on a cloud server
 

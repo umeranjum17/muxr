@@ -1,4 +1,4 @@
-import { DeviceLink, LINK_WORDS, LinkError, PublicLinkError, type LinkStatus } from '@byokit/link';
+import { DeviceLink, LINK_WORDS, LinkError, PublicLinkError, type LinkStatus, type LinkStream } from '@byokit/link';
 import { describeRoute } from '@byokit/ui-core/route';
 import {
     checkHostProtocol,
@@ -55,6 +55,7 @@ export type SessionClient = {
     unregisterPush(): Promise<boolean>;
     terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
     voiceStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
+    desktopTcpStream?(args: { desktopId: string; port: number }): Promise<LinkStream | undefined>;
     closeDesktopSignaling?(): void;
 };
 
@@ -282,6 +283,13 @@ export class LinkFirstClient implements SessionClient {
     /** Opens the realtime voice stream while the link serves the session. */
     voiceStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
         return this.openByteStream('voice', args);
+    }
+
+    /** One ICE-over-TCP connection to the desktop engine's loopback candidate, carried by the link. */
+    async desktopTcpStream(args: { desktopId: string; port: number }): Promise<LinkStream | undefined> {
+        const link = this.link;
+        if (!this.online || link === undefined || this.closed) return undefined;
+        return link.stream('desktop.tcp', args);
     }
 
     /** Opens the pane's stream while the link serves the session. */

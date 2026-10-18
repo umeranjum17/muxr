@@ -1,5 +1,6 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -14,7 +15,7 @@ import { LinkEndpoint } from './linkEndpoint.js';
 
 const b64 = (value: Uint8Array | string): string => Buffer.from(value).toString('base64');
 const b64url = (value: string): string => Buffer.from(value, 'base64').toString('base64url');
-const STUB = (log: string): string => `#!/usr/bin/env node
+const STUB = (log: string, loopbackPort: number): string => `#!/usr/bin/env node
 const fs = require('node:fs');
 const readline = require('node:readline');
 const log = ${JSON.stringify(log)};
@@ -27,6 +28,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
  if (request.method === 'session.open') {
    const sessionId = 'engine-' + (++opened);
    out({ event: 'session.description', params: { sessionId, generation: 1, description: { type: 'offer', sdp: 'v=0 offer' } } });
+   if (request.params.loopback_tcp) out({ event: 'session.candidate', params: { sessionId, generation: 1, candidate: 'candidate:5 1 tcp 1671430143 127.0.0.1 ${loopbackPort} typ host tcptype passive', sdpMid: '0', sdpMLineIndex: 0 } });
    return out({ id: request.id, result: { sessionId, generation: 1, source: { kind: 'monitor', width: 100, height: 100, origin: { x: 0, y: 0 } }, geometry: { source: { width: 100, height: 100 }, encoded: { width: 100, height: 100 }, origin: { x: 0, y: 0 } } } });
  }
  if (request.method === 'session.description' || request.method === 'session.candidate') return out({ id: request.id, result: { accepted: true } });
@@ -107,7 +109,12 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         const engineLog = join(dir, 'engine-close.jsonl');
         writeFileSync(engineLog, '');
         const engine = join(dir, 'desktop-engine.cjs');
-        writeFileSync(engine, STUB(engineLog));
+        // The engine's loopback ICE-over-TCP listener, echoing what the phone sends.
+        const loopback = createServer((socket) => socket.pipe(socket));
+        await new Promise<void>((resolve) => loopback.listen(0, '127.0.0.1', resolve));
+        cleanups.push(() => void loopback.close());
+        const loopbackPort = (loopback.address() as { port: number }).port;
+        writeFileSync(engine, STUB(engineLog, loopbackPort));
         chmodSync(engine, 0o755);
         const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay'), advertiseMdns: false } });
         cleanups.push(() => void relay.close());
@@ -150,6 +157,7 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
             grants: { load: () => [], save: () => undefined },
             answer: host.answer,
             canView: host.canView,
+            desktopTcp: host.desktopLoopbackPort,
             onDesktopConnection: (id, active) => {
                 host.setLinkDesktopConnection(id, active);
                 if (active) activeStreams.add(id); else activeStreams.delete(id);
@@ -171,16 +179,39 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         };
         const a = phoneLink(phoneA, 'desktop-phone-0');
         await until(() => linkStates.get('desktop-phone-0') === true ? true : undefined, 'phone A is live on link');
+        const otherPhone = phoneLink(phoneB, 'desktop-phone-1');
+        await until(() => linkStates.get('desktop-phone-1') === true ? true : undefined, 'second phone is live on link');
         const first = await desktopStream(a);
         await until(() => activeStreams.size === 1 ? true : undefined, 'first desktop stream is registered');
+
+        // A phone that reaches this computer only through the relay carries the
+        // engine's loopback TCP candidate over a link stream instead.
+        const openedTcp = responseData<{ desktopId: string }>(await first.request('desktop.open', { permissions: ['view'], loopbackTcp: true }));
+        expect(await first.request('desktop.poll', { desktopId: openedTcp.desktopId, cursor: 0 })).toMatchObject({ type: 'result', ok: true,
+            data: { events: [{ kind: 'offer' }, { kind: 'candidate', candidate: `candidate:5 1 tcp 1671430143 127.0.0.1 ${loopbackPort} typ host tcptype passive` }] } });
+        const carry = async (device: DeviceLink, port: number): Promise<{ echoed: string; error?: string }> => {
+            const stream = await device.stream('desktop.tcp', { desktopId: openedTcp.desktopId, port });
+            let echoed = '';
+            const ended = new Promise<string | undefined>((resolve) => { stream.onEnd = resolve; });
+            stream.onData = (chunk) => { echoed += Buffer.from(chunk).toString('utf8'); if (echoed === 'dtls hello') stream.end(); };
+            await stream.write('dtls hello').catch(() => undefined);
+            const error = await ended;
+            return { echoed, ...(error === undefined ? {} : { error }) };
+        };
+        expect(await carry(a, loopbackPort)).toEqual({ echoed: 'dtls hello' });
+        // Nothing else on the loopback, and nobody else's session, is reachable this way.
+        expect(await carry(a, loopbackPort + 1)).toEqual({ echoed: '', error: 'desktop: that connection is not open to this device' });
+        expect(await carry(otherPhone, loopbackPort)).toEqual({ echoed: '', error: 'desktop: that connection is not open to this device' });
+
         const openedA = await first.request('desktop.open', { permissions: ['view'] });
         expect(openedA).toMatchObject({ type: 'result', ok: true });
         const sessionA = responseData<{ desktopId: string }>(openedA);
+        // That open replaced the TCP session; the poll that tells the phone also forgets it.
+        expect(await first.request('desktop.poll', { desktopId: openedTcp.desktopId, cursor: 2 }))
+            .toMatchObject({ type: 'result', ok: true, data: { events: [{ kind: 'revoked' }] } });
         expect(await first.request('desktop.poll', { desktopId: sessionA.desktopId, cursor: 0 }))
             .toMatchObject({ type: 'result', ok: true, data: { events: [{ kind: 'offer', sdp: 'v=0 offer' }] } });
 
-        const otherPhone = phoneLink(phoneB, 'desktop-phone-1');
-        await until(() => linkStates.get('desktop-phone-1') === true ? true : undefined, 'second phone is live on link');
         const otherStream = await desktopStream(otherPhone);
         expect(await otherStream.request('desktop.poll', { desktopId: sessionA.desktopId, cursor: 0 }))
             .toMatchObject({ type: 'result', ok: false, error: 'that desktop session belongs to another device' });

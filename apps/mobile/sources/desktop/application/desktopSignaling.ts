@@ -1,14 +1,10 @@
-import { DESKTOP_CONSENT_WAIT_MS, type DesktopEvent } from '@trymuxr/contract';
+import { DESKTOP_CONSENT_WAIT_MS, DESKTOP_LOOPBACK_TCP, type DesktopEvent } from '@trymuxr/contract';
 import type { SessionEvent, Signaling } from '@desklink/react-native';
+import { Platform } from 'react-native';
 
 import { sync } from '@/catalog';
 import { closeSshForward, openSshForward, sshRouteActive } from '@/connection';
-
-/**
- * The engine's passive ICE-over-TCP candidate on the host's loopback, which a
- * phone on the Direct SSH route can only reach through a forward.
- */
-const LOOPBACK_TCP = /^(candidate:\S+ \d+ tcp \d+ )127\.0\.0\.1 (\d+)( typ host tcptype passive.*)$/i;
+import { openLinkTcpBridge, type TcpCarrier } from '../infrastructure/linkTcpBridge';
 
 /**
  * An open may wait on the screen-sharing prompt on the computer. The phone
@@ -39,7 +35,8 @@ export interface OpenDesktopOptions {
  *
  * Only session setup crosses this channel: the offer, the answer and ICE
  * candidates. Pixels and input ride the desktop's own WebRTC session, so this
- * adapter stays tiny and the encrypted request path never sees a stream.
+ * adapter stays tiny; at most that session's TCP fallback rides a link stream
+ * of its own (`linkTcpBridge`).
  */
 export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
     const listeners = new Set<(event: SessionEvent) => void>();
@@ -49,31 +46,35 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
     let timer: ReturnType<typeof setInterval> | null = null;
     let polling = false;
     /**
-     * On the Direct SSH route the phone has no UDP path it can count on, so it
-     * asks for the picture over TCP too and carries that port through the SSH
-     * connection it already has: engine port -> device-local port.
+     * The phone may have no UDP path to the computer, so it asks for the
+     * picture over TCP too and carries that engine port to a local one: through
+     * the Direct SSH connection it already has, else through the link (native
+     * only; a browser cannot). Device previews keep to SSH for now.
      */
-    let forwardOverSsh = false;
-    const forwards = new Map<number, Promise<number>>();
+    let carrier: 'ssh' | 'link' | null = null;
+    const carriers = new Map<string, Promise<TcpCarrier>>();
 
     const closeForwards = (): void => {
-        for (const forward of forwards.values()) void forward.then(closeSshForward, () => undefined);
-        forwards.clear();
+        for (const carried of carriers.values()) void carried.then((local) => local.close(), () => undefined);
+        carriers.clear();
     };
 
     /** The candidate as this phone can dial it, or null for one it cannot. */
     const reachable = async (candidate: string): Promise<string | null> => {
-        const loopback = LOOPBACK_TCP.exec(candidate);
+        const loopback = DESKTOP_LOOPBACK_TCP.exec(candidate);
         if (loopback === null) return candidate;
-        if (!forwardOverSsh) return null;
+        if (carrier === null || desktopId === null) return null;
         const enginePort = Number(loopback[2]);
-        let forward = forwards.get(enginePort);
-        if (forward === undefined) {
-            forward = openSshForward(enginePort);
-            forwards.set(enginePort, forward);
+        const key = `${desktopId}:${enginePort}`;
+        let carried = carriers.get(key);
+        if (carried === undefined) {
+            carried = carrier === 'ssh'
+                ? openSshForward(enginePort).then((port) => ({ port, close: () => void closeSshForward(port) }))
+                : openLinkTcpBridge(desktopId, enginePort);
+            carriers.set(key, carried);
         }
         try {
-            return `${loopback[1]}127.0.0.1 ${await forward}${loopback[3]}`;
+            return `${loopback[1]}127.0.0.1 ${(await carried).port}${loopback[3]}`;
         } catch {
             return null;
         }
@@ -93,7 +94,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
                     kind: 'description',
                     description: {
                         type: 'offer',
-                        sdp: event.sdp.split('\r\n').filter((line) => !LOOPBACK_TCP.test(line.replace(/^a=/, ''))).join('\r\n'),
+                        sdp: event.sdp.split('\r\n').filter((line) => !DESKTOP_LOOPBACK_TCP.test(line.replace(/^a=/, ''))).join('\r\n'),
                     },
                 };
             case 'candidate': {
@@ -160,12 +161,13 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
         async request<T>(method: string, params?: Record<string, unknown>): Promise<T> {
             switch (method) {
                 case 'session.open': {
-                    forwardOverSsh = sshRouteActive();
+                    closeForwards();
+                    carrier = sshRouteActive() ? 'ssh' : Platform.OS !== 'web' && options.target === undefined ? 'link' : null;
                     options.onOpenSent?.();
                     const opened = await sync.request('desktop.open', {
                         permissions: options.permissions,
                         awaitConsent: true,
-                        ...(forwardOverSsh ? { loopbackTcp: true } : {}),
+                        ...(carrier === null ? {} : { loopbackTcp: true }),
                         ...(options.maxWidth === undefined ? {} : { maxWidth: options.maxWidth }),
                         ...(options.maxHeight === undefined ? {} : { maxHeight: options.maxHeight }),
                         ...(options.bitrateKbps === undefined ? {} : { bitrateKbps: options.bitrateKbps }),

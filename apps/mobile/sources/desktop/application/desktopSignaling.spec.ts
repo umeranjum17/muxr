@@ -1,12 +1,32 @@
 import { createElement } from 'react';
 import TestRenderer from 'react-test-renderer';
+import { connect } from 'node:net';
 import { expect, it, vi } from 'vitest';
 
-const { request, ssh } = vi.hoisted(() => ({
-    request: vi.fn(),
-    ssh: { active: false, open: vi.fn(async (port: number) => port + 1000), close: vi.fn(async () => undefined) },
-}));
-vi.mock('@/catalog', () => ({ sync: { request } }));
+const { request, ssh, linkStreams, openDesktopTcpStream } = vi.hoisted(() => {
+    const linkStreams: unknown[] = [];
+    return {
+        request: vi.fn(),
+        ssh: { active: false, open: vi.fn(async (port: number) => port + 1000), close: vi.fn(async () => undefined) },
+        linkStreams,
+        /** The link's `desktop.tcp` stream, played by an engine port that echoes. */
+        openDesktopTcpStream: async (args: unknown) => {
+            linkStreams.push(args);
+            let reader: ((chunk: Uint8Array) => unknown) | undefined;
+            let ender: (() => void) | undefined;
+            return {
+                set onData(fn: (chunk: Uint8Array) => unknown) { reader = fn; },
+                set onEnd(fn: () => void) { ender = fn; },
+                write: async (chunk: Uint8Array) => { await reader?.(chunk); },
+                end: () => ender?.(),
+            };
+        },
+    };
+});
+vi.mock('@/catalog', () => ({ sync: { request, openDesktopTcpStream } }));
+// The phone's native TCP listener has node's own API.
+vi.mock('react-native-tcp-socket', async () => ({ default: await import('node:net') }));
+vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 vi.mock('@/connection', () => ({
     sshRouteActive: () => ssh.active,
     openSshForward: ssh.open,
@@ -56,9 +76,9 @@ it('delivers the initial offer, candidate and revocation even when polling wins 
     request.mockReset();
 });
 
-it('carries the picture through the SSH connection when that is the only way to the computer', async () => {
+it('carries the picture over TCP through SSH, else through the link, when no direct path exists', async () => {
     const loopback = 'candidate:5 1 tcp 1671430143 127.0.0.1 43519 typ host tcptype passive';
-    const run = async (active: boolean) => {
+    const run = async (active: boolean, whileOpen: (candidate: string) => Promise<void> = async () => undefined) => {
         ssh.active = active;
         let polled!: () => void;
         const pollFinished = new Promise<void>((resolve) => { polled = resolve; });
@@ -78,10 +98,16 @@ it('carries the picture through the SSH connection when that is the only way to 
         signaling.subscribe((event) => received.push(event as (typeof received)[number]));
         await signaling.request('session.open');
         await pollFinished;
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await vi.waitFor(() => expect(received).toHaveLength(2));
+        await whileOpen(received[1]!.candidate!.candidate);
         await signaling.request('session.close');
         return { received, open: request.mock.calls.find(([method]) => method === 'desktop.open')?.[1] };
     };
+    const dial = (port: number) => new Promise<string>((resolve, reject) => {
+        const socket = connect(port, '127.0.0.1', () => socket.write('dtls hello'));
+        socket.on('data', (chunk) => { resolve(chunk.toString()); socket.destroy(); });
+        socket.on('error', reject);
+    });
 
     // On the Direct SSH route: asked for, forwarded over the tunnel, dialled locally.
     const tunnelled = await run(true);
@@ -92,13 +118,20 @@ it('carries the picture through the SSH connection when that is the only way to 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(ssh.close).toHaveBeenCalledWith(44519);
 
-    // Any other route: not asked for, and a loopback port on the computer is never dialled here.
+    // Through the relay alone: a local port whose connections ride a link stream to the engine port.
     request.mockReset();
     ssh.open.mockClear();
-    const direct = await run(false);
-    expect(direct.open).not.toHaveProperty('loopbackTcp');
-    expect(direct.received.map((event) => event.kind)).toEqual(['description']);
+    let bridgePort = 0;
+    const linked = await run(false, async (candidate) => {
+        bridgePort = Number(/127\.0\.0\.1 (\d+) typ/.exec(candidate)?.[1]);
+        expect(candidate).toBe(`candidate:5 1 tcp 1671430143 127.0.0.1 ${bridgePort} typ host tcptype passive`);
+        expect(await dial(bridgePort)).toBe('dtls hello');
+    });
+    expect(linked.open).toMatchObject({ loopbackTcp: true });
+    expect(linkStreams).toEqual([{ desktopId: 'desktop-2', port: 43519 }]);
     expect(ssh.open).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect(dial(bridgePort)).rejects.toThrow(/ECONNREFUSED/);
     request.mockReset();
 });
 

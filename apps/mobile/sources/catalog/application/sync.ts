@@ -18,6 +18,7 @@ import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../i
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
 import { LinkFirstClient, type ByteStreamTransport, type SessionClient } from '@/pairing/client';
+import type { LinkStream } from '@byokit/link';
 import { setActiveSessionClient } from '@/connection/sessionClientRef';
 import { AppState, Platform } from 'react-native';
 import {
@@ -803,6 +804,10 @@ class MuxrSync {
 
     openVoiceStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> | undefined {
         return this.client?.voiceStream?.(args);
+    }
+
+    openDesktopTcpStream(args: { desktopId: string; port: number }): Promise<LinkStream | undefined> | undefined {
+        return this.client?.desktopTcpStream?.(args);
     }
 
     async request<T extends import('@trymuxr/contract').RequestType>(

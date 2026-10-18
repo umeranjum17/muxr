@@ -1,6 +1,7 @@
 import { sealNotice } from '@byokit/seal';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { connect } from 'node:net';
 import { dirname } from 'node:path';
 import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream, type PairRequest } from '@byokit/link';
 import { isExpoToken, linkUrl, ownerClient, RelayOwnerError, RelayClient, type RelayClientStore } from '@byokit/relay';
@@ -74,6 +75,8 @@ export interface LinkEndpointOptions {
     voiceStreams?: { attach(params: { deviceId: string; channel: string; sessionId?: string; stream: LinkStream }): Promise<void> };
     onStatus?: (status: string) => void;
     onDesktopConnection?: (connectionId: string, active: boolean) => void;
+    /** Given, a device may carry its desktop session's loopback ICE-over-TCP port over a `desktop.tcp` stream. */
+    desktopTcp?: (desktopId: string, port: number, deviceId: string) => boolean;
     onDeviceConnection?: (deviceId: string, active: boolean) => void;
     onDeviceRevoked?: (deviceId: string, removed: boolean) => void | Promise<void>;
 }
@@ -290,6 +293,7 @@ export class LinkEndpoint {
                 if (req.op === 'voice') return streamVoice(stream, req, grant, options);
                 if (req.op === 'terminal') return streamTerminal(stream, req, grant, options);
                 if (req.op === 'desktop') return streamDesktop(stream, req, grant, options);
+                if (req.op === 'desktop.tcp') return streamDesktopTcp(stream, req, grant, options);
                 throw new PublicLinkError('unsupported link stream');
             },
             keys,
@@ -302,7 +306,7 @@ export class LinkEndpoint {
                 if (req.op === 'terminal') return options.terminals !== undefined;
                 if (!trusted(grant, options.currentCrypto())) return false;
                 if (req.op === 'voice') return grant.role === 'control' && options.voiceStreams !== undefined;
-                if (req.op === 'desktop') return true;
+                if (req.op === 'desktop' || req.op === 'desktop.tcp') return true;
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op || frame.type.startsWith('desktop.')) return false;
                 if (permits(grant, frame, options.canView)) return true;
@@ -661,6 +665,45 @@ async function streamDesktop(stream: LinkStream, req: LinkRequest, grant: Grant,
     };
     try { await ended; }
     finally { options.onDesktopConnection?.(connectionId, false); }
+}
+
+/**
+ * One ICE-over-TCP connection from the phone to the desktop engine: the stream
+ * is the socket, bytes both ways, so a phone that reaches this computer only
+ * through the relay still gets the picture. The bytes stay DTLS inside Noise.
+ * Only a loopback port the device's own session announced is dialled.
+ */
+async function streamDesktopTcp(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
+    const args = req.args as { desktopId?: unknown; port?: unknown } | null;
+    if (!trusted(grant, options.currentCrypto()) || grant.role !== 'control' || args === null || typeof args !== 'object'
+        || typeof args.desktopId !== 'string' || typeof args.port !== 'number'
+        || options.desktopTcp?.(args.desktopId, args.port, muxrDeviceIdOf(grant)!) !== true) {
+        throw new PublicLinkError('desktop: that connection is not open to this device');
+    }
+    const socket = connect({ host: '127.0.0.1', port: args.port });
+    process.stderr.write('link: desktop picture carried over the link\n');
+    let carried = 0;
+    let finish!: () => void;
+    const closed = new Promise<void>((resolve) => { finish = resolve; });
+    socket.on('close', () => {
+        process.stderr.write(`link: desktop link connection closed after ${carried} bytes to the phone\n`);
+        finish();
+    });
+    socket.on('data', (chunk) => {
+        carried += chunk.length;
+        socket.pause();
+        stream.write(chunk).then(() => socket.resume(), () => socket.destroy());
+    });
+    socket.on('end', () => stream.end());
+    socket.on('error', (error) => stream.end(`desktop: ${error.message}`));
+    stream.onData = (chunk) => new Promise<void>((resolve) => {
+        if (socket.write(chunk)) { resolve(); return; }
+        const settle = (): void => { socket.off('drain', settle); socket.off('close', settle); resolve(); };
+        socket.on('drain', settle);
+        socket.on('close', settle);
+    });
+    stream.onEnd = () => { socket.destroy(); };
+    await closed;
 }
 
 async function streamVoice(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {

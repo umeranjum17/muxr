@@ -53,6 +53,8 @@ export interface Host {
     setLinkDesktopConnection: (connectionId: string, active: boolean) => void;
     setLinkDeviceConnection: (deviceId: string, active: boolean) => void;
     closeDeviceDesktopSessions: (deviceId: string, removed?: boolean) => Promise<void>;
+    /** Whether a device's `desktop.tcp` link stream may reach this loopback port of its desktop session. */
+    desktopLoopbackPort: (desktopId: string, port: number, deviceId: string) => boolean;
     canView: (frame: ClientFrame) => boolean;
     /** Product events fan out through the byokit endpoint. */
     onBroadcast: (listener: (frame: HostFrame, deviceId?: string) => void) => void;
@@ -264,6 +266,7 @@ export function startHost(options: HostOptions): Host {
             await androidWatcher.targets.revokeDevice(deviceId);
             await iosWatcher.targets.revokeDevice(deviceId);
         },
+        desktopLoopbackPort: (desktopId, port, deviceId) => desktop.loopbackPort(desktopId, port, deviceId),
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
         close: async () => {
             unsubscribe();

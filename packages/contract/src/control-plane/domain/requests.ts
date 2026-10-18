@@ -256,6 +256,14 @@ export interface DesktopCapabilities {
 export const DESKTOP_CONSENT_WAIT_MS = 110_000;
 
 /**
+ * The engine's passive ICE-over-TCP candidate on the computer's loopback, which
+ * `loopbackTcp` asks for. A phone reaches its port only through a carrier: the
+ * Direct SSH forward, or the `desktop.tcp` link stream, which the host opens
+ * only to a port its own session announced this way. Groups: prefix, port, rest.
+ */
+export const DESKTOP_LOOPBACK_TCP = /^(candidate:\S+ \d+ tcp \d+ )127\.0\.0\.1 (\d+)( typ host tcptype passive.*)$/i;
+
+/**
  * The `desktop.open` refusal for a share the portal granted that never sent a
  * picture (a restored window that closed, or one another screencast starved).
  * The phone matches it exactly to say so in its own words.
@@ -306,9 +314,9 @@ export interface RequestMap extends PeerRequestMap {
             bitrateKbps?: number;
             maxFps?: number;
             /**
-             * The phone reaches this computer only through a forward of the
-             * host's loopback (the Direct SSH route): also offer the picture
-             * over TCP there, for the phone to carry through that forward.
+             * The phone can carry a connection to the host's loopback (a Direct
+             * SSH forward, or a `desktop.tcp` link stream): also offer the
+             * picture over TCP there, for when no direct path exists.
              */
             loopbackTcp?: boolean;
             /**
