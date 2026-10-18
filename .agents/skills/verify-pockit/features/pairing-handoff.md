@@ -12,7 +12,7 @@ A cloud computer can pair without a terminal: `muxr pair --handoff` publishes an
 
 ## How to get to it (user POV)
 
-Run `muxr pair --handoff` from the kit's `workDir` on the user's computer. The phone collects `.byokit/outbox/muxr-pair-<random>.json`, reads its `offer`, and dials over the user's tailnet. The JSON's optional `notice` is the ran-out line the computer prints above that offer's QR; it is present only on the offer that follows a code that ran out before a yes. After showing its two words, the phone calls kit `deliver` with the offer's `wordsFile` and those words as UTF-8 bytes. `muxr pair --help` documents the JSON contract; no kit dependency is required by muxr.
+Run `muxr pair --handoff` from the kit's `workDir` on the user's computer. The phone collects `.byokit/outbox/muxr-pair-<random>.json`, reads its `offer`, and dials over the user's tailnet. The JSON's optional `notice` is the ran-out line the computer prints above the next QR; handoff mode prints no QR, so the line is carried as that next offer's `notice` field, present only on the offer that follows a code that ran out before a yes. After showing its two words, the phone calls kit `deliver` with the offer's `wordsFile` and those words as UTF-8 bytes. `muxr pair --help` documents the JSON contract; no kit dependency is required by muxr.
 
 ## Driving it with the private stack
 
@@ -38,6 +38,6 @@ The maintained regression journeys are the handoff flow in `tests/cross-side/lin
 ## Gotchas
 
 - The kit work directory is cwd, not `MUXR_HOME`. Kit `deliver` writes raw bytes, not a JSON envelope, to the inbox; its mode/atomic rename contract is in BYOKit `packages/cloud/src/unit.ts` and `machine.ts`.
-- Offers refresh in the same outbox file, but each offer names its own `wordsFile`. A late yes written for an expired code lands in a file no later offer reads, so it grants nothing. Collectors should only collect final `.json` names, not temporary atomic-write files.
+- Offers refresh in the same outbox file, and each offer names its own `wordsFile`. The computer accepts the words file of any offer whose code has not run out, and drops and deletes a file once its code's expiry passes (checked before each read), so a late yes for an expired code grants nothing and cannot break a newer code. Collectors should only collect final `.json` names, not temporary atomic-write files.
 - This only pairs native phones. Browser flags with `--handoff` are refused. The existing terminal pairing flow is unchanged.
 - Never store raw offers, words, device keys, or owner credentials in proof logs. Cleanup owns exact child PIDs and private scratch only. Real Tailscale routing must be reported separately if the private proof uses LAN or loopback instead.

@@ -274,8 +274,7 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
             leaveAltScreen();
             const ask = new AbortController();
             approval = ask;
-            // An answer to a prompt the code's run-out has closed is not sent: the computer no longer awaits it.
-            void Promise.resolve(approve(event.approval, ask.signal)).then((yes) => { if (!ask.signal.aborted) socket.write(`${JSON.stringify({ yes })}\n`); }, settle.reject);
+            void Promise.resolve(approve(event.approval, ask.signal)).then((yes) => socket.write(`${JSON.stringify({ yes })}\n`), settle.reject);
         } else if (event.expired) {
             approval?.abort();
             approval = undefined;
