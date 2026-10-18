@@ -415,7 +415,8 @@ export default function PairScreen() {
                                             }).catch(() => Modal.alert('Copy failed', 'Please try again.'));
                                         }}
                                     >
-                                        <Ionicons name={commandCopied ? 'checkmark-outline' : 'copy-outline'} size={20} color={styles.inputPlaceholder.color} />
+                                        <Ionicons name={commandCopied ? 'checkmark-outline' : 'copy-outline'} size={16} color={styles.copyLabel.color} />
+                                        <Text style={styles.copyLabel}>{commandCopied ? 'Copied' : 'Copy'}</Text>
                                     </Pressable>
                                 </View>
                                 <SshField testID="ssh-host" label="SSH host" value={sshHost} onChange={setSshHost} placeholder="server.example.com or 192.168.1.20" />
@@ -728,10 +729,21 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.text,
     },
     copyButton: {
-        minWidth: 44,
-        minHeight: 44,
+        minHeight: 36,
+        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
+        gap: 4,
+        paddingHorizontal: 12,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surface,
+    },
+    copyLabel: {
+        color: theme.colors.text,
+        fontSize: 14,
+        fontWeight: '600',
     },
     inputPlaceholder: {
         color: theme.colors.textSecondary,

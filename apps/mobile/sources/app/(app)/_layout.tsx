@@ -193,6 +193,14 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="pair"
+                options={{
+                    headerShown: true,
+                    headerTitle: 'Pair a computer',
+                    headerBackTitle: t('common.back'),
+                }}
+            />
+            <Stack.Screen
                 name="changelog"
                 options={{
                     headerShown: true,

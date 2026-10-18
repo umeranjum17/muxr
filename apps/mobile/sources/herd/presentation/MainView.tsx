@@ -445,7 +445,10 @@ export const MainView = React.memo(({ liveCardBadge }: {
             + 12;
     // A view-only grant cannot start agents, so it gets no composer.
     const dockVisible = authority === 'control' && !authorityLoading && !searchActive && !phoneHomeRecovering;
-    const bottomContentInset = dockVisible ? MOBILE_HOME_DOCK_CONTENT_INSET : 16;
+    // The dock's measured height (safe area included) is what the list must clear: a large font or a
+    // grown field makes it taller than the fixed floor, and the cards then sit under the composer.
+    const [dockHeight, setDockHeight] = React.useState(0);
+    const bottomContentInset = dockVisible ? Math.max(MOBILE_HOME_DOCK_CONTENT_INSET, dockHeight - safeArea.bottom) : 16;
 
     const handleHomePromptSubmit = React.useCallback(async (): Promise<boolean> => {
         const prompt = homePrompt.trim();
@@ -598,7 +601,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
                 </View>
                 {Platform.OS !== 'web' && phoneHeader}
             </View>
-            <View pointerEvents="box-none" style={styles.phoneBottomDockOverlay}>
+            <View pointerEvents="box-none" style={styles.phoneBottomDockOverlay} onLayout={(e) => setDockHeight(e.nativeEvent.layout.height)}>
                 {dockVisible && (
                     <HomeDock
                         prompt={homePrompt}
