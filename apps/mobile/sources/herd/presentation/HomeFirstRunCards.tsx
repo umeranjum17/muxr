@@ -11,7 +11,7 @@ import { useAuth } from '@/account/ui';
 import { resolveAgentCatalog } from '@/catalog';
 import { sync } from '@/catalog/sync';
 import { getCachedConnectionSettings } from '@/connection';
-import { agentName, firstAgentOffer, startNewAgent, type FirstAgentOffer } from '@/spawn';
+import { agentName, dockStartPath, firstAgentOffer, startNewAgent, type FirstAgentOffer } from '@/spawn';
 import { useAllMachines, useHerdrTree, useLocalSettingMutable, useSessions, useSocketStatus } from '@/catalog/store';
 import { openBackgroundActivitySettings } from '@/../modules/voice-overlay';
 import { notificationPermissionStatus, requestNotificationPermission } from '@/utils/microphonePermissions';
@@ -76,7 +76,7 @@ export function FirstAgentCard() {
         const settings = getCachedConnectionSettings();
         const machine = machines.find((candidate) => candidate.id === settings.machineId);
         const result = await startNewAgent({
-            directory: settings.lastSessionCwd || machine?.metadata?.defaultStartFolder || '~',
+            directory: dockStartPath(null, machine?.metadata?.homeDir, machine?.metadata?.defaultStartFolder),
             kinds: [kind],
             squad: false,
             worktree: false,
