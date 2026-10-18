@@ -1604,9 +1604,10 @@ export async function createHerdrSessionSource(
                     if ([...agentsByPane.keys()].some(needsSessionDiscovery) && client.kit.snapshot().revision !== lastRefreshRevision) {
                         await client.kit.refresh();
                         lastRefreshRevision = client.kit.snapshot().revision;
+                        syncFromKit();
                     }
                 } finally {
-                    await reindexKitTree();
+                    if (!disposed && client.connected) await syncDiscovery();
                     emitAllStates();
                 }
             })().catch(() => {});
