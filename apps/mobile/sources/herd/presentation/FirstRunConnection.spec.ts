@@ -116,7 +116,7 @@ describe('link-first connect shell', () => {
         pairingAlert.mockClear();
     });
 
-    it('leads with the connect link, validates pasted input like a scan, keeps SSH entry and parks Cloud', async () => {
+    it('leads with the connect link, validates pasted input like a scan, keeps SSH and opens cloud setup', async () => {
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
         const visible = texts(renderer.root);
@@ -127,9 +127,8 @@ describe('link-first connect shell', () => {
         expect(visible).toContain('Fastest · 20–60 sec*');
         expect(visible).toContain('Private link or pairing code');
         expect(visible).toContain('Not set up yet?');
-        expect(visible).toContain('Cloud account');
+        expect(visible).toContain('Cloud computer');
         expect(visible).toContain('Boat · 2–5 min');
-        expect(visible).toContain('Soon');
         expect(visible).toContain('SSH login');
         expect(visible).toContain('Any server · 3–7 min');
         expect(visible).toContain('Encrypted after verified pairing');
@@ -201,12 +200,13 @@ describe('link-first connect shell', () => {
         press(renderer.root, 'SSH login. Any server, 3 to 7 minutes.');
         expect(routerPush).toHaveBeenCalledWith('/pair?route=ssh');
         routerPush.mockClear();
-        // Cloud account is visibly disabled with no action behind it.
-        const cloud = buttons(renderer.root).find((node) => node.props.accessibilityLabel === 'Cloud account. Coming soon, no action yet.');
+        // Cloud setup is an active first-run entry without changing the existing connect paths.
+        const cloud = buttons(renderer.root).find((node) => node.props.accessibilityLabel === 'Add a cloud computer. Boat, 2 to 5 minutes.');
         expect(cloud).toBeDefined();
-        expect(cloud.props.disabled).toBe(true);
-        expect(cloud.props.onPress).toBeUndefined();
-        expect(routerPush).not.toHaveBeenCalled();
+        expect(cloud.props.disabled).not.toBe(true);
+        press(renderer.root, 'Add a cloud computer. Boat, 2 to 5 minutes.');
+        expect(routerPush).toHaveBeenCalledWith('/cloud-computer');
+        routerPush.mockClear();
         // More ways holds the computer setup command and the fallback routes.
         press(renderer.root, 'More ways and timing');
         const expanded = texts(renderer.root);
@@ -215,7 +215,7 @@ describe('link-first connect shell', () => {
         TestRenderer.act(() => { renderer.unmount(); });
     });
 
-    it('browser leads with paste, hides scan and SSH, and keeps Cloud parked', async () => {
+    it('browser leads with paste, hides scan and SSH, and shows the phone-app cloud instruction', async () => {
         platformOs = 'web';
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
@@ -223,7 +223,8 @@ describe('link-first connect shell', () => {
         expect(visible).toContain('Have a connect link?');
         expect(visible.some((text) => text.includes('Paste the browser link from muxr on your computer.'))).toBe(true);
         expect(visible.some((text) => text.includes('compare two words before access is granted'))).toBe(true);
-        expect(visible).toContain('Cloud account');
+        expect(visible).toContain('Cloud computer');
+        expect(visible).toContain('Set up from the muxr phone app');
         expect(visible).not.toContain('SSH login');
         expect(visible.some((text) => text.includes("can't scan"))).toBe(false);
         expect(buttons(renderer.root).some((node) => node.props.accessibilityLabel === 'Scan the QR')).toBe(false);
@@ -234,6 +235,8 @@ describe('link-first connect shell', () => {
         expect(pairingAlert).not.toHaveBeenCalled();
         expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: whole } });
         expect(scanQr).not.toHaveBeenCalled();
+        press(renderer.root, 'Cloud computer. Set up from the muxr phone app.');
+        expect(routerPush).toHaveBeenCalledWith('/cloud-computer');
         TestRenderer.act(() => { renderer.unmount(); });
     });
 });

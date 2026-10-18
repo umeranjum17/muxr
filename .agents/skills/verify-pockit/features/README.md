@@ -203,9 +203,12 @@ rules, with no H2 sections.
   root-staged tun for the Tailscale-on case, the good case over this desktop's tailnet address, and the PWA.
 - [Land on the first-run link-first shell](./first-run-browser-steps.md) —
   unpaired release APK and installed PWA: ready-link field → Connect →
-  existing consent, disabled Cloud account, unchanged native SSH login and
+  existing consent, active cloud-computer entry, unchanged native SSH login and
   expandable setup details; 393/270 dp, font 1.0/2.0, both themes and scrolled,
   plus a link-to-consent recording.
+- [Start a cloud computer](./cloud-computer-onboarding.md) — native first-run
+  entry → one checklist → Boat account-link screen; PWA explains setup is in the
+  phone app. The first slice stops before machine creation; no second Boat claim.
 - [Read the whole install command on the native first run](./first-run-install-command.md) —
   unpaired release APK at 393/270 dp, font 1.0/2.0, both themes: the command
   wraps inside the screen (uiautomator bounds, no sideways scroller) and Copy
