@@ -327,10 +327,10 @@ describe('link session sync flow', () => {
             const asked = health.mock.calls.length;
             vi.useFakeTimers();
             client.fire('offline');
-            await vi.advanceTimersByTimeAsync(29_000);
+            await vi.advanceTimersByTimeAsync(5 * 60_000 - 1);
             expect(harness.socketError).toBeNull();
             expect(health).toHaveBeenCalledTimes(asked);
-            await vi.advanceTimersByTimeAsync(1_000);
+            await vi.advanceTimersByTimeAsync(1);
         };
 
         // A version skew on a merely offline link is a host coming back, not a
