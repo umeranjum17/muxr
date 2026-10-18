@@ -343,9 +343,12 @@ describe('native pairing over the byokit link', () => {
                     expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
                     expect(existsSync(offerPath)).toBe(false);
                     expect(existsSync(join(inbox, current.wordsFile))).toBe(false);
+                    if (current !== offered) expect(existsSync(join(inbox, offered.wordsFile))).toBe(false);
                     expect(command.output()).not.toContain(current.offer);
+                    if (current !== offered) expect(command.output()).not.toContain(offered.offer);
                     expect(shownWords).not.toBe('');
                     expect(command.output()).not.toContain(shownWords);
+                    if (mode === 'wrong') expect(command.output()).toContain('two words did not match');
                     if (mode === 'cancel') {
                         await until(() => host!.output().includes('Pairing connection lost; this pairing attempt ended.') ? true : undefined,
                             'host contains the peer reset without crashing');
