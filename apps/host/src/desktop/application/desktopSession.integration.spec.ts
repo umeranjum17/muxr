@@ -505,6 +505,58 @@ describe('desktop sessions, host side', () => {
         }
     }, 30_000);
 
+    it.skipIf(!busTools)('does not refuse a second open while the first picker is still up, even once a backend wedges', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-second-open-'));
+        const busPath = join(directory, 'bus');
+        // A private session bus: never the real desktop's.
+        const daemon = spawn('dbus-daemon', ['--session', '--nofork', `--address=unix:path=${busPath}`], { stdio: 'ignore' });
+        const owners: Socket[] = [];
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [join(directory, 'engine.cjs'), join(directory, 'received.jsonl')] },
+            { ...PORTAL_HOST, PATH: process.env.PATH, DBUS_SESSION_BUS_ADDRESS: `unix:path=${busPath}` });
+        const approval = join(directory, 'approved');
+        try {
+            await vi.waitFor(() => expect(existsSync(busPath)).toBe(true), { timeout: 5000 });
+            // The first open's picker waits for the person, as the consent test does.
+            writeFileSync(join(directory, 'received.jsonl'), '');
+            writeFileSync(join(directory, 'engine.cjs'), STUB.replace("    case 'session.open':", `
+    case 'session.open': {
+      const waiting = setInterval(() => {
+        if (!require('node:fs').existsSync(${JSON.stringify(approval)})) return;
+        clearInterval(waiting);
+        out({ id: request.id, result: {
+          sessionId: session.id, generation: 1,
+          source: { kind: 'monitor', width: 2560, height: 1440, origin: { x: 0, y: 0 } },
+          geometry: { source: { width: 2560, height: 1440 }, encoded: { width: 1280, height: 720 }, origin: { x: 0, y: 0 } },
+        } });
+      }, 20);
+      return;
+    }
+    case 'unused':`));
+            const opens = () => readFileSync(join(directory, 'received.jsonl'), 'utf8').split('\n').filter((line) => line.includes('"session.open"')).length;
+            owners.push(busNameOwner(busPath, 'org.freedesktop.impl.portal.desktop.alive', true));
+
+            const first = desktop.open({ permissions: ['view'], awaitConsent: true });
+            await vi.waitFor(() => expect(opens()).toBe(1), { timeout: 5000 });
+
+            // A backend wedges while that picker is up. A second Computer open
+            // is for the same person at the same screen, so it is not refused
+            // for the wedged backend: it reaches the engine and waits with the first.
+            owners.push(busNameOwner(busPath, 'org.freedesktop.impl.portal.desktop.test', false));
+            const second = desktop.open({ permissions: ['view'], awaitConsent: true });
+            await vi.waitFor(() => expect(opens()).toBe(2), { timeout: 5000 });
+
+            writeFileSync(approval, '');
+            const [firstOpened, secondOpened] = await Promise.all([first, second]);
+            expect(firstOpened.desktopId).toBeTruthy();
+            expect(secondOpened.desktopId).toBeTruthy();
+        } finally {
+            await desktop.closeAll();
+            for (const owner of owners) owner.destroy();
+            daemon.kill();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    }, 30_000);
+
     it('refuses control up front when the machine has no input backend', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
         const scriptPath = join(directory, 'engine.cjs');
