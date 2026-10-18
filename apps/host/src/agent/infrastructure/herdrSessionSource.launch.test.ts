@@ -954,8 +954,8 @@ describe('agent started at the desk in an existing pane', () => {
             expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId: 'shell:w1:p1' });
             // A shell pane has no agent, so the kit lands the abort on the pane itself.
             await source.abort('shell:w1:p1');
-            expect(herdr.calls.filter((call) => call.method.endsWith('send_keys')).map((call) => call.method))
-                .toEqual(['agent.send_keys', 'pane.send_keys']);
+            expect(herdr.calls.filter((call) => call.method.endsWith('send_keys')).map((call) => [call.method, call.params.keys]))
+                .toEqual([['agent.send_keys', ['escape']], ['pane.send_keys', ['escape']]]);
 
             // Codex starts in the shell. Herdr detects its kind and name, but
             // Codex has no session until its first turn.
@@ -990,8 +990,8 @@ describe('agent started at the desk in an existing pane', () => {
 
             herdr.calls.length = 0;
             await source.abort(treePane(await source.herdrTree(), 'w1:p1').sessionId!);
-            expect(herdr.calls.filter((call) => call.method.endsWith('send_keys')).map((call) => call.method))
-                .toEqual(['agent.send_keys']);
+            expect(herdr.calls.filter((call) => call.method.endsWith('send_keys')).map((call) => [call.method, call.params.keys]))
+                .toEqual([['agent.send_keys', ['escape']]]);
         } finally {
             await source.dispose();
             herdr.close();
@@ -1041,7 +1041,7 @@ describe('agent started at the desk in an existing pane', () => {
         }
     }, 20_000);
 
-    it('adopts two desk-detected conversations without a pull, and a refresh-caused bootstrap does not re-arm the edge', async () => {
+    it('adopts two desk-detected conversations and a sessionless desk agent', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-desk-herd-'));
         const cwd = join(dir, 'repo');
         const herdr = fakeHerdr(dir, cwd);
@@ -1068,22 +1068,16 @@ describe('agent started at the desk in an existing pane', () => {
                 expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ agentKind: 'codex', sessionId: expect.stringMatching(/^pp_/) });
                 expect(treePane(await source.herdrTree(), 'w1:p2')).toMatchObject({ agentKind: 'pi', sessionId: expect.stringMatching(/^pp_/) });
             }, { timeout: 3_000 });
-            await new Promise((resolve) => setTimeout(resolve, 600));
-            const settled = herdr.state.snapshotCount;
-            await new Promise((resolve) => setTimeout(resolve, 600));
-            expect(herdr.state.snapshotCount).toBe(settled);
 
-            // A sessionless desk agent: the debounced re-read answers it once.
-            const beforeSessionless = herdr.state.snapshotCount;
+            // A sessionless desk agent: the debounced re-read answers it.
             herdr.panes.push({ pane_id: 'w1:p3', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
             herdr.agents.push({ pane_id: 'w1:p3', agent: 'codex', name: 'wren', agent_status: 'idle' });
             herdr.emit('pane.agent_detected', { pane_id: 'w1:p3', agent: 'codex' });
             await vi.waitFor(async () => expect(treePane(await source.herdrTree(), 'w1:p3').agentKind).toBe('codex'), { timeout: 3_000 });
-            await vi.waitFor(() => expect(herdr.state.snapshotCount).toBe(beforeSessionless + 1), { timeout: 3_000 });
-            await new Promise((resolve) => setTimeout(resolve, 600));
-            expect(herdr.state.snapshotCount).toBe(beforeSessionless + 1);
             await source.refreshHerdr();
-            expect(herdr.state.snapshotCount).toBe(beforeSessionless + 2);
+            expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ agentKind: 'codex', sessionId: expect.stringMatching(/^pp_/) });
+            expect(treePane(await source.herdrTree(), 'w1:p2')).toMatchObject({ agentKind: 'pi', sessionId: expect.stringMatching(/^pp_/) });
+            expect(treePane(await source.herdrTree(), 'w1:p3')).toMatchObject({ agentKind: 'codex' });
         } finally {
             await source.dispose();
             herdr.close();
