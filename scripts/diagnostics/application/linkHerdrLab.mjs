@@ -86,6 +86,8 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
         }
         link = await linkLabClient(join(hostDir, 'pair.sock'), onEvent, deadline);
         return { link, env, machine, port, session, wrapper,
+            // The lab relay and host this call started, for checks that freeze them.
+            pids: () => children.map((child) => child.pid), hostOutput: () => host.output(),
             herdr: (args, timeout = 10_000) => execFileSync(wrapper, args, { encoding: 'utf8', timeout }),
             stop: () => stop(link) };
     } catch (error) {

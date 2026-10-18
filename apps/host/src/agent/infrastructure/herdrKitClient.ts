@@ -46,6 +46,9 @@ export async function labHerdrSocket(bin: string, socketPath: string | undefined
     return named.socket_path;
 }
 
+/** Consecutive timed-out calls before a connected Herdr is logged as not answering. */
+const STALL_TIMEOUTS = 2;
+
 export class KitHerdrClient implements HerdrCaller {
     /** Live event-socket state, surfaced on `herdr.tree` so the phone can tell a dead herdr from a quiet one. */
     connected = false;
@@ -54,7 +57,10 @@ export class KitHerdrClient implements HerdrCaller {
     private closed = false;
     /** Edge trigger: log the first reconnect failure and the recovery, never every retry. */
     private down = false;
-    private outage = false;
+    /** A starved Herdr keeps its socket open and stops answering, so no
+     *  disconnect ever fires; count its timeouts to journal the stall. */
+    private timedOut = 0;
+    private silentSince: number | undefined;
 
     constructor(
         resolveBin: () => string,
@@ -121,11 +127,34 @@ export class KitHerdrClient implements HerdrCaller {
      */
     async call<T>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
         if (this.closed) throw new Error('herdr: client closed');
-        return await this.kit.call(
-            method as never,
-            params as never,
-            timeoutMs === undefined ? undefined : { timeoutMs },
-        ) as T;
+        const started = Date.now();
+        try {
+            const result = await this.kit.call(
+                method as never,
+                params as never,
+                timeoutMs === undefined ? undefined : { timeoutMs },
+            ) as T;
+            this.answered();
+            return result;
+        } catch (cause) {
+            if (cause instanceof Error && cause.message === 'herdr: request timed out') this.missed(started);
+            // A refusal is still an answer; a closed socket is the reconnect loop's to report.
+            else if (!KitHerdrClient.isDownError(cause)) this.answered();
+            throw cause;
+        }
+    }
+
+    private missed(started: number): void {
+        this.silentSince ??= started;
+        if (++this.timedOut === STALL_TIMEOUTS) process.stderr.write(`herdr: not answering (${this.timedOut} calls timed out)\n`);
+    }
+
+    private answered(): void {
+        if (this.timedOut >= STALL_TIMEOUTS && this.silentSince !== undefined) {
+            process.stderr.write(`herdr: answering again after ${Math.round((Date.now() - this.silentSince) / 1000)}s\n`);
+        }
+        this.timedOut = 0;
+        this.silentSince = undefined;
     }
 
     async close(): Promise<void> {

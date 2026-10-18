@@ -71,6 +71,9 @@ const checks = [
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/diagnostics/application/checkHerdrE2E.mjs'], 'herdr', 180000],
     // The voice attachment check owns its own lab session, so it only runs
     // where the guarded lab helper exists; it never touches the default fleet.
+    // Freezes its own lab Herdr, relay and host for a minute each way, so it
+    // stays out of the fast lane.
+    ['e2e: a frozen computer comes back by itself (isolated lab herdr)', 'node', ['scripts/diagnostics/application/checkHerdrStallE2E.mjs'], 'herdr-lab', 300000],
     ['e2e: realtime voice attachment (isolated lab herdr)', 'bash', ['scripts/diagnostics/application/checkRealtimeAgentHealth.sh'], 'herdr-lab', 900000],
     ['e2e: worktree session (live stack)', 'node', ['scripts/diagnostics/application/checkWorktreeE2E.mjs'], 'herdr'],
     ['e2e: real-pi runs stay inside an isolated agent home', 'node', ['scripts/diagnostics/application/checkPiAgentIsolation.mjs']],

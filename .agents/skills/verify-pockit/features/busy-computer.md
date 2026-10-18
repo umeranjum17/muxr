@@ -1,13 +1,15 @@
 # Stay connected to a busy computer
 
-When the computer is overloaded (a big herd, a machine-wide stall), the phone keeps Home usable and says it is still connecting. It does not jump to "Computer unreachable" on the first missed heartbeat. Only a link that stays offline past the 30 s grace asks the relay why and explains it.
+When the computer is overloaded (a big herd, a machine-wide stall), the phone keeps Home usable and says the computer is busy and reconnecting. It does not jump to "Computer unreachable" on the first missed heartbeat. A link that was online keeps the busy card for up to 5 minutes (18 Oct: a starved host froze for over five minutes and came back by itself); only past that, or on a start that never connected, does the phone ask the relay why and explain it.
 
 ## Sub-features
 
 - Home's tree, Live tiles and dials keep answering at 300 panes / 150 agents (host loop not starved by the herd lookup).
 - An unchanged 300-pane herd sends no periodic artifact or plugin events; admission polling never replays it. Connecting and returning clients receive their own full artifact snapshot without waking another phone.
-- A link that drops for less than the grace shows the busy "still connecting" card, never the unreachable card, then reopens by itself.
-- A link that stays offline past the grace explains itself as before: the relay is up but the computer is not connected, or the relay itself is unreachable.
+- A link that drops for less than the grace shows the busy "<computer> isn't answering, likely busy." card, never the unreachable card, then reopens by itself.
+- A link that was online and stays offline past the grace keeps that busy card, with "No answer for …" and no restart command, for up to 5 minutes, then reopens by itself when the computer catches up.
+- A link that stays offline past 5 minutes, or a cold start that never connected, explains itself as before: the relay is up but the computer is not connected, or the relay itself is unreachable.
+- The host journals a connected Herdr that stops answering: `herdr: not answering (2 calls timed out)`, then `herdr: answering again after Ns` (`journalctl --user -u muxr.service`). `scripts/diagnostics/application/checkHerdrStallE2E.mjs` drives both, plus a 60 s whole-computer freeze, on a lab Herdr.
 - A refused or revoked pairing still lands on its permanent card immediately.
 - A Home worktree probe that times out on a busy computer does not raise an unhandled rejection.
 
@@ -21,10 +23,11 @@ Preconditions: follow ../SKILL.md isolation. Use `perf/lib/fakeStack.mjs` (real 
 
 1. Load without the phone: `node perf/homeLoad.mjs --minutes 5 --phones 2 --panes 300 --agents 150 --out report.json`. Expect zero failed `herdr.tree`/`pane.read`, dial open p95 well under the 20 s budget, and `linkOffline` 0. On the pre-fix host the same run failed nearly every request and every dial.
 2. Start a fakeStack at 300 panes / 150 agents with `titleChurnHz: 0.2`, `adb reverse` its relay port, and pair the app by typing a minted code.
-3. Freeze the lab host by its exact PID (`kill -STOP <hostPid>`), then cold-start the app (`am force-stop`, then `am start`), which is what a phone coming back to a busy computer pays. Capture at about 10, 25 and 40 s. Expect the "Your computer is very busy. Still connecting." card, never "Computer unreachable". Resume (`kill -CONT`) at about 40 s and capture Home connected with the herd listed.
+3. Freeze the lab host by its exact PID (`kill -STOP <hostPid>`), then cold-start the app (`am force-stop`, then `am start`), which is what a phone coming back to a busy computer pays. Capture at about 10, 25 and 40 s. Expect the "<computer> isn't answering, likely busy." card, never "Computer unreachable". Resume (`kill -CONT`) at about 40 s and capture Home connected with the herd listed.
 4. Repeat with a 100 s freeze. After the dial gives up (about 20 s) plus the 30 s grace, expect "Computer unreachable" with the relay-up "not connected" explanation. Resume, and expect it to clear by itself when the link reopens.
-5. Before the native matrix, run `node perf/artifactReplay.mjs --out "$EVIDENCE/artifact-replay.json"` under a task-owned HOME/XDG/TMPDIR. It starts fresh real host/relay processes, waits for the host's relay-ready line before pairing, and proves 30 s of zero idle frames at 300 panes; a second client's 300-pane artifact snapshot and one cache invalidation; targeted reconnect; public `muxr share` with byte-identical storage; and live task, lifecycle, attention and unread changes. Expect `outcome: pass`. This is host/link proof, not a native CPU measurement.
-6. Save the screenshots and homeLoad reports outside the repo. Stop only the PIDs you started.
+5. The 18 Oct shape, an open link frozen past the grace: with Home connected, freeze the lab Herdr and host together by exact PID for 90 s. Capture at about 50 s and 80 s: the busy card with "No answer for …", no `muxr daemon restart` command, never "Computer unreachable". Resume and capture Home connected with the herd listed. Capture at 393 dp in light and dark.
+6. Before the native matrix, run `node perf/artifactReplay.mjs --out "$EVIDENCE/artifact-replay.json"` under a task-owned HOME/XDG/TMPDIR. It starts fresh real host/relay processes, waits for the host's relay-ready line before pairing, and proves 30 s of zero idle frames at 300 panes; a second client's 300-pane artifact snapshot and one cache invalidation; targeted reconnect; public `muxr share` with byte-identical storage; and live task, lifecycle, attention and unread changes. Expect `outcome: pass`. This is host/link proof, not a native CPU measurement.
+7. Save the screenshots and homeLoad reports outside the repo. Stop only the PIDs you started.
 
 ## Gotchas
 

@@ -6,7 +6,7 @@ import { hostId, unb64url } from '@byokit/pair';
 import { linkUrl } from '@byokit/relay/device';
 
 // Retry while the computer is unreachable must not die on a version-skewed
-// relay health probe. Both tests drive the real LinkFirstClient over a real
+// relay health probe. Each test drives the real LinkFirstClient over a real
 // relay and a real host endpoint; only the /health body is a fixture, since a
 // dev relay reports 'unknown' where production reports its semver release.
 describe('link retry across a version-skewed relay', () => {
@@ -150,6 +150,52 @@ describe('link retry across a version-skewed relay', () => {
         } finally {
             client.close();
             endpoint?.close();
+            await fixture.relay.close();
+            rmSync(fixture.dir, { recursive: true, force: true });
+        }
+    });
+
+    it('a computer that answered moments ago reads busy past the offline grace, then reopens by itself', { timeout: 120_000 }, async () => {
+        const { generateKeyPair, generateSigningKeyPair } = await import('@trymuxr/crypto');
+        const { LinkFirstClient } = await import('./linkFirstClient');
+        const { rmSync } = await import('node:fs');
+        const fixture = await startRelayFixture();
+        stubRelayHealth('0.1.27');
+        const machine = generateKeyPair();
+        const signing = generateSigningKeyPair();
+        const phone = generateKeyPair();
+        const states: string[] = [];
+        const errors: string[] = [];
+        const client = new LinkFirstClient({
+            hostedGrant: testGrant({ machinePublicKey: machine.publicKey, phone, relayWs: fixture.relayWs }),
+            pingMs: 2_000,
+            onPermanentError: (message) => { errors.push(message); },
+        });
+        client.onStateChange((state) => { states.push(state); });
+        const open = () => openEndpoint({
+            relayWs: fixture.relayWs, ownerToken: fixture.ownerToken,
+            machineKeys: machine, signing, phonePublicKey: phone.publicKey,
+        });
+        let endpoint = await open();
+        try {
+            endpoint.start();
+            client.connect();
+            await vi.waitFor(() => expect(client.isLive()).toBe(true), { timeout: 30_000 });
+            // The computer stops answering (18 Oct: a starved host froze for
+            // minutes). Past the 30 s grace the relay is up and the computer is
+            // not, which used to read "make sure muxr is running there".
+            endpoint.close();
+            await vi.waitFor(() => expect(client.isLive()).toBe(false), { timeout: 15_000 });
+            await new Promise((resolve) => setTimeout(resolve, 45_000));
+            expect(errors).toEqual([]);
+            expect(client.state).toBe('connecting');
+            endpoint = await open();
+            endpoint.start();
+            await vi.waitFor(() => expect(client.isLive()).toBe(true), { timeout: 45_000 });
+            expect(errors).toEqual([]);
+        } finally {
+            client.close();
+            endpoint.close();
             await fixture.relay.close();
             rmSync(fixture.dir, { recursive: true, force: true });
         }
