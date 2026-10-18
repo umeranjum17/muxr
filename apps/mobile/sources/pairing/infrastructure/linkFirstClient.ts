@@ -581,11 +581,7 @@ export class LinkFirstClient implements SessionClient {
         if (this.closed || this.online || generation !== this.healthGeneration) return;
         // A link that answered minutes ago is a busy computer: stay connecting,
         // so Home shows the busy card, and keep rechecking until the bound.
-        if (!permanent && !refused && this.lostAt !== undefined) {
-            if (Date.now() - this.lostAt < BUSY_BOUND_MS) return;
-            this.stopLink();
-            this.scheduleRetry();
-        }
+        if (!permanent && !refused && this.lostAt !== undefined && Date.now() - this.lostAt < BUSY_BOUND_MS) return;
         if (permanent) this.stopLink();
         this.setState(permanent ? 'stale' : 'closed', true);
         this.options.onPermanentError?.(message);
