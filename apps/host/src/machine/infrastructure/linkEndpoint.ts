@@ -127,6 +127,12 @@ const muxrDeviceIdOf = (grant: Grant): string | undefined => {
     return typeof meta?.muxrDeviceId === 'string' ? meta.muxrDeviceId : undefined;
 };
 
+// MUXR_PAIR_CODE_MS is a test knob: only the cross-side expiry journey shortens the code with it.
+const pairCodeMs = (): number => {
+    const override = Number(process.env.MUXR_PAIR_CODE_MS);
+    return Number.isSafeInteger(override) && override > 0 ? override : 120_000;
+};
+
 const CHANNEL_PATTERN = /^tm_[A-Za-z0-9]+_[A-Za-z0-9]+$/;
 
 /** Everything on a link stream is network input; validate before the pane machinery sees it. */
@@ -288,7 +294,6 @@ export class LinkEndpoint {
         // Device connections start only after the client dials, which is after
         // this assignment; the push handler needs the finished endpoint.
         let endpoint: LinkEndpoint;
-        const pairCodeOverride = Number(process.env.MUXR_PAIR_CODE_MS);
         const host = await Host.open({
             stream: (stream: LinkStream, req: LinkRequest, grant: Grant) => {
                 if (req.op === 'voice') return streamVoice(stream, req, grant, options);
@@ -299,8 +304,7 @@ export class LinkEndpoint {
             },
             keys,
             name: options.machineName,
-            // MUXR_PAIR_CODE_MS is a test knob: only the cross-side expiry journey shortens the code with it.
-            pairMs: Number.isSafeInteger(pairCodeOverride) && pairCodeOverride > 0 ? pairCodeOverride : 120_000,
+            pairMs: pairCodeMs(),
             grants: options.grants,
             confirm: (request, { signal }) => endpoint?.pairing?.confirm(request, { signal }) ?? false,
             allow: (req, grant) => {
@@ -463,7 +467,7 @@ export class LinkEndpoint {
     }
 
     /** Open the one-time offer on this machine's already-registered host. */
-    offerPairing(pairing: NonNullable<LinkEndpoint['pairing']>, relayUrl: string, intent: { kind: 'native' | 'browser'; authority: 'control' | 'observe'; lifetime?: number; base?: string }): { text: string; expires: number; compactText?: string; compactExpires?: number } {
+    offerPairing(pairing: NonNullable<LinkEndpoint['pairing']>, relayUrl: string, intent: { kind: 'native' | 'browser'; authority: 'control' | 'observe'; lifetime?: number; base?: string }): { text: string; expires: number; pairMs: number; compactText?: string; compactExpires?: number } {
         if (this.pairing !== undefined && this.pairing !== pairing) throw new Error('another pairing is in progress');
         this.pairing = pairing;
         const urls = [linkUrl(relayUrl, this.host.id)];
@@ -479,14 +483,15 @@ export class LinkEndpoint {
         // onPending), so a phone killed before approving reconnects only to
         // this computer. Browser links keep the full offer: the compact form
         // has no browser-link shape.
-        if (intent.kind !== 'native') return offer;
+        const pairMs = pairCodeMs();
+        if (intent.kind !== 'native') return { ...offer, pairMs };
         try {
             const compact = this.host.compactOffer({ urls, role, kind: intent.kind,
                 ...(intent.lifetime === undefined ? {} : { lifetime: intent.lifetime }) });
-            return { ...offer, compactText: compact.text, compactExpires: compact.expires };
+            return { ...offer, pairMs, compactText: compact.text, compactExpires: compact.expires };
         } catch (error) {
             process.stderr.write(`muxr: compact pairing offer unavailable, showing the full offer: ${error instanceof Error ? error.message : String(error)}\n`);
-            return offer;
+            return { ...offer, pairMs };
         }
     }
 

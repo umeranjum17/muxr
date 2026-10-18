@@ -38,6 +38,6 @@ The maintained regression journeys are the handoff flow in `tests/cross-side/lin
 ## Gotchas
 
 - The kit work directory is cwd, not `MUXR_HOME`. Kit `deliver` writes raw bytes, not a JSON envelope, to the inbox; its mode/atomic rename contract is in BYOKit `packages/cloud/src/unit.ts` and `machine.ts`.
-- Offers refresh in the same outbox file, and each offer names its own `wordsFile`. The computer accepts the words file of any offer whose code has not run out, and drops and deletes a file once its code's expiry passes (checked before each read), so a late yes for an expired code grants nothing and cannot break a newer code. Collectors should only collect final `.json` names, not temporary atomic-write files.
+- Offers refresh in the same outbox file, and each offer names its own `wordsFile`. The computer accepts the words file of any offer whose code has not run out, and drops and deletes a file once its code's expiry plus the kit's five-minute code limit has passed (checked before each read), so a late yes for an expired code grants nothing and cannot break a newer code. Collectors should only collect final `.json` names, not temporary atomic-write files.
 - This only pairs native phones. Browser flags with `--handoff` are refused. The existing terminal pairing flow is unchanged.
 - Never store raw offers, words, device keys, or owner credentials in proof logs. Cleanup owns exact child PIDs and private scratch only. Real Tailscale routing must be reported separately if the private proof uses LAN or loopback instead.
