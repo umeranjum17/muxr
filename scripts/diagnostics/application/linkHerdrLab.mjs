@@ -1,19 +1,12 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { cpus, loadavg } from 'node:os';
+import { loadavg } from 'node:os';
 import { join } from 'node:path';
 import { machineIdentity } from '../../setup/index.mjs';
-import { linkLabClient } from './linkLabClient.mjs';
+import { linkLabClient, linkWaitMs } from './linkLabClient.mjs';
 import { waitForRelay } from './waitForRelay.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const BASE_WAIT_MS = 25_000;
-const MAX_WAIT_MS = 180_000;
-
-function linkWaitMs(load, cpuCount) {
-    return Math.min(MAX_WAIT_MS, Math.round(BASE_WAIT_MS * (1 + load / Math.max(1, cpuCount))));
-}
 
 export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {}) {
     const helper = process.env.HERDR_LAB_HELPER;
@@ -65,10 +58,9 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
     try {
         if (beforeHost !== undefined) beforeHost((args) => execFileSync(wrapper, args, { encoding: 'utf8' }), session);
         const load = loadavg()[0];
-        const cpuCount = cpus().length;
-        const waitMs = linkWaitMs(load, cpuCount);
+        const waitMs = linkWaitMs(load);
         const waited = `${(waitMs / 1000).toFixed(1)}s`;
-        console.log(`lab link wait ${waited} (1-min load ${load.toFixed(2)} on ${cpuCount} CPUs)`);
+        console.log(`lab link wait ${waited} (1-min load ${load.toFixed(2)})`);
         const deadline = Date.now() + waitMs;
         const relay = start(['apps/relay/dist/main.js'], { MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: relayDir, MUXR_RELAY_MDNS: '0' });
         const port = await waitForRelay(relay, deadline - Date.now());

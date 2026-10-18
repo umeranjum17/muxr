@@ -1,7 +1,16 @@
 import { createConnection } from 'node:net';
+import { loadavg } from 'node:os';
 import WebSocket from 'ws';
 import { DeviceLink, pairWithOffer } from '@byokit/link';
 import { nextRequestId } from '@trymuxr/contract';
+
+const BASE_WAIT_MS = 25_000;
+const PER_LOAD_POINT_MS = 3_000;
+const MAX_WAIT_MS = 180_000;
+
+export function linkWaitMs(load = loadavg()[0]) {
+    return Math.min(MAX_WAIT_MS, BASE_WAIT_MS + Math.round(PER_LOAD_POINT_MS * load));
+}
 
 async function until(check, what, deadline) {
     while (Date.now() < deadline) {
@@ -13,7 +22,7 @@ async function until(check, what, deadline) {
 }
 
 /** The real running host's owner-only socket approves one lab device, then its machine link proves it. */
-export async function linkLabClient(socketPath, onEvent, deadline = Date.now() + 20_000) {
+export async function linkLabClient(socketPath, onEvent, deadline = Date.now() + linkWaitMs()) {
     const socket = createConnection(socketPath);
     let text = '';
     let offer;
