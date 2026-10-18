@@ -14,7 +14,6 @@
     "dependencies": {
         "@byokit/accounts": "0.24.1",
         "@byokit/herdr": "0.15.1",
-        "@byokit/link": "0.8.1",
         "@byokit/pair": "0.10.3",
         "@byokit/reach": "0.6.0",
         "@byokit/realtime": "0.3.1",
