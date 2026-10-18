@@ -2,9 +2,7 @@ appId: com.trymuxr.app
 tags:
   - perf
 ---
-# SCRATCH COPY ONLY (inbox 011): the current first-run screen shows "Paste link"
-# directly under "Have a connect link?". The pairing code goes into it. Other
-# landings keep the original string-entry route below.
+# First-run screen: "Paste link" sits under "Have a connect link?" and takes the pairing code.
 - launchApp:
     appId: com.trymuxr.app
     clearState: false
