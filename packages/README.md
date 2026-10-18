@@ -6,7 +6,7 @@ Code belongs in `@trymuxr/contract` when multiple processes must agree on its ex
 
 The name is deliberate. **Contract** says callers depend on an enforced cross-process agreement. **Shared** would invite unrelated reusable code, **core** would imply a central dependency bucket, and **protocol** would be too narrow for admission, limits, and invariant vocabulary that are not byte-level protocol.
 
-`@trymuxr/crypto` retains pairing-code and peer/device grant proofs. `@byokit/link` owns the encrypted session transport; the relay never receives plaintext.
+`@trymuxr/crypto` retains pairing-code and peer/device grant proofs. `@byokit/pair` owns the encrypted session transport; the relay never receives plaintext.
 
 Both are published to npm, and the host, the app and crypto pin their exact version, so the host can later leave this repository and keep using them. Keep them free of workspace-only imports: a package may import only its own `src` and the dependencies in its `package.json`. [RELEASING.md](../docs/RELEASING.md#shared-contract-and-crypto-packages) covers how to publish them.
 

@@ -10,7 +10,8 @@
  *
  * Covered: a successful pairing (the same two words on both screens, the
  * device record durable, the machine link serving the new phone), a declined
- * approval, a phone that resumes by key after dying between approval and
+ * approval, an approval the code runs out before (both sides say so, and a
+ * late yes pairs nothing), a phone that resumes by key after dying between approval and
  * completion, each lost acknowledgement settled by retrying the same code, and
  * a Tailscale address that does not answer naming which end to fix.
  */
@@ -34,7 +35,7 @@ import {
     pairWithOffer,
     type DeviceGrant,
     type LinkStatus,
-} from '@byokit/link';
+} from '@byokit/pair';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cliMain, hostMain, hostRoot, pairingIntent, relayMain, waitForRelay } from './host.js';
 import { machineIdentity } from './hostSetup.js';
@@ -140,14 +141,15 @@ async function startMachine(): Promise<void> {
             mintSecret: JSON.parse(readFileSync(join(home, 'relay', 'mint-secret'), 'utf8')),
         }, null, 2)}\n`, { mode: 0o600 });
     }
-    host = launch([hostMain, '--fake'], { MUXR_MODE: 'selfhost' });
+    // A code runs out after 20 s, so the expiry journey does not wait the production two minutes.
+    host = launch([hostMain, '--fake'], { MUXR_MODE: 'selfhost', MUXR_PAIR_CODE_MS: '20000' });
     const running = host;
     await until(() => (existsSync(join(home, 'host', 'pair.sock')) ? true : undefined), `host pairing socket (${running.output()})`);
 }
 
 /** Options `linkPair` on the computer side accepts (untyped .mjs import). */
 interface ComputerPairingOptions {
-    approve?: (req: { name: string; words: string }) => boolean | Promise<boolean>;
+    approve?: (req: { name: string; words: string }, signal: AbortSignal) => boolean | Promise<boolean>;
     signal?: AbortSignal;
     intent?: ReturnType<typeof pairingIntent>;
 }
@@ -156,6 +158,7 @@ interface ComputerPairingOptions {
 async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>, ttySize?: { columns: number; rows: number }): Promise<{
     pairing: Promise<unknown>;
     offer: string;
+    output: () => string;
     abort: () => Promise<void>;
 }> {
     let out = '';
@@ -191,7 +194,7 @@ async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>, tt
     const offerPattern = new RegExp(`(?:https?:\\/\\/[^\\s]+\\/pair#)?(?:byokit-link:1:[A-Za-z0-9_-]+|${COMPACT_TAG}[A-Za-z0-9_-]+)`);
     const offer = await until(() => offerPattern.exec(out)?.[0], 'pairing offer on screen', 30_000)
         .catch(async (error: unknown) => { await stop(); throw error; });
-    return { pairing, offer, abort: stop };
+    return { pairing, offer, output: () => out, abort: stop };
 }
 
 function machineGrant(stored: StoredHostedGrant): DeviceGrant {
@@ -555,7 +558,7 @@ describe('native pairing over the byokit link', () => {
             // The computer has replaced the spent code; the old one says to use the new one.
             const superseded = runPhonePairing(offer);
             await expect(superseded).rejects.toBeInstanceOf(PairingNeedsNewCode);
-            await expect(superseded).rejects.toThrow('That pairing code has run out. Show a new one on your computer.');
+            await expect(superseded).rejects.toThrow('The code ran out. Scan the new QR on your computer');
             expect(readSelfhostState().machine.crypto.devices).toHaveLength(before);
             await abort();
             await expect(pairing).rejects.toThrow('cancelled');
@@ -565,6 +568,29 @@ describe('native pairing over the byokit link', () => {
             throw error;
         }
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
+    }, 90_000);
+
+    it('says the code ran out, not declined, and a late yes pairs nothing', async () => {
+        const before = readSelfhostState().machine.crypto.devices.length;
+        let lateYes: ((yes: boolean) => void) | undefined;
+        // The person never answers in time; the prompt ignores the abort so a yes can still arrive late.
+        const { pairing, offer, output, abort } = await showPairingQr({ approve: () => new Promise<boolean>((resolve) => { lateYes = resolve; }) });
+        try {
+            const refused = runPhonePairing(offer);
+            await expect(refused).rejects.toBeInstanceOf(PairingNeedsNewCode);
+            await expect(refused).rejects.toThrow('The code ran out. Scan the new QR on your computer');
+            // The computer closes the prompt and shows a new code with the notice above it.
+            await until(() => (output().includes('That code ran out before you said yes. Scan the new QR below') ? true : undefined), 'ran-out notice on the computer', 30_000);
+            lateYes?.(true);
+            // The same code again is refused on the phone before it reaches the computer, as the offer's own expiry.
+            const spent = runPhonePairing(offer);
+            await expect(spent).rejects.toThrow('That pairing code has run out. Open muxr on your computer, or run muxr pair, for a new one.');
+            expect(readSelfhostState().machine.crypto.devices).toHaveLength(before);
+            expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
+        } finally {
+            await abort();
+            await expect(pairing).rejects.toThrow('cancelled');
+        }
     }, 90_000);
 
     it('exits 2 asking for the person when a non-TTY caller runs muxr pair', async () => {

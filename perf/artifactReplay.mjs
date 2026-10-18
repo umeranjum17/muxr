@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { DeviceLink, pairWithOffer } from '@byokit/link';
+import { DeviceLink, pairWithOffer } from '@byokit/pair';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { CommandScope, useCommandScope } from './lib/commands.mjs';
 

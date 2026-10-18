@@ -13,7 +13,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { hostId, unb64url } from '@byokit/link';
+import { hostId, unb64url } from '@byokit/pair';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cliMain, hostMain, hostRoot, relayMain, waitForRelay } from './host.js';
 import { linkPair, machineIdentity, readSelfhostState } from './hostSetup.js';

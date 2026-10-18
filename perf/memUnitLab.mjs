@@ -16,7 +16,7 @@
  */
 import { createConnection } from 'node:net';
 import { existsSync, writeFileSync } from 'node:fs';
-import { DeviceLink, pairWithOffer } from '@byokit/link';
+import { DeviceLink, pairWithOffer } from '@byokit/pair';
 import { startFakeStack } from './lib/fakeStack.mjs';
 
 const args = process.argv.slice(2);

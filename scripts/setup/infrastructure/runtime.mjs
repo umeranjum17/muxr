@@ -198,9 +198,11 @@ export function removeManaged(path, entry, manifest, { dryRun, force }) {
     return true;
 }
 
-export async function askVisible(question, { piped = false, reaskOnEmpty = false } = {}) {
+export async function askVisible(question, { piped = false, reaskOnEmpty = false, signal } = {}) {
     if (process.stdin.isTTY && process.stdout.isTTY) {
         const rl = createInterface({ input: process.stdin, output: process.stdout });
+        // An abort closes the prompt without an answer, so it declines.
+        signal?.addEventListener('abort', () => rl.close(), { once: true });
         try {
             for (;;) {
                 const answer = await new Promise((resolve) => {

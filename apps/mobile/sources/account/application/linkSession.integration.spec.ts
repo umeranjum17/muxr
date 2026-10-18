@@ -91,8 +91,8 @@ vi.mock('@/pairing/infrastructure/linkGrant', () => ({
     },
 }));
 
-vi.mock('@byokit/link', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('@byokit/link')>();
+vi.mock('@byokit/pair', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@byokit/pair')>();
     class FakeDeviceLink {
         private static instances: FakeDeviceLink[] = [];
         private listeners: Array<(s: string) => void> = [];

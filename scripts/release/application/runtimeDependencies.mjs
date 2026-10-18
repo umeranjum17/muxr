@@ -27,7 +27,7 @@ export function runtimeDependencies(root = process.cwd()) {
         '@byokit/accounts': hostPackage.dependencies['@byokit/accounts'],
         '@byokit/realtime': hostPackage.dependencies['@byokit/realtime'],
         '@byokit/herdr': hostPackage.dependencies['@byokit/herdr'],
-        '@byokit/link': hostPackage.dependencies['@byokit/link'],
+        '@byokit/pair': hostPackage.dependencies['@byokit/pair'],
         '@byokit/relay': hostPackage.dependencies['@byokit/relay'],
         '@byokit/reach': rootPackage.dependencies['@byokit/reach'],
     };

@@ -1,4 +1,4 @@
-import { offerText } from '@byokit/link';
+import { offerText } from '@byokit/pair';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pairLinkOffer } from './usePairing';
 

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { hostId } from '@byokit/link';
+import { hostId } from '@byokit/pair';
 import { error, flagValue, machineIdentity, print, run } from '../infrastructure/runtime.mjs';
 import { readSelfhostState, selfhostControlBase, selfhostCredential, selfhostRelayHealthy, writeSelfhostState } from '../infrastructure/selfhost.mjs';
 import { daemonIsRunning, runDaemon } from '../infrastructure/daemon.mjs';

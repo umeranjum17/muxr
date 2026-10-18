@@ -1,4 +1,4 @@
-import { COMPACT_TAG, decodeCompactOffer, parseOffer, type PairOffer } from '@byokit/link';
+import { COMPACT_TAG, decodeCompactOffer, parseOffer, type PairOffer } from '@byokit/pair';
 import { decodeBase64 } from '@/encryption/base64';
 
 const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
@@ -150,7 +150,7 @@ function pairingTermsFromInput(value: string): { offer: string; link: string } |
     } catch { return undefined; }
 }
 
-/** A byokit link offer QR (`byokit-link:1:…`), parsed for display only; @byokit/link validates it. */
+/** A byokit link offer QR (`byokit-link:1:…`), parsed for display only; @byokit/pair validates it. */
 export function looksLikeLinkOffer(value: string): boolean {
     return linkOfferFromUrl(value) !== undefined;
 }

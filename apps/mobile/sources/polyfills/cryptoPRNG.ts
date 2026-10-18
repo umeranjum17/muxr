@@ -1,5 +1,5 @@
 /*
- * sodium-javascript (loaded by @byokit/link) probes globalThis.crypto once at
+ * sodium-javascript (loaded by @byokit/pair) probes globalThis.crypto once at
  * module load: WebCrypto on web, require('crypto') on node. Hermes has
  * neither, so its randombytes stays a stub that throws and every Noise
  * handshake dies at its first nonce. Feed it expo-crypto's getRandomValues;

@@ -1,4 +1,4 @@
-import { hostId, parseV1Offer, unb64url, type PairOffer } from '@byokit/link';
+import { hostId, parseV1Offer, unb64url, type PairOffer } from '@byokit/pair';
 import { linkUrl } from '@byokit/relay/device';
 import { decodeBase64 } from '@/encryption/base64';
 

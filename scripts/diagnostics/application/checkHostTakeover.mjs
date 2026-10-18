@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { hostId } from '@byokit/link';
+import { hostId } from '@byokit/pair';
 import { waitForRelay } from './waitForRelay.mjs';
 import { linkLabClient, requestLab } from './linkLabClient.mjs';
 import { machineIdentity } from '../../setup/index.mjs';

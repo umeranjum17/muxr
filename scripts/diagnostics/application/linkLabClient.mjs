@@ -1,7 +1,7 @@
 import { createConnection } from 'node:net';
 import { loadavg } from 'node:os';
 import WebSocket from 'ws';
-import { DeviceLink, pairWithOffer } from '@byokit/link';
+import { DeviceLink, pairWithOffer } from '@byokit/pair';
 import { nextRequestId } from '@trymuxr/contract';
 
 const BASE_WAIT_MS = 25_000;

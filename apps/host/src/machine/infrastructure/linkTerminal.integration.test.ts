@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HerdrKit } from '@byokit/herdr';
-import { DeviceLink, hostId, keyPairFrom, type DeviceGrant, type LinkStatus } from '@byokit/link';
+import { DeviceLink, hostId, keyPairFrom, type DeviceGrant, type LinkStatus } from '@byokit/pair';
 import type { HostFrame } from '@trymuxr/contract';
 import { generateKeyPair, generateSigningKeyPair } from '@trymuxr/crypto';
 import { startRelay } from '@muxr/relay';

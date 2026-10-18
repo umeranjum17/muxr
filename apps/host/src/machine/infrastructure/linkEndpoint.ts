@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { dirname } from 'node:path';
-import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream, type PairRequest } from '@byokit/link';
+import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream, type PairRequest } from '@byokit/pair';
 import { isExpoToken, linkUrl, ownerClient, RelayOwnerError, RelayClient, type RelayClientStore } from '@byokit/relay';
 import {
     agentAlertTitle,
@@ -252,7 +252,7 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
 }
 
 /**
- * The machine on @byokit/link, beside the relay transport. It proves the
+ * The machine on @byokit/pair, beside the relay transport. It proves the
  * machine's existing box key to the relay and enrols native phones under
  * their existing keys, so a future link client can reuse its pairing.
  *
@@ -262,7 +262,7 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
  */
 export class LinkEndpoint {
     private synced: Promise<boolean> = Promise.resolve(true);
-    private pairing: { kind: 'native' | 'browser'; confirm: (request: PairRequest) => boolean | Promise<boolean>; handle: (request: LinkRequest, grant: Grant) => Promise<unknown> } | undefined;
+    private pairing: { kind: 'native' | 'browser'; confirm: (request: PairRequest, options: { signal: AbortSignal }) => boolean | Promise<boolean>; handle: (request: LinkRequest, grant: Grant) => Promise<unknown> } | undefined;
 
     private client?: RelayClient;
     private connectionTimer?: ReturnType<typeof setInterval>;
@@ -298,9 +298,10 @@ export class LinkEndpoint {
             },
             keys,
             name: options.machineName,
-            pairMs: 120_000,
+            // MUXR_PAIR_CODE_MS shortens a code for the cross-side expiry journey only.
+            pairMs: Number(process.env.MUXR_PAIR_CODE_MS) || 120_000,
             grants: options.grants,
-            confirm: (request) => endpoint?.pairing?.confirm(request) ?? false,
+            confirm: (request, { signal }) => endpoint?.pairing?.confirm(request, { signal }) ?? false,
             allow: (req, grant) => {
                 if (req.op === 'pair.complete' || req.op === 'pair.verified') return endpoint?.pairing !== undefined && grant.kind === endpoint.pairing.kind;
                 if (req.op === 'terminal') return options.terminals !== undefined;

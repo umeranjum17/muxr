@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { hostId } from '@byokit/link';
+import { hostId } from '@byokit/pair';
 import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js';
 
 const ENROLLMENT_TTL_MS = 5 * 60_000;

@@ -15,7 +15,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
-import { DeviceLink, hostId, keyPair as linkKeyPair, pairWithOffer, type DeviceGrant } from '@byokit/link';
+import { DeviceLink, hostId, keyPair as linkKeyPair, pairWithOffer, type DeviceGrant } from '@byokit/pair';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { cliMain, hostMain, hostRoot, relayMain, waitForRelay } from './host.js';
 import { linkPair, machineIdentity, machineLinkUrl, readSelfhostState } from './hostSetup.js';

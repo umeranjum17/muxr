@@ -1,5 +1,5 @@
 import { linkUrl } from '@byokit/relay/device';
-import { DeviceLink, hostId, unb64url, type DeviceGrant } from '@byokit/link';
+import { DeviceLink, hostId, unb64url, type DeviceGrant } from '@byokit/pair';
 import type { StoredHostedGrant } from '../application/linkPairing';
 
 /** byokit keys are base64url; the stored grant keeps the same bytes as plain base64. */

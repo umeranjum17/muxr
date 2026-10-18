@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import type { HostFrame, HerdrTreeWorkspace } from '@trymuxr/contract';
 import { WebSocket } from 'ws';
-import { DeviceLink, hostId, type DeviceGrant } from '@byokit/link';
+import { DeviceLink, hostId, type DeviceGrant } from '@byokit/pair';
 import { generateKeyPair } from '@trymuxr/crypto';
 import { startRelay } from '@muxr/relay';
 import { preparePlanSignIn } from '../../plans/planSignIn.js';

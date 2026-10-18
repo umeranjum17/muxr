@@ -10,7 +10,7 @@
  * So this drives the real producer into the real consumers rather than pasting
  * fixture strings: change either side and this goes red.
  */
-import { Host, keyPair } from '@byokit/link';
+import { Host, keyPair } from '@byokit/pair';
 import { describe, expect, it } from 'vitest';
 import { pairingIntent } from './host';
 import { decidePairingInput, CUTOFF_PAIRING_CODE, hostedPairingAuthority, looksLikeLinkOffer, looksLikePairingLink, parsePairingString } from '@/pairing/domain/pairingString';

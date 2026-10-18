@@ -16,7 +16,7 @@ Run `muxr pair --handoff` from the kit's `workDir` on the user's computer. The p
 
 ## Driving it with the private stack
 
-Preconditions: the baseline private relay and fake host from `../SKILL.md`; a separate non-default Herdr lab shell; all processes and their ports are owned by the run. The phone side may be a small Node script using the real `@byokit/link` `pairWithOffer` and `DeviceLink`, as this feature adds no phone UI.
+Preconditions: the baseline private relay and fake host from `../SKILL.md`; a separate non-default Herdr lab shell; all processes and their ports are owned by the run. The phone side may be a small Node script using the real `@byokit/pair` `pairWithOffer` and `DeviceLink`, as this feature adds no phone UI.
 
 1. Record `muxr status` and `muxr devices list` before pairing. Run the public CLI `node <repo>/scripts/cli.mjs pair --handoff` with stdin ignored, cwd a private kit work directory, and the lab `MUXR_HOME`. Never print the offer JSON.
 2. Read the only outbox JSON, assert its byte size is at most 65536 and `version` is 1. Pass `offer` to `pairWithOffer`. In `onWords`, write the returned words to `.byokit/inbox/<wordsFile>` using BYOKit's delivery contract: private temporary file, raw stdin bytes, atomic rename, mode 0600. Do not print words.

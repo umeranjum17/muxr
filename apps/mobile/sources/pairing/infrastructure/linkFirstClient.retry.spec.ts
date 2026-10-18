@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => '0.1.27' }));
 
-import { hostId, unb64url } from '@byokit/link';
+import { hostId, unb64url } from '@byokit/pair';
 import { linkUrl } from '@byokit/relay/device';
 
 // Retry while the computer is unreachable must not die on a version-skewed

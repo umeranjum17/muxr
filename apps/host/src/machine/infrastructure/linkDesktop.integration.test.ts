@@ -4,7 +4,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DeviceLink, hostId, type DeviceGrant } from '@byokit/link';
+import { DeviceLink, hostId, type DeviceGrant } from '@byokit/pair';
 import { type ClientFrame, type HostFrame } from '@trymuxr/contract';
 import { generateKeyPair } from '@trymuxr/crypto';
 import { startRelay } from '@muxr/relay';

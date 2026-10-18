@@ -15,7 +15,7 @@ import { createConnection } from 'node:net';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DeviceLink, pairWithOffer } from '@byokit/link';
+import { DeviceLink, pairWithOffer } from '@byokit/pair';
 import { startFakeStack } from '../../../../perf/lib/fakeStack.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

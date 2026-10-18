@@ -8,7 +8,7 @@ import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
 const cfg = JSON.parse(process.env.LINK_TEST_HOOK ?? '{}');
 
 if (cfg.hook === 'recordCloses') {
-    const { Host } = await import('@byokit/link');
+    const { Host } = await import('@byokit/pair');
     const connection = Host.prototype.connection;
     Host.prototype.connection = function (conn, ...args) {
         const close = conn.close;
@@ -21,7 +21,7 @@ if (cfg.hook === 'recordCloses') {
 }
 
 if (cfg.hook === 'holdEnrol') {
-    const { Host } = await import('@byokit/link');
+    const { Host } = await import('@byokit/pair');
     const enrol = Host.prototype.enrol;
     Host.prototype.enrol = async function (...args) {
         writeFileSync(cfg.entered, 'entered');
