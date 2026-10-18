@@ -7,8 +7,9 @@
  * the host then reports to phones through machines.list. Pure filesystem
  * calls, no Electron imports, so plain node can drive it.
  */
-import { existsSync, readFileSync, statSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { existsSync, readFileSync, statSync, readdirSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+import { atomicWrite } from '../../../scripts/setup/infrastructure/runtime.mjs';
 
 const SEARCH_ROOTS = ['', 'projects', 'src', 'code', 'dev', 'work', 'repos'];
 
@@ -94,7 +95,6 @@ export function saveFolder(muxrHome, folder) {
             throw new Error('The settings file is broken; fix or remove it first.');
         }
     }
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify({ ...parsed, defaultStartFolder: trimmed }, null, 2)}\n`, 'utf8');
+    atomicWrite(path, `${JSON.stringify({ ...parsed, defaultStartFolder: trimmed }, null, 2)}\n`);
     return trimmed;
 }
