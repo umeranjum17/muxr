@@ -8,8 +8,8 @@ row to the tapped one and presses Enter, so trusting the folder never depends
 on finding the down key, and Enter alone (which exits) is never the answer.
 Both start points (Home's Start and New agent) begin in the last folder an
 agent started in on this phone; a fresh install starts in the setup-chosen
-folder on that computer (desktop setup asks once, else `~`) until one is
-picked.
+folder on that computer (desktop setup asks once, preselects a recently
+modified Git repo when found, else defaults to `~`) until one is picked.
 
 ## Sub-features
 
