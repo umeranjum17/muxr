@@ -1607,10 +1607,11 @@ export async function createHerdrSessionSource(
      * settles once the status watches have acked, so read the snapshot then.
      */
     function refreshAfterStatusWatch(): void {
+        const watchTimeout = new AbortController();
         const watchesAcked = Promise.race([
             client.kit.refresh(),
-            sleep(STATUS_WATCH_WAIT_MS).then(() => { throw new Error('status watches did not ack in time'); }),
-        ]);
+            sleep(STATUS_WATCH_WAIT_MS, undefined, { signal: watchTimeout.signal }).then(() => { throw new Error('status watches did not ack in time'); }),
+        ]).finally(() => watchTimeout.abort());
         void watchesAcked
             .then(() => refreshSnapshotFresh().then(emitAllStates))
             .catch((cause) => {
