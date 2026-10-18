@@ -9,10 +9,11 @@ function pathForeignToHome(path: string, homeDir: string): boolean {
 /**
  * The folder the Dock starts in: the one picked, else the last one an agent
  * started in on this device (from the Dock or New agent), else the folder
- * setup chose on that computer, else home. A folder outside this computer's
- * home belongs to another computer, so it is home here.
+ * setup chose on that computer, else home. Foreign selected/last-used paths
+ * fall back to home; the setup default belongs to the connected host.
  */
 export function dockStartPath(selectedPath: string | null, homeDir: string | undefined, hostDefault?: string): string {
-    const path = selectedPath?.trim() || getCachedConnectionSettings().lastSessionCwd || hostDefault?.trim() || '~';
-    return homeDir && pathForeignToHome(path, homeDir) ? '~' : path;
+    const chosenPath = selectedPath?.trim() || getCachedConnectionSettings().lastSessionCwd;
+    if (chosenPath) return homeDir && pathForeignToHome(chosenPath, homeDir) ? '~' : chosenPath;
+    return hostDefault?.trim() || '~';
 }

@@ -31,7 +31,8 @@ function isGitRepo(path) {
 function childDirs(root) {
     try {
         return readdirSync(root, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory())
+            .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+            .slice(0, 64)
             .map((entry) => join(root, entry.name));
     } catch {
         return [];
