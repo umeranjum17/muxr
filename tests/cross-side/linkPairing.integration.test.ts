@@ -308,9 +308,8 @@ describe('native pairing over the byokit link', () => {
                         await expect(runPhonePairing(offered.offer, { onWords: async (words) => { lateWords = words; } }))
                             .rejects.toBeInstanceOf(PairingNeedsNewCode);
                         current = (await nextOffer(command, offered.wordsFile)).offered;
-                        // The first code's words arrive after it ran out; the next code's approval starts later.
+                        // The first code's words land after it ran out, while the next code is open.
                         deliver(offered.wordsFile, lateWords);
-                        await new Promise((resolve) => setTimeout(resolve, 6_000));
                     }
                     const pairing = runPhonePairing(current.offer, { onWords: async (words) => {
                         shownWords = words;
@@ -324,7 +323,10 @@ describe('native pairing over the byokit link', () => {
                         deliver(current.wordsFile, matches ? words : 'wrong words');
                     } });
                     if (matches) await pairing;
-                    else await expect(pairing).rejects.toThrow();
+                    else if (mode === 'wrong') {
+                        await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
+                        command.kill('SIGTERM');
+                    } else await expect(pairing).rejects.toThrow();
                     expect(await exited).toBe(matches ? 0 : 1);
                     expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
                     expect(existsSync(offerPath)).toBe(false);
@@ -332,7 +334,6 @@ describe('native pairing over the byokit link', () => {
                     expect(command.output()).not.toContain(current.offer);
                     expect(shownWords).not.toBe('');
                     expect(command.output()).not.toContain(shownWords);
-                    if (mode === 'wrong') expect(command.output()).toContain('two words did not match');
                     if (mode === 'cancel') {
                         await until(() => host!.output().includes('Pairing connection lost; this pairing attempt ended.') ? true : undefined,
                             'host contains the peer reset without crashing');
@@ -354,7 +355,7 @@ describe('native pairing over the byokit link', () => {
             expect(readSelfhostState().machine.crypto.devices.length).toBe(1);
             expect(existsSync(outbox) ? readdirSync(outbox) : []).toEqual([]);
         } finally { await stop(second); }
-    }, 120_000);
+    }, 150_000);
 
     it('re-pairs an older phone with matching words and carries all events and RPC over the link', async () => {
         const machineId = readSelfhostState().machine.id;

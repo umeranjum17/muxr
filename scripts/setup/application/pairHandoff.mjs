@@ -8,7 +8,6 @@ import { linkPair } from './linkPair.mjs';
 
 const LIMIT = 64 * 1024;
 const WAIT_MS = 120_000;
-const RACE_MS = 5_000;
 
 function readWords(path) {
     let fd;
@@ -55,24 +54,22 @@ export async function pairHandoff(state) {
             presentOffer: (offer, notice) => {
                 const wordsFile = `${stem}-${randomBytes(6).toString('hex')}.words`;
                 const wordsPath = join(inbox, wordsFile);
-                openOffers.set(wordsPath, offer.expires + offer.pairMs);
+                openOffers.set(wordsPath, { keepUntil: offer.expires + offer.pairMs, presentedAt: Date.now() });
                 const text = `${JSON.stringify({ version: 1, offer: offer.text, expiresAt: offer.expires, wordsFile, notice })}\n`;
                 if (Buffer.byteLength(text) > LIMIT) throw new Error('pairing offer exceeds the 64 KB handoff limit');
                 atomicWrite(offerPath, text);
                 print(`Pairing offer ready in the kit outbox: ${offerPath}. Waiting for the phone’s two words.`);
             },
             approve: async ({ words }, runOut) => {
-                const since = Date.now() - RACE_MS;
                 while (!controller.signal.aborted && !runOut.aborted) {
-                    for (const [path, keepUntil] of openOffers) {
+                    for (const [path, { keepUntil, presentedAt }] of openOffers) {
                         if (Date.now() >= keepUntil) {
                             openOffers.delete(path);
                             rmSync(path, { force: true });
                             continue;
                         }
                         const fresh = readWords(path);
-                        if (fresh === undefined || fresh.mtimeMs < since) continue;
-                        if (fresh.text !== words) throw new Error('pairing refused: the two words did not match');
+                        if (fresh === undefined || fresh.mtimeMs < presentedAt || fresh.text !== words) continue;
                         return true;
                     }
                     await sleep(100, undefined, { signal: controller.signal }).catch(() => {});
