@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, openSync, readFileSync, writeFileSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { cleanTestScratch, processStart, removeTestScratch, scratchBase, scratchEntries, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
@@ -13,9 +13,10 @@ const root = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));
 writeFileSync(join(root, 'owner'), `${process.pid} ${birth}`);
 const args = process.argv.slice(3);
 const vitest = args[0] === 'npx' && args[1] === 'vitest';
-const child = spawn(args[0], args.slice(1), { stdio: ['inherit', 'pipe', 'pipe'], detached: true, env: { ...process.env, TMPDIR: root, NODE_COMPILE_CACHE: join(root, 'node-compile-cache') } });
-child.stdout.pipe(process.stdout, { end: false });
-child.stderr.pipe(process.stderr, { end: false });
+const log = join(root, 'output.log');
+const logFd = openSync(log, 'w', 0o600);
+const child = spawn(args[0], args.slice(1), { stdio: ['ignore', logFd, logFd], detached: true, env: { ...process.env, TMPDIR: root, NODE_COMPILE_CACHE: join(root, 'node-compile-cache') } });
+closeSync(logFd);
 if (child.pid) writeFileSync(join(root, 'owner'), `${process.pid} ${birth}\n${child.pid}`);
 let signalExit;
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
@@ -35,10 +36,11 @@ child.once('error', (error) => {
 });
 // Stay available to forward deadline signals while descendants hold output open.
 child.once('close', (code, signal) => {
+    process.stdout.write(readFileSync(log));
     const finish = () => {
         const unused = scratchUnused(root, true);
         if (vitest && unused) cleanTestScratch(root);
-        const leftovers = scratchEntries(root).filter((name) => name !== 'owner').map((name) => join(root, name));
+        const leftovers = scratchEntries(root).filter((name) => name !== 'owner' && name !== 'output.log').map((name) => join(root, name));
         if (vitest && unused && leftovers.length) process.stderr.write(`FAIL: host test scratch leftovers:\n${leftovers.join('\n')}\n`);
         if (unused) removeTestScratch(root);
         process.exitCode = vitest && unused && leftovers.length ? 1 : signalExit ?? code ?? (signal ? 1 : 0);

@@ -30,8 +30,14 @@ uses only repo-shipped commands — no new harness.
   session, never run `herdr server stop` or any server-wide operation.
 - Never touch ports 8792–8793 or any already-listening port; pick your own
   naming port (below) and port 0 for the relay.
-- Cleanup kills only the exact PIDs this run started and removes only this
-  run's scratch directory. Evidence is written elsewhere and must survive.
+- Cleanup kills only the exact PIDs this run started, waits for them to exit,
+  and removes only this run's scratch directory. Evidence is written elsewhere
+  and must survive.
+- Every long-lived process started by a proof (Metro, test/lab servers,
+  emulators, adb servers or watchers) must send stdin from `/dev/null` and
+  stdout/stderr to a task log (`>"$RUN_ROOT/<name>.log" 2>&1 </dev/null &`),
+  record its PID, and be stopped and awaited in cleanup, including failure
+  paths. Never leave a process attached to the agent's stdout pipe.
 
 ## Launch
 
@@ -48,7 +54,7 @@ export MUXR_RELAY_MDNS=0 MUXR_NO_SERVICE_COMMANDS=1
 
 # 1. Relay on a kernel-picked port; the stdout line below is the ownership proof.
 MUXR_RELAY_PORT=0 MUXR_RELAY_DATA_DIR="$RUN_ROOT/relay" \
-  node apps/relay/dist/main.js >"$RUN_ROOT/relay.log" 2>&1 &
+  node apps/relay/dist/main.js >"$RUN_ROOT/relay.log" 2>&1 </dev/null &
 RELAY_PID=$!
 RELAY_PORT=""
 for _ in $(seq 100); do
@@ -79,14 +85,14 @@ OWNER_SECRET="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileS
 # 3. Host with the fake session source. Ready when its own log says online.
 #    MUXR_HOME is required: a --fake or source-build host refuses the default ~/.muxr.
 MUXR_HOME="$MUXR_HOME" MUXR_MODE=selfhost MUXR_DATA_DIR="$MUXR_HOME/host" \
-  node apps/host/dist/main.js --fake >"$RUN_ROOT/host.log" 2>&1 &
+  node apps/host/dist/main.js --fake >"$RUN_ROOT/host.log" 2>&1 </dev/null &
 HOST_PID=$!
 for _ in $(seq 100); do grep -q 'link relay: online' "$RUN_ROOT/host.log" && break; sleep 0.1; done
 grep -q 'link relay: online' "$RUN_ROOT/host.log" || { echo "host never came online:"; tail "$RUN_ROOT/host.log"; exit 1; }
 
 # 4. Naming loopback (only `muxr preview status` needs it). Private fixed port;
 #    the default 8797 belongs to the owner's real host.
-MUXR_NAMING_PORT=38797 node scripts/naming/server.mjs >"$RUN_ROOT/naming.log" 2>&1 &
+MUXR_NAMING_PORT=38797 node scripts/naming/server.mjs >"$RUN_ROOT/naming.log" 2>&1 </dev/null &
 NAMING_PID=$!
 ```
 
@@ -386,7 +392,7 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   On this path run one relay and one host of its own under that home; do not start
   Launch's loopback relay or its `--fake` host.
   From the repo root, start the relay on the tailnet address:
-  `MUXR_RELAY_PORT=0 MUXR_RELAY_HOST=<tailnet ip> MUXR_RELAY_DATA_DIR="$RUN_ROOT/relay" MUXR_RELAY_MDNS=0 node apps/relay/dist/main.js >"$RUN_ROOT/ios-relay.log" 2>&1 &`,
+  `MUXR_RELAY_PORT=0 MUXR_RELAY_HOST=<tailnet ip> MUXR_RELAY_DATA_DIR="$RUN_ROOT/relay" MUXR_RELAY_MDNS=0 node apps/relay/dist/main.js >"$RUN_ROOT/ios-relay.log" 2>&1 </dev/null &`,
   then `IOS_RELAY_PID=$!`. Read its port from the `relay listening on ws://…:<port>` line in `ios-relay.log`
   with the same `sed` and 100-try loop as Launch step 1, then check `/health` ok. Write `$MUXR_HOME/selfhost.json`
   with the fields Launch step 2 writes, but `relayUrl` `ws://<tailnet ip>:<port>`. Create the tailnet state with the product command, run in this throwaway `MUXR_HOME` (never the captain's home): `muxr self-host --configure-only --advertise ws://<tailnet-address>:<port> --port <port>` (see `features/selfhost-health.md`; `configureSelfHost.mjs` sets `bindHost` from the tailnet address). Do not hand-set `bindHost`,
@@ -400,7 +406,7 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   `FM_HERDR_LAB_STATE_DIR` in scratch (mode 700). Before launching the host,
   `unset HERDR_SOCKET_PATH`. Run the host
   without `--fake` from the repo root with task-owned HOME/XDG stores:
-  `MUXR_MODE=selfhost MUXR_DATA_DIR="$MUXR_HOME/host" MUXR_HOME="$MUXR_HOME" HERDR_SESSION=<lab session> node apps/host/dist/main.js >"$RUN_ROOT/ios-host.log" 2>&1 &`,
+  `MUXR_MODE=selfhost MUXR_DATA_DIR="$MUXR_HOME/host" MUXR_HOME="$MUXR_HOME" HERDR_SESSION=<lab session> node apps/host/dist/main.js >"$RUN_ROOT/ios-host.log" 2>&1 </dev/null &`,
   then `IOS_HOST_PID=$!`. Wait for `link relay: online` in
   `ios-host.log`.
 - **Pair.** Only after this run's `slot-claimed` marker exists. Words handoff:
@@ -409,7 +415,7 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   task-owned kit directory, with the same home and lab
   session, run in the background as `PAIR_PID=$!`:
   `REPO="$PWD"`, `mkdir -p "$RUN_ROOT/kit"`, `cd "$RUN_ROOT/kit"`, then
-  `MUXR_HOME="$RUN_ROOT/muxr-home" HERDR_SESSION=<lab session> node "$REPO/scripts/cli.mjs" pair --handoff >"$RUN_ROOT/pair.log" 2>&1 &`
+  `MUXR_HOME="$RUN_ROOT/muxr-home" HERDR_SESSION=<lab session> node "$REPO/scripts/cli.mjs" pair --handoff >"$RUN_ROOT/pair.log" 2>&1 </dev/null &`
   with `PAIR_PID=$!` on its own line, so `$!` is node and not a subshell. The offer lands in
   `$RUN_ROOT/kit/.byokit/outbox/muxr-pair-*.json`, and its `wordsFile` names the
   inbox file. Once the offer exists, hand the link to the Mac as a file: it is
@@ -436,7 +442,9 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
 - **Cleanup.** On every iOS exit, run each line independently; do not let an earlier failure skip a later line:
   ```sh
   cleanup_failed=0
-  for pid in "${IOS_HOST_PID:-}" "${IOS_RELAY_PID:-}" "${PAIR_PID:-}"; do [ -z "$pid" ] || kill "$pid" 2>/dev/null || cleanup_failed=1; done
+  for pid in "${IOS_HOST_PID:-}" "${IOS_RELAY_PID:-}" "${PAIR_PID:-}"; do
+    [ -z "$pid" ] || { kill "$pid" 2>/dev/null || cleanup_failed=1; wait "$pid" 2>/dev/null || cleanup_failed=1; }
+  done
   fm-herdr-lab.sh teardown <session> || cleanup_failed=1
   if [ -e "$RUN_ROOT/slot-claimed" ]; then scp <mac-user>@<mac-ip>:~/fm-verify-pockit-ios1/<RUN_ID>/build.log "$EVIDENCE/ios-build.log" || cleanup_failed=1; fi
   if [ -e "$RUN_ROOT/slot-claimed" ]; then ssh <mac-user>@<mac-ip> 'if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then xcrun simctl shutdown <UDID> || exit; fi; if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then echo "<UDID> remains booted" >&2; exit 1; fi; rm -rf -- ~/fm-verify-pockit-ios1/<RUN_ID>' || cleanup_failed=1; fi

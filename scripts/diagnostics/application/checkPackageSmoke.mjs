@@ -9,6 +9,8 @@ import {
     lstatSync,
     mkdirSync,
     mkdtempSync,
+    openSync,
+    closeSync,
     readFileSync,
     realpathSync,
     readdirSync,
@@ -91,14 +93,28 @@ writeFileSync(fakeHerdrServerPath, [
     "    .listen(0, '127.0.0.1', function () { process.stdout.write(String(this.address().port)); });",
     '',
 ].join('\n'));
-const fakeHerdrServer = spawn(process.execPath, [fakeHerdrServerPath, fakeHerdrSource, fakeHerdrFetchLog], { stdio: ['ignore', 'pipe', 'inherit'] });
-const fakeHerdrPort = await new Promise((resolve) => {
-    let output = '';
-    fakeHerdrServer.stdout.on('data', (chunk) => {
-        output += chunk;
-        if (/^\d+$/.test(output.trim())) resolve(Number(output.trim()));
+const fakeHerdrServerLog = join(scratch, 'fake-herdr-server.log');
+const fakeHerdrServerLogFd = openSync(fakeHerdrServerLog, 'a', 0o600);
+const fakeHerdrServer = spawn(process.execPath, [fakeHerdrServerPath, fakeHerdrSource, fakeHerdrFetchLog], { stdio: ['ignore', fakeHerdrServerLogFd, fakeHerdrServerLogFd] });
+closeSync(fakeHerdrServerLogFd);
+let fakeHerdrServerError;
+fakeHerdrServer.once('error', (error) => { fakeHerdrServerError = error; });
+const fakeHerdrServerDeadline = Date.now() + 10_000;
+let fakeHerdrPort;
+while (Date.now() < fakeHerdrServerDeadline) {
+    const output = readFileSync(fakeHerdrServerLog, 'utf8').trim();
+    if (/^\d+$/.test(output)) { fakeHerdrPort = Number(output); break; }
+    if (fakeHerdrServerError || fakeHerdrServer.exitCode !== null) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+}
+if (fakeHerdrPort === undefined) {
+    if (fakeHerdrServer.exitCode === null && fakeHerdrServer.signalCode === null) fakeHerdrServer.kill('SIGTERM');
+    await new Promise((resolve) => {
+        if (fakeHerdrServer.exitCode !== null || fakeHerdrServer.signalCode !== null) resolve();
+        else fakeHerdrServer.once('exit', resolve);
     });
-});
+    throw new Error(`fake Herdr server did not start: ${fakeHerdrServerError?.message ?? readFileSync(fakeHerdrServerLog, 'utf8')}`);
+}
 const fakeHerdrUrl = `http://127.0.0.1:${fakeHerdrPort}/herdr`;
 const fakeHerdrFetches = () => (existsSync(fakeHerdrFetchLog) ? readFileSync(fakeHerdrFetchLog, 'utf8').trim().split('\n').filter(Boolean).length : 0);
 writeFileSync(join(binDir, 'pi'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
@@ -1168,14 +1184,14 @@ try {
     const upgradedLocalState = JSON.parse(readFileSync(localSelfhostPath, 'utf8'));
     upgradedLocalState.machineCredential = 'machinetok_stale-upgrade';
     writeFileSync(localSelfhostPath, `${JSON.stringify(upgradedLocalState, null, 2)}\n`, { mode: 0o600 });
-    const host = spawn(cli, ['up', '--fake'], { cwd: installDir, env: { ...env, MUXR_HOME: join(home, '.muxr'), MUXR_MODE: 'selfhost' }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let hostOutput = '';
-    host.stdout.on('data', (chunk) => { hostOutput += chunk; });
-    host.stderr.on('data', (chunk) => { hostOutput += chunk; });
+    const hostLog = join(scratch, 'packaged-host.log');
+    const hostLogFd = openSync(hostLog, 'a', 0o600);
+    const host = spawn(cli, ['up', '--fake'], { cwd: installDir, env: { ...env, MUXR_HOME: join(home, '.muxr'), MUXR_MODE: 'selfhost' }, stdio: ['ignore', hostLogFd, hostLogFd] });
+    closeSync(hostLogFd);
     await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`packaged host did not start\n${hostOutput}`)), 10_000);
+        const timer = setTimeout(() => reject(new Error(`packaged host did not start\n${readFileSync(hostLog, 'utf8')}`)), 10_000);
         const poll = setInterval(() => {
-            if (hostOutput.includes('(fake)')
+            if (readFileSync(hostLog, 'utf8').includes('(fake)')
                 && existsSync(join(home, '.muxr', 'relay', 'relay.pid'))
                 && existsSync(join(home, '.muxr', 'host', 'peer', 'cli.json'))) {
                 clearTimeout(timer);
@@ -1322,7 +1338,10 @@ else if(a[0]==='view') {
     for (let attempt = 0; attempt < 30 && await fetch(`http://127.0.0.1:${relayServicePort}/health`).then((response) => response.ok).catch(() => false); attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    const relayService = spawn(cli, ['up'], { cwd: installDir, env: { ...relayEnv, MUXR_MODE: 'relay' }, stdio: 'ignore' });
+    const relayServiceLog = join(scratch, 'packaged-relay-service.log');
+    const relayServiceLogFd = openSync(relayServiceLog, 'a', 0o600);
+    const relayService = spawn(cli, ['up'], { cwd: installDir, env: { ...relayEnv, MUXR_MODE: 'relay' }, stdio: ['ignore', relayServiceLogFd, relayServiceLogFd] });
+    closeSync(relayServiceLogFd);
     await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('packaged relay-only service did not start')), 10_000);
         const poll = setInterval(async () => {
@@ -1421,6 +1440,10 @@ else if(a[0]==='view') {
     process.stdout.write(`package smoke passed: ${tarball}\n`);
 } finally {
     stopRelayFor(join(home, '.muxr', 'relay'));
-    fakeHerdrServer.kill();
+    if (fakeHerdrServer.exitCode === null && fakeHerdrServer.signalCode === null) fakeHerdrServer.kill('SIGTERM');
+    await new Promise((resolve) => {
+        if (fakeHerdrServer.exitCode !== null || fakeHerdrServer.signalCode !== null) resolve();
+        else fakeHerdrServer.once('exit', resolve);
+    });
     rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
