@@ -1,14 +1,14 @@
 # Stay connected to a busy computer
 
-When the computer is overloaded (a big herd, a machine-wide stall), the phone keeps Home usable and says the computer is busy and reconnecting. It does not jump to "Computer unreachable" on the first missed heartbeat. A link that was online keeps the busy card for up to 5 minutes (18 Oct: a starved host froze for over five minutes and came back by itself); only past that, or on a start that never connected, does the phone ask the relay why and explain it.
+When the computer is overloaded (a big herd, a machine-wide stall), the phone keeps Home usable and says the computer is busy and reconnecting. It does not jump to "Computer unreachable" on the first missed heartbeat. A link that was online keeps the busy card for up to 10 minutes (18 Oct: a starved host froze for 329 s and came back by itself); only past that, or on a start that never connected, does the phone ask the relay why and explain it.
 
 ## Sub-features
 
 - Home's tree, Live tiles and dials keep answering at 300 panes / 150 agents (host loop not starved by the herd lookup).
 - An unchanged 300-pane herd sends no periodic artifact or plugin events; admission polling never replays it. Connecting and returning clients receive their own full artifact snapshot without waking another phone.
 - A link that drops for less than the grace shows the busy "<computer> isn't answering, likely busy." card, never the unreachable card, then reopens by itself.
-- A link that was online and stays offline past the grace keeps that busy card, with "No answer for …" and no restart command, for up to 5 minutes, then reopens by itself when the computer catches up.
-- A link that stays offline past 5 minutes, or a cold start that never connected, explains itself as before: the relay is up but the computer is not connected, or the relay itself is unreachable.
+- A link that was online and stays offline past the grace keeps that busy card, with "No answer for …" and no restart command, for up to 10 minutes, then reopens by itself when the computer catches up.
+- A link that stays offline past 10 minutes, or a cold start that never connected, explains itself as before: the relay is up but the computer is not connected, or the relay itself is unreachable.
 - The host journals a connected Herdr that stops answering: `herdr: not answering (2 calls timed out)`, then `herdr: answering again after Ns` (`journalctl --user -u muxr.service`). `scripts/diagnostics/application/checkHerdrStallE2E.mjs` drives both, plus a 60 s whole-computer freeze, on a lab Herdr.
 - A refused or revoked pairing still lands on its permanent card immediately.
 - A Home worktree probe that times out on a busy computer does not raise an unhandled rejection.

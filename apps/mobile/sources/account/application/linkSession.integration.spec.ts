@@ -321,7 +321,7 @@ describe('link session sync flow', () => {
             return harness.clients.at(-1)!;
         };
         // A busy host drops the link for a while; the phone keeps rechecking the
-        // relay but says only "connecting" for five minutes, and explains after.
+        // relay but says only "connecting" for ten minutes, and explains after.
         const busyHealth = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) }));
         const offline = async () => {
             const client = await dial();
@@ -329,7 +329,7 @@ describe('link session sync flow', () => {
             vi.useFakeTimers();
             client.fire('offline');
             vi.stubGlobal('fetch', busyHealth);
-            await vi.advanceTimersByTimeAsync(5 * 60_000 - 1);
+            await vi.advanceTimersByTimeAsync(10 * 60_000 - 1);
             expect(harness.socketError).toBeNull();
             expect(busyHealth).toHaveBeenCalled();
             expect(health).toHaveBeenCalledTimes(asked);

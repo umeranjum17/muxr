@@ -114,9 +114,9 @@ const OFFLINE_RECHECK_MS = 10_000;
 
 /** How long a link that was online stays "busy, reconnecting" before the
  *  phone explains it as unreachable. A starved host froze for over five
- *  minutes on 18 Oct and came back on the next redial with nothing done on
- *  the computer, so sending the person there sooner is wrong. */
-const BUSY_BOUND_MS = 5 * 60_000;
+ *  minutes on 18 Oct (329 s) and came back on the next redial with nothing
+ *  done on the computer, so sending the person there sooner is wrong. */
+const BUSY_BOUND_MS = 10 * 60_000;
 
 /** One byokit link, including its terminal, desktop, voice and push streams. */
 export class LinkFirstClient implements SessionClient {
