@@ -357,14 +357,15 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   Check disk first: `ssh <mac-user>@<mac-ip> 'df -h ~'`.
 - **Run and slot.** The iOS path does not run Launch. Start its own scratch:
   `RUN_ROOT="$(mktemp -d /tmp/muxr-verify-XXXXXX)"`, and define `EVIDENCE` as in Evidence above.
-  `SLOT=~/firstmate/data/fm-mac-slot1/fm-mac-slot.sh`. Run `$SLOT claim`. Only if it
-  succeeds, `touch "$EVIDENCE/slot-claimed"`, then run `$SLOT boot ios <UDID>`. The
-  marker lives in the evidence folder, which cleanup never deletes. A failed claim
-  ends the drive with no marker, so the Cleanup bullet runs no stop and no release:
-  the lock belongs to another task.
-- **Build.** Scratch on the Mac is `~/fm-verify-pockit-ios1`, removed at the end.
-  Linux: `git archive --format=tar <sha> -o "$RUN_ROOT/src.tar"`, copy it to the
-  Mac and extract into `~/fm-verify-pockit-ios1/<sha>`. Mac, through
+  Set `RUN_ID` to this run's unique id. In the Mac shell set
+  `MAC_RUN="$HOME/fm-verify-pockit-ios1/$RUN_ID"`.
+  `SLOT=~/firstmate/data/fm-mac-slot1/fm-mac-slot.sh`. Run `$SLOT claim`; only on
+  success, `touch "$EVIDENCE/slot-claimed"`, then run `$SLOT boot ios <UDID>`. The
+  marker lives in evidence, which cleanup never deletes. A failed claim ends the
+  drive without any Mac-side work, stop, or release.
+- **Build.** Mac scratch is the per-run `$MAC_RUN`. Only after the marker exists,
+  create it, copy the archive and extract into `$MAC_RUN/<sha>`. Linux:
+  `git archive --format=tar <sha> -o "$RUN_ROOT/src.tar"`. Mac, through
   `fm-mem-gate.sh` and backgrounded, from that folder with
   `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` (pod install fails on the ssh default
   locale): `yarn install --frozen-lockfile --non-interactive`, `yarn build`,
@@ -372,11 +373,11 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   `(cd apps/mobile/ios && pod install)`, then, with `set -o pipefail` first so
   the status is xcodebuild's and not tee's, `xcodebuild -workspace
   apps/mobile/ios/muxr.xcworkspace -scheme muxr -configuration Release -sdk
-  iphonesimulator -derivedDataPath ~/fm-verify-pockit-ios1/dd
+  iphonesimulator -derivedDataPath $MAC_RUN/dd
   CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO
-  DEBUG_INFORMATION_FORMAT=dwarf build 2>&1 | tee ~/fm-verify-pockit-ios1/build.log`
+  DEBUG_INFORMATION_FORMAT=dwarf build 2>&1 | tee $MAC_RUN/build.log`
   (Cleanup copies this log out). The app is
-  `~/fm-verify-pockit-ios1/dd/Build/Products/Release-iphonesimulator/muxr.app`
+  `$MAC_RUN/dd/Build/Products/Release-iphonesimulator/muxr.app`
   (`com.trymuxr.app`); `xcrun simctl install <UDID> <app>`.
 - **Host.** Before any process starts, in this shell:
   `unset MUXR_RELAY_TOKEN MUXR_RELAY_URL MUXR_MACHINE_ID MUXR_RELAY_AUTH MUXR_DATA_DIR MUXR_NAMING_PORT`
@@ -397,9 +398,10 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   then `IOS_HOST_PID=$!`. **Unset `HERDR_SOCKET_PATH`** first: an inherited
   one is the owner's default socket, and the host refuses it. Wait for
   `link relay: online` in `ios-host.log`.
-- **Pair.** Words handoff: the host offers, the phone shows two words, and the
-  host grants only when the agent delivers the same two words. Never approve
-  without them. From a task-owned kit directory, with the same home and lab
+- **Pair.** Only after this run's `slot-claimed` marker exists. Words handoff:
+  the host offers, the phone shows two words, and the host grants only when the
+  agent delivers the same two words. Never approve without them. From a
+  task-owned kit directory, with the same home and lab
   session, run in the background as `PAIR_PID=$!`:
   `REPO="$PWD"`, `mkdir -p "$RUN_ROOT/kit"`, `cd "$RUN_ROOT/kit"`, then
   `MUXR_HOME="$RUN_ROOT/muxr-home" HERDR_SESSION=<lab session> node "$REPO/scripts/cli.mjs" pair --handoff >"$RUN_ROOT/pair.log" 2>&1 &`
@@ -410,8 +412,8 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   ```sh
   OFFER="$(ls "$RUN_ROOT"/kit/.byokit/outbox/muxr-pair-*.json)"
   node -e 'const o = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write("muxr://pair#" + o.offer)' "$OFFER" \
-    | ssh <mac-user>@<mac-ip> 'umask 077; cat > ~/fm-verify-pockit-ios1/pair-link.txt'
-  ssh <mac-user>@<mac-ip> 'xcrun simctl openurl <UDID> "$(cat ~/fm-verify-pockit-ios1/pair-link.txt)"; st=$?; rm -f -- ~/fm-verify-pockit-ios1/pair-link.txt; exit $st' && echo "openurl sent"
+    | ssh <mac-user>@<mac-ip> "umask 077; mkdir -p ~/fm-verify-pockit-ios1/<RUN_ID>; cat > ~/fm-verify-pockit-ios1/<RUN_ID>/pair-link.txt"
+  ssh <mac-user>@<mac-ip> 'xcrun simctl openurl <UDID> "$(cat ~/fm-verify-pockit-ios1/<RUN_ID>/pair-link.txt)"; st=$?; rm -f -- ~/fm-verify-pockit-ios1/<RUN_ID>/pair-link.txt; exit $st' && echo "openurl sent"
   ```
   Offers expire in about two minutes, so send it at once. Tap Pair with
   `axe tap -x <pt> -y <pt>` on the Mac; points are the screenshot pixels divided
@@ -421,19 +423,23 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   `mv` it to `$RUN_ROOT/kit/.byokit/inbox/<wordsFile>`, so the host never reads a
   partial file. Then `wait "$PAIR_PID"` and require exit 0. Wrong words refuse
   pairing. Handoff refuses once a phone is paired, so use a fresh lab host.
-- **Capture.** `xcrun simctl ui <UDID> appearance dark|light`, wait a few
+- **Capture.** `ssh <mac-user>@<mac-ip> 'xcrun simctl ui <UDID> appearance dark|light'`, wait a few
   seconds, then `$SLOT ios-shot "$EVIDENCE/ios-home-<appearance>.png"`. Home shows the paired machine as
   `connected`. Open every shot before reporting.
-- **Cleanup.** On an iOS drive run these lines, each on its own, with no `&&` or
-  `set -e` between them, so every line runs even when an earlier one fails:
+- **Cleanup.** On every iOS exit, run each line independently; do not let an earlier failure skip a later line:
   ```sh
-  kill "$IOS_HOST_PID" "$IOS_RELAY_PID" "$PAIR_PID" 2>/dev/null
+  for pid in "${IOS_HOST_PID:-}" "${IOS_RELAY_PID:-}" "${PAIR_PID:-}"; do [ -z "$pid" ] || kill "$pid" 2>/dev/null; done
   fm-herdr-lab.sh teardown <session>
-  scp <mac-user>@<mac-ip>:fm-verify-pockit-ios1/build.log "$EVIDENCE/ios-build.log"
-  ssh <mac-user>@<mac-ip> 'rm -rf -- ~/fm-verify-pockit-ios1'
-  if [ -e "$EVIDENCE/slot-claimed" ]; then "$SLOT" stop; "$SLOT" release; "$SLOT" status; fi
+  if [ -e "$EVIDENCE/slot-claimed" ]; then scp <mac-user>@<mac-ip>:~/fm-verify-pockit-ios1/<RUN_ID>/build.log "$EVIDENCE/ios-build.log"; fi
+  if [ -e "$EVIDENCE/slot-claimed" ]; then ssh <mac-user>@<mac-ip> 'if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then xcrun simctl shutdown <UDID>; fi; rm -rf -- ~/fm-verify-pockit-ios1/<RUN_ID>'; fi
+  if [ -e "$EVIDENCE/slot-claimed" ]; then "$SLOT" release; fi
+  "$SLOT" status | tee "$EVIDENCE/ios-slot-final-status.log"
+  grep -q '^lock: free$' "$EVIDENCE/ios-slot-final-status.log" && grep -q '^iOS booted: 0$' "$EVIDENCE/ios-slot-final-status.log"
   ```
-  The status line must print `lock: free` and `iOS booted: 0`. Report any line that failed.
+  Each cleanup line is a separate step and must be attempted even if an earlier
+  one fails. The stop targets `<UDID>` only after an exact booted-device match.
+  Final status must verify `lock: free` and `iOS booted: 0`; report any failed
+  line.
 
 The Android and PWA Visual check above does not cover these shots: they prove a
 simulator Home, not the matrix.
