@@ -116,6 +116,7 @@ const PROMPT_SETTLE_MS = 1_500;
 const PROMPT_SETTLE_CAP_MS = 20_000;
 /** One bounded agent turn; the kit's own default is 300 s. */
 const HANDOFF_TIMEOUT_MS = 240_000;
+const STATUS_WATCH_WAIT_MS = 5_000;
 const HANDOFF_NOTE_MAX = 8_000;
 
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
@@ -359,7 +360,7 @@ function promptNotSent(cause: unknown): Error {
 
 const HANDOFF_RESULT_SCHEMA = {
     type: 'object',
-    properties: { note: { type: 'string', minLength: 1, maxLength: HANDOFF_NOTE_MAX } },
+    properties: { note: { type: 'string', maxLength: HANDOFF_NOTE_MAX } },
     required: ['note'],
     additionalProperties: false,
 };
@@ -381,6 +382,8 @@ const HANDOFF_TURN_FAILURES: Record<string, string> = {
     'turn-timeout': 'The agent did not finish its handoff note in time.',
     'turn-unavailable': 'The agent went away while it wrote its handoff note.',
     'turn-watch-lost': 'Herdr lost track of the agent while it wrote its handoff note.',
+    'result-invalid': 'The agent wrote a handoff note muxr could not read.',
+    'result-missing': 'The agent did not write a handoff note.',
 };
 
 /** The kit refuses a turn before typing when the agent is not idle or done. */
@@ -1604,9 +1607,16 @@ export async function createHerdrSessionSource(
      * settles once the status watches have acked, so read the snapshot then.
      */
     function refreshAfterStatusWatch(): void {
-        void client.kit.refresh()
+        const watchesAcked = Promise.race([
+            client.kit.refresh(),
+            sleep(STATUS_WATCH_WAIT_MS).then(() => { throw new Error('status watches did not ack in time'); }),
+        ]);
+        void watchesAcked
             .then(() => refreshSnapshotFresh().then(emitAllStates))
-            .catch((cause) => process.stderr.write(`herdr status refresh failed: ${cause instanceof Error ? cause.message : String(cause)}\n`));
+            .catch((cause) => {
+                process.stderr.write(`herdr status refresh failed: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+                scheduleResnapshot();
+            });
     }
 
     /**
@@ -3363,10 +3373,7 @@ export async function createHerdrSessionSource(
                 result: { schema: HANDOFF_RESULT_SCHEMA, validate: isHandoffNote, maxBytes: HANDOFF_NOTE_MAX * 4 },
             }).catch((cause: unknown) => { throw handoffError(cause); });
             if (end.result.state === 'valid') return { note: end.result.value.note };
-            const reason = end.result.state === 'invalid'
-                ? 'The agent wrote a handoff note muxr could not read.'
-                : 'The agent did not write a handoff note.';
-            throw Object.assign(new Error(`${reason} It is still here.`), { code: 'handoff-failed' });
+            throw handoffError({ code: end.result.state === 'invalid' ? 'result-invalid' : 'result-missing' });
         },
 
         async status(sessionId: string): Promise<SessionStatus> {

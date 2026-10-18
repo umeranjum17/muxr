@@ -11,7 +11,7 @@ The phone asks the host to continue an agent on another computer: `session.hando
 
 ## How to get to it (user POV)
 
-The phone's handoff action sends `session.handoff` for the open conversation and the target computer's name. There is no terminal command for it; the request exists on the link, so drive it through a paired lab device link as below.
+`session.handoff` is host-only until the phone action lands in P2: no phone UI sends it yet. It takes the open conversation and the target computer's name. There is no terminal command for it; drive the request through a paired lab device link as below.
 
 ## Driving it with the private stack
 
