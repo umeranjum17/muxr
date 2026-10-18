@@ -26,7 +26,6 @@ const { request, ssh, linkStreams, openDesktopTcpStream } = vi.hoisted(() => {
 vi.mock('@/catalog', () => ({ sync: { request, openDesktopTcpStream } }));
 // The phone's native TCP listener has node's own API.
 vi.mock('react-native-tcp-socket', async () => ({ default: await import('node:net') }));
-vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 vi.mock('@/connection', () => ({
     sshRouteActive: () => ssh.active,
     openSshForward: ssh.open,
