@@ -334,12 +334,14 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         before: { crop: still }, after: { crop: shifted }, terminal: panOnly,
     }).proven, true);
     const panRate = terminalTotals(panOnly, 1);
+    assert.equal(panRate.rowsSent, 0);
     assert.equal(panRate.rowsPerSecond, 0);
     assert.ok(verdict('terminal text fling', { ...flingJank, terminal: panRate }, EMULATOR_LIMITS).failures.includes('terminalRowsPerSecond'));
     const sentRate = terminalTotals(trailSince(
         parseRedactedTrail('terminal.scroll seq=3 requests=1 rows=20 clamped=0 timedOut=0 absorbed=100'),
         parseRedactedTrail('terminal.scroll seq=0 requests=0 rows=0 clamped=0 timedOut=0 absorbed=0'),
     ), 1);
+    assert.equal(sentRate.rowsSent, 20);
     assert.equal(sentRate.rowsPerSecond, 20);
     assert.ok(verdict('terminal text fling', { ...flingJank, terminal: sentRate }, EMULATOR_LIMITS).failures.includes('terminalRowsPerSecond'));
 
