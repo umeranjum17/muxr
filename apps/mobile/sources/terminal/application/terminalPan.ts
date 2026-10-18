@@ -26,7 +26,7 @@ import { decodeBase64 } from '@/encryption/base64';
  * Gotchas:
  * - A renderer keeps the grid it attached at, so after a font change the grid can stay taller than the floor asks for; the pan covers every row it drew.
  * - Whole rows come from terminalShownHeight in terminalFloor.ts: the screen clips a floor-tall surface to whole rows and hands the pan that height.
- * - Travel is counted by distance, not time: each row of drag moves the box one row, however fast the stroke.
+ * - Travel is counted by distance, not time: each row of drag moves the box one row, however fast the stroke. On native a slow 600 ms drag pans only about one row, so quick strokes are the way to cover distance.
  *
  * Herdr ends every frame by putting the cursor back (`ESC[row;colH`, then
  * showing or hiding it), so the row comes from the frame itself on both

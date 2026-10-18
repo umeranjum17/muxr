@@ -512,7 +512,7 @@ export function formatLatestConnectionFailure(): string | undefined {
  * so a reader marks the number it saw and counts only what came after it.
  */
 function gestureLine(): string | undefined {
-    if (scrollTotals.requests === 0) return undefined;
+    if (scrollTotals.requests === 0 && scrollTotals.rows === 0) return undefined;
     return `terminal.scroll seq=${sequence} requests=${scrollTotals.requests} rows=${scrollTotals.rows}`
         + ` clamped=${scrollTotals.clamped} timedOut=${scrollTotals.timedOut}`;
 }
