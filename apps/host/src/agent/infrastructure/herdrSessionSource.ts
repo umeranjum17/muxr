@@ -1598,12 +1598,6 @@ export async function createHerdrSessionSource(
     // found without a restart; the kit spawns that exact path for CLI and terminal verbs.
     const resolvedHerdrBin = (): string | undefined => options.herdrBin || process.env.HERDR_BIN || findHerdrBin();
     /**
-     * The kit opens every per-pane status watch while it bootstraps and only
-     * then starts delivering status frames. Once that set acks, a conversation
-     * Herdr published while the watches were landing is discoverable, so the
-     * mirror re-reads on that edge; muxr holds no watches of its own.
-     */
-    /**
      * A detection re-bootstraps the kit, which opens the pane's status watch.
      * A status that changed before that watch acked was never pushed, and the
      * kit announces only a phase change, not each re-bootstrap. `refresh()`
@@ -1612,9 +1606,15 @@ export async function createHerdrSessionSource(
     function refreshAfterStatusWatch(): void {
         void client.kit.refresh()
             .then(() => refreshSnapshotFresh().then(emitAllStates))
-            .catch(() => {});
+            .catch((cause) => process.stderr.write(`herdr status refresh failed: ${cause instanceof Error ? cause.message : String(cause)}\n`));
     }
 
+    /**
+     * The kit opens every per-pane status watch while it bootstraps and only
+     * then starts delivering status frames. Once that set acks, a conversation
+     * Herdr published while the watches were landing is discoverable, so the
+     * mirror re-reads on that edge; muxr holds no watches of its own.
+     */
     function resnapshotAfterStatusWatch(): void {
         void client.statusWatchReady()
             .then(() => [...agentsByPane.keys()].some(needsSessionDiscovery))
@@ -1894,12 +1894,10 @@ export async function createHerdrSessionSource(
                 if (session !== undefined) emitState(session.sessionId);
                 // Status rides the kit's per-pane watch and never changes the
                 // tree; only an undiscovered conversation is worth a read.
-                // Detection means a new agent, so it always re-reads.
-                if (kind === 'pane.agent.detected'
-                    || (paneId !== undefined && needsSessionDiscovery(paneId))) scheduleResnapshot();
                 // Detection starts a kit re-bootstrap that opens the new pane's
-                // status watch; wait past this tick so the ready signal is its.
+                // status watch; wait for its ready signal, then read once.
                 if (kind === 'pane.agent.detected') refreshAfterStatusWatch();
+                else if (paneId !== undefined && needsSessionDiscovery(paneId)) scheduleResnapshot();
                 return;
             }
             case 'pane.moved': {
