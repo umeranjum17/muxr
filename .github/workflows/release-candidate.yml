@@ -164,6 +164,29 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
+  # The Linux desktop app is built from the same source commit as the npm
+  # package and the Android build, so the candidate seals all three together.
+  # The exact local path is `yarn desktop:build:linux`, shared with the
+  # desktop-appimage check workflow, and it packages with `--publish never`.
+  appimage:
+    needs: select
+    if: needs.select.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile --non-interactive
+      - run: yarn desktop:build:linux
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c68a75d1fc6a0a # v7.0.1
+        with:
+          name: linux-appimage
+          path: apps/desktop/release/*.AppImage
+          if-no-files-found: error
+
   android:
     needs: select
     if: needs.select.outputs.build == 'true'
@@ -176,7 +199,7 @@ jobs:
     secrets: inherit
 
   release:
-    needs: [select, npm, android]
+    needs: [select, npm, android, appimage]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -199,5 +222,9 @@ jobs:
         with:
           name: android-internal
           path: ${{ runner.temp }}/android
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: linux-appimage
+          path: ${{ runner.temp }}/appimage
       - name: Verify and attach immutable candidate
         run: node scripts/release/presentation/publishCandidate.mjs

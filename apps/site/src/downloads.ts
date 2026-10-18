@@ -214,7 +214,7 @@ export function createDownloadRoutes(channels: ReleaseChannels) {
             action = segments[2];
         } else return false;
 
-        if (action !== undefined && !['android', 'release', 'checksums'].includes(action)) return false;
+        if (action !== undefined && !['android', 'linux', 'release', 'checksums'].includes(action)) return false;
 
         try {
             const catalog = await channels.catalog();
@@ -234,6 +234,15 @@ export function createDownloadRoutes(channels: ReleaseChannels) {
             const release = resolution.release;
             if (api) { json(res, 200, { channel: resolution.channel, ...release }); return true; }
             if (action === 'android') redirect(res, release.android.url);
+            // The desktop download is only served when the channel's own
+            // record vouches for it; otherwise the visitor learns plainly
+            // that no Linux app is published yet instead of getting another
+            // channel's bytes or a dead redirect.
+            else if (action === 'linux') {
+                if (release.linux === undefined) {
+                    writeMessage(res, 404, 'No Linux download yet', 'This channel has no published Linux desktop app yet. The desktop page shows the terminal install that pairs the same way.', '/desktop');
+                } else redirect(res, release.linux.url);
+            }
             else if (action === 'release') redirect(res, release.releaseUrl);
             else if (action === 'checksums') plain(res, `${release.android.sha256}  ${apkFilename(release)}\n`);
             else writeChannel(res, resolution.channel, release);

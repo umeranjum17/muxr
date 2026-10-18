@@ -41,6 +41,19 @@ export async function updateChannelCatalog({ repository = CANONICAL_REPOSITORY, 
         throw new Error(`${apkName} reports digest ${apk.digest ?? 'none'}, expected sha256:${entry.android.sha256}; re-upload or verify the release asset`);
     }
 
+    // The desktop download the catalog is about to advertise must be the
+    // artifact GitHub is serving: name, size and digest from the release's
+    // own metadata, no download, no rebuild.
+    if (entry.linux !== undefined) {
+        const linuxName = entry.linux.url.split('/').pop();
+        const linux = assets.get(linuxName);
+        if (linux === undefined) throw new Error(`${tag} does not carry the AppImage its manifest names (${linuxName})`);
+        if (linux.size !== entry.linux.bytes) throw new Error(`${linuxName} is ${linux.size} bytes on the release, ${entry.linux.bytes} in its manifest`);
+        if (linux.digest !== `sha256:${entry.linux.sha256}`) {
+            throw new Error(`${linuxName} reports digest ${linux.digest ?? 'none'}, expected sha256:${entry.linux.sha256}; re-upload or verify the release asset`);
+        }
+    }
+
     // The published package must be the retained tarball, byte for byte.
     const tarball = manifest.artifacts.find((item) => item.name.endsWith('.tgz'));
     if (tarball === undefined) throw new Error(`${tag} has no npm tarball in its manifest`);
