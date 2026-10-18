@@ -52,6 +52,8 @@ const STALL_TIMEOUTS = 2;
 export class KitHerdrClient implements HerdrCaller {
     /** Live event-socket state, surfaced on `herdr.tree` so the phone can tell a dead herdr from a quiet one. */
     connected = false;
+    /** Every Herdr request, through `call()` or a kit method, rides this view
+     *  so the stall count sees all of them. */
     readonly kit: HerdrKit;
     private reconnectTimer: NodeJS.Timeout | undefined;
     private closed = false;
@@ -78,7 +80,7 @@ export class KitHerdrClient implements HerdrCaller {
                 : { HERDR_CLIENT_SOCKET_PATH: process.env.HERDR_CLIENT_SOCKET_PATH }),
             ...(process.env.HERDR_SESSION === undefined ? {} : { HERDR_SESSION: process.env.HERDR_SESSION }),
         };
-        this.kit = new HerdrKit({
+        const kit = new HerdrKit({
             mode: 'adopt',
             get bin() { return resolveBin(); },
             socketPath,
@@ -90,6 +92,13 @@ export class KitHerdrClient implements HerdrCaller {
                 this.connected = ready;
                 if (!ready && wasReady) this.outage = true;
                 if (ready && !wasReady) this.recover();
+            },
+        });
+        this.kit = new Proxy(kit, {
+            get: (target, key) => {
+                const value: unknown = Reflect.get(target, key, target);
+                if (typeof value !== 'function') return value;
+                return (...args: unknown[]) => this.observed(value.apply(target, args));
             },
         });
     }
@@ -128,21 +137,25 @@ export class KitHerdrClient implements HerdrCaller {
      */
     async call<T>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
         if (this.closed) throw new Error('herdr: client closed');
+        return await this.kit.call(
+            method as never,
+            params as never,
+            timeoutMs === undefined ? undefined : { timeoutMs },
+        ) as T;
+    }
+
+    private observed(result: unknown): unknown {
+        if (!(result instanceof Promise)) return result;
         const started = Date.now();
-        try {
-            const result = await this.kit.call(
-                method as never,
-                params as never,
-                timeoutMs === undefined ? undefined : { timeoutMs },
-            ) as T;
+        return result.then((value: unknown) => {
             this.answered();
-            return result;
-        } catch (cause) {
+            return value;
+        }, (cause: unknown) => {
             if (cause instanceof Error && cause.message === 'herdr: request timed out') this.missed(started);
             // A refusal is still an answer; a closed socket is the reconnect loop's to report.
             else if (!KitHerdrClient.isDownError(cause)) this.answered();
             throw cause;
-        }
+        });
     }
 
     private missed(started: number): void {
