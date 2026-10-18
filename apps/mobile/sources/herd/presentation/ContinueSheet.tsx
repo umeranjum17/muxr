@@ -40,7 +40,7 @@ export function ContinueRow({ agentKind, onOpen }: { agentKind: string | undefin
     return <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel="Continue on another computer"
         style={({ pressed }) => [styles.row, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh }]}>
         <SheetIcon name="arrow-forward-circle-outline" size={18} color={theme.colors.textSecondary} />
-        <Text style={styles.label}>Continue on another computer</Text>
+        <Text style={[styles.label, { color: theme.colors.text }]}>Continue on another computer</Text>
         <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
     </Pressable>;
 }
