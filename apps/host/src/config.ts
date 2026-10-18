@@ -177,6 +177,14 @@ function portFrom(source: string, raw: string | undefined): number | undefined {
     return port;
 }
 
+function folderFrom(source: string, raw: string | undefined): string | undefined {
+    if (raw === undefined) return undefined;
+    if (raw !== '~' && !isAbsolute(raw)) {
+        throw new Error(`${source} must be "~" or an absolute path`);
+    }
+    return raw;
+}
+
 /**
  * One precedence chain per key: flag > environment > config file > default.
  * The `defaults` carry today's fallbacks (setup state, hostname, builtin
@@ -217,6 +225,6 @@ export function resolveHostConfig(options: {
             ?? portFrom('MUXR_HOST_HTTP_PORT', clean(env.MUXR_HOST_HTTP_PORT))
             ?? file.hostHttpPort
             ?? defaults.hostHttpPort,
-        defaultStartFolder: file.defaultStartFolder ?? defaults.defaultStartFolder,
+        defaultStartFolder: folderFrom('MUXR_DEFAULT_START_FOLDER', clean(env.MUXR_DEFAULT_START_FOLDER)) ?? file.defaultStartFolder ?? defaults.defaultStartFolder,
     };
 }
