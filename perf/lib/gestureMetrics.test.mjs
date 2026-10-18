@@ -46,7 +46,7 @@ import { summarize } from './gestures.mjs';
 import { readPhoneTrail } from './phoneTrail.mjs';
 import { newAttempt, samplePhase } from './androidSignals.mjs';
 import { useCommandScope } from './commands.mjs';
-import { herdChromeConnected, herdProof, worldLabels } from './pairPhone.mjs';
+import { herdChromeConnected, herdProof, pairPhone, returnToHerd, worldLabels } from './pairPhone.mjs';
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), '../fixtures');
 const read = (name) => readFileSync(join(fixtures, name), 'utf8');
@@ -1034,7 +1034,7 @@ test('the herd is only proven by connected chrome and this run\'s own labels', (
     const labels = worldLabels(world);
     const dump = (...nodes) => nodes.map((text) => `<node text="${text}" content-desc="" />`).join('');
 
-    const paired = dump('LIVE', 'connected', 'pi · Pi 1 · 41');
+    const paired = dump('Live', 'connected', 'pi · Pi 1 · 41');
     assert.equal(herdProof(paired, labels), undefined);
     assert.equal(herdChromeConnected(paired), true);
 
@@ -1045,4 +1045,102 @@ test('the herd is only proven by connected chrome and this run\'s own labels', (
     assert.match(herdProof(dump('LIVE', 'connecting', 'pi · Pi 1 · 41'), labels), /not connected/);
     assert.equal(herdChromeConnected(dump('LIVE', 'connected', 'Reconnecting…')), false);
     assert.equal(herdChromeConnected(dump('LIVE')), false);
+});
+
+const phoneHome = '<hierarchy><node text="Live" bounds="[0,0][40,20]" />'
+    + '<node text="connected" bounds="[0,20][40,40]" />'
+    + '<node text="pi · Pi 1 · Working" bounds="[0,40][40,60]" /></hierarchy>';
+
+// Only the device boundary is scripted: navigation, unique dumps, cleanup and
+// pairing clocks all execute the real gate modules, as the sampler flow does.
+function phoneCommands(screens) {
+    const files = new Map();
+    const state = { dumps: [], readAt: [], taps: [], backs: 0, signal: { throwIfAborted() {} } };
+    state.run = async (bin, args) => {
+        assert.equal(bin, 'adb');
+        const command = args.slice(args.indexOf('shell') + 1);
+        if (command[0] === 'uiautomator') {
+            const path = command.at(-1);
+            state.dumps.push(path);
+            const screen = screens.shift() ?? phoneHome;
+            if (screen === '') return { stdout: '' };
+            files.set(path, screen);
+            return { stdout: `UI hierarchy dumped to: ${path}` };
+        }
+        if (command[0] === 'cat') {
+            state.readAt.push(Date.now());
+            return { stdout: files.get(command[1]) ?? '' };
+        }
+        if (command[0] === 'input' && command[1] === 'tap') state.taps.push(command.slice(2).map(Number));
+        if (command.join(' ') === 'input keyevent BACK') state.backs += 1;
+        if (command[0] === 'dumpsys') return { stdout: 'mInputShown=false' };
+        if (command[0] === 'rm') files.delete(command.at(-1));
+        return { stdout: '' };
+    };
+    return state;
+}
+
+async function finishPhoneFlow(work, t) {
+    let result, error, finished = false;
+    work.then((value) => { result = value; finished = true; }, (cause) => { error = cause; finished = true; });
+    for (let tick = 0; tick < 120 && !finished; tick += 1) {
+        await new Promise(setImmediate);
+        t.mock.timers.tick(1000);
+    }
+    assert.ok(finished, 'the bounded phone journey never finished');
+    if (error !== undefined) throw error;
+    return result;
+}
+
+
+test('returning to Home waits through a missing dump and leaves only the terminal', async (t) => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
+    const terminal = phoneHome.replace('</hierarchy>', `<node text="Type a prompt" content-desc="${TERMINAL_SURFACE}" bounds="[0,60][200,400]" /></hierarchy>`);
+    const phone = phoneCommands([phoneHome, phoneHome, '', phoneHome, phoneHome, terminal, phoneHome, phoneHome, phoneHome]);
+    useCommandScope(phone);
+    try {
+        const labels = worldLabels({ agents: [{ name: 'Pi 1' }] });
+        assert.equal(await finishPhoneFlow(returnToHerd(labels), t), true);
+        assert.equal(phone.backs, 1, 'only a known terminal, never an unavailable dump or Home, needs BACK');
+        assert.deepEqual(phone.taps, []);
+    } finally {
+        useCommandScope(undefined);
+    }
+});
+
+test('cold pairing timestamps visible Home before fresh cleanup, preserving inline cards', async (t) => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
+    const cards = phoneHome.replace('</hierarchy>',
+        '<node content-desc="Dismiss background connection card" bounds="[40,80][80,120]"><node text="Not now" bounds="[40,90][80,110]" /></node>'
+        + '<node content-desc="Dismiss notification primer card" bounds="[90,80][130,120]"><node text="Not now" bounds="[90,90][130,110]" /></node></hierarchy>');
+    const dialog = '<hierarchy><node text="Not now" bounds="[200,200][240,240]" /></hierarchy>';
+    const phone = phoneCommands([phoneHome, dialog, '', cards, cards]);
+    useCommandScope(phone);
+    let attempts = 0, released = 0;
+    const started = Date.now();
+    try {
+        const result = await finishPhoneFlow(pairPhone({
+            stack: {
+                world: { agents: [{ name: 'Pi 1' }] },
+                mintPairing: async () => ({ code: 'disposable-offer', release: () => { released += 1; } }),
+            },
+            maestro: async () => {
+                attempts += 1;
+                if (attempts === 1) await new Promise((resolve) => setTimeout(resolve, 3000));
+                return { code: attempts === 1 ? 1 : 0, output: '' };
+            },
+        }), t);
+        assert.equal(result.ok, true);
+        assert.equal(result.attempt, 2);
+        assert.equal(released, 2);
+        assert.ok(result.herdVisibleMs >= 3000, 'the retry must not restart the user-visible clock');
+        assert.ok(result.herdVisibleMs <= phone.readAt[0] - started, 'post-proof cleanup was charged as herd arrival');
+        assert.ok(result.pairingCleanupMs >= 5000, 'cleanup must still await the real dialog and fresh quiet looks');
+        assert.equal(result.pairingTotalMs, result.herdVisibleMs + result.pairingCleanupMs);
+        assert.deepEqual(phone.taps, [[220, 220]], 'dismiss the dialog once, not stale XML or non-blocking Home cards');
+        assert.equal(new Set(phone.dumps).size, phone.dumps.length, 'every hierarchy attempt needs its own path');
+        assert.equal(phone.backs, 0);
+    } finally {
+        useCommandScope(undefined);
+    }
 });

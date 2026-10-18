@@ -11,7 +11,8 @@
  */
 import { runCommand as run, assertCommandActive } from './commands.mjs';
 import { androidArgs } from './deviceTarget.mjs';
-import { dismissPrompts, dumpUiXml } from './androidSignals.mjs';
+import { dismissKeyboard, dismissPrompts, dumpUiXml } from './androidSignals.mjs';
+import { TERMINAL_SURFACE } from './gestureMetrics.mjs';
 
 /** Connected chrome only: reconnecting or disconnected is not a ready herd. */
 export function herdChromeConnected(dump) {
@@ -37,6 +38,22 @@ export function herdProof(dump, labels) {
     if (!herdChromeConnected(dump)) return 'the herd chrome is not connected';
     if (!labels.some((label) => shown(dump, label))) return 'no pane or agent from this run\'s herd is on screen';
     return undefined;
+}
+
+/** Return from a known route; an unavailable hierarchy never authorizes BACK. */
+export async function returnToHerd(labels) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        await dismissPrompts();
+        await dismissKeyboard();
+        const dump = await dumpUiXml();
+        if (dump !== '') {
+            if (herdProof(dump, labels) === undefined
+                && !dump.includes(`content-desc="${TERMINAL_SURFACE}"`) && !/Type a prompt/.test(dump)) return true;
+            await run('adb', androidArgs(['shell', 'input', 'keyevent', 'BACK']), { timeout: 10_000 }).catch(() => undefined);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+    return false;
 }
 
 // One file per dump: a failed read is an empty screen, never the last one.
@@ -95,8 +112,16 @@ export async function pairPhone({ stack, maestro, flow = 'pair.yaml', attempts =
         // broken, so keep watching after the flow gives up.
         const proof = await waitForHerd(labels, patienceSeconds);
         if (proof.ok) {
+            const provenAt = Date.now();
             await dismissPrompts();
-            return { ok: true, attempt, herdVisibleMs: Date.now() - started };
+            const finishedAt = Date.now();
+            return {
+                ok: true,
+                attempt,
+                herdVisibleMs: provenAt - started,
+                pairingCleanupMs: finishedAt - provenAt,
+                pairingTotalMs: finishedAt - started,
+            };
         }
         last = `${proof.why}: ${tail}`;
     }
