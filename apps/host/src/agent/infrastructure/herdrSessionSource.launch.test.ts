@@ -62,9 +62,7 @@ function fakeHerdr(dir: string, cwd: string) {
         input: string;
         /** The note a handoff turn's agent writes into its result file; unset means it writes none. */
         handoffNote?: string;
-        /** Only the handoff journey reads the agent; the others keep Herdr's answer they were written against. */
-        answerAgentGet: boolean;
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0, holdPrompts: 0, input: '', answerAgentGet: false };
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0, holdPrompts: 0, input: '' };
     const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
@@ -110,7 +108,7 @@ function fakeHerdr(dir: string, cwd: string) {
     };
     const handleAgentGet = (params: Record<string, unknown>) => {
         const agent = agents.find((entry) => entry.pane_id === params.target);
-        return agent === undefined ? undefined : { agent: { terminal_id: 'terminal-one', cwd, ...agent } };
+        return agent === undefined ? undefined : { agent: { interactive_ready: true, terminal_id: 'terminal-one', cwd, ...agent } };
     };
     const handleAgentPrompt = (params: Record<string, unknown>) => {
         if (state.failSnapshotAfterPrompt) state.failSnapshot = true;
@@ -314,10 +312,10 @@ function fakeHerdr(dir: string, cwd: string) {
                         reply = { id, result: handleAgentStart(p) };
                         break;
                     case 'agent.get': {
-                        const agent = agents.find((entry) => entry.pane_id === p.target);
-                        reply = agent === undefined
+                        const answer = handleAgentGet(p);
+                        reply = answer === undefined
                             ? { id, error: { code: 'agent_not_found', message: String(p.target) } }
-                            : { id, result: { agent: { interactive_ready: true, ...agent } } };
+                            : { id, result: answer };
                         break;
                     }
                     case 'agent.wait': {
@@ -334,14 +332,6 @@ function fakeHerdr(dir: string, cwd: string) {
                             pendingReplies.add(timer);
                             continue;
                         }
-                        break;
-                    }
-                    case 'agent.get': {
-                        const agent = state.answerAgentGet ? handleAgentGet(p) : undefined;
-                        if (!state.answerAgentGet) reply = { id, error: { code: 'method_not_found', message: method } };
-                        else reply = agent === undefined
-                            ? { id, error: { code: 'agent_not_found', message: 'agent not found' } }
-                            : { id, result: agent };
                         break;
                     }
                     case 'agent.prompt': {
@@ -1617,7 +1607,6 @@ describe('handoff: the agent writes its own note', () => {
         const herdr = fakeHerdr(dir, cwd);
         const note = 'Finish the launch test: the handoff case is the only one left.';
         herdr.state.handoffNote = note;
-        herdr.state.answerAgentGet = true;
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
             dataDir: join(dir, 'data'),
