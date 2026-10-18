@@ -355,13 +355,15 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   it. Only use a simulator with a creation receipt in the slot's
   `.ios-devices.json` (`0A257D0B-1E70-4752-94A7-AC0C78CEAA11`, `fm-iPhone 17 Pro`).
   Check disk first: `ssh <mac-user>@<mac-ip> 'df -h ~'`.
-- **Slot.** `SLOT=~/firstmate/data/fm-mac-slot1/fm-mac-slot.sh`. Run
-  `$SLOT claim`. Only if it succeeds, `touch "$RUN_ROOT/slot-claimed"`, then
-  run `$SLOT boot ios <UDID>`. A failed claim ends the drive with no stop and no
-  release: the lock belongs to another task. The Cleanup bullet releases the slot
-  only when that marker exists.
+- **Run and slot.** The iOS path does not run Launch. Start its own scratch:
+  `RUN_ROOT="$(mktemp -d /tmp/muxr-verify-XXXXXX)"`, and define `EVIDENCE` as in Evidence above.
+  `SLOT=~/firstmate/data/fm-mac-slot1/fm-mac-slot.sh`. Run `$SLOT claim`. Only if it
+  succeeds, `touch "$EVIDENCE/slot-claimed"`, then run `$SLOT boot ios <UDID>`. The
+  marker lives in the evidence folder, which cleanup never deletes. A failed claim
+  ends the drive with no marker, so the Cleanup bullet runs no stop and no release:
+  the lock belongs to another task.
 - **Build.** Scratch on the Mac is `~/fm-verify-pockit-ios1`, removed at the end.
-  Linux: `git archive --format=tar <sha> -o <scratch>/src.tar`, copy it to the
+  Linux: `git archive --format=tar <sha> -o "$RUN_ROOT/src.tar"`, copy it to the
   Mac and extract into `~/fm-verify-pockit-ios1/<sha>`. Mac, through
   `fm-mem-gate.sh` and backgrounded, from that folder with
   `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` (pod install fails on the ssh default
@@ -376,49 +378,58 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   (Cleanup copies this log out). The app is
   `~/fm-verify-pockit-ios1/dd/Build/Products/Release-iphonesimulator/muxr.app`
   (`com.trymuxr.app`); `xcrun simctl install <UDID> <app>`.
-- **Host.** Set the home explicitly: `MUXR_HOME="$RUN_ROOT/muxr-home"`, the same
-  home Launch uses, and `mkdir -p "$MUXR_HOME"`. Relay on the tailnet address,
-  run in the background as `IOS_RELAY_PID=$!`:
-  `MUXR_RELAY_PORT=0 MUXR_RELAY_HOST=<tailnet ip> MUXR_RELAY_DATA_DIR=$RUN_ROOT/relay MUXR_RELAY_MDNS=0`,
+- **Host.** Set the home explicitly: `export MUXR_HOME="$RUN_ROOT/muxr-home"` and
+  `mkdir -p "$MUXR_HOME"`. On this path run one relay and one host of its own
+  under that home; do not start Launch's loopback relay or its `--fake` host.
+  Relay on the tailnet address, in the background as `IOS_RELAY_PID=$!`:
+  `MUXR_RELAY_PORT=0 MUXR_RELAY_HOST=<tailnet ip> MUXR_RELAY_DATA_DIR="$RUN_ROOT/relay" MUXR_RELAY_MDNS=0`,
   port read from its stdout line, `/health` ok. Write `$MUXR_HOME/selfhost.json`
-  as in Launch with `relayUrl` `ws://<tailnet ip>:<port>`. Herdr: provision a lab
+  with the fields Launch step 2 writes, but `relayUrl` `ws://<tailnet ip>:<port>`,
+  and its mint secret from `$RUN_ROOT/relay/mint-secret`. Herdr: provision a lab
   session with `fm-herdr-lab.sh name` and `provision`, with
   `FM_HERDR_LAB_STATE_DIR` in scratch (mode 700). Run the host without `--fake`
-  in the background as `IOS_HOST_PID=$!`
-  with `MUXR_MODE=selfhost MUXR_DATA_DIR="$MUXR_HOME/host"` and
-  `MUXR_HOME="$MUXR_HOME"`, under the lab's XDG root (`<state>/<session>.xdg-root`)
-  with `HERDR_SESSION=<lab session>`, and **unset `HERDR_SOCKET_PATH`**: an
-  inherited one is the owner's default socket, and the host refuses it. Wait for
+  in the background as `IOS_HOST_PID=$!`, with
+  `MUXR_MODE=selfhost MUXR_DATA_DIR="$MUXR_HOME/host" MUXR_HOME="$MUXR_HOME"`,
+  under the lab's XDG root (`<state>/<session>.xdg-root`) with
+  `HERDR_SESSION=<lab session>`, and **unset `HERDR_SOCKET_PATH`**: an inherited
+  one is the owner's default socket, and the host refuses it. Wait for
   `link relay: online`.
-- **Pair.** Use the words handoff (`muxr pair --handoff`): the host writes an
-  offer to a kit outbox, and pairing is granted only when the phone's two words
-  match a words file the agent writes. Run it in the background from a
-  task-owned kit directory, with the same home and the lab session:
-  `mkdir -p "$RUN_ROOT/kit" && cd "$RUN_ROOT/kit" && MUXR_HOME="$MUXR_HOME" HERDR_SESSION=<lab session> node "$REPO/scripts/cli.mjs" pair --handoff`,
-  where `REPO="$(pwd)"` was set at the repo root before the `cd`. The offer lands in
-  `$RUN_ROOT/kit/.byokit/outbox/muxr-pair-*.json`. Take `offer` and `wordsFile`
-  from it without printing the file to logs, and open `muxr://pair#<offer>` at
-  once with `xcrun simctl openurl <UDID> '<link>'` over ssh, because offers
-  expire in about two minutes. Tap Pair with `axe tap -x <pt> -y <pt>` on the
-  Mac; points are the screenshot pixels divided by 3. Find the button with a shot
-  or `axe describe-ui`. When the phone shows its two words, read them from a
-  simulator screenshot and write exactly those words to
-  `$RUN_ROOT/kit/words.tmp` with mode 0600 (`umask 077`), then `mv` it to
-  `$RUN_ROOT/kit/.byokit/inbox/<wordsFile>`, so the host never polls a partial
-  file. Wrong words refuse pairing. Wait for the CLI to exit 0. Handoff refuses once a phone
-  is paired, so use a fresh lab host.
+- **Pair.** Words handoff: the host offers, the phone shows two words, and the
+  host grants only when the agent delivers the same two words. Never approve
+  without them. From a task-owned kit directory, with the same home and lab
+  session, run in the background as `PAIR_PID=$!`:
+  `mkdir -p "$RUN_ROOT/kit" && cd "$RUN_ROOT/kit" && MUXR_HOME="$RUN_ROOT/muxr-home" HERDR_SESSION=<lab session> node "$REPO/scripts/cli.mjs" pair --handoff`,
+  where `REPO` is the repo root, captured before the `cd`. The offer lands in
+  `$RUN_ROOT/kit/.byokit/outbox/muxr-pair-*.json`, and its `wordsFile` names the
+  inbox file. Once the offer exists, hand the link to the Mac as a file: it is
+  never on an ssh command line, never printed, and never teed into evidence.
+  ```sh
+  OFFER="$(ls "$RUN_ROOT"/kit/.byokit/outbox/muxr-pair-*.json)"
+  node -e 'const o = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write("muxr://pair#" + o.offer)' "$OFFER" \
+    | ssh <mac-user>@<mac-ip> 'umask 077; cat > ~/fm-verify-pockit-ios1/pair-link.txt'
+  ssh <mac-user>@<mac-ip> 'xcrun simctl openurl <UDID> "$(cat ~/fm-verify-pockit-ios1/pair-link.txt)"; rm -f -- ~/fm-verify-pockit-ios1/pair-link.txt' && echo "openurl sent"
+  ```
+  Offers expire in about two minutes, so send it at once. Tap Pair with
+  `axe tap -x <pt> -y <pt>` on the Mac; points are the screenshot pixels divided
+  by 3. Find the button with `$SLOT ios-shot` or `axe describe-ui`. When the phone
+  shows its two words, read them from `$SLOT ios-shot "$EVIDENCE/ios-pair-words.png"`
+  and write exactly those words to `$RUN_ROOT/kit/words.tmp` with `umask 077`, then
+  `mv` it to `$RUN_ROOT/kit/.byokit/inbox/<wordsFile>`, so the host never reads a
+  partial file. Then `wait "$PAIR_PID"` and require exit 0. Wrong words refuse
+  pairing. Handoff refuses once a phone is paired, so use a fresh lab host.
 - **Capture.** `xcrun simctl ui <UDID> appearance dark|light`, wait a few
   seconds, then `$SLOT ios-shot "$EVIDENCE/ios-home-<appearance>.png"`. Home shows the paired machine as
   `connected`. Open every shot before reporting.
-- **Cleanup.** Kill `$IOS_HOST_PID` and `$IOS_RELAY_PID` (the PIDs the Host step
-  recorded), then
-  `fm-herdr-lab.sh teardown <session>`. Copy the build log out with
-  `scp <mac-user>@<mac-ip>:fm-verify-pockit-ios1/build.log "$EVIDENCE/ios-build.log"`,
-  then remove the Mac scratch by its literal path
-  (`ssh <mac-user>@<mac-ip> 'rm -rf -- ~/fm-verify-pockit-ios1'`). Only if
-  `$RUN_ROOT/slot-claimed` exists, run `$SLOT stop`, `$SLOT release`, then confirm
-  `xcrun simctl list devices booted` is empty. Screenshots and command notes
-  already sit in `$EVIDENCE`, the run's single evidence root.
+- **Cleanup.** On an iOS drive run these lines, each on its own, with no `&&` or
+  `set -e` between them, so every line runs even when an earlier one fails:
+  ```sh
+  kill "$IOS_HOST_PID" "$IOS_RELAY_PID" 2>/dev/null
+  fm-herdr-lab.sh teardown <session>
+  scp <mac-user>@<mac-ip>:fm-verify-pockit-ios1/build.log "$EVIDENCE/ios-build.log"
+  ssh <mac-user>@<mac-ip> 'rm -rf -- ~/fm-verify-pockit-ios1'
+  if [ -e "$EVIDENCE/slot-claimed" ]; then "$SLOT" stop; "$SLOT" release; "$SLOT" status; fi
+  ```
+  The status line must print `lock: free` and `iOS booted: 0`. Report any line that failed.
 
 The Android and PWA Visual check above does not cover these shots: they prove a
 simulator Home, not the matrix.
@@ -435,7 +446,6 @@ ls "$EVIDENCE"                                             # proof must still ex
 Close any Herdr workspaces/panes this run created, then stop and delete only
 the non-default session you created. Never kill by process name. Never remove
 the evidence directory. If a drive failed midway, run this same cleanup before
-retrying so broken attempts strand no processes or ports. An iOS drive also runs
-the iOS Cleanup bullet, which releases the Mac slot and checks booted simulators
-only when `$RUN_ROOT/slot-claimed` exists. Run it before the `rm -rf "$RUN_ROOT"`
-above, since that marker lives in the run folder.
+retrying so broken attempts strand no processes or ports. On an iOS drive, run the
+iOS Cleanup bullet as well. Its claim marker is in `$EVIDENCE`, so the `rm -rf "$RUN_ROOT"`
+above does not affect it and the two can run in either order.
