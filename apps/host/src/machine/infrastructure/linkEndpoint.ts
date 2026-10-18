@@ -130,7 +130,7 @@ const muxrDeviceIdOf = (grant: Grant): string | undefined => {
 // MUXR_PAIR_CODE_MS is a test knob: only the cross-side expiry journey shortens the code with it.
 const pairCodeMs = (): number => {
     const override = Number(process.env.MUXR_PAIR_CODE_MS);
-    return Number.isSafeInteger(override) && override > 0 ? override : 120_000;
+    return Number.isSafeInteger(override) && override > 0 && override <= 2_147_483_647 ? override : 120_000;
 };
 
 const CHANNEL_PATTERN = /^tm_[A-Za-z0-9]+_[A-Za-z0-9]+$/;

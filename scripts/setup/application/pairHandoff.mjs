@@ -8,11 +8,12 @@ import { linkPair } from './linkPair.mjs';
 
 const LIMIT = 64 * 1024;
 const WAIT_MS = 120_000;
+const MAX_TIMER_MS = 2_147_483_647;
 
 // MUXR_PAIR_HANDOFF_WAIT_MS is a test knob: only the handoff flow shortens the cap with it.
 function handoffWaitMs() {
     const override = Number(process.env.MUXR_PAIR_HANDOFF_WAIT_MS);
-    return Number.isSafeInteger(override) && override > 0 ? override : WAIT_MS;
+    return Number.isSafeInteger(override) && override > 0 && override <= MAX_TIMER_MS ? override : WAIT_MS;
 }
 
 function readWords(path) {
