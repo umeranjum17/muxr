@@ -1567,10 +1567,14 @@ export async function createHerdrSessionSource(
         await syncDiscovery();
     }
 
-    async function refreshSnapshot(): Promise<void> {
-        if (disposed) throw new Error('herdr: source disposed');
+    async function refreshKitTree(): Promise<void> {
         await client.kit.refresh();
         lastRefreshRevision = client.kit.snapshot().revision;
+    }
+
+    async function refreshSnapshot(): Promise<void> {
+        if (disposed) throw new Error('herdr: source disposed');
+        await refreshKitTree();
         if (disposed) throw new Error('herdr: source disposed');
         await reindexKitTree();
     }
@@ -1602,8 +1606,7 @@ export async function createHerdrSessionSource(
                     if (!client.connected) return;
                     syncFromKit();
                     if ([...agentsByPane.keys()].some(needsSessionDiscovery) && client.kit.snapshot().revision !== lastRefreshRevision) {
-                        await client.kit.refresh();
-                        lastRefreshRevision = client.kit.snapshot().revision;
+                        await refreshKitTree();
                         syncFromKit();
                     }
                 } finally {
