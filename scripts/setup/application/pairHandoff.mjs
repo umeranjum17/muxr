@@ -9,6 +9,12 @@ import { linkPair } from './linkPair.mjs';
 const LIMIT = 64 * 1024;
 const WAIT_MS = 120_000;
 
+// MUXR_PAIR_HANDOFF_WAIT_MS is a test knob: only the handoff flow shortens the cap with it.
+function handoffWaitMs() {
+    const override = Number(process.env.MUXR_PAIR_HANDOFF_WAIT_MS);
+    return Number.isSafeInteger(override) && override > 0 ? override : WAIT_MS;
+}
+
 function readWords(path) {
     let fd;
     try {
@@ -45,7 +51,9 @@ export async function pairHandoff(state) {
     const openOffers = new Map();
     const controller = new AbortController();
     const cancel = () => controller.abort();
-    const timer = setTimeout(cancel, WAIT_MS);
+    let awaitingWords = false;
+    let capped = false;
+    const timer = setTimeout(() => { if (awaitingWords) capped = true; else cancel(); }, handoffWaitMs());
     process.on('SIGINT', cancel);
     process.on('SIGTERM', cancel);
     try {
@@ -61,20 +69,26 @@ export async function pairHandoff(state) {
                 print(`Pairing offer ready in the kit outbox: ${offerPath}. Waiting for the phone’s two words.`);
             },
             approve: async ({ words }, runOut) => {
-                while (!controller.signal.aborted && !runOut.aborted) {
-                    for (const [path, keepUntil] of openOffers) {
-                        if (Date.now() >= keepUntil) {
-                            openOffers.delete(path);
-                            rmSync(path, { force: true });
-                            continue;
+                awaitingWords = true;
+                try {
+                    while (!controller.signal.aborted && !runOut.aborted) {
+                        for (const [path, keepUntil] of openOffers) {
+                            if (Date.now() >= keepUntil) {
+                                openOffers.delete(path);
+                                rmSync(path, { force: true });
+                                continue;
+                            }
+                            const fresh = readWords(path);
+                            if (fresh === undefined || fresh.text !== words) continue;
+                            return true;
                         }
-                        const fresh = readWords(path);
-                        if (fresh === undefined || fresh.text !== words) continue;
-                        return true;
+                        await sleep(100, undefined, { signal: controller.signal }).catch(() => {});
                     }
-                    await sleep(100, undefined, { signal: controller.signal }).catch(() => {});
+                } finally { awaitingWords = false; }
+                if (runOut.aborted) {
+                    if (capped) cancel();
+                    return false;
                 }
-                if (runOut.aborted) return false;
                 throw new Error('pairing handoff timed out or was cancelled');
             },
         });

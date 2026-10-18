@@ -292,10 +292,12 @@ describe('native pairing over the byokit link', () => {
         // Short codes let the matching run see one code run out before its yes.
         await startHost('20000');
         try {
-            for (const mode of ['wrong', 'cancel', 'matching']) {
+            for (const mode of ['wrong', 'cancel', 'expires', 'matching']) {
                 const matches = mode === 'matching';
                 const before = readSelfhostState().machine.crypto.devices.length;
-                const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
+                // The 3 s cap falls while the phone's claim waits for words; the 20 s code runs out first.
+                const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11',
+                    ...(mode === 'expires' ? { MUXR_PAIR_HANDOFF_WAIT_MS: '3000' } : {}) }, workDir);
                 const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
                 let shownWords = '';
                 try {
@@ -320,6 +322,7 @@ describe('native pairing over the byokit link', () => {
                             command.kill('SIGTERM');
                             return;
                         }
+                        if (mode === 'expires') return;
                         deliver(current.wordsFile, matches ? words : 'wrong words');
                     } });
                     if (matches) await pairing;
@@ -329,6 +332,9 @@ describe('native pairing over the byokit link', () => {
                         expect(command.exitCode).toBeNull();
                         await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
                         command.kill('SIGTERM');
+                    } else if (mode === 'expires') {
+                        await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
+                        await expect(pairing).rejects.toThrow('The code ran out. Scan the new QR on your computer');
                     } else await expect(pairing).rejects.toThrow();
                     expect(await exited).toBe(matches ? 0 : 1);
                     expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
@@ -358,7 +364,7 @@ describe('native pairing over the byokit link', () => {
             expect(readSelfhostState().machine.crypto.devices.length).toBe(1);
             expect(existsSync(outbox) ? readdirSync(outbox) : []).toEqual([]);
         } finally { await stop(second); }
-    }, 150_000);
+    }, 180_000);
 
     it('re-pairs an older phone with matching words and carries all events and RPC over the link', async () => {
         const machineId = readSelfhostState().machine.id;
