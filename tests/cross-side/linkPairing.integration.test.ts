@@ -324,6 +324,9 @@ describe('native pairing over the byokit link', () => {
                     } });
                     if (matches) await pairing;
                     else if (mode === 'wrong') {
+                        await until(() => (shownWords === '' ? undefined : true), 'phone shows words');
+                        await new Promise((resolve) => setTimeout(resolve, 1000));
+                        expect(command.exitCode).toBeNull();
                         await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
                         command.kill('SIGTERM');
                     } else await expect(pairing).rejects.toThrow();
