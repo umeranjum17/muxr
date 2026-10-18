@@ -1563,6 +1563,12 @@ describe('handoff: the agent writes its own note', () => {
             expect(readdirSync(cwd).filter((name) => name.startsWith('.byokit-turn-'))).toEqual([]);
             expect(herdr.agents[0]!.agent_status).toBe('idle');
 
+            const firstTurn = source.handoff({ sessionId: started.info.id, targetName: 'Laptop' });
+            await expect(source.handoff({ sessionId: started.info.id, targetName: 'Laptop' }))
+                .rejects.toMatchObject({ code: 'handoff-busy' });
+            await expect(firstTurn).resolves.toEqual({ note });
+            expect(herdr.state.prompts.filter((text) => text.includes('.byokit-turn-'))).toHaveLength(2);
+
             herdr.agents[0]!.agent_status = 'working';
             const sent = herdr.state.prompts.length;
             await expect(source.handoff({ sessionId: started.info.id, targetName: 'Laptop' }))

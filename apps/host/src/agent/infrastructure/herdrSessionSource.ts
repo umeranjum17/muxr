@@ -3372,13 +3372,14 @@ export async function createHerdrSessionSource(
             if (!cwd) throw Object.assign(new Error('Herdr does not report this agent\'s folder, so its handoff note cannot be written.'), { code: 'handoff-failed' });
             if (handoffsInFlight.has(session.sessionId)) throw handoffError({ code: 'turn-busy' });
             handoffsInFlight.add(session.sessionId);
-            const end = await client.kit.runTurn({ paneId: session.paneId, ...(session.agent.name ? { name: session.agent.name } : {}) }, {
+            const target = { paneId: session.paneId, ...(session.agent.name ? { name: session.agent.name } : {}) };
+            const end = await Promise.resolve().then(() => client.kit.runTurn(target, {
                 prompt: handoffPrompt(handoffOptions.targetName),
                 cwd,
                 timeoutMs: HANDOFF_TIMEOUT_MS,
                 files: false,
                 result: { schema: HANDOFF_RESULT_SCHEMA, validate: isHandoffNote, maxBytes: HANDOFF_NOTE_MAX * 4 },
-            }).catch((cause: unknown) => { throw handoffError(cause); }).finally(() => handoffsInFlight.delete(session.sessionId));
+            })).catch((cause: unknown) => { throw handoffError(cause); }).finally(() => handoffsInFlight.delete(session.sessionId));
             if (end.result.state === 'valid') return { note: end.result.value.note };
             throw handoffError({ code: end.result.state === 'invalid' ? 'result-invalid' : 'result-missing' });
         },
