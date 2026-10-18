@@ -235,9 +235,10 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     let input = '';
     let latest;
     let altScreen = false;
-    // The open approval prompt, and the notice the next code carries once the last one ran out.
+    // The open approval prompt, the notice the next code carries once the last one ran out, and the notice drawn above the offer on screen.
     let approval;
     let notice;
+    let shownNotice;
     // The local QR page is the offer's scannable fallback, started only when an offer has no QR that fits.
     let page;
     let queue = Promise.resolve();
@@ -247,13 +248,10 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
         if (altScreen) process.stdout.write(ALT_SCREEN_OFF);
         altScreen = false;
     };
-    const showOffer = async (offer) => {
+    const showOffer = async (offer, carried) => {
         latest = offer;
-        if (presentOffer !== undefined) {
-            const carried = notice;
-            notice = undefined;
-            return presentOffer(offer, carried);
-        }
+        shownNotice = carried;
+        if (presentOffer !== undefined) return presentOffer(offer, carried);
         const code = offerCode(offer, intent);
         const shown = code ?? (richTerminal() ? compactOffer(offer, intent) : undefined) ?? { text: offer.text, expires: offer.expires };
         if (page === undefined && richTerminal() && code === undefined) page = await startPairingPage(intent);
@@ -262,13 +260,16 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
             process.stdout.write(ALT_SCREEN_ON);
             altScreen = true;
         }
-        drawOffer(shown, code, intent, page?.url, notice);
-        notice = undefined;
+        drawOffer(shown, code, intent, page?.url, carried);
     };
     // Events run one at a time in arrival order, so a page start cannot draw an offer after the approval has left the alternate screen.
     const enqueue = (task) => { queue = queue.then(task).catch(settle.reject); };
     const receive = (event) => {
-        if (event.offer) return showOffer(event.offer);
+        if (event.offer) {
+            const carried = notice;
+            notice = undefined;
+            return showOffer(event.offer, carried);
+        }
         if (event.approval) {
             leaveAltScreen();
             const ask = new AbortController();
@@ -282,7 +283,7 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
         } else if (event.error) settle.reject(new Error(event.error));
         else if (event.result) settle.resolve(event.result);
     };
-    const onResize = () => { if (altScreen) enqueue(() => showOffer(latest)); };
+    const onResize = () => { if (altScreen) enqueue(() => showOffer(latest, shownNotice)); };
     const onInterrupt = () => {
         if (presentOffer === undefined) process.exit(130);
         settle.reject(new Error('pairing cancelled'));
