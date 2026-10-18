@@ -785,7 +785,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                                     accessibilityLabel={commandCopied ? 'Copied' : 'Copy the command'}
                                     style={({ pressed }) => [styles.command, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }, pressed && styles.pressed]}
                                 >
-                                    <Text numberOfLines={3} style={[styles.commandText, { color: theme.colors.text }]}>{status.command}</Text>
+                                    <Text style={[styles.commandText, { color: theme.colors.text }]}>{status.command}</Text>
                                     <Text style={[styles.commandCopy, { color: theme.colors.textSecondary }]}>{commandCopied ? 'Copied' : 'Copy'}</Text>
                                 </Pressable>
                             )}
