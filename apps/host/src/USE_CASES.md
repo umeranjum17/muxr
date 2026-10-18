@@ -20,7 +20,7 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 | Report a Lifecycle Event | `agent/application/reportAgentOutcome.ts` | Lifecycle rollup | Herdr session source |
 | Open / close a terminal | `agent/application/openTerminal.ts` | Device Grant observe/control | Relay `terminal.attach` / `terminal.detach`; link stream through `machine/infrastructure/linkEndpoint.ts` |
 | List this Machine | `machine/application/listMachines.ts` | Machine | `machines.list` |
-| Serve paired phones over the link | `machine/infrastructure/linkEndpoint.ts` (`@byokit/link` + `@byokit/relay`) | Device records in `selfhost.json`; link grants are rebuilt from them | `/link/v1/<host id>` through the self-host relay |
+| Serve paired phones over the link | `machine/infrastructure/linkEndpoint.ts` (`@byokit/pair` + `@byokit/relay`) | Device records in `selfhost.json`; link grants are rebuilt from them | `/link/v1/<host id>` through the self-host relay |
 | Grant peer authority | `peer/application/grantPeerAuthority.ts` | Device Grant, peer limit | `peer.authorize` |
 | Revoke peer authority | `peer/application/revokePeerAuthority.ts` | Device Grant | `peer.revoke` |
 | Admit an inbound peer request | `peer/application/admitPeerRequest.ts` | Peer start surface, mutation receipt | PeerRuntime inbound |

@@ -10,7 +10,8 @@
  *
  * Covered: a successful pairing (the same two words on both screens, the
  * device record durable, the machine link serving the new phone), a declined
- * approval, a phone that resumes by key after dying between approval and
+ * approval, an approval the code runs out before (both sides say so, and a
+ * late yes pairs nothing), a phone that resumes by key after dying between approval and
  * completion, each lost acknowledgement settled by retrying the same code, and
  * a Tailscale address that does not answer naming which end to fix.
  */
@@ -34,8 +35,8 @@ import {
     pairWithOffer,
     type DeviceGrant,
     type LinkStatus,
-} from '@byokit/link';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+} from '@byokit/pair';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { cliMain, hostMain, hostRoot, pairingIntent, relayMain, waitForRelay } from './host.js';
 import { machineIdentity } from './hostSetup.js';
 import type { StoredHostedGrant } from '../../apps/mobile/sources/pairing/application/linkPairing.js';
@@ -140,22 +141,34 @@ async function startMachine(): Promise<void> {
             mintSecret: JSON.parse(readFileSync(join(home, 'relay', 'mint-secret'), 'utf8')),
         }, null, 2)}\n`, { mode: 0o600 });
     }
-    host = launch([hostMain, '--fake'], { MUXR_MODE: 'selfhost' });
+    await startHost();
+}
+
+async function startHost(pairMs?: string): Promise<void> {
+    await stop(host);
+    rmSync(join(home, 'host', 'pair.sock'), { force: true });
+    host = launch([hostMain, '--fake'], { MUXR_MODE: 'selfhost', ...(pairMs === undefined ? {} : { MUXR_PAIR_CODE_MS: pairMs }) });
     const running = host;
     await until(() => (existsSync(join(home, 'host', 'pair.sock')) ? true : undefined), `host pairing socket (${running.output()})`);
 }
 
 /** Options `linkPair` on the computer side accepts (untyped .mjs import). */
 interface ComputerPairingOptions {
-    approve?: (req: { name: string; words: string }) => boolean | Promise<boolean>;
+    approve?: (req: { name: string; words: string }, signal: AbortSignal) => boolean | Promise<boolean>;
     signal?: AbortSignal;
     intent?: ReturnType<typeof pairingIntent>;
+}
+
+function offersOn(text: string): string[] {
+    const pattern = new RegExp(`(?:https?:\\/\\/[^\\s]+\\/pair#)?(?:byokit-link:1:[A-Za-z0-9_-]+|${COMPACT_TAG}[A-Za-z0-9_-]+)`, 'g');
+    return [...text.matchAll(pattern)].map((match) => match[0]);
 }
 
 /** Starts a computer pairing and resolves once its QR is on screen. */
 async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>, ttySize?: { columns: number; rows: number }): Promise<{
     pairing: Promise<unknown>;
     offer: string;
+    output: () => string;
     abort: () => Promise<void>;
 }> {
     let out = '';
@@ -188,10 +201,9 @@ async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>, tt
         controller.abort();
         await pairing.catch(() => undefined);
     };
-    const offerPattern = new RegExp(`(?:https?:\\/\\/[^\\s]+\\/pair#)?(?:byokit-link:1:[A-Za-z0-9_-]+|${COMPACT_TAG}[A-Za-z0-9_-]+)`);
-    const offer = await until(() => offerPattern.exec(out)?.[0], 'pairing offer on screen', 30_000)
+    const offer = await until(() => offersOn(out)[0], 'pairing offer on screen', 30_000)
         .catch(async (error: unknown) => { await stop(); throw error; });
-    return { pairing, offer, abort: stop };
+    return { pairing, offer, output: () => out, abort: stop };
 }
 
 function machineGrant(stored: StoredHostedGrant): DeviceGrant {
@@ -258,25 +270,55 @@ describe('native pairing over the byokit link', () => {
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     });
 
-    it('pairs the first phone through the kit files after wrong words and a cancelled peer reset, then refuses a second handoff', async () => {
+    it('pairs the first phone through the kit files after wrong words, a cancelled peer reset and a code that ran out, then refuses a second handoff', async () => {
         const workDir = join(home, 'kit-work');
         mkdirSync(workDir);
         const outbox = join(workDir, '.byokit', 'outbox');
-        for (const mode of ['wrong', 'cancel', 'matching']) {
+        const inbox = join(workDir, '.byokit', 'inbox');
+        // Same raw-byte, private, atomic rename contract as kit deliver.
+        const deliver = (wordsFile: string, text: string) => {
+            const wordsPath = join(inbox, wordsFile);
+            writeFileSync(`${wordsPath}.tmp`, text, { mode: 0o600 });
+            renameSync(`${wordsPath}.tmp`, wordsPath);
+        };
+        const nextOffer = (command: ChildProcess & { output: () => string }, previousWords?: string) => until(() => {
+            if (command.exitCode !== null) throw new Error(command.output());
+            const file = existsSync(outbox) ? readdirSync(outbox).find((name) => name.endsWith('.json')) : undefined;
+            if (file === undefined) return undefined;
+            const offered = JSON.parse(readFileSync(join(outbox, file), 'utf8'));
+            return offered.wordsFile === previousWords ? undefined : { offerPath: join(outbox, file), offered };
+        }, 'handoff offer', 60_000);
+        // Only this journey shortens the code; the shared host gets the production length back.
+        onTestFinished(() => startHost());
+        for (const mode of ['wrong', 'cancel', 'expires', 'matching']) {
+            // The matching journey's deliberately late first claim needs the short code too.
+            await startHost(mode === 'cancel' ? undefined : '20000');
             const matches = mode === 'matching';
             const before = readSelfhostState().machine.crypto.devices.length;
-            const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
+            // The 3 s cap falls while the phone's claim waits for words; the 20 s code runs out first.
+            const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11',
+                ...(mode === 'expires' ? { MUXR_PAIR_HANDOFF_WAIT_MS: '3000' } : {}) }, workDir);
             const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
             let shownWords = '';
+            let notice: string | undefined;
             try {
-                const file = await until(() => {
-                    if (command.exitCode !== null) throw new Error(command.output());
-                    return existsSync(outbox) ? readdirSync(outbox).find((name) => name.endsWith('.json')) : undefined;
-                }, 'handoff offer');
-                const offerPath = join(outbox, file);
-                const offered = JSON.parse(readFileSync(offerPath, 'utf8'));
+                const first = await nextOffer(command);
+                const offerPath = first.offerPath;
+                let offered = first.offered;
+                expect(offered.wordsFile).toMatch(/^muxr-pair-[0-9a-f]{24}-[0-9a-f]{12}\.words$/);
                 expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
                 expect(offered.version).toBe(1);
+                if (matches) {
+                    let lateWords = '';
+                    await expect(runPhonePairing(offered.offer, { onWords: async (words) => { lateWords = words; } }))
+                        .rejects.toBeInstanceOf(PairingNeedsNewCode);
+                    offered = (await nextOffer(command, first.offered.wordsFile)).offered;
+                    // The ran-out line rides only on the offer that follows the code that ran out.
+                    expect(first.offered.notice).toBeUndefined();
+                    expect(offered.notice).toBe('That code ran out before you said yes. Scan the new QR below');
+                    // The first code's words land after it ran out, while the next code is open.
+                    deliver(first.offered.wordsFile, lateWords);
+                }
                 const pairing = runPhonePairing(offered.offer, { onWords: async (words) => {
                     shownWords = words;
                     if (mode === 'cancel') {
@@ -286,13 +328,24 @@ describe('native pairing over the byokit link', () => {
                         command.kill('SIGTERM');
                         return;
                     }
-                    const wordsPath = join(workDir, '.byokit', 'inbox', offered.wordsFile);
-                    // Same raw-byte, private, atomic rename contract as kit deliver.
-                    writeFileSync(`${wordsPath}.tmp`, matches ? words : 'wrong words', { mode: 0o600 });
-                    renameSync(`${wordsPath}.tmp`, wordsPath);
+                    if (mode === 'expires') return;
+                    deliver(offered.wordsFile, matches ? words : 'wrong words');
                 } });
                 if (matches) await pairing;
-                else await expect(pairing).rejects.toThrow();
+                else if (mode === 'wrong') {
+                    await until(() => (shownWords === '' ? undefined : true), 'phone shows words');
+                    await new Promise((resolve) => setTimeout(resolve, 1_000));
+                    expect(command.exitCode).toBeNull();
+                    await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
+                    // The computer carries the ran-out line on the next offer, never on its own output.
+                    const next = await nextOffer(command, offered.wordsFile);
+                    expect(next.offered.wordsFile).not.toBe(offered.wordsFile);
+                    notice = next.offered.notice;
+                    command.kill('SIGTERM');
+                } else if (mode === 'expires') {
+                    await expect(pairing).rejects.toBeInstanceOf(PairingNeedsNewCode);
+                    await expect(pairing).rejects.toThrow('The code ran out. Scan the new QR on your computer');
+                } else await expect(pairing).rejects.toThrow();
                 expect(await exited).toBe(matches ? 0 : 1);
                 expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
                 expect(existsSync(offerPath)).toBe(false);
@@ -300,13 +353,17 @@ describe('native pairing over the byokit link', () => {
                 expect(command.output()).not.toContain(offered.offer);
                 expect(shownWords).not.toBe('');
                 expect(command.output()).not.toContain(shownWords);
-                if (mode === 'wrong') expect(command.output()).toContain('two words did not match');
+                if (mode === 'wrong') expect(notice).toBe('That code ran out before you said yes. Scan the new QR below');
                 if (mode === 'cancel') {
                     await until(() => host!.output().includes('Pairing connection lost; this pairing attempt ended.') ? true : undefined,
                         'host contains the peer reset without crashing');
                     expect(host!.exitCode).toBeNull();
                     expect(host!.signalCode).toBeNull();
                     expect(host!.output().match(/Pairing connection lost; this pairing attempt ended\./g)).toHaveLength(1);
+                }
+                if (matches) {
+                    expect(existsSync(join(inbox, first.offered.wordsFile))).toBe(false);
+                    expect(command.output()).not.toContain(first.offered.offer);
                 }
             } finally { await stop(command); }
         }
@@ -319,7 +376,7 @@ describe('native pairing over the byokit link', () => {
             expect(readSelfhostState().machine.crypto.devices.length).toBe(1);
             expect(existsSync(outbox) ? readdirSync(outbox) : []).toEqual([]);
         } finally { await stop(second); }
-    }, 60_000);
+    }, 180_000);
 
     it('re-pairs an older phone with matching words and carries all events and RPC over the link', async () => {
         const machineId = readSelfhostState().machine.id;
@@ -555,7 +612,7 @@ describe('native pairing over the byokit link', () => {
             // The computer has replaced the spent code; the old one says to use the new one.
             const superseded = runPhonePairing(offer);
             await expect(superseded).rejects.toBeInstanceOf(PairingNeedsNewCode);
-            await expect(superseded).rejects.toThrow('That pairing code has run out. Show a new one on your computer.');
+            await expect(superseded).rejects.toThrow('The code ran out. Scan the new QR on your computer');
             expect(readSelfhostState().machine.crypto.devices).toHaveLength(before);
             await abort();
             await expect(pairing).rejects.toThrow('cancelled');
@@ -566,6 +623,43 @@ describe('native pairing over the byokit link', () => {
         }
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     }, 90_000);
+
+    describe('a code that runs out', () => {
+        // Only this journey shortens the code; the shared host keeps the production length.
+        beforeAll(() => startHost('20000'));
+        afterAll(() => startHost());
+
+        it('says the code ran out, not declined, and a late yes pairs nothing', async () => {
+            const before = readSelfhostState().machine.crypto.devices.length;
+            const prompts: ((yes: boolean) => void)[] = [];
+            // The person never answers in time; the prompt ignores the abort so a yes can still arrive late.
+            const { pairing, offer, output, abort } = await showPairingQr({ approve: () => new Promise<boolean>((resolve) => { prompts.push(resolve); }) });
+            let nextPairing: Promise<unknown> | undefined;
+            try {
+                const refused = runPhonePairing(offer);
+                await expect(refused).rejects.toBeInstanceOf(PairingNeedsNewCode);
+                await expect(refused).rejects.toThrow('The code ran out. Scan the new QR on your computer');
+                // The computer closes the prompt and shows a new code with the notice above it.
+                await until(() => (output().includes('That code ran out before you said yes. Scan the new QR below') ? true : undefined), 'ran-out notice on the computer', 30_000);
+                // The same code again is refused on the phone before it reaches the computer, as the offer's own expiry.
+                const spent = runPhonePairing(offer);
+                await expect(spent).rejects.toThrow('That pairing code has run out. Open muxr on your computer, or run muxr pair, for a new one.');
+                const nextOffer = await until(() => offersOn(output()).find((text) => text !== offer), 'next pairing offer', 30_000);
+                let nextDone = false;
+                nextPairing = runPhonePairing(nextOffer, { onWords: async () => undefined });
+                nextPairing.then(() => { nextDone = true; }, () => undefined);
+                await until(() => (prompts.length === 2 ? true : undefined), 'approval for the next code', 30_000);
+                prompts[0]!(true);
+                await new Promise((resolve) => setTimeout(resolve, 2_000));
+                expect(nextDone).toBe(false);
+                expect(readSelfhostState().machine.crypto.devices).toHaveLength(before);
+            } finally {
+                await abort();
+                await pairing.catch(() => undefined);
+                await nextPairing?.catch(() => undefined);
+            }
+        }, 90_000);
+    });
 
     it('exits 2 asking for the person when a non-TTY caller runs muxr pair', async () => {
         // launch() gives the child no TTY, the way an AI agent or script does.

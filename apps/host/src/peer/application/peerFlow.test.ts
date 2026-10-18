@@ -871,7 +871,7 @@ describe('host peer collaboration flow', () => {
         expect(machine.devices.some((device) => device.deviceId === deviceId && device.devicePublicKey === peerKey.publicKey)).toBe(true);
         const relayUrl = `ws://127.0.0.1:${relay.port}`;
         const ownerToken = JSON.parse(readFileSync(join(root, 'relay', 'mint-secret'), 'utf8')) as string;
-        let savedGrants: import('@byokit/link').Grant[] = [];
+        let savedGrants: import('@byokit/pair').Grant[] = [];
         let endpoint: LinkEndpoint | undefined;
         const effects = new Set<string>();
         let attempts = 0;

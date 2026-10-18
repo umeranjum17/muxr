@@ -171,7 +171,7 @@ rules, with no H2 sections.
   while a truly truncated token still names the cut-off code.
 - [Lead every pair entry with Scan](./pair-scan-first.md) —
   which action leads on each way into pairing, Scan a new code after an expired
-  or refused code, the paste-led page on a device that cannot scan, and a pasted
+  or refused code (an unanswered code says it ran out on both screens), the paste-led page on a device that cannot scan, and a pasted
   code connecting on Go or by itself with Connect above the keyboard.
 - [Read the pairing consent as short, plain bullets](./pairing-consent.md) —
   native release APK and PWA over a private stack: phone and browser control and

@@ -89,7 +89,7 @@ no agent processes and keeps no lifecycle ledger — a closed pane simply disapp
 
 **The relay core owns**: blind `@byokit/relay` link routing, push registration,
 shared-relay machine enrollment and readiness/web serving. The host owns pairing
-approval and device authority; `@byokit/link` encrypts phone/host traffic with
+approval and device authority; `@byokit/pair` encrypts phone/host traffic with
 Noise IK. The relay cannot read session, terminal or stream payloads. See
 [the cutover contract](specs/byokit-cutover.md).
 

@@ -13,7 +13,7 @@
 import { createConnection } from 'node:net';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { DeviceLink, pairWithOffer } from '@byokit/link';
+import { DeviceLink, pairWithOffer } from '@byokit/pair';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { treeRssKb } from './lib/hostSignals.mjs';
 

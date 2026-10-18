@@ -12,7 +12,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DeviceLink, hostId, keyPairFrom, type DeviceGrant } from '@byokit/link';
+import { DeviceLink, hostId, keyPairFrom, type DeviceGrant } from '@byokit/pair';
 import { describe, expect, it } from 'vitest';
 import { openNotice } from '@byokit/seal';
 import { runInNewContext } from 'node:vm';

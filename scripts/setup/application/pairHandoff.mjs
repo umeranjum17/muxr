@@ -8,6 +8,30 @@ import { linkPair } from './linkPair.mjs';
 
 const LIMIT = 64 * 1024;
 const WAIT_MS = 120_000;
+const MAX_TIMER_MS = 2_147_483_647;
+
+// MUXR_PAIR_HANDOFF_WAIT_MS is a test knob: only the handoff flow shortens the cap with it.
+function handoffWaitMs() {
+    const override = Number(process.env.MUXR_PAIR_HANDOFF_WAIT_MS);
+    return Number.isSafeInteger(override) && override > 0 && override <= MAX_TIMER_MS ? override : WAIT_MS;
+}
+
+function readWords(path) {
+    let fd;
+    try {
+        fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    } catch (cause) {
+        if (cause.code === 'ENOENT') return undefined;
+        throw cause;
+    }
+    try {
+        const info = fstatSync(fd);
+        if (!info.isFile() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0 || info.size > LIMIT) {
+            throw new Error('pairing refused: unsafe words file');
+        }
+        return { text: readFileSync(fd, 'utf8').trim() };
+    } finally { closeSync(fd); }
+}
 
 /** BYOKit deliver atomically writes raw bytes to <workDir>/.byokit/inbox/<file>. */
 export async function pairHandoff(state) {
@@ -24,42 +48,48 @@ export async function pairHandoff(state) {
         chmodSync(dir, 0o700);
     }
     const stem = `muxr-pair-${randomBytes(12).toString('hex')}`;
-    const wordsFile = `${stem}.words`;
     const offerPath = join(outbox, `${stem}.json`);
-    const wordsPath = join(inbox, wordsFile);
+    const openOffers = new Map();
     const controller = new AbortController();
     const cancel = () => controller.abort();
-    const timer = setTimeout(cancel, WAIT_MS);
+    let awaitingWords = false;
+    let capped = false;
+    const timer = setTimeout(() => { if (awaitingWords) capped = true; else cancel(); }, handoffWaitMs());
     process.on('SIGINT', cancel);
     process.on('SIGTERM', cancel);
     try {
         return await linkPair(state, {
             signal: controller.signal,
-            presentOffer: (offer) => {
-                const text = `${JSON.stringify({ version: 1, offer: offer.text, expiresAt: offer.expires, wordsFile })}\n`;
+            presentOffer: (offer, notice) => {
+                const wordsFile = `${stem}-${randomBytes(6).toString('hex')}.words`;
+                const wordsPath = join(inbox, wordsFile);
+                openOffers.set(wordsPath, { expires: offer.expires, keepUntil: offer.expires + offer.pairMs });
+                const text = `${JSON.stringify({ version: 1, offer: offer.text, expiresAt: offer.expires, wordsFile, notice })}\n`;
                 if (Buffer.byteLength(text) > LIMIT) throw new Error('pairing offer exceeds the 64 KB handoff limit');
                 atomicWrite(offerPath, text);
                 print(`Pairing offer ready in the kit outbox: ${offerPath}. Waiting for the phone’s two words.`);
             },
-            approve: async ({ words }) => {
-                while (!controller.signal.aborted) {
-                    let fd;
-                    try {
-                        fd = openSync(wordsPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-                    } catch (cause) {
-                        if (cause.code !== 'ENOENT') throw cause;
-                    }
-                    if (fd !== undefined) {
-                        try {
-                            const info = fstatSync(fd);
-                            if (!info.isFile() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0 || info.size > LIMIT) {
-                                throw new Error('pairing refused: unsafe words file');
+            approve: async ({ words }, runOut) => {
+                awaitingWords = true;
+                try {
+                    while (!controller.signal.aborted && !runOut.aborted) {
+                        for (const [path, { expires, keepUntil }] of openOffers) {
+                            if (Date.now() >= keepUntil) {
+                                openOffers.delete(path);
+                                rmSync(path, { force: true });
+                                continue;
                             }
-                            if (readFileSync(fd, 'utf8').trim() !== words) throw new Error('pairing refused: the two words did not match');
+                            if (Date.now() >= expires) continue;
+                            const fresh = readWords(path);
+                            if (fresh === undefined || fresh.text !== words) continue;
                             return true;
-                        } finally { closeSync(fd); }
+                        }
+                        await sleep(100, undefined, { signal: controller.signal }).catch(() => {});
                     }
-                    await sleep(100, undefined, { signal: controller.signal }).catch(() => {});
+                } finally { awaitingWords = false; }
+                if (runOut.aborted) {
+                    if (capped) cancel();
+                    return false;
                 }
                 throw new Error('pairing handoff timed out or was cancelled');
             },
@@ -70,6 +100,6 @@ export async function pairHandoff(state) {
         process.off('SIGINT', cancel);
         process.off('SIGTERM', cancel);
         rmSync(offerPath, { force: true });
-        rmSync(wordsPath, { force: true });
+        for (const file of openOffers.keys()) rmSync(file, { force: true });
     }
 }

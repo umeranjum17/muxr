@@ -1,4 +1,4 @@
-import { DeviceLink, LINK_WORDS, LinkError, PublicLinkError, type LinkStatus, type LinkStream } from '@byokit/link';
+import { DeviceLink, LINK_WORDS, LinkError, PublicLinkError, type LinkStatus, type LinkStream } from '@byokit/pair';
 import { describeRoute } from '@byokit/ui-core/route';
 import {
     checkHostProtocol,

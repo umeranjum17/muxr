@@ -3,7 +3,7 @@ import { createConnection, createServer } from 'node:net';
 import { chmodSync, existsSync, lstatSync, renameSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { hostId } from '@byokit/link';
+import { hostId } from '@byokit/pair';
 import { linkUrl } from '@byokit/relay/device';
 import { askVisible, base64, print, qrFits, qrRows, richTerminal, terminalColumns, terminalQrText, terminalRows } from '../infrastructure/runtime.mjs';
 import { startPairingPage } from '../infrastructure/pairingPage.mjs';
@@ -149,11 +149,15 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
         const claims = new Map();
         const done = {};
         done.promise = new Promise((resolve, reject) => { done.resolve = resolve; done.reject = reject; });
-        const confirm = async (request) => {
+        // The kit aborts `ranOut` when the code runs out before the answer: the
+        // prompt closes, the phone is refused as expired, and a yes that comes
+        // later is no longer awaited, so it grants nothing.
+        const confirm = async (request, { signal: ranOut }) => {
             const yes = await new Promise((resolve) => {
                 approve = resolve;
                 send({ approval: { name: request.name, words: request.words } });
                 controller.signal.addEventListener('abort', () => resolve(false), { once: true });
+                ranOut.addEventListener('abort', () => { approve = undefined; send({ expired: true }); resolve(false); }, { once: true });
             });
             burned = true;
             return yes;
@@ -231,6 +235,10 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     let input = '';
     let latest;
     let altScreen = false;
+    // The open approval prompt, the notice the next code carries once the last one ran out, and the notice drawn above the offer on screen.
+    let approval;
+    let notice;
+    let shownNotice;
     // The local QR page is the offer's scannable fallback, started only when an offer has no QR that fits.
     let page;
     let queue = Promise.resolve();
@@ -240,9 +248,10 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
         if (altScreen) process.stdout.write(ALT_SCREEN_OFF);
         altScreen = false;
     };
-    const showOffer = async (offer) => {
+    const showOffer = async (offer, carried) => {
         latest = offer;
-        if (presentOffer !== undefined) return presentOffer(offer);
+        shownNotice = carried;
+        if (presentOffer !== undefined) return presentOffer(offer, carried);
         const code = offerCode(offer, intent);
         const shown = code ?? (richTerminal() ? compactOffer(offer, intent) : undefined) ?? { text: offer.text, expires: offer.expires };
         if (page === undefined && richTerminal() && code === undefined) page = await startPairingPage(intent);
@@ -251,19 +260,30 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
             process.stdout.write(ALT_SCREEN_ON);
             altScreen = true;
         }
-        drawOffer(shown, code, intent, page?.url);
+        drawOffer(shown, code, intent, page?.url, carried);
     };
     // Events run one at a time in arrival order, so a page start cannot draw an offer after the approval has left the alternate screen.
     const enqueue = (task) => { queue = queue.then(task).catch(settle.reject); };
     const receive = (event) => {
-        if (event.offer) return showOffer(event.offer);
+        if (event.offer) {
+            const carried = notice;
+            notice = undefined;
+            return showOffer(event.offer, carried);
+        }
         if (event.approval) {
             leaveAltScreen();
-            void Promise.resolve(approve(event.approval)).then((yes) => socket.write(`${JSON.stringify({ yes })}\n`), settle.reject);
+            const ask = new AbortController();
+            approval = ask;
+            // An answer to a prompt the code's run-out has closed is not sent: the computer no longer awaits it.
+            void Promise.resolve(approve(event.approval, ask.signal)).then((yes) => { if (!ask.signal.aborted) socket.write(`${JSON.stringify({ yes })}\n`); }, settle.reject);
+        } else if (event.expired) {
+            approval?.abort();
+            approval = undefined;
+            notice = RAN_OUT_NOTICE;
         } else if (event.error) settle.reject(new Error(event.error));
         else if (event.result) settle.resolve(event.result);
     };
-    const onResize = () => { if (altScreen) enqueue(() => showOffer(latest)); };
+    const onResize = () => { if (altScreen) enqueue(() => showOffer(latest, shownNotice)); };
     const onInterrupt = () => {
         if (presentOffer === undefined) process.exit(130);
         settle.reject(new Error('pairing cancelled'));
@@ -394,6 +414,7 @@ function halfLife(offer) {
     return now + (offerExpires(offer) - now) / 2;
 }
 
+const RAN_OUT_NOTICE = 'That code ran out before you said yes. Scan the new QR below';
 const ALT_SCREEN_ON = '\x1b[?1049h';
 const ALT_SCREEN_OFF = '\x1b[?1049l';
 
@@ -417,7 +438,7 @@ function offerCode(offer, intent) {
 }
 
 /** Draw the offer from the top: the QR whole, then the pairing string, then the text lines in priority order while the rows left over hold them. Where no QR fits the string is the compact token, followed by one line opening the local QR page, which carries the same token. */
-function drawOffer(shown, code, intent, pageUrl) {
+function drawOffer(shown, code, intent, pageUrl, notice) {
     const token = shown.text;
     const expires = shown.expires;
     const title = intent.kind === 'browser'
@@ -427,7 +448,7 @@ function drawOffer(shown, code, intent, pageUrl) {
         ? 'Open the browser pairing link above (one token):'
         : 'Other ways: copy the pairing string above (one token):';
     const pageLine = code === undefined && pageUrl !== undefined ? `Open the QR page: ${pageUrl}` : undefined;
-    let left = richTerminal() ? terminalRows() - (code === undefined ? 0 : qrRows(code.text, code.border)) : Infinity;
+    let left = richTerminal() ? terminalRows() - (code === undefined ? 0 : qrRows(code.text, code.border)) - (notice === undefined ? 0 : wrappedRows(notice)) : Infinity;
     const lines = [token];
     left -= wrappedRows(token);
     if (pageLine !== undefined) { lines.push(pageLine); left -= wrappedRows(pageLine); }
@@ -444,19 +465,22 @@ function drawOffer(shown, code, intent, pageUrl) {
         && take(['Waiting for the device to finish pairing…'])
         && take([label]);
     if (!richTerminal()) {
+        if (notice !== undefined) print(notice);
         lines.forEach((line) => print(line));
         return;
     }
     process.stdout.write('\x1b[H\x1b[2J');
+    // The notice sits above the QR it points at.
+    if (notice !== undefined) process.stdout.write(`${notice}\n`);
     if (code !== undefined) process.stdout.write(`${terminalQrText(code.text, code.border)}\n`);
     process.stdout.write(lines.join('\n'));
 }
 
-async function showApproval(req) {
+async function showApproval(req, signal) {
     print('');
     print(`“${req.name}” wants to pair with this computer.`);
     print('');
     print(`  Compare these words on the phone:  ${req.words}`);
     print('');
-    return askVisible('Only approve if the words match. Approve this device? (y/n) ', { reaskOnEmpty: true });
+    return askVisible('Only approve if the words match. Approve this device? (y/n) ', { reaskOnEmpty: true, signal });
 }

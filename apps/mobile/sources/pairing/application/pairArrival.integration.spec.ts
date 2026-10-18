@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { hostId, keyPairFrom, offerText, parseV1Offer, unb64url } from '@byokit/link';
+import { hostId, keyPairFrom, offerText, parseV1Offer, unb64url } from '@byokit/pair';
 import { linkUrl } from '@byokit/relay/device';
 
 const harness = vi.hoisted(() => ({

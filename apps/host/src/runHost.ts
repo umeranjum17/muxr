@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, watchFile, writeFileSync, type StatWatcher } from 'node:fs';
-import type { Grant, LinkStream } from '@byokit/link';
+import type { Grant, LinkStream } from '@byokit/pair';
 import { isPeerCapabilities, parseLifecycleNotificationLevel, relayControlUrl } from '@trymuxr/contract';
 import { createConnection } from 'node:net';
 import { homedir, hostname, userInfo } from 'node:os';

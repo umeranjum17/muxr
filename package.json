@@ -56,8 +56,7 @@
         "node": ">=22"
     },
     "resolutions": {
-        "@byokit/link": "0.8.1",
-        "@byokit/pair": "0.10.1",
+        "@byokit/pair": "0.10.3",
         "@expo/router-server": "55.0.11",
         "@expo/ui": "55.0.5",
         "@expo/vector-icons": "15.0.3",

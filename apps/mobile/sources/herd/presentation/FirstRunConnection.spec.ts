@@ -73,7 +73,7 @@ vi.mock('@/catalog', () => ({ loadAppConfig: () => ({}) }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 
 import { FirstRunConnection } from './FirstRunConnection';
-import { offerText } from '@byokit/link';
+import { offerText } from '@byokit/pair';
 
 function freshOffer(): string {
     return offerText({ v: 1, host: Buffer.alloc(32, 1).toString('base64url'), ticket: Buffer.alloc(16, 2).toString('base64url'),

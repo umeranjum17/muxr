@@ -11,13 +11,13 @@ import {
     parseOffer,
     unb64url,
     type DeviceGrant as LinkDeviceGrant,
-} from '@byokit/link';
+} from '@byokit/pair';
 import { isTailscaleAddress, linkOfferExpired, PairingNeedsNewCode, readOffer } from '../domain/pairingString';
 
 /**
  * The byokit pairing protocol, behind one port: application code asks this
  * adapter to claim an offer or resume a pending pairing and receives the raw
- * machine answer. No application file imports @byokit/link, and nothing here
+ * machine answer. No application file imports @byokit/pair, and nothing here
  * decides how the session channel is carried — that stays in LinkFirstClient.
  */
 
@@ -53,6 +53,8 @@ export function pairingFailure(cause: unknown): string {
         ? LINK_WORDS[cause.code] : cause instanceof Error ? cause.message : String(cause);
 }
 
+/** The computer's pairing code ran out before its person said yes (the kit refuses it as `expired`). */
+const CODE_RAN_OUT = 'The code ran out. Scan the new QR on your computer';
 const NOT_FINISHED = "This pairing didn't finish on your computer. Get a new code from muxr there and scan it.";
 /** byokit keys are base64url; the machine answer keeps the same bytes as plain base64. */
 /** The computer revoked this key mid-request: it rolled the pairing back. */
@@ -204,7 +206,8 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         if (wordsShown && lost(cause)) {
             throw new PairingNeedsNewCode('The pairing link closed after the two words, before approval completed. Get a fresh code from muxr on your computer and approve it before it expires.');
         }
-        if (cause instanceof LinkError && (cause.code === 'expired' || cause.code === 'declined')) throw new PairingNeedsNewCode(LINK_WORDS[cause.code]);
+        if (cause instanceof LinkError && cause.code === 'expired') throw new PairingNeedsNewCode(CODE_RAN_OUT);
+        if (cause instanceof LinkError && cause.code === 'declined') throw new PairingNeedsNewCode(LINK_WORDS[cause.code]);
         throw cause instanceof Error ? cause : new Error('pairing failed');
     }
     if (options.mode === 'claim') await options.onClaimed?.();

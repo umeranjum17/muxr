@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { dirname } from 'node:path';
-import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream, type PairRequest } from '@byokit/link';
+import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream, type PairRequest } from '@byokit/pair';
 import { isExpoToken, linkUrl, ownerClient, RelayOwnerError, RelayClient, type RelayClientStore } from '@byokit/relay';
 import {
     agentAlertTitle,
@@ -125,6 +125,12 @@ function noteDenied(grant: Grant, kind: 'request' | 'desktop' | 'terminal'): voi
 const muxrDeviceIdOf = (grant: Grant): string | undefined => {
     const meta = grant.meta as Partial<DeviceMeta> | undefined;
     return typeof meta?.muxrDeviceId === 'string' ? meta.muxrDeviceId : undefined;
+};
+
+// MUXR_PAIR_CODE_MS is a test knob: only the cross-side expiry journey shortens the code with it.
+const pairCodeMs = (): number => {
+    const override = Number(process.env.MUXR_PAIR_CODE_MS);
+    return Number.isSafeInteger(override) && override > 0 && override <= 2_147_483_647 ? override : 120_000;
 };
 
 const CHANNEL_PATTERN = /^tm_[A-Za-z0-9]+_[A-Za-z0-9]+$/;
@@ -252,7 +258,7 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
 }
 
 /**
- * The machine on @byokit/link, beside the relay transport. It proves the
+ * The machine on @byokit/pair, beside the relay transport. It proves the
  * machine's existing box key to the relay and enrols native phones under
  * their existing keys, so a future link client can reuse its pairing.
  *
@@ -262,7 +268,7 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
  */
 export class LinkEndpoint {
     private synced: Promise<boolean> = Promise.resolve(true);
-    private pairing: { kind: 'native' | 'browser'; confirm: (request: PairRequest) => boolean | Promise<boolean>; handle: (request: LinkRequest, grant: Grant) => Promise<unknown> } | undefined;
+    private pairing: { kind: 'native' | 'browser'; confirm: (request: PairRequest, options: { signal: AbortSignal }) => boolean | Promise<boolean>; handle: (request: LinkRequest, grant: Grant) => Promise<unknown> } | undefined;
 
     private client?: RelayClient;
     private connectionTimer?: ReturnType<typeof setInterval>;
@@ -298,9 +304,9 @@ export class LinkEndpoint {
             },
             keys,
             name: options.machineName,
-            pairMs: 120_000,
+            pairMs: pairCodeMs(),
             grants: options.grants,
-            confirm: (request) => endpoint?.pairing?.confirm(request) ?? false,
+            confirm: (request, { signal }) => endpoint?.pairing?.confirm(request, { signal }) ?? false,
             allow: (req, grant) => {
                 if (req.op === 'pair.complete' || req.op === 'pair.verified') return endpoint?.pairing !== undefined && grant.kind === endpoint.pairing.kind;
                 if (req.op === 'terminal') return options.terminals !== undefined;
@@ -461,7 +467,7 @@ export class LinkEndpoint {
     }
 
     /** Open the one-time offer on this machine's already-registered host. */
-    offerPairing(pairing: NonNullable<LinkEndpoint['pairing']>, relayUrl: string, intent: { kind: 'native' | 'browser'; authority: 'control' | 'observe'; lifetime?: number; base?: string }): { text: string; expires: number; compactText?: string; compactExpires?: number } {
+    offerPairing(pairing: NonNullable<LinkEndpoint['pairing']>, relayUrl: string, intent: { kind: 'native' | 'browser'; authority: 'control' | 'observe'; lifetime?: number; base?: string }): { text: string; expires: number; pairMs: number; compactText?: string; compactExpires?: number } {
         if (this.pairing !== undefined && this.pairing !== pairing) throw new Error('another pairing is in progress');
         this.pairing = pairing;
         const urls = [linkUrl(relayUrl, this.host.id)];
@@ -477,14 +483,15 @@ export class LinkEndpoint {
         // onPending), so a phone killed before approving reconnects only to
         // this computer. Browser links keep the full offer: the compact form
         // has no browser-link shape.
-        if (intent.kind !== 'native') return offer;
+        const pairMs = pairCodeMs();
+        if (intent.kind !== 'native') return { ...offer, pairMs };
         try {
             const compact = this.host.compactOffer({ urls, role, kind: intent.kind,
                 ...(intent.lifetime === undefined ? {} : { lifetime: intent.lifetime }) });
-            return { ...offer, compactText: compact.text, compactExpires: compact.expires };
+            return { ...offer, pairMs, compactText: compact.text, compactExpires: compact.expires };
         } catch (error) {
             process.stderr.write(`muxr: compact pairing offer unavailable, showing the full offer: ${error instanceof Error ? error.message : String(error)}\n`);
-            return offer;
+            return { ...offer, pairMs };
         }
     }
 

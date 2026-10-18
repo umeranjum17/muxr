@@ -18,7 +18,7 @@ import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../i
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
 import { LinkFirstClient, type ByteStreamTransport, type SessionClient } from '@/pairing/client';
-import type { LinkStream } from '@byokit/link';
+import type { LinkStream } from '@byokit/pair';
 import { setActiveSessionClient } from '@/connection/sessionClientRef';
 import { AppState, Platform } from 'react-native';
 import {
