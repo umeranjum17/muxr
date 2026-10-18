@@ -360,7 +360,7 @@ function promptNotSent(cause: unknown): Error {
 
 const HANDOFF_RESULT_SCHEMA = {
     type: 'object',
-    properties: { note: { type: 'string', maxLength: HANDOFF_NOTE_MAX } },
+    properties: { note: { type: 'string' } },
     required: ['note'],
     additionalProperties: false,
 };
