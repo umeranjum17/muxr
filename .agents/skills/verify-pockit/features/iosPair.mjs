@@ -3,7 +3,7 @@
 // Usage (repo root, the host's MUXR_HOME, a file for the link):
 //   node .agents/skills/verify-pockit/features/iosPair.mjs <MUXR_HOME> <link-file>
 // Exit 0 once the host reports the pairing result; the link file holds
-// `muxr://pair#<offer>`. Approval words are printed for the evidence.
+// `muxr://pair#<offer>`. Approval words and the device id are printed for the evidence.
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pairOnRunningHost } from '../../../../scripts/setup/application/linkPair.mjs';
@@ -32,4 +32,4 @@ if (!result) {
     process.stderr.write('pairing ended without a result\n');
     process.exit(1);
 }
-process.stdout.write(`paired: ${JSON.stringify(result).slice(0, 200)}\n`);
+process.stdout.write(`paired: ${result.deviceId}\n`);

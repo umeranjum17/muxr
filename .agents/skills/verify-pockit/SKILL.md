@@ -414,4 +414,7 @@ ls "$EVIDENCE"                                             # proof must still ex
 Close any Herdr workspaces/panes this run created, then stop and delete only
 the non-default session you created. Never kill by process name. Never remove
 the evidence directory. If a drive failed midway, run this same cleanup before
-retrying so broken attempts strand no processes or ports.
+retrying so broken attempts strand no processes or ports. An iOS drive also runs
+the iOS Cleanup bullet's `$SLOT stop`, `$SLOT release` and the `xcrun simctl list
+devices booted` check, so a failed run never leaves the Mac slot claimed or a
+simulator booted.
