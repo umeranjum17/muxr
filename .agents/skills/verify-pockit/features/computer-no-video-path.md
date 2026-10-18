@@ -5,10 +5,12 @@ when it can. When the relay is the only path (mobile data, no shared Wi-Fi, no
 Tailscale, no Direct SSH), the native app carries the engine's loopback
 ICE-TCP candidate over a `desktop.tcp` link stream and goes live anyway; the
 browser cannot dial a JS socket, so the PWA never gets a frame. When an open
-fails with a `transport` or `never-connected` failure before any frame showed
-(or, on native, the engine ends it for a lost phone before any frame), the
-Computer view says so in plain words, names what works, and keeps Try again.
-A loss after a frame showed keeps the generic failure.
+fails with a `never-connected` failure (no network path formed within the kit's
+20 s first-frame bound), the Computer view says so in plain words, names what
+works, and keeps Try again. Other failures keep their own copy: a `transport`
+failure shows "Couldn't open this computer", and a lost phone ends with "The
+phone lost its connection to this computer's desktop." Neither shows the
+no-path message.
 
 ## Sub-features
 
