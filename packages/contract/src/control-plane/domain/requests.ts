@@ -220,7 +220,7 @@ export type DesktopPermission = 'view' | 'control' | 'clipboard';
  * envelope, the replay log and the encrypted frame path untouched.
  */
 export type DesktopEvent =
-    | { kind: 'offer'; generation: number; sdp: string }
+    | { kind: 'offer'; generation: number; sdp: string; geometry?: DesktopSurfaceGeometry }
     | {
           kind: 'candidate';
           generation: number;

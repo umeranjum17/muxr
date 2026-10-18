@@ -309,7 +309,11 @@ describe('a headless emulator in an agent pane', () => {
                     return polled.events.some((event) => event.kind === 'offer');
                 });
                 const polled = await watcher.targets.poll(opened.desktopId, 0);
-                expect(polled.events[0]).toMatchObject({ kind: 'offer', sdp: 'v=0 offer' });
+                expect(polled.events[0]).toMatchObject({
+                    kind: 'offer',
+                    sdp: 'v=0 offer',
+                    geometry: { source: { width: 540, height: 1200 }, encoded: { width: 540, height: 1200 }, origin: { x: 0, y: 0 } },
+                });
 
                 // Another device cannot drive this mirror: signaling with a
                 // connection but the wrong owner is refused, while the owner

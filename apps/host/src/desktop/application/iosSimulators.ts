@@ -226,6 +226,7 @@ export class AnnexBAccessUnits {
 
 /** Width and height in pixels from the first SPS, or undefined if it is not there yet. */
 export function spsSize(stream: Buffer): { width: number; height: number } | undefined {
+    let latest: { width: number; height: number } | undefined;
     for (let index = 0; index + 4 < stream.length; index += 1) {
         if (stream[index] !== 0 || stream[index + 1] !== 0 || stream[index + 2] !== 1 || (stream[index + 3]! & 0x1f) !== 7) continue;
         // Emulation prevention bytes out, then the fields up to the cropping window.
@@ -297,15 +298,15 @@ export function spsSize(stream: Buffer): { width: number; height: number } | und
             if (u(1) === 1) crop = [ue(), ue(), ue(), ue()];
             const cropX = chroma === 0 || chroma === 3 ? 1 : 2;
             const cropY = (chroma === 1 ? 2 : 1) * (2 - frameMbsOnly);
-            return {
+            latest = {
                 width: widthMbs * 16 - (crop[0]! + crop[1]!) * cropX,
                 height: heightUnits * 16 * (2 - frameMbsOnly) - (crop[2]! + crop[3]!) * cropY,
             };
         } catch {
-            return undefined;
+            // A later, complete SPS in the stream may still provide dimensions.
         }
     }
-    return undefined;
+    return latest;
 }
 
 // ---------------------------------------------------------------------------
@@ -486,6 +487,9 @@ interface LiveSimulator {
     width: number;
     height: number;
     scale: number;
+    permissions: DesktopPermission[];
+    engineOptions: { maxFps?: number; loopbackTcp?: boolean };
+    resizing: boolean;
     video: ChildProcess | undefined;
     videoBornAt: number;
     hid: CompanionHid | undefined;
@@ -626,10 +630,12 @@ export class IosMirrors implements DeviceMirrors {
         let size: { width: number; height: number } | undefined;
         video.stdout?.on('data', (chunk: Buffer) => {
             if (mirror.closed || this.helpers.isClosed(udid) || mirror.splitter !== splitter || !childAlive(video) || video.killed || spawnError !== undefined) return;
-            if (size === undefined) {
-                if (headerBytes.length < 1024 * 1024) headerBytes = Buffer.concat([headerBytes, chunk]);
-                size = spsSize(headerBytes);
-            }
+            headerBytes = Buffer.concat([headerBytes, chunk]).subarray(-64 * 1024);
+            const nextSize = spsSize(headerBytes);
+            if (nextSize !== undefined && size !== undefined && (nextSize.width !== size.width || nextSize.height !== size.height)) {
+                size = nextSize;
+                void this.reopenAtSize(mirror, nextSize);
+            } else if (size === undefined) size = nextSize;
             splitter.push(chunk);
         });
         const deadline = Date.now() + VIDEO_START_TIMEOUT_MS;
@@ -668,6 +674,12 @@ export class IosMirrors implements DeviceMirrors {
             width: 0,
             height: 0,
             scale,
+            permissions: request.permissions,
+            engineOptions: {
+                ...(request.maxFps === undefined ? {} : { maxFps: request.maxFps }),
+                ...(request.loopbackTcp === true ? { loopbackTcp: true } : {}),
+            },
+            resizing: false,
             video: undefined,
             videoBornAt: 0,
             hid: undefined,
@@ -712,11 +724,7 @@ export class IosMirrors implements DeviceMirrors {
         } catch (error) {
             fail(error instanceof Error ? error.message : 'the simulator input service did not start');
         }
-        const makeEngine = this.options.makeEngine ?? ((engineOptions) => new DesklinkEncodedEngine(engineOptions));
-        const engine = makeEngine({
-            ...(this.options.enginePath === undefined ? {} : { enginePath: this.options.enginePath }),
-            ...(this.options.onDiagnostic === undefined ? {} : { onDiagnostic: this.options.onDiagnostic }),
-        });
+        const engine = this.makeEngine();
         let session: EncodedEngineSession;
         try {
             session = await engine.open(size!.width, size!.height, request.permissions, {
@@ -752,6 +760,55 @@ export class IosMirrors implements DeviceMirrors {
         await Promise.all(burst);
         if (mirror.closed) throw new EngineRefused('desktop-unavailable', 'the preview closed during open');
         return { session: live, width: size!.width, height: size!.height };
+    }
+
+    private makeEngine(): EncodedEngine {
+        const makeEngine = this.options.makeEngine ?? ((engineOptions) => new DesklinkEncodedEngine(engineOptions));
+        return makeEngine({
+            ...(this.options.enginePath === undefined ? {} : { enginePath: this.options.enginePath }),
+            ...(this.options.onDiagnostic === undefined ? {} : { onDiagnostic: this.options.onDiagnostic }),
+        });
+    }
+
+    private async reopenAtSize(mirror: LiveSimulator, size: { width: number; height: number }): Promise<void> {
+        if (mirror.closed || mirror.resizing || mirror.engine === undefined || (mirror.width === size.width && mirror.height === size.height)) return;
+        mirror.resizing = true;
+        mirror.draining = true;
+        mirror.opening = [];
+        const previous = mirror.engine;
+        const next = this.makeEngine();
+        try {
+            const session = await next.open(size.width, size.height, mirror.permissions, mirror.engineOptions);
+            if (mirror.closed) {
+                await next.close().catch(() => undefined);
+                await next.stop().catch(() => undefined);
+                return;
+            }
+            mirror.engine = next;
+            mirror.session = session;
+            mirror.width = size.width;
+            mirror.height = size.height;
+            mirror.lastX = size.width / 2;
+            mirror.lastY = size.height / 2;
+            next.onLive((event) => {
+                if (mirror.closed || mirror.engine !== next) return;
+                if (event.kind === 'keyframeRequest') {
+                    if (mirror.video !== undefined && childAlive(mirror.video)) mirror.video.stdin?.write('{"method":"force_keyframe"}\\n');
+                } else this.applyInput(mirror, event.input);
+            });
+            await previous.close().catch(() => undefined);
+            await previous.stop().catch(() => undefined);
+            const queued = mirror.opening.splice(0);
+            mirror.draining = false;
+            await Promise.all(queued.map((unit) => next.feed(unit.keyframe, unit.unit).catch(() => undefined)));
+        } catch (error) {
+            await next.close().catch(() => undefined);
+            await next.stop().catch(() => undefined);
+            this.options.onDiagnostic?.(`simulator stream resize failed: ${error instanceof Error ? error.message : String(error)}`);
+            mirror.draining = false;
+        } finally {
+            mirror.resizing = false;
+        }
     }
 
     private feedUnitFor(mirror: LiveSimulator, keyframe: boolean, unit: Buffer): void {

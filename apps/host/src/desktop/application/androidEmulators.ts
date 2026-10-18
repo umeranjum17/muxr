@@ -478,6 +478,7 @@ export class DesklinkEncodedEngine implements EncodedEngine {
      * path is the only delivery; `drainSignaling` reads here instead.
      */
     private readonly queued: RawEngineEvent[] = [];
+    private readonly geometryBySession = new Map<string, DesktopSurfaceGeometry>();
 
     constructor(options: DesklinkEncodedEngineOptions = {}) {
         this.options = options;
@@ -503,6 +504,7 @@ export class DesklinkEncodedEngine implements EncodedEngine {
                 ...(options.loopbackTcp === true ? { loopbackTcp: true } : {}),
             }) as unknown as EncodedEngineSession;
             this.session = opened;
+            this.geometryBySession.set(opened.sessionId, opened.geometry);
             return opened;
         } catch (error) {
             // An engine without the encoded source (the pinned 0.1.1) refuses:
@@ -539,7 +541,9 @@ export class DesklinkEncodedEngine implements EncodedEngine {
             const raw = event as unknown as RawEngineEvent;
             if (raw.event === 'session.description') {
                 const description = (raw.params as { description?: { sdp?: string } }).description;
-                out.push({ kind: 'offer', generation: Number(raw.params.generation ?? 0), sdp: String(description?.sdp ?? '') });
+                const sessionId = String(raw.params.sessionId ?? '');
+                const geometry = this.geometryBySession.get(sessionId);
+                out.push({ kind: 'offer', generation: Number(raw.params.generation ?? 0), sdp: String(description?.sdp ?? ''), ...(geometry === undefined ? {} : { geometry }) });
             } else if (raw.event === 'session.candidate') {
                 const params = raw.params as { candidate?: unknown; sdpMid?: unknown; sdpMLineIndex?: unknown; generation?: unknown };
                 out.push({
@@ -1286,7 +1290,12 @@ export class DevicePreviewTargets {
         if (engine === undefined) throw new EngineRefused('session', 'that desktop session is not open');
         for (const signal of engine.drainSignaling()) {
             if (signal.kind === 'offer') {
-                this.append(desktopId, { kind: 'offer', generation: Number(signal.generation ?? 0), sdp: offeredAsBaseline(String(signal.sdp ?? '')) });
+                this.append(desktopId, {
+                    kind: 'offer',
+                    generation: Number(signal.generation ?? 0),
+                    sdp: offeredAsBaseline(String(signal.sdp ?? '')),
+                    ...(signal.geometry === undefined ? {} : { geometry: signal.geometry as DesktopSurfaceGeometry }),
+                });
             } else if (signal.kind === 'candidate') {
                 this.append(desktopId, {
                     kind: 'candidate',
