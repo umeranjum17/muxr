@@ -93,6 +93,33 @@ const COPY_SUFFIX: Record<string, string> = {
     failed: ' failed.',
 };
 
+export interface GeneralNoticeInput {
+    title: string;
+    body: string;
+    url?: string;
+    id: string;
+    machineId: string;
+}
+
+/** The sealed body of a general notification; the envelope shape the app opens. */
+export function generalNoticeEnvelope(input: GeneralNoticeInput): {
+    title: string;
+    body: string;
+    data: Record<string, unknown>;
+} {
+    return {
+        title: input.title,
+        body: input.body,
+        data: {
+            eventId: input.id,
+            kind: 'notify',
+            machineId: input.machineId,
+            presentationOwner: 'relay-push',
+            ...(input.url === undefined ? {} : { url: input.url }),
+        },
+    };
+}
+
 /**
  * The link role a stored device is enrolled and trusted under. It reads the
  * domain's authority, so a browser record stored without one stays view-only.
@@ -439,6 +466,38 @@ export class LinkEndpoint {
                 process.stderr.write(`link: push notify failed: ${cause instanceof Error ? cause.message : String(cause)}\n`);
             });
         }
+    }
+
+    /**
+     * Fan one general notification out to every trusted link device on the
+     * same relay push path as lifecycle notices. The relay and push provider
+     * see only generic text and ciphertext; title, body and link stay inside
+     * the seal. Returns the number of paired devices fanned out to.
+     */
+    notifyGeneral(input: GeneralNoticeInput): number {
+        if (this.client === undefined) return 0;
+        const crypto = this.currentCrypto();
+        const recipients = this.host.devices().filter((grant) => trusted(grant, crypto));
+        if (recipients.length === 0) return 0;
+        const notice = (url: string | undefined) => generalNoticeEnvelope(
+            url === undefined ? { title: input.title, body: input.body, id: input.id, machineId: input.machineId } : { ...input, url });
+        for (const grant of recipients) {
+            const key = Buffer.from(grant.key, 'base64url');
+            let sealed = sealNotice(notice(input.url), key);
+            // The relay refuses push data over 2 KB; a long link gives way.
+            if (JSON.stringify(sealed).length > SEALED_NOTICE_MAX) sealed = sealNotice(notice(undefined), key);
+            void this.client.notify({
+                id: createHash('sha256').update(JSON.stringify([input.id, grant.id])).digest('hex'),
+                title: 'muxr',
+                body: 'You have a new notification.',
+                data: sealed,
+                to: [grant.id],
+                urgency: 'normal',
+            }, { includeContent: true }).catch((cause: unknown) => {
+                process.stderr.write(`link: push notify failed: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+            });
+        }
+        return recipients.length;
     }
 
     private async pushRequest(frame: ClientFrame, grant: Grant, deviceId: string): Promise<HostFrame> {

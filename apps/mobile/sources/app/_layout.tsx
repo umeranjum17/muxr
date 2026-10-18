@@ -22,7 +22,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { RealtimeSessionOverlay } from '@/conversation/presentation/RealtimeSessionOverlay';
 import { useAgentStopReports } from '@/watch/agentStopReports';
 import { SidebarNavigator } from '@/herd/ui';
-import { View, Platform, AppState, Pressable, Text } from 'react-native';
+import { View, Platform, AppState, Pressable, Text, Linking } from 'react-native';
 import { ModalProvider } from '@/modal';
 import { sync, syncRestore, syncResume } from '@/catalog/sync';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
@@ -45,6 +45,7 @@ import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcut
 import { KernelNotifications } from '@/herd/ui';
 import { ANSWER_ACTION, OPEN_ACTION, notificationResponseKey, settleAnsweredAlert } from '@/watch/lifecycleAlert';
 import { acknowledgeLifecyclePush, openNativeLifecyclePush, receiveLifecyclePush } from '@/utils/nativePushNotifications';
+import { isOpenableNotifyUrl } from '@/utils/openLifecycleNotice';
 import { realtimeAppController } from '@/conversation/application/realtimeAppControl';
 
 // Configure notification handler — suppress push display when app is in foreground
@@ -407,6 +408,17 @@ export default function RootLayout() {
         handledNotificationIds.current.add(responseId);
         const data = await openNativeLifecyclePush(response.notification.request.content.data);
         acknowledgeLifecyclePush(data);
+        if (data.kind === 'notify') {
+            // A general notification opens its link; anything else opens muxr.
+            if (isOpenableNotifyUrl(data.url)) {
+                try {
+                    await Linking.openURL(data.url);
+                } catch (error) {
+                    console.log('[PUSH ROUTING] Failed to open notification link:', error);
+                }
+            }
+            return;
+        }
 
         try {
             const action = response.actionIdentifier;

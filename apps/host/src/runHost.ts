@@ -477,6 +477,10 @@ async function main(): Promise<void> {
             machineId,
             machineName,
             onLinkAttention: (input) => linkEndpoint?.notifyAttention(input),
+            notify: {
+                tokenPath: join(stateRoot, 'notify-token'),
+                send: (notice) => linkEndpoint?.notifyGeneral({ ...notice, machineId }) ?? 0,
+            },
             artifactsDir: join(stateRoot, 'attachments', 'pane'),
             hostHttpPort: hostConfig.hostHttpPort,
             ...(token === undefined ? {} : { token }),

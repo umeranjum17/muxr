@@ -259,6 +259,27 @@ the endpoint from their pairing grant. On the same LAN, an already-paired native
 app can adopt a discovered address only after verifying it with its saved grant.
 Plugin and agent changes sync live and do not require pairing again.
 
+## Sending a notification to your devices
+
+Any tool on this computer can pop a real notification on every paired device
+with one loopback call. The host seals the title, body and link per device
+and reuses the lifecycle push path, so the relay sees only generic text.
+
+```bash
+curl -X POST http://127.0.0.1:8793/v1/notify \
+  -H "Authorization: Bearer $(cat ~/.muxr/notify-token)" \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "Decision needed", "body": "Pick a layout", "url": "https://example.com/a"}'
+# -> {"id": "...", "delivered_to": 2}
+```
+
+`title` (1-80 chars) is required; `body` (up to 300), `url` and `id` are
+optional. The link must be `https`, or `http` to localhost or a tailnet host;
+a tap opens it, anything else opens muxr. The bearer token lives in
+`$MUXR_HOME/notify-token` (mode 600), minted on first use. The call answers
+202 on success, 400 for a bad body and 401 for a bad or missing token, and is
+accepted on loopback only.
+
 ## Updating
 
 Run `muxr` and choose **Update muxr**, or use `muxr update --yes` in automation.
