@@ -78,6 +78,9 @@ Native Android (no UDP path; expect `relay-live`, not the message):
    light and dark (`cmd uimode night yes|no`). For the frame counter, enable
    developer mode (`desktop-decoder-probe.md`) and read Frames decoded.
    Before the link carrier, this lab showed the `nopath` message instead.
+   The session chrome under the Computer view is hidden from accessibility:
+   it stays in the default dump but not in the compressed one, so overlap and
+   image-covers skip it.
 
 ## Gotchas
 

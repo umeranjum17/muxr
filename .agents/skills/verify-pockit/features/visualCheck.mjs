@@ -2,7 +2,8 @@
 // One cell of the Visual check matrix (../SKILL.md "Visual check"). Prints the
 // defects a machine can see; every DEFECT line fails the cell (exit 1).
 //   node visualCheck.mjs <serial> <dir> <name> [--end] [--ref <main>.xml]
-//     native: saves <dir>/<name>.png and .xml from a task-owned emulator. --end:
+//     native: saves <dir>/<name>.png, .xml and .compressed.xml (the views a screen
+//     reader reaches; overlap and image-covers judge only those) from a task-owned emulator. --end:
 //     the screen is scrolled as far as it goes (or cannot scroll), so anything
 //     still under the navigation bar is stuck there. --ref: the dump of the same
 //     cell from main (or the mock run); image nodes are compared against it.
@@ -221,11 +222,11 @@ const imageOffScreenLeads = (imagery, W, H, scrollable) => imagery.flatMap((n) =
 // An image painted over a control or text covers it. Dump order is draw
 // order, so only an image later than the node it overlaps is on top; an
 // image behind text (a background) is the design, not a defect.
-const imageCoversLeads = (ordered, imagery) => {
+const imageCoversLeads = (ordered, imagery, shown = () => true) => {
     const index = new Map(ordered.map((n, i) => [n, i]));
     const cut = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
     return imagery.flatMap((img) => ordered.flatMap((m) => {
-        if (m === img || img.up.includes(m) || m.up.includes(img)) return [];
+        if (m === img || img.up.includes(m) || m.up.includes(img) || !shown(img) || !shown(m)) return [];
         if ((index.get(img) ?? -1) < (index.get(m) ?? -1)) return [];
         if (cut(img.box, m.box) < 16 * 16) return [];
         return [`image covers "${m.label}" ${m.at.bounds} (image "${img.label}" ${img.at.bounds})`];
@@ -331,9 +332,12 @@ const expect = (label, ok, detail = '') => {
     if (!ok) failed++;
 };
 
+const nodeKey = (n) => [n.at.class, n.at.bounds, n.at.text, n.at['content-desc']].join('|');
+
 // The native page's checks over one parsed dump. status and nav are the
-// system bars as [l, t, r, b] (or null); ref is the reference dump, if any.
-const layoutLeads = (app, { W, H, status, nav, end, ref }) => {
+// system bars as [l, t, r, b] (or null); ref is the reference dump, if any;
+// compressed is `uiautomator dump --compressed` of the same screen, if any.
+const layoutLeads = (app, { W, H, status, nav, end, ref, compressed }) => {
     const content = app.filter((n) => n.at.text || n.at['content-desc'] || n.at.clickable === 'true' || /EditText/.test(n.at.class));
     // Unlabelled images join the bar and overlap watches; labelled ones are
     // already in content through their description.
@@ -342,6 +346,18 @@ const layoutLeads = (app, { W, H, status, nav, end, ref }) => {
     const judged = content.filter((n) => n.at.text || (n.at.clickable === 'true' && (n.box.b - n.box.t <= H * 0.25 || !content.some((m) => m.up.includes(n)))));
     const scrollable = app.some((n) => n.at.scrollable === 'true' && !/Horizontal/.test(n.at.class));
     const cut = (a, b) => Math.max(0, Math.min(a.r, b.r) - Math.max(a.l, b.l)) * Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));
+    // The default dump keeps views hidden from accessibility, such as session
+    // chrome under the full-screen Computer view; the compressed dump drops
+    // them. Overlap and image-covers judge only nodes a screen reader reaches.
+    // An unlabelled image is never in the compressed dump, so it counts as
+    // hidden only when every labelled node of its nearest labelled ancestor is.
+    const reached = compressed && new Set(compressed.map(nodeKey));
+    const shown = (n) => {
+        if (!reached || reached.has(nodeKey(n))) return true;
+        if (!imagery.includes(n)) return false;
+        const near = [...n.up].reverse().map((a) => content.filter((m) => m.up.includes(a))).find((c) => c.length);
+        return !near || near.some((m) => reached.has(nodeKey(m)));
+    };
     const found = [];
     for (const n of judged) {
         if (status && n.box.t < status[3]) found.push(`under the status bar: "${n.label}" ${n.at.bounds} (bar ends at y=${status[3]})`);
@@ -350,9 +366,9 @@ const layoutLeads = (app, { W, H, status, nav, end, ref }) => {
     found.push(...navLeads(judged, nav, H, end));
     found.push(...belowLeads(judged, H, scrollable, end));
     found.push(...imageOffScreenLeads(imagery, W, H, scrollable));
-    found.push(...imageCoversLeads(watched, imagery));
+    found.push(...imageCoversLeads(watched, imagery, shown));
     for (const [i, a] of content.entries()) for (const b of content.slice(i + 1)) {
-        if (a.up.includes(b) || b.up.includes(a) || cut(a.box, b.box) < 16 * 16) continue;
+        if (a.up.includes(b) || b.up.includes(a) || cut(a.box, b.box) < 16 * 16 || !shown(a) || !shown(b)) continue;
         found.push(`overlap: "${a.label}" ${a.at.bounds} and "${b.label}" ${b.at.bounds}${b.at.clickable === 'true' || a.at.clickable === 'true' ? ' (a control is covered)' : ''}`);
     }
     found.push(...clipLeads(content));
@@ -390,6 +406,28 @@ const selfTest = () => {
     const wallpaper = el('com.facebook.react.views.image.ReactImageView', '[0,400][1080,1000]');
     expect('image dumped before its label, behind it, is not flagged', !layout(nodesOf(wallpaper, title)).some((l) => l.startsWith('image covers')), layout(nodesOf(wallpaper, title)).join(' | '));
     expect('image dumped after its label, painted over it, is flagged', layout(nodesOf(title, wallpaper)).some((l) => l.startsWith('image covers "Title"')), layout(nodesOf(title, wallpaper)).join(' | '));
+    // Session chrome under the full-screen Computer view, one screen as dumped:
+    // the header is drawn after the Computer view, so its icon is later than the
+    // title it overlaps. Hidden from accessibility, it is in the default dump
+    // and absent from the compressed one.
+    const sessionHeader = el('android.view.ViewGroup', '[0,131][1080,251]', {},
+        el('android.widget.Button', '[916,131][1036,243]', { desc: 'Pane actions', clickable: true })
+        + el('android.widget.ImageView', '[180,159][236,215]'));
+    const composer = el('android.view.ViewGroup', '[0,2060][1080,2260]', {},
+        el('android.widget.Button', '[736,2088][856,2232]', { desc: 'Dictate', clickable: true })
+        + el('android.widget.Button', '[904,2088][1048,2232]', { desc: 'Talk to this session', clickable: true }));
+    const computer = (...extra) => el('android.view.ViewGroup', '[0,96][1080,2280]', {},
+        el('android.widget.TextView', '[160,131][784,251]', { text: 'Computer' })
+        + el('android.widget.Button', '[928,131][1056,251]', { desc: 'Desktop actions', clickable: true })
+        + el('android.widget.Button', '[260,1560][820,1736]', { desc: 'Try again', clickable: true }) + extra.join(''));
+    const screen = (...extra) => nodesOf(el('android.view.ViewGroup', '[0,96][1080,2280]', {}, computer(...extra) + sessionHeader + composer));
+    const covered = layout(screen(), { compressed: nodesOf(computer()) });
+    expect('session chrome hidden under the Computer view (absent from the compressed dump) is not an overlap or image-covers defect',
+        !covered.some((l) => l.startsWith('overlap') || l.startsWith('image covers')), covered.join(' | '));
+    const send = el('android.widget.Button', '[600,1600][1000,1700]', { desc: 'Send', clickable: true });
+    const seen = layout(screen(send), { compressed: nodesOf(computer(send)) });
+    expect('a visible control overlapping another visible control still fails',
+        seen.some((l) => l.startsWith('overlap: "Try again"') && l.includes('"Send"')) && !seen.some((l) => l.includes('"Dictate"')), seen.join(' | '));
     const bleed = el('com.facebook.react.views.image.ReactImageView', '[0,0][1080,2376]');
     const headline = el('android.widget.TextView', '[100,50][600,100]', { text: 'Headline' });
     const status = [0, 0, 1080, 145];
@@ -529,6 +567,9 @@ const native = (serial, dir, name, flags) => {
     adb('shell', 'uiautomator', 'dump', '/sdcard/visual-check.xml');
     const xml = adb('exec-out', 'cat', '/sdcard/visual-check.xml').toString();
     writeFileSync(join(dir, `${name}.xml`), xml);
+    adb('shell', 'uiautomator', 'dump', '--compressed', '/sdcard/visual-check-compressed.xml');
+    const compressedXml = adb('exec-out', 'cat', '/sdcard/visual-check-compressed.xml').toString();
+    writeFileSync(join(dir, `${name}.compressed.xml`), compressedXml);
     const shot = readFileSync(png);
     const W = shot.readUInt32BE(16), H = shot.readUInt32BE(20);
 
@@ -542,7 +583,7 @@ const native = (serial, dir, name, flags) => {
     const ref = refPath && existsSync(refPath) ? parseDump(readFileSync(refPath).toString()) : undefined;
     if (!ref) console.log(`image geometry not compared for ${name}: no reference dump`);
     const nodes = parseDump(xml);
-    const found = layoutLeads(nodes, { W, H, status, nav, end: flags.includes('--end'), ref });
+    const found = layoutLeads(nodes, { W, H, status, nav, end: flags.includes('--end'), ref, compressed: parseDump(compressedXml) });
     let words;
     try { words = ocrWords(png); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (words) found.push(...wordSplitLeads(nodes, words), ...paintedEllipsisLeads(nodes, words));
