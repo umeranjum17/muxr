@@ -389,7 +389,7 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   `MUXR_RELAY_PORT=0 MUXR_RELAY_HOST=<tailnet ip> MUXR_RELAY_DATA_DIR="$RUN_ROOT/relay" MUXR_RELAY_MDNS=0 node apps/relay/dist/main.js >"$RUN_ROOT/ios-relay.log" 2>&1 &`,
   then `IOS_RELAY_PID=$!`. Read its port from the `relay listening on ws://…:<port>` line in `ios-relay.log`
   with the same `sed` and 100-try loop as Launch step 1, then check `/health` ok. Write `$MUXR_HOME/selfhost.json`
-  with the fields Launch step 2 writes, but `relayUrl` `ws://<tailnet ip>:<port>`,
+  with the fields Launch step 2 writes, but `relayUrl` `ws://<tailnet ip>:<port>`. Create the tailnet state with the product command, run in this throwaway `MUXR_HOME` (never the captain's home): `muxr self-host --configure-only --advertise ws://<tailnet-address>:<port> --port <port>` (see `features/selfhost-health.md`; `configureSelfHost.mjs` sets `bindHost` from the tailnet address). Do not hand-set `bindHost`,
   and its mint secret from `$RUN_ROOT/relay/mint-secret`. Before any lab command,
   isolate ambient stores: `export HOME="$RUN_ROOT/home"`; then
   `mkdir -p "$HOME" "$HOME/.config" "$HOME/.local/share" "$HOME/.cache" "$HOME/.local/state" "$MUXR_HOME"`
