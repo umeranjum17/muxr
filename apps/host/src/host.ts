@@ -35,6 +35,8 @@ export interface HostOptions {
     terminals?: TerminalManager;
     hostVersion?: string;
     connectionMode?: string;
+    /** The setup-chosen start folder this machine reports to phones. */
+    defaultStartFolder?: string;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
     token?: string;
@@ -129,6 +131,7 @@ export function startHost(options: HostOptions): Host {
         ...(options.machineName === undefined ? {} : { machineName: options.machineName }),
         hostVersion,
         ...(options.connectionMode === undefined ? {} : { connectionMode: options.connectionMode }),
+        ...(options.defaultStartFolder === undefined ? {} : { defaultStartFolder: options.defaultStartFolder }),
         ...(options.hostedE2ee === undefined ? {} : { pairedDeviceCount: () => Object.entries(options.hostedE2ee!.deviceKinds ?? {})
             .filter(([id, kind]) => kind !== 'peer' && (options.hostedE2ee!.deviceExpiresAt?.[id] ?? 0) > Date.now()).length }),
         relayUrl: options.relayUrl,

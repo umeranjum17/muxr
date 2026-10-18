@@ -552,6 +552,7 @@ async function main(): Promise<void> {
         ...(diagnostics === undefined ? {} : { diagnostics }),
         hostVersion,
         ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
+        ...(hostConfig.defaultStartFolder === undefined ? {} : { defaultStartFolder: hostConfig.defaultStartFolder }),
     });
 
     // A dead host must never leave --takeover streams holding the desk's panes.

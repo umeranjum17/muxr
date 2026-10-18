@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('muxr', {
     deny: () => ipcRenderer.invoke('muxr:deny'),
     retry: () => ipcRenderer.invoke('muxr:retry'),
     installHerdr: () => ipcRenderer.invoke('muxr:install-herdr'),
+    setProjectFolder: (folder) => ipcRenderer.invoke('muxr:set-project-folder', folder),
     setKeepAwake: (on) => ipcRenderer.invoke('muxr:set-keep-awake', on),
     setAutostart: (on) => ipcRenderer.invoke('muxr:set-autostart', on),
     copyCode: (text) => ipcRenderer.invoke('muxr:copy', text),

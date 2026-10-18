@@ -12,7 +12,7 @@ import { resolveAgentCatalog } from '@/catalog';
 import { sync } from '@/catalog/sync';
 import { getCachedConnectionSettings } from '@/connection';
 import { agentName, firstAgentOffer, startNewAgent, type FirstAgentOffer } from '@/spawn';
-import { useHerdrTree, useLocalSettingMutable, useSessions, useSocketStatus } from '@/catalog/store';
+import { useAllMachines, useHerdrTree, useLocalSettingMutable, useSessions, useSocketStatus } from '@/catalog/store';
 import { openBackgroundActivitySettings } from '@/../modules/voice-overlay';
 import { notificationPermissionStatus, requestNotificationPermission } from '@/utils/microphonePermissions';
 import { getWebInstallState, promptWebInstall, subscribeWebInstall, type WebInstallState } from '@/utils/webInstall';
@@ -57,6 +57,7 @@ export function FirstAgentCard() {
     const [offer, setOffer] = React.useState<FirstAgentOffer | undefined>();
     const [error, setError] = React.useState<string | undefined>();
     const [startFailed, setStartFailed] = React.useState(false);
+    const machines = useAllMachines({ includeOffline: true });
     const check = React.useCallback(async (refresh: boolean) => {
         try {
             const { options, authoritative } = resolveAgentCatalog(await sync.request('herdr.agentKinds', { refresh }));
@@ -72,8 +73,10 @@ export function FirstAgentCard() {
     const choose = () => router.push('/new-agent' as never);
     const start = async (kind: string) => {
         setError(undefined);
+        const settings = getCachedConnectionSettings();
+        const machine = machines.find((candidate) => candidate.id === settings.machineId);
         const result = await startNewAgent({
-            directory: getCachedConnectionSettings().lastSessionCwd || '~',
+            directory: settings.lastSessionCwd || machine?.metadata?.defaultStartFolder || '~',
             kinds: [kind],
             squad: false,
             worktree: false,

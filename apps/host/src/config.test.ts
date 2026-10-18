@@ -25,10 +25,11 @@ describe('muxr config file', () => {
     });
 
     it('applies a partial hand-edited file over defaults', () => {
-        const file = parseMuxrConfigFile(PATH, JSON.stringify({ machineName: 'desk', hostHttpPort: 9999 }));
+        const file = parseMuxrConfigFile(PATH, JSON.stringify({ machineName: 'desk', hostHttpPort: 9999, defaultStartFolder: '/home/user/api' }));
         const resolved = resolveHostConfig({ argv: [], env: {}, file, defaults: DEFAULTS });
         expect(resolved.machineName).toBe('desk');
         expect(resolved.hostHttpPort).toBe(9999);
+        expect(resolved.defaultStartFolder).toBe('/home/user/api');
         expect(resolved.relayUrl).toBe(DEFAULTS.relayUrl);
     });
 
@@ -55,6 +56,8 @@ describe('muxr config file', () => {
             [JSON.stringify({ mode: 'cloud' }), 'mode', 'selfhost'],
             [JSON.stringify({ hostHttpPort: 99999 }), 'hostHttpPort', '1 to 65535'],
             [JSON.stringify({ dataDir: 'relative/path' }), 'dataDir', 'absolute path'],
+            [JSON.stringify({ defaultStartFolder: 'relative/path' }), 'defaultStartFolder', 'absolute path'],
+            [JSON.stringify({ defaultStartFolder: '' }), 'defaultStartFolder', 'absolute path'],
             [JSON.stringify({ mystery: 1 }), 'mystery', 'unknown setting'],
         ];
         for (const [text, key, reason] of cases) {

@@ -163,6 +163,25 @@ body {
     gap: 10px;
 }
 
+.folder-label {
+    display: block;
+    margin: 14px 0 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.folder-input {
+    width: 100%;
+    font: inherit;
+    color: var(--text);
+    background: var(--surface-highest);
+    border: 1px solid var(--divider);
+    border-radius: 12px;
+    padding: 11px 12px;
+    margin-bottom: 10px;
+    user-select: text;
+}
+
 button {
     font: inherit;
     cursor: pointer;

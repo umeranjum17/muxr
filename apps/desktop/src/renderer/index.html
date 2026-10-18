@@ -68,6 +68,18 @@
             </div>
         </section>
 
+        <section class="card" id="card-project" hidden>
+            <h1>Where is your project?</h1>
+            <p class="muted">Your first agent starts here. You can change it later on your phone.</p>
+            <p class="muted small" id="project-no-repo" hidden>No git project found — your agents will start in your home folder.</p>
+            <label class="folder-label" for="project-folder">Project folder</label>
+            <input class="folder-input" id="project-folder" type="text" spellcheck="false" />
+            <p class="error small" id="project-error" hidden></p>
+            <div class="row">
+                <button class="btn primary" id="save-project-folder" type="button">Use this folder</button>
+            </div>
+        </section>
+
         <section class="card" id="card-note" hidden>
             <p class="muted" id="note-message"></p>
         </section>

@@ -83,6 +83,8 @@ export interface RequestDispatcherOptions {
     hostVersion: string;
     connectionMode?: string;
     pairedDeviceCount?: () => number;
+    /** The setup-chosen start folder this machine reports to phones. */
+    defaultStartFolder?: string;
     /** Distinguish local-only artifact preparation from hosted clients. */
     relayUrl?: string;
     terminals?: TerminalManager;
@@ -541,6 +543,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             platform: hostPlatformLabel(),
             ...(options.connectionMode === undefined ? {} : { connectionMode: options.connectionMode }),
             ...(options.pairedDeviceCount === undefined ? {} : { pairedDeviceCount: options.pairedDeviceCount() }),
+            ...(options.defaultStartFolder === undefined ? {} : { defaultStartFolder: options.defaultStartFolder }),
         }).data,
         'machine.hello': async () => machineHello(machineId, hostVersion),
         'machine.shell': (params) => runMachineShell(params.command, params.cwd),

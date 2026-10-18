@@ -600,6 +600,31 @@ describe('session sync flow', () => {
         expect(savedConnection.lastSessionCwd).toBe('/home/user/api');
     });
 
+    it('starts the first agent in the folder setup chose on that computer, not ~', async () => {
+        savedConnection.lastSessionCwd = '';
+        savedConnection.recentSessionCwds = [];
+        request.mockImplementation(async (method: string) => {
+            if (method !== 'session.start') throw new Error(`unexpected request: ${method}`);
+            const id = `first-${request.mock.calls.length}`;
+            storage.setState({ sessions: { ...storage.getState().sessions, [id]: {} as Session } });
+            return { info: { id }, status: { sessionId: id, isStreaming: false, tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 } } };
+        });
+        const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
+        const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
+        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/user', defaultStartFolder: '/home/user/api' } } as never;
+        const cwds = () => request.mock.calls.map(([, params]) => (params as { cwd: string }).cwd);
+
+        // Fresh device, nothing picked: Home's Start uses the setup folder, not ~.
+        useNewSessionDraft.setState({ selectedPath: null, agentType: 'shell', input: '', attachments: [] });
+        await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
+        // Once the person starts somewhere, their last folder wins over setup's.
+        savedConnection.lastSessionCwd = '/home/user/notes-app';
+        useNewSessionDraft.setState({ selectedPath: null, agentType: 'shell', input: '', attachments: [] });
+        await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
+
+        expect(cwds()).toEqual(['/home/user/api', '/home/user/notes-app']);
+    });
+
     it('frees Home right after the spawn while the first prompt delivers', async () => {
         const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
         const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
