@@ -266,57 +266,80 @@ describe('native pairing over the byokit link', () => {
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     });
 
-    it('pairs the first phone through the kit files after wrong words and a cancelled peer reset, then refuses a second handoff', async () => {
+    it('pairs the first phone through the kit files after wrong words, a cancelled peer reset and a code that ran out, then refuses a second handoff', async () => {
         const workDir = join(home, 'kit-work');
         mkdirSync(workDir);
         const outbox = join(workDir, '.byokit', 'outbox');
-        for (const mode of ['wrong', 'cancel', 'matching']) {
-            const matches = mode === 'matching';
-            const before = readSelfhostState().machine.crypto.devices.length;
-            const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
-            const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
-            let shownWords = '';
-            try {
-                const file = await until(() => {
-                    if (command.exitCode !== null) throw new Error(command.output());
-                    return existsSync(outbox) ? readdirSync(outbox).find((name) => name.endsWith('.json')) : undefined;
-                }, 'handoff offer');
-                const offerPath = join(outbox, file);
-                const offered = JSON.parse(readFileSync(offerPath, 'utf8'));
-                expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
-                expect(offered.version).toBe(1);
-                const pairing = runPhonePairing(offered.offer, { onWords: async (words) => {
-                    shownWords = words;
-                    if (mode === 'cancel') {
-                        // Let the computer enter the actual SAS approval wait,
-                        // then its CLI closes the local socket during cancel.
-                        await new Promise((resolve) => setTimeout(resolve, 300));
-                        command.kill('SIGTERM');
-                        return;
+        const inbox = join(workDir, '.byokit', 'inbox');
+        // Same raw-byte, private, atomic rename contract as kit deliver.
+        const deliver = (wordsFile: string, text: string) => {
+            const wordsPath = join(inbox, wordsFile);
+            writeFileSync(`${wordsPath}.tmp`, text, { mode: 0o600 });
+            renameSync(`${wordsPath}.tmp`, wordsPath);
+        };
+        const nextOffer = (command: ChildProcess & { output: () => string }, previousWords?: string) => until(() => {
+            if (command.exitCode !== null) throw new Error(command.output());
+            const file = existsSync(outbox) ? readdirSync(outbox).find((name) => name.endsWith('.json')) : undefined;
+            if (file === undefined) return undefined;
+            const offerPath = join(outbox, file);
+            const offered = JSON.parse(readFileSync(offerPath, 'utf8'));
+            return offered.wordsFile === previousWords ? undefined : { offerPath, offered };
+        }, 'handoff offer', 60_000);
+        // Short codes let the matching run see one code run out before its yes.
+        await startHost('20000');
+        try {
+            for (const mode of ['wrong', 'cancel', 'matching']) {
+                const matches = mode === 'matching';
+                const before = readSelfhostState().machine.crypto.devices.length;
+                const command = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
+                const exited = new Promise<number | null>((resolve) => command.once('exit', resolve));
+                let shownWords = '';
+                try {
+                    const { offerPath, offered } = await nextOffer(command);
+                    expect(Buffer.byteLength(readFileSync(offerPath))).toBeLessThanOrEqual(64 * 1024);
+                    expect(offered.version).toBe(1);
+                    let current = offered;
+                    if (matches) {
+                        let lateWords = '';
+                        await expect(runPhonePairing(offered.offer, { onWords: async (words) => { lateWords = words; } }))
+                            .rejects.toBeInstanceOf(PairingNeedsNewCode);
+                        current = (await nextOffer(command, offered.wordsFile)).offered;
+                        // The first code's words arrive after it ran out; the next code's approval starts later.
+                        deliver(offered.wordsFile, lateWords);
+                        await new Promise((resolve) => setTimeout(resolve, 6_000));
                     }
-                    const wordsPath = join(workDir, '.byokit', 'inbox', offered.wordsFile);
-                    // Same raw-byte, private, atomic rename contract as kit deliver.
-                    writeFileSync(`${wordsPath}.tmp`, matches ? words : 'wrong words', { mode: 0o600 });
-                    renameSync(`${wordsPath}.tmp`, wordsPath);
-                } });
-                if (matches) await pairing;
-                else await expect(pairing).rejects.toThrow();
-                expect(await exited).toBe(matches ? 0 : 1);
-                expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
-                expect(existsSync(offerPath)).toBe(false);
-                expect(existsSync(join(workDir, '.byokit', 'inbox', offered.wordsFile))).toBe(false);
-                expect(command.output()).not.toContain(offered.offer);
-                expect(shownWords).not.toBe('');
-                expect(command.output()).not.toContain(shownWords);
-                if (mode === 'wrong') expect(command.output()).toContain('two words did not match');
-                if (mode === 'cancel') {
-                    await until(() => host!.output().includes('Pairing connection lost; this pairing attempt ended.') ? true : undefined,
-                        'host contains the peer reset without crashing');
-                    expect(host!.exitCode).toBeNull();
-                    expect(host!.signalCode).toBeNull();
-                    expect(host!.output().match(/Pairing connection lost; this pairing attempt ended\./g)).toHaveLength(1);
-                }
-            } finally { await stop(command); }
+                    const pairing = runPhonePairing(current.offer, { onWords: async (words) => {
+                        shownWords = words;
+                        if (mode === 'cancel') {
+                            // Let the computer enter the actual SAS approval wait,
+                            // then its CLI closes the local socket during cancel.
+                            await new Promise((resolve) => setTimeout(resolve, 300));
+                            command.kill('SIGTERM');
+                            return;
+                        }
+                        deliver(current.wordsFile, matches ? words : 'wrong words');
+                    } });
+                    if (matches) await pairing;
+                    else await expect(pairing).rejects.toThrow();
+                    expect(await exited).toBe(matches ? 0 : 1);
+                    expect(readSelfhostState().machine.crypto.devices.length).toBe(before + (matches ? 1 : 0));
+                    expect(existsSync(offerPath)).toBe(false);
+                    expect(existsSync(join(inbox, current.wordsFile))).toBe(false);
+                    expect(command.output()).not.toContain(current.offer);
+                    expect(shownWords).not.toBe('');
+                    expect(command.output()).not.toContain(shownWords);
+                    if (mode === 'wrong') expect(command.output()).toContain('two words did not match');
+                    if (mode === 'cancel') {
+                        await until(() => host!.output().includes('Pairing connection lost; this pairing attempt ended.') ? true : undefined,
+                            'host contains the peer reset without crashing');
+                        expect(host!.exitCode).toBeNull();
+                        expect(host!.signalCode).toBeNull();
+                        expect(host!.output().match(/Pairing connection lost; this pairing attempt ended\./g)).toHaveLength(1);
+                    }
+                } finally { await stop(command); }
+            }
+        } finally {
+            await startHost();
         }
 
         const second = launch([cliMain, 'pair', '--handoff'], { MUXR_DESKTOP_SOURCE: 'x11' }, workDir);
@@ -327,7 +350,7 @@ describe('native pairing over the byokit link', () => {
             expect(readSelfhostState().machine.crypto.devices.length).toBe(1);
             expect(existsSync(outbox) ? readdirSync(outbox) : []).toEqual([]);
         } finally { await stop(second); }
-    }, 60_000);
+    }, 120_000);
 
     it('re-pairs an older phone with matching words and carries all events and RPC over the link', async () => {
         const machineId = readSelfhostState().machine.id;

@@ -8,6 +8,7 @@ import { linkPair } from './linkPair.mjs';
 
 const LIMIT = 64 * 1024;
 const WAIT_MS = 120_000;
+const RACE_MS = 5_000;
 
 function readWords(path) {
     let fd;
@@ -22,7 +23,7 @@ function readWords(path) {
         if (!info.isFile() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0 || info.size > LIMIT) {
             throw new Error('pairing refused: unsafe words file');
         }
-        return readFileSync(fd, 'utf8').trim();
+        return { text: readFileSync(fd, 'utf8').trim(), mtimeMs: info.mtimeMs };
     } finally { closeSync(fd); }
 }
 
@@ -61,6 +62,7 @@ export async function pairHandoff(state) {
                 print(`Pairing offer ready in the kit outbox: ${offerPath}. Waiting for the phone’s two words.`);
             },
             approve: async ({ words }, runOut) => {
+                const since = Date.now() - RACE_MS;
                 while (!controller.signal.aborted && !runOut.aborted) {
                     for (const [path, keepUntil] of openOffers) {
                         if (Date.now() >= keepUntil) {
@@ -68,9 +70,9 @@ export async function pairHandoff(state) {
                             rmSync(path, { force: true });
                             continue;
                         }
-                        const text = readWords(path);
-                        if (text === undefined) continue;
-                        if (text !== words) throw new Error('pairing refused: the two words did not match');
+                        const fresh = readWords(path);
+                        if (fresh === undefined || fresh.mtimeMs < since) continue;
+                        if (fresh.text !== words) throw new Error('pairing refused: the two words did not match');
                         return true;
                     }
                     await sleep(100, undefined, { signal: controller.signal }).catch(() => {});
