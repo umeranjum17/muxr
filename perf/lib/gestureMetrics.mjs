@@ -496,6 +496,7 @@ export function parseRedactedTrail(text) {
  */
 export function trailSince(after, before) {
     if (after?.seq === undefined || before?.seq === undefined) return { ok: false, why: 'the phone reported no gesture totals' };
+    if (after.absorbedRows === undefined || before.absorbedRows === undefined) return { ok: false, why: 'the phone trail predates absorbed-row totals' };
     // Totals only ever grow. Going backwards means the app restarted or the
     // trail was cleared under us, and nothing across that break is comparable.
     if (after.seq < before.seq
