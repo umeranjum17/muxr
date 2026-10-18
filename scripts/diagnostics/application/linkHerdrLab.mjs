@@ -1,8 +1,9 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { loadavg } from 'node:os';
 import { join } from 'node:path';
 import { machineIdentity } from '../../setup/index.mjs';
-import { linkLabClient } from './linkLabClient.mjs';
+import { linkLabClient, linkWaitMs } from './linkLabClient.mjs';
 import { waitForRelay } from './waitForRelay.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -56,8 +57,13 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
     let link;
     try {
         if (beforeHost !== undefined) beforeHost((args) => execFileSync(wrapper, args, { encoding: 'utf8' }), session);
+        const load = loadavg()[0];
+        const waitMs = linkWaitMs(load);
+        const waited = `${(waitMs / 1000).toFixed(1)}s`;
+        console.log(`lab link wait ${waited} (1-min load ${load.toFixed(2)})`);
+        const deadline = Date.now() + waitMs;
         const relay = start(['apps/relay/dist/main.js'], { MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: relayDir, MUXR_RELAY_MDNS: '0' });
-        const port = await waitForRelay(relay);
+        const port = await waitForRelay(relay, deadline - Date.now());
         const machine = machineIdentity(undefined);
         const owner = JSON.parse(readFileSync(join(relayDir, 'mint-secret'), 'utf8'));
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, machine, relayPort: port,
@@ -66,9 +72,8 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
         // A relay bound for a device elsewhere on the network is dialled at that address too.
         const host = start(['apps/host/dist/main.js'], { MUXR_MODE: 'selfhost', MUXR_DATA_DIR: hostDir,
             ...(process.env.MUXR_RELAY_HOST ? { MUXR_RELAY_URL: `ws://${process.env.MUXR_RELAY_HOST}:${port}/relay` } : {}) });
-        const deadline = Date.now() + 25_000;
         while (!existsSync(join(hostDir, 'pair.sock'))) {
-            if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host did not start: ${host.output()}`);
+            if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host did not start within ${waited}: ${host.output()}`);
             await sleep(100);
         }
         // The pairing server listens before the host's own relay link is up, so a
@@ -76,10 +81,10 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
         // for the host's own online line first; on a loaded machine this is the
         // difference between a proven journey and a flaky refusal.
         while (!host.output().includes('link relay: online')) {
-            if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host never reached the relay: ${host.output()}`);
+            if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host never reached the relay within ${waited}: ${host.output()}`);
             await sleep(100);
         }
-        link = await linkLabClient(join(hostDir, 'pair.sock'), onEvent);
+        link = await linkLabClient(join(hostDir, 'pair.sock'), onEvent, deadline);
         return { link, env, machine, port, session, wrapper,
             herdr: (args, timeout = 10_000) => execFileSync(wrapper, args, { encoding: 'utf8', timeout }),
             stop: () => stop(link) };

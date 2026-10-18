@@ -68,8 +68,7 @@ Optional supporting check: the kit's WER CLI for `@byokit/dictation` 0.5.0 on
 the same fixtures. No result is recorded in this repo; the phone run above is
 the proof. Evidence goes under `~/.no-mistakes/evidence`, not the diff.
 
-Status: run13, at
-`/home/umer/.treehouse/firstmate-8bf1b0/8/firstmate/data/pock-vad-realtime-mic-claim1/evidence/run13/`,
+Status: run13 of the realtime-mic-claim proof, kept in the private evidence store,
 passed all four takes: clean-quiet, clean-silence (empty draft), clean-clean,
 and reinstall-quiet after `install -r` over old data. Its log reads `realtime:
 none opened (microphone service samples running=0 of 570 successful dumps in 572
