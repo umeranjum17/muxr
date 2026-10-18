@@ -378,9 +378,12 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   (Cleanup copies this log out). The app is
   `~/fm-verify-pockit-ios1/dd/Build/Products/Release-iphonesimulator/muxr.app`
   (`com.trymuxr.app`); `xcrun simctl install <UDID> <app>`.
-- **Host.** Set the home explicitly: `export MUXR_HOME="$RUN_ROOT/muxr-home"` and
-  `mkdir -p "$MUXR_HOME"`. On this path run one relay and one host of its own
-  under that home; do not start Launch's loopback relay or its `--fake` host.
+- **Host.** Before any process starts, in this shell:
+  `unset MUXR_RELAY_TOKEN MUXR_RELAY_URL MUXR_MACHINE_ID MUXR_RELAY_AUTH MUXR_DATA_DIR MUXR_NAMING_PORT`
+  and `export MUXR_RELAY_MDNS=0 MUXR_NO_SERVICE_COMMANDS=1`. Set the home
+  explicitly: `export MUXR_HOME="$RUN_ROOT/muxr-home"` and `mkdir -p "$MUXR_HOME"`.
+  On this path run one relay and one host of its own under that home; do not start
+  Launch's loopback relay or its `--fake` host.
   Relay on the tailnet address, in the background as `IOS_RELAY_PID=$!`:
   `MUXR_RELAY_PORT=0 MUXR_RELAY_HOST=<tailnet ip> MUXR_RELAY_DATA_DIR="$RUN_ROOT/relay" MUXR_RELAY_MDNS=0`,
   port read from its stdout line, `/health` ok. Write `$MUXR_HOME/selfhost.json`
@@ -407,7 +410,7 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   OFFER="$(ls "$RUN_ROOT"/kit/.byokit/outbox/muxr-pair-*.json)"
   node -e 'const o = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write("muxr://pair#" + o.offer)' "$OFFER" \
     | ssh <mac-user>@<mac-ip> 'umask 077; cat > ~/fm-verify-pockit-ios1/pair-link.txt'
-  ssh <mac-user>@<mac-ip> 'xcrun simctl openurl <UDID> "$(cat ~/fm-verify-pockit-ios1/pair-link.txt)"; rm -f -- ~/fm-verify-pockit-ios1/pair-link.txt' && echo "openurl sent"
+  ssh <mac-user>@<mac-ip> 'xcrun simctl openurl <UDID> "$(cat ~/fm-verify-pockit-ios1/pair-link.txt)"; st=$?; rm -f -- ~/fm-verify-pockit-ios1/pair-link.txt; exit $st' && echo "openurl sent"
   ```
   Offers expire in about two minutes, so send it at once. Tap Pair with
   `axe tap -x <pt> -y <pt>` on the Mac; points are the screenshot pixels divided
@@ -423,7 +426,7 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
 - **Cleanup.** On an iOS drive run these lines, each on its own, with no `&&` or
   `set -e` between them, so every line runs even when an earlier one fails:
   ```sh
-  kill "$IOS_HOST_PID" "$IOS_RELAY_PID" 2>/dev/null
+  kill "$IOS_HOST_PID" "$IOS_RELAY_PID" "$PAIR_PID" 2>/dev/null
   fm-herdr-lab.sh teardown <session>
   scp <mac-user>@<mac-ip>:fm-verify-pockit-ios1/build.log "$EVIDENCE/ios-build.log"
   ssh <mac-user>@<mac-ip> 'rm -rf -- ~/fm-verify-pockit-ios1'
