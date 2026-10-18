@@ -92,7 +92,7 @@ function scriptedTurn(sessionId: string, session: SessionInfo, demoWrite: { path
 export function createFakeSessionSource(): SessionSource {
     const listeners = new Set<(sessionId: string, event: SessionEventBody) => void>();
     const sessions = new Map<string, SessionInfo>();
-    const turnsInFlight = new Set<string>();
+    const handoffsInFlight = new Set<string>();
     let counter = 0;
 
     function emit(sessionId: string, event: SessionEventBody): void {
@@ -281,22 +281,23 @@ export function createFakeSessionSource(): SessionSource {
                     '',
                 ].join('\n'),
             };
-            turnsInFlight.add(options.sessionId);
-            try {
-                await writeFile(demoWrite.path, demoWrite.content);
-                for (const event of scriptedTurn(options.sessionId, session, demoWrite)) emit(options.sessionId, event);
-            } finally {
-                turnsInFlight.delete(options.sessionId);
-            }
+            await writeFile(demoWrite.path, demoWrite.content);
+            for (const event of scriptedTurn(options.sessionId, session, demoWrite)) emit(options.sessionId, event);
         },
 
 
         async handoff(options: SessionHandoffOptions) {
             requireSession(options.sessionId);
-            if (turnsInFlight.has(options.sessionId)) {
+            if (handoffsInFlight.has(options.sessionId)) {
                 throw Object.assign(new Error('Wait for this conversation to finish before continuing it.'), { code: 'handoff-busy' });
             }
-            return { note: `Fake handoff note for ${options.targetName}.` };
+            handoffsInFlight.add(options.sessionId);
+            try {
+                await Promise.resolve();
+                return { note: `Fake handoff note for ${options.targetName}.` };
+            } finally {
+                handoffsInFlight.delete(options.sessionId);
+            }
         },
 
         async status(sessionId) {

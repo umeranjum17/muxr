@@ -1600,6 +1600,9 @@ export async function createHerdrSessionSource(
     // Resolved at each use, so a Herdr installed after the host started is
     // found without a restart; the kit spawns that exact path for CLI and terminal verbs.
     const resolvedHerdrBin = (): string | undefined => options.herdrBin || process.env.HERDR_BIN || findHerdrBin();
+    const handoffsInFlight = new Set<string>();
+    let statusRefreshRunning = false;
+    let statusRefreshQueued = false;
     /**
      * A detection re-bootstraps the kit, which opens the pane's status watch.
      * A status that changed before that watch acked was never pushed, and the
@@ -1607,6 +1610,11 @@ export async function createHerdrSessionSource(
      * settles once the status watches have acked, so read the snapshot then.
      */
     function refreshAfterStatusWatch(): void {
+        if (statusRefreshRunning) {
+            statusRefreshQueued = true;
+            return;
+        }
+        statusRefreshRunning = true;
         const watchTimeout = new AbortController();
         const watchesAcked = Promise.race([
             client.kit.refresh(),
@@ -1617,25 +1625,19 @@ export async function createHerdrSessionSource(
             .catch((cause) => {
                 process.stderr.write(`herdr status refresh failed: ${cause instanceof Error ? cause.message : String(cause)}\n`);
                 scheduleResnapshot();
+            })
+            .finally(() => {
+                statusRefreshRunning = false;
+                if (statusRefreshQueued) {
+                    statusRefreshQueued = false;
+                    refreshAfterStatusWatch();
+                }
             });
-    }
-
-    /**
-     * The kit opens every per-pane status watch while it bootstraps and only
-     * then starts delivering status frames. Once that set acks, a conversation
-     * Herdr published while the watches were landing is discoverable, so the
-     * mirror re-reads on that edge; muxr holds no watches of its own.
-     */
-    function resnapshotAfterStatusWatch(): void {
-        void client.statusWatchReady()
-            .then(() => [...agentsByPane.keys()].some(needsSessionDiscovery))
-            .then((missing) => (missing === true ? refreshSnapshotFresh().then(emitAllStates) : undefined))
-            .catch(() => {});
     }
     const client = new KitHerdrClient(() => resolvedHerdrBin() ?? 'herdr', socketPath, () => {
         routingEpoch += 1;
         void refreshSnapshot().then(emitAllStates).then(() => artifacts.rescanAll()).catch(() => {});
-        resnapshotAfterStatusWatch();
+        refreshAfterStatusWatch();
     });
     // The kit reads a blocked agent's question once its status flips; that releases the held alert.
     const stopBlockedWatch = client.kit.onBlocked((entry, change) => {
@@ -1952,7 +1954,7 @@ export async function createHerdrSessionSource(
         await client.start();
         await refreshSnapshot();
         emitAllStates();
-        resnapshotAfterStatusWatch();
+        refreshAfterStatusWatch();
         // Seed the backstop before a phone connects; an empty unchanged
         // pane must not announce itself thirty seconds after a phone connects.
         await artifacts.rescanAll();
@@ -3368,13 +3370,15 @@ export async function createHerdrSessionSource(
             if (session.agent === undefined) throw agentUnavailable();
             const cwd = cwdForSession(session.sessionId);
             if (!cwd) throw Object.assign(new Error('Herdr does not report this agent\'s folder, so its handoff note cannot be written.'), { code: 'handoff-failed' });
+            if (handoffsInFlight.has(session.sessionId)) throw handoffError({ code: 'turn-busy' });
+            handoffsInFlight.add(session.sessionId);
             const end = await client.kit.runTurn({ paneId: session.paneId, ...(session.agent.name ? { name: session.agent.name } : {}) }, {
                 prompt: handoffPrompt(handoffOptions.targetName),
                 cwd,
                 timeoutMs: HANDOFF_TIMEOUT_MS,
                 files: false,
                 result: { schema: HANDOFF_RESULT_SCHEMA, validate: isHandoffNote, maxBytes: HANDOFF_NOTE_MAX * 4 },
-            }).catch((cause: unknown) => { throw handoffError(cause); });
+            }).catch((cause: unknown) => { throw handoffError(cause); }).finally(() => handoffsInFlight.delete(session.sessionId));
             if (end.result.state === 'valid') return { note: end.result.value.note };
             throw handoffError({ code: end.result.state === 'invalid' ? 'result-invalid' : 'result-missing' });
         },
