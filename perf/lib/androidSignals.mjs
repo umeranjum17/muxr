@@ -23,7 +23,7 @@ import { assertCommandActive, runCommand as run } from './commands.mjs';
 import { androidArgs } from './deviceTarget.mjs';
 
 import { writeFileSync } from 'node:fs';
-import { parseFrameStatsDump, parseJankDump, parseUptime } from './gestureMetrics.mjs';
+import { parseFrameStatsDump, parseJankDump, parseUiNodes, parseUptime } from './gestureMetrics.mjs';
 
 /** Linux clock ticks per second; /proc jiffies are in these units. */
 const HZ = 100;
@@ -49,24 +49,32 @@ async function quiet(args, timeout = 10_000, maxBuffer) {
  * updates, notifications - and they queue, one appearing as the last is
  * dismissed. None of them are what the gate measures, and the app's own alert
  * ignores BACK, so each button is tapped at the bounds the accessibility tree
- * reports until two consecutive looks find none.
+ * reports until two fresh looks find none. Home's inline first-run cards do not
+ * block the herd and must not be mistaken for those dialogs.
  */
 export async function dismissPrompts(labels = ['CANCEL', 'Not now', 'Deny', 'Later', 'Allow']) {
     let dismissed = 0;
     let quietLooks = 0;
     for (let attempt = 0; attempt < 8 && quietLooks < 2; attempt += 1) {
-        await quiet(['shell', 'uiautomator', 'dump', '/sdcard/perf-prompt.xml'], 20_000);
-        const screen = await quiet(['shell', 'cat', '/sdcard/perf-prompt.xml'], 20_000);
-        const hit = [...screen.matchAll(/text="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g)]
-            .find(([, text]) => labels.some((label) => text.toLowerCase() === label.toLowerCase()));
+        const screen = await dumpUiXml();
+        if (screen === '') {
+            quietLooks = 0;
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue;
+        }
+        const nodes = parseUiNodes(screen);
+        const homeCards = nodes.filter(({ desc }) => desc === 'Dismiss notification primer card'
+            || desc === 'Dismiss background connection card');
+        const hit = nodes.find((node) => labels.some((label) => node.text.toLowerCase() === label.toLowerCase())
+            && !homeCards.some((card) => node.l >= card.l && node.t >= card.t && node.r <= card.r && node.b <= card.b));
         if (hit === undefined) {
             quietLooks += 1;
             await new Promise((resolve) => setTimeout(resolve, 1500));
             continue;
         }
         quietLooks = 0;
-        const x = Math.round((Number(hit[2]) + Number(hit[4])) / 2);
-        const y = Math.round((Number(hit[3]) + Number(hit[5])) / 2);
+        const x = Math.round((hit.l + hit.r) / 2);
+        const y = Math.round((hit.t + hit.b) / 2);
         await quiet(['shell', 'input', 'tap', String(x), String(y)]);
         dismissed += 1;
         await new Promise((resolve) => setTimeout(resolve, 1200));

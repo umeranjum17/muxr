@@ -34,7 +34,7 @@ import { startFakeStack } from './lib/fakeStack.mjs';
 import { androidArgs, setAndroidSerial } from './lib/deviceTarget.mjs';
 import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, SCENARIO_VERSION, scenarioSummary } from './lib/scenario.mjs';
 import { tourEverySession } from './lib/deviceTour.mjs';
-import { herdChromeConnected, pairPhone } from './lib/pairPhone.mjs';
+import { pairPhone, returnToHerd as returnPhoneToHerd, worldLabels } from './lib/pairPhone.mjs';
 import { readPhoneTrail } from './lib/phoneTrail.mjs';
 import {
     appPid,
@@ -330,19 +330,7 @@ function readJsonlStrict(path) {
 // A dump nobody could take reads as an empty screen, never as the last one.
 const dumpUi = () => dumpUiXml();
 
-async function returnToHerd() {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-        await dismissPrompts();
-        // An open IME eats the BACK that was meant to leave the route.
-        await dismissKeyboard();
-        const dump = await dumpUi();
-        if (/text="LIVE"/.test(dump) && herdChromeConnected(dump)
-            && !dump.includes(`content-desc="${TERMINAL_SURFACE}"`) && !/Type a prompt/.test(dump)) return true;
-        await run('adb', androidArgs(['shell', 'input', 'keyevent', 'BACK']), { timeout: 10_000 }).catch(() => undefined);
-        await sleep(700);
-    }
-    return false;
-}
+const returnToHerd = () => returnPhoneToHerd(worldLabels(stack.world));
 
 async function tapBounds(pattern) {
     const bounds = await viewBounds(pattern);
@@ -1484,8 +1472,11 @@ if (!paired.ok) {
     finish(1);
 }
 report.herdVisibleMs = paired.herdVisibleMs;
+report.pairingCleanupMs = paired.pairingCleanupMs;
+report.pairingTotalMs = paired.pairingTotalMs;
 ok(`paired and the herd screen is visible after ${Math.round(paired.herdVisibleMs / 1000)}s`
     + `${paired.attempt > 1 ? ` (attempt ${paired.attempt})` : ''}`);
+ok(`pairing cleanup ${paired.pairingCleanupMs}ms; total cold pairing ${paired.pairingTotalMs}ms`);
 if (paired.herdVisibleMs > LIMITS.herdVisibleMs) fail(`the herd took ${Math.round(paired.herdVisibleMs / 1000)}s to reach the phone`);
 ingestHostJournal(journalAcc, stack.journalPath ?? join(stack.dataDir, 'diagnostics.json'));
 
@@ -1502,7 +1493,7 @@ for (const phase of PHASES) {
     // Prerequisite first, and nothing is measured if it fails: a gesture bout on
     // the wrong screen still produces a full set of plausible numbers.
     const ready = await preparePhase(phase, screen, hz);
-    if (!ready.ok) abortPhase(phase, ready.why, { flowExit: ready.flowExit, flowOutput: ready.flowOutput });
+    if (!ready.ok) abortPhase(phase, `prerequisite failed: ${ready.why}`, { flowExit: ready.flowExit, flowOutput: ready.flowOutput });
     // The sampler opens before anything is injected and stays open while the
     // attempt is: a bout that overruns its commanded seconds is still sampled to
     // its last settle, instead of being described by a window that closed first.
