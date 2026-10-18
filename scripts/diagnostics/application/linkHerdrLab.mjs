@@ -11,8 +11,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {}) {
     const helper = process.env.HERDR_LAB_HELPER;
     if (!helper) throw new Error('HERDR_LAB_HELPER is not set: point it at a Herdr lab helper script to run the lab link.');
-    const session = execFileSync(helper, ['name', label], { encoding: 'utf8' }).trim();
-    execFileSync(helper, ['provision', session]);
+    const session = process.env.HERDR_LAB_SESSION ?? execFileSync(helper, ['name', label], { encoding: 'utf8' }).trim();
+    const externallyProvisioned = process.env.HERDR_LAB_PREPROVISIONED === '1';
+    if (!externallyProvisioned) execFileSync(helper, ['provision', session]);
     const status = JSON.parse(execFileSync(helper, ['run', session, 'status', '--json'], { encoding: 'utf8' }));
     const wrapper = join(root, 'herdr-lab.sh');
     // The kit starts `herdr terminal` with a narrow env, so the wrapper carries the lab's own state dir itself.
@@ -52,7 +53,7 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
             child.kill('SIGTERM');
             await exited;
         }));
-        execFileSync(helper, ['teardown', session]);
+        if (!externallyProvisioned) execFileSync(helper, ['teardown', session]);
     };
     let link;
     try {
