@@ -1107,11 +1107,6 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
-"@byokit/cloud@0.1.0":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@byokit/cloud/-/cloud-0.1.0.tgz#5d1ed5c1a5c51e833b053ed6efb14e823974ccb4"
-  integrity sha512-q1zKqDBOI6aEOX065Eld6VwVlvSf0sua1ttcepAsg1Er9/2rE+qJLsmUhm7rttJSjh3wlcrtWA43jzHXX5f5DQ==
-
 "@byokit/accounts@0.24.1":
   version "0.24.1"
   resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.24.1.tgz#1b30377dcacae3644c79ba8416927814eb5b49a8"
@@ -1132,12 +1127,26 @@
   resolved "https://registry.yarnpkg.com/@byokit/audio/-/audio-0.2.0.tgz#1b33bc0436cf3d06b37dd609bb59142444cd6cb2"
   integrity sha512-DJfUo6UVjxtvE4E8uVXLbwlEc/y/g+yyekxxGL+Hx7861A8j+eAeijiDKYf5lAfUjKir1DpR2yYpetOLq4dZ+A==
 
+"@byokit/cloud@0.1.0":
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/@byokit/cloud/-/cloud-0.1.0.tgz#5d1ed5c1a5c51e833b053ed6efb14e823974ccb4"
+  integrity sha512-q1zKqDBOI6aEOX065Eld6VwVlvSf0sua1ttcepAsg1Er9/2rE+qJLsmUhm7rttJSjh3wlcrtWA43jzHXX5f5DQ==
+
 "@byokit/dictation@0.5.0":
   version "0.5.0"
   resolved "https://registry.yarnpkg.com/@byokit/dictation/-/dictation-0.5.0.tgz#947c84a29878ada5c508f500be3139a47029e41c"
   integrity sha512-0jRE5UumurwwokrlauGX4iClcBkE3gMaEvY9s+65kGTsEl5kUqb7G9ThdnAa41c3N64Prz7dMCAOj1uIRmIluA==
   dependencies:
     "@byokit/audio" "0.2.0"
+
+"@byokit/discover@0.8.0":
+  version "0.8.0"
+  resolved "https://registry.yarnpkg.com/@byokit/discover/-/discover-0.8.0.tgz#1382e55a946a9f9638317b6bfb31a3232c80d17d"
+  integrity sha512-6tQj3k5WsRUgcbHhbRlu0b2+fT6OpH3tfGWrg/WxV0ypjTn0TIVxT4CYafdg9l/l1YFXSPLCAWcYlfCLoczgpQ==
+  dependencies:
+    "@byokit/ui" "0.7.0"
+    bonjour-service "^1.4.4"
+    react-native-zeroconf "0.17.3"
 
 "@byokit/herdr@0.16.1":
   version "0.16.1"
@@ -1159,14 +1168,12 @@
     sodium-native "5.1.0"
     sodium-universal "5.0.1"
 
-"@byokit/reach@0.6.0":
-  version "0.6.0"
-  resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.6.0.tgz#1ce4dc08470594123c778cae531f1655d4013960"
-  integrity sha512-+cG5+DASrvvMTleTSFNeQm5TrEIhNRYamaKg/Re7JjO7Yo7EITsxGUteIbRCschpOs3wZBhSgi4Kxnx/9dbp7A==
+"@byokit/reach@0.7.1":
+  version "0.7.1"
+  resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.7.1.tgz#bf45621b87ab7e4df82773bbeddd4cf60d5a165b"
+  integrity sha512-NikJFqZjZfihIzkzBzaHcjPcesO6a1LTs6ZeauqIO5KtuaM7BaaEixMzCwuMeb0rh69G0RZ3Q+Osd+JiQtCwlw==
   dependencies:
-    "@byokit/ui-core" "0.6.0"
-    bonjour-service "^1.4.4"
-    react-native-zeroconf "0.14.0"
+    "@byokit/discover" "0.8.0"
 
 "@byokit/realtime@0.3.1":
   version "0.3.1"
@@ -1217,10 +1224,17 @@
   resolved "https://registry.yarnpkg.com/@byokit/statusbar/-/statusbar-0.1.1.tgz#cbd9298829b4833c9db6c23459b05c2080fe7b4e"
   integrity sha512-TcGsKu4QMTYgmyxeDMSwMo9err113QLFa5BlTVdLKV7dcB/UlhDIbNz470KPCk6v0TH4joiZECZecCbxS86i1g==
 
-"@byokit/ui-core@0.6.0":
-  version "0.6.0"
-  resolved "https://registry.yarnpkg.com/@byokit/ui-core/-/ui-core-0.6.0.tgz#769c4126e308c08277ad2bbd08ff64df01a3837b"
-  integrity sha512-1kUVi4/5pZEG5lhCYTyBTGLHtJDWLUEWbsmbL0pVCU4WrCvcx/is06sLEvHlQF8ZXmebU6EfdREJrpX6yut9wQ==
+"@byokit/ui-core@0.7.0":
+  version "0.7.0"
+  resolved "https://registry.yarnpkg.com/@byokit/ui-core/-/ui-core-0.7.0.tgz#ffeec28e9538bf6eb8febfd2e0f66598fe732daa"
+  integrity sha512-plME6WeCQoyb1upmIFat7gFsXPoo2FxO9vQqDD51zJAZxbGoQhRMHUE059zcA7kbXx/Usz8q2L2Yb7u2XJkNNg==
+  dependencies:
+    "@byokit/ui" "0.7.0"
+
+"@byokit/ui@0.7.0":
+  version "0.7.0"
+  resolved "https://registry.yarnpkg.com/@byokit/ui/-/ui-0.7.0.tgz#a09ad4c4c742054204b6d674746cd34ba20ada5f"
+  integrity sha512-lSi4u7RFPA3fExJQR/36QLdi4iZvxfGTlkfqUXlue+KVW5JQd3TrMajJpBgoD1jJPUNA8FzOI5chqL5yqukbtg==
   dependencies:
     uqr "0.1.3"
 
@@ -9483,10 +9497,10 @@ react-native-worklets@0.7.2, react-native-worklets@^0.7.4:
     convert-source-map "2.0.0"
     semver "7.7.3"
 
-react-native-zeroconf@0.14.0:
-  version "0.14.0"
-  resolved "https://registry.yarnpkg.com/react-native-zeroconf/-/react-native-zeroconf-0.14.0.tgz#7d2b8b446ebf1fa4073b539ef01f88e5bef61cb9"
-  integrity sha512-TqjORroaVZrBYLzk3YtviQy8lUl/iiMacknxixRYlmGaqgsv4LJXIYafpnvPa3y2SC4/qu2mvF8D1/VTTxylgQ==
+react-native-zeroconf@0.17.3:
+  version "0.17.3"
+  resolved "https://registry.yarnpkg.com/react-native-zeroconf/-/react-native-zeroconf-0.17.3.tgz#09f48c09c30e75fb889a220547b166378e1cb53c"
+  integrity sha512-ufos5wh+LXD0I1/0H789GR/shDnhsKMS2CTdcbDB3Rq0RZ+fIXip/LVuxDI1ppp0XqIr8kfC2veU3YATgMhkRA==
   dependencies:
     events "^3.0.0"
 
