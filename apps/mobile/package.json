@@ -117,7 +117,7 @@
     "react-native-svg": "15.12.1",
     "react-native-tcp-socket": "6.4.2",
     "react-native-typography": "^1.4.1",
-    "react-native-unistyles": "~3.1.1",
+    "react-native-unistyles": "~3.5.3",
     "react-native-web": "^0.21.0",
     "react-native-webrtc": "124.0.8",
     "react-native-webview": "13.15.0",
