@@ -75,10 +75,11 @@ export async function ensureAvd({ name, avdHome, systemImage = DEFAULT_IMAGE, de
  *
  * @param {{ name: string, avdHome: string, systemImage?: string, device?: string,
  *   bootTimeoutMs?: number, maxEmulators?: number, extraArgs?: string[],
- *   launcher?: string[] }} options
+ *   launcher?: string[], onSpawn?: (child: import('node:child_process').ChildProcess) => void }} options
  *   `launcher` is a command prefix the emulator is started through, so a host
  *   can run it under its own memory gate or device lock. Empty means run it
- *   directly.
+ *   directly. `onSpawn` receives the child right after it starts, before the
+ *   boot wait, so a caller can signal its process group while still booting.
  * @returns {Promise<{ serial: string, avd: string, pid: number, log: () => string,
  *   stop: () => Promise<void> }>}
  */
@@ -86,7 +87,7 @@ export async function bootOwnedEmulator(options) {
     const {
         name, avdHome, systemImage = DEFAULT_IMAGE, device = 'pixel_6',
         bootTimeoutMs = 480_000, maxEmulators = Number(process.env.MUXR_EMULATOR_MAX ?? 3),
-        extraArgs = [], launcher = [],
+        extraArgs = [], launcher = [], onSpawn,
     } = options;
     // With a launcher the launcher owns capacity and may wait for a slot; on its
     // own, refuse rather than push the fleet past its cap.
@@ -104,11 +105,22 @@ export async function bootOwnedEmulator(options) {
         detached: true,
         env: { ...process.env, ANDROID_AVD_HOME: avdHome },
     });
+    onSpawn?.(child);
     const log = [];
     child.stdout.on('data', (chunk) => log.push(String(chunk)));
     child.stderr.on('data', (chunk) => log.push(String(chunk)));
     let exited = null;
     child.once('exit', (code, signal) => { exited = { code, signal }; });
+    // The child is its own process group, so a launcher that wraps the
+    // emulator (timeout, device lock, memory gate) is torn down whole and cannot
+    // leave a surviving emulator holding a fleet slot.
+    const killGroup = (signal) => { try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch { /* already gone */ } } };
+    const groupAlive = () => { try { process.kill(-child.pid, 0); return true; } catch { return false; } };
+    const terminate = async () => {
+        killGroup('SIGTERM');
+        for (let attempt = 0; attempt < 30 && groupAlive(); attempt += 1) await sleep(1000);
+        killGroup('SIGKILL');
+    };
     const died = () => `the emulator exited before ${name} booted (${exited.signal ?? `code ${exited.code}`}):\n${tail(log.join(''))}`;
 
     const serial = await (async () => {
@@ -122,19 +134,16 @@ export async function bootOwnedEmulator(options) {
             }
             await sleep(2000);
         }
-        throw new Error(`no device for AVD ${name} appeared within ${bootTimeoutMs} ms`);
+        // A launcher still waiting (a memory gate holding for a slot) would start
+        // an emulator nobody owns after this run has given up on it.
+        await terminate();
+        throw new Error(`no device for AVD ${name} appeared within ${bootTimeoutMs} ms:\n${tail(log.join(''))}`);
     })();
     setAndroidSerial(serial);
 
     const stop = async () => {
         await run('adb', ['-s', serial, 'emu', 'kill'], { timeout: 15_000 }).catch(() => undefined);
-        // The child is its own process group, so a launcher that wraps the
-        // emulator (timeout, device lock) is torn down whole and cannot leave a
-        // surviving emulator holding a fleet slot.
-        const killGroup = (signal) => { try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch { /* already gone */ } } };
-        killGroup('SIGTERM');
-        for (let attempt = 0; attempt < 30 && exited === null; attempt += 1) await sleep(1000);
-        killGroup('SIGKILL');
+        await terminate();
     };
 
     try {
