@@ -987,7 +987,7 @@ export function reduceMovement(phase, snapshot = {}) {
     }
     if (name === 'terminal text fling' || name === 'terminal') {
         const terminal = snapshot.terminal ?? {};
-        const scrollRows = terminal.rowsRequested ?? terminal.scrollRows ?? 0;
+        const scrollRows = (terminal.rowsRequested ?? terminal.scrollRows ?? 0) + (terminal.absorbedRows ?? 0);
         const scrollRequests = terminal.scrollRequests ?? 0;
         const clamped = terminal.clamped ?? 0;
         // A still viewport is only honest evidence when the clamp is why it is

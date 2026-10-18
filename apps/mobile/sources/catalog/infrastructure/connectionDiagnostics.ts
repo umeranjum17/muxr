@@ -91,7 +91,6 @@ export type ConnectionDiagnosticEvent =
     | { at: string; event: 'terminal.frames'; received: number; written: number }
     | { at: string; event: 'terminal.scroll-timeout' }
     | { at: string; event: 'terminal.scroll-rows'; rows: number }
-    | { at: string; event: 'terminal.scroll-absorbed'; rows: number }
     | { at: string; event: 'terminal.scroll-clamped'; rows: number }
     | { at: string; event: 'terminal.resize'; cols: number; rows: number };
 
@@ -433,9 +432,7 @@ export function recordTerminalScrollRows(rows: number): void {
 
 /** Rows the grid's own pan moved. Never sent to Herdr, so they are not rows sent: a fling the pan absorbs whole reports none. */
 export function recordTerminalPanRows(rows: number): void {
-    const bounded = boundedCount(rows);
-    if (recordConnectionDiagnostic({ event: 'terminal.scroll-absorbed', rows: bounded }) === undefined) return;
-    scrollTotals.absorbed = boundedCount(scrollTotals.absorbed + bounded);
+    scrollTotals.absorbed = boundedCount(scrollTotals.absorbed + boundedCount(rows));
 }
 
 /** Rows the runaway clamp ate. A guard that discards a gesture in silence is
@@ -473,7 +470,7 @@ export function recordTerminalChannel(
 }
 
 export function formatConnectionDiagnosticsForReport(): string {
-    const folded = new Set(['terminal.scroll-timeout', 'terminal.scroll-rows', 'terminal.scroll-absorbed', 'terminal.scroll-clamped', 'terminal.resize']);
+    const folded = new Set(['terminal.scroll-timeout', 'terminal.scroll-rows', 'terminal.scroll-clamped', 'terminal.resize']);
     const trail = events.filter((event) => !folded.has(event.event));
     const body = trail.length === 0
         ? 'No phone transport events yet.'
@@ -551,7 +548,6 @@ function summarize(event: ConnectionDiagnosticEvent): string {
     if (event.event === 'terminal.frames') return `terminal.frames received=${event.received} written=${event.written}`;
     if (event.event === 'terminal.scroll-timeout') return 'terminal.scroll-timeout';
     if (event.event === 'terminal.scroll-rows') return `terminal.scroll-rows ${event.rows}`;
-    if (event.event === 'terminal.scroll-absorbed') return `terminal.scroll-absorbed ${event.rows}`;
     if (event.event === 'terminal.scroll-clamped') return `terminal.scroll-clamped ${event.rows}`;
     if (event.event === 'terminal.resize') return `terminal.resize ${event.cols}x${event.rows}`;
     const code = event.code === undefined ? '' : ` ${event.code}`;
@@ -638,7 +634,7 @@ function isValidEvent(value: unknown): value is ConnectionDiagnosticEvent {
     // The gesture and zoom events the release gate reads. Without these three
     // the recorder dropped every one of them and the trail described a phone
     // that never scrolled, resized or clamped.
-    if (event.event === 'terminal.scroll-rows' || event.event === 'terminal.scroll-absorbed' || event.event === 'terminal.scroll-clamped') return isFiniteCount(event.rows);
+    if (event.event === 'terminal.scroll-rows' || event.event === 'terminal.scroll-clamped') return isFiniteCount(event.rows);
     if (event.event === 'terminal.resize') {
         return isFiniteCount(event.cols) && isFiniteCount(event.rows);
     }

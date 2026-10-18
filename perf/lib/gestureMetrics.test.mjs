@@ -324,18 +324,18 @@ test('baseline bout fixtures reduce to the documented failures', () => {
         terminal: flingTerminal,
     }, EMULATOR_LIMITS).failures, ['no input-driven frame']);
 
-    // A fling the grid's own pan absorbs whole sends no request. Its rows are
-    // absorbed, not sent, so it cannot pass the throughput gate on travel the
-    // phone never asked Herdr for.
+    // A fling the grid's own pan absorbs whole moved the viewport, so it proves
+    // the fling, but it was never sent to Herdr and cannot pass the throughput gate.
     const panOnly = trailSince(
         parseRedactedTrail('terminal.scroll seq=3 requests=0 rows=0 clamped=0 timedOut=0 absorbed=40'),
         parseRedactedTrail('terminal.scroll seq=0 requests=0 rows=0 clamped=0 timedOut=0 absorbed=0'),
     );
-    assert.equal(panOnly.rowsRequested, 0);
-    assert.equal(panOnly.absorbedRows, 40);
     assert.equal(reduceMovement('terminal text fling', {
         before: { crop: still }, after: { crop: shifted }, terminal: panOnly,
-    }).proven, false);
+    }).proven, true);
+    const panRate = terminalTotals(panOnly, 1);
+    assert.equal(panRate.rowsPerSecond, 0);
+    assert.ok(verdict('terminal text fling', { ...flingJank, terminal: panRate }, EMULATOR_LIMITS).failures.includes('terminalRowsPerSecond'));
     const sentRate = terminalTotals(trailSince(
         parseRedactedTrail('terminal.scroll seq=3 requests=1 rows=20 clamped=0 timedOut=0 absorbed=100'),
         parseRedactedTrail('terminal.scroll seq=0 requests=0 rows=0 clamped=0 timedOut=0 absorbed=0'),
