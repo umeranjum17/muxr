@@ -1584,15 +1584,32 @@ export async function createHerdrSessionSource(
     });
 
     // The kit tree is the source of truth: every revision re-indexes and republishes.
+    let resyncTimer: NodeJS.Timeout | undefined;
+    function scheduleResync(): void {
+        if (disposed || resyncTimer !== undefined) return;
+        resyncTimer = setTimeout(() => {
+            resyncTimer = undefined;
+            if (disposed) return;
+            void (async () => {
+                try {
+                    if (!client.connected) return;
+                    syncFromKit();
+                } finally {
+                    if (!disposed && client.connected) await syncDiscovery();
+                }
+            })().catch(() => {});
+        }, 500);
+    }
+    // A status move emits its own sessions at once; only the tree re-sync waits for the debounce.
     const stopKitTree = client.kit.onChange((_snapshot, changed) => {
-        if (changed.length === 0 || disposed || !client.connected) return;
-        syncFromKit();
-        void syncDiscovery().then(() => {
+        if (changed.length > 0 && !disposed && client.connected) {
+            syncFromKit();
             for (const paneId of changed) {
                 const session = currentSessionByPane(paneId);
                 if (session !== undefined) emitState(session.sessionId);
             }
-        }).catch(() => {});
+        }
+        scheduleResync();
     });
     // The kit reads a blocked agent's question once its status flips; that releases the held alert.
     const stopBlockedWatch = client.kit.onBlocked((entry, change) => {
@@ -3452,6 +3469,7 @@ export async function createHerdrSessionSource(
             for (const wait of questionWaits.values()) if (wait !== 'expired') clearTimeout(wait);
             questionWaits.clear();
             askedRevisions.clear();
+            if (resyncTimer !== undefined) clearTimeout(resyncTimer);
             stopKitTree();
             stopBlockedWatch();
             await settle(() => voiceStreams?.closeAll());
