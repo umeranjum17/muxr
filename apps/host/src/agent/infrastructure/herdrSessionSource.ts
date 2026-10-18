@@ -1388,7 +1388,7 @@ export async function createHerdrSessionSource(
         const previous = discoveryChain;
         let release!: () => void;
         discoveryChain = new Promise<void>((resolve) => { release = resolve; });
-        await Promise.race([previous, sleep(PROMPT_REBIND_TIMEOUT_MS, undefined, { ref: false })]);
+        await previous;
         try {
             await syncDiscoveryInner();
         } finally {
