@@ -171,7 +171,7 @@ export function useBusyConnecting(since: number | null): boolean {
 /** Shown while the link keeps retrying a host that is slow to answer; nothing
  *  here suggests the pairing failed. Home stands in for its other connected
  *  rows while it shows, so this card is the one place that speaks. */
-export function BusyConnectingCard({ since }: { since: number }) {
+export function BusyConnectingCard({ since, computer }: { since: number; computer: string }) {
     const router = useRouter();
     const { theme } = useUnistyles();
     const [now, setNow] = React.useState(() => Date.now());
@@ -183,9 +183,9 @@ export function BusyConnectingCard({ since }: { since: number }) {
     const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
     return (
         <View style={[styles.card, cardStyle(theme)]}>
-            <Text style={styles.title}>Your computer is very busy. Still connecting.</Text>
+            <Text style={styles.title}>{computer} isn't answering, likely busy.</Text>
             <Text accessibilityLiveRegion="polite" style={styles.body}>
-                Connecting for {elapsed}. muxr keeps trying, and your terminals will appear when the computer catches up.
+                Reconnecting on its own… No answer for {elapsed}. Your terminals come back when the computer catches up; nothing to do there.
             </Text>
             <View style={styles.actions}>
                 <ActionButton title="Connection details" variant="secondary" onPress={() => router.push('/settings/connection' as never)} />

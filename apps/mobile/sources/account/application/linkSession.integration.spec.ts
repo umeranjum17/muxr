@@ -320,17 +320,21 @@ describe('link session sync flow', () => {
             await vi.waitFor(() => expect(harness.socketStatus).toBe('connected'));
             return harness.clients.at(-1)!;
         };
-        // A busy host drops the link for a while; the phone keeps saying
-        // "connecting" through the grace and only then asks the relay why.
+        // A busy host drops the link for a while; the phone keeps rechecking the
+        // relay but says only "connecting" for ten minutes, and explains after.
+        const busyHealth = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) }));
         const offline = async () => {
             const client = await dial();
             const asked = health.mock.calls.length;
             vi.useFakeTimers();
             client.fire('offline');
-            await vi.advanceTimersByTimeAsync(29_000);
+            vi.stubGlobal('fetch', busyHealth);
+            await vi.advanceTimersByTimeAsync(10 * 60_000 - 1);
             expect(harness.socketError).toBeNull();
+            expect(busyHealth).toHaveBeenCalled();
             expect(health).toHaveBeenCalledTimes(asked);
-            await vi.advanceTimersByTimeAsync(1_000);
+            vi.stubGlobal('fetch', health);
+            await vi.advanceTimersByTimeAsync(1);
         };
 
         // A version skew on a merely offline link is a host coming back, not a
