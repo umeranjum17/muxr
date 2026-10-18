@@ -2127,6 +2127,10 @@ export async function createHerdrSessionSource(
             launched = true;
             if (paneId === undefined) throw new Error('herdr: the start placed no pane');
             recordStartedAgent(paneId, kind, launchName);
+            // The answer carries the pane's cwd, workspace label and worktree, which
+            // only the kit tree has; read it once if the tree has not listed the pane yet.
+            syncFromKit();
+            if (!seenLaunchPane.has(paneId)) await refreshSnapshot();
             const session = bindListedPane(paneId) ?? await waitForListedAgent(paneId, 5_000);
             const publishedKind = publicAgentKind(kind);
             options.onAgentLaunchDiagnostic?.('ok', {
