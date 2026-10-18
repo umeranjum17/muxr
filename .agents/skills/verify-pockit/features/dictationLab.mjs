@@ -229,12 +229,12 @@ let watch;
 process.once('SIGTERM', async () => {
     say('RESULT FAIL: terminated');
     stopped.done = true;
-    await stackStarting.catch(() => undefined);
-    stack?.stop();
+    const stackDown = stackStarting.catch(() => undefined).then(() => stack?.stop());
     if (emulator === undefined && spawned !== undefined) {
         try { process.kill(-spawned.pid, 'SIGKILL'); } catch { /* group already gone */ }
     }
     await emulator?.stop();
+    await stackDown;
     rmSync(SCRATCH, { recursive: true, force: true });
     process.exit(1);
 });
