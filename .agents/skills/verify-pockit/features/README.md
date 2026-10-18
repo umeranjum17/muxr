@@ -110,11 +110,9 @@ user-visible behavior, then exactly four H2 sections in this order:
   draft marked not sent.
 - [Long silence never fills the composer](./dictation-silence-gate.md) —
   `dictationLab.mjs` on a task-owned emulator: file-fed Silero speech gate on
-  the phone's Whisper finals. 40 s near-silence leaves the draft empty, while
-  quiet and clean fixtures still transcribe, after a clean install and after an
-  install over old data. Run13 (`evidence/run13/`) passed all four takes with
-  `realtime: none opened`; the earlier run12 logged no microphone service,
-  RECORD_AUDIO access or realtime pill, sheet or alert, but ended RESULT FAIL.
+  the phone's Whisper finals. Near-silence leaves the draft empty while quiet and
+  clean still transcribe, on a clean install and over old data. Status and
+  evidence: see the feature doc.
 
 - [Name agents on Home by kind and task, never a launch id](./home-agent-labels.md) —
   paired lab PWA over a real-Herdr lab with an unnamed Codex and pi agent: the

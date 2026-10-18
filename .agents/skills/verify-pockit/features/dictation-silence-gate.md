@@ -49,8 +49,8 @@ emulator. What the script does:
 2. Takes on Home: quiet, the 40 s near-silence (generated at run time, about
    0.003 RMS), then clean. Quiet and clean come from
    `scripts/dictation/fixtures/`. Each take feeds the PCM, taps Dictate, taps
-   Stop once, waits for the strip to settle, and saves
-   `<take>-after.png` plus the dump.
+   Stop once, waits for the strip to settle, and saves `<take>-after.png` and
+   `<take>-after.xml.json`.
 3. An install over that data, then one more quiet take.
 4. One log line saying whether realtime voice opened at any point:
    `realtime: none opened (…)`. It combines three checks: the voice foreground
@@ -76,8 +76,8 @@ none opened (microphone service samples running=0 of 570 successful dumps in 572
 attempts, RECORD_AUDIO never accessed, realtime on screen in 0 of 204 screens)`.
 Every tap the lab's own steps make is logged by label (Pair, Dictate, Stop
 dictation, draft field, composer input), and none is a Talk control. The shared
-dismiss helpers tap by coordinate or send BACK without a log line. `voice-service-dumpsys.txt` shows
-`VoiceOverlayService` started by `voiceOverlay.herdStart` with `types=0x00000001`,
+dismiss helpers tap by coordinate or send BACK without a log line.
+`voice-service-dumpsys.txt` shows `VoiceOverlayService` started by `voiceOverlay.herdStart` with `types=0x00000001`,
 the herd keep-alive, so the microphone-type check reads the real format.
 
 ## Gotchas
