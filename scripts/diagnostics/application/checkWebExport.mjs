@@ -176,9 +176,9 @@ if (!existsSync(distIndex)) {
         initialGzip += gzipSync(readFileSync(file)).length;
     }
     // Ratchet, not target. The 2.0 MiB (2,097,152 B) compressed usable-screen
-    // target is met at this head: CI measured 1,730,925 B of initial transfer
-    // on 2026-10-15 (the Home dock any-file composer plus eager-path drift
-    // since the 2026-10-12 pin), and the pin is that figure x1.005 (1,739,580 B).
+    // target is met at this head: CI measured 1,757,164 B of initial transfer
+    // after adding the cloud account-link route, and the pin is that figure
+    // x1.005 (1,765,950 B).
     // The terminal, editor/diff surfaces, syntax highlighter and the mermaid
     // diagram engine all load off the landing and pair routes. The highlighter's
     // grammar set is a single static slim list reached only through the diff
@@ -187,7 +187,7 @@ if (!existsSync(distIndex)) {
     // export's own /mermaid.min.js when a diagram renders, so none of its
     // dependency tree (cytoscape, @mermaid-js/parser, d3, lodash) can be hoisted
     // into an eager chunk (guarded below).
-    const USABLE_GZIP_CEILING = 1739580;
+    const USABLE_GZIP_CEILING = 1765950;
     check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,
