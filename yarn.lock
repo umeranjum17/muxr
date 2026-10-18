@@ -1266,30 +1266,30 @@
   resolved "https://registry.yarnpkg.com/@chevrotain/types/-/types-11.1.2.tgz#e83a1a2704f0c5e49e7592b214031a0f4a34d7e5"
   integrity sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==
 
-"@desklink/host-darwin-arm64@0.5.8":
-  version "0.5.8"
-  resolved "https://registry.yarnpkg.com/@desklink/host-darwin-arm64/-/host-darwin-arm64-0.5.8.tgz#94bb11c62a27eaf7dab912c8364401d53c4ae522"
-  integrity sha512-JL3GTZ/raKPsqUpsqBI5wnoKgfAFRP3V/aNZQpshgnVW+ZychDMtxfLwYs9PKb3Ehbh4XXJmSJFDLYiK2oGbrQ==
+"@desklink/host-darwin-arm64@0.5.9":
+  version "0.5.9"
+  resolved "https://registry.yarnpkg.com/@desklink/host-darwin-arm64/-/host-darwin-arm64-0.5.9.tgz#ef827f9954355f66fe81d5ac0ebf65c95848d487"
+  integrity sha512-nAW0wnN6mub0y19Dwkj+z3x0AHl2sOM1zgjeeXRl9JViqYotEWdHssCfcpQvkoeXti/uBfbhuha40A77uyXsUw==
 
-"@desklink/host-linux-x64-gnu@0.5.8":
-  version "0.5.8"
-  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.5.8.tgz#9cff3cd0fe2f9123a4c18f904017b20708ca6d73"
-  integrity sha512-WQVh1A/UfT4YaUdIVZaZNhmiwgiyceZKLpi+FJvwO/RK+Zkbsgqm/RGEQyNUwUZUtlH007q6vVTjj85iuhNF4Q==
+"@desklink/host-linux-x64-gnu@0.5.9":
+  version "0.5.9"
+  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.5.9.tgz#1de976193c4687165b86e6665497ac8910222ab1"
+  integrity sha512-upSXoS+Fc6i4wmpW2PiaFjRd4FjRKRcf+4mi6P4TgFNMKNVXPQyitBJBxD0C2/OL8HrU4HMl//o7a0KIaVYCQA==
 
-"@desklink/host@0.5.8":
-  version "0.5.8"
-  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.5.8.tgz#25475b79838deea447257ffca09547a798aa1780"
-  integrity sha512-Lqz3eVd3ft6J/JUuy6q3YSg/mnhBcIsxkXyjdLNpHlTLOdTreIrJzxmJAAjDjY6BrMi4XMI2nBxb8ODgqRuzUg==
+"@desklink/host@0.5.9":
+  version "0.5.9"
+  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.5.9.tgz#687a9f428bf2977eee6b2066d73a19f22c708afd"
+  integrity sha512-oiliqZiyVxcL/NA8z9wmZkWqaF9tBFRRxhNcfx8ubGN4xFJoIDCYz15Gprs0Egsi2Q+yyMZcXRDTFbR3Hz5ofw==
   dependencies:
     ws "8.21.3"
   optionalDependencies:
-    "@desklink/host-darwin-arm64" "0.5.8"
-    "@desklink/host-linux-x64-gnu" "0.5.8"
+    "@desklink/host-darwin-arm64" "0.5.9"
+    "@desklink/host-linux-x64-gnu" "0.5.9"
 
-"@desklink/react-native@0.5.8":
-  version "0.5.8"
-  resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.5.8.tgz#c9ea9cf27557f1510a6ab581755a77f883ba5cc9"
-  integrity sha512-V6cdSl6aF6dcduwxwoUT8guZbuMuUp5d2lklQm32Qg+IHHFt8JWPITDil4M9gEtxlY9BO4nQ7mX0ZUQ+QYnkpQ==
+"@desklink/react-native@0.5.9":
+  version "0.5.9"
+  resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.5.9.tgz#847b7ffae74e082470c6f15c0c7ec03c8446a2f0"
+  integrity sha512-Ka7RXVvHfK5RkU/uDerY146qIYZZtzWjv1GJQs5c5Ov/cesy1QbPL9C46oFs7SbVSaBCbhUCvxDJKeAwMm2dMA==
 
 "@earendil-works/pi-ai@1.2.0":
   version "1.2.0"

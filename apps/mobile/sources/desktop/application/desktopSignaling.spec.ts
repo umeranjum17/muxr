@@ -50,7 +50,7 @@ it('delivers the initial offer, candidate and revocation even when polling wins 
         if (method === 'desktop.poll') {
             polled();
             return { cursor: 3, events: [
-                { kind: 'offer', sdp: 'v=0 offer' },
+                { kind: 'offer', sdp: 'v=0 offer', geometry: { source: { width: 960, height: 540 }, encoded: { width: 960, height: 540 }, origin: { x: 0, y: 0 } } },
                 { kind: 'candidate', candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 },
                 // The engine revoking the open for a lost phone, before any frame.
                 { kind: 'revoked', reason: 'the connection to the phone was lost', code: 'transport' },
@@ -66,7 +66,7 @@ it('delivers the initial offer, candidate and revocation even when polling wins 
     const received: unknown[] = [];
     signaling.subscribe((event) => received.push(event));
     expect(received).toEqual([
-        { kind: 'description', description: { type: 'offer', sdp: 'v=0 offer' } },
+        { kind: 'description', description: { type: 'offer', sdp: 'v=0 offer' }, geometry: { source: { width: 960, height: 540 }, encoded: { width: 960, height: 540 }, origin: { x: 0, y: 0 } } },
         { kind: 'candidate', candidate: { candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 } },
         { kind: 'revoked', reason: 'the connection to the phone was lost', code: 'transport' },
     ]);

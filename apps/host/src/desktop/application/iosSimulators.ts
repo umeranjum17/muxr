@@ -490,6 +490,8 @@ interface LiveSimulator {
     permissions: DesktopPermission[];
     engineOptions: { maxFps?: number; loopbackTcp?: boolean };
     resizing: boolean;
+    resizeTo: { width: number; height: number } | undefined;
+    videoSize: { width: number; height: number } | undefined;
     video: ChildProcess | undefined;
     videoBornAt: number;
     hid: CompanionHid | undefined;
@@ -632,10 +634,11 @@ export class IosMirrors implements DeviceMirrors {
             if (mirror.closed || this.helpers.isClosed(udid) || mirror.splitter !== splitter || !childAlive(video) || video.killed || spawnError !== undefined) return;
             headerBytes = Buffer.concat([headerBytes, chunk]).subarray(-64 * 1024);
             const nextSize = spsSize(headerBytes);
-            if (nextSize !== undefined && size !== undefined && (nextSize.width !== size.width || nextSize.height !== size.height)) {
+            if (nextSize !== undefined) {
+                mirror.videoSize = nextSize;
+                if (size !== undefined && (nextSize.width !== size.width || nextSize.height !== size.height)) void this.reopenAtSize(mirror, nextSize);
                 size = nextSize;
-                void this.reopenAtSize(mirror, nextSize);
-            } else if (size === undefined) size = nextSize;
+            }
             splitter.push(chunk);
         });
         const deadline = Date.now() + VIDEO_START_TIMEOUT_MS;
@@ -680,6 +683,8 @@ export class IosMirrors implements DeviceMirrors {
                 ...(request.loopbackTcp === true ? { loopbackTcp: true } : {}),
             },
             resizing: false,
+            resizeTo: undefined,
+            videoSize: undefined,
             video: undefined,
             videoBornAt: 0,
             hid: undefined,
@@ -725,9 +730,10 @@ export class IosMirrors implements DeviceMirrors {
             fail(error instanceof Error ? error.message : 'the simulator input service did not start');
         }
         const engine = this.makeEngine();
+        const initialSize = mirror.videoSize ?? size!;
         let session: EncodedEngineSession;
         try {
-            session = await engine.open(size!.width, size!.height, request.permissions, {
+            session = await engine.open(initialSize.width, initialSize.height, request.permissions, {
                 ...(request.maxFps === undefined ? {} : { maxFps: request.maxFps }),
                 ...(request.loopbackTcp === true ? { loopbackTcp: true } : {}),
             });
@@ -742,10 +748,10 @@ export class IosMirrors implements DeviceMirrors {
         const live = session!;
         mirror.engine = engine;
         mirror.session = live;
-        mirror.width = size!.width;
-        mirror.height = size!.height;
-        mirror.lastX = size!.width / 2;
-        mirror.lastY = size!.height / 2;
+        mirror.width = initialSize.width;
+        mirror.height = initialSize.height;
+        mirror.lastX = initialSize.width / 2;
+        mirror.lastY = initialSize.height / 2;
         this.mirrors.set(udid, mirror);
         engine.onLive((event) => {
             if (mirror.closed || mirror.engine !== engine) return;
@@ -759,7 +765,7 @@ export class IosMirrors implements DeviceMirrors {
         mirror.draining = false;
         await Promise.all(burst);
         if (mirror.closed) throw new EngineRefused('desktop-unavailable', 'the preview closed during open');
-        return { session: live, width: size!.width, height: size!.height };
+        return { session: live, width: initialSize.width, height: initialSize.height };
     }
 
     private makeEngine(): EncodedEngine {
@@ -771,14 +777,22 @@ export class IosMirrors implements DeviceMirrors {
     }
 
     private async reopenAtSize(mirror: LiveSimulator, size: { width: number; height: number }): Promise<void> {
-        if (mirror.closed || mirror.resizing || mirror.engine === undefined || (mirror.width === size.width && mirror.height === size.height)) return;
+        if (mirror.closed || mirror.engine === undefined) return;
+        mirror.resizeTo = size;
+        if (mirror.resizing) return;
         mirror.resizing = true;
+        const previous = mirror.engine;
         mirror.draining = true;
         mirror.opening = [];
-        const previous = mirror.engine;
         const next = this.makeEngine();
         try {
-            const session = await next.open(size.width, size.height, mirror.permissions, mirror.engineOptions);
+            const target = mirror.resizeTo!;
+            mirror.resizeTo = undefined;
+            if (mirror.width === target.width && mirror.height === target.height) {
+                mirror.draining = false;
+                return;
+            }
+            const session = await next.open(target.width, target.height, mirror.permissions, mirror.engineOptions);
             if (mirror.closed) {
                 await next.close().catch(() => undefined);
                 await next.stop().catch(() => undefined);
@@ -786,10 +800,10 @@ export class IosMirrors implements DeviceMirrors {
             }
             mirror.engine = next;
             mirror.session = session;
-            mirror.width = size.width;
-            mirror.height = size.height;
-            mirror.lastX = size.width / 2;
-            mirror.lastY = size.height / 2;
+            mirror.width = target.width;
+            mirror.height = target.height;
+            mirror.lastX = target.width / 2;
+            mirror.lastY = target.height / 2;
             next.onLive((event) => {
                 if (mirror.closed || mirror.engine !== next) return;
                 if (event.kind === 'keyframeRequest') {
@@ -808,6 +822,7 @@ export class IosMirrors implements DeviceMirrors {
             mirror.draining = false;
         } finally {
             mirror.resizing = false;
+            if (mirror.resizeTo !== undefined && !mirror.closed) void this.reopenAtSize(mirror, mirror.resizeTo);
         }
     }
 

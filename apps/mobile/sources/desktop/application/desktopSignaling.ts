@@ -96,6 +96,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
                         type: 'offer',
                         sdp: event.sdp.split('\r\n').filter((line) => !DESKTOP_LOOPBACK_TCP.test(line.replace(/^a=/, ''))).join('\r\n'),
                     },
+                    ...(event.geometry === undefined ? {} : { geometry: event.geometry }),
                 };
             case 'candidate': {
                 const candidate = await reachable(event.candidate);
