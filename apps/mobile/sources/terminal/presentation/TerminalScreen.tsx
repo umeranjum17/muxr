@@ -49,6 +49,7 @@ import { terminalLineHeight, terminalShownHeight, terminalSurfaceHeight } from '
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { terminalGrid } from '../application/terminalAhead';
 import { createTerminalPan } from '../application/terminalPan';
+import { recordTerminalPanRows } from '@/catalog/diagnostics';
 import { useAttachmentPicker, chooseAttachmentSource } from '@/hooks/useAttachmentPicker';
 import { useDraft } from '@/hooks/useDraft';
 import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
@@ -394,8 +395,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // A grid taller than its box shows the rows around the pane's cursor; the
     // terminal's own drag pans the rest into view before it scrolls the pane.
     const panOffset = useSharedValue(0);
-    const [pan] = React.useState(() => createTerminalPan((offset) => { panOffset.value = offset; }));
-    const panBy = React.useCallback((lines: number) => pan.pan(lines), [pan]);
+    const [pan] = React.useState(() => createTerminalPan((offset) => { panOffset.value = offset; }, recordTerminalPanRows));
+    // Travel the surface takes is still the pane's travel, so the fling trail counts it.
+    const panBy = pan.pan;
     const surfacePan = useAnimatedStyle(() => ({ transform: [{ translateY: panOffset.value }] }));
     // How far the terminal's visible bottom sits from the one it was last
     // measured at: the rails ride the keyboard frame by frame, while the
@@ -415,8 +417,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const pannedHeight = Math.max(surfaceHeight, drawnGridHeight);
     const shownHeight = terminalShownHeight({ boxHeight: terminalBox?.height ?? 0, surfaceHeight: pannedHeight, rowHeight: terminalRowHeight });
     React.useEffect(() => {
-        pan.layout({ surfaceHeight: pannedHeight, boxHeight: shownHeight, rowHeight: terminalRowHeight, holdBottom: choicesVisible });
-    }, [pan, pannedHeight, shownHeight, terminalRowHeight, choicesVisible]);
+        pan.layout({ surfaceHeight: pannedHeight, boxHeight: shownHeight, rowHeight: terminalRowHeight });
+    }, [pan, pannedHeight, shownHeight, terminalRowHeight]);
     // The ring is hosted by the screen, never by the terminal renderer. It owns
     // its own open state so that opening it re-renders one small component
     // rather than this whole screen on the frame the bloom starts; the screen

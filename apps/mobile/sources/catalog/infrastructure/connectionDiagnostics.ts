@@ -421,11 +421,18 @@ export function recordTerminalScrollTimeout(): void {
     scrollTotals.timedOut = boundedCount(scrollTotals.timedOut + 1);
 }
 
-/** Rows a gesture asked the pane for, so a fling's travel can be judged. */
+/** A scroll request sent to Herdr: one request, carrying its rows. */
 export function recordTerminalScrollRows(rows: number): void {
     const bounded = boundedCount(rows);
     if (recordConnectionDiagnostic({ event: 'terminal.scroll-rows', rows: bounded }) === undefined) return;
     scrollTotals.requests = boundedCount(scrollTotals.requests + 1);
+    scrollTotals.rows = boundedCount(scrollTotals.rows + bounded);
+}
+
+/** Rows the grid's own pan moved, which were never sent to Herdr, so they add rows but no request. */
+export function recordTerminalPanRows(rows: number): void {
+    const bounded = boundedCount(rows);
+    if (recordConnectionDiagnostic({ event: 'terminal.scroll-rows', rows: bounded }) === undefined) return;
     scrollTotals.rows = boundedCount(scrollTotals.rows + bounded);
 }
 
@@ -505,7 +512,7 @@ export function formatLatestConnectionFailure(): string | undefined {
  * so a reader marks the number it saw and counts only what came after it.
  */
 function gestureLine(): string | undefined {
-    if (scrollTotals.requests === 0) return undefined;
+    if (scrollTotals.requests === 0 && scrollTotals.rows === 0) return undefined;
     return `terminal.scroll seq=${sequence} requests=${scrollTotals.requests} rows=${scrollTotals.rows}`
         + ` clamped=${scrollTotals.clamped} timedOut=${scrollTotals.timedOut}`;
 }

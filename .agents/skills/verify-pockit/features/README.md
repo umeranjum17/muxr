@@ -41,7 +41,9 @@ driving, then use the matching feature file as the recipe.
 Each feature file starts with an H1 title and one paragraph describing the
 user-visible behavior, then exactly four H2 sections in this order:
 `Sub-features`, `How to get to it (user POV)`, `Driving it with the private stack`
-(starting with `Preconditions:`), and `Gotchas`.
+(starting with `Preconditions:`), and `Gotchas`. A pointer file is valid instead:
+an H1, and one paragraph naming the source headers or lab scripts that hold the
+rules, with no H2 sections.
 
 ## Features
 
