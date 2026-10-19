@@ -1,26 +1,32 @@
 # Start a cloud computer
 
-The native first-run screen opens the cloud checklist and Boat account-link step. The account-link step uses `@byokit/cloud@0.1.0` and stores a returned key in native secure storage; the installed PWA says setup must start in the muxr phone app. This first journey slice ends after account connection; it does not create a machine.
+The native first-run screen opens the cloud checklist. With a linked Boat account the phone creates the machine, installs and starts the muxr host on it, joins it to the person's tailnet and pairs itself with no QR, then lands on Home. Everything runs through `@byokit/cloud@0.2.1` (`apps/mobile/sources/cloud/deployBoatComputer.ts`); the installed PWA says setup must start in the muxr phone app.
 
 ## Sub-features
 
 - `first-run-entry`: native cloud entry opens the checklist without changing link pairing or SSH routes.
-- `account-link`: email starts the kit claim stream, the sign-in page and short code are shown, and a completed key is stored only in native secure storage.
+- `account-link`: email starts the kit claim stream, the sign-in page and short code are shown, and a completed key is stored only in native secure storage. A stored key skips straight to size and price on the next visit.
+- `size-and-price`: Small or Standard with Boat's dated per-hour price and plan floor; nothing is created before **Create cloud computer**.
+- `deploy`: `machine().create` once (a retry reuses the stored machine), then `setup()` installs the published `@trymuxr/cli` as a systemd unit running `MUXR_MODE=selfhost muxr up`, joins the tailnet (a Tailscale sign-in link is shown when the machine needs one) and serves port 8792 through Tailscale Serve.
+- `pair`: the setup pair gate runs `muxr self-host --configure-only --loopback --install-herdr` then `muxr pair --handoff` on the machine, reads the offer from the kit outbox, pairs over the link and delivers the two words with kit `deliver`; success lands on Home.
 - `web-boundary`: PWA shows the phone-app instruction and never runs provider calls.
 
 ## How to get to it (user POV)
 
-Open the unpaired phone app, tap **Cloud computer**, and enter the Boat account email. The sign-in action opens Boat's page; the person approves there and returns to the checklist. The PWA entry opens the phone-app instruction.
+Open the unpaired phone app, tap **Cloud computer**, and enter the Boat account email. The sign-in action opens Boat's page; the person approves there and returns to the checklist, picks a size and taps **Create cloud computer**. If the checklist shows **Sign in to Tailscale**, approve the machine there. The PWA entry opens the phone-app instruction.
 
 ## Driving it with the private stack
 
-Preconditions: use `../SKILL.md` isolation and its native Android + installed-PWA Visual check. No relay, host, or Herdr session is needed to inspect this slice. Do not run `claim()` against Boat for verification; the current task uses the fleet's existing key and forbids another claim. Never capture the short code or a key.
+Preconditions: use `../SKILL.md` isolation and its native Android + installed-PWA Visual check. Do not run `claim()` against Boat for verification; reuse the fleet's existing key and never capture the short code or a key. **Creating a machine costs money: only after the captain (through firstmate) approves the cost.**
 
 1. On a fresh unpaired release APK, open the cloud entry and capture the checklist at 270/393 dp, font 1.0/2.0, light/dark, including scrolled end states. The link-first and SSH routes remain available and unchanged.
-2. Open the same first-run route in the installed PWA; verify the cloud entry opens the phone-app instruction and no Boat request is made.
-3. Compare the checklist with the approved B mock. Inspect every capture; no email, sign-in code, token, pairing string, or personal data may be retained.
+2. With a stored key, capture the size-and-price step the same way. Stop there unless the cost is approved.
+3. Machine side without Boat: `node scripts/diagnostics/application/checkSelfhostState.mjs` proves `--configure-only --loopback` binds 127.0.0.1, serves relay health under `muxr up` and is refused by every reconfigure path; `tests/cross-side/linkPairing.integration.test.ts` covers `pair --handoff`.
+4. Real run (approved cost only): Create, approve Tailscale if asked, and expect Home with the cloud computer paired. Then remove the machine from the Boat account unless told to keep it.
+5. Open the same first-run route in the installed PWA; verify the cloud entry opens the phone-app instruction and no Boat request is made.
 
 ## Gotchas
 
-- Boat account-link is a live external sign-in and is intentionally not repeated in this proof. Account completion and all later machine steps require a subsequent slice's real-provider proof.
-- This slice does not create, join, install, pair, or show the Home machine card. Do not report those behaviors as verified.
+- The machine installs `@trymuxr/cli@latest` from npm. A real run needs a CLI release that has `--loopback`, `--install-herdr` and `pair --handoff`; older releases fail at "Setting up muxr".
+- Tailscale inside a Boat sandbox and a claimed key's create scope are unproven until a real run (BYOKit M6).
+- Boat bills per second while on; the price rows are dated in `deployBoatComputer.ts` and must be rechecked against https://docs.boat.dev/pricing when they age.

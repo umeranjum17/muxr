@@ -1,17 +1,31 @@
 import * as React from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { claim, words } from '@byokit/cloud';
+import { claim, errorWords, MachineError, words } from '@byokit/cloud';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionButton } from '@/components/ActionButton';
-import { setNativeSecret } from '@/pairing/secrets';
+import { useRouter } from 'expo-router';
+import { useAuth } from '@/account/ui';
+import { pairLinkOffer } from '@/pairing/application/usePairing';
+import { getNativeSecret, setNativeSecret } from '@/pairing/secrets';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { Typography } from '@/constants/Typography';
+import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, type BoatSize, type DeployStep } from './deployBoatComputer';
 
-const BOAT_API = 'https://boat.dev/api/v1';
-const BOAT_KEY = 'muxr.cloud.boat-key.v1';
-const STEPS = ['Provider', 'Your Boat account', 'Size and price', 'Create', 'Join your tailnet', 'Put muxr on it', 'Pair with this phone'];
+const STEPS = ['Provider', 'Your Boat account', 'Size and price', 'Create', 'Put muxr on it', 'Join your tailnet', 'Pair with this phone'];
+const SIZES: { id: BoatSize; title: string }[] = [{ id: 'small', title: 'Small · 2 CPUs, 4 GB' }, { id: 'default', title: 'Standard · 4 CPUs, 8 GB' }];
+const STEP_INDEX: Record<DeployStep['step'], number> = { creating: 3, starting: 3, installing: 4, securing: 5, 'sign-in': 5, configuring: 6, pairing: 6 };
+const STEP_WORDS: Record<DeployStep['step'], string> = {
+    creating: 'Creating your cloud computer on Boat.',
+    starting: 'Starting your cloud computer.',
+    installing: words('setup.installing', { app: 'muxr' }),
+    securing: words('tailnet.joining'),
+    'sign-in': words('tailnet.approvalNeeded'),
+    configuring: 'Setting up muxr on your cloud computer.',
+    pairing: words('setup.pairing', { app: 'muxr' }),
+};
+const perHour = (size: BoatSize) => `$${BOAT_PRICES.find((p) => p.size === size)?.perHour} an hour while on`;
 
 type ClaimFailure = Extract<Awaited<ReturnType<typeof claim> extends AsyncIterable<infer T> ? T : never>, { step: 'failed' }>['why'];
 
@@ -34,8 +48,32 @@ export function CloudSetupScreen() {
     const [connected, setConnected] = React.useState(false);
     const [error, setError] = React.useState<string>();
     const controller = React.useRef<AbortController | undefined>(undefined);
+    const [size, setSize] = React.useState<BoatSize>('small');
+    const [deploy, setDeploy] = React.useState<DeployStep>();
+    const auth = useAuth();
+    const router = useRouter();
 
     React.useEffect(() => () => controller.current?.abort(), []);
+    React.useEffect(() => { void getNativeSecret(BOAT_KEY).then((key) => { if (key) setConnected(true); }); }, []);
+
+    const create = React.useCallback(async () => {
+        setBusy(true);
+        setError(undefined);
+        try {
+            await deployBoatComputer({
+                size,
+                onStep: setDeploy,
+                pair: async (offer, deliverWords) => {
+                    if (!(await pairLinkOffer(offer, auth, { confirm: async () => true, onWords: deliverWords }))) throw new Error('Pairing with your cloud computer failed. Try again.');
+                },
+            });
+            router.replace('/');
+        } catch (cause) {
+            setError(cause instanceof MachineError ? errorWords(cause, { app: 'muxr', label: 'Boat' }) : cause instanceof Error ? cause.message : String(cause));
+            setBusy(false);
+        }
+    }, [size, auth, router]);
+    const current = deploy ? STEP_INDEX[deploy.step] : connected ? 2 : 1;
 
     const connect = React.useCallback(async () => {
         const address = email.trim();
@@ -81,12 +119,12 @@ export function CloudSetupScreen() {
             <View style={styles.intro}>
                 <Text style={styles.heading}>Your cloud computer</Text>
                 <Text style={styles.eta}>About 3 min left</Text>
-                <View style={styles.progress}><View style={[styles.progressFill, { width: connected ? '24%' : '10%' }]} /></View>
+                <View style={styles.progress}><View style={[styles.progressFill, { width: `${Math.round(((current + 1) / STEPS.length) * 100)}%` }]} /></View>
             </View>
             <View style={styles.list}>
                 {STEPS.map((title, index) => {
-                    const done = index === 0 || (index === 1 && connected);
-                    const active = index === 1 && !connected;
+                    const done = index < current;
+                    const active = index === current;
                     return (
                         <View key={title} style={[styles.step, active && styles.activeStep]}>
                             <View style={[styles.number, done && styles.doneNumber]}>
@@ -95,10 +133,31 @@ export function CloudSetupScreen() {
                             <View style={styles.stepContent}>
                                 <View style={styles.stepHeading}>
                                     <Text style={[styles.stepTitle, !active && !done && styles.todoTitle]}>{title}</Text>
-                                    {(index === 0 || (index === 1 && connected)) && <Text style={styles.stepStatus}>{index === 0 ? 'Boat' : 'Connected'}</Text>}
+                                    {done && index < 3 && <Text style={styles.stepStatus}>{['Boat', 'Connected', SIZES.find((s) => s.id === size)?.title.split(' · ')[0]][index]}</Text>}
                                 </View>
                                 {index === 0 && <Text style={styles.detail}>Boat · Hetzner later</Text>}
-                                {active && (
+                                {active && index === 2 && (
+                                    <View style={styles.form}>
+                                        {SIZES.map((option) => (
+                                            <Pressable key={option.id} accessibilityRole="radio" accessibilityState={{ checked: size === option.id }} disabled={busy} onPress={() => setSize(option.id)} style={[styles.size, size === option.id && styles.sizeChosen]}>
+                                                <Text style={styles.stepTitle}>{option.title}</Text>
+                                                <Text style={styles.detail}>{perHour(option.id)}</Text>
+                                            </Pressable>
+                                        ))}
+                                        <Text style={styles.detail}>Paid to Boat, not muxr. Free while asleep; Boat's plan is at least $20 a month. Prices checked 19 Oct 2026.</Text>
+                                        <ActionButton title="Create cloud computer" icon="cloud-outline" disabled={busy} onPress={() => { void create(); }} wrap />
+                                        {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+                                    </View>
+                                )}
+                                {active && deploy && (
+                                    <View style={styles.form}>
+                                        <View style={styles.waiting}>{busy && <ActivityIndicator />}<Text style={[styles.detail, styles.stepContent]}>{STEP_WORDS[deploy.step]}</Text></View>
+                                        {deploy.step === 'sign-in' && <ActionButton title="Sign in to Tailscale" icon="link-outline" onPress={() => { void openExternalUrl(deploy.url).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />}
+                                        {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+                                        {!busy && error && <ActionButton title="Try again" variant="secondary" onPress={() => { void create(); }} />}
+                                    </View>
+                                )}
+                                {active && index === 1 && (
                                     <View style={styles.form}>
                                         <Text style={styles.body}>Boat opens in your browser. Approve muxr there, then come back to this screen.</Text>
                                         <TextInput
@@ -131,7 +190,6 @@ export function CloudSetupScreen() {
                     );
                 })}
             </View>
-            {connected && <Text style={styles.leave}>Your Boat account is connected. Machine setup is the next step.</Text>}
         </ScrollView>
     );
 }
@@ -162,6 +220,7 @@ const styles = StyleSheet.create((theme) => ({
     code: { ...Typography.default('semiBold'), fontSize: 18, letterSpacing: 2, color: theme.colors.text, textAlign: 'center', padding: 8 },
     waiting: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     error: { ...Typography.default(), fontSize: 14, lineHeight: 20, color: theme.colors.status.disconnected },
+    size: { gap: 2, padding: 12, borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 12 },
+    sizeChosen: { borderColor: theme.colors.accent, backgroundColor: theme.colors.surfaceHighest },
     createAccount: { ...Typography.default('semiBold'), paddingVertical: 8, textAlign: 'center', color: theme.colors.textSecondary },
-    leave: { ...Typography.default(), fontSize: 13, lineHeight: 18, color: theme.colors.textSecondary, textAlign: 'center' },
 }));
