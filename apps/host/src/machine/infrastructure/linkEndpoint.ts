@@ -469,19 +469,21 @@ export class LinkEndpoint {
     }
 
     /**
-     * Fan one general notification out to every trusted link device on the
-     * same relay push path as lifecycle notices. The relay and push provider
-     * see only generic text and ciphertext; title, body and link stay inside
-     * the seal. Returns the number of paired devices fanned out to.
+     * Fan one general notification out to the trusted link devices whose owner
+     * asked for every notification, on the same relay push path as lifecycle
+     * notices. The relay and push provider see only generic text and
+     * ciphertext; title, body and link stay inside the seal. Returns the
+     * number of devices fanned out to.
      */
     notifyGeneral(input: GeneralNoticeInput): number {
         if (this.client === undefined) return 0;
         const crypto = this.currentCrypto();
         const recipients = this.host.devices().filter((grant) => {
             if (!trusted(grant, crypto)) return false;
-            // Only a device that registered for push has a relay address; count just those.
+            // A general notice is nobody's attention: only 'all' wants it, and
+            // only a subscribed device has a relay address at all.
             const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
-            return device?.pushLevel !== undefined;
+            return device?.pushLevel === 'all';
         });
         if (recipients.length === 0) return 0;
         const notice = (url: string | undefined) => generalNoticeEnvelope(
