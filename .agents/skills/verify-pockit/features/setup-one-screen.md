@@ -12,7 +12,8 @@ changes an existing setup keeps its extra questions and the final review.
   from home (Tailscale) · Recommended`, even when Wi-Fi, a private network or
   cloudflared is present.
 - `missing` with no Tailscale on a computer that is not plain (a private
-  network, usable `cloudflared`, or an enrollment), step 2 offers `Check again`
+  network, usable `cloudflared`, an enrollment, or a saved route other than
+  Wi-Fi only), step 2 offers `Check again`
   and `Other ways`
   under one sentence: `Tailscale isn't on this computer yet. Install it from
   https://tailscale.com/download and sign in, then press Enter to check
