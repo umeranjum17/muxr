@@ -9,7 +9,7 @@
   "orientation": "any",
   "categories": ["productivity", "developer"],
   "launch_handler": { "client_mode": "navigate-existing" },
-  "theme_color": "#000000",
+  "theme_color": "#F2F2F7",
   "background_color": "#F2F2F7",
   "icons": [
     {

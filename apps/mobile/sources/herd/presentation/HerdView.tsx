@@ -26,6 +26,7 @@ import { ActionButton } from '@/components/ActionButton';
 import { withAlpha } from '@/components/ui';
 import { useHomeNeedsYouIds, useHomePendingIds, useLocalSettingMutable, useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
+import { unavailableFeedback } from '@/utils/web/deviceOffline';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
 import { HomeEmptyState } from './HomeEmptyState';
@@ -197,7 +198,7 @@ export const HerdView = React.memo(({
             setRecoveryFeedback('Connection restored.');
         } catch {
             setRetryFailed(true);
-            setRecoveryFeedback('Still unavailable. Run the command on your computer, check its network, then retry.');
+            setRecoveryFeedback(unavailableFeedback());
         } finally {
             setRetrying(false);
         }
