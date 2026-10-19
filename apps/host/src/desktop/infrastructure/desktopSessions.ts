@@ -282,28 +282,7 @@ export class DesktopSessions {
         if (request.permissions.includes('clipboard') && !capabilities.clipboard) {
             throw new EngineRefused('clipboard-unsupported', 'clipboard is unavailable for this desktop source');
         }
-        const client = await this.ensureClient();
-        if (client === null) {
-            throw new EngineRefused('desktop-unavailable', this.startFailure ?? this.missingEngineReason());
-        }
         let source = configuredSource(this.environment, this.x11SocketDirectory);
-        if (source === undefined && this.startsOwnDisplay()) {
-            try {
-                source = { kind: 'x11', display: await this.virtualDisplay.ensure() };
-            } catch (error) {
-                throw new EngineRefused('desktop-unavailable', error instanceof Error ? error.message : 'the virtual screen did not start');
-            }
-        }
-        if (source?.kind !== 'x11' && this.opening === 0) {
-            // A portal backend that cannot answer a ping cannot show a prompt
-            // either: say so now rather than after the whole consent wait.
-            const [silent] = await silentPortalBackends();
-            if (silent !== undefined) {
-                this.options.onDiagnostic?.(`desktop open refused: ${silent.name} does not answer (${silent.restartCommand})`);
-                await this.stopIfIdle();
-                throw new EngineRefused('portal-busy', desktopPortalBusy(silent.restartCommand));
-            }
-        }
         const takeGrant = (): string | undefined => {
             if (source?.kind === 'x11') return undefined;
             try {
@@ -314,9 +293,40 @@ export class DesktopSessions {
                 return undefined;
             }
         };
-        const restoreToken = takeGrant();
+        const idleBeforeOpen = this.opening === 0;
         this.opening += 1;
-        const iceServers = await this.iceServers();
+        let client: EngineClient;
+        let restoreToken: string | undefined;
+        let iceServers: DesktopIceServer[];
+        try {
+            const acquired = await this.ensureClient();
+            if (acquired === null) {
+                throw new EngineRefused('desktop-unavailable', this.startFailure ?? this.missingEngineReason());
+            }
+            client = acquired;
+            if (source === undefined && this.startsOwnDisplay()) {
+                try {
+                    source = { kind: 'x11', display: await this.virtualDisplay.ensure() };
+                } catch (error) {
+                    throw new EngineRefused('desktop-unavailable', error instanceof Error ? error.message : 'the virtual screen did not start');
+                }
+            }
+            if (source?.kind !== 'x11' && idleBeforeOpen) {
+                // A portal backend that cannot answer a ping cannot show a prompt
+                // either: say so now rather than after the whole consent wait.
+                const [silent] = await silentPortalBackends();
+                if (silent !== undefined) {
+                    this.options.onDiagnostic?.(`desktop open refused: ${silent.name} does not answer (${silent.restartCommand})`);
+                    throw new EngineRefused('portal-busy', desktopPortalBusy(silent.restartCommand));
+                }
+            }
+            restoreToken = takeGrant();
+            iceServers = await this.iceServers();
+        } catch (error) {
+            this.opening -= 1;
+            await this.stopIfIdle();
+            throw error;
+        }
         const openParams = {
             permissions: request.permissions,
             ...(iceServers.length === 0 ? {} : { iceServers }),
