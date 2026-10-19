@@ -33,10 +33,7 @@ function childDirs(root) {
     try {
         return readdirSync(root, { withFileTypes: true })
             .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-            .map((entry) => entry.name)
-            .sort()
-            .slice(0, 64)
-            .map((name) => join(root, name));
+            .map((entry) => join(root, entry.name));
     } catch {
         return [];
     }
@@ -52,7 +49,7 @@ export function suggestProjectFolder(homeDir) {
     for (const root of SEARCH_ROOTS) {
         const base = root === '' ? homeDir : join(homeDir, root);
         for (const dir of childDirs(base)) {
-            if (isGitRepo(dir)) candidates.push({ path: dir, mtime: mtimeOf(dir) });
+            if (isGitRepo(dir)) candidates.push({ path: dir, mtime: Math.max(mtimeOf(dir), mtimeOf(join(dir, '.git'))) });
         }
     }
     candidates.sort((left, right) => right.mtime - left.mtime);

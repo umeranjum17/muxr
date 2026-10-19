@@ -451,9 +451,10 @@ describe('desktop runtime self-host state', () => {
 });
 
 describe('desktop setup project folder', () => {
-    function repo(home: string, name: string, mtimeMs: number): string {
+    function repo(home: string, name: string, mtimeMs: number, gitMtimeMs = mtimeMs): string {
         const dir = join(home, name);
         mkdirSync(join(dir, '.git'), { recursive: true });
+        utimesSync(join(dir, '.git'), new Date(gitMtimeMs), new Date(gitMtimeMs));
         utimesSync(dir, new Date(mtimeMs), new Date(mtimeMs));
         return dir;
     }
@@ -464,6 +465,9 @@ describe('desktop setup project folder', () => {
         const freshRepo = repo(home, 'zz-api', 1_790_000_000_000);
         mkdirSync(join(home, 'not-a-repo'));
         expect(suggestProjectFolder(home)).toBe(freshRepo);
+        // Commits touch .git, not the repo root: a newer .git beats a newer root.
+        const committedRepo = repo(home, 'aa-committed', 1_600_000_000_000, 1_795_000_000_000);
+        expect(suggestProjectFolder(home)).toBe(committedRepo);
 
         const hiddenHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-hidden-'));
         for (let index = 0; index < 30; index += 1) {
@@ -480,7 +484,7 @@ describe('desktop setup project folder', () => {
             mkdirSync(join(crowdedHome, `busy-${String(index).padStart(2, '0')}`));
         }
         mkdirSync(join(crowdedHome, 'zz-repo', '.git'), { recursive: true });
-        expect(suggestProjectFolder(crowdedHome)).toBeNull();
+        expect(suggestProjectFolder(crowdedHome)).toBe(join(crowdedHome, 'zz-repo'));
 
         const muxrHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-home-'));
         writeFileSync(join(muxrHome, 'config.json'), `${JSON.stringify({ mode: 'selfhost' })}\n`, { mode: 0o600 });
