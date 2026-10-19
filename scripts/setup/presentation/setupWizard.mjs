@@ -201,15 +201,15 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
             value: 'relay', title: 'Use muxr away from home (your muxr server)',
             description: 'Your phone reaches this computer through your muxr server, on any network. Nothing to open or install on this computer.',
         }] : []),
-        // Wi-Fi only is no longer offered to new setups; a computer already on
-        // it keeps it as a choice.
-        ...(current?.connectionMode === 'lan' ? [{
+        // The one route a plain computer (no Tailscale, tunnel or server) can
+        // finish on, so it is always listed.
+        {
             value: 'lan', title: 'Works only on this Wi-Fi',
             description: found.lan
                 ? 'Your phone must stay on this same Wi-Fi, and stops working when you leave home. Nothing to install.'
                 : 'No Wi-Fi address found; connect this computer to your Wi-Fi, then rerun setup.',
             disabled: !found.lan,
-        }] : []),
+        },
         {
             value: 'tailscale', title: 'Use muxr away from home (Tailscale)',
             description: tailscaleSentence,

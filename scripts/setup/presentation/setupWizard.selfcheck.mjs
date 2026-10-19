@@ -209,19 +209,25 @@ async function checkWizard() {
         const installed = await run(['2', 'b', () => { tailscaleInstalled = true; tailscaleConnected = true; return ''; }, '']);
         assert.match(installed, /Check again[\s\S]*Tailscale isn't on this computer yet\. Install it from https:\/\/tailscale\.com\/download and sign in, then press Enter to check again\.[\s\S]*Use muxr away from home \(Tailscale\) · Recommended/);
         recommended(installed, 'Use muxr away from home (Tailscale)');
-        assert.doesNotMatch(installed, /Works only on this Wi-Fi|Apply this setup\?/);
+        assert.doesNotMatch(installed, /Apply this setup\?/);
         assert.deepEqual([...installed.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
             ['1', '2', '2', '2', '2', '3'].map((step) => [step, '3']));
         assert.deepEqual(calls.find(([name]) => name === 'start')[1].slice(0, 4), ['--port', '18792', '--connection-mode', 'tailscale']);
         tailscaleInstalled = false;
         tailscaleConnected = false;
 
-        // Your own server stays behind Other ways, and a new setup is never
-        // offered Wi-Fi only, even on Wi-Fi: the address applies with no
+        // A plain computer (no Tailscale, tunnel or server) on Wi-Fi ends on
+        // Wi-Fi only behind Other ways, with the note that the phone must
+        // stay on that Wi-Fi.
+        const plain = await run(['2', '1']);
+        assert.match(plain, /Other ways[\s\S]*Works only on this Wi-Fi/);
+        assert.match(plain, /Your phone must stay on this same Wi-Fi/);
+        assert.deepEqual(calls.find(([name]) => name === 'start')[1].slice(0, 4), ['--port', '18792', '--connection-mode', 'lan']);
+
+        // Your own server stays behind Other ways: the address applies with no
         // second confirmation, then the plain final receipt.
-        const completed = await run(['2', '5', 'wss://relay.example']);
+        const completed = await run(['2', '6', 'wss://relay.example']);
         assert.match(completed, /Other ways[\s\S]*Use muxr away from home \(your own server\)/);
-        assert.doesNotMatch(completed, /Works only on this Wi-Fi/);
         lan = undefined;
         assert.deepEqual([...completed.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
             ['1', '2', '2', '3'].map((step) => [step, '3']));
