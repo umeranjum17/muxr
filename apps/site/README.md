@@ -41,9 +41,11 @@ docker build --file apps/site/Dockerfile --tag trymuxr-site .
 docker run --rm --publish 8080:8080 trymuxr-site
 ```
 
-`.github/workflows/deploy-trymuxr.yml` is manual-only, runs on `main` in this
-repository, and binds to the `trymuxr` GitHub environment. It builds, tests
-and smoke-checks the image before requesting deployment and checking health.
+`.github/workflows/deploy-trymuxr.yml` runs on `main` in this repository, on
+every merge that changes the site image (the paths it lists are what the
+Dockerfile copies) and on manual dispatch, and binds to the `trymuxr` GitHub
+environment. It builds, tests and smoke-checks the image before requesting
+deployment and checking health.
 
 Before using it, the owner must create that environment with required owner
 approval and a `main`-only deployment rule. Set these **environment secrets**
@@ -53,6 +55,7 @@ No secret values belong in source, documentation or logs.
 
 The owner must separately repoint the deployment app at this public repository
 on `main`, with repository-root build context and `apps/site/Dockerfile`, and
-leave automatic deployment off. Until then the existing site is unchanged.
+leave the app's own automatic deployment off (this workflow is the trigger).
+Until then the existing site is unchanged.
 The workflow does not configure the environment, rotate credentials or change
 the deployment app. The old repository and App Review broker stay private.
