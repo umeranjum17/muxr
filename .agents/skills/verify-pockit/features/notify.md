@@ -19,6 +19,9 @@ one, and the answer counts devices fanned out to, not confirmed deliveries.
   `off`, and a device that unsubscribed are not.
 - `notify-loopback` the route is answered on 127.0.0.1 only, and rides the
   artifact download listener rather than opening a second server.
+- `notify-web-tap` a web/PWA tap on a delivered notice opens the link the sealed
+  envelope carries, through the same URL acceptance the native tap uses; a
+  notice without a link opens the app's landing surface (`/`).
 
 ## How to get to it (user POV)
 
@@ -56,6 +59,17 @@ push at a level.
    `"url":"http://192.168.1.2/a"` and `"url":"http://127.0.0.1.attacker.example/a"`
    answer `400`; a `GET` answers `405`. `ss -ltn` shows the port bound to
    `127.0.0.1` only.
+
+### Web/PWA tap
+
+Pair the lab PWA as `lab-browser-pairing.md` describes, turn Settings >
+Notifications > Browser notifications on, and set the alert level to all.
+`POST /v1/notify` with `url` set to a same-origin loopback route
+(`http://127.0.0.1:<web>/settings/notifications`): the real relay sends it to
+the browser's web-push endpoint, and tapping the real Chrome notification
+(`OPEN`) navigates the standalone window to that route. Repeat without `url`
+and the tap lands on `/`. The tap must be the browser notification's activation
+(on the lab display, an X11 click on it), never a direct call into the worker.
 
 ## Gotchas
 
