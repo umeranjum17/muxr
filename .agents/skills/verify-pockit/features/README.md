@@ -53,7 +53,8 @@ rules, with no H2 sections.
   desktop's QR, timed tap-to-paired, and a 270dp font 2.0 unreachable-relay
   failure that recovers with Try again; absent on web/PWA.
 - [Pair the phone from the installable desktop app](./linux-desktop-app.md) —
-  a Linux AppImage wrapping the relay and host: launch→Ready timing with and
+  a Linux AppImage wrapping the relay and host (the `/desktop` page names the
+  FUSE 2 fallback, `--appimage-extract-and-run`): launch→Ready timing with and
   without Herdr, Install Herdr from the window, QR and two-word pairing with a
   release APK on an emulator,
   Paired and Needs-attention states, and keep-awake/start-at-login persistence.
