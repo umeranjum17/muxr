@@ -278,7 +278,7 @@ optional. The link must be `https`, or `http` to localhost or a tailnet host;
 a tap opens it, anything else opens muxr. `http://localhost` is for the
 simulator and dev builds only: on a real iPad or phone `localhost` is the
 device itself, so send `https` or a tailnet host there. `delivered_to` counts
-only paired devices registered for push. The bearer token lives in
+only paired devices set to notify on every event (`pushLevel` all). The bearer token lives in
 `$MUXR_HOME/notify-token` (mode 600), created when the host starts listening
 with notifications enabled. The call answers
 202 on success, 400 for a bad body and 401 for a bad or missing token, and is

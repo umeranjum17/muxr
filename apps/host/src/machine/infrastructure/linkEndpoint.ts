@@ -479,9 +479,10 @@ export class LinkEndpoint {
         const crypto = this.currentCrypto();
         const recipients = this.host.devices().filter((grant) => {
             if (!trusted(grant, crypto)) return false;
-            // Only a device that registered for push has a relay address; count just those.
+            // Only a device that registered for push has a relay address, and general
+            // notices follow the device's level: 'off' and 'important' skip them.
             const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
-            return device?.pushLevel !== undefined;
+            return device?.pushLevel === 'all';
         });
         if (recipients.length === 0) return 0;
         const notice = (url: string | undefined) => generalNoticeEnvelope(
