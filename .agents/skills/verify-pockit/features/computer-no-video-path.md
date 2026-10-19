@@ -41,8 +41,9 @@ Preconditions: `yarn build`; a private Xvfb for the host's desktop source. Run
 the lab under `scripts/diagnostics/application/withPrivateXvfb.sh <command>`: it
 starts its own Xvfb, exports `DISPLAY=:<d>` to the command, and stops that Xvfb
 when the command exits (never start a bare `Xvfb :<d>` by hand). Start every lab
-host from inside it as `env -u DISPLAY -u WAYLAND_DISPLAY -u XDG_SESSION_TYPE
-MUXR_DESKTOP_SOURCE=x11 MUXR_DESKTOP_X11_DISPLAY="$DISPLAY" …`, so the engine
+host from inside it as `withPrivateXvfb.sh sh -c 'env -u DISPLAY -u WAYLAND_DISPLAY
+-u XDG_SESSION_TYPE MUXR_DESKTOP_SOURCE=x11 MUXR_DESKTOP_X11_DISPLAY="$DISPLAY" …'`,
+so `$DISPLAY` expands inside the wrapper to its private display and the engine
 never touches the owner's screen or portal. No Herdr is needed: the fake stack serves the pane.
 
 Installed PWA (no UDP path):
