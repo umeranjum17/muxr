@@ -123,6 +123,7 @@ export async function deployBoatComputer(o: {
                     // An offer left by an interrupted earlier handoff must never be read as this one.
                     const cleared = await exec(['rm -f "$0"/.byokit/outbox/muxr-pair-*.json', WORK_DIR], 30_000).then(() => true, () => false);
                     if (!cleared) {
+                        detail = 'muxr could not clear the old pairing offer on your Boat computer.';
                         await sleep(5_000);
                         continue;
                     }
@@ -141,19 +142,18 @@ export async function deployBoatComputer(o: {
                         continue;
                     }
                     const { wordsFile } = offer;
-                    const deliveries: Promise<unknown>[] = [];
+                    let delivery: Promise<unknown> | undefined;
                     try {
                         await o.pair(offer.offer, (w) => {
-                            const delivery = m.deliver(RECIPE, wordsFile, new TextEncoder().encode(w));
+                            delivery = m.deliver(RECIPE, wordsFile, new TextEncoder().encode(w));
                             delivery.catch(() => {});
-                            deliveries.push(delivery);
                         });
                     } catch (cause) {
                         await handoff;
                         throw cause;
                     }
                     const result = await handoff;
-                    await Promise.all(deliveries);
+                    await delivery;
                     if (result.code !== 0) throw new Error(`muxr did not finish pairing on your Boat computer: ${result.stderr.trim().slice(-300)}`);
                     return;
                 }
