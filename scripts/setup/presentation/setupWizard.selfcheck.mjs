@@ -230,6 +230,13 @@ async function checkWizard() {
         assert.match(savedAway, /Other ways[\s\S]*Use muxr away from home \(your own server\)/);
         assert.doesNotMatch(savedAway, /Works only on this Wi-Fi/);
         assert.deepEqual(calls, [], 'Cancellation mutated setup');
+        currentSummary = {
+            relayHealthy: true, publicHealthy: true, connectionMode: undefined,
+            relayUrl: 'wss://relay.example', relayPort: 18792,
+        };
+        const savedNoMode = await run(['2', 'b', 'b']);
+        assert.doesNotMatch(savedNoMode, /Works only on this Wi-Fi/);
+        assert.deepEqual(calls, [], 'Cancellation mutated setup');
         currentSummary = undefined;
 
         // A plain computer (no Tailscale, tunnel or server) on Wi-Fi ends on
