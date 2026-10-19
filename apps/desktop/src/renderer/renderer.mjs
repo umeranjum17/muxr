@@ -93,7 +93,7 @@ window.muxr.onState((state) => {
     dot.className = `dot ${herdr === undefined ? state.phase : herdr.status === 'installing' ? 'starting' : 'error'}`;
     title.textContent = herdr === undefined ? (TITLES[state.phase] ?? 'muxr') : herdr.status === 'installing' ? 'Setting up Herdr…' : 'Needs attention';
     // Setup's one folder question sits beside the pairing offer until it is saved.
-    const askProject = state.needsProjectFolder === true && ['starting', 'online'].includes(state.phase);
+    const askProject = state.needsProjectFolder === true;
     cards.project.hidden = !askProject;
     if (askProject) {
         if (!projectShown && typeof state.projectFolderSuggestion === 'string') projectInput.value = state.projectFolderSuggestion;

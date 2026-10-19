@@ -76,7 +76,7 @@ export function FirstAgentCard() {
         const settings = getCachedConnectionSettings();
         const machine = machines.find((candidate) => candidate.id === settings.machineId);
         const result = await startNewAgent({
-            directory: dockStartPath(null, machine?.metadata?.homeDir, machine?.metadata?.defaultStartFolder),
+            directory: dockStartPath(null, settings.machineId, machine?.metadata?.defaultStartFolder),
             kinds: [kind],
             squad: false,
             worktree: false,

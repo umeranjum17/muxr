@@ -25,7 +25,7 @@ export interface ConnectionSettings {
     selfhost?: boolean;
     /** Android-only route override; the relay and E2EE grant stay unchanged. */
     ssh?: SshTarget;
-    lastSessionCwd: string;
+    lastSessionCwdByMachine: Record<string, string>;
     recentSessionCwds: string[];
 }
 
@@ -57,7 +57,7 @@ export const DEFAULT_CONNECTION: ConnectionSettings = {
     relayUrl: buildEnv('RELAY_URL') ?? 'ws://127.0.0.1:8792',
     machineId: buildEnv('MACHINE_ID') ?? '',
     token: '',
-    lastSessionCwd: '',
+    lastSessionCwdByMachine: {},
     recentSessionCwds: [],
 };
 
@@ -95,6 +95,13 @@ function parseSshTarget(value: unknown): SshTarget | undefined {
     };
 }
 
+function parseLastSessionCwds(value: unknown): Record<string, string> {
+    if (typeof value !== 'object' || value === null) return {};
+    return Object.fromEntries(
+        Object.entries(value).flatMap(([machineId, cwd]) => (typeof cwd === 'string' && cwd.trim() ? [[machineId, cwd.trim()]] : [])),
+    );
+}
+
 function parseSettings(raw: string): ConnectionSettings {
     const parsed = JSON.parse(raw) as Partial<ConnectionSettings>;
     const recent = Array.isArray(parsed.recentSessionCwds)
@@ -110,7 +117,7 @@ function parseSettings(raw: string): ConnectionSettings {
         machineId: typeof parsed.machineId === 'string' ? parsed.machineId.trim() : '',
         ...(ssh === undefined ? {} : { ssh }),
         token: '',
-        lastSessionCwd: typeof parsed.lastSessionCwd === 'string' ? parsed.lastSessionCwd.trim() : '',
+        lastSessionCwdByMachine: parseLastSessionCwds(parsed.lastSessionCwdByMachine),
         ...(parsed.selfhost === true ? { selfhost: true } : {}),
         recentSessionCwds: recent.slice(0, MAX_RECENT_CWDS),
     };
@@ -168,5 +175,5 @@ export function rememberSessionCwd(settings: ConnectionSettings, cwd: string): C
     const trimmed = cwd.trim();
     if (trimmed.length === 0) return settings;
     const recent = [trimmed, ...settings.recentSessionCwds.filter((entry) => entry !== trimmed)].slice(0, MAX_RECENT_CWDS);
-    return { ...settings, lastSessionCwd: trimmed, recentSessionCwds: recent };
+    return { ...settings, lastSessionCwdByMachine: { ...settings.lastSessionCwdByMachine, [settings.machineId]: trimmed }, recentSessionCwds: recent };
 }

@@ -9,7 +9,7 @@ const harness = vi.hoisted(() => {
             relayUrl: 'ws://relay.test',
             machineId: '',
             token: '',
-            lastSessionCwd: '',
+            lastSessionCwdByMachine: {},
             recentSessionCwds: [] as string[],
         },
         grant: undefined as { machineId: string; relayUrl: string } | undefined,

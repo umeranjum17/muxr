@@ -104,7 +104,7 @@ vi.mock('@/../modules/voice-overlay', () => ({
     openBackgroundActivitySettings: () => undefined,
 }));
 vi.mock('@/connection', () => {
-    const settings = { mode: 'hosted', relayUrl: 'ws://relay.test', machineId: 'machine-a', token: 'device', lastSessionCwd: '', recentSessionCwds: [] };
+    const settings = { mode: 'hosted', relayUrl: 'ws://relay.test', machineId: 'machine-a', token: 'device', lastSessionCwdByMachine: {}, recentSessionCwds: [] };
     return {
         DEFAULT_CONNECTION: settings,
         getCachedConnectionSettings: () => settings,

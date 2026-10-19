@@ -50,14 +50,14 @@ vi.mock('@/catalog', async () => await import('@/catalog/application/persistence
 vi.mock('@/utils/readFileBytes', () => ({ readFileBytes: vi.fn() }));
 vi.mock('@/plans/ui', () => ({ announceStartAccount: vi.fn() }));
 vi.mock('@/pairing/secrets', () => ({ getWebSecret: vi.fn(), setWebSecret: vi.fn() }));
-const savedConnection = vi.hoisted(() => ({ lastSessionCwd: '', recentSessionCwds: [] as string[] }));
+const savedConnection = vi.hoisted(() => ({ lastSessionCwdByMachine: {} as Record<string, string>, recentSessionCwds: [] as string[] }));
 vi.mock('@/connection', async () => {
     const { rememberSessionCwd } = await vi.importActual<typeof import('@/connection/connectionSettings')>('@/connection/connectionSettings');
     return {
         getCachedConnectionSettings: () => ({ machineId: hostSync.machineId, ...savedConnection }),
         rememberSessionCwd,
         saveConnectionSettings: async (settings: typeof savedConnection) => {
-            savedConnection.lastSessionCwd = settings.lastSessionCwd;
+            savedConnection.lastSessionCwdByMachine = settings.lastSessionCwdByMachine;
             savedConnection.recentSessionCwds = settings.recentSessionCwds;
         },
         DEFAULT_CONNECTION: {},
@@ -571,7 +571,7 @@ describe('session sync flow', () => {
     });
 
     it('starts the next agent from Home or New agent in the folder the last one started in', async () => {
-        savedConnection.lastSessionCwd = '';
+        savedConnection.lastSessionCwdByMachine = {};
         savedConnection.recentSessionCwds = [];
         let started = 0;
         request.mockImplementation(async (method: string) => {
@@ -597,11 +597,11 @@ describe('session sync flow', () => {
         await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
 
         expect(cwds()).toEqual(['/home/user/notes-app', '/home/user/notes-app', '/home/user/api']);
-        expect(savedConnection.lastSessionCwd).toBe('/home/user/api');
+        expect(savedConnection.lastSessionCwdByMachine.machine).toBe('/home/user/api');
     });
 
     it('starts the first agent in the folder setup chose on that computer, not ~', async () => {
-        savedConnection.lastSessionCwd = '';
+        savedConnection.lastSessionCwdByMachine = {};
         savedConnection.recentSessionCwds = [];
         request.mockImplementation(async (method: string) => {
             if (method !== 'session.start') throw new Error(`unexpected request: ${method}`);
@@ -618,7 +618,7 @@ describe('session sync flow', () => {
         useNewSessionDraft.setState({ selectedPath: null, agentType: 'shell', input: '', attachments: [] });
         await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
         // Once the person starts somewhere, their last folder wins over setup's.
-        savedConnection.lastSessionCwd = '/home/user/notes-app';
+        savedConnection.lastSessionCwdByMachine = { machine: '/home/user/notes-app' };
         useNewSessionDraft.setState({ selectedPath: null, agentType: 'shell', input: '', attachments: [] });
         await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
 

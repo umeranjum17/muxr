@@ -143,7 +143,7 @@ export function machineInfoToMachine(info: MachineInfo, pairedName?: string): Ma
             platform: info.platform ?? '',
             muxrCliVersion: info.hostVersion ?? 'muxr',
             muxrHomeDir: '',
-            homeDir: info.homeDir ?? '',
+            homeDir: '',
             ...(info.defaultStartFolder === undefined ? {} : { defaultStartFolder: info.defaultStartFolder }),
             ...(displayName ? { displayName } : {}),
             ...(info.connectionMode ? { connectionMode: info.connectionMode } : {}),

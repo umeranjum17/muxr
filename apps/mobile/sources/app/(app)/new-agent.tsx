@@ -256,7 +256,7 @@ export default function NewAgentScreen() {
     const machines = useAllMachines({ includeOffline: true });
     const machine = machines.find((candidate) => candidate.id === settings.machineId);
     const [typedCwd, setCwd] = React.useState<string | undefined>(undefined);
-    const cwd = typedCwd ?? dockStartPath(null, machine?.metadata?.homeDir, machine?.metadata?.defaultStartFolder);
+    const cwd = typedCwd ?? dockStartPath(null, settings.machineId, machine?.metadata?.defaultStartFolder);
     const [worktree, setWorktree] = React.useState(false);
     const [workspaces, setWorkspaces] = React.useState<HerdrTreeWorkspace[]>([]);
     const [busy, setBusy] = React.useState(false);

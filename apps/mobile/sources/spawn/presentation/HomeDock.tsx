@@ -563,7 +563,7 @@ export const HomeDock = React.memo(({
         }
     }, [selectedMachine, selectedPath, setPath]);
 
-    const startPath = dockStartPath(selectedPath, selectedMachine?.metadata?.homeDir, selectedMachine?.metadata?.defaultStartFolder);
+    const startPath = dockStartPath(selectedPath, selectedMachine?.id, selectedMachine?.metadata?.defaultStartFolder);
     const projectOptions = React.useMemo(() => projectDockOptions({
         selectedPath: startPath,
         selectedMachineId: activeMachineId,
