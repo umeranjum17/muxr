@@ -7,7 +7,7 @@ const MACHINE_KEY = 'muxr.cloud.boat-machine.v1';
 const PORT = 8792;
 const WORK_DIR = '/home/user/muxr';
 
-export const PRICE = { planFloorPerMonth: 20, asleepPerHour: 0, currency: 'USD', source: 'https://docs.boat.dev/pricing', checked: '19 Oct 2026' } as const;
+export const PRICE = { planFloorPerMonth: 20, asleepPerHour: 0, currency: 'USD', source: 'https://docs.boat.dev/pricing', checked: '2026-10-19' } as const;
 export const BOAT_PRICES: Price[] = [
     { ...PRICE, size: 'small', perHour: 0.018, basis: '2 vCPU, 4 GB: half the default rate, billed per second while on' },
     { ...PRICE, size: 'default', perHour: 0.036, basis: '4 vCPU, 8 GB: $20 a month buys 2,000,000 VM-seconds, billed per second while on' },
@@ -83,9 +83,14 @@ export async function deployBoatComputer(o: {
     o.onStep({ step: 'starting' });
     const startDeadline = Date.now() + 600_000;
     for (let state = await m.state(); state !== 'on'; state = await m.state()) {
-        if (state === 'failed' || state === 'gone') {
-            if (state === 'gone') await deleteNativeSecret(MACHINE_KEY);
-            throw new Error(`Your Boat computer is ${state}. Try again.`);
+        if (state === 'gone') {
+            await deleteNativeSecret(MACHINE_KEY);
+            throw new Error('Your Boat computer is gone. Try again.');
+        }
+        if (state === 'failed') {
+            await m.remove(created.id);
+            await deleteNativeSecret(MACHINE_KEY);
+            throw new Error('Your Boat computer failed, so muxr removed it. Try again.');
         }
         if (Date.now() > startDeadline) throw new Error('Boat is still starting your computer. Try again in a few minutes.');
         if (state === 'asleep') await m.wake();
@@ -116,7 +121,11 @@ export async function deployBoatComputer(o: {
                 // ponytail: one long exec holds the handoff open; a provider that caps exec time needs a detached start.
                 for (let attempt = 0; attempt < 12; attempt += 1) {
                     // An offer left by an interrupted earlier handoff must never be read as this one.
-                    await exec(['rm -f "$0"/.byokit/outbox/muxr-pair-*.json', WORK_DIR], 30_000);
+                    const cleared = await exec(['rm -f "$0"/.byokit/outbox/muxr-pair-*.json', WORK_DIR], 30_000).then(() => true, () => false);
+                    if (!cleared) {
+                        await sleep(5_000);
+                        continue;
+                    }
                     let settled = false;
                     const handoff = exec([MUXR, WORK_DIR, 'pair', '--handoff'], 180_000)
                         .catch((cause) => ({ code: 1, stdout: '', stderr: String(cause), timedOut: false }))
@@ -124,7 +133,7 @@ export async function deployBoatComputer(o: {
                     let offer: Offer | undefined;
                     while (!settled && offer === undefined) {
                         await sleep(2_000);
-                        offer = parseOffer((await exec([NEWEST_OFFER, WORK_DIR], 30_000)).stdout);
+                        offer = await exec([NEWEST_OFFER, WORK_DIR], 30_000).then((r) => parseOffer(r.stdout), () => undefined);
                     }
                     if (offer === undefined) {
                         detail = (await handoff).stderr.trim().slice(-300);

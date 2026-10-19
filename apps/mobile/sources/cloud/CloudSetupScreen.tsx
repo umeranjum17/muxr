@@ -15,7 +15,7 @@ import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, PRICE, type BoatSi
 
 const STEPS = ['Provider', 'Your Boat account', 'Size and price', 'Create', 'Put muxr on it', 'Join your tailnet', 'Pair with this phone'];
 const SIZES: { id: BoatSize; title: string }[] = [{ id: 'small', title: 'Small · 2 CPUs, 4 GB' }, { id: 'default', title: 'Standard · 4 CPUs, 8 GB' }];
-const STEP_INDEX: Record<DeployStep['step'], number> = { creating: 3, starting: 3, installing: 4, securing: 5, 'sign-in': 5, configuring: 4, pairing: 6 };
+const STEP_INDEX: Record<DeployStep['step'], number> = { creating: 3, starting: 3, installing: 4, securing: 5, 'sign-in': 5, configuring: 6, pairing: 6 };
 const STEP_WORDS: Record<DeployStep['step'], string> = {
     creating: 'Creating your cloud computer on Boat.',
     starting: 'Starting your cloud computer.',
@@ -25,8 +25,13 @@ const STEP_WORDS: Record<DeployStep['step'], string> = {
     configuring: 'Setting up muxr on your cloud computer.',
     pairing: words('setup.pairing', { app: 'muxr' }),
 };
-let deployInFlight = false;
+let deployRun: Promise<void> | undefined;
 const perHour = (size: BoatSize) => `$${BOAT_PRICES.find((p) => p.size === size)?.perHour} an hour while on`;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const checkedLabel = (iso: string) => {
+    const [year, month, day] = iso.split('-');
+    return `${Number(day)} ${MONTHS[Number(month) - 1]} ${year}`;
+};
 
 type ClaimFailure = Extract<Awaited<ReturnType<typeof claim> extends AsyncIterable<infer T> ? T : never>, { step: 'failed' }>['why'];
 
@@ -45,7 +50,7 @@ export function CloudSetupScreen() {
     const [email, setEmail] = React.useState('');
     const [url, setUrl] = React.useState<string>();
     const [code, setCode] = React.useState<string>();
-    const [busy, setBusy] = React.useState(false);
+    const [busy, setBusy] = React.useState(deployRun !== undefined);
     const [connected, setConnected] = React.useState(false);
     const [error, setError] = React.useState<string>();
     const controller = React.useRef<AbortController | undefined>(undefined);
@@ -55,38 +60,42 @@ export function CloudSetupScreen() {
     const auth = useAuth();
     const router = useRouter();
 
-    React.useEffect(() => {
-        mounted.current = true;
-        return () => {
-            mounted.current = false;
-            controller.current?.abort();
-        };
-    }, []);
-    React.useEffect(() => { void getNativeSecret(BOAT_KEY).then((key) => { if (key) setConnected(true); }); }, []);
-
-    const create = React.useCallback(async () => {
-        if (deployInFlight) return;
-        deployInFlight = true;
-        setBusy(true);
-        setError(undefined);
+    const settle = React.useCallback(async (run: Promise<void>) => {
         try {
-            await deployBoatComputer({
-                size,
-                onStep: (s) => { if (mounted.current) setDeploy(s); },
-                pair: async (offer, deliverWords) => {
-                    if (!(await pairLinkOffer(offer, auth, { confirm: async () => true, onWords: deliverWords }))) throw new Error('Pairing with your cloud computer failed. Try again.');
-                },
-            });
+            await run;
             if (mounted.current) router.replace('/');
         } catch (cause) {
             if (mounted.current) {
                 setError(cause instanceof MachineError ? errorWords(cause, { app: 'muxr', label: 'Boat' }) : cause instanceof Error ? cause.message : String(cause));
                 setBusy(false);
             }
-        } finally {
-            deployInFlight = false;
         }
-    }, [size, auth, router]);
+    }, [router]);
+
+    React.useEffect(() => {
+        mounted.current = true;
+        if (deployRun) void settle(deployRun);
+        return () => {
+            mounted.current = false;
+            controller.current?.abort();
+        };
+    }, [settle]);
+    React.useEffect(() => { void getNativeSecret(BOAT_KEY).then((key) => { if (key) setConnected(true); }); }, []);
+
+    const create = React.useCallback(() => {
+        if (deployRun) return;
+        setBusy(true);
+        setError(undefined);
+        const run = deployBoatComputer({
+            size,
+            onStep: (s) => { if (mounted.current) setDeploy(s); },
+            pair: async (offer, deliverWords) => {
+                if (!(await pairLinkOffer(offer, auth, { confirm: async () => true, onWords: deliverWords }))) throw new Error('Pairing with your cloud computer failed. Try again.');
+            },
+        }).finally(() => { deployRun = undefined; });
+        deployRun = run;
+        void settle(run);
+    }, [size, auth, settle]);
     const current = deploy ? STEP_INDEX[deploy.step] : connected ? 2 : 1;
 
     const connect = React.useCallback(async () => {
@@ -157,7 +166,8 @@ export function CloudSetupScreen() {
                                                 <Text style={styles.detail}>{perHour(option.id)}</Text>
                                             </Pressable>
                                         ))}
-                                        <Text style={styles.detail}>{`Paid to Boat, not muxr. Free while asleep; Boat's plan is at least $${PRICE.planFloorPerMonth} a month. Prices checked ${PRICE.checked}.`}</Text>
+                                        <Text style={styles.detail}>{`Paid to Boat, not muxr. Free while asleep; Boat's plan is at least $${PRICE.planFloorPerMonth} a month. Prices checked ${checkedLabel(PRICE.checked)}.`}</Text>
+                                        {busy && <Text style={styles.detail}>Setup is still running.</Text>}
                                         <ActionButton title="Create cloud computer" icon="cloud-outline" disabled={busy} onPress={() => { void create(); }} wrap />
                                         {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
                                     </View>
