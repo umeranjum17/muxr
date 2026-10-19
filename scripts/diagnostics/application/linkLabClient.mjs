@@ -11,6 +11,7 @@ const PER_LOAD_POINT_MS = 3_000;
 const MAX_WAIT_MS = 180_000;
 const ADB_CALL_MS = 5_000;
 const ADB_PROBE_MS = 1_000;
+const ROUTE_WAIT_MS = 90_000;
 const execFileAsync = promisify(execFile);
 
 export function linkWaitMs(load = loadavg()[0]) {
@@ -60,14 +61,15 @@ async function routeLabRelay(serial, ports, deadline) {
  * route at all.
  */
 export async function forwardLabRelayTo(serial, offerText, deadline) {
-    const ports = [...new Set(parseOffer(offerText, 0).urls.map((url) => new URL(url))
-        .filter((url) => LOOPBACK.has(url.hostname)).map((url) => url.port))];
+    const ports = parseOffer(offerText, 0).urls.map((url) => new URL(url))
+        .filter((url) => LOOPBACK.has(url.hostname)).map((url) => url.port);
     if (ports.length === 0) return [];
+    const routeDeadline = Math.min(deadline, Date.now() + ROUTE_WAIT_MS);
     let last = 'no answer yet';
     let fatal;
     await until(async () => {
         try {
-            await routeLabRelay(serial, ports, deadline);
+            await routeLabRelay(serial, ports, routeDeadline);
             return true;
         } catch (cause) {
             last = lastLine(cause.stderr || cause.message || String(cause)) || 'no answer';
@@ -75,7 +77,7 @@ export async function forwardLabRelayTo(serial, offerText, deadline) {
             fatal = new Error(`adb cannot route the lab relay to ${serial}: ${last}`);
             return true;
         }
-    }, `the lab relay route on ${serial}`, deadline, ADB_PROBE_MS)
+    }, `the lab relay route on ${serial}`, routeDeadline, ADB_PROBE_MS)
         .catch((timedOut) => { throw new Error(`${timedOut.message}; last adb answer: ${last}`); });
     if (fatal) throw fatal;
     return ports;
