@@ -22,13 +22,18 @@ export function vitalsFacts(vitals: UsageVitals): VitalsFacts | undefined {
     const memoryPercent = share(vitals.memoryUsed, vitals.memoryTotal);
     const busy = memoryPercent >= BUSY_MEMORY_PERCENT || (vitals.cpus !== undefined && vitals.load1 >= vitals.cpus);
     const facts: VitalsFacts = {
-        state: busy ? 'busy' : vitals.cpus === undefined ? undefined : 'healthy',
+        state: vitalsState(busy, vitals.cpus),
         memoryPercent,
         load: Number(vitals.load1.toFixed(1)).toString(),
         uptime: compactAge(vitals.uptimeSeconds * 1_000),
     };
     const disk = diskShare(vitals);
     return disk === undefined ? facts : { ...facts, diskPercent: disk };
+}
+
+function vitalsState(busy: boolean, cpus: number | undefined): VitalsFacts['state'] {
+    if (busy) return 'busy';
+    return cpus === undefined ? undefined : 'healthy';
 }
 
 function diskShare(vitals: UsageVitals): number | undefined {
