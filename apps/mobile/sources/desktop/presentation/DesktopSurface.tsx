@@ -214,7 +214,9 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                 : ['view', 'control'];
             return {
                 signaling: createDesktopSignaling({ permissions, maxFps: DESKTOP_FPS, onOpenSent: () => setOpenSentAt(Date.now()), ...scope }),
-                session: { permissions },
+                // The owner's own STUN/TURN, credentialed by their relay for
+                // this open: the way through when no direct path exists.
+                session: { permissions, ...(capabilities?.iceServers === undefined ? {} : { iceServers: capabilities.iceServers }) },
             };
         }, [targetSession]),
         onError: (failure) => say(describeDesktopFailureDetail(failure)),

@@ -357,7 +357,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             if (options.desktop === undefined) {
                 return { available: false, unavailableReason: 'This host has no desktop engine.', input: false, clipboard: false };
             }
-            return options.desktop.capabilities();
+            const [capabilities, iceServers] = await Promise.all([options.desktop.capabilities(), options.desktop.iceServers()]);
+            return iceServers.length === 0 ? capabilities : { ...capabilities, iceServers };
         },
         'desktop.open': async (params, context) => {
             const connectionId = context.connectionId;

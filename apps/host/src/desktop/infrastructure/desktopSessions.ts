@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
 import type { EngineCapabilities, EngineEvent, SourceRequest } from '@desklink/host';
 import { DESKTOP_CONSENT_WAIT_MS, DESKTOP_LOOPBACK_TCP, DESKTOP_NO_PICTURE, desktopPortalBusy } from '@trymuxr/contract';
-import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@trymuxr/contract';
+import type { DesktopCapabilities, DesktopEvent, DesktopIceServer, DesktopPermission, DesktopSurfaceGeometry } from '@trymuxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
 import { silentPortalBackends } from './portalBackends.js';
@@ -113,6 +113,8 @@ export interface DesktopEngineOptions {
     onDiagnostic?: (line: string) => void;
     /** Existing host state root. Without one, portal grants are not retained. */
     stateRoot?: string;
+    /** The owner's own STUN/TURN servers, freshly credentialed; absent means none. */
+    iceServers?: () => Promise<DesktopIceServer[]>;
 }
 
 interface LiveSession extends DesktopSessionRecord {
@@ -189,6 +191,20 @@ export class DesktopSessions {
     /** Stop the screen this host started, if any; the host calls this as it stops. */
     stopVirtualDisplay(): void {
         this.virtualDisplay.stop();
+    }
+
+    /**
+     * The owner's STUN/TURN servers for one side of a session. Each side gets
+     * its own credentials; a relay that cannot mint them leaves the picture to
+     * the direct and link paths, and the reason goes to the host log.
+     */
+    async iceServers(): Promise<DesktopIceServer[]> {
+        try {
+            return await this.options.iceServers?.() ?? [];
+        } catch (error) {
+            this.options.onDiagnostic?.(`no TURN servers for this desktop: ${error instanceof Error ? error.message : String(error)}`);
+            return [];
+        }
     }
 
     /** No sessions and nothing opening: the target reaper may drop this instance. */
@@ -299,9 +315,11 @@ export class DesktopSessions {
             }
         };
         const restoreToken = takeGrant();
+        const iceServers = await this.iceServers();
         this.opening += 1;
         const openParams = {
             permissions: request.permissions,
+            ...(iceServers.length === 0 ? {} : { iceServers }),
             ...(restoreToken === undefined ? {} : { restoreToken }),
             ...(source === undefined ? {} : { source }),
             ...(request.maxWidth === undefined ? {} : { maxWidth: request.maxWidth }),

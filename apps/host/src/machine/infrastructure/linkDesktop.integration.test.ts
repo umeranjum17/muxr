@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
@@ -26,6 +27,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
  const request = JSON.parse(line);
  if (request.method === 'hello' || request.method === 'capabilities') return out({ id: request.id, result: caps });
  if (request.method === 'session.open') {
+   fs.appendFileSync(log + '.ice', JSON.stringify(request.params.ice_servers ?? null) + '\\n');
    const sessionId = 'engine-' + (++opened);
    out({ event: 'session.description', params: { sessionId, generation: 1, description: { type: 'offer', sdp: 'v=0 offer' } } });
    if (request.params.loopback_tcp) out({ event: 'session.candidate', params: { sessionId, generation: 1, candidate: 'candidate:5 1 tcp 1671430143 127.0.0.1 ${loopbackPort} typ host tcptype passive', sdpMid: '0', sdpMLineIndex: 0 } });
@@ -119,6 +121,10 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay'), advertiseMdns: false } });
         cleanups.push(() => void relay.close());
         const relayUrl = `ws://127.0.0.1:${relay.port}/relay`;
+        const mintSecret = JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string;
+        // The owner's own TURN server, as the self-host docs set it up.
+        const turnSecret = 'turn-shared-secret';
+        writeFileSync(join(dir, 'relay', 'turn.json'), JSON.stringify({ urls: ['turn:turn.example.test:3478?transport=udp'], secret: turnSecret }), { mode: 0o600 });
         const machineId = 'machine-desktop-test';
         const source = {
             subscribe: () => () => undefined,
@@ -127,7 +133,7 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         } as unknown as SessionSource;
         const domain = { unread: { acknowledge: () => undefined, noteActivity: () => undefined } } as unknown as AgentWatchStores;
         const host: MuxrHost = startHost({
-            relayUrl, machineId, source, domain, desktopEnginePath: engine, stateRoot: join(dir, 'host-state'),
+            relayUrl, token: mintSecret, machineId, source, domain, desktopEnginePath: engine, stateRoot: join(dir, 'host-state'),
         });
         cleanups.push(() => void host.close());
 
@@ -149,7 +155,7 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         const activeStreams = new Set<string>();
         const endpoint = await LinkEndpoint.open({
             relayUrl,
-            ownerToken: JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string,
+            ownerToken: mintSecret,
             machineName: 'test machine',
             crypto,
             currentCrypto: () => crypto,
@@ -184,6 +190,15 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         const first = await desktopStream(a);
         await until(() => activeStreams.size === 1 ? true : undefined, 'first desktop stream is registered');
 
+        // The phone and the engine each get their own TURN REST credential from
+        // the owner's relay, which coturn accepts under the shared secret.
+        const validTurn = (servers: Array<{ urls: string[]; username: string; credential: string }> | null): boolean => {
+            const [server] = servers ?? [];
+            return servers?.length === 1 && server!.urls[0] === 'turn:turn.example.test:3478?transport=udp'
+                && Number(server!.username.split(':')[0]) > Date.now() / 1000
+                && server!.credential === createHmac('sha1', turnSecret).update(server!.username).digest('base64');
+        };
+        expect(validTurn(responseData<{ iceServers: [] }>(await first.request('desktop.capabilities', {})).iceServers)).toBe(true);
         // A phone that reaches this computer only through the relay carries the
         // engine's loopback TCP candidate over a link stream instead.
         const openedTcp = responseData<{ desktopId: string }>(await first.request('desktop.open', { permissions: ['view'], loopbackTcp: true }));
@@ -198,6 +213,7 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
             const error = await ended;
             return { echoed, ...(error === undefined ? {} : { error }) };
         };
+        expect(validTurn(JSON.parse(readFileSync(`${engineLog}.ice`, 'utf8').split('\n')[0]!))).toBe(true);
         expect(await carry(a, loopbackPort)).toEqual({ echoed: 'dtls hello' });
         // Nothing else on the loopback, and nobody else's session, is reachable this way.
         expect(await carry(a, loopbackPort + 1)).toEqual({ echoed: '', error: 'desktop: that connection is not open to this device' });

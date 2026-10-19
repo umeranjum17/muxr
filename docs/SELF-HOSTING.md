@@ -78,7 +78,7 @@ Automation uses:
 | *(Works only on this Wi-Fi)* | Recommended on a plain computer (see above), or kept when already on it. The phone must be on the same Wi-Fi. |
 | *(choose Direct SSH in the native app)* | Pair through the host's loopback relay over SSH; see [Direct SSH](#direct-ssh). |
 
-The computer's screen (**Computer**) goes straight from the computer to the phone when they can reach each other. When the only way between them is the relay (a temporary link, or your own server while the phone is on mobile data), the native app carries the picture through the relay instead, still end-to-end encrypted. That path is slower; its throughput is an estimate of about 7 Mbps at 300 ms round trip, not a measured figure. A browser cannot use it, so the installed web app shows the screen only on the same Wi-Fi, Tailscale, or another direct path.
+The computer's screen (**Computer**) goes straight from the computer to the phone when they can reach each other. When the only way between them is the relay (a temporary link, or your own server while the phone is on mobile data), the native app carries the picture through the relay instead, still end-to-end encrypted. That path is slower; its throughput is an estimate of about 7 Mbps at 300 ms round trip, not a measured figure. A browser cannot use it, so the installed web app shows the screen only on the same Wi-Fi, Tailscale, or another direct path, unless you run [your own TURN server](#your-own-turn-server).
 
 For either Tailscale route, install the free Tailscale app on your phone and sign in to the same account before pairing.
 Nearby mDNS discovery is only a locator for an already-paired native app; it
@@ -217,6 +217,27 @@ Under systemd, keep `ExecStart=muxr up` and add `Environment=MUXR_MODE=selfhost`
   If relay retirement fails, the replacement keys remain in place. The error names
   the old host ID; restore relay access and retry the reported DELETE with the
   relay owner credential to remove that registration.
+
+## Your own TURN server
+
+muxr ships no STUN or TURN server and never uses a public one. To let the
+**Computer** picture through any network, including the installed web app on
+mobile data, run [coturn](https://github.com/coturn/coturn) next to your relay
+on a box the phone and the computer can both reach (a VPS with a public
+address). On that box, with `TURN_HOST` set to its public name or address:
+
+```bash
+TURN_HOST=turn.example.com; secret=$(openssl rand -hex 32) && (umask 077 && printf '{"urls":["turn:%s:3478?transport=udp","turn:%s:3478?transport=tcp"],"secret":"%s"}\n' "$TURN_HOST" "$TURN_HOST" "$secret" > ~/.muxr/relay/turn.json) && docker run -d --name muxr-turn --restart unless-stopped --network host coturn/coturn:4.6.3 -n --use-auth-secret --static-auth-secret="$secret" --realm=muxr --fingerprint --no-cli --no-multicast-peers --min-port=49160 --max-port=49200
+```
+
+Open 3478 (UDP and TCP) and 49160–49200 (UDP) in the firewall. A VPS whose
+interface holds a private address also needs
+`--external-ip=<public>/<private>`. The relay reads `turn.json` (in its data
+directory: `~/.muxr/relay`, or `/data` for the [Docker relay](#docker-relay))
+on every desktop open, so no restart is needed. It keeps the shared secret and
+hands each computer and phone its own credential (the TURN REST scheme coturn
+checks with `use-auth-secret`), valid for 12 hours. A `stun:` URL in `urls`
+is passed on as is. Delete `turn.json` to stop using it.
 
 ## Docker relay
 

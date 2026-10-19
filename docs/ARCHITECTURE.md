@@ -293,7 +293,11 @@ desktop picture is WebRTC and normally bypasses the relay; when a native phone
 has no direct path, its ICE-over-TCP connection to the engine's loopback
 candidate rides a `desktop.tcp` link stream (DTLS inside Noise, so still blind
 here). The host opens only a port that device's own session announced. A
-browser cannot dial a socket the page holds, so the PWA needs a direct path.
+browser cannot dial a socket the page holds, so the PWA needs a direct path
+or the owner's own TURN server: when the relay's data dir holds `turn.json`,
+`POST /v1/selfhost/ice-servers` mints a TURN REST credential for the host's
+owner or machine token, and the host asks for one for the engine on each open
+and one for the phone in `desktop.capabilities`. No public STUN or TURN is used.
 Older app builds and pre-cutover pairings must update and pair again. For
 connection routes and pairing instructions, see [Self-hosting](SELF-HOSTING.md).
 

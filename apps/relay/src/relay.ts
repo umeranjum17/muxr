@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createPublicKey, randomBytes, verify } from 'node:crypto';
 import { hostname } from 'node:os';
 import { openLinkRelay } from './routing/index.js';
-import { MachineAuthority, enrollmentProofMessage, secureEqual } from './admission/index.js';
+import { MachineAuthority, enrollmentProofMessage, mintIceServers, readTurnConfig, secureEqual } from './admission/index.js';
 import { clientIp, loadRelayConfig, type RelayConfig } from './config.js';
 import { readJsonBody, writeJson, writeJsonError } from './httpJson.js';
 import { awaitPersistChain, readPrivateFile, writeJsonFileAtomic } from './platform/persist.js';
@@ -207,6 +207,15 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     await link.revoke(machine.linkHostId);
                     writeJson(res, 200, { ok: true }); return;
                 }
+            }
+            if (url.pathname === '/v1/selfhost/ice-servers' && req.method === 'POST') {
+                if (machine === undefined && !owner(req)) { writeJsonError(res, 403, 'relay machine credential required'); return; }
+                let turn: Awaited<ReturnType<typeof readTurnConfig>>;
+                try { turn = await readTurnConfig(config.dataDir); }
+                catch (error) { writeJsonError(res, 500, `the relay's turn.json is unusable: ${error instanceof Error ? error.message : String(error)}`); return; }
+                if (turn === undefined) { writeJsonError(res, 404, 'turn_not_configured'); return; }
+                const minted = mintIceServers(turn, machine?.slug ?? 'owner', Date.now());
+                writeJson(res, 200, { ice_servers: minted.iceServers, ttl_seconds: minted.ttlSeconds }); return;
             }
             if (url.pathname === '/v1/selfhost/machines' && req.method === 'GET') {
                 if (!owner(req)) { writeJsonError(res, 403, 'relay owner required'); return; }
