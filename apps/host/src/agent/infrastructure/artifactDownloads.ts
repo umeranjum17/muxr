@@ -9,14 +9,18 @@
  *
  * URLs are unguessable one-time capabilities (16 random bytes, 5min TTL) --
  * no auth header, because anchor downloads can't set any.
+ *
+ * The same loopback listener serves `POST /v1/notify` (see `notifyEndpoint.ts`),
+ * which does require a bearer token; there is no second server.
  */
 
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { statSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, normalize, sep } from 'node:path';
 import { scanPane, type ArtifactWatcher } from './artifactWatcher.js';
+import { handleNotifyRequest, readOrCreateNotifyToken, type GeneralNotice } from './notifyEndpoint.js';
 
 const TICKET_TTL_MS = 5 * 60_000;
 
@@ -36,6 +40,8 @@ export class ArtifactDownloadServer {
         private readonly rootDir: string,
         private readonly port: number,
         private readonly watcher?: ArtifactWatcher,
+        /** General notifications share this loopback listener; no second server. */
+        private readonly notify?: { tokenPath: string; send: (notice: GeneralNotice) => number },
     ) {}
 
     /** Mint a one-time ticket for an artifact id. null: unknown id. */
@@ -76,63 +82,86 @@ export class ArtifactDownloadServer {
         return join(this.rootDir, paneId, entry.name);
     }
 
+    /** One-time ticket download. The /v1/notify route delegates first in start(). */
+    private serveAttachment(req: IncomingMessage, res: ServerResponse): void {
+        let token: string;
+        try {
+            token = decodeURIComponent(req.url ?? '').replace(/^\/attachment\//, '');
+        } catch {
+            res.writeHead(400).end('bad request');
+            return;
+        }
+        const ticket = this.tickets.get(token);
+        if (ticket === undefined || ticket.expiresAt < Date.now()) {
+            this.tickets.delete(token);
+            res.writeHead(404).end('unknown or expired ticket');
+            return;
+        }
+        this.tickets.delete(token); // one-time
+        const normalized = normalize(ticket.path);
+        const root = normalize(this.rootDir);
+        const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
+        if (!normalized.startsWith(rootPrefix)) {
+            res.writeHead(403).end('bad path');
+            return;
+        }
+        let size = ticket.size;
+        try {
+            size = statSync(normalized).size;
+        } catch {
+            res.writeHead(404).end('file gone');
+            return;
+        }
+        const headers: Record<string, string | number> = {
+            'content-type': ticket.mimeType === 'application/vnd.android.package-archive'
+                ? 'application/octet-stream'
+                : ticket.mimeType,
+            'accept-ranges': 'bytes',
+            'content-disposition': `attachment; filename="${ticket.name.replace(/[^A-Za-z0-9._-]/g, '_')}"`,
+        };
+        // Chrome parallel-chunks and resumes big downloads with Range
+        // requests; a 250MB file over mobile data does not survive without
+        // them. Honor a single byte range with a proper 206.
+        const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+        if (range !== null) {
+            const start = range[1] === '' ? Math.max(0, size - Number(range[2])) : Number(range[1]);
+            const end = range[2] === '' || range[1] === '' ? size - 1 : Math.min(Number(range[2]), size - 1);
+            if (start >= size || start > end) {
+                res.writeHead(416, { 'content-range': `bytes */${size}` }).end();
+                return;
+            }
+            res.writeHead(206, {
+                ...headers,
+                'content-range': `bytes ${start}-${end}/${size}`,
+                'content-length': end - start + 1,
+            });
+            createReadStream(normalized, { start, end }).pipe(res);
+            return;
+        }
+        res.writeHead(200, { ...headers, 'content-length': size });
+        createReadStream(normalized).pipe(res);
+    }
+
     start(): void {
-        this.server = createServer((req, res) => {
-            let token;
-            try { token = decodeURIComponent(req.url ?? '').replace(/^\/attachment\//, ''); }
-            catch {
-                res.writeHead(400).end('bad request');
-                return;
-            }
-            const ticket = this.tickets.get(token);
-            if (ticket === undefined || ticket.expiresAt < Date.now()) {
-                this.tickets.delete(token);
-                res.writeHead(404).end('unknown or expired ticket');
-                return;
-            }
-            this.tickets.delete(token); // one-time
-            const normalized = normalize(ticket.path);
-            const root = normalize(this.rootDir);
-            const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
-            if (!normalized.startsWith(rootPrefix)) {
-                res.writeHead(403).end('bad path');
-                return;
-            }
-            let size = ticket.size;
+        if (this.notify !== undefined) {
             try {
-                size = statSync(normalized).size;
+                readOrCreateNotifyToken(this.notify.tokenPath);
             } catch {
-                res.writeHead(404).end('file gone');
-                return;
+                // No mintable token: the route below answers 500, everything else serves.
             }
-            const headers: Record<string, string | number> = {
-                'content-type': ticket.mimeType === 'application/vnd.android.package-archive'
-                    ? 'application/octet-stream'
-                    : ticket.mimeType,
-                'accept-ranges': 'bytes',
-                'content-disposition': `attachment; filename="${ticket.name.replace(/[^A-Za-z0-9._-]/g, '_')}"`,
-            };
-            // Chrome parallel-chunks and resumes big downloads with Range
-            // requests; a 250MB file over mobile data does not survive without
-            // them. Honor a single byte range with a proper 206.
-            const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
-            if (range !== null) {
-                const start = range[1] === '' ? Math.max(0, size - Number(range[2])) : Number(range[1]);
-                const end = range[2] === '' || range[1] === '' ? size - 1 : Math.min(Number(range[2]), size - 1);
-                if (start >= size || start > end) {
-                    res.writeHead(416, { 'content-range': `bytes */${size}` }).end();
-                    return;
-                }
-                res.writeHead(206, {
-                    ...headers,
-                    'content-range': `bytes ${start}-${end}/${size}`,
-                    'content-length': end - start + 1,
+        }
+        this.server = createServer((req, res) => {
+            if (this.notify !== undefined) {
+                const notify = this.notify;
+                void handleNotifyRequest(req, res, notify).then((handled) => {
+                    if (!handled) this.serveAttachment(req, res);
+                }).catch(() => {
+                    if (!res.headersSent) res.writeHead(500);
+                    res.end('notify failed');
                 });
-                createReadStream(normalized, { start, end }).pipe(res);
                 return;
             }
-            res.writeHead(200, { ...headers, 'content-length': size });
-            createReadStream(normalized).pipe(res);
+            this.serveAttachment(req, res);
         });
         // Loopback only: the relay pipes from here, nothing else may reach it.
         this.server.on('error', () => {

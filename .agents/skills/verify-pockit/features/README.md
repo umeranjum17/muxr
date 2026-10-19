@@ -362,3 +362,7 @@ rules, with no H2 sections.
   native release APK: at 270 dp largest font the scroll ends above the sticky
   Start footer, so the Folder field and every field stay fully visible above
   Start and a field tap never starts an agent.
+- [Send a notification from a tool on the computer](./notify.md) —
+  a loopback `POST /v1/notify` with the minted bearer token over a real relay
+  and host: `202 {id, delivered_to}`, the count following each device's
+  notification level, and the 400/401/405 refusals.

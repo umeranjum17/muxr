@@ -6,6 +6,7 @@ import { homedir, hostname, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, labHerdrSocket, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
+import { notifyTokenPath } from './agent/infrastructure/notifyEndpoint.js';
 import { localRelayBase } from '../../../scripts/setup/infrastructure/selfhost.mjs';
 import { startHost } from './host.js';
 import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from './peer/index.js';
@@ -477,6 +478,10 @@ async function main(): Promise<void> {
             machineId,
             machineName,
             onLinkAttention: (input) => linkEndpoint?.notifyAttention(input),
+            notify: {
+                tokenPath: notifyTokenPath(stateRoot),
+                send: (notice) => linkEndpoint?.notifyGeneral({ ...notice, machineId }) ?? 0,
+            },
             artifactsDir: join(stateRoot, 'attachments', 'pane'),
             hostHttpPort: hostConfig.hostHttpPort,
             ...(token === undefined ? {} : { token }),
