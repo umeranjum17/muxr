@@ -8,7 +8,8 @@
 import { join } from 'node:path';
 
 export { startRelay } from '@muxr/relay';
-export { LinkEndpoint } from '../../apps/host/src/machine/infrastructure/linkEndpoint.js';
+export { LinkEndpoint, generalNoticeEnvelope } from '../../apps/host/src/machine/infrastructure/linkEndpoint.js';
+export { parseGeneralNotice } from '../../apps/host/src/agent/infrastructure/notifyEndpoint.js';
 export type { MachineCryptoState } from '../../apps/host/src/machine/domain/crypto.js';
 export { ArtifactWatcher } from '../../apps/host/src/agent/infrastructure/artifactWatcher.js';
 export { pairingIntent } from '../../scripts/setup/domain/pairing.js';

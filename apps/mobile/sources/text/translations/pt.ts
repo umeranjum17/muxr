@@ -114,7 +114,6 @@ export const pt: TranslationStructure = {
             paceAhead: 'Adiantado',
             paceBurning: 'Consumo rápido',
             percentLeft: ({ percent }: { percent: number }) => `${percent}% restante`,
-            percentUsed: ({ percent }: { percent: number }) => `${percent}% usado`,
             runsOutIn: ({ time }: { time: string }) => `esgota em ${time}`,
             asOf: ({ time }: { time: string }) => `Limites a partir das ${time}`,
         },
@@ -127,6 +126,8 @@ export const pt: TranslationStructure = {
             refreshNow: 'Atualizar uso agora',
             refreshThrottled: ({ seconds }: { seconds: number }) => `Atualização disponível em ${seconds} s`,
             refreshIn: ({ seconds }: { seconds: number }) => `em ${seconds} s`,
+            healthy: 'Saudável',
+            busy: 'Ocupado',
             notConnected: 'Limites do plano não conectados',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `renova em ${time}`,
@@ -203,6 +204,9 @@ export const pt: TranslationStructure = {
     },
 
     pairing: {
+        pageTitle: 'Emparelhar um computador',
+        copy: 'Copiar',
+        copied: 'Copiado',
         busy: 'Emparelhando…',
         connecting: 'Conectando com segurança ao seu computador…',
         compareWords: ({ name }: { name: string }) => `Verifique se ${name} mostra estas duas palavras e depois aprove no computador.`,

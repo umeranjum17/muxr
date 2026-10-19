@@ -2,7 +2,7 @@
  *  units. A filesystem this host cannot stat omits the disk pair, so the
  *  phone drops that one figure and still shows memory, load and uptime. */
 import { statfsSync } from 'node:fs';
-import { freemem, loadavg, totalmem, uptime } from 'node:os';
+import { availableParallelism, freemem, loadavg, totalmem, uptime } from 'node:os';
 import type { UsageVitals } from '@trymuxr/contract';
 
 export function vitalsFigures(): UsageVitals {
@@ -20,6 +20,7 @@ export function vitalsFigures(): UsageVitals {
         memoryTotal,
         ...(disk === undefined ? {} : disk),
         load1: loadavg()[0] ?? 0,
+        cpus: availableParallelism(),
         uptimeSeconds: Math.floor(uptime()),
     };
 }

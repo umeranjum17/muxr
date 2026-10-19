@@ -3,12 +3,13 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { loadavg } from 'node:os';
 import { join } from 'node:path';
 import { machineIdentity } from '../../setup/index.mjs';
-import { linkLabClient, linkWaitMs } from './linkLabClient.mjs';
+import { approveLabOffer, linkLabClient, linkWaitMs } from './linkLabClient.mjs';
 import { waitForRelay } from './waitForRelay.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {}) {
+// With `presentOffer`, an external device (an Android app) pairs from the offer it is handed, and the lab answers the computer's approval; the result is `approved`, not a link.
+export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {}, presentOffer) {
     const helper = process.env.HERDR_LAB_HELPER;
     if (!helper) throw new Error('HERDR_LAB_HELPER is not set: point it at a Herdr lab helper script to run the lab link.');
     const session = process.env.HERDR_LAB_SESSION ?? execFileSync(helper, ['name', label], { encoding: 'utf8' }).trim();
@@ -85,8 +86,10 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
             if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host never reached the relay within ${waited}: ${host.output()}`);
             await sleep(100);
         }
-        link = await linkLabClient(join(hostDir, 'pair.sock'), onEvent, deadline);
-        return { link, env, machine, port, session, wrapper,
+        const pairSocket = join(hostDir, 'pair.sock');
+        const approved = presentOffer === undefined ? undefined : await approveLabOffer(pairSocket, presentOffer);
+        link = presentOffer === undefined ? await linkLabClient(pairSocket, onEvent, deadline) : undefined;
+        return { link, approved, env, machine, port, session, wrapper,
             // The lab relay and host this call started, for checks that freeze them.
             pids: () => children.map((child) => child.pid), hostOutput: () => host.output(),
             herdr: (args, timeout = 10_000) => execFileSync(wrapper, args, { encoding: 'utf8', timeout }),

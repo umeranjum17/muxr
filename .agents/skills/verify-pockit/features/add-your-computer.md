@@ -12,7 +12,7 @@ terminal install.
 
 ## Sub-features
 
-- `entry-first-run` an unpaired native app shows an **Add your computer** tile ("Desktop app · no terminal") first under "Not set up yet?".
+- `entry-first-run` an unpaired native app shows an **Add your computer** tile ("Desktop app") first under "Not set up yet?", leaving the no-terminal qualifier to the screen it opens.
 - `entry-settings` Settings → Machines has **Add your computer** above **Pair another machine**.
 - `link-and-qr` the screen shows the link's QR (dark on white in both themes), the link text, **Copy link** (with a "Link copied." line) and **Share link** (the system sheet).
 - `pair-step` step 3 is **Scan the computer’s QR** (or **Enter its pairing code** where the device can't scan), into the existing consent and two-word check.
@@ -30,7 +30,7 @@ terminal install.
 Preconditions:
 
 - A release APK (`perf/buildPrApk.mjs`, store distribution, `https://trymuxr.com` base), a Play Store AVD booted with `-camera-back imagefile:<cam.png>`, and the emulator lock.
-- The Linux AppImage from `yarn desktop:build:linux`, extracted with `--appimage-extract` (no libfuse2 here).
+- The Linux AppImage from `yarn desktop:build:linux`, extracted with `--appimage-extract` (this host has no libfuse2, so the AppImage itself starts only with `--appimage-extract-and-run` on every launch); run the extracted `muxr` binary instead so relaunches never go through the AppImage.
 - The lab site from `apps/site/dist/site.js` with `PORT=<free>` and `MUXR_RELEASE_CATALOG_URL` pointing at a local catalog fixture whose stable `linux` entry names `https://github.com/umeranjum17/muxr/releases/download/v<version>/<file>.AppImage`, the local AppImage's sha256 and its byte size.
 - An `fm-herdr-lab.sh` session for `HERDR_SOCKET_PATH`. Never use `~/.muxr`, `~/.config/herdr` or port 8792.
 

@@ -1020,9 +1020,9 @@ describe('the usage screen read path', () => {
             .map((node: any) => [node.props.children, node.props.style?.color])
             .filter(([text]: any) => typeof text === 'string' && !text.startsWith('plugins.rightNow.memory'));
         expect(figures()).toEqual([
-            ['7d', '#999'], ['36%', '#fff'],
-            ['5h×2', '#999'], ['60%', '#fff'], ['7d', '#999'], ['89%', '#fff'],
-            ['5h', '#999'], ['93%', '#fff'], ['7d', '#999'], ['0%', '#f55'], ['Month', '#999'], ['8%', '#fa0'],
+            ['7d', '#999'], ['36% plugins.limits.percentLeft', '#fff'],
+            ['5h×2', '#999'], ['60% plugins.limits.percentLeft', '#fff'], ['7d', '#999'], ['89% plugins.limits.percentLeft', '#fff'],
+            ['5h', '#999'], ['93% plugins.limits.percentLeft', '#fff'], ['7d', '#999'], ['0% plugins.limits.percentLeft', '#f55'], ['Month', '#999'], ['8% plugins.limits.percentLeft', '#fa0'],
         ]);
         // Read aloud in the same order, naming every limit, and a coloured
         // figure says why and when it comes back, which its colour cannot.
@@ -1051,7 +1051,7 @@ describe('the usage screen read path', () => {
         TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, namedNow) }); });
         const codexText = () => card.root.findAllByType('AgentGlyph')[1]!.parent.findAllByType('Text')
             .map((node: any) => node.props.children) as string[];
-        const codexTags = codexText().filter((text) => !text.endsWith('%'));
+        const codexTags = codexText().filter((text) => !text.includes('%'));
         expect(codexTags).toContain('gpt-4');
         expect(codexTags).toContain('gpt-5');
         expect(screenText(card)).toContain('Month');
@@ -1059,15 +1059,15 @@ describe('the usage screen read path', () => {
         expect(codexTags.every((tag) => tag.length <= 6)).toBe(true);
         const namedShares = () => Object.fromEntries(codexText().filter((_, index) => index % 2 === 0)
             .map((tag, index) => [tag, codexText()[index * 2 + 1]]));
-        expect(namedShares()).toMatchObject({ turbo: '48%', vision: '29%', Spark: '35%', Mini: '24%' });
+        expect(namedShares()).toMatchObject({ turbo: '48% plugins.limits.percentLeft', vision: '29% plugins.limits.percentLeft', Spark: '35% plugins.limits.percentLeft', Mini: '24% plugins.limits.percentLeft' });
         TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 2, figures: withNow(undefined, {
             ...namedNow,
             connected: namedNow.connected!.map((provider) => provider.id === 'codex'
                 ? { ...provider, windows: [...provider.windows].reverse() }
                 : provider),
         }) }); });
-        expect(namedShares()).toMatchObject({ turbo: '48%', vision: '29%', Spark: '35%', Mini: '24%' });
-        expect(figures()).toContainEqual(['83%', '#fff']);
+        expect(namedShares()).toMatchObject({ turbo: '48% plugins.limits.percentLeft', vision: '29% plugins.limits.percentLeft', Spark: '35% plugins.limits.percentLeft', Mini: '24% plugins.limits.percentLeft' });
+        expect(figures()).toContainEqual(['83% plugins.limits.percentLeft', '#fff']);
         expect(screenText(card)).not.toContain(longName);
         const cardButton = () => card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
             && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!;

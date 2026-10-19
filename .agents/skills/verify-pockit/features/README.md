@@ -53,7 +53,8 @@ rules, with no H2 sections.
   desktop's QR, timed tap-to-paired, and a 270dp font 2.0 unreachable-relay
   failure that recovers with Try again; absent on web/PWA.
 - [Pair the phone from the installable desktop app](./linux-desktop-app.md) —
-  a Linux AppImage wrapping the relay and host: launch→Ready timing with and
+  a Linux AppImage wrapping the relay and host (the `/desktop` page names the
+  FUSE 2 fallback, `--appimage-extract-and-run`): launch→Ready timing with and
   without Herdr, Install Herdr from the window, QR and two-word pairing with a
   release APK on an emulator,
   Paired and Needs-attention states, and keep-awake/start-at-login persistence.
@@ -78,6 +79,9 @@ rules, with no H2 sections.
   the tapped password field stays above the keyboard and takes typed text.
 - [Hand a conversation to another computer](./session-handoff.md) —
   the agent writes its own handoff note over a real lab Herdr with a stand-in agent; busy agents refused with handoff-busy and no prompt sent.
+- [Approve a lab device pairing from the lab helper](./lab-device-approval.md) —
+  the lab helper hands its pairing offer to an external device and answers the
+  computer approval; the host reports the device it approved.
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
 - [Keep a source-build host off the real muxr home](./host-home-guard.md) —
@@ -358,3 +362,7 @@ rules, with no H2 sections.
   native release APK: at 270 dp largest font the scroll ends above the sticky
   Start footer, so the Folder field and every field stay fully visible above
   Start and a field tap never starts an agent.
+- [Send a notification from a tool on the computer](./notify.md) —
+  a loopback `POST /v1/notify` with the minted bearer token over a real relay
+  and host: `202 {id, delivered_to}`, the count following each device's
+  notification level, and the 400/401/405 refusals.

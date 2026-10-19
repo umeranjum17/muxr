@@ -43,6 +43,7 @@ import { foregroundProgramPids, shellHasLiveChild, shellPidOf, writeModeResetToP
 import { MODE_RESET_CSI } from './terminalModes.js';
 import { ArtifactWatcher } from './artifactWatcher.js';
 import { ArtifactDownloadServer } from './artifactDownloads.js';
+import type { GeneralNotice } from './notifyEndpoint.js';
 import type { AgentWatchStores } from '../application/watchStores.js';
 import type {
     SessionHandoffOptions,
@@ -272,6 +273,9 @@ export interface CreateHerdrSessionSourceOptions {
     machineName?: string;
     artifactsDir?: string;
     hostHttpPort?: number;
+    /** Serve POST /v1/notify on the host loopback HTTP port, fanned out
+     *  through the link sender below. Absent: no notify route is served. */
+    notify?: { tokenPath: string; send: (notice: GeneralNotice) => number };
     /** Machine token (MUXR_RELAY_TOKEN); authorizes /v1/push/notify. */
     token?: string;
     /** Strict hosted keys for realtime voice channels. */
@@ -1004,7 +1008,7 @@ export async function createHerdrSessionSource(
     artifacts.start();
 
     /** One-time tickets + byte streaming for downloads too big for the ws link. */
-    const artifactDownloadServer = new ArtifactDownloadServer(artifactsDir, options.hostHttpPort ?? 8793, artifacts);
+    const artifactDownloadServer = new ArtifactDownloadServer(artifactsDir, options.hostHttpPort ?? 8793, artifacts, options.notify);
     artifactDownloadServer.start();
 
     /**

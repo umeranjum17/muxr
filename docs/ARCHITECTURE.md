@@ -257,19 +257,23 @@ history after showing the plan.
 
 ## Push notifications
 
-Notifications open the app; requests travel over the authenticated link.
-A blocked agent's alert names it and carries its question; the native Answer
-action, "Answer in muxr", opens muxr to send one key as `session.answer` over
-the link, and the host types it only while that alert's blocked event is still
-the one waiting. A browser notification, including the installed iPhone web app,
-has no reply field, so answering there is platform-limited and its tap opens the
-agent.
+Lifecycle notifications open the app; requests travel over the authenticated
+link. A blocked agent's alert names it and carries its question; the native
+Answer action, "Answer in muxr", opens muxr to send one key as `session.answer`
+over the link, and the host types it only while that alert's blocked event is
+still the one waiting. A browser notification, including the installed iPhone
+web app, has no reply field, so answering there is platform-limited and its tap
+opens the agent. A general notification sent by a tool on the host instead
+opens the link it carries.
 
 The host seals each lifecycle notice separately to the recipient's raw device
 box key using `@byokit/seal`. Task title, agent name, a blocked agent's question,
 event kind and machine/session scope stay inside the sealed notice; the relay and push provider receive generic
-alert text and ciphertext. Clients open notices with stored paired grants and
-fall back to generic text when opening fails. The browser service worker reads
+alert text and ciphertext. A general notification from the host's
+`POST /v1/notify` is sealed the same way, with its title, body and link inside
+the envelope; [Self-hosting](SELF-HOSTING.md#sending-a-notification-to-your-devices)
+owns how a tool on the computer sends one. Clients open notices with stored
+paired grants and fall back to generic text when opening fails. The browser service worker reads
 paired grants through `pairing/infrastructure/webSecureStore.ts` to open notices;
 approval still runs in the app over the authenticated link. Native pre-display
 decryption is not implemented; see [notification presentation](../README.md).
