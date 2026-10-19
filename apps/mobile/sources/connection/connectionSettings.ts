@@ -173,7 +173,7 @@ export async function saveConnectionSettings(settings: ConnectionSettings): Prom
 
 export function rememberSessionCwd(settings: ConnectionSettings, cwd: string): ConnectionSettings {
     const trimmed = cwd.trim();
-    if (trimmed.length === 0) return settings;
+    if (trimmed.length === 0 || trimmed === '~') return settings;
     const recent = [trimmed, ...settings.recentSessionCwds.filter((entry) => entry !== trimmed)].slice(0, MAX_RECENT_CWDS);
     return { ...settings, lastSessionCwdByMachine: { ...settings.lastSessionCwdByMachine, [settings.machineId]: trimmed }, recentSessionCwds: recent };
 }
