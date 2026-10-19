@@ -14,9 +14,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DeviceLink, hostId, keyPairFrom, type DeviceGrant } from '@byokit/pair';
 import { describe, expect, it } from 'vitest';
-import { openNotice } from '@byokit/seal';
+import { openNotice, sealNotice } from '@byokit/seal';
 import { runInNewContext } from 'node:vm';
-import { openLifecycleNotice } from '../../../apps/mobile/sources/utils/openLifecycleNotice';
+import { isOpenableNotifyUrl, openLifecycleNotice } from '../../../apps/mobile/sources/utils/openLifecycleNotice';
 import { watchAgentLifecycle } from '../../../apps/mobile/sources/herd/application/WatchAgentLifecycle';
 
 const expoSends: Array<Record<string, unknown>> = [];
@@ -30,7 +30,7 @@ const capturedFetch: typeof fetch = async (url, init) => {
 };
 
 import { startRelay } from '../../../apps/relay/src/relay.js';
-import { fileRelayClientStore, LinkEndpoint } from '../../../apps/host/src/machine/infrastructure/linkEndpoint.js';
+import { fileRelayClientStore, generalNoticeEnvelope, LinkEndpoint } from '../../../apps/host/src/machine/infrastructure/linkEndpoint.js';
 
 const b64url = (value: Uint8Array | Buffer): string => Buffer.from(value).toString('base64url');
 const until = async <T>(produce: () => T | undefined, what: string, timeoutMs = 10_000): Promise<T> => {
@@ -165,11 +165,14 @@ describe('push rides the byokit link relay', () => {
             const worker = {
                 addEventListener: (type: string, handler: (event: unknown) => void) => workerHandlers.set(type, handler),
                 openLifecyclePush: async (data: unknown) => openLifecycleNotice(data, paired),
+                // The worker bundle re-exports this; the test stands in for the bundle only.
+                isOpenableNoticeUrl: isOpenableNotifyUrl,
+                location: { origin: 'https://app.test' },
                 registration: { showNotification: async (title: string, options: Record<string, unknown>) => { shown.push({ title, options }); } },
                 clients: { matchAll: async () => [], openWindow: async (url: string) => { target = url; } },
             };
             runInNewContext(readFileSync(new URL('../../../apps/mobile/public/sw.js', import.meta.url), 'utf8'), {
-                self: worker, importScripts: () => undefined,
+                self: worker, importScripts: () => undefined, URL,
                 caches: { open: async () => ({ match: async () => null }) },
             });
             let pending = Promise.resolve();
@@ -195,6 +198,27 @@ describe('push rides the byokit link relay', () => {
             expect(target).toBe('/notification#machineId=machine-push-test&sessionId=s1');
             const focusedTapUrl = new URL(target, 'https://app.test');
             expect(focusedTapUrl.pathname + focusedTapUrl.search).toBe('/notification');
+
+            // A tap lands on what the notice is about: a general notice opens the
+            // link its sealed envelope carries (the field the native tap opens), and
+            // a notice with no link, or one the native tap would refuse, opens muxr.
+            const sealedNotify = (url?: string) => sealNotice(generalNoticeEnvelope({
+                title: 'Decision needed', body: 'Pick a layout', id: 'k-1', machineId: 'machine-push-test',
+                ...(url === undefined ? {} : { url }),
+            }), deviceKeys.publicKey);
+            const tapNotice = async (sealed: ReturnType<typeof sealNotice>): Promise<string> => {
+                workerHandlers.get('push')!({ data: { json: () => ({ data: sealed }) }, waitUntil });
+                await pending;
+                target = '';
+                workerHandlers.get('notificationclick')!({ notification: { data: shown.at(-1)!.options.data, close: () => undefined }, waitUntil });
+                await pending;
+                return target;
+            };
+            expect(await tapNotice(sealedNotify('https://example.com/a'))).toBe('https://example.com/a');
+            expect(shown.at(-1)!.title).toBe('Decision needed');
+            expect(await tapNotice(sealedNotify())).toBe('/');
+            expect(await tapNotice(sealedNotify('http://192.168.1.2/a'))).toBe('/');
+            expect(await tapNotice(sealedNotify('http://localhost:3000/a'))).toBe('http://localhost:3000/a');
 
 
 

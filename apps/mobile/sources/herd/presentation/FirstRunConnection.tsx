@@ -108,7 +108,7 @@ export function FirstRunConnection() {
                         >
                             <Ionicons name="laptop-outline" size={22} color={styles.wayIcon.color} />
                             <Text style={styles.wayTitle}>Add your computer</Text>
-                            <Text style={styles.waySub}>Desktop app · no terminal</Text>
+                            <Text style={styles.waySub}>Desktop app</Text>
                         </Pressable>
                     )}
                     <Pressable

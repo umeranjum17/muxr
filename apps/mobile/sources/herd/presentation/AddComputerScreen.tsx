@@ -77,7 +77,7 @@ export function AddComputerScreen() {
     return (
         <ScrollView style={styles.screen} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
             <View style={styles.section}>
-                <Text style={styles.lede}>Install the muxr app on your computer, then pair it with this {pairingDeviceNoun()}. No terminal needed.</Text>
+                <Text style={styles.lede}>Install the muxr app on your computer, then pair it with this {pairingDeviceNoun()}. No terminal needed unless the computer is missing FUSE 2.</Text>
                 <Step number={1} title="On your computer, open this link">
                     {link === undefined || shown === undefined ? (
                         <Text style={styles.hint}>This app can’t hand over the download link. On your computer, install muxr from a terminal and run muxr instead.</Text>
@@ -97,7 +97,7 @@ export function AddComputerScreen() {
                     )}
                 </Step>
                 <Step number={2} title="Install and open muxr there">
-                    <Text style={styles.hint}>The page has the download. Once muxr opens, it shows a QR on the computer’s screen.</Text>
+                    <Text style={styles.hint}>The page has the download, and a terminal note if the Linux app will not open. Once muxr opens, it shows a QR on the computer’s screen.</Text>
                 </Step>
                 <Step number={3} title="Pair with the computer">
                     {canScan ? (

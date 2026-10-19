@@ -117,7 +117,6 @@ export const ja: TranslationStructure = {
             paceAhead: '余裕あり',
             paceBurning: '消費が速い',
             percentLeft: ({ percent }: { percent: number }) => `残り ${percent}%`,
-            percentUsed: ({ percent }: { percent: number }) => `${percent}% 使用済み`,
             runsOutIn: ({ time }: { time: string }) => `あと${time}で上限`,
             asOf: ({ time }: { time: string }) => `${time}時点の上限`,
         },
@@ -130,6 +129,8 @@ export const ja: TranslationStructure = {
             refreshNow: '使用量を今すぐ更新',
             refreshThrottled: ({ seconds }: { seconds: number }) => `${seconds} 秒後に更新できます`,
             refreshIn: ({ seconds }: { seconds: number }) => `${seconds} 秒後`,
+            healthy: '正常',
+            busy: '混雑',
             notConnected: 'プラン制限に未接続',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `リセットまで ${time}`,
@@ -205,6 +206,9 @@ export const ja: TranslationStructure = {
     },
 
     pairing: {
+        pageTitle: 'コンピューターをペアリング',
+        copy: 'コピー',
+        copied: 'コピーしました',
         busy: 'ペアリング中…',
         connecting: 'コンピューターに安全に接続しています…',
         compareWords: ({ name }: { name: string }) => `${name} に同じ二つの単語が表示されていることを確認し、コンピューターで承認してください。`,

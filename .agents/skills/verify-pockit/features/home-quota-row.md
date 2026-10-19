@@ -1,7 +1,7 @@
 # Read plan limits on the Home card
 
 The Home card's first line shows each connected plan's mark, then every limit
-as window then share left with a space (`5h 100%`, `7d 0%`, `Month 11%`).
+as window then share left with a space (`5h 100% left`, `7d 0% left`, `Month 11% left`).
 Items never shrink or end in `…`; when the line runs out they wrap between
 whole items. The rest of the Right now card is frozen and must look the same.
 
@@ -40,9 +40,9 @@ Preconditions:
   to `<host data>/pair.sock` (answer `{"yes":true}` to its approval). Type the
   offer into `/pair` as `https://<any>/pair#byokit-link:…` and press Enter;
   capture at 393 and 270 wide, dark and light.
-- Pass: every item reads `window value` with a space, no `…` on any item,
-  wrapped rows break between items, and the rest of the card (vitals line,
-  refresh control) matches the before build.
+- Pass: every item reads `window value left` with spaces, no `…` on any item,
+  wrapped rows break between items, and the rest of the card (the Healthy or
+  Busy word, refresh control) matches the before build.
 
 ## Gotchas
 

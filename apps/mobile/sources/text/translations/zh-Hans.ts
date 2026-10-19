@@ -116,7 +116,6 @@ export const zhHans: TranslationStructure = {
             paceAhead: '用量充裕',
             paceBurning: '消耗过快',
             percentLeft: ({ percent }: { percent: number }) => `剩余 ${percent}%`,
-            percentUsed: ({ percent }: { percent: number }) => `已使用 ${percent}%`,
             runsOutIn: ({ time }: { time: string }) => `${time}后用尽`,
             asOf: ({ time }: { time: string }) => `${time} 时的上限`,
         },
@@ -129,6 +128,8 @@ export const zhHans: TranslationStructure = {
             refreshNow: '立即刷新用量',
             refreshThrottled: ({ seconds }: { seconds: number }) => `${seconds} 秒后可刷新`,
             refreshIn: ({ seconds }: { seconds: number }) => `${seconds} 秒后`,
+            healthy: '良好',
+            busy: '繁忙',
             notConnected: '未连接套餐限额',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `${time}后重置`,
@@ -205,6 +206,9 @@ export const zhHans: TranslationStructure = {
     },
 
     pairing: {
+        pageTitle: '配对电脑',
+        copy: '复制',
+        copied: '已复制',
         busy: '配对中…',
         connecting: '正在安全地连接到你的电脑…',
         compareWords: ({ name }: { name: string }) => `确认 ${name} 显示同样的两个词，然后在电脑上批准。`,
