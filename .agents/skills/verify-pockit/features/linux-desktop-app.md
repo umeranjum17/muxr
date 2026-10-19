@@ -45,8 +45,9 @@ without a terminal.
   sentence, while an unclear probe (daemon not up yet) keeps the stored route.
   Serve is never touched.
 - The page a newcomer downloads from, `/desktop`, names the FUSE 2
-  requirement beside the download: `libfuse2t64` on Ubuntu 24.04 and `libfuse2`
-  on older releases, and without it the file starts with
+  requirement beside the download: `libfuse2t64` on Ubuntu 24.04 or newer and
+  Debian 13 or newer, `libfuse2` on Ubuntu 22.04 and Debian 12 or older, and
+  without it the file starts with
   `--appimage-extract-and-run` on every launch, so start at login needs FUSE 2.
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.

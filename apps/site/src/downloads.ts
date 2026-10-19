@@ -131,7 +131,7 @@ function writeDesktop(res: ServerResponse, stable: ChannelRelease | undefined, c
         offer = `<p class="lede">Get the muxr app for this computer, open it, and pair your phone. No terminal needed unless the computer is missing FUSE 2.</p>
 <p><a class="button primary" href="/downloads/stable/linux">Download for Linux</a></p>
 <p>muxr ${escapeHtml(stable.version)} for Linux, ${escapeHtml(size(linux.bytes))}. In the downloaded file’s Properties, allow it to run as a program, then open it.</p>
-<p>If it will not open, the computer needs FUSE 2. On Ubuntu 24.04 install it with <code>sudo apt install libfuse2t64</code>; older Ubuntu and Debian releases name the package <code>libfuse2</code>. Then open the file again. Without FUSE 2, open a terminal in the folder you downloaded to and start it with the flag after the file name: <code>./${escapeHtml(name)} --appimage-extract-and-run</code>. That flag has to be passed on every launch, so start at login needs FUSE 2 installed.</p>
+<p>If it will not open, the computer needs FUSE 2. On Ubuntu 24.04 or newer, and on Debian 13 or newer, install it with <code>sudo apt install libfuse2t64</code>; Ubuntu 22.04 and Debian 12 and older name the package <code>libfuse2</code>. Then open the file again. Without FUSE 2, open a terminal in the folder you downloaded to and start it with the flag after the file name: <code>./${escapeHtml(name)} --appimage-extract-and-run</code>. That flag has to be passed on every launch, so start at login needs FUSE 2 installed.</p>
 ${pairNote}
 <details><summary>Verify the download</summary><p>Run <code>sha256sum ${escapeHtml(name)}</code> and compare it with:</p><p><code>${escapeHtml(linux.sha256)}</code></p></details>
 <h2>On a Mac, or prefer a terminal?</h2>
