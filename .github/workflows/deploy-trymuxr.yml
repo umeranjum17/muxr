@@ -1,6 +1,21 @@
 name: deploy trymuxr.com
 
+# A merge that changes what the site image contains deploys it. Until this
+# trigger existed the workflow only ran by hand and never had, so routes merged
+# to main (/desktop) were absent from trymuxr.com. The paths are exactly what
+# apps/site/Dockerfile copies in; workflow_dispatch redeploys on demand.
 on:
+  push:
+    branches: [main]
+    paths:
+      - apps/site/**
+      - yarn.lock
+      - docs/store-preview/class/**
+      - docs/play/store-assets/**
+      - docs/assets/readme/**
+      - docs/art/rpg-cover.png
+      - docs/demo/muxr-demo.mp4
+      - .github/workflows/deploy-trymuxr.yml
   workflow_dispatch:
 
 permissions:
@@ -48,6 +63,7 @@ jobs:
           check / 200
           check /marketing/campaign-connection.png 200
           check /demo.mp4 200
+          check /desktop 200
           check /downloads '200 503'
           check /downloads/stable/android '302 503'
           check /api/releases/stable '200 503'
