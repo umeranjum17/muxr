@@ -36,7 +36,7 @@ Preconditions:
 
 Steps:
 
-- Launch the desktop app under `scripts/diagnostics/application/withPrivateXvfb.sh` (its own Xvfb, never a bare `Xvfb`) with `env -i`, a private HOME/XDG_RUNTIME_DIR/short TMPDIR/MUXR_HOME, `MUXR_RELAY_PORT=<free>`, `MUXR_RELAY_URL=ws://127.0.0.1:<port>`, `MUXR_DESKTOP_AUTOSTART=skip` and `--remote-debugging-port`. Then `adb -s <serial> reverse tcp:<port> tcp:<port>`.
+- Launch the desktop app under `scripts/diagnostics/application/withPrivateXvfb.sh` (its own Xvfb, never a bare `Xvfb`) as `withPrivateXvfb.sh sh -c 'env -i DISPLAY="$DISPLAY" HOME=… XDG_RUNTIME_DIR=… TMPDIR=… MUXR_HOME=… MUXR_RELAY_PORT=<free> MUXR_RELAY_URL=ws://127.0.0.1:<port> MUXR_DESKTOP_AUTOSTART=skip <app> --remote-debugging-port=<p>'`, with a private HOME/XDG_RUNTIME_DIR/short TMPDIR/MUXR_HOME. `DISPLAY` must be passed through `env -i` or the app has no display. Then `adb -s <serial> reverse tcp:<port> tcp:<port>`.
 - Read `#status-title` over CDP until "Ready to pair". Grab the window (`import -window root`), decode it with `zbarimg`, and composite the offer into `cam.png` (recipe in [pair-scan-first.md](./pair-scan-first.md)) before tapping Scan.
 - Warm the Google code scanner once with a Scan and Back first; the first Scan on a fresh AVD only downloads the module.
 - Timed journey: `pm clear`, tap the tile (t0), open the lab site's `/desktop` in a lab Chromium, check the sha256 the page shows against the file, start the app, scan, **Pair**, then click `#approve` over CDP when `#words` matches the phone. Stop when the phone's Home shows the computer as connected.
