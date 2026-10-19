@@ -37,11 +37,14 @@ while the kit retries, then shows the message.
 
 ## Driving it with the private stack
 
-Preconditions: `yarn build`; a private Xvfb for the host's desktop source
-(`Xvfb :<d> -screen 0 1280x800x24 -nolisten tcp`). Start every lab host with
-`MUXR_DESKTOP_SOURCE=x11 MUXR_DESKTOP_X11_DISPLAY=:<d>` and with `DISPLAY`,
-`WAYLAND_DISPLAY` and `XDG_SESSION_TYPE` unset, so the engine never touches
-the owner's screen or portal. No Herdr is needed: the fake stack serves the pane.
+Preconditions: `yarn build`; a private Xvfb for the host's desktop source. Run
+the lab under `scripts/diagnostics/application/withPrivateXvfb.sh <command>`: it
+starts its own Xvfb, exports `DISPLAY=:<d>` to the command, and stops that Xvfb
+when the command exits (never start a bare `Xvfb :<d>` by hand). Start every lab
+host from inside it as `withPrivateXvfb.sh sh -c 'env -u DISPLAY -u WAYLAND_DISPLAY
+-u XDG_SESSION_TYPE MUXR_DESKTOP_SOURCE=x11 MUXR_DESKTOP_X11_DISPLAY="$DISPLAY" …'`,
+so `$DISPLAY` expands inside the wrapper to its private display and the engine
+never touches the owner's screen or portal. No Herdr is needed: the fake stack serves the pane.
 
 Installed PWA (no UDP path):
 

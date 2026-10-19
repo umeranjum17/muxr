@@ -42,7 +42,7 @@ serve that very `apps/mobile/dist` with the repo static server on a free port
    `@media (prefers-color-scheme:dark)`, and `.../manifest.webmanifest` reads
    `"background_color": "#F2F2F7"`.
 2. Launch a private standalone window: a Chromium with a task-owned
-   `--user-data-dir` inside a task-owned Xvfb display, plus
+   `--user-data-dir` inside a display from `scripts/diagnostics/application/withPrivateXvfb.sh` (never a bare `Xvfb`), plus
    `--remote-debugging-port`, `--app=http://127.0.0.1:<port>/`; point
    chrome-devtools-axi at it with
    `CHROME_DEVTOOLS_AXI_BROWSER_URL=http://127.0.0.1:<debug-port>`. In the page,

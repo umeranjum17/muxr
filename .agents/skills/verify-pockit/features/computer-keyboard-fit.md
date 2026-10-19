@@ -27,8 +27,7 @@ Preconditions:
   XCUITest driver that can rotate, tap points, tap keyboard keys and attach
   screenshots (axe HID taps do not reach the app).
 - A private Linux stack per `../SKILL.md` Launch (`--fake` host), plus the
-  host Computer on a private Xvfb: `MUXR_DESKTOP_SOURCE=x11
-  MUXR_DESKTOP_X11_DISPLAY=:<n>`, relay bound to the tailnet address the Mac
+  host Computer on a private Xvfb from `scripts/diagnostics/application/withPrivateXvfb.sh sh -c 'env -u WAYLAND_DISPLAY -u XDG_SESSION_TYPE MUXR_DESKTOP_SOURCE=x11 MUXR_DESKTOP_X11_DISPLAY="$DISPLAY" …'` (never a bare `Xvfb`), relay bound to the tailnet address the Mac
   reaches. Headed Chromium on that display with
   `--force-device-scale-factor=1 --kiosk --window-size=1280,800`, started in a
   pane of your Herdr lab session, on a local sign-in page whose password field
