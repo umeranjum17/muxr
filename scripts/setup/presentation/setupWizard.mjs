@@ -181,6 +181,10 @@ const RELAY_KIND = {
 };
 const relayKind = (mode) => RELAY_KIND[mode] ?? mode;
 
+// No way off Wi-Fi: no Tailscale, private network, tunnel, enrollment, or saved away-from-home route.
+const plainComputer = (found, current) => !found.relay && !found.tailscale.installed && !found.private && !found.cloudflared.ok
+    && (current === undefined || current.connectionMode === 'lan');
+
 /**
  * Each route says what it costs and what it needs before it is chosen. A
  * route that is unavailable explains what to install or connect before retrying.
@@ -189,8 +193,6 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
     const serveOccupied = serveRoot.status === 'occupied';
     const serveDisabled = serveRoot.status === 'disabled';
     const tailscaleAvailable = found.tailscale.connected || tailscalePlanned;
-    const savedAwayFromHome = current !== undefined && current.connectionMode !== 'lan';
-    const plainComputer = !found.relay && !found.tailscale.installed && !found.private && !found.cloudflared.ok && !savedAwayFromHome;
     let tailscaleSentence = 'Your phone reaches this computer from anywhere. Both need the free Tailscale app, signed in to the same account.';
     if (serveOccupied) tailscaleSentence = 'Tailscale Serve is used by something else here; choose the phone-only option below to leave it unchanged.';
     else if (serveDisabled) tailscaleSentence = `Tailscale Serve is unavailable (${serveRoot.reason}); choose the phone-only option below instead.`;
@@ -204,7 +206,7 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
             description: 'Your phone reaches this computer through your muxr server, on any network. Nothing to open or install on this computer.',
         }] : []),
         // Only a plain computer ends on Wi-Fi only; a computer already on it keeps it.
-        ...(plainComputer || current?.connectionMode === 'lan' ? [{
+        ...(plainComputer(found, current) || current?.connectionMode === 'lan' ? [{
             value: 'lan', title: 'Works only on this Wi-Fi',
             description: found.lan
                 ? 'Your phone must stay on this same Wi-Fi, and stops working when you leave home. Nothing to install.'
@@ -247,6 +249,7 @@ export function recommendedConnection(found, current, tailscalePlanned, serveRoo
         && choices(found, tailscalePlanned, serveRoot, current).some((choice) => choice.value === current.connectionMode && !choice.disabled)) {
         return { mode: current.connectionMode, title: connectionLabel(current.connectionMode, current.relayUrl, current.relayPort), description: 'already configured and reachable' };
     }
+    if (plainComputer(found, current)) return { mode: 'lan', title: 'Works only on this Wi-Fi', description: 'your phone must stay on this same Wi-Fi' };
     // Tailscale is the default route. When it is missing or not signed in, the
     // route screen says so and checks again in place.
     const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';

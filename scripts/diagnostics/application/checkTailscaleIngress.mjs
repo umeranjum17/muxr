@@ -63,11 +63,12 @@ try {
     const found = { tailscale: { connected: false }, private: routes.private, lan: routes.lan, cloudflared: { ok: false } };
     // Tailscale is the default route, even beside a private network, a
     // temporary link or Wi-Fi: when it is missing the route screen asks for it
-    // and checks again, and the others wait behind Other ways.
+    // and checks again, and the others wait behind Other ways. A plain computer
+    // with none of them proposes Wi-Fi only.
     assert.equal(recommendedConnection(found, undefined, false, { status: 'inconclusive' }).mode, 'tailscale');
     assert.equal(recommendedConnection(found, undefined, true, { status: 'inconclusive' }).mode, 'tailscale');
     assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'tailscale');
-    assert.equal(recommendedConnection({ ...found, private: undefined }, undefined, false, { status: 'inconclusive' }).mode, 'tailscale');
+    assert.equal(recommendedConnection({ ...found, private: undefined }, undefined, false, { status: 'inconclusive' }).mode, 'lan');
     const privateArgs = selfhostArgsFromSetupPlan({ mode: 'private', port: 8792, web: false, pairing: 'phone', found });
     assert.deepEqual(privateArgs.slice(-2), ['--advertise', 'ws://100.90.0.4:8792']);
     assert.equal((await resolveAdvertise(privateArgs, 8792)).url, 'ws://100.90.0.4:8792');

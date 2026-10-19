@@ -27,6 +27,7 @@ async function checkWizard() {
     Object.defineProperty(process.stdin, 'isTTY', { value: true });
     Object.defineProperty(process.stdout, 'isTTY', { value: true });
     let lan;
+    let cloudflaredOk = false;
     let currentSummary;
     let agentStatus = 'pi: not installed';
     let presentAgentBins = [];
@@ -70,7 +71,7 @@ async function checkWizard() {
             spawnSync: (name, args) => {
                 if (name === 'wizard-fixture-tailscale') return tailscaleCommand(args);
                 assert.ok(['wizard-fixture-herdr', 'cloudflared'].includes(name), `Unexpected command: ${name}`);
-                if (name === 'cloudflared') return { status: null, error: { code: 'ENOENT' } };
+                if (name === 'cloudflared') return cloudflaredOk ? { status: 0, stdout: 'cloudflared fixture', stderr: '' } : { status: null, error: { code: 'ENOENT' } };
                 assert.ok(['--version', 'integration status'].includes(args.join(' ')));
                 return { status: 0, stdout: args[0] === '--version' ? 'herdr fixture' : agentStatus, stderr: '' };
             },
@@ -209,6 +210,7 @@ async function checkWizard() {
         // Enter, and Tailscale is the preselected route; one more Enter
         // applies it with the first-run defaults and no second confirmation.
         tailscaleInstalled = false;
+        cloudflaredOk = true;
         lan = '192.168.1.8';
         const installed = await run(['2', 'b', () => { tailscaleInstalled = true; tailscaleConnected = true; return ''; }, '']);
         assert.match(installed, /Check again[\s\S]*Tailscale isn't on this computer yet\. Install it from https:\/\/tailscale\.com\/download and sign in, then press Enter to check again\.[\s\S]*Use muxr away from home \(Tailscale\) · Recommended/);
@@ -219,6 +221,7 @@ async function checkWizard() {
         assert.deepEqual(calls.find(([name]) => name === 'start')[1].slice(0, 4), ['--port', '18792', '--connection-mode', 'tailscale']);
         tailscaleInstalled = false;
         tailscaleConnected = false;
+        cloudflaredOk = false;
 
         // A computer already saved on its own server is not plain: Wi-Fi only
         // stays out of Other ways even with no Tailscale installed.
@@ -239,11 +242,11 @@ async function checkWizard() {
         assert.deepEqual(calls, [], 'Cancellation mutated setup');
         currentSummary = undefined;
 
-        // A plain computer (no Tailscale, tunnel or server) on Wi-Fi ends on
-        // Wi-Fi only behind Other ways, with the note that the phone must
-        // stay on that Wi-Fi.
-        const plain = await run(['2', '1']);
-        assert.match(plain, /Other ways[\s\S]*Works only on this Wi-Fi/);
+        // A plain computer (no Tailscale, tunnel or server) is recommended
+        // Wi-Fi only, so one Enter ends setup on it, with the note that the
+        // phone must stay on that Wi-Fi.
+        const plain = await run(['']);
+        recommended(plain, 'Works only on this Wi-Fi');
         assert.match(plain, /Your phone must stay on this same Wi-Fi/);
         assert.deepEqual(calls.find(([name]) => name === 'start')[1].slice(0, 4), ['--port', '18792', '--connection-mode', 'lan']);
 

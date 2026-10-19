@@ -295,7 +295,8 @@ rules, with no H2 sections.
   inbound network (bwrap), phone pairs through a lab relay, agent answers.
 - [Set up a computer in one screen](./setup-one-screen.md) — first-run
   `muxr` in a private tmux at 80 and 120 columns: Tailscale by default, Wi-Fi
-  only for a plain computer, missing/signed-out Tailscale rechecked in place,
+  recommended for a plain computer, missing/signed-out Tailscale rechecked in
+  place on a computer that is not plain,
   route and plan on step 2 of 3, one Enter applies.
 - [Keep a terminal pane alive across a reconnect](./terminal-reconnect.md) —
   native app over a private stack: relay and host restarts under an
