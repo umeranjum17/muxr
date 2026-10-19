@@ -41,7 +41,8 @@ export async function startAgent(command: StartAgentCommand): Promise<StartAgent
                 message: 'Agent could not start.',
             };
         }
-        await saveConnectionSettings(rememberSessionCwd(getCachedConnectionSettings(), command.directory));
+        const settings = getCachedConnectionSettings();
+        await saveConnectionSettings(rememberSessionCwd(settings, settings.machineId, command.directory));
         await refreshUntilSessionVisible(snapshot.info.id);
         return { ok: true, agentRoute: snapshot.info.id };
     } catch (caught: unknown) {

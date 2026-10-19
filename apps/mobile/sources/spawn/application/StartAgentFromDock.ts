@@ -116,7 +116,7 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
     if (result.type !== 'success') {
         return { ok: false, reason: 'needs-directory', directory: result.directory, message: result.directory };
     }
-    await saveConnectionSettings(rememberSessionCwd(getCachedConnectionSettings(), command.directory));
+    await saveConnectionSettings(rememberSessionCwd(getCachedConnectionSettings(), machine.id, command.directory));
 
     // machineSpawnNewSession already refreshed until the session was listed.
     // The host holds the first prompt until the agent takes it, which is
