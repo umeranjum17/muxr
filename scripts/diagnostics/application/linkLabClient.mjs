@@ -86,6 +86,7 @@ export async function approveLabOffer(socketPath, presentOffer, deadline = Date.
     let offered = false;
     let result;
     let error;
+    const fail = (cause) => { error = cause instanceof Error ? cause.message : String(cause); };
     socket.on('data', (chunk) => {
         text += chunk.toString('utf8');
         const lines = text.split('\n');
@@ -94,14 +95,14 @@ export async function approveLabOffer(socketPath, presentOffer, deadline = Date.
             // A line that cannot be handled ends this pairing rather than the process, so the caller's cleanup still runs.
             try {
                 const event = JSON.parse(line);
-                if (event.offer && !offered) { offered = true; presentOffer(event.offer.text); }
+                if (event.offer && !offered) { offered = true; void Promise.resolve(presentOffer(event.offer.text)).catch(fail); }
                 if (event.approval) socket.write(`${JSON.stringify({ yes: true })}\n`);
                 if (event.result) result = event.result;
                 if (event.error) error = event.error;
-            } catch (cause) { error = cause instanceof Error ? cause.message : String(cause); return; }
+            } catch (cause) { fail(cause); return; }
         }
     });
-    socket.on('error', (cause) => { error = cause.message; });
+    socket.on('error', fail);
     const connected = new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject); });
     try {
         await connected;
