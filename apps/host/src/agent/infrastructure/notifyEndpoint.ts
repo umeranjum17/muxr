@@ -94,10 +94,10 @@ export function parseGeneralNotice(body: unknown): { notice: GeneralNotice } | {
     let id: string;
     if (record.id === undefined) {
         id = randomBytes(8).toString('hex');
-    } else if (typeof record.id === 'string' && /^[A-Za-z0-9._:-]{1,64}$/.test(record.id)) {
+    } else if (typeof record.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(record.id)) {
         id = record.id;
     } else {
-        return { error: 'id must be up to 64 chars [A-Za-z0-9._:-]' };
+        return { error: 'id must be up to 64 chars [A-Za-z0-9._:-], starting with a letter or digit' };
     }
     return { notice: { title, body: text, ...(url === undefined ? {} : { url }), id } };
 }

@@ -17,7 +17,7 @@ import { statSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, normalize, sep } from 'node:path';
 import { scanPane, type ArtifactWatcher } from './artifactWatcher.js';
-import { handleNotifyRequest, type GeneralNotice } from './notifyEndpoint.js';
+import { handleNotifyRequest, readOrCreateNotifyToken, type GeneralNotice } from './notifyEndpoint.js';
 
 const TICKET_TTL_MS = 5 * 60_000;
 
@@ -140,6 +140,7 @@ export class ArtifactDownloadServer {
     }
 
     start(): void {
+        if (this.notify !== undefined) readOrCreateNotifyToken(this.notify.tokenPath);
         this.server = createServer((req, res) => {
             if (this.notify !== undefined) {
                 const notify = this.notify;

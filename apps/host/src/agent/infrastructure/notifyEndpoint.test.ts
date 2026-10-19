@@ -1,12 +1,12 @@
-import { mkdtempSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ArtifactDownloadServer } from './artifactDownloads.js';
 import {
     handleNotifyRequest,
     notifyTokenPath,
-    readOrCreateNotifyToken,
     type GeneralNotice,
 } from './notifyEndpoint.js';
 
@@ -45,12 +45,19 @@ describe('POST /v1/notify', () => {
 
         expect(await (await post({ title: 'Hello' })).status).toBe(401);
 
-        const token = readOrCreateNotifyToken(tokenPath);
+        // The documented sender reads this file before its first call, so the
+        // serving host must have minted it already.
+        const artifacts = new ArtifactDownloadServer(join(home, 'attachments'), 0, undefined, { tokenPath, send: () => 0 });
+        expect(existsSync(tokenPath)).toBe(false);
+        artifacts.start();
+        const token = readFileSync(tokenPath, 'utf8').trim();
+        artifacts.dispose();
         expect(token.length).toBeGreaterThan(31);
         expect(statSync(tokenPath).mode & 0o777).toBe(0o600);
 
         expect(await (await post({ title: '' }, token)).status).toBe(400);
         expect(await (await post({ title: 'Hello', url: 'ftp://x/y' }, token)).status).toBe(400);
+        expect(await (await post({ title: 'Hi', id: '_note' }, token)).status).toBe(400);
         expect(await (await post('not json', token)).status).toBe(400);
 
         const ok = await post({ title: 'Hello', body: 'World', url: 'https://example.com/a', id: 'k-1', future: 1 }, token);

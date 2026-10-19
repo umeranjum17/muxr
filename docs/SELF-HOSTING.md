@@ -276,7 +276,8 @@ curl -X POST http://127.0.0.1:8793/v1/notify \
 `title` (1-80 chars) is required; `body` (up to 300), `url` and `id` are
 optional. The link must be `https`, or `http` to localhost or a tailnet host;
 a tap opens it, anything else opens muxr. The bearer token lives in
-`$MUXR_HOME/notify-token` (mode 600), minted on first use. The call answers
+`$MUXR_HOME/notify-token` (mode 600), created when the host starts listening
+with notifications enabled. The call answers
 202 on success, 400 for a bad body and 401 for a bad or missing token, and is
 accepted on loopback only.
 

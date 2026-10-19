@@ -408,19 +408,20 @@ export default function RootLayout() {
         handledNotificationIds.current.add(responseId);
         const data = await openNativeLifecyclePush(response.notification.request.content.data);
         acknowledgeLifecyclePush(data);
-        if (data.kind === 'notify') {
-            // A general notification opens its link; anything else opens muxr.
-            if (isOpenableNotifyUrl(data.url)) {
-                try {
-                    await Linking.openURL(data.url);
-                } catch (error) {
-                    console.log('[PUSH ROUTING] Failed to open notification link:', error);
-                }
-            }
-            return;
-        }
 
         try {
+            if (data.kind === 'notify') {
+                // A general notification opens its link; anything else opens muxr.
+                if (isOpenableNotifyUrl(data.url)) {
+                    try {
+                        await Linking.openURL(data.url);
+                    } catch (error) {
+                        console.log('[PUSH ROUTING] Failed to open notification link:', error);
+                    }
+                }
+                return;
+            }
+
             const action = response.actionIdentifier;
             if (action !== Notifications.DEFAULT_ACTION_IDENTIFIER && action !== OPEN_ACTION && action !== ANSWER_ACTION) {
                 console.log(`[PUSH ROUTING] Ignoring unknown action: ${action}`);
