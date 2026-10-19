@@ -30,19 +30,25 @@ function mapHomePath(path: string | undefined, sourceHome: string | undefined, t
     return { cwd: `${target}${separator}${relative.replace(/[/\\]+/g, separator)}`, folder: `~/${relative.replace(/\\/g, '/')}` };
 }
 
-type Ask = { title: string; message: string; confirmText: string; resolve: (yes: boolean) => void };
-
 /** Close the source only while it is at rest (strict: isSessionIdle also counts blocked/failed). Returns a notice when it stays open. */
-async function retireSource(sessionId: string, sourceName: string, ask: (prompt: Omit<Ask, 'resolve'>) => Promise<boolean>): Promise<string | undefined> {
+async function retireSource(sessionId: string, sourceName: string): Promise<string | undefined> {
     const kept = (why: string) => `${why} It is still open on ${sourceName}. Close it when you are done.`;
-    try {
+    let refusal = 'You chose to keep it open.';
+    const atRest = async (): Promise<boolean> => {
         const { agentStatus } = await sync.request('session.status', { sessionId });
-        if (agentStatus !== 'idle' && agentStatus !== 'done') return kept('The agent there started working again, so it was not closed.');
+        if (agentStatus === 'idle' || agentStatus === 'done') return true;
+        refusal = agentStatus === undefined || agentStatus === 'unknown'
+            ? 'The agent there could not be checked, so it was not closed.'
+            : 'The agent there is not idle, so it was not closed.';
+        return false;
+    };
+    try {
+        if (!await atRest()) return kept(refusal);
         const result = await sessionStop(sessionId, {
-            confirmClose: (prompt) => ask({ title: `${prompt.confirmText}?`, message: prompt.message, confirmText: prompt.confirmText }),
-            confirmRetry: (reason) => ask({ title: 'Could not close the agent', message: reason, confirmText: 'Retry' }),
+            confirmClose: async (prompt) => (await Modal.confirm(`${prompt.confirmText}?`, prompt.message, { cancelText: 'Cancel', confirmText: prompt.confirmText, destructive: true })) && atRest(),
+            confirmRetry: async (reason) => (await Modal.confirm('Could not close the agent', reason, { cancelText: 'Cancel', confirmText: 'Retry' })) && atRest(),
         });
-        return result.status === 'closed' ? undefined : kept('You chose to keep it open.');
+        return result.status === 'closed' ? undefined : kept(refusal);
     } catch (cause) {
         return kept(`It could not be closed: ${message(cause)}`);
     }
@@ -88,7 +94,6 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
     const [picked, setPicked] = React.useState<{ grant: StoredHostedGrant; name: string; note: string; cwd: string; folder: string } | null>(null);
     const [failure, setFailure] = React.useState<string>();
     const [canRetry, setCanRetry] = React.useState(true);
-    const [asking, setAsking] = React.useState<Ask | null>(null);
     const generation = React.useRef(0);
     const sourceMachineId = getCachedConnectionSettings().machineId;
     const sourceMachine = machines.find((machine) => machine.id === sourceMachineId);
@@ -202,7 +207,7 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
             stage = 'prompt';
             await client.request('session.prompt', { sessionId: created.id, text: `${header}${picked.note}` }, PROMPT_TIMEOUT_MS);
             // The target holds the note now; retire the source over the still-active source link, before the switch.
-            notice = await retireSource(sessionId, sourceName, (prompt) => new Promise<boolean>((resolve) => setAsking({ ...prompt, resolve })));
+            notice = await retireSource(sessionId, sourceName);
             stage = 'switch';
             const activated = await pairMachine({ grant: picked.grant });
             if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer.');
@@ -217,7 +222,7 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
                 : stage === 'list'
                     ? `Started on ${picked.name}, but it did not appear in the computer's session list: ${detail} It may still be open there.`
                     : stage === 'switch'
-                    ? `The note was delivered on ${picked.name}, but the app could not switch computers: ${detail}`
+                    ? `The note was delivered on ${picked.name}, but the app could not switch computers: ${detail} ${notice ?? `It was closed on ${sourceName}.`}`
                     : `Couldn't start on ${picked.name}: ${detail} The work is still on ${sourceMachine?.metadata?.displayName ?? 'this computer'}.`);
             if (stage === 'list' || stage === 'prompt' || stage === 'switch') setCanRetry(false);
             setPhase('preview');
@@ -233,17 +238,9 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
         </View>
     ) : (
         <View style={{ padding: 20, gap: 14 }}>
-            {asking === null && <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600' }}>{phase === 'writing' ? 'Writing a handoff note…' : phase === 'starting' ? `Starting on ${picked?.name}…` : `Continue on ${picked?.name}`}</Text>}
+            <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600' }}>{phase === 'writing' ? 'Writing a handoff note…' : phase === 'starting' ? `Starting on ${picked?.name}…` : `Continue on ${picked?.name}`}</Text>
             {phase === 'preview' && <Text selectable style={{ color: '#ddd', fontSize: 15, lineHeight: 22 }}>{picked?.note}</Text>}
             {failure !== undefined && <Text accessibilityRole="alert" style={{ color: '#ff6961' }}>{failure}</Text>}
-            {asking !== null && <View style={{ gap: 12 }}>
-                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>{asking.title}</Text>
-                <Text style={{ color: '#ddd', fontSize: 15, lineHeight: 22 }}>{asking.message}</Text>
-                <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <Pressable onPress={() => { asking.resolve(true); setAsking(null); }} accessibilityRole="button" style={{ flex: 1, minHeight: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#d9453b' }}><Text style={{ color: '#fff', fontWeight: '600' }}>{asking.confirmText}</Text></Pressable>
-                    <Pressable onPress={() => { asking.resolve(false); setAsking(null); }} accessibilityRole="button" style={{ minHeight: 48, paddingHorizontal: 18, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff' }}>Keep open</Text></Pressable>
-                </View>
-            </View>}
             {phase === 'writing' && <Pressable onPress={cancelNote} accessibilityRole="button" style={{ minHeight: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff' }}>Cancel</Text></Pressable>}
             {phase === 'preview' && <View style={{ flexDirection: 'row', gap: 12 }}>
                 {canRetry
