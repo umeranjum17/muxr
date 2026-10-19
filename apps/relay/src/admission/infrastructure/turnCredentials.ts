@@ -16,7 +16,9 @@ export interface IceServer { urls: string[]; username?: string; credential?: str
 export async function readTurnConfig(dataDir: string): Promise<{ urls: string[]; secret?: string } | undefined> {
     const raw = await readPrivateFile(join(dataDir, 'turn.json'));
     if (raw === undefined) return undefined;
-    const parsed = JSON.parse(raw) as { urls?: unknown; secret?: unknown };
+    let parsed: { urls?: unknown; secret?: unknown };
+    try { parsed = JSON.parse(raw) as { urls?: unknown; secret?: unknown }; }
+    catch { throw new Error('turn.json is not valid JSON'); }
     const urls = Array.isArray(parsed.urls) ? parsed.urls.filter((url): url is string => typeof url === 'string' && /^(turns?|stun):/.test(url)) : [];
     if (urls.length === 0) throw new Error('turn.json names no turn:, turns: or stun: URL');
     const secret = typeof parsed.secret === 'string' && parsed.secret !== '' ? parsed.secret : undefined;
