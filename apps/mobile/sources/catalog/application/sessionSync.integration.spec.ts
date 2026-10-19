@@ -621,8 +621,13 @@ describe('session sync flow', () => {
         savedConnection.lastSessionCwdByMachine = { machine: '/home/user/notes-app' };
         useNewSessionDraft.setState({ selectedPath: null, agentType: 'shell', input: '', attachments: [] });
         await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
+        // A second computer has its own setup folder; the folder remembered on the first does not follow.
+        hostSync.machineId = 'laptop';
+        const laptop = { id: 'laptop', active: true, metadata: { host: 'laptop', homeDir: '/home/user', defaultStartFolder: '/mnt/work/project' } } as never;
+        useNewSessionDraft.setState({ selectedPath: null, agentType: 'shell', input: '', attachments: [] });
+        await startSessionFromDraft({ machines: [laptop], navigateToSession: () => undefined, blank: true });
 
-        expect(cwds()).toEqual(['/home/user/api', '/home/user/notes-app']);
+        expect(cwds()).toEqual(['/home/user/api', '/home/user/notes-app', '/mnt/work/project']);
     });
 
     it('frees Home right after the spawn while the first prompt delivers', async () => {
