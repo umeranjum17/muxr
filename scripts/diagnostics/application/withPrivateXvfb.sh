@@ -20,11 +20,17 @@ xvfb=$!
 trap 'kill "$xvfb" 2>/dev/null || true; wait "$xvfb" 2>/dev/null || true' EXIT
 trap 'exit 130' INT TERM HUP
 
+ready() {
+    [ -S "/tmp/.X11-unix/X$number" ] || return 1
+    [ "$(cat "/tmp/.X$number-lock" 2>/dev/null | tr -d ' ')" = "$xvfb" ]
+}
+
 for _ in $(seq 100); do
-    [ -S "/tmp/.X11-unix/X$number" ] && break
     kill -0 "$xvfb" 2>/dev/null || { echo "Xvfb :$number did not start" >&2; exit 1; }
+    ready && break
     sleep 0.1
 done
+ready || { echo "Xvfb :$number never became ready" >&2; exit 1; }
 
 status=0
 XVFB_PID="$xvfb" DISPLAY=":$number" "$@" || status=$?
