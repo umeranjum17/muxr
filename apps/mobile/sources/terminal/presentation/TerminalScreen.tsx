@@ -31,7 +31,7 @@ import { registerArtifactUpdateHandler, sync } from '@/catalog/sync';
 import { resolveMessageModeMeta, type DraftAttachment } from '@/catalog';
 import { recordAgentGate, recordTrackedRpc } from '@/catalog/diagnostics';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
-import { ComputersSheet, PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
+import { ComputersSheet, ContinueRow, ContinueSheet, PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
 import type { HerdrTreeTab } from '@trymuxr/contract';
 import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { AgentPager } from './AgentPager';
@@ -737,10 +737,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // sheet's Spaces.
     const [treeOpen, setTreeOpen] = React.useState(false);
     const [computersOpen, setComputersOpen] = React.useState(false);
+    const [continueOpen, setContinueOpen] = React.useState(false);
     // A sheet or editor owns the screen; no floating control remains beneath it.
     React.useEffect(() => {
-        if (actionsOpen || overviewOpen || treeOpen || computersOpen || findOpen || controlGrid.open || menu !== null) ringRef.current?.close();
-    }, [actionsOpen, overviewOpen, treeOpen, computersOpen, findOpen, controlGrid.open, menu]);
+        if (actionsOpen || overviewOpen || treeOpen || computersOpen || continueOpen || findOpen || controlGrid.open || menu !== null) ringRef.current?.close();
+    }, [actionsOpen, overviewOpen, treeOpen, computersOpen, continueOpen, findOpen, controlGrid.open, menu]);
     const openControls = React.useCallback((category: ControlGridCategory) => { ringRef.current?.close(); setActionsOpen(false); setControlGrid({ open: true, category }); }, []);
     const editKeys = React.useCallback(() => openControls('keys'), [openControls]);
     // A tab tap goes straight to a pane; a tab with nothing to open yet asks
@@ -2039,6 +2040,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} onOpenSpaces={() => setTreeOpen(true)} />
                     <WorkspaceTreeSheet visible={treeOpen} sessionId={props.id} onClose={() => setTreeOpen(false)} />
                     <ComputersSheet visible={computersOpen} sessionId={props.id} onClose={() => setComputersOpen(false)} />
+                    <ContinueSheet visible={continueOpen} sessionId={props.id} agentKind={paneKind} sourceCwd={storedPane?.cwd ?? session?.metadata?.path} onClose={() => setContinueOpen(false)} />
 
                     {/* Secondary actions belong to the header; view controls stay with the terminal. */}
                     {actionsOpen && (
@@ -2154,6 +2156,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{t('usage.title')}</Text>
                                         <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
+                                    {canControl && <ContinueRow agentKind={paneKind} onOpen={() => { setActionsOpen(false); setContinueOpen(true); }} />}
                                     {canControl && <MoveAccountRow sessionId={props.id} agentKind={paneKind} working={paneLifecycle === 'working'} onOpen={() => setActionsOpen(false)} />}
                                     {canControl && (
                                         <View>

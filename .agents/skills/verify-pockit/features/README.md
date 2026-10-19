@@ -190,6 +190,9 @@ rules, with no H2 sections.
   the Computers sheet lists the cloud row and each paired computer with its
   Online/Asleep/Offline state and the one in use; tapping another online computer
   switches it after a confirmation and the next prompt runs there, dark and light at 393/270 px.
+- [Continue an agent on another computer](./continue-on-computer.md) —
+  source-written note, read-only preview, same-kind start and prompt on a paired
+  target, home-relative folder mapping, source remains open, native and installed-PWA proof.
 - [Watch from a view-only browser that cannot type](./view-only-input.md) —
   a `--browser-view` PWA and a `--browser` PWA on one real Herdr lab host: the
   view one watches the pane but its typing, desktop and agent actions never

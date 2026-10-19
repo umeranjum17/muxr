@@ -32,13 +32,14 @@ import { WebAlertModal } from '@/modal/components/WebAlertModal';
  * connected to that this phone keeps no pairing for. */
 type ComputerState = 'online' | 'asleep' | 'offline' | 'not-paired';
 
-interface ComputerRow {
+export interface ComputerRow {
     id: string;
     name: string;
     state: ComputerState;
     inUse: boolean;
     checking: boolean;
     grant?: StoredHostedGrant;
+    disabledReason?: string;
 }
 
 const STATE_LABEL: Record<ComputerState, string> = {
@@ -97,6 +98,34 @@ function displayName(grant: StoredHostedGrant, liveName: string | undefined): st
     const paired = grant.machineName?.trim();
     if (paired) return paired;
     return 'Paired computer';
+}
+
+export function ComputerRows({ rows, onPick, loadingId }: { rows: ComputerRow[]; onPick: (row: ComputerRow) => void; loadingId?: string }): React.JSX.Element {
+    const { theme } = useUnistyles();
+    return (
+        <ItemGroup title="Your computers" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
+            {rows.map((row) => {
+                const availability = row.checking ? 'Checking…' : STATE_LABEL[row.state];
+                const reason = row.checking ? undefined : [stateReason(row.state, row.inUse), row.disabledReason].filter(Boolean).join(' ');
+                const subtitle = [availability, row.inUse ? 'In use' : undefined, reason]
+                    .filter((part): part is string => Boolean(part)).join(' • ');
+                const selectable = row.state === 'online' && !row.inUse && row.grant !== undefined && row.disabledReason === undefined;
+                return (
+                    <Item key={row.id} title={row.name}
+                        titleStyle={{ color: theme.colors.text }} subtitleStyle={{ color: theme.colors.textSecondary }}
+                        subtitle={subtitle} subtitleLines={0}
+                        icon={<View style={row.state !== 'online' ? { opacity: 0.5 } : undefined}>
+                            <Ionicons name="desktop-outline" size={29} color={stateColor(row.state, theme)} />
+                        </View>}
+                        rightElement={row.inUse ? <Ionicons name="checkmark-circle" size={25} color={theme.colors.status.connected} /> : undefined}
+                        loading={row.checking || loadingId === row.id} showChevron={false}
+                        onPress={selectable ? () => onPick(row) : undefined}
+                        accessibilityLabel={`${row.name}. ${availability}${row.inUse ? '. In use' : ''}${reason === undefined ? '' : `. ${reason}`}`}
+                    />
+                );
+            })}
+        </ItemGroup>
+    );
 }
 
 export function ComputersSheet({ visible, sessionId, onClose }: { visible: boolean; sessionId: string; onClose: () => void }): React.JSX.Element {
@@ -224,46 +253,7 @@ export function ComputersSheet({ visible, sessionId, onClose }: { visible: boole
                 />
             </ItemGroup>
 
-            <ItemGroup title="Your computers" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
-                {rows.map((row) => {
-                    const availability = row.checking ? 'Checking…' : STATE_LABEL[row.state];
-                    const reason = row.checking ? undefined : stateReason(row.state, row.inUse);
-                    const subtitle = [availability, row.inUse ? 'In use' : undefined, reason]
-                        .filter((part): part is string => Boolean(part))
-                        .join(' • ');
-                    const selectable = row.state === 'online' && !row.inUse && row.grant !== undefined;
-                    // An online row reads at full contrast; a computer the app
-                    // cannot use right now keeps its text readable and dims only
-                    // its icon, so the reason stays legible at a glance.
-                    const mutedIcon = row.state !== 'online';
-                    return (
-                        <Item
-                            key={row.id}
-                            title={row.name}
-                            // The sheet forces the dark theme; state the row's
-                            // text colours from that theme so an interactive row
-                            // keeps the sheet's primary/secondary contrast rather
-                            // than a stale light-theme default.
-                            titleStyle={{ color: theme.colors.text }}
-                            subtitleStyle={{ color: theme.colors.textSecondary }}
-                            subtitle={subtitle}
-                            subtitleLines={0}
-                            icon={(
-                                <View style={mutedIcon ? { opacity: 0.5 } : undefined}>
-                                    <Ionicons name="desktop-outline" size={29} color={stateColor(row.state, theme)} />
-                                </View>
-                            )}
-                            rightElement={row.inUse
-                                ? <Ionicons name="checkmark-circle" size={25} color={theme.colors.status.connected} />
-                                : undefined}
-                            loading={row.checking || switching === row.id}
-                            showChevron={false}
-                            onPress={selectable ? () => { requestSwitch(row); } : undefined}
-                            accessibilityLabel={`${row.name}. ${availability}${row.inUse ? '. In use' : ''}${reason === undefined ? '' : `. ${reason}`}`}
-                        />
-                    );
-                })}
-            </ItemGroup>
+            <ComputerRows rows={rows} onPick={requestSwitch} loadingId={switching ?? undefined} />
         </View>
     );
 
