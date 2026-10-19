@@ -164,6 +164,7 @@ export class DesktopSessions {
     private sessions = new Map<string, LiveSession>();
     private starting: Promise<EngineClient | null> | null = null;
     private opening = 0;
+    private silentPortal: ReturnType<typeof silentPortalBackends> | null = null;
     private readonly connectedLinkDevices = new Set<string>();
     private readonly disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
     /** The reason the last start attempt failed, when the engine resolved but did not come up. */
@@ -293,7 +294,7 @@ export class DesktopSessions {
                 return undefined;
             }
         };
-        const idleBeforeOpen = this.opening === 0 || this.client === null;
+        if (this.opening === 0) this.silentPortal = null;
         this.opening += 1;
         let client: EngineClient;
         let restoreToken: string | undefined;
@@ -311,10 +312,11 @@ export class DesktopSessions {
                     throw new EngineRefused('desktop-unavailable', error instanceof Error ? error.message : 'the virtual screen did not start');
                 }
             }
-            if (source?.kind !== 'x11' && idleBeforeOpen) {
+            if (source?.kind !== 'x11') {
                 // A portal backend that cannot answer a ping cannot show a prompt
                 // either: say so now rather than after the whole consent wait.
-                const [silent] = await silentPortalBackends();
+                this.silentPortal ??= silentPortalBackends();
+                const [silent] = await this.silentPortal;
                 if (silent !== undefined) {
                     this.options.onDiagnostic?.(`desktop open refused: ${silent.name} does not answer (${silent.restartCommand})`);
                     throw new EngineRefused('portal-busy', desktopPortalBusy(silent.restartCommand));
