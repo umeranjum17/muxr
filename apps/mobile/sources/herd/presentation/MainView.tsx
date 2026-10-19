@@ -50,6 +50,7 @@ import { HomeDiscoveryRows } from './HomeDiscoveryRows';
 import { HomeEmptyState } from './HomeEmptyState';
 import { HomeWebInstallInvite } from './HomeFirstRunCards';
 import { BusyConnectingCard, HomeRecoveryCard, recoveryMode, useBusyConnecting } from './HomeRecoveryCard';
+import { unavailableFeedback } from '@/utils/web/deviceOffline';
 
 
 const styles = StyleSheet.create((theme) => ({
@@ -376,7 +377,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
             setHomeRecoveryFeedback('Connection restored.');
         } catch {
             setSplitRetryFailed(true);
-            setHomeRecoveryFeedback('Still unavailable. Run the command on your computer, check its network, then retry.');
+            setHomeRecoveryFeedback(unavailableFeedback());
         } finally {
             setRetryingHome(false);
         }

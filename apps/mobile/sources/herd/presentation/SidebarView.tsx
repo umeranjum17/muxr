@@ -12,6 +12,7 @@ import { ShortcutHintBadge, useShortcutHints } from '@/components/ShortcutHints'
 import { useDeviceAuthority } from '@/pairing';
 import { useHomeNeedsYouIds, useHomePendingIds } from '@/catalog/store';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
+import { useDeviceOffline } from '@/utils/web/deviceOffline';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -96,6 +97,7 @@ export const SidebarView = React.memo(() => {
     const router = useRouter();
     const headerHeight = useHeaderHeight();
     const { visible: shortcutHintsVisible } = useShortcutHints();
+    const deviceOffline = useDeviceOffline();
     const pathname = usePathname();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const needsYouIds = useHomeNeedsYouIds();
@@ -158,7 +160,7 @@ export const SidebarView = React.memo(() => {
                 emptyText={emptyText}
                 listHeaderComponent={error !== null || herdrConnected === false ? (
                     <Text style={styles.treeNotice}>
-                        {error ?? 'Agent runtime is reconnecting. Sessions may be stale.'}
+                        {deviceOffline ? 'This device has no network. Check the connection, then tap Retry once you are back online.' : error ?? 'Agent runtime is reconnecting. Sessions may be stale.'}
                     </Text>
                 ) : undefined}
             />
