@@ -1,4 +1,4 @@
-import { boat, machine, setup, words, type HostRecipe, type MachineRef, type MachineStore, type Price, type TailnetStep } from '@byokit/cloud';
+import { boat, machine, MachineError, setup, words, type HostRecipe, type MachineRef, type MachineStore, type Price, type TailnetStep } from '@byokit/cloud';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/pairing/secrets';
 
 export const BOAT_API = 'https://boat.dev/api/v1';
@@ -7,7 +7,7 @@ const MACHINE_KEY = 'muxr.cloud.boat-machine.v1';
 const PORT = 8792;
 const WORK_DIR = '/home/user/muxr';
 
-export const PRICE = { planFloorPerMonth: 20, asleepPerHour: 0, currency: 'USD', source: 'https://docs.boat.dev/pricing', checked: '2026-10-19' } as const;
+export const PRICE = { planFloorPerMonth: 20, asleepPerHour: 0, currency: 'USD', source: 'https://docs.boat.dev/pricing', checked: '19 Oct 2026' } as const;
 export const BOAT_PRICES: Price[] = [
     { ...PRICE, size: 'small', perHour: 0.018, basis: '2 vCPU, 4 GB: half the default rate, billed per second while on' },
     { ...PRICE, size: 'default', perHour: 0.036, basis: '4 vCPU, 8 GB: $20 a month buys 2,000,000 VM-seconds, billed per second while on' },
@@ -28,6 +28,7 @@ const RECIPE: HostRecipe = {
     run: { argv: ['node', `${WORK_DIR}/npm/bin/muxr`, 'up'], env: { MUXR_MODE: 'selfhost' } },
     workDir: WORK_DIR,
 };
+// Temporary bridge until @byokit/cloud has a recipe-env exec and a newest-offer read (kit gap 10).
 // `muxr <args>` in the work dir with the kit's node first on PATH, as the unit runs it.
 const MUXR = 'n=$(ls -d "$HOME"/.local/share/byokit/node/*/bin 2>/dev/null | tail -n1); PATH="${n:+$n:}$PATH"; cd "$0" && exec node npm/bin/muxr "$@"';
 const NEWEST_OFFER = 'f=$(ls -t "$0"/.byokit/outbox/muxr-pair-*.json 2>/dev/null | head -n1); [ -z "$f" ] || cat "$f"';
@@ -80,12 +81,14 @@ export async function deployBoatComputer(o: {
     }
     const created = ref;
     o.onStep({ step: 'starting' });
+    const startDeadline = Date.now() + 600_000;
     for (let state = await m.state(); state !== 'on'; state = await m.state()) {
-        if (state === 'asleep') await m.wake();
-        else if (state === 'failed' || state === 'gone') {
-            await deleteNativeSecret(MACHINE_KEY);
+        if (state === 'failed' || state === 'gone') {
+            if (state === 'gone') await deleteNativeSecret(MACHINE_KEY);
             throw new Error(`Your Boat computer is ${state}. Try again.`);
         }
+        if (Date.now() > startDeadline) throw new Error('Boat is still starting your computer. Try again in a few minutes.');
+        if (state === 'asleep') await m.wake();
         await sleep(3_000);
     }
 
@@ -96,7 +99,7 @@ export async function deployBoatComputer(o: {
         provider, store, recipe: RECIPE, confirmId: id,
         pick: (listed) => {
             const found = listed.find((r) => r.id === id);
-            if (!found) throw new Error('Your new Boat computer is missing from your account. Try again.');
+            if (!found) throw new MachineError('no-machine', 'Your new Boat computer is missing from your account. Try again.');
             return found;
         },
         address: {
@@ -130,11 +133,16 @@ export async function deployBoatComputer(o: {
                     }
                     const { wordsFile } = offer;
                     const deliveries: Promise<unknown>[] = [];
-                    await o.pair(offer.offer, (w) => {
-                        const delivery = m.deliver(RECIPE, wordsFile, new TextEncoder().encode(w));
-                        delivery.catch(() => {});
-                        deliveries.push(delivery);
-                    });
+                    try {
+                        await o.pair(offer.offer, (w) => {
+                            const delivery = m.deliver(RECIPE, wordsFile, new TextEncoder().encode(w));
+                            delivery.catch(() => {});
+                            deliveries.push(delivery);
+                        });
+                    } catch (cause) {
+                        await handoff;
+                        throw cause;
+                    }
                     const result = await handoff;
                     await Promise.all(deliveries);
                     if (result.code !== 0) throw new Error(`muxr did not finish pairing on your Boat computer: ${result.stderr.trim().slice(-300)}`);

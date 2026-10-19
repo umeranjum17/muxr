@@ -15,7 +15,7 @@ import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, PRICE, type BoatSi
 
 const STEPS = ['Provider', 'Your Boat account', 'Size and price', 'Create', 'Put muxr on it', 'Join your tailnet', 'Pair with this phone'];
 const SIZES: { id: BoatSize; title: string }[] = [{ id: 'small', title: 'Small · 2 CPUs, 4 GB' }, { id: 'default', title: 'Standard · 4 CPUs, 8 GB' }];
-const STEP_INDEX: Record<DeployStep['step'], number> = { creating: 3, starting: 3, installing: 4, securing: 5, 'sign-in': 5, configuring: 6, pairing: 6 };
+const STEP_INDEX: Record<DeployStep['step'], number> = { creating: 3, starting: 3, installing: 4, securing: 5, 'sign-in': 5, configuring: 4, pairing: 6 };
 const STEP_WORDS: Record<DeployStep['step'], string> = {
     creating: 'Creating your cloud computer on Boat.',
     starting: 'Starting your cloud computer.',
@@ -48,29 +48,43 @@ export function CloudSetupScreen() {
     const [connected, setConnected] = React.useState(false);
     const [error, setError] = React.useState<string>();
     const controller = React.useRef<AbortController | undefined>(undefined);
+    const mounted = React.useRef(true);
+    const deploying = React.useRef(false);
     const [size, setSize] = React.useState<BoatSize>('small');
     const [deploy, setDeploy] = React.useState<DeployStep>();
     const auth = useAuth();
     const router = useRouter();
 
-    React.useEffect(() => () => controller.current?.abort(), []);
+    React.useEffect(() => {
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+            controller.current?.abort();
+        };
+    }, []);
     React.useEffect(() => { void getNativeSecret(BOAT_KEY).then((key) => { if (key) setConnected(true); }); }, []);
 
     const create = React.useCallback(async () => {
+        if (deploying.current) return;
+        deploying.current = true;
         setBusy(true);
         setError(undefined);
         try {
             await deployBoatComputer({
                 size,
-                onStep: setDeploy,
+                onStep: (s) => { if (mounted.current) setDeploy(s); },
                 pair: async (offer, deliverWords) => {
                     if (!(await pairLinkOffer(offer, auth, { confirm: async () => true, onWords: deliverWords }))) throw new Error('Pairing with your cloud computer failed. Try again.');
                 },
             });
-            router.replace('/');
+            if (mounted.current) router.replace('/');
         } catch (cause) {
-            setError(cause instanceof MachineError ? errorWords(cause, { app: 'muxr', label: 'Boat' }) : cause instanceof Error ? cause.message : String(cause));
-            setBusy(false);
+            if (mounted.current) {
+                setError(cause instanceof MachineError ? errorWords(cause, { app: 'muxr', label: 'Boat' }) : cause instanceof Error ? cause.message : String(cause));
+                setBusy(false);
+            }
+        } finally {
+            deploying.current = false;
         }
     }, [size, auth, router]);
     const current = deploy ? STEP_INDEX[deploy.step] : connected ? 2 : 1;
@@ -118,7 +132,6 @@ export function CloudSetupScreen() {
         <ScrollView style={{ marginBottom: insets.bottom }} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <View style={styles.intro}>
                 <Text style={styles.heading}>Your cloud computer</Text>
-                <Text style={styles.eta}>About 3 min left</Text>
                 <View style={styles.progress}><View style={[styles.progressFill, { width: `${Math.round(((current + 1) / STEPS.length) * 100)}%` }]} /></View>
             </View>
             <View style={styles.list}>
@@ -199,7 +212,6 @@ const styles = StyleSheet.create((theme) => ({
     webNotice: { flex: 1, padding: 24, gap: 12, justifyContent: 'center' },
     intro: { gap: 8 },
     heading: { ...Typography.default('semiBold'), fontSize: 24, lineHeight: 30, color: theme.colors.text },
-    eta: { ...Typography.default(), fontSize: 13, color: theme.colors.textSecondary },
     progress: { height: 4, borderRadius: 4, backgroundColor: theme.colors.divider, overflow: 'hidden' },
     progressFill: { height: 4, borderRadius: 4, backgroundColor: theme.colors.accent },
     list: { borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 14, overflow: 'hidden' },
