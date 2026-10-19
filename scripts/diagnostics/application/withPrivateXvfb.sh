@@ -32,6 +32,10 @@ for _ in $(seq 100); do
 done
 ready || { echo "Xvfb :$number never became ready" >&2; exit 1; }
 
+XVFB_PID="$xvfb" DISPLAY=":$number" "$@" &
+child=$!
+trap 'kill -TERM "$child" 2>/dev/null || true' INT TERM HUP
 status=0
-XVFB_PID="$xvfb" DISPLAY=":$number" "$@" || status=$?
+wait "$child" || status=$?
+while kill -0 "$child" 2>/dev/null; do wait "$child" || status=$?; done
 exit "$status"
