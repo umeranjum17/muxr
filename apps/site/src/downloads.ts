@@ -128,10 +128,10 @@ function writeDesktop(res: ServerResponse, stable: ChannelRelease | undefined, c
     const pairNote = '<p>The computer then shows a one-use QR. On your phone, tap <strong>Scan the computer’s QR</strong>, check that the same two words show on both, and approve on the computer.</p>';
     let offer: string;
     if (linux !== undefined && stable !== undefined) {
-        offer = `<p class="lede">Get the muxr app for this computer, open it, and pair your phone. No terminal needed.</p>
+        offer = `<p class="lede">Get the muxr app for this computer, open it, and pair your phone. No terminal needed unless the computer is missing FUSE 2.</p>
 <p><a class="button primary" href="/downloads/stable/linux">Download for Linux</a></p>
 <p>muxr ${escapeHtml(stable.version)} for Linux, ${escapeHtml(size(linux.bytes))}. In the downloaded file’s Properties, allow it to run as a program, then open it.</p>
-<p>If it will not open, the computer needs FUSE 2 (<code>libfuse2</code>). Without it, start the file with <code>--appimage-extract-and-run</code>.</p>
+<p>If it will not open, the computer needs FUSE 2. On Ubuntu 24.04 install it with <code>sudo apt install libfuse2t64</code>; older Ubuntu and Debian releases name the package <code>libfuse2</code>. Then open the file again. Without FUSE 2 the file opens only when started with <code>--appimage-extract-and-run</code>, and that flag has to be passed on every launch, so start at login needs FUSE 2 installed.</p>
 ${pairNote}
 <details><summary>Verify the download</summary><p>Run <code>sha256sum ${escapeHtml(name)}</code> and compare it with:</p><p><code>${escapeHtml(linux.sha256)}</code></p></details>
 <h2>On a Mac, or prefer a terminal?</h2>

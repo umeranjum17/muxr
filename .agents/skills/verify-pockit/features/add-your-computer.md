@@ -30,7 +30,7 @@ terminal install.
 Preconditions:
 
 - A release APK (`perf/buildPrApk.mjs`, store distribution, `https://trymuxr.com` base), a Play Store AVD booted with `-camera-back imagefile:<cam.png>`, and the emulator lock.
-- The Linux AppImage from `yarn desktop:build:linux`, extracted with `--appimage-extract` (no libfuse2 here).
+- The Linux AppImage from `yarn desktop:build:linux`, extracted with `--appimage-extract` (this host has no libfuse2, so the AppImage itself starts only with `--appimage-extract-and-run` on every launch); run the extracted `muxr` binary instead so relaunches never go through the AppImage, and keep `MUXR_DESKTOP_AUTOSTART=skip` because a login entry pointing at the AppImage cannot mount without FUSE 2.
 - The lab site from `apps/site/dist/site.js` with `PORT=<free>` and `MUXR_RELEASE_CATALOG_URL` pointing at a local catalog fixture whose stable `linux` entry names `https://github.com/umeranjum17/muxr/releases/download/v<version>/<file>.AppImage`, the local AppImage's sha256 and its byte size.
 - An `fm-herdr-lab.sh` session for `HERDR_SOCKET_PATH`. Never use `~/.muxr`, `~/.config/herdr` or port 8792.
 

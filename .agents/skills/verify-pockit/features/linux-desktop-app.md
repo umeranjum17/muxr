@@ -45,8 +45,9 @@ without a terminal.
   sentence, while an unclear probe (daemon not up yet) keeps the stored route.
   Serve is never touched.
 - The page a newcomer downloads from, `/desktop`, names the FUSE 2
-  requirement beside the download: the computer needs `libfuse2`, and without it
-  the file starts with `--appimage-extract-and-run`.
+  requirement beside the download: `libfuse2t64` on Ubuntu 24.04 and `libfuse2`
+  on older releases, and without it the file starts with
+  `--appimage-extract-and-run` on every launch, so start at login needs FUSE 2.
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.
 - Closing the window keeps the relay and host running in the tray.
@@ -108,9 +109,10 @@ APK.
 9. FUSE-less download copy: open the lab site's `/desktop` with the catalog
    fixture from [add-your-computer.md](./add-your-computer.md) (its
    Preconditions, naming this local AppImage as the stable `linux` asset) and
-   read the sentence beside **Download for Linux**: `libfuse2` is named, and so
-   is starting the file with `--appimage-extract-and-run`. Then start that
-   AppImage on this FUSE-less host with the flag and reach Ready to pair.
+   read the sentences beside **Download for Linux**: both package names are
+   there, and so are starting the file with `--appimage-extract-and-run` on
+   every launch and start-at-login needing FUSE 2. Then start that AppImage on
+   this FUSE-less host with the flag and reach Ready to pair.
 
 ## Gotchas
 
