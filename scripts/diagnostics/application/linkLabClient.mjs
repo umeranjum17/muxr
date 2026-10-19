@@ -75,8 +75,8 @@ const APPROVAL_WAIT_MS = 120_000;
  * The computer side for a device this client does not run itself, such as the
  * Android app pairing from a lab offer. Only the first offer goes to
  * `presentOffer`: the host mints a fresh code once it answers, and handing that
- * one to a device already pairing restarts its consent screen on a code this
- * call no longer serves. The computer's approval is answered yes; the host's
+ * one to a device already pairing resets its consent screen mid-pairing. The
+ * computer's approval is answered yes; the host's
  * result resolves with the device record it approved once that device has
  * proven itself on the link.
  */
