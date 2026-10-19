@@ -14,7 +14,7 @@ network. The phone pairs and works through the relay from any network.
   default.
 - `other-ways` `Other ways` still lists Tailscale, private network,
   temporary link and your own server (Wi-Fi only for a computer already on
-  it; an enrollment or a saved away-from-home route rules out the plain-computer Wi-Fi recommendation).
+  it; an enrollment or a saved route other than Wi-Fi only rules out the plain-computer Wi-Fi recommendation).
 - `apply-joins` Apply claims the enrollment (`muxr connect`), starts the
   host, waits for it to come online at the relay and shows the QR and
   pairing string; the menu then reads `relay shared relay in the cloud

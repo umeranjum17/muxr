@@ -67,7 +67,7 @@ Automation equivalents are flags on `muxr self-host`:
 | Use muxr away from home (Tailscale) | Private HTTPS through `tailscale serve`; the relay stays on loopback. Install the free Tailscale app on both and sign in to the same account. |
 | `--tailscale-direct` (phone only) | Uses the Tailscale address directly when Serve is proven disabled or occupied. Phone app only, no browser. |
 | Detected private network | Existing NetBird, WireGuard, ZeroTier, or similar address. Phone must join the same private network. |
-| Works only on this Wi-Fi | Recommended on a plain computer (no Tailscale, no private network, no usable `cloudflared`, no enrollment, no saved away-from-home route), or kept when already on it. Home network only. |
+| Works only on this Wi-Fi | Recommended on a plain computer (no Tailscale, no private network, no usable `cloudflared`, no enrollment, no saved route other than Wi-Fi only), or kept when already on it. Home network only. |
 
 muxr never enables Tailscale Funnel.
 Restrict a Serve endpoint with a tailnet grant/ACL even though pairing and E2EE

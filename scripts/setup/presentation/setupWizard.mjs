@@ -181,7 +181,7 @@ const RELAY_KIND = {
 };
 const relayKind = (mode) => RELAY_KIND[mode] ?? mode;
 
-// No way off Wi-Fi: no Tailscale, private network, tunnel, enrollment, or saved away-from-home route.
+// No way off Wi-Fi: no Tailscale, private network, tunnel, enrollment, or saved route other than Wi-Fi only.
 const plainComputer = (found, current) => !found.relay && !found.tailscale.installed && !found.private && !found.cloudflared.ok
     && (current === undefined || current.connectionMode === 'lan');
 

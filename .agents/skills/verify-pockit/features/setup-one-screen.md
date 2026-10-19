@@ -23,7 +23,7 @@ changes an existing setup keeps its extra questions and the final review.
   recommended with `Sign-in happens next`; Enter runs `sudo tailscale up` (the
   macOS app on a Mac) before the install.
 - `no-wifi` a new plain computer (no Tailscale installed, no private network,
-  no usable cloudflared, no relay enrollment, no saved away-from-home route)
+  no usable cloudflared, no relay enrollment, no saved route other than Wi-Fi only)
   recommends `Works only on this Wi-Fi`, so one Enter ends setup on it; any other
   setup never lists it, except that a computer already on it keeps it behind
   `Other ways` as `· current`.
