@@ -81,6 +81,11 @@ export function HomeRecoveryCard({
     const { theme } = useUnistyles();
     // No network on this device is not the computer's fault: say so, and skip the restart command.
     const deviceOffline = useDeviceOffline() && mode === 'host';
+    const wasDeviceOffline = React.useRef(deviceOffline);
+    React.useEffect(() => {
+        if (wasDeviceOffline.current && !deviceOffline) onFeedback('');
+        wasDeviceOffline.current = deviceOffline;
+    }, [deviceOffline, onFeedback]);
     const sshKey = mode === 'ssh-key';
     const rePair = mode === 'update-app' || mode === 'update-host' || mode === 'pair' || mode === 'revoked';
     // A runtime that is down because Herdr is absent or older than muxr
