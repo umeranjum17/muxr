@@ -280,7 +280,6 @@ function vitalsFigures(vitals: UsageFigures['vitals']): string[] {
     return [t(facts.state === 'busy' ? 'plugins.rightNow.busy' : 'plugins.rightNow.healthy')];
 }
 
-
 /** The age of the limit figures, once it is old enough to be worth saying. */
 function disclosedAge(payload: UsageFigures | undefined): string | undefined {
     return payload === undefined || payload.ageSeconds === undefined || payload.ageSeconds < AGE_WORTH_MENTIONING_SECONDS
