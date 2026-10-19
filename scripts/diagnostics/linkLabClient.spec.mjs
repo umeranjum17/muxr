@@ -12,7 +12,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { approveLabOffer } from './linkLabClient.mjs';
+import { approveLabOffer } from './application/linkLabClient.mjs';
 
 const servers = [];
 const scratch = [];
