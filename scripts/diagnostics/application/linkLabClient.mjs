@@ -1,12 +1,15 @@
+import { execFile } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { loadavg } from 'node:os';
+import { promisify } from 'node:util';
 import WebSocket from 'ws';
-import { DeviceLink, pairWithOffer } from '@byokit/pair';
+import { DeviceLink, pairWithOffer, parseOffer } from '@byokit/pair';
 import { nextRequestId } from '@trymuxr/contract';
 
 const BASE_WAIT_MS = 25_000;
 const PER_LOAD_POINT_MS = 3_000;
 const MAX_WAIT_MS = 180_000;
+const execFileAsync = promisify(execFile);
 
 export function linkWaitMs(load = loadavg()[0]) {
     return Math.min(MAX_WAIT_MS, BASE_WAIT_MS + Math.round(PER_LOAD_POINT_MS * load));
@@ -14,11 +17,56 @@ export function linkWaitMs(load = loadavg()[0]) {
 
 async function until(check, what, deadline) {
     while (Date.now() < deadline) {
-        const result = check();
+        const result = await check();
         if (result) return result;
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
     throw new Error(`timed out: ${what}`);
+}
+
+async function adb(serial, args) {
+    const { stdout } = await execFileAsync('adb', ['-s', serial, ...args], { encoding: 'utf8' });
+    return stdout;
+}
+
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+const addressOf = (url) => new URL(url.replace(/^ws/, 'http'));
+
+/**
+ * Point a device that pairs with a loopback lab at the relay the offer names.
+ *
+ * The route rides on an adb transport, and a transport is not ready just
+ * because the server has a row for it: when the fleet's shared adb server is
+ * restarted, or the device's own adbd restarts, every request the fresh server
+ * sends answers `device offline` until that transport handshakes. One
+ * fire-and-forget `adb reverse` dies inside that window — that is how a
+ * desklink lab run ended before it ever reached pairing — so wait for the named
+ * device to answer as a device, apply the reverse, and read the route back
+ * before the offer is handed over. An offer that names a real address needs no
+ * route at all.
+ */
+export async function forwardLabRelayTo(serial, offerText, deadline = Date.now() + linkWaitMs()) {
+    const ports = [...new Set(parseOffer(offerText, 0).urls.map(addressOf)
+        .filter((url) => LOOPBACK.has(url.hostname)).map((url) => url.port))];
+    if (ports.length === 0) return [];
+    let state = 'no answer yet';
+    await until(async () => {
+        try {
+            state = (await adb(serial, ['get-state'])).trim() || 'empty answer';
+        } catch (cause) {
+            state = (cause.stderr ?? cause.message ?? String(cause)).trim().split('\n').pop();
+        }
+        return state === 'device';
+    }, `device ${serial} online`, deadline)
+        .catch((timedOut) => { throw new Error(`${timedOut.message}: adb reports ${state}, so the route to the lab relay was never set`); });
+    for (const port of ports) await adb(serial, ['reverse', `tcp:${port}`, `tcp:${port}`]);
+    const listed = await adb(serial, ['reverse', '--list']);
+    for (const port of ports) {
+        if (!listed.includes(`tcp:${port} tcp:${port}`)) {
+            throw new Error(`adb kept no route to the lab relay on tcp:${port}: ${listed.trim() || 'the device lists no reverse routes'}`);
+        }
+    }
+    return ports;
 }
 
 /** The real running host's owner-only socket approves one lab device, then its machine link proves it. */
