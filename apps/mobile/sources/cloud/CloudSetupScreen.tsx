@@ -11,7 +11,7 @@ import { pairLinkOffer } from '@/pairing';
 import { getNativeSecret, setNativeSecret } from '@/pairing/secrets';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { Typography } from '@/constants/Typography';
-import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, type BoatSize, type DeployStep } from './deployBoatComputer';
+import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, PRICE, type BoatSize, type DeployStep } from './deployBoatComputer';
 
 const STEPS = ['Provider', 'Your Boat account', 'Size and price', 'Create', 'Put muxr on it', 'Join your tailnet', 'Pair with this phone'];
 const SIZES: { id: BoatSize; title: string }[] = [{ id: 'small', title: 'Small · 2 CPUs, 4 GB' }, { id: 'default', title: 'Standard · 4 CPUs, 8 GB' }];
@@ -144,7 +144,7 @@ export function CloudSetupScreen() {
                                                 <Text style={styles.detail}>{perHour(option.id)}</Text>
                                             </Pressable>
                                         ))}
-                                        <Text style={styles.detail}>Paid to Boat, not muxr. Free while asleep; Boat's plan is at least $20 a month. Prices checked 19 Oct 2026.</Text>
+                                        <Text style={styles.detail}>{`Paid to Boat, not muxr. Free while asleep; Boat's plan is at least $${PRICE.planFloorPerMonth} a month. Prices checked ${PRICE.checked}.`}</Text>
                                         <ActionButton title="Create cloud computer" icon="cloud-outline" disabled={busy} onPress={() => { void create(); }} wrap />
                                         {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
                                     </View>

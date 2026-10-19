@@ -1,5 +1,5 @@
 import { boat, machine, setup, words, type HostRecipe, type MachineRef, type MachineStore, type Price, type TailnetStep } from '@byokit/cloud';
-import { getNativeSecret, setNativeSecret } from '@/pairing/secrets';
+import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/pairing/secrets';
 
 export const BOAT_API = 'https://boat.dev/api/v1';
 export const BOAT_KEY = 'muxr.cloud.boat-key.v1';
@@ -7,7 +7,7 @@ const MACHINE_KEY = 'muxr.cloud.boat-machine.v1';
 const PORT = 8792;
 const WORK_DIR = '/home/user/muxr';
 
-const PRICE = { planFloorPerMonth: 20, asleepPerHour: 0, currency: 'USD', source: 'https://docs.boat.dev/pricing', checked: '2026-10-19' } as const;
+export const PRICE = { planFloorPerMonth: 20, asleepPerHour: 0, currency: 'USD', source: 'https://docs.boat.dev/pricing', checked: '2026-10-19' } as const;
 export const BOAT_PRICES: Price[] = [
     { ...PRICE, size: 'small', perHour: 0.018, basis: '2 vCPU, 4 GB: half the default rate, billed per second while on' },
     { ...PRICE, size: 'default', perHour: 0.036, basis: '4 vCPU, 8 GB: $20 a month buys 2,000,000 VM-seconds, billed per second while on' },
@@ -43,6 +43,17 @@ export type DeployStep =
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+type Offer = { offer: string; wordsFile: string };
+
+function parseOffer(text: string): Offer | undefined {
+    try {
+        const parsed = JSON.parse(text);
+        return typeof parsed?.offer === 'string' && typeof parsed?.wordsFile === 'string' ? parsed : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 /**
  * Create a Boat machine (once), put the muxr host on it, join it to the person's tailnet and
  * pair this phone through `muxr pair --handoff`; `pair` runs the phone side with the offer.
@@ -71,7 +82,10 @@ export async function deployBoatComputer(o: {
     o.onStep({ step: 'starting' });
     for (let state = await m.state(); state !== 'on'; state = await m.state()) {
         if (state === 'asleep') await m.wake();
-        else if (state === 'failed' || state === 'gone') throw new Error(`Your Boat computer is ${state}. Try again.`);
+        else if (state === 'failed' || state === 'gone') {
+            await deleteNativeSecret(MACHINE_KEY);
+            throw new Error(`Your Boat computer is ${state}. Try again.`);
+        }
         await sleep(3_000);
     }
 
@@ -80,7 +94,11 @@ export async function deployBoatComputer(o: {
     const exec = (argv: string[], timeoutMs: number) => provider.exec(created, ['sh', '-c', ...argv], { timeoutMs });
     for await (const step of setup({
         provider, store, recipe: RECIPE, confirmId: id,
-        pick: (listed) => listed.find((r) => r.id === id) ?? listed[0],
+        pick: (listed) => {
+            const found = listed.find((r) => r.id === id);
+            if (!found) throw new Error('Your new Boat computer is missing from your account. Try again.');
+            return found;
+        },
         address: {
             hostname: 'muxr-cloud', port: PORT,
             onStep: (s: TailnetStep) => { if (s.step === 'open-page') o.onStep({ step: 'sign-in', url: s.url }); },
@@ -100,11 +118,10 @@ export async function deployBoatComputer(o: {
                     const handoff = exec([MUXR, WORK_DIR, 'pair', '--handoff'], 180_000)
                         .catch((cause) => ({ code: 1, stdout: '', stderr: String(cause), timedOut: false }))
                         .finally(() => { settled = true; });
-                    let offer: { offer: string; wordsFile: string } | undefined;
+                    let offer: Offer | undefined;
                     while (!settled && offer === undefined) {
                         await sleep(2_000);
-                        const text = (await exec([NEWEST_OFFER, WORK_DIR], 30_000)).stdout;
-                        if (text.trim()) offer = JSON.parse(text);
+                        offer = parseOffer((await exec([NEWEST_OFFER, WORK_DIR], 30_000)).stdout);
                     }
                     if (offer === undefined) {
                         detail = (await handoff).stderr.trim().slice(-300);
@@ -112,8 +129,11 @@ export async function deployBoatComputer(o: {
                         continue;
                     }
                     const { wordsFile } = offer;
-                    await o.pair(offer.offer, (w) => { m.deliver(RECIPE, wordsFile, new TextEncoder().encode(w)).catch((cause) => { detail = String(cause); }); });
-                    await handoff;
+                    const deliveries: Promise<unknown>[] = [];
+                    await o.pair(offer.offer, (w) => { deliveries.push(m.deliver(RECIPE, wordsFile, new TextEncoder().encode(w))); });
+                    const result = await handoff;
+                    await Promise.all(deliveries);
+                    if (result.code !== 0) throw new Error(`muxr did not finish pairing on your Boat computer: ${result.stderr.trim().slice(-300)}`);
                     return;
                 }
                 throw new Error(`muxr did not start on your Boat computer: ${detail}`);

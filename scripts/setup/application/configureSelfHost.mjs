@@ -23,7 +23,6 @@ export async function configureSelfHost(args) {
         if (loopback && !/^[a-z0-9-]+(\.[a-z0-9-]+)*\.ts\.net$/i.test(url.hostname)) throw new Error('--loopback needs --advertise ws://<machine>.<tailnet>.ts.net:<port>');
         const bindHost = loopback ? '127.0.0.1' : isIP(url.hostname) ? url.hostname : (await lookup(url.hostname, { family: 4 })).address;
         if (!loopback && !isTailnetIPv4(bindHost)) throw new Error('--advertise must resolve to a Tailscale IPv4 address (100.64.0.0/10)');
-        if (args.includes('--install-herdr')) await ensureHerdr({ dryRun: false, noInstall: false, installRequested: true });
         let state = readSelfhostState();
         if (existsSync(selfhostPath())) {
             const info = lstatSync(selfhostPath());
@@ -34,6 +33,7 @@ export async function configureSelfHost(args) {
                 && state.bindHost === bindHost && (state.tailscaleServe === true) === loopback && state.connectionMode === 'private' && !state.webEnabled && !state.ingress;
             if (!sameConfiguration) throw new Error('--configure-only cannot replace an existing connection; use `muxr setup` to reconfigure it');
         }
+        if (args.includes('--install-herdr')) await ensureHerdr({ dryRun: false, noInstall: false, installRequested: true });
         const mintPath = join(stateDir(), 'relay', 'mint-secret');
         let secret;
         if (existsSync(mintPath)) {

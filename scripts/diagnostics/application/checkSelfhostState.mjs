@@ -237,6 +237,8 @@ try {
             if (!healthy) await new Promise((resolve) => setTimeout(resolve, 250));
         }
         assert.equal(healthy, true, 'the foreground unit did not serve its relay on loopback');
+        const relayPid = Number(readFileSync(join(serveHome, 'relay', 'relay.pid'), 'utf8'));
+        assert.doesNotThrow(() => process.kill(relayPid, 0), 'the relay answering on the port is not one this check started');
     } finally {
         serveUp.kill('SIGTERM');
         await serveClosed;
