@@ -96,6 +96,11 @@ export function saveFolder(muxrHome, folder) {
             throw new Error('The settings file is broken; fix or remove it first.');
         }
     }
-    atomicWrite(path, `${JSON.stringify({ ...parsed, defaultStartFolder: trimmed }, null, 2)}\n`);
+    try {
+        atomicWrite(path, `${JSON.stringify({ ...parsed, defaultStartFolder: trimmed }, null, 2)}\n`);
+    } catch (error) {
+        process.stderr.write(`desktop: writing the settings file: ${error instanceof Error ? error.message : String(error)}\n`);
+        throw new Error("Couldn't save this folder. Try again.");
+    }
     return trimmed;
 }
