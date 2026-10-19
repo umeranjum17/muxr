@@ -148,16 +148,27 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
-    const payload = event.notification.data || {};
-    const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
-    let targetUrl = '/';
+    event.waitUntil(openNoticeTarget(noticeTarget(event.notification.data || {})));
+});
+
+// A tap lands on what the notice is about. A general notice opens the link its
+// sealed envelope carries -- the same field the native tap opens -- a lifecycle
+// notice opens the agent it is about, and a notice with neither opens muxr.
+function noticeTarget(payload) {
+    if (payload.kind === 'notify' && self.isOpenableNoticeUrl(payload.url)) return payload.url;
     const machineId = typeof payload.machineId === 'string' ? payload.machineId : '';
+    const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
     if (machineId !== '' && sessionId !== '') {
         // Fragments stay in the browser: the relay must not receive decrypted scope.
-        targetUrl = `/notification#machineId=${encodeURIComponent(machineId)}&sessionId=${encodeURIComponent(sessionId)}`;
+        return `/notification#machineId=${encodeURIComponent(machineId)}&sessionId=${encodeURIComponent(sessionId)}`;
     }
+    return '/';
+}
 
-    event.waitUntil((async () => {
+async function openNoticeTarget(targetUrl) {
+    // A link off this origin belongs to the browser, not to the app window: it
+    // is opened beside the app, never navigated over it.
+    if (new URL(targetUrl, self.location.origin).origin === self.location.origin) {
         const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
         for (const client of clientsList) {
             if ('navigate' in client) {
@@ -169,6 +180,6 @@ self.addEventListener('notificationclick', (event) => {
                 return client.focus();
             }
         }
-        return self.clients.openWindow(targetUrl);
-    })());
-});
+    }
+    return self.clients.openWindow(targetUrl);
+}
