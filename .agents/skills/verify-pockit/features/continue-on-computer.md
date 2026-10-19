@@ -1,17 +1,18 @@
 # Continue an agent on another computer
 
-From an agent's Pane actions, Continue on another computer asks the source agent for a handoff note, previews it, then starts the same agent kind on the selected paired computer in the mapped home-relative folder and switches there. The source agent stays open; retiring it is a later feature.
+From an agent's Pane actions, Continue on another computer asks the source agent for a handoff note, previews it, then starts the same agent kind on the selected paired computer in the mapped home-relative folder and switches there. Once the target accepts the note, the source is retired only if a fresh `session.status` reads `idle` or `done`, through the existing stop and its widen confirm (shown inside the sheet). If the source is busy again, the confirm is declined or the close fails, both agents stay and a notice names the source computer.
 
 ## Sub-features
 
 - `picker` reuses the Computers sheet rows: the source is shown as This computer and disabled, offline computers say why, and an online target without the source agent kind is disabled with that reason.
 - `note` the source agent writes a note; the phone waits longer than the host's 240-second handoff bound and keeps the source open on every failure.
 - `preview` the note is read-only with Start and Cancel; cancelling never starts a target agent.
-- `continue` Start creates a new agent of the same kind, maps the source folder relative to each computer's home (or starts at `~` and says so in the note header when the mapped folder is missing), sends the note as its first prompt, then switches and opens it. It never creates a folder or retires the source.
+- `continue` Start creates a new agent of the same kind, maps the source folder relative to each computer's home (or starts at `~` and says so in the note header when the mapped folder is missing), sends the note as its first prompt, then switches and opens it. It never creates a folder.
+- `retire` after the prompt is accepted and before the switch: strict `idle|done` read, then `sessionStop` with confirm. Busy-again, a declined confirm or a close error keep the source and show a notice after the switch. A start failure (no note delivered) never reaches this step. Cancel while the note is being written closes the sheet and starts nothing.
 
 ## How to get to it (user POV)
 
-Open an agent on Desk, tap `…` in the pane header, and choose Continue on another computer. Pick the online Laptop row, wait for the note, inspect it, then tap Start on Laptop. Cancel from the preview to leave both computers unchanged.
+Open an agent on Desk, tap `…` in the pane header, and choose Continue on another computer. Pick the online Laptop row, wait for the note, inspect it, then tap Start on Laptop. Cancel from the preview to leave both computers unchanged. Capture Home on Desk before and after (agent gone), the widen confirm, busy-again (make the source work before Start), a start failure (stop the Laptop host by its own PID) and Cancel during the note.
 
 ## Driving it with the private stack
 
