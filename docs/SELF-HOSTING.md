@@ -58,8 +58,8 @@ or connect before retrying. A computer that already runs muxr keeps a healthy
 current route as the recommendation.
 
 Works only on this Wi-Fi sits behind Other ways only on a plain computer: no
-Tailscale connected or plannable, no private network, no usable `cloudflared`, and no
-enrollment. A computer already on it keeps it. The phone must be on the same Wi-Fi. When setup is given
+Tailscale installed, no private network, no usable `cloudflared`, no
+enrollment, and no saved away-from-home route. A computer already on it keeps it. The phone must be on the same Wi-Fi. When setup is given
 an enrollment from your muxr server (`--enrollment` or `MUXR_ENROLLMENT`), it
 recommends that server instead: this computer dials out to it, so nothing on it
 needs to be open. If another VPN is active on your phone, pause it: a phone runs

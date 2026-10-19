@@ -189,7 +189,8 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
     const serveOccupied = serveRoot.status === 'occupied';
     const serveDisabled = serveRoot.status === 'disabled';
     const tailscaleAvailable = found.tailscale.connected || tailscalePlanned;
-    const plainComputer = !found.relay && !tailscaleAvailable && !found.private && !found.cloudflared.ok;
+    const savedAwayFromHome = current?.connectionMode !== undefined && current.connectionMode !== 'lan';
+    const plainComputer = !found.relay && !found.tailscale.installed && !found.private && !found.cloudflared.ok && !savedAwayFromHome;
     let tailscaleSentence = 'Your phone reaches this computer from anywhere. Both need the free Tailscale app, signed in to the same account.';
     if (serveOccupied) tailscaleSentence = 'Tailscale Serve is used by something else here; choose the phone-only option below to leave it unchanged.';
     else if (serveDisabled) tailscaleSentence = `Tailscale Serve is unavailable (${serveRoot.reason}); choose the phone-only option below instead.`;

@@ -220,6 +220,18 @@ async function checkWizard() {
         tailscaleInstalled = false;
         tailscaleConnected = false;
 
+        // A computer already saved on its own server is not plain: Wi-Fi only
+        // stays out of Other ways even with no Tailscale installed.
+        currentSummary = {
+            relayHealthy: true, publicHealthy: true, connectionMode: 'external',
+            relayUrl: 'wss://relay.example', relayPort: 18792,
+        };
+        const savedAway = await run(['2', 'b', 'b']);
+        assert.match(savedAway, /Other ways[\s\S]*Use muxr away from home \(your own server\)/);
+        assert.doesNotMatch(savedAway, /Works only on this Wi-Fi/);
+        assert.deepEqual(calls, [], 'Cancellation mutated setup');
+        currentSummary = undefined;
+
         // A plain computer (no Tailscale, tunnel or server) on Wi-Fi ends on
         // Wi-Fi only behind Other ways, with the note that the phone must
         // stay on that Wi-Fi.
