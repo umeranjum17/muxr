@@ -25,6 +25,7 @@ const STEP_WORDS: Record<DeployStep['step'], string> = {
     configuring: 'Setting up muxr on your cloud computer.',
     pairing: words('setup.pairing', { app: 'muxr' }),
 };
+let deployInFlight = false;
 const perHour = (size: BoatSize) => `$${BOAT_PRICES.find((p) => p.size === size)?.perHour} an hour while on`;
 
 type ClaimFailure = Extract<Awaited<ReturnType<typeof claim> extends AsyncIterable<infer T> ? T : never>, { step: 'failed' }>['why'];
@@ -49,7 +50,6 @@ export function CloudSetupScreen() {
     const [error, setError] = React.useState<string>();
     const controller = React.useRef<AbortController | undefined>(undefined);
     const mounted = React.useRef(true);
-    const deploying = React.useRef(false);
     const [size, setSize] = React.useState<BoatSize>('small');
     const [deploy, setDeploy] = React.useState<DeployStep>();
     const auth = useAuth();
@@ -65,8 +65,8 @@ export function CloudSetupScreen() {
     React.useEffect(() => { void getNativeSecret(BOAT_KEY).then((key) => { if (key) setConnected(true); }); }, []);
 
     const create = React.useCallback(async () => {
-        if (deploying.current) return;
-        deploying.current = true;
+        if (deployInFlight) return;
+        deployInFlight = true;
         setBusy(true);
         setError(undefined);
         try {
@@ -84,7 +84,7 @@ export function CloudSetupScreen() {
                 setBusy(false);
             }
         } finally {
-            deploying.current = false;
+            deployInFlight = false;
         }
     }, [size, auth, router]);
     const current = deploy ? STEP_INDEX[deploy.step] : connected ? 2 : 1;
