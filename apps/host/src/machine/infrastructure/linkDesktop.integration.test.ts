@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
@@ -123,7 +123,7 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         const relayUrl = `ws://127.0.0.1:${relay.port}/relay`;
         const mintSecret = JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string;
         // The owner's own TURN server, as the self-host docs set it up.
-        const turnSecret = 'turn-shared-secret';
+        const turnSecret = randomBytes(24).toString('base64url');
         writeFileSync(join(dir, 'relay', 'turn.json'), JSON.stringify({ urls: ['turn:turn.example.test:3478?transport=udp'], secret: turnSecret }), { mode: 0o600 });
         const machineId = 'machine-desktop-test';
         const source = {
