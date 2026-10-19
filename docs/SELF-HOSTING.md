@@ -275,14 +275,17 @@ curl -X POST http://127.0.0.1:8793/v1/notify \
 ```
 
 `title` (1-80 chars) is required; `body` (up to 300), `url` and `id` are
-optional. The link must be `https`, or `http` to localhost or a tailnet host;
+optional. An `id` is delivered at most once per device: reuse the same `id` and
+the relay drops the repeat, so a sender wanting another notification omits or
+changes it. The link must be `https`, or `http` to localhost or a tailnet host;
 a tap opens it, anything else opens muxr. `http://localhost` is for the
 simulator and dev builds only: on a real iPad or phone `localhost` is the
 device itself, so send `https` or a tailnet host there. A general notice goes
 only to paired devices whose notification settings leave both **An agent
-needs you** and **An agent finishes** on, and `delivered_to` counts those; a
-device with notifications off, or with only **An agent needs you** on, is
-never sent one. The bearer token lives in
+needs you** and **An agent finishes** on, and `delivered_to` counts those
+devices rather than confirmed deliveries; a device with notifications off, or
+with only **An agent needs you** on, is never sent one. The bearer token lives
+in
 `$MUXR_HOME/notify-token` (mode 600), created when the host starts. The call
 answers 202 on success, 400 for a bad body and 401 for a bad or missing token,
 and is accepted on loopback only.
