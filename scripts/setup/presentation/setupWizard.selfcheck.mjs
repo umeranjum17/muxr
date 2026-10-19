@@ -27,6 +27,7 @@ async function checkWizard() {
     Object.defineProperty(process.stdin, 'isTTY', { value: true });
     Object.defineProperty(process.stdout, 'isTTY', { value: true });
     let lan;
+    let cloudflaredOk = false;
     let currentSummary;
     let agentStatus = 'pi: not installed';
     let presentAgentBins = [];
@@ -70,7 +71,7 @@ async function checkWizard() {
             spawnSync: (name, args) => {
                 if (name === 'wizard-fixture-tailscale') return tailscaleCommand(args);
                 assert.ok(['wizard-fixture-herdr', 'cloudflared'].includes(name), `Unexpected command: ${name}`);
-                if (name === 'cloudflared') return { status: null, error: { code: 'ENOENT' } };
+                if (name === 'cloudflared') return cloudflaredOk ? { status: 0, stdout: 'cloudflared fixture', stderr: '' } : { status: null, error: { code: 'ENOENT' } };
                 assert.ok(['--version', 'integration status'].includes(args.join(' ')));
                 return { status: 0, stdout: args[0] === '--version' ? 'herdr fixture' : agentStatus, stderr: '' };
             },
@@ -178,6 +179,10 @@ async function checkWizard() {
         tailscaleConnected = false;
         serveStatus = 'free';
         currentSummary = undefined;
+        tailscaleConnected = true;
+        const connectedPlain = await run(['2', 'b', 'b']);
+        assert.doesNotMatch(connectedPlain, /Works only on this Wi-Fi/);
+        tailscaleConnected = false;
 
         // A first run reviews on the route screen: the plan sits under the
         // routes and cancelling there changes nothing. An installed Tailscale
@@ -205,6 +210,7 @@ async function checkWizard() {
         // Enter, and Tailscale is the preselected route; one more Enter
         // applies it with the first-run defaults and no second confirmation.
         tailscaleInstalled = false;
+        cloudflaredOk = true;
         lan = '192.168.1.8';
         const installed = await run(['2', 'b', () => { tailscaleInstalled = true; tailscaleConnected = true; return ''; }, '']);
         assert.match(installed, /Check again[\s\S]*Tailscale isn't on this computer yet\. Install it from https:\/\/tailscale\.com\/download and sign in, then press Enter to check again\.[\s\S]*Use muxr away from home \(Tailscale\) · Recommended/);
@@ -215,13 +221,40 @@ async function checkWizard() {
         assert.deepEqual(calls.find(([name]) => name === 'start')[1].slice(0, 4), ['--port', '18792', '--connection-mode', 'tailscale']);
         tailscaleInstalled = false;
         tailscaleConnected = false;
+        cloudflaredOk = false;
 
-        // Your own server stays behind Other ways, and a new setup is never
-        // offered Wi-Fi only, even on Wi-Fi: the address applies with no
+        // A computer already saved on its own server is not plain: Wi-Fi only
+        // stays out of Other ways even with no Tailscale installed.
+        currentSummary = {
+            relayHealthy: true, publicHealthy: true, connectionMode: 'external',
+            relayUrl: 'wss://relay.example', relayPort: 18792,
+        };
+        const savedAway = await run(['2', 'b', 'b']);
+        assert.match(savedAway, /Other ways[\s\S]*Use muxr away from home \(your own server\)/);
+        assert.doesNotMatch(savedAway, /Works only on this Wi-Fi/);
+        assert.deepEqual(calls, [], 'Cancellation mutated setup');
+        currentSummary = {
+            relayHealthy: true, publicHealthy: true, connectionMode: undefined,
+            relayUrl: 'wss://relay.example', relayPort: 18792,
+        };
+        const savedNoMode = await run(['2', 'b', 'b']);
+        assert.doesNotMatch(savedNoMode, /Works only on this Wi-Fi/);
+        assert.deepEqual(calls, [], 'Cancellation mutated setup');
+        currentSummary = undefined;
+
+        // A plain computer (no Tailscale, tunnel or server) is recommended
+        // Wi-Fi only, so one Enter ends setup on it, with the note that the
+        // phone must stay on that Wi-Fi.
+        const plain = await run(['']);
+        recommended(plain, 'Works only on this Wi-Fi');
+        assert.match(plain, /Your phone must stay on this same Wi-Fi/);
+        assert.deepEqual(calls.find(([name]) => name === 'start')[1].slice(0, 4), ['--port', '18792', '--connection-mode', 'lan']);
+
+        // Your own server stays behind Other ways: the address applies with no
         // second confirmation, then the plain final receipt.
-        const completed = await run(['2', '5', 'wss://relay.example']);
+        const completed = await run(['2', '6', 'wss://relay.example']);
         assert.match(completed, /Other ways[\s\S]*Use muxr away from home \(your own server\)/);
-        assert.doesNotMatch(completed, /Works only on this Wi-Fi/);
+        assert.match(completed, /Works only on this Wi-Fi/);
         lan = undefined;
         assert.deepEqual([...completed.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
             ['1', '2', '2', '3'].map((step) => [step, '3']));

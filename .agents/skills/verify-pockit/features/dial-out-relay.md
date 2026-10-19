@@ -13,8 +13,9 @@ network. The phone pairs and works through the relay from any network.
   [setup-one-screen](./setup-one-screen.md)). Without one, Tailscale is the
   default.
 - `other-ways` `Other ways` still lists Tailscale, private network,
-  temporary link and your own server (Wi-Fi only just for a computer already
-  on it).
+  temporary link and your own server (Wi-Fi only for a computer already on
+  it; an enrollment or a saved route other than Wi-Fi only rules out the
+  plain-computer Wi-Fi recommendation).
 - `apply-joins` Apply claims the enrollment (`muxr connect`), starts the
   host, waits for it to come online at the relay and shows the QR and
   pairing string; the menu then reads `relay shared relay in the cloud

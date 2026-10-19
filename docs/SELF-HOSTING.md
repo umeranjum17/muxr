@@ -57,12 +57,14 @@ temporary link and your own server. Unavailable routes explain what to install
 or connect before retrying. A computer that already runs muxr keeps a healthy
 current route as the recommendation.
 
-Works only on this Wi-Fi is no longer offered to new setups; a computer already
-on it keeps working and keeps the choice behind Other ways. When setup is given
-an enrollment from your muxr server (`--enrollment` or `MUXR_ENROLLMENT`), it
-recommends that server instead: this computer dials out to it, so nothing on it
-needs to be open. If another VPN is active on your phone, pause it: a phone runs
-one VPN at a time.
+Works only on this Wi-Fi is the recommendation on a plain computer: no
+Tailscale installed, no private network, no usable `cloudflared`, no
+enrollment, and no saved route other than Wi-Fi only. Elsewhere it is not
+offered, except that a computer already on it keeps it behind Other ways. The
+phone must be on the same Wi-Fi. When setup is given an enrollment from your
+muxr server (`--enrollment` or `MUXR_ENROLLMENT`), it recommends that server
+instead: this computer dials out to it, so nothing on it needs to be open. If
+another VPN is active on your phone, pause it: a phone runs one VPN at a time.
 Automation uses:
 
 | Flag | What happens |
@@ -73,7 +75,7 @@ Automation uses:
 | `--tailscale-direct` | Uses the tailnet IP directly. |
 | `--configure-only --advertise <ws-url>` | Writes Tailscale-only headless state without starting anything; see [Headless cloud machine](#headless-cloud-machine-tailscale-only). |
 | *(detected private network)* | Uses the address on an existing NetBird, WireGuard, ZeroTier, or similar interface. The phone must join that same private network. |
-| *(Works only on this Wi-Fi)* | Kept only for a computer already set up on it. Home network only. |
+| *(Works only on this Wi-Fi)* | Recommended on a plain computer (see above), or kept when already on it. The phone must be on the same Wi-Fi. |
 | *(choose Direct SSH in the native app)* | Pair through the host's loopback relay over SSH; see [Direct SSH](#direct-ssh). |
 
 The computer's screen (**Computer**) goes straight from the computer to the phone when they can reach each other. When the only way between them is the relay (a temporary link, or your own server while the phone is on mobile data), the native app carries the picture through the relay instead, still end-to-end encrypted. That path is slower; its throughput is an estimate of about 7 Mbps at 300 ms round trip, not a measured figure. A browser cannot use it, so the installed web app shows the screen only on the same Wi-Fi, Tailscale, or another direct path.

@@ -11,8 +11,10 @@ changes an existing setup keeps its extra questions and the final review.
 - `tailscale-default` with Tailscale connected, the route is `Use muxr away
   from home (Tailscale) · Recommended`, even when Wi-Fi, a private network or
   cloudflared is present.
-- `missing` with no Tailscale, step 2 offers `Check again` and `Other ways`
-  under one sentence: `Tailscale isn't on this computer yet. Install it from
+- `missing` with no Tailscale on a computer that is not plain (a private
+  network, usable `cloudflared`, an enrollment, or a saved route other than
+  Wi-Fi only), step 2 offers `Check again` and `Other ways` under one
+  sentence: `Tailscale isn't on this computer yet. Install it from
   https://tailscale.com/download and sign in, then press Enter to check
   again.` Install and sign in, press Enter: step 2 redraws with Tailscale
   recommended, and one more Enter applies. Installed but not running reads
@@ -20,8 +22,11 @@ changes an existing setup keeps its extra questions and the final review.
 - `signed-out` installed and signed out (`NeedsLogin`): Tailscale stays
   recommended with `Sign-in happens next`; Enter runs `sudo tailscale up` (the
   macOS app on a Mac) before the install.
-- `no-wifi` a new setup never lists `Works only on this Wi-Fi`, not even
-  behind `Other ways`; a computer already on it keeps it there as `· current`.
+- `no-wifi` a new plain computer (no Tailscale installed, no private network,
+  no usable cloudflared, no relay enrollment, no saved route other than Wi-Fi only)
+  recommends `Works only on this Wi-Fi`, so one Enter ends setup on it; any other
+  setup never lists it, except that a computer already on it keeps it behind
+  `Other ways` as `· current`.
 - `one-enter` step 2 of 3 reads `How will your phone reach this computer?`
   with the plan under the routes (Herdr line, pairing, browser later, `Press
   Enter to apply this setup. Nothing changes before then.`); Enter goes
