@@ -13,6 +13,8 @@ import { loadAppConfig } from '@/catalog';
 import { isSshHostKeyChangeRefusal, isSshHostKeyPinMissing } from '@/connection';
 import { useHerdrDesktopApp, useHerdrMissing, useHerdrOutdated } from '@/catalog/store';
 
+import { useDeviceOffline } from '@/utils/web/deviceOffline';
+
 const HOST_RESTART_COMMAND = 'muxr daemon restart';
 // Doctor finds the missing or old Herdr and offers to install and start it.
 const HERDR_INSTALL_COMMAND = 'muxr doctor';
@@ -77,6 +79,13 @@ export function HomeRecoveryCard({
 }) {
     const router = useRouter();
     const { theme } = useUnistyles();
+    // No network on this device is not the computer's fault: say so, and skip the restart command.
+    const deviceOffline = useDeviceOffline() && mode === 'host';
+    const wasDeviceOffline = React.useRef(deviceOffline);
+    React.useEffect(() => {
+        if (wasDeviceOffline.current && !deviceOffline) onFeedback('');
+        wasDeviceOffline.current = deviceOffline;
+    }, [deviceOffline, onFeedback]);
     const sshKey = mode === 'ssh-key';
     const rePair = mode === 'update-app' || mode === 'update-host' || mode === 'pair' || mode === 'revoked';
     // A runtime that is down because Herdr is absent or older than muxr
@@ -93,9 +102,10 @@ export function HomeRecoveryCard({
         : publicBaseUrl ? `${publicBaseUrl}/downloads/stable/android` : 'https://github.com/umeranjum17/muxr/releases/latest';
     return (
         <View style={[styles.card, cardStyle(theme)]}>
-            <Text style={styles.title}>{herdrOutdated ? 'Herdr is out of date on your computer' : herdrMissing ? 'Herdr is missing on your computer' : mode === 'update-app' ? 'Update the muxr app' : mode === 'update-host' ? 'Update muxr on your computer' : mode === 'pair' ? 'Pair this phone again' : mode === 'revoked' ? 'Access removed' : sshKey ? 'SSH fingerprint changed' : mode === 'host' ? 'Computer unreachable' : 'Agent runtime unavailable'}</Text>
+            <Text style={styles.title}>{deviceOffline ? "You're offline" : herdrOutdated ? 'Herdr is out of date on your computer' : herdrMissing ? 'Herdr is missing on your computer' : mode === 'update-app' ? 'Update the muxr app' : mode === 'update-host' ? 'Update muxr on your computer' : mode === 'pair' ? 'Pair this phone again' : mode === 'revoked' ? 'Access removed' : sshKey ? 'SSH fingerprint changed' : mode === 'host' ? 'Computer unreachable' : 'Agent runtime unavailable'}</Text>
             <Text style={styles.body}>
-                {copy ? copy.lead
+                {deviceOffline ? 'This device has no network. Check the connection, then tap Retry once you are back online.'
+                    : copy ? copy.lead
                     : mode === 'pair' ? reason?.includes('no longer recognises')
                     ? 'Your computer no longer recognises this phone. Pair once to reconnect.'
                     : 'Your computer has a newer muxr connection. Pair once to reconnect.'
@@ -111,7 +121,7 @@ export function HomeRecoveryCard({
                 refers to it: hiding it whenever a reason exists left "run the
                 command" pointing at nothing. */}
             {copy?.terminal !== undefined && <Text style={styles.body}>{copy.terminal}</Text>}
-            {!rePair && !sshKey && <View style={styles.commandRow}>
+            {!rePair && !sshKey && !deviceOffline && <View style={styles.commandRow}>
                 <Text selectable style={styles.command}>{command}</Text>
                 <Pressable
                     accessibilityRole="button"
@@ -143,7 +153,7 @@ export function HomeRecoveryCard({
                     </Pressable>
                 </>}
             </View>
-            {!rePair && feedback ? <Text accessibilityLiveRegion="polite" style={styles.body}>{feedback}</Text> : null}
+            {!rePair && !deviceOffline && feedback ? <Text accessibilityLiveRegion="polite" style={styles.body}>{feedback}</Text> : null}
         </View>
     );
 }
@@ -179,13 +189,16 @@ export function BusyConnectingCard({ since, computer }: { since: number; compute
         const timer = setInterval(() => setNow(Date.now()), 1_000);
         return () => clearInterval(timer);
     }, []);
+    const deviceOffline = useDeviceOffline();
     const seconds = Math.max(0, Math.floor((now - since) / 1_000));
     const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
     return (
         <View style={[styles.card, cardStyle(theme)]}>
-            <Text style={styles.title}>{computer} isn't answering, likely busy.</Text>
+            <Text style={styles.title}>{deviceOffline ? "You're offline." : `${computer} isn't answering, likely busy.`}</Text>
             <Text accessibilityLiveRegion="polite" style={styles.body}>
-                Reconnecting on its own… No answer for {elapsed}. Your terminals come back when the computer catches up; nothing to do there.
+                {deviceOffline
+                    ? `This device has no network, so it can't reach ${computer}. Check the connection once you're back online.`
+                    : `Reconnecting on its own… No answer for ${elapsed}. Your terminals come back when the computer catches up; nothing to do there.`}
             </Text>
             <View style={styles.actions}>
                 <ActionButton title="Connection details" variant="secondary" onPress={() => router.push('/settings/connection' as never)} />

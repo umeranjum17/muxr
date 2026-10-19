@@ -65,7 +65,7 @@ export {
     cleanupManagedIngress,
     cloudflaredAlive,
     inspectTailscaleServeRoot,
-    isTailnetIPv4,
+    headlessState,
     persistOwnedServeIngress,
     readSelfhostState,
     selfhostConfigured,

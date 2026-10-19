@@ -93,6 +93,8 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
     tunnelPort?: number;
     confirm?: (title: string, words: string) => Promise<boolean>;
     onProgress?: (view: PairingProgress) => void;
+    /** The two words, for a computer that reads them from a file instead of a person (kit handoff). */
+    onWords?: (words: string) => void;
 } = {}): Promise<boolean> {
     const device = pairingDeviceKind();
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
@@ -107,6 +109,7 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
     const grant = await pairOverLink(scanned, {
         tunnelPort: options.tunnelPort,
         onWords: (words) => {
+            options.onWords?.(words);
             const view = pairingView({ phase: 'compare', hostName: machineName, words, device });
             options.onProgress?.(view);
         },

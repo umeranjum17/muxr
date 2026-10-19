@@ -26,7 +26,7 @@ import { daemonDefinition, daemonIsRunning, runDaemon } from './daemon.mjs';
 import {
     advertisedRelayHealthy,
     cloudflaredAlive,
-    isTailnetIPv4,
+    headlessState,
     ownedRelayPid,
     reachTailscaleOptions,
     readSelfhostState,
@@ -262,8 +262,8 @@ export async function restartSelfhostRelayIfRunning() {
 }
 
 export async function repairSelfhostRelay(state) {
-    if (isTailnetIPv4(state.bindHost)) {
-        throw new Error(`this computer's relay runs on Tailscale (${state.bindHost}) and is not running; start the foreground unit with MUXR_MODE=selfhost muxr up, then retry`);
+    if (headlessState(state)) {
+        throw new Error(`this computer's relay runs on Tailscale (${state.relayUrl}) and is not running; start the foreground unit with MUXR_MODE=selfhost muxr up, then retry`);
     }
     if (existsSync(daemonDefinition().path)) return runDaemon(['restart']);
     await ensureSelfhostRelay(state.relayPort, state.webRoot, state.bindHost, state.webOrigin, relayDiscovery(state));

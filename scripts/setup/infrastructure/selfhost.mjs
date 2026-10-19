@@ -40,10 +40,13 @@ export function isTailnetIPv4(address) {
     return first === 100 && second >= 64 && second <= 127;
 }
 
+/** `--configure-only` state: a tailnet bind, or loopback behind Tailscale Serve. Its relay belongs to the foreground `muxr up`. */
+export const headlessState = (state) => isTailnetIPv4(state?.bindHost) || state?.tailscaleServe === true;
+
 /** A tailnet-recorded state is final for now: no setup path may replace, restart or re-register it. */
 export function refuseTailnetState(state) {
-    if (!isTailnetIPv4(state?.bindHost)) return;
-    throw new Error(`this computer runs headless on Tailscale (${state.bindHost}) under MUXR_MODE=selfhost muxr up; it is already set up, and changing its address or port is not supported yet`);
+    if (!headlessState(state)) return;
+    throw new Error(`this computer runs headless on Tailscale (${state.relayUrl}) under MUXR_MODE=selfhost muxr up; it is already set up, and changing its address or port is not supported yet`);
 }
 
 export const selfhostPath = () => join(stateDir(), 'selfhost.json');
