@@ -1,19 +1,6 @@
 name: deploy trymuxr.com
 
-# A merge that changes what the site image contains deploys it. The paths are
-# exactly what apps/site/Dockerfile copies in; workflow_dispatch redeploys on demand.
 on:
-  push:
-    branches: [main]
-    paths:
-      - apps/site/**
-      - yarn.lock
-      - docs/store-preview/class/**
-      - docs/play/store-assets/**
-      - docs/assets/readme/**
-      - docs/art/rpg-cover.png
-      - docs/demo/muxr-demo.mp4
-      - .github/workflows/deploy-trymuxr.yml
   workflow_dispatch:
 
 permissions:
