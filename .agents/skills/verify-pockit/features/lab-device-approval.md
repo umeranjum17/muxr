@@ -4,7 +4,7 @@ The lab helper can hand its pairing offer to an external device, such as the And
 
 ## Sub-features
 
-- `approveLabOffer` in `scripts/diagnostics/application/linkLabClient.mjs` hands the first offer to the caller, answers `{"approval"}` with `{"yes":true}`, and resolves with the host's `result` record.
+- `approveLabOffer` in `scripts/diagnostics/application/linkLabClient.mjs` hands the first offer and the approval deadline to the caller, answers `{"approval"}` with `{"yes":true}`, and resolves with the host's `result` record.
 - `linkHerdrLab(root, label, onEvent, beforeHost, hostEnv, presentOffer)` in `linkHerdrLab.mjs` takes the offer callback. Without it the helper pairs itself, as before. With it the returned `approved` is the device record and `link` is undefined.
 
 ## How to get to it (user POV)
