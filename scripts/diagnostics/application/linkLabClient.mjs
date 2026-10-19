@@ -26,8 +26,9 @@ async function until(check, what, deadline, intervalMs = 100) {
     throw new Error(`timed out: ${what}`);
 }
 
-async function adb(serial, args) {
-    const { stdout } = await execFileAsync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: ADB_CALL_MS });
+async function adb(serial, args, deadline) {
+    const timeout = Math.max(1, Math.min(ADB_CALL_MS, deadline - Date.now()));
+    const { stdout } = await execFileAsync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout });
     return stdout;
 }
 
@@ -36,11 +37,11 @@ const FATAL = /^(bootloader|recovery|sideload)$|cannot bind .*address already in
 const addressOf = (url) => new URL(url.replace(/^ws/, 'http'));
 const lastLine = (text) => text.trim().split('\n').pop().trim();
 
-async function routeLabRelay(serial, ports) {
-    const state = (await adb(serial, ['get-state'])).trim();
+async function routeLabRelay(serial, ports, deadline) {
+    const state = (await adb(serial, ['get-state'], deadline)).trim();
     if (state !== 'device') throw new Error(state || 'empty answer');
-    for (const port of ports) await adb(serial, ['reverse', `tcp:${port}`, `tcp:${port}`]);
-    const listed = await adb(serial, ['reverse', '--list']);
+    for (const port of ports) await adb(serial, ['reverse', `tcp:${port}`, `tcp:${port}`], deadline);
+    const listed = await adb(serial, ['reverse', '--list'], deadline);
     const missing = ports.find((port) => !listed.includes(`tcp:${port} tcp:${port}`));
     if (missing !== undefined) throw new Error(`no reverse route on tcp:${missing}: ${lastLine(listed) || 'the device lists no reverse routes'}`);
 }
@@ -66,7 +67,7 @@ export async function forwardLabRelayTo(serial, offerText, deadline) {
     let fatal;
     await until(async () => {
         try {
-            await routeLabRelay(serial, ports);
+            await routeLabRelay(serial, ports, deadline);
             return true;
         } catch (cause) {
             last = lastLine(cause.stderr || cause.message || String(cause)) || 'no answer';
