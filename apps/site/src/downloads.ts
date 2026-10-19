@@ -131,6 +131,7 @@ function writeDesktop(res: ServerResponse, stable: ChannelRelease | undefined, c
         offer = `<p class="lede">Get the muxr app for this computer, open it, and pair your phone. No terminal needed.</p>
 <p><a class="button primary" href="/downloads/stable/linux">Download for Linux</a></p>
 <p>muxr ${escapeHtml(stable.version)} for Linux, ${escapeHtml(size(linux.bytes))}. In the downloaded file’s Properties, allow it to run as a program, then open it.</p>
+<p>If it will not open, the computer needs FUSE 2 (<code>libfuse2</code>). Without it, start the file with <code>--appimage-extract-and-run</code>.</p>
 ${pairNote}
 <details><summary>Verify the download</summary><p>Run <code>sha256sum ${escapeHtml(name)}</code> and compare it with:</p><p><code>${escapeHtml(linux.sha256)}</code></p></details>
 <h2>On a Mac, or prefer a terminal?</h2>
