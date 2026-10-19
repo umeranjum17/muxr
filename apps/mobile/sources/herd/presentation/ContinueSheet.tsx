@@ -169,9 +169,6 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
         }
     };
 
-    // The host finishes the note turn on its own and drops it; nothing starts on the target.
-    const cancelNote = () => { generation.current++; onClose(); };
-
     const start = async () => {
         if (!picked || agentKind === undefined) return;
         setPhase('starting');
@@ -241,7 +238,7 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
             <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600' }}>{phase === 'writing' ? 'Writing a handoff note…' : phase === 'starting' ? `Starting on ${picked?.name}…` : `Continue on ${picked?.name}`}</Text>
             {phase === 'preview' && <Text selectable style={{ color: '#ddd', fontSize: 15, lineHeight: 22 }}>{picked?.note}</Text>}
             {failure !== undefined && <Text accessibilityRole="alert" style={{ color: '#ff6961' }}>{failure}</Text>}
-            {phase === 'writing' && <Pressable onPress={cancelNote} accessibilityRole="button" style={{ minHeight: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff' }}>Cancel</Text></Pressable>}
+            {phase === 'writing' && <Pressable onPress={onClose} accessibilityRole="button" style={{ minHeight: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff' }}>Cancel</Text></Pressable>}
             {phase === 'preview' && <View style={{ flexDirection: 'row', gap: 12 }}>
                 {canRetry
                     ? <Pressable onPress={() => void start()} accessibilityRole="button" style={{ flex: 1, minHeight: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#4b86f5' }}><Text style={{ color: '#fff', fontWeight: '600' }}>{`Start on ${picked?.name}`}</Text></Pressable>
