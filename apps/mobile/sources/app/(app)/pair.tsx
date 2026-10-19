@@ -405,7 +405,7 @@ export default function PairScreen() {
                                     <Text style={styles.command} selectable>muxr pair</Text>
                                     <Pressable
                                         accessibilityRole="button"
-                                        accessibilityLabel={commandCopied ? 'Copied' : 'Copy muxr pair'}
+                                        accessibilityLabel={commandCopied ? t('pairing.copied') : t('pairing.copy')}
                                         hitSlop={10}
                                         style={styles.copyButton}
                                         onPress={() => {
@@ -729,7 +729,7 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.text,
     },
     copyButton: {
-        minHeight: 36,
+        minHeight: 44,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',

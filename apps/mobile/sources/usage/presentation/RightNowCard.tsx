@@ -276,7 +276,7 @@ function quietLine(payload: UsageFigures): string[] {
  *  the computer's name (see hostVitalsDetails), not a server line here. */
 function vitalsFigures(vitals: UsageFigures['vitals']): string[] {
     const facts = vitals === undefined ? undefined : vitalsFacts(vitals);
-    if (facts === undefined) return [];
+    if (facts?.state === undefined) return [];
     return [t(facts.state === 'busy' ? 'plugins.rightNow.busy' : 'plugins.rightNow.healthy')];
 }
 
