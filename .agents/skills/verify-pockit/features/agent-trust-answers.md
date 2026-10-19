@@ -7,8 +7,8 @@ composer, the same band as numbered prompts. A tap moves from the highlighted
 row to the tapped one and presses Enter, so trusting the folder never depends
 on finding the down key, and Enter alone (which exits) is never the answer.
 Both start points (Home's Start and New agent) begin in the last folder an
-agent started in on this phone; a fresh install starts in `~` until one is
-picked.
+agent started in on that computer, else the folder desktop setup chose there
+(see the README), else `~`.
 
 ## Sub-features
 

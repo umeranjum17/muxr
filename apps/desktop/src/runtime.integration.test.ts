@@ -4,7 +4,7 @@
  * refuses with one plain state; only a desktop-created state starts processes.
  */
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { createHerdrSetup, wireHerdrToRuntime } from './herdrSetup.mjs';
 import { TAILSCALE_UP_HINT } from '../../../scripts/setup/infrastructure/selfhost.mjs';
 import { MuxrRuntime, RelayOwnedError } from './runtime.mjs';
+import { readSavedFolder, saveFolder, suggestProjectFolder } from './projectFolder.mjs';
 
 const MACHINE = { id: 'machine-owner', name: 'computer', crypto: { signingPublicKey: 's' } };
 
@@ -447,4 +448,65 @@ describe('desktop runtime self-host state', () => {
         expect(elapsed).toBeLessThan(5_000);
         expect(statuses.some((status) => status.phase === 'error' && (status.message ?? '').includes('host could not start'))).toBe(true);
     }, 15_000);
+});
+
+describe('desktop setup project folder', () => {
+    function repo(home: string, name: string, mtimeMs: number, gitMtimeMs = mtimeMs): string {
+        const dir = join(home, name);
+        mkdirSync(join(dir, '.git'), { recursive: true });
+        utimesSync(join(dir, '.git'), new Date(gitMtimeMs), new Date(gitMtimeMs));
+        utimesSync(dir, new Date(mtimeMs), new Date(mtimeMs));
+        return dir;
+    }
+
+    it('preselects the most recently used git repo and saves the choice beside host state', () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-projects-'));
+        repo(home, 'old-notes', 1_700_000_000_000);
+        const freshRepo = repo(home, 'zz-api', 1_790_000_000_000);
+        mkdirSync(join(home, 'not-a-repo'));
+        expect(suggestProjectFolder(home)).toBe(freshRepo);
+        // Commits touch .git, not the repo root: a newer .git beats a newer root.
+        const committedRepo = repo(home, 'aa-committed', 1_600_000_000_000, 1_795_000_000_000);
+        expect(suggestProjectFolder(home)).toBe(committedRepo);
+
+        const hiddenHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-hidden-'));
+        for (let index = 0; index < 30; index += 1) {
+            mkdirSync(join(hiddenHome, `.hidden-${String(index).padStart(2, '0')}`));
+        }
+        for (let index = 0; index < 34; index += 1) {
+            mkdirSync(join(hiddenHome, `busy-${String(index).padStart(2, '0')}`));
+        }
+        mkdirSync(join(hiddenHome, 'zz-repo', '.git'), { recursive: true });
+        expect(suggestProjectFolder(hiddenHome)).toBe(join(hiddenHome, 'zz-repo'));
+
+        const crowdedHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-crowded-'));
+        for (let index = 0; index < 80; index += 1) {
+            mkdirSync(join(crowdedHome, `busy-${String(index).padStart(2, '0')}`));
+        }
+        mkdirSync(join(crowdedHome, 'zz-repo', '.git'), { recursive: true });
+        expect(suggestProjectFolder(crowdedHome)).toBe(join(crowdedHome, 'zz-repo'));
+
+        const muxrHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-home-'));
+        writeFileSync(join(muxrHome, 'config.json'), `${JSON.stringify({ mode: 'selfhost' })}\n`, { mode: 0o600 });
+        expect(readSavedFolder(muxrHome)).toBeUndefined();
+        expect(saveFolder(muxrHome, freshRepo)).toBe(freshRepo);
+        expect(readSavedFolder(muxrHome)).toBe(freshRepo);
+        // A later answer replaces the earlier one; other keys survive.
+        expect(saveFolder(muxrHome, '~')).toBe('~');
+        const saved = JSON.parse(readFileSync(join(muxrHome, 'config.json'), 'utf8'));
+        expect(saved.defaultStartFolder).toBe('~');
+        expect(saved.mode).toBe('selfhost');
+    });
+
+    it('finds nothing to preselect without a repo and refuses a bad folder', () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-norepo-'));
+        mkdirSync(join(home, 'Downloads'));
+        expect(suggestProjectFolder(home)).toBeNull();
+
+        const muxrHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-badfolder-'));
+        expect(() => saveFolder(muxrHome, '')).toThrow('~');
+        expect(() => saveFolder(muxrHome, 'relative/path')).toThrow('absolute');
+        expect(() => saveFolder(muxrHome, join(muxrHome, 'missing'))).toThrow('Cannot reach');
+        expect(readSavedFolder(muxrHome)).toBeUndefined();
+    });
 });

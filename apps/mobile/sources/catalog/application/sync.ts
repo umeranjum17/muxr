@@ -239,6 +239,7 @@ class MuxrSync {
             onPermanentError: (message) => storage.getState().setSocketError(message),
         });
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
+        client.onMachinesChanged?.(() => { void this.refreshCatalog().catch(() => undefined); });
         client.onStateChange((state) => {
             recordSocketState(state, client.isLive());
             storage.getState().setSocketStatus(socketStatusFromClient(state));

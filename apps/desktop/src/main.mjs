@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { qrMatrix } from '@byokit/ui-core/link';
 import { autostartInstalled, setAutostart } from './autostart.mjs';
 import { openPairingSocket } from './pairClient.mjs';
+import { readSavedFolder, saveFolder, suggestProjectFolder } from './projectFolder.mjs';
 import { MuxrRuntime, RelayOwnedError } from './runtime.mjs';
 import { createHerdrSetup, wireHerdrToRuntime } from './herdrSetup.mjs';
 
@@ -51,6 +52,15 @@ let blockerId = null;
 let settings = { keepAwake: false, autostart: true };
 // The state the window shows; kept so a window opened later paints immediately.
 let state = { phase: 'starting' };
+// Setup asks once for the project folder: the saved choice wins, else the
+// most recently used git repo is preselected, else ~ with a one-line note.
+const savedFolder = readSavedFolder(MUXR_HOME);
+const suggestedFolder = savedFolder ?? suggestProjectFolder(homedir()) ?? '~';
+const project = {
+    needsProjectFolder: savedFolder === undefined,
+    projectFolderSuggestion: suggestedFolder,
+    projectFolderNoRepo: savedFolder === undefined && suggestedFolder === '~',
+};
 // Herdr is said beside the runtime phase, because pairing still works without it.
 const herdr = createHerdrSetup(() => send(state));
 
@@ -65,7 +75,7 @@ function reportFailure(what, error, message) {
 }
 
 function send(next) {
-    state = next;
+    state = { ...next, ...project };
     if (win !== undefined && !win.isDestroyed()) win.webContents.send('muxr:state', { ...state, herdr: herdr.state });
     updateTray();
 }
@@ -269,6 +279,17 @@ if (!app.requestSingleInstanceLock()) {
         } finally { retrying = false; }
     });
     ipcMain.handle('muxr:install-herdr', () => herdr.install());
+    ipcMain.handle('muxr:set-project-folder', (_event, folder) => {
+        try {
+            saveFolder(MUXR_HOME, folder);
+        } catch (error) {
+            process.stderr.write(`desktop: saving the project folder: ${error instanceof Error ? error.message : String(error)}\n`);
+            return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        }
+        project.needsProjectFolder = false;
+        send(state);
+        return { ok: true };
+    });
     ipcMain.handle('muxr:set-keep-awake', (_event, on) => setKeepAwake(Boolean(on)));
     ipcMain.handle('muxr:set-autostart', (_event, on) => setStartAtLogin(Boolean(on)));
     ipcMain.handle('muxr:copy', (_event, text) => { clipboard.writeText(String(text)); });

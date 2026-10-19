@@ -9,7 +9,7 @@ const harness = vi.hoisted(() => {
             relayUrl: 'ws://relay.test',
             machineId: '',
             token: '',
-            lastSessionCwd: '',
+            lastSessionCwdByMachine: {},
             recentSessionCwds: [] as string[],
         },
         grant: undefined as { machineId: string; relayUrl: string } | undefined,
@@ -41,6 +41,11 @@ const harness = vi.hoisted(() => {
         lifecycleCatalogError: Object.assign(new Error('older host'), { code: 'host-contract-mismatch' }) as Error & { code?: string },
         sessions,
         eventListeners: [] as Array<(sessionId: string, event: { type: string; session?: { id: string; taskTitle?: string } }) => void>,
+        // Raw host pushes (a config notice, not a session event).
+        frameListeners: [] as Array<(frame: unknown) => void>,
+        machineFolders: [] as Array<string | undefined>,
+        // What the host's machines.list reports as the setup-chosen start folder.
+        machineStartFolder: undefined as string | undefined,
         applySessions: vi.fn((next: Array<{ id: string; taskTitle?: string }>, replace = false) => {
             sessionReplaceFlags.push(replace);
             if (replace) {
@@ -111,6 +116,7 @@ vi.mock('@byokit/pair', async (importOriginal) => {
             harness.eventListeners.push((sessionId: string, event: unknown) => {
                 this.o.onEvent?.({ type: 'session.event', sessionId, event });
             });
+            harness.frameListeners.push((frame: unknown) => { this.o.onEvent?.(frame); });
             // byokit DeviceLink dials in its constructor; mirror that here.
             harness.clientConnects += 1;
             this.fire('connecting');
@@ -143,7 +149,9 @@ vi.mock('@byokit/pair', async (importOriginal) => {
                     await harness.blockedMachines;
                     harness.blockedMachinesFinished = true;
                 }
-                return [{ id: `client-${FakeDeviceLink.instances.indexOf(link)}` }];
+                return [{ id: `client-${FakeDeviceLink.instances.indexOf(link)}`, ...(harness.machineStartFolder === undefined
+                    ? {}
+                    : { defaultStartFolder: harness.machineStartFolder }) }];
             }
             if (op === 'herdr.tree') {
                 if (harness.blockNextTree) {
@@ -189,8 +197,9 @@ vi.mock('../../catalog/application/storage', () => ({
             setHerdrRuntime: (runtime: boolean | undefined) => { harness.herdrRuntime = runtime; },
             applyMachines: (machines: unknown[], replace = false) => {
                 harness.machineReplaceFlags.push(replace);
-                const id = (machines[0] as { id?: string } | undefined)?.id;
-                if (id !== undefined) harness.machineSnapshots.push(id);
+                const machine = machines[0] as { id?: string; defaultStartFolder?: string } | undefined;
+                if (machine?.id !== undefined) harness.machineSnapshots.push(machine.id);
+                harness.machineFolders.push(machine?.defaultStartFolder);
             },
             applySessions: harness.applySessions,
             deleteSession: (sessionId: string) => { delete harness.sessions[sessionId]; },
@@ -242,6 +251,9 @@ describe('link session sync flow', () => {
         harness.blockedMachinesStarted = false;
         harness.blockedMachinesFinished = false;
         harness.machineSnapshots.length = 0;
+        harness.machineFolders.length = 0;
+        harness.machineStartFolder = undefined;
+        harness.frameListeners.length = 0;
         harness.socketStatus = 'disconnected';
         harness.socketError = null;
         harness.ready = false;
@@ -396,6 +408,28 @@ describe('link session sync flow', () => {
         (await dial()).fire('removed');
         await vi.waitFor(() => expect(harness.socketError).toContain('Access removed:'));
         expect(harness.socketStatus).toBe('error');
+    });
+
+    it('takes the folder setup saves after pairing on the pushed notice, without a resume', async () => {
+        harness.connection.mode = 'hosted';
+        harness.connection.machineId = 'machine-a';
+        harness.grant = {
+            machineId: 'machine-a', relayUrl: 'ws://relay.test',
+            deviceKey: { publicKey: 'device-public', secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+            machineBoxPublicKey: 'bWFjaGluZS1ib3gta2V5LWJhc2U2NC0zMmJ5dGVzMjMyMQ',
+        } as never;
+
+        // Paired before the folder card was answered: the catalog has no folder.
+        await syncReconnect();
+        await vi.waitFor(() => expect(harness.machineFolders.length).toBeGreaterThan(0));
+        expect(harness.machineFolders.at(-1)).toBeUndefined();
+
+        // Desktop setup answers the card; the host pushes the notice.
+        harness.machineStartFolder = '/mnt/work/project';
+        for (const listener of harness.frameListeners) listener({ type: 'machines.changed' });
+
+        // The phone refetches the catalog on its own: no resume, no reconnect.
+        await vi.waitFor(() => expect(harness.machineFolders.at(-1)).toBe('/mnt/work/project'));
     });
 
     it('merges inbound session.updated frames into one store write per 250 ms window', async () => {

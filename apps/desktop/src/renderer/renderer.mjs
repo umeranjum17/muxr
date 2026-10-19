@@ -1,6 +1,7 @@
 /* The window: draws the pairing offer the running host mints and the settings toggles. */
 const cards = {
     starting: document.getElementById('card-starting'),
+    project: document.getElementById('card-project'),
     ready: document.getElementById('card-ready'),
     approval: document.getElementById('card-approval'),
     paired: document.getElementById('card-paired'),
@@ -21,6 +22,11 @@ const copyButton = document.getElementById('copy-code');
 const copyLabel = copyButton.querySelector('.copy-label');
 const keepAwake = document.getElementById('keep-awake');
 const autostart = document.getElementById('autostart');
+const projectInput = document.getElementById('project-folder');
+const projectNoRepo = document.getElementById('project-no-repo');
+const projectError = document.getElementById('project-error');
+const saveProjectButton = document.getElementById('save-project-folder');
+let projectShown = false;
 
 let currentCode = '';
 let expiresAt = 0;
@@ -35,7 +41,7 @@ const TITLES = {
 };
 
 function show(which) {
-    for (const [name, element] of Object.entries(cards)) element.hidden = name !== which;
+    for (const [name, element] of Object.entries(cards)) if (name !== 'project') element.hidden = name !== which;
 }
 
 function drawQr(matrix) {
@@ -86,6 +92,17 @@ window.muxr.onState((state) => {
     showHerdrNotice(herdr);
     dot.className = `dot ${herdr === undefined ? state.phase : herdr.status === 'installing' ? 'starting' : 'error'}`;
     title.textContent = herdr === undefined ? (TITLES[state.phase] ?? 'muxr') : herdr.status === 'installing' ? 'Setting up Herdr…' : 'Needs attention';
+    // Setup's one folder question sits beside the pairing offer until it is saved.
+    const askProject = state.needsProjectFolder === true;
+    cards.project.hidden = !askProject;
+    if (askProject) {
+        if (!projectShown) {
+            if (typeof state.projectFolderSuggestion === 'string') projectInput.value = state.projectFolderSuggestion;
+            projectError.hidden = true;
+        }
+        projectNoRepo.hidden = state.projectFolderNoRepo !== true;
+    }
+    projectShown = askProject;
     if (state.phase === 'starting') { show('starting'); }
     else if (state.phase === 'online') {
         if (state.code !== undefined) {
@@ -130,6 +147,24 @@ window.muxr.onSettings((settings) => {
 });
 
 document.getElementById('approve').addEventListener('click', () => window.muxr.approve());
+async function saveProjectFolder() {
+    saveProjectButton.disabled = true;
+    projectError.hidden = true;
+    try {
+        const result = await window.muxr.setProjectFolder(projectInput.value);
+        if (result?.ok !== true) {
+            projectError.textContent = result?.message ?? 'Enter an absolute folder path, or ~ for your home folder.';
+            projectError.hidden = false;
+        }
+    } catch {
+        projectError.textContent = "Couldn't save this folder. Try again.";
+        projectError.hidden = false;
+    } finally {
+        saveProjectButton.disabled = false;
+    }
+}
+document.getElementById('save-project-folder').addEventListener('click', () => void saveProjectFolder());
+projectInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') void saveProjectFolder(); });
 document.getElementById('deny').addEventListener('click', () => window.muxr.deny());
 document.getElementById('retry').addEventListener('click', () => window.muxr.retry());
 document.getElementById('install-herdr').addEventListener('click', () => window.muxr.installHerdr());

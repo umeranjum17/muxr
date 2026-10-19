@@ -72,4 +72,6 @@ export interface MachineInfo {
     connectionMode?: string;
     /** Live phone and browser grants on this computer. Absent for older hosts. */
     pairedDeviceCount?: number;
+    /** Where a newcomer's first agent starts. Absent when never chosen. */
+    defaultStartFolder?: string;
 }

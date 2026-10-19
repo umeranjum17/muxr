@@ -14,11 +14,26 @@ import { atomicWrite, error, print, stateDir } from '../infrastructure/runtime.m
 
 export const configFilePath = () => join(stateDir(), 'config.json');
 
-const KNOWN_KEYS = ['mode', 'relayUrl', 'machineId', 'machineName', 'dataDir', 'hostHttpPort'];
+const KNOWN_KEYS = ['mode', 'relayUrl', 'machineId', 'machineName', 'dataDir', 'hostHttpPort', 'defaultStartFolder'];
 const DEFAULT_HOST_HTTP_PORT = 8793;
 
 function configError(path, key, reason) {
     return `${path}: key "${key}": ${reason}`;
+}
+
+function validStartFolder(value) {
+    if (typeof value !== 'string') return false;
+    const folder = value.trim();
+    return folder === '~' || isAbsolute(folder);
+}
+
+function savedStartFolderOf(path) {
+    try {
+        const folder = JSON.parse(readFileSync(path, 'utf8')).defaultStartFolder;
+        return validStartFolder(folder) ? folder.trim() : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 function validRelayUrl(value) {
@@ -61,6 +76,9 @@ export function validateMuxrConfig(path, text) {
     if (parsed.hostHttpPort !== undefined
         && (!Number.isInteger(parsed.hostHttpPort) || parsed.hostHttpPort < 1 || parsed.hostHttpPort > 65535)) {
         return { ok: false, error: configError(path, 'hostHttpPort', 'must be an integer from 1 to 65535') };
+    }
+    if (parsed.defaultStartFolder !== undefined && !validStartFolder(parsed.defaultStartFolder)) {
+        return { ok: false, error: configError(path, 'defaultStartFolder', 'must be "~" or a non-empty absolute path') };
     }
     return { ok: true, config: parsed };
 }
@@ -168,6 +186,8 @@ export async function runConfigInit(args = []) {
     const config = { mode, machineName };
     if (relayUrl !== '') config.relayUrl = relayUrl;
     if (hostHttpPort !== DEFAULT_HOST_HTTP_PORT) config.hostHttpPort = hostHttpPort;
+    const savedStartFolder = existsSync(path) ? savedStartFolderOf(path) : undefined;
+    if (savedStartFolder !== undefined) config.defaultStartFolder = savedStartFolder;
     const text = `${JSON.stringify(config, null, 2)}\n`;
     const exists = existsSync(path);
     heading(dryRun ? 'Dry run — nothing will be written' : 'Review host settings');

@@ -50,14 +50,14 @@ vi.mock('@/catalog', async () => await import('@/catalog/application/persistence
 vi.mock('@/utils/readFileBytes', () => ({ readFileBytes: vi.fn() }));
 vi.mock('@/plans/ui', () => ({ announceStartAccount: vi.fn() }));
 vi.mock('@/pairing/secrets', () => ({ getWebSecret: vi.fn(), setWebSecret: vi.fn() }));
-const savedConnection = vi.hoisted(() => ({ lastSessionCwd: '', recentSessionCwds: [] as string[] }));
+const savedConnection = vi.hoisted(() => ({ lastSessionCwdByMachine: {} as Record<string, string>, recentSessionCwds: [] as string[] }));
 vi.mock('@/connection', async () => {
     const { rememberSessionCwd } = await vi.importActual<typeof import('@/connection/connectionSettings')>('@/connection/connectionSettings');
     return {
         getCachedConnectionSettings: () => ({ machineId: hostSync.machineId, ...savedConnection }),
         rememberSessionCwd,
         saveConnectionSettings: async (settings: typeof savedConnection) => {
-            savedConnection.lastSessionCwd = settings.lastSessionCwd;
+            savedConnection.lastSessionCwdByMachine = settings.lastSessionCwdByMachine;
             savedConnection.recentSessionCwds = settings.recentSessionCwds;
         },
         DEFAULT_CONNECTION: {},
@@ -571,7 +571,7 @@ describe('session sync flow', () => {
     });
 
     it('starts the next agent from Home or New agent in the folder the last one started in', async () => {
-        savedConnection.lastSessionCwd = '';
+        savedConnection.lastSessionCwdByMachine = {};
         savedConnection.recentSessionCwds = [];
         let started = 0;
         request.mockImplementation(async (method: string) => {
@@ -597,7 +597,37 @@ describe('session sync flow', () => {
         await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
 
         expect(cwds()).toEqual(['/home/user/notes-app', '/home/user/notes-app', '/home/user/api']);
-        expect(savedConnection.lastSessionCwd).toBe('/home/user/api');
+        expect(savedConnection.lastSessionCwdByMachine.machine).toBe('/home/user/api');
+    });
+
+    it('starts the first agent in the folder setup chose on that computer, not ~', async () => {
+        savedConnection.lastSessionCwdByMachine = {};
+        savedConnection.recentSessionCwds = [];
+        request.mockImplementation(async (method: string) => {
+            if (method !== 'session.start') throw new Error(`unexpected request: ${method}`);
+            const id = `first-${request.mock.calls.length}`;
+            storage.setState({ sessions: { ...storage.getState().sessions, [id]: {} as Session } });
+            return { info: { id }, status: { sessionId: id, isStreaming: false, tokens: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, total: 0 } } };
+        });
+        const { startSessionFromDraft } = await import('@/spawn/application/startSessionFromDraft');
+        const { useNewSessionDraft } = await import('@/spawn/application/useNewSessionDraft');
+        const machine = { id: 'machine', active: true, metadata: { host: 'desk', homeDir: '/home/user', defaultStartFolder: '/home/user/api' } } as never;
+        const cwds = () => request.mock.calls.map(([, params]) => (params as { cwd: string }).cwd);
+
+        // Fresh device, nothing picked: Home's Start uses the setup folder, not ~.
+        useNewSessionDraft.setState({ selectedPath: null, agentType: 'shell', input: '', attachments: [] });
+        await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
+        // Once the person starts somewhere, their last folder wins over setup's.
+        savedConnection.lastSessionCwdByMachine = { machine: '/home/user/notes-app' };
+        useNewSessionDraft.setState({ selectedPath: null, agentType: 'shell', input: '', attachments: [] });
+        await startSessionFromDraft({ machines: [machine], navigateToSession: () => undefined, blank: true });
+        // A second computer has its own setup folder; the folder remembered on the first does not follow.
+        hostSync.machineId = 'laptop';
+        const laptop = { id: 'laptop', active: true, metadata: { host: 'laptop', homeDir: '/home/user', defaultStartFolder: '/mnt/work/project' } } as never;
+        useNewSessionDraft.setState({ selectedPath: null, agentType: 'shell', input: '', attachments: [] });
+        await startSessionFromDraft({ machines: [laptop], navigateToSession: () => undefined, blank: true });
+
+        expect(cwds()).toEqual(['/home/user/api', '/home/user/notes-app', '/mnt/work/project']);
     });
 
     it('frees Home right after the spawn while the first prompt delivers', async () => {

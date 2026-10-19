@@ -33,7 +33,7 @@ export async function startSessionFromDraft(options: {
     const machine = options.machines.find((candidate) => candidate.id === machineId);
     const blank = options.blank === true;
     const homeDir = machine?.metadata?.homeDir;
-    const selectedPath = dockStartPath(draft.selectedPath, homeDir);
+    const selectedPath = dockStartPath(draft.selectedPath, machineId ?? undefined, machine?.metadata?.defaultStartFolder);
     if (draft.selectedPath && selectedPath !== draft.selectedPath.trim()) draft.setPath(null);
     const absolutePath = resolveAbsolutePath(selectedPath, homeDir);
     const worktree = WorktreeSelection.fromPickerKey(

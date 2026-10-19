@@ -1,17 +1,11 @@
 import { getCachedConnectionSettings } from '@/connection';
 
-function pathForeignToHome(path: string, homeDir: string): boolean {
-    if (path === '~' || (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path))) return false;
-    const home = homeDir.replace(/[/\\]+$/, '');
-    return path !== home && !path.startsWith(`${home}/`) && !path.startsWith(`${home}\\`);
-}
-
 /**
  * The folder the Dock starts in: the one picked, else the last one an agent
- * started in on this device (from the Dock or New agent), else home. A folder
- * outside this computer's home belongs to another computer, so it is home here.
+ * started in on this machine, else the folder setup chose on that machine's
+ * host, else home. A folder remembered for another machine never applies.
  */
-export function dockStartPath(selectedPath: string | null, homeDir: string | undefined): string {
-    const path = selectedPath?.trim() || getCachedConnectionSettings().lastSessionCwd || '~';
-    return homeDir && pathForeignToHome(path, homeDir) ? '~' : path;
+export function dockStartPath(selectedPath: string | null, machineId: string | undefined, hostDefault?: string): string {
+    const remembered = machineId === undefined ? undefined : getCachedConnectionSettings().lastSessionCwdByMachine[machineId];
+    return selectedPath?.trim() || remembered || hostDefault?.trim() || '~';
 }

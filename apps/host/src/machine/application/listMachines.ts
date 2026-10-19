@@ -5,6 +5,7 @@ export type ListMachinesCommand = {
     platform: string;
     connectionMode?: string;
     pairedDeviceCount?: number;
+    defaultStartFolder?: string;
     now?: () => Date;
 };
 
@@ -16,6 +17,7 @@ export type ListedMachine = {
     platform: string;
     connectionMode?: string;
     pairedDeviceCount?: number;
+    defaultStartFolder?: string;
     lastSeenAt: string;
 };
 
@@ -33,6 +35,7 @@ export function listMachines(command: ListMachinesCommand): ListMachinesResult {
             platform: command.platform,
             ...(command.connectionMode === undefined ? {} : { connectionMode: command.connectionMode }),
             ...(command.pairedDeviceCount === undefined ? {} : { pairedDeviceCount: command.pairedDeviceCount }),
+            ...(command.defaultStartFolder === undefined ? {} : { defaultStartFolder: command.defaultStartFolder }),
             lastSeenAt: (command.now ?? (() => new Date()))().toISOString(),
         }],
     };

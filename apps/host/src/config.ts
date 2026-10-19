@@ -16,7 +16,7 @@ import { isAbsolute, join } from 'node:path';
 
 export const MUXR_CONFIG_FILENAME = 'config.json';
 
-const CONFIG_KEYS = ['mode', 'relayUrl', 'machineId', 'machineName', 'dataDir', 'hostHttpPort'] as const;
+const CONFIG_KEYS = ['mode', 'relayUrl', 'machineId', 'machineName', 'dataDir', 'hostHttpPort', 'defaultStartFolder'] as const;
 type ConfigKey = (typeof CONFIG_KEYS)[number];
 
 export interface MuxrFileConfig {
@@ -26,6 +26,8 @@ export interface MuxrFileConfig {
     machineName?: string;
     dataDir?: string;
     hostHttpPort?: number;
+    /** Where the first agent starts when the phone has no last-used folder. `~` or an absolute path. */
+    defaultStartFolder?: string;
 }
 
 export interface ResolvedHostConfig {
@@ -35,6 +37,7 @@ export interface ResolvedHostConfig {
     machineName: string;
     dataDir: string;
     hostHttpPort: number;
+    defaultStartFolder: string | undefined;
 }
 
 export class MuxrConfigError extends Error {
@@ -56,6 +59,11 @@ export function muxrHomeDir(env: Record<string, string | undefined>): string {
 
 export function muxrConfigPath(env: Record<string, string | undefined>): string {
     return join(muxrHomeDir(env), MUXR_CONFIG_FILENAME);
+}
+
+/** The start folder phones get now, read from the file so a desktop save reaches the running host. */
+export function liveDefaultStartFolder(env: Record<string, string | undefined>): string | undefined {
+    return readMuxrConfigFile(muxrConfigPath(env)).defaultStartFolder;
 }
 
 function fail(path: string, key: string, reason: string): never {
@@ -125,6 +133,14 @@ export function parseMuxrConfigFile(path: string, text: string): MuxrFileConfig 
         }
         config.hostHttpPort = raw('hostHttpPort') as number;
     }
+    if (raw('defaultStartFolder') !== undefined) {
+        if (typeof raw('defaultStartFolder') !== 'string' || (raw('defaultStartFolder') as string).trim() === '') {
+            fail(path, 'defaultStartFolder', 'must be "~" or a non-empty absolute path');
+        }
+        const folder = (raw('defaultStartFolder') as string).trim();
+        if (folder !== '~' && !isAbsolute(folder)) fail(path, 'defaultStartFolder', 'must be "~" or a non-empty absolute path');
+        config.defaultStartFolder = folder;
+    }
     return config;
 }
 
@@ -183,6 +199,7 @@ export function resolveHostConfig(options: {
         machineName: string;
         dataDir: string;
         hostHttpPort: number;
+        defaultStartFolder?: string;
     };
 }): ResolvedHostConfig {
     const { argv, env, file, defaults } = options;
@@ -205,5 +222,6 @@ export function resolveHostConfig(options: {
             ?? portFrom('MUXR_HOST_HTTP_PORT', clean(env.MUXR_HOST_HTTP_PORT))
             ?? file.hostHttpPort
             ?? defaults.hostHttpPort,
+        defaultStartFolder: file.defaultStartFolder ?? defaults.defaultStartFolder,
     };
 }

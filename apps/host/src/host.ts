@@ -35,6 +35,8 @@ export interface HostOptions {
     terminals?: TerminalManager;
     hostVersion?: string;
     connectionMode?: string;
+    /** The setup-chosen start folder this machine reports to phones, read at each request. */
+    defaultStartFolder?: () => string | undefined;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
     token?: string;
@@ -58,6 +60,8 @@ export interface Host {
     canView: (frame: ClientFrame) => boolean;
     /** Product events fan out through the byokit endpoint. */
     onBroadcast: (listener: (frame: HostFrame, deviceId?: string) => void) => void;
+    /** Push one frame to every connected phone (a config change, not a session event). */
+    broadcastFrame: (frame: HostFrame) => void;
 }
 
 export function startHost(options: HostOptions): Host {
@@ -129,6 +133,7 @@ export function startHost(options: HostOptions): Host {
         ...(options.machineName === undefined ? {} : { machineName: options.machineName }),
         hostVersion,
         ...(options.connectionMode === undefined ? {} : { connectionMode: options.connectionMode }),
+        ...(options.defaultStartFolder === undefined ? {} : { defaultStartFolder: options.defaultStartFolder }),
         ...(options.hostedE2ee === undefined ? {} : { pairedDeviceCount: () => Object.entries(options.hostedE2ee!.deviceKinds ?? {})
             .filter(([id, kind]) => kind !== 'peer' && (options.hostedE2ee!.deviceExpiresAt?.[id] ?? 0) > Date.now()).length }),
         relayUrl: options.relayUrl,
@@ -268,6 +273,7 @@ export function startHost(options: HostOptions): Host {
         },
         desktopLoopbackPort: (desktopId, port, deviceId) => desktop.loopbackPort(desktopId, port, deviceId),
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
+        broadcastFrame: (frame) => broadcast(frame),
         close: async () => {
             unsubscribe();
             unsubscribeMachine?.();

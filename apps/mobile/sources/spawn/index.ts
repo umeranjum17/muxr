@@ -3,6 +3,7 @@ export * from './application/LandWorktree';
 export * from './application/StartAgent';
 export * from './application/StartAgentFromDock';
 export * from './application/homeDockEnvironment';
+export * from './application/startFolder';
 export * from './application/startNewAgent';
 export * from './application/startSessionFromDraft';
 export * from './application/useLandWorktree';

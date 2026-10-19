@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { sync } from '@/catalog/sync';
+import { useAllMachines } from '@/catalog/store';
 import { type HerdrTreeWorkspace } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { Switch } from '@/components/Switch';
@@ -40,6 +41,7 @@ import {
     agentInstallPhase,
     agentName,
     agentReadinessLabel,
+    dockStartPath,
     defaultAgentKind,
     useNewSessionDraft,
     catalogSourceLabel,
@@ -251,7 +253,10 @@ export default function NewAgentScreen() {
     const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
     const [showUnavailableAgents, setShowUnavailableAgents] = React.useState(false);
     const [agentDetails, setAgentDetails] = React.useState<{ kind: string; text: string } | undefined>();
-    const [cwd, setCwd] = React.useState(settings.lastSessionCwd || '~');
+    const machines = useAllMachines({ includeOffline: true });
+    const machine = machines.find((candidate) => candidate.id === settings.machineId);
+    const [typedCwd, setCwd] = React.useState<string | undefined>(undefined);
+    const cwd = typedCwd ?? dockStartPath(null, settings.machineId, machine?.metadata?.defaultStartFolder);
     const [worktree, setWorktree] = React.useState(false);
     const [workspaces, setWorkspaces] = React.useState<HerdrTreeWorkspace[]>([]);
     const [busy, setBusy] = React.useState(false);

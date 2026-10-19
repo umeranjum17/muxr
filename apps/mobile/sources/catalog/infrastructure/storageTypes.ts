@@ -12,6 +12,8 @@ export const MachineMetadataSchema = z.object({
     muxrCliVersion: z.string(),
     muxrHomeDir: z.string(),
     homeDir: z.string(), // User's home directory (matches CLI field name)
+    /** Setup-chosen start folder reported by the host. Absent when never chosen. */
+    defaultStartFolder: z.string().optional(),
     // Optional fields that may be added in future versions
     username: z.string().optional(),
     arch: z.string().optional(),
