@@ -114,7 +114,6 @@ export const es: TranslationStructure = {
             paceAhead: 'Por delante del ritmo',
             paceBurning: 'Consumo rápido',
             percentLeft: ({ percent }: { percent: number }) => `${percent}% restante`,
-            percentUsed: ({ percent }: { percent: number }) => `${percent}% usado`,
             runsOutIn: ({ time }: { time: string }) => `se agota en ${time}`,
             asOf: ({ time }: { time: string }) => `Límites a partir de las ${time}`,
         },
@@ -205,6 +204,9 @@ export const es: TranslationStructure = {
     },
 
     pairing: {
+        pageTitle: 'Vincular un ordenador',
+        copy: 'Copiar',
+        copied: 'Copiado',
         busy: 'Emparejando…',
         connecting: 'Conectando de forma segura con tu ordenador…',
         compareWords: ({ name }: { name: string }) => `Comprueba que ${name} muestra estas dos palabras y luego apruébalo en el ordenador.`,

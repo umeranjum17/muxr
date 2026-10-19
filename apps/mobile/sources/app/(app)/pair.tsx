@@ -416,7 +416,7 @@ export default function PairScreen() {
                                         }}
                                     >
                                         <Ionicons name={commandCopied ? 'checkmark-outline' : 'copy-outline'} size={16} color={styles.copyLabel.color} />
-                                        <Text style={styles.copyLabel}>{commandCopied ? 'Copied' : 'Copy'}</Text>
+                                        <Text style={styles.copyLabel}>{commandCopied ? t('pairing.copied') : t('pairing.copy')}</Text>
                                     </Pressable>
                                 </View>
                                 <SshField testID="ssh-host" label="SSH host" value={sshHost} onChange={setSshHost} placeholder="server.example.com or 192.168.1.20" />

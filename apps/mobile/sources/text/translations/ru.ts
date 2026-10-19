@@ -125,7 +125,6 @@ export const ru: TranslationStructure = {
             paceAhead: 'С опережением',
             paceBurning: 'Быстрый расход',
             percentLeft: ({ percent }: { percent: number }) => `осталось ${percent}%`,
-            percentUsed: ({ percent }: { percent: number }) => `использовано ${percent}%`,
             runsOutIn: ({ time }: { time: string }) => `закончится через ${time}`,
             asOf: ({ time }: { time: string }) => `Данные на ${time}`,
         },
@@ -185,6 +184,9 @@ export const ru: TranslationStructure = {
     },
 
     pairing: {
+        pageTitle: 'Сопряжение с компьютером',
+        copy: 'Копировать',
+        copied: 'Скопировано',
         busy: 'Сопряжение…',
         connecting: 'Безопасное подключение к вашему компьютеру…',
         compareWords: ({ name }: { name: string }) => `Проверьте, что ${name} показывает эти два слова, затем подтвердите на компьютере.`,

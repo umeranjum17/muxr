@@ -196,7 +196,7 @@ export default function RootLayout() {
                 name="pair"
                 options={{
                     headerShown: true,
-                    headerTitle: 'Pair a computer',
+                    headerTitle: t('pairing.pageTitle'),
                     headerBackTitle: t('common.back'),
                 }}
             />

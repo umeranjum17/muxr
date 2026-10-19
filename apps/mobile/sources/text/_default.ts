@@ -114,7 +114,6 @@ export const en = {
             paceAhead: 'Ahead of pace',
             paceBurning: 'Burning fast',
             percentLeft: ({ percent }: { percent: number }) => `${percent}% left`,
-            percentUsed: ({ percent }: { percent: number }) => `${percent}% used`,
             runsOutIn: ({ time }: { time: string }) => `out in ${time}`,
             asOf: ({ time }: { time: string }) => `Limits as of ${time}`,
         },
@@ -204,6 +203,9 @@ export const en = {
     },
 
     pairing: {
+        pageTitle: 'Pair a computer',
+        copy: 'Copy',
+        copied: 'Copied',
         // The words step after consent: compare the two words, then approve on the computer.
         busy: 'Pairing…',
         connecting: 'Connecting securely to your computer…',

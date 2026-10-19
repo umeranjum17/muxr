@@ -117,7 +117,6 @@ export const ja: TranslationStructure = {
             paceAhead: '余裕あり',
             paceBurning: '消費が速い',
             percentLeft: ({ percent }: { percent: number }) => `残り ${percent}%`,
-            percentUsed: ({ percent }: { percent: number }) => `${percent}% 使用済み`,
             runsOutIn: ({ time }: { time: string }) => `あと${time}で上限`,
             asOf: ({ time }: { time: string }) => `${time}時点の上限`,
         },
@@ -207,6 +206,9 @@ export const ja: TranslationStructure = {
     },
 
     pairing: {
+        pageTitle: 'コンピューターをペアリング',
+        copy: 'コピー',
+        copied: 'コピーしました',
         busy: 'ペアリング中…',
         connecting: 'コンピューターに安全に接続しています…',
         compareWords: ({ name }: { name: string }) => `${name} に同じ二つの単語が表示されていることを確認し、コンピューターで承認してください。`,
