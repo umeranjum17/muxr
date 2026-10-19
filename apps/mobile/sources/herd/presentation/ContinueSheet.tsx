@@ -233,7 +233,7 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
         </View>
     ) : (
         <View style={{ padding: 20, gap: 14 }}>
-            <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600' }}>{phase === 'writing' ? 'Writing a handoff note…' : phase === 'starting' ? `Starting on ${picked?.name}…` : `Continue on ${picked?.name}`}</Text>
+            {asking === null && <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600' }}>{phase === 'writing' ? 'Writing a handoff note…' : phase === 'starting' ? `Starting on ${picked?.name}…` : `Continue on ${picked?.name}`}</Text>}
             {phase === 'preview' && <Text selectable style={{ color: '#ddd', fontSize: 15, lineHeight: 22 }}>{picked?.note}</Text>}
             {failure !== undefined && <Text accessibilityRole="alert" style={{ color: '#ff6961' }}>{failure}</Text>}
             {asking !== null && <View style={{ gap: 12 }}>
