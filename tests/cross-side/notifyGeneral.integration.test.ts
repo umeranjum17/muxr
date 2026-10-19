@@ -93,7 +93,10 @@ describe('general notification seal agreement', () => {
                 canView: () => true,
             });
             endpoint!.start();
-            expect(endpoint!.notifyGeneral({ title: 'Hi', body: '', url: 'https://example.com/a', id: 'k-1', machineId })).toBe(1);
+            const notice = { title: 'Hi', body: '', url: 'https://example.com/a', id: 'k-1', machineId };
+            expect(endpoint!.notifyGeneral(notice)).toBe(1);
+            crypto.devices = crypto.devices.filter((entry) => entry.deviceId !== 'every-phone');
+            expect(endpoint!.notifyGeneral(notice)).toBe(0);
         } finally {
             endpoint?.close();
             relay.close();

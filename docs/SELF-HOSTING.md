@@ -261,16 +261,17 @@ Plugin and agent changes sync live and do not require pairing again.
 
 ## Sending a notification to your devices
 
-Any tool on this computer can pop a real notification on every paired device
-with one loopback call. The host seals the title, body and link per device
-and reuses the lifecycle push path, so the relay sees only generic text.
+Any tool on this computer can pop a real notification on the paired devices
+that asked for every notification, with one loopback call. The host seals the
+title, body and link per device and reuses the lifecycle push path, so the
+relay sees only generic text.
 
 ```bash
 curl -X POST http://127.0.0.1:8793/v1/notify \
   -H "Authorization: Bearer $(cat ~/.muxr/notify-token)" \
   -H 'Content-Type: application/json' \
   -d '{"title": "Decision needed", "body": "Pick a layout", "url": "https://example.com/a"}'
-# -> {"id": "...", "delivered_to": 2}
+# -> {"id": "...", "delivered_to": 1}
 ```
 
 `title` (1-80 chars) is required; `body` (up to 300), `url` and `id` are
