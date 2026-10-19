@@ -9,28 +9,41 @@ import { nextRequestId } from '@trymuxr/contract';
 const BASE_WAIT_MS = 25_000;
 const PER_LOAD_POINT_MS = 3_000;
 const MAX_WAIT_MS = 180_000;
+const ADB_CALL_MS = 5_000;
+const ADB_PROBE_MS = 1_000;
 const execFileAsync = promisify(execFile);
 
 export function linkWaitMs(load = loadavg()[0]) {
     return Math.min(MAX_WAIT_MS, BASE_WAIT_MS + Math.round(PER_LOAD_POINT_MS * load));
 }
 
-async function until(check, what, deadline) {
+async function until(check, what, deadline, intervalMs = 100) {
     while (Date.now() < deadline) {
         const result = await check();
         if (result) return result;
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
     throw new Error(`timed out: ${what}`);
 }
 
 async function adb(serial, args) {
-    const { stdout } = await execFileAsync('adb', ['-s', serial, ...args], { encoding: 'utf8' });
+    const { stdout } = await execFileAsync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: ADB_CALL_MS });
     return stdout;
 }
 
-const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '0.0.0.0', '[::]']);
+const FATAL = /^(bootloader|recovery|sideload)$|cannot bind .*address already in use/i;
 const addressOf = (url) => new URL(url.replace(/^ws/, 'http'));
+const lastLine = (text) => text.trim().split('\n').pop().trim();
+
+async function routeLabRelay(serial, ports) {
+    const state = (await adb(serial, ['get-state'])).trim();
+    if (state !== 'device') throw new Error(state || 'empty answer');
+    for (const port of ports) await adb(serial, ['reverse', `tcp:${port}`, `tcp:${port}`]);
+    const listed = await adb(serial, ['reverse', '--list']);
+    const missing = ports.find((port) => !listed.includes(`tcp:${port} tcp:${port}`));
+    if (missing !== undefined) throw new Error(`no reverse route on tcp:${missing}: ${lastLine(listed) || 'the device lists no reverse routes'}`);
+}
 
 /**
  * Point a device that pairs with a loopback lab at the relay the offer names.
@@ -45,27 +58,25 @@ const addressOf = (url) => new URL(url.replace(/^ws/, 'http'));
  * before the offer is handed over. An offer that names a real address needs no
  * route at all.
  */
-export async function forwardLabRelayTo(serial, offerText, deadline = Date.now() + linkWaitMs()) {
+export async function forwardLabRelayTo(serial, offerText, deadline) {
     const ports = [...new Set(parseOffer(offerText, 0).urls.map(addressOf)
         .filter((url) => LOOPBACK.has(url.hostname)).map((url) => url.port))];
     if (ports.length === 0) return [];
-    let state = 'no answer yet';
+    let last = 'no answer yet';
+    let fatal;
     await until(async () => {
         try {
-            state = (await adb(serial, ['get-state'])).trim() || 'empty answer';
+            await routeLabRelay(serial, ports);
+            return true;
         } catch (cause) {
-            state = (cause.stderr ?? cause.message ?? String(cause)).trim().split('\n').pop();
+            last = lastLine(cause.stderr || cause.message || String(cause)) || 'no answer';
+            if (!FATAL.test(last)) return false;
+            fatal = new Error(`adb cannot route the lab relay to ${serial}: ${last}`);
+            return true;
         }
-        return state === 'device';
-    }, `device ${serial} online`, deadline)
-        .catch((timedOut) => { throw new Error(`${timedOut.message}: adb reports ${state}, so the route to the lab relay was never set`); });
-    for (const port of ports) await adb(serial, ['reverse', `tcp:${port}`, `tcp:${port}`]);
-    const listed = await adb(serial, ['reverse', '--list']);
-    for (const port of ports) {
-        if (!listed.includes(`tcp:${port} tcp:${port}`)) {
-            throw new Error(`adb kept no route to the lab relay on tcp:${port}: ${listed.trim() || 'the device lists no reverse routes'}`);
-        }
-    }
+    }, `the lab relay route on ${serial}`, deadline, ADB_PROBE_MS)
+        .catch((timedOut) => { throw new Error(`${timedOut.message}; last adb answer: ${last}`); });
+    if (fatal) throw fatal;
     return ports;
 }
 
@@ -143,7 +154,7 @@ export async function approveLabOffer(socketPath, presentOffer, deadline = Date.
             // A line that cannot be handled ends this pairing rather than the process, so the caller's cleanup still runs.
             try {
                 const event = JSON.parse(line);
-                if (event.offer && !offered) { offered = true; void Promise.resolve(presentOffer(event.offer.text)).catch(fail); }
+                if (event.offer && !offered) { offered = true; void Promise.resolve(presentOffer(event.offer.text, deadline)).catch(fail); }
                 if (event.approval) socket.write(`${JSON.stringify({ yes: true })}\n`);
                 if (event.result) result = event.result;
                 if (event.error) error = event.error;
