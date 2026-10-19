@@ -12,7 +12,7 @@ terminal install.
 
 ## Sub-features
 
-- `entry-first-run` an unpaired native app shows an **Add your computer** tile ("Desktop app · no terminal") first under "Not set up yet?".
+- `entry-first-run` an unpaired native app shows an **Add your computer** tile ("Desktop app") first under "Not set up yet?", leaving the no-terminal qualifier to the screen it opens.
 - `entry-settings` Settings → Machines has **Add your computer** above **Pair another machine**.
 - `link-and-qr` the screen shows the link's QR (dark on white in both themes), the link text, **Copy link** (with a "Link copied." line) and **Share link** (the system sheet).
 - `pair-step` step 3 is **Scan the computer’s QR** (or **Enter its pairing code** where the device can't scan), into the existing consent and two-word check.
