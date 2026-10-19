@@ -467,6 +467,7 @@ describe('desktop target routing', () => {
         const desktop = {
             open: vi.fn(async () => ({ desktopId: 'd1' })),
             capabilities: vi.fn(async () => ({ available: true })),
+            iceServers: vi.fn(async () => []),
         };
         const source = { async list() { return [{ id: 'retired', paneId: 'pane-1' }]; } } as unknown as SessionSource;
         const deviceTargets = (['android', 'ios'] as const).map((kind) => new DevicePreviewTargets({
