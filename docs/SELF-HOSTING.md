@@ -227,7 +227,7 @@ on a box the phone and the computer can both reach (a VPS with a public
 address). On that box, with `TURN_HOST` set to its public name or address:
 
 ```bash
-TURN_HOST=turn.example.com; secret=$(openssl rand -hex 32) && (umask 077 && printf '{"urls":["turn:%s:3478?transport=udp","turn:%s:3478?transport=tcp"],"secret":"%s"}\n' "$TURN_HOST" "$TURN_HOST" "$secret" > ~/.muxr/relay/turn.json) && docker run -d --name muxr-turn --restart unless-stopped --network host coturn/coturn:4.6.3 -n --use-auth-secret --static-auth-secret="$secret" --realm=muxr --fingerprint --no-cli --no-multicast-peers --min-port=49160 --max-port=49200
+TURN_HOST=turn.example.com; secret=$(openssl rand -hex 32) && (umask 077 && mkdir -p ~/.muxr/relay && printf '{"urls":["turn:%s:3478?transport=udp","turn:%s:3478?transport=tcp"],"secret":"%s"}\n' "$TURN_HOST" "$TURN_HOST" "$secret" > ~/.muxr/relay/turn.json) && docker run -d --name muxr-turn --restart unless-stopped --network host coturn/coturn:4.6.3 -n --use-auth-secret --static-auth-secret="$secret" --realm=muxr --fingerprint --no-cli --no-multicast-peers --min-port=49160 --max-port=49200
 ```
 
 Open 3478 (UDP and TCP) and 49160–49200 (UDP) in the firewall. A VPS whose
