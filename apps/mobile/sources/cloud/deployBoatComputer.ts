@@ -130,7 +130,11 @@ export async function deployBoatComputer(o: {
                     }
                     const { wordsFile } = offer;
                     const deliveries: Promise<unknown>[] = [];
-                    await o.pair(offer.offer, (w) => { deliveries.push(m.deliver(RECIPE, wordsFile, new TextEncoder().encode(w))); });
+                    await o.pair(offer.offer, (w) => {
+                        const delivery = m.deliver(RECIPE, wordsFile, new TextEncoder().encode(w));
+                        delivery.catch(() => {});
+                        deliveries.push(delivery);
+                    });
                     const result = await handoff;
                     await Promise.all(deliveries);
                     if (result.code !== 0) throw new Error(`muxr did not finish pairing on your Boat computer: ${result.stderr.trim().slice(-300)}`);
