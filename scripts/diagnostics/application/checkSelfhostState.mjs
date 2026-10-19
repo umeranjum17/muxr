@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
+import { waitForRelay } from './waitForRelay.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-selfhost-state-'));
 process.env.MUXR_HOME = scratch;
@@ -228,17 +229,11 @@ try {
     assert.equal(served.bindHost, '127.0.0.1');
     assert.equal(served.relayUrl, `ws://box.tail1234.ts.net:${servePort}`);
     assert.throws(() => serveRun([]), /runs headless on Tailscale/);
-    const serveUp = spawn(process.execPath, [cli, 'up'], { env: { ...serveEnvironment, MUXR_MODE: 'relay' }, stdio: 'ignore' });
+    const serveUp = spawn(process.execPath, [cli, 'up'], { env: { ...serveEnvironment, MUXR_MODE: 'relay' }, stdio: ['ignore', 'pipe', 'pipe'] });
     const serveClosed = once(serveUp, 'exit');
     try {
-        let healthy = false;
-        for (let attempt = 0; attempt < 60 && !healthy && serveUp.exitCode === null; attempt += 1) {
-            healthy = await fetch(`http://127.0.0.1:${servePort}/health`, { signal: AbortSignal.timeout(500) }).then((response) => response.ok, () => false);
-            if (!healthy) await new Promise((resolve) => setTimeout(resolve, 250));
-        }
-        assert.equal(healthy, true, 'the foreground unit did not serve its relay on loopback');
-        const relayPid = Number(readFileSync(join(serveHome, 'relay', 'relay.pid'), 'utf8'));
-        assert.doesNotThrow(() => process.kill(relayPid, 0), 'the relay answering on the port is not one this check started');
+        assert.equal(await waitForRelay(serveUp), servePort, 'the foreground unit did not serve its relay on loopback');
+        assert.equal((await fetch(`http://127.0.0.1:${servePort}/health`, { signal: AbortSignal.timeout(2_000) }).then((response) => response.json())).ok, true);
     } finally {
         serveUp.kill('SIGTERM');
         await serveClosed;
