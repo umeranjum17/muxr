@@ -45,7 +45,7 @@ import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcut
 import { KernelNotifications } from '@/herd/ui';
 import { ANSWER_ACTION, OPEN_ACTION, notificationResponseKey, settleAnsweredAlert } from '@/watch/lifecycleAlert';
 import { acknowledgeLifecyclePush, openNativeLifecyclePush, receiveLifecyclePush } from '@/utils/nativePushNotifications';
-import { isOpenableNotifyUrl } from '@/utils/openLifecycleNotice';
+import { isOpenableNotifyUrl, isSealedLifecyclePush } from '@/utils/openLifecycleNotice';
 import { realtimeAppController } from '@/conversation/application/realtimeAppControl';
 
 // Configure notification handler — suppress push display when app is in foreground
@@ -406,11 +406,12 @@ export default function RootLayout() {
         }
 
         handledNotificationIds.current.add(responseId);
-        const data = await openNativeLifecyclePush(response.notification.request.content.data);
+        const tapped = response.notification.request.content.data;
+        const data = await openNativeLifecyclePush(tapped);
         acknowledgeLifecyclePush(data);
 
         try {
-            if (data.kind === 'notify') {
+            if (isSealedLifecyclePush(tapped) && data.kind === 'notify') {
                 // A general notification opens its link; anything else opens muxr.
                 if (isOpenableNotifyUrl(data.url)) {
                     try {

@@ -2,8 +2,7 @@ import { boxKeyPair, sealNotice } from '@byokit/seal';
 import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import { openLifecycleNotice, isOpenableNotifyUrl } from '@/utils/openLifecycleNotice';
-import { parseGeneralNotice } from '../../apps/host/src/agent/infrastructure/notifyEndpoint.js';
-import { generalNoticeEnvelope } from '../../apps/host/src/machine/infrastructure/linkEndpoint.js';
+import { generalNoticeEnvelope, parseGeneralNotice } from './host.js';
 
 /**
  * The one new agreement slice 1 adds: what the host seals for a general

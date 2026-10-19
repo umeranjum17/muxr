@@ -140,12 +140,21 @@ export class ArtifactDownloadServer {
     }
 
     start(): void {
-        if (this.notify !== undefined) readOrCreateNotifyToken(this.notify.tokenPath);
+        if (this.notify !== undefined) {
+            try {
+                readOrCreateNotifyToken(this.notify.tokenPath);
+            } catch {
+                // No mintable token: the route below answers 500, everything else serves.
+            }
+        }
         this.server = createServer((req, res) => {
             if (this.notify !== undefined) {
                 const notify = this.notify;
                 void handleNotifyRequest(req, res, notify).then((handled) => {
                     if (!handled) this.serveAttachment(req, res);
+                }).catch(() => {
+                    if (!res.headersSent) res.writeHead(500);
+                    res.end('notify failed');
                 });
                 return;
             }

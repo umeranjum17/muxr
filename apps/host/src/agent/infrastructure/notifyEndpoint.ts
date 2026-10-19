@@ -166,7 +166,18 @@ export async function handleNotifyRequest(
         return true;
     }
     const token = bearerToken(req);
-    if (token === undefined || !tokensEqual(token, readOrCreateNotifyToken(deps.tokenPath))) {
+    if (token === undefined) {
+        res.writeHead(401).end('bad or missing token');
+        return true;
+    }
+    let expected: string;
+    try {
+        expected = readOrCreateNotifyToken(deps.tokenPath);
+    } catch {
+        res.writeHead(500).end('notify token unavailable');
+        return true;
+    }
+    if (!tokensEqual(token, expected)) {
         res.writeHead(401).end('bad or missing token');
         return true;
     }

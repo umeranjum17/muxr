@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
@@ -67,5 +67,26 @@ describe('POST /v1/notify', () => {
 
         const tailnet = await post({ title: 'T', url: 'http://desk.ts.net/x' }, token);
         expect(tailnet.status).toBe(202);
+    });
+
+    it('answers 500 instead of taking the host down when the token cannot be minted', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-notify-'));
+        const blocker = join(home, 'not-a-directory');
+        writeFileSync(blocker, '');
+        const tokenPath = notifyTokenPath(blocker);
+        const url = await serve({ tokenPath, send: () => 1 });
+        const post = () => fetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', authorization: 'Bearer whatever' },
+            body: JSON.stringify({ title: 'Hi' }),
+        });
+
+        expect((await post()).status).toBe(500);
+        expect((await post()).status).toBe(500);
+        expect(existsSync(tokenPath)).toBe(false);
+
+        const artifacts = new ArtifactDownloadServer(join(home, 'attachments'), 0, undefined, { tokenPath, send: () => 1 });
+        expect(() => artifacts.start()).not.toThrow();
+        artifacts.dispose();
     });
 });

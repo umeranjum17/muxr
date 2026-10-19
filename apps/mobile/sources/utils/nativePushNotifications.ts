@@ -46,17 +46,21 @@ export async function receiveLifecyclePush(notification: Notifications.Notificat
         acknowledgeLifecyclePush(payload);
         return;
     }
+    const envelope = payload as Record<string, unknown>;
+    // Our own re-posted alert: already opened, the seal kept only for its tap.
+    if (envelope.presented === true) return;
     const grants = await listPairedGrants().catch(() => []);
     const notice = openLifecycleNotice(payload, grants);
-    const data = { ...notice.data, data: notice.data };
-    if (!acknowledgeLifecyclePush(data)) return;
+    const opened = { ...notice.data, data: notice.data };
+    if (!acknowledgeLifecyclePush(opened)) return;
     await Notifications.dismissNotificationAsync(notification.request.identifier);
     await Notifications.scheduleNotificationAsync({
         identifier: notification.request.identifier,
         content: {
             title: notice.title,
             body: notice.body,
-            data,
+            // The sealed envelope stays so a tap can still open what this machine sent.
+            data: { ...notice.data, data: envelope.data, presented: true },
             ...(notice.data.kind === 'blocked' ? { categoryIdentifier: QUESTION_CATEGORY } : {}),
         },
         trigger: null,
