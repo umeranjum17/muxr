@@ -182,6 +182,22 @@ export async function sessionStop(
     return stopAgent({ agentRoute: sessionId, kind: 'stop' }, {
         abort: (agentRoute) => sync.request('session.abort', { sessionId: agentRoute }),
         stop: requestSessionStop,
+        refreshCatalog: () => sync.refreshSessions(),
+        confirmClose: ui.confirmClose,
+        confirmRetry: ui.confirmRetry,
+    });
+}
+
+export function sessionStopAfterHandoff(
+    sessionId: string,
+    ui: {
+        confirmClose: NonNullable<StopAgentPorts['confirmClose']>;
+        confirmRetry: NonNullable<StopAgentPorts['confirmRetry']>;
+    },
+): Promise<StopAgentResult> {
+    return stopAgent({ agentRoute: sessionId, kind: 'stop' }, {
+        abort: (agentRoute) => sync.request('session.abort', { sessionId: agentRoute }),
+        stop: requestSessionStop,
         refreshCatalog: () => sync.refreshSessions().catch(() => undefined),
         confirmClose: ui.confirmClose,
         confirmRetry: ui.confirmRetry,

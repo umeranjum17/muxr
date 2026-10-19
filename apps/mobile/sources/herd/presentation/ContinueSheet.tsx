@@ -8,7 +8,7 @@ import { pairMachine } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
-import { sessionStop } from '@/catalog/ops';
+import { sessionStopAfterHandoff } from '@/catalog/ops';
 import { Modal } from '@/modal';
 import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
 import { openPairedMachine } from '@/collaboration';
@@ -44,7 +44,7 @@ async function retireSource(sessionId: string, sourceName: string): Promise<stri
     };
     try {
         if (!await atRest()) return kept(refusal);
-        const result = await sessionStop(sessionId, {
+        const result = await sessionStopAfterHandoff(sessionId, {
             confirmClose: async (prompt) => (await Modal.confirm(`${prompt.confirmText}?`, prompt.message, { cancelText: 'Cancel', confirmText: prompt.confirmText, destructive: true })) && atRest(),
             confirmRetry: async (reason) => (await Modal.confirm('Could not close the agent', reason, { cancelText: 'Cancel', confirmText: 'Retry' })) && atRest(),
         });
