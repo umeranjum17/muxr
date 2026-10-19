@@ -56,9 +56,7 @@ const END = '<!-- /muxr:install-meta -->';
 export const VIEWPORT = '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, interactive-widget=resizes-content" />';
 
 // The splash: themed background and a centred mark, from first paint until
-// React mounts. The light background matches the native iOS splash
-// (app.config.js light #F2F2F7); dark matches the native dark splash (#000000).
-// Match the native launch splash's on-screen proportion: on Android the splash
+// React mounts. Match the native launch splash's on-screen proportion: on Android the splash
 // art is cropped tight to the wordmark and imageWidth is 120dp, so the mark is
 // ~29% of a phone screen width. The mark is a fixed dp size, so the px cap
 // keeps it from growing without bound on wide screens.
