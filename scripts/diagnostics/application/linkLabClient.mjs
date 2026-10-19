@@ -34,7 +34,6 @@ async function adb(serial, args, deadline) {
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '0.0.0.0', '[::]']);
 const FATAL = /^(bootloader|recovery|sideload)$|cannot bind .*address already in use/i;
-const addressOf = (url) => new URL(url.replace(/^ws/, 'http'));
 const lastLine = (text) => text.trim().split('\n').pop().trim();
 
 async function routeLabRelay(serial, ports, deadline) {
@@ -61,7 +60,7 @@ async function routeLabRelay(serial, ports, deadline) {
  * route at all.
  */
 export async function forwardLabRelayTo(serial, offerText, deadline) {
-    const ports = [...new Set(parseOffer(offerText, 0).urls.map(addressOf)
+    const ports = [...new Set(parseOffer(offerText, 0).urls.map((url) => new URL(url))
         .filter((url) => LOOPBACK.has(url.hostname)).map((url) => url.port))];
     if (ports.length === 0) return [];
     let last = 'no answer yet';
