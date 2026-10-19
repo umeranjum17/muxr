@@ -27,6 +27,15 @@ function validStartFolder(value) {
     return folder === '~' || isAbsolute(folder);
 }
 
+function savedStartFolderOf(path) {
+    try {
+        const folder = JSON.parse(readFileSync(path, 'utf8')).defaultStartFolder;
+        return validStartFolder(folder) ? folder.trim() : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 function validRelayUrl(value) {
     try {
         const url = new URL(value);
@@ -177,6 +186,8 @@ export async function runConfigInit(args = []) {
     const config = { mode, machineName };
     if (relayUrl !== '') config.relayUrl = relayUrl;
     if (hostHttpPort !== DEFAULT_HOST_HTTP_PORT) config.hostHttpPort = hostHttpPort;
+    const savedStartFolder = existsSync(path) ? savedStartFolderOf(path) : undefined;
+    if (savedStartFolder !== undefined) config.defaultStartFolder = savedStartFolder;
     const text = `${JSON.stringify(config, null, 2)}\n`;
     const exists = existsSync(path);
     heading(dryRun ? 'Dry run — nothing will be written' : 'Review host settings');
