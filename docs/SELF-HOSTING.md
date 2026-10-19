@@ -59,12 +59,12 @@ current route as the recommendation.
 
 Works only on this Wi-Fi is the recommendation on a plain computer: no
 Tailscale installed, no private network, no usable `cloudflared`, no
-enrollment, and no saved route other than Wi-Fi only. Elsewhere it is not offered,
-except that a computer already on it keeps it behind Other ways. The phone must
-be on the same Wi-Fi. When setup is given an enrollment from your muxr server (`--enrollment` or `MUXR_ENROLLMENT`), it
-recommends that server instead: this computer dials out to it, so nothing on it
-needs to be open. If another VPN is active on your phone, pause it: a phone runs
-one VPN at a time.
+enrollment, and no saved route other than Wi-Fi only. Elsewhere it is not
+offered, except that a computer already on it keeps it behind Other ways. The
+phone must be on the same Wi-Fi. When setup is given an enrollment from your
+muxr server (`--enrollment` or `MUXR_ENROLLMENT`), it recommends that server
+instead: this computer dials out to it, so nothing on it needs to be open. If
+another VPN is active on your phone, pause it: a phone runs one VPN at a time.
 Automation uses:
 
 | Flag | What happens |
