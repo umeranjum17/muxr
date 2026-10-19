@@ -4,5 +4,6 @@
   "machineId": "desk",
   "machineName": "desk",
   "dataDir": "/home/you/.muxr/host",
-  "hostHttpPort": 8793
+  "hostHttpPort": 8793,
+  "defaultStartFolder": "/home/you/code/my-project"
 }
