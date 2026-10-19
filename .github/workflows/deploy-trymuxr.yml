@@ -1,9 +1,7 @@
 name: deploy trymuxr.com
 
-# A merge that changes what the site image contains deploys it. Until this
-# trigger existed the workflow only ran by hand and never had, so routes merged
-# to main (/desktop) were absent from trymuxr.com. The paths are exactly what
-# apps/site/Dockerfile copies in; workflow_dispatch redeploys on demand.
+# A merge that changes what the site image contains deploys it. The paths are
+# exactly what apps/site/Dockerfile copies in; workflow_dispatch redeploys on demand.
 on:
   push:
     branches: [main]
