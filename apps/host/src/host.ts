@@ -60,6 +60,8 @@ export interface Host {
     canView: (frame: ClientFrame) => boolean;
     /** Product events fan out through the byokit endpoint. */
     onBroadcast: (listener: (frame: HostFrame, deviceId?: string) => void) => void;
+    /** Push one frame to every connected phone (a config change, not a session event). */
+    broadcastFrame: (frame: HostFrame) => void;
 }
 
 export function startHost(options: HostOptions): Host {
@@ -271,6 +273,7 @@ export function startHost(options: HostOptions): Host {
         },
         desktopLoopbackPort: (desktopId, port, deviceId) => desktop.loopbackPort(desktopId, port, deviceId),
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
+        broadcastFrame: (frame) => broadcast(frame),
         close: async () => {
             unsubscribe();
             unsubscribeMachine?.();

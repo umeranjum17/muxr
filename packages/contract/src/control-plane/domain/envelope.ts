@@ -19,6 +19,8 @@ export type HostFrame =
     | { type: 'session.list'; sessions: SessionInfo[] }
     | ({ type: 'machine.hello' } & MachineHello)
     | { type: 'machine.list'; machines: MachineInfo[] }
+    /** The machine's own config changed: refetch `machines.list`. */
+    | { type: 'machines.changed' }
     | PluginsInvalidatedFrame
     | RequestResponse;
 

@@ -51,6 +51,7 @@ export type SessionClient = {
     onStateChange(listener: (state: ConnectionState) => void): () => void;
     onEvent(listener: (sessionId: string, event: SessionEvent) => void): () => void;
     onPluginsInvalidated(listener: (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void): () => void;
+    onMachinesChanged(listener: () => void): () => void;
     registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
     unregisterPush(): Promise<boolean>;
     terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
@@ -138,6 +139,7 @@ export class LinkFirstClient implements SessionClient {
     private readonly stateListeners = new Set<(state: ConnectionState) => void>();
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
     private readonly pluginListeners = new Set<(frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void>();
+    private readonly machinesListeners = new Set<() => void>();
     private desktopTransport: DesktopLinkTransport | undefined;
     private desktopOpening: Promise<DesktopLinkTransport | undefined> | undefined;
 
@@ -442,6 +444,11 @@ export class LinkFirstClient implements SessionClient {
         return () => { this.pluginListeners.delete(listener); };
     }
 
+    onMachinesChanged(listener: () => void): () => void {
+        this.machinesListeners.add(listener);
+        return () => { this.machinesListeners.delete(listener); };
+    }
+
     async registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean> {
         this.lastPush = { token, level };
         if (this.link === undefined || !this.online) return false;
@@ -598,6 +605,9 @@ export class LinkFirstClient implements SessionClient {
         }
         if (isPluginsInvalidatedFrame(frame)) {
             for (const listener of this.pluginListeners) listener(frame);
+        }
+        if (frame.type === 'machines.changed') {
+            for (const listener of this.machinesListeners) listener();
         }
     }
 

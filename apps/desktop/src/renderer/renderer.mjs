@@ -96,9 +96,11 @@ window.muxr.onState((state) => {
     const askProject = state.needsProjectFolder === true;
     cards.project.hidden = !askProject;
     if (askProject) {
-        if (!projectShown && typeof state.projectFolderSuggestion === 'string') projectInput.value = state.projectFolderSuggestion;
+        if (!projectShown) {
+            if (typeof state.projectFolderSuggestion === 'string') projectInput.value = state.projectFolderSuggestion;
+            projectError.hidden = true;
+        }
         projectNoRepo.hidden = state.projectFolderNoRepo !== true;
-        projectError.hidden = true;
     }
     projectShown = askProject;
     if (state.phase === 'starting') { show('starting'); }
@@ -149,9 +151,13 @@ async function saveProjectFolder() {
     saveProjectButton.disabled = true;
     projectError.hidden = true;
     try {
-        await window.muxr.setProjectFolder(projectInput.value);
-    } catch (error) {
-        projectError.textContent = error instanceof Error ? error.message : String(error);
+        const result = await window.muxr.setProjectFolder(projectInput.value);
+        if (result?.ok !== true) {
+            projectError.textContent = result?.message ?? 'Enter an absolute folder path, or ~ for your home folder.';
+            projectError.hidden = false;
+        }
+    } catch {
+        projectError.textContent = "Couldn't save this folder. Try again.";
         projectError.hidden = false;
     } finally {
         saveProjectButton.disabled = false;

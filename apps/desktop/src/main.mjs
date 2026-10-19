@@ -280,10 +280,15 @@ if (!app.requestSingleInstanceLock()) {
     });
     ipcMain.handle('muxr:install-herdr', () => herdr.install());
     ipcMain.handle('muxr:set-project-folder', (_event, folder) => {
-        const saved = saveFolder(MUXR_HOME, folder);
+        try {
+            saveFolder(MUXR_HOME, folder);
+        } catch (error) {
+            process.stderr.write(`desktop: saving the project folder: ${error instanceof Error ? error.message : String(error)}\n`);
+            return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        }
         project.needsProjectFolder = false;
         send(state);
-        return saved;
+        return { ok: true };
     });
     ipcMain.handle('muxr:set-keep-awake', (_event, on) => setKeepAwake(Boolean(on)));
     ipcMain.handle('muxr:set-autostart', (_event, on) => setStartAtLogin(Boolean(on)));
