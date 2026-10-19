@@ -44,6 +44,8 @@ docker run --rm --publish 8080:8080 trymuxr-site
 `.github/workflows/deploy-trymuxr.yml` is manual-only, runs on `main` in this
 repository, and binds to the `trymuxr` GitHub environment. It builds, tests
 and smoke-checks the image before requesting deployment and checking health.
+Running it manually on `main` is how the site goes live, including `/desktop`
+on trymuxr.com.
 
 Before using it, the owner must create that environment with required owner
 approval and a `main`-only deployment rule. Set these **environment secrets**

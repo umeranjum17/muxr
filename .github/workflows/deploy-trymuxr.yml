@@ -48,6 +48,7 @@ jobs:
           check / 200
           check /marketing/campaign-connection.png 200
           check /demo.mp4 200
+          check /desktop 200
           check /downloads '200 503'
           check /downloads/stable/android '302 503'
           check /api/releases/stable '200 503'
