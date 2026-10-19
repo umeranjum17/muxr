@@ -50,7 +50,7 @@ watch Home turn into the agent list.
 ## Driving it with the private stack
 
 Preconditions: the no-Herdr desktop lab from `linux-desktop-app.md` step 5
-(PATH farm without `herdr`, task-owned `MUXR_HOME`, relay port 0, Xvfb, a
+(PATH farm without `herdr`, task-owned `MUXR_HOME`, relay port 0, a Xvfb from `scripts/diagnostics/application/withPrivateXvfb.sh`, a
 loopback fixture serving the shim herdr with its sha256), and a release APK on a
 task-owned emulator paired to that window. For the outdated and recipe
 states without the window, use a real (non-`--fake`) foreground lab host,

@@ -27,7 +27,7 @@ Preconditions:
   XCUITest driver that can rotate, tap points, tap keyboard keys and attach
   screenshots (axe HID taps do not reach the app).
 - A private Linux stack per `../SKILL.md` Launch (`--fake` host), plus the
-  host Computer on a private Xvfb: `MUXR_DESKTOP_SOURCE=x11
+  host Computer on a private Xvfb started by `scripts/diagnostics/application/withPrivateXvfb.sh` (never a bare `Xvfb`): `MUXR_DESKTOP_SOURCE=x11
   MUXR_DESKTOP_X11_DISPLAY=:<n>`, relay bound to the tailnet address the Mac
   reaches. Headed Chromium on that display with
   `--force-device-scale-factor=1 --kiosk --window-size=1280,800`, started in a

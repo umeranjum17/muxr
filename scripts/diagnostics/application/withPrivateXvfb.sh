@@ -3,7 +3,7 @@
 # command exits, so no lab run leaves a display behind.
 #
 # Usage: withPrivateXvfb.sh <command> [args...]
-# The command gets DISPLAY=:<n> and XVFB_PID=<pid of its own Xvfb>.
+# The command gets DISPLAY=:<n>.
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
@@ -32,7 +32,7 @@ for _ in $(seq 100); do
 done
 ready || { echo "Xvfb :$number never became ready" >&2; exit 1; }
 
-XVFB_PID="$xvfb" DISPLAY=":$number" "$@" &
+DISPLAY=":$number" "$@" &
 child=$!
 trap 'kill -TERM "$child" 2>/dev/null || true' INT TERM HUP
 status=0

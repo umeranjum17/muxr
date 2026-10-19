@@ -49,7 +49,7 @@ offline session, not just the shell) pair it with the lab hook first — see
    `curl -fsS http://127.0.0.1:<port>/index.html` is `no-store`.
 2. Drive a private standalone window: launch a Chrome with
    `--app=http://127.0.0.1:<port>/` and a task-owned `--user-data-dir` inside a
-   private Xvfb display, then point chrome-devtools-axi at it with
+   private Xvfb display from `scripts/diagnostics/application/withPrivateXvfb.sh` (never a bare `Xvfb`), then point chrome-devtools-axi at it with
    `CHROME_DEVTOOLS_AXI_BROWSER_URL=http://127.0.0.1:<debug-port>`. In the page,
    `matchMedia('(display-mode: standalone)').matches` must be `true`.
 3. `chrome-devtools-axi resize 393 844`, load `/`, and assert from

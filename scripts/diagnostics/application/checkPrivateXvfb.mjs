@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const wrapper = fileURLToPath(new URL('./withPrivateXvfb.sh', import.meta.url));
 // The command proves its own Xvfb is up before it prints, then the check looks after exit.
-const run = spawnSync('bash', [wrapper, 'sh', '-c', 'kill -0 "$XVFB_PID" && printf "%s %s" "$XVFB_PID" "$DISPLAY"'], { encoding: 'utf8', timeout: 20_000, killSignal: 'SIGKILL' });
+const run = spawnSync('bash', [wrapper, 'sh', '-c', 'pid=$(tr -d " " < "/tmp/.X${DISPLAY#:}-lock") && kill -0 "$pid" && printf "%s %s" "$pid" "$DISPLAY"'], { encoding: 'utf8', timeout: 20_000, killSignal: 'SIGKILL' });
 if (run.error || run.status !== 0) throw new Error(`wrapper failed: ${run.error?.message ?? run.stderr}`);
 
 const [pid, display] = run.stdout.split(' ');

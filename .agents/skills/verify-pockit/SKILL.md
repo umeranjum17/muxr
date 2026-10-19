@@ -246,7 +246,7 @@ types must reach the agent verbatim, so no surface may decode prompt text.
 
 PWA: serve the export with `scripts/diagnostics/application/serveWebExport.mjs`
 on a free port (it prints the port you pass, so pass a real one, never 0), and open it in Chromium on a
-task-owned Xvfb display with its own `--user-data-dir`,
+display from `scripts/diagnostics/application/withPrivateXvfb.sh` (never a bare `Xvfb`) with its own `--user-data-dir`,
 `--remote-debugging-port`, `--hide-scrollbars` (a desktop scrollbar draws a
 grey strip that is not the app) and `--app=<origin>`; point
 chrome-devtools-axi at it with `CHROME_DEVTOOLS_AXI_BROWSER_URL`.
