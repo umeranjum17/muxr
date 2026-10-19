@@ -189,6 +189,7 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
     const serveOccupied = serveRoot.status === 'occupied';
     const serveDisabled = serveRoot.status === 'disabled';
     const tailscaleAvailable = found.tailscale.connected || tailscalePlanned;
+    const plainComputer = !found.relay && !tailscaleAvailable && !found.private && !found.cloudflared.ok;
     let tailscaleSentence = 'Your phone reaches this computer from anywhere. Both need the free Tailscale app, signed in to the same account.';
     if (serveOccupied) tailscaleSentence = 'Tailscale Serve is used by something else here; choose the phone-only option below to leave it unchanged.';
     else if (serveDisabled) tailscaleSentence = `Tailscale Serve is unavailable (${serveRoot.reason}); choose the phone-only option below instead.`;
@@ -201,15 +202,14 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
             value: 'relay', title: 'Use muxr away from home (your muxr server)',
             description: 'Your phone reaches this computer through your muxr server, on any network. Nothing to open or install on this computer.',
         }] : []),
-        // The one route a plain computer (no Tailscale, tunnel or server) can
-        // finish on, so it is always listed.
-        {
+        // Only a plain computer ends on Wi-Fi only; a computer already on it keeps it.
+        ...(plainComputer || current?.connectionMode === 'lan' ? [{
             value: 'lan', title: 'Works only on this Wi-Fi',
             description: found.lan
                 ? 'Your phone must stay on this same Wi-Fi, and stops working when you leave home. Nothing to install.'
                 : 'No Wi-Fi address found; connect this computer to your Wi-Fi, then rerun setup.',
             disabled: !found.lan,
-        },
+        }] : []),
         {
             value: 'tailscale', title: 'Use muxr away from home (Tailscale)',
             description: tailscaleSentence,

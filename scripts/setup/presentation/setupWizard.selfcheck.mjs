@@ -178,6 +178,10 @@ async function checkWizard() {
         tailscaleConnected = false;
         serveStatus = 'free';
         currentSummary = undefined;
+        tailscaleConnected = true;
+        const connectedPlain = await run(['2', 'b', 'b']);
+        assert.doesNotMatch(connectedPlain, /Works only on this Wi-Fi/);
+        tailscaleConnected = false;
 
         // A first run reviews on the route screen: the plan sits under the
         // routes and cancelling there changes nothing. An installed Tailscale
