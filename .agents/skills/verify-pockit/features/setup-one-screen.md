@@ -20,8 +20,10 @@ changes an existing setup keeps its extra questions and the final review.
 - `signed-out` installed and signed out (`NeedsLogin`): Tailscale stays
   recommended with `Sign-in happens next`; Enter runs `sudo tailscale up` (the
   macOS app on a Mac) before the install.
-- `no-wifi` a new setup never lists `Works only on this Wi-Fi`, not even
-  behind `Other ways`; a computer already on it keeps it there as `· current`.
+- `no-wifi` a new setup lists `Works only on this Wi-Fi` behind `Other ways`
+  only on a plain computer (no Tailscale connected or planned, no private
+  network, no usable cloudflared, no relay enrollment); any other new setup
+  never lists it, and a computer already on it keeps it there as `· current`.
 - `one-enter` step 2 of 3 reads `How will your phone reach this computer?`
   with the plan under the routes (Herdr line, pairing, browser later, `Press
   Enter to apply this setup. Nothing changes before then.`); Enter goes

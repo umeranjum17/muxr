@@ -294,8 +294,8 @@ rules, with no H2 sections.
   setup's `your muxr server` route with an enrollment, a computer with no
   inbound network (bwrap), phone pairs through a lab relay, agent answers.
 - [Set up a computer in one screen](./setup-one-screen.md) — first-run
-  `muxr` in a private tmux at 80 and 120 columns: Tailscale by default, no
-  Wi-Fi only for new setups, missing/signed-out Tailscale rechecked in place,
+  `muxr` in a private tmux at 80 and 120 columns: Tailscale by default, Wi-Fi
+  only for a plain computer, missing/signed-out Tailscale rechecked in place,
   route and plan on step 2 of 3, one Enter applies.
 - [Keep a terminal pane alive across a reconnect](./terminal-reconnect.md) —
   native app over a private stack: relay and host restarts under an
