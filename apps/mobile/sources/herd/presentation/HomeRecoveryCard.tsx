@@ -99,7 +99,7 @@ export function HomeRecoveryCard({
         <View style={[styles.card, cardStyle(theme)]}>
             <Text style={styles.title}>{deviceOffline ? "You're offline" : herdrOutdated ? 'Herdr is out of date on your computer' : herdrMissing ? 'Herdr is missing on your computer' : mode === 'update-app' ? 'Update the muxr app' : mode === 'update-host' ? 'Update muxr on your computer' : mode === 'pair' ? 'Pair this phone again' : mode === 'revoked' ? 'Access removed' : sshKey ? 'SSH fingerprint changed' : mode === 'host' ? 'Computer unreachable' : 'Agent runtime unavailable'}</Text>
             <Text style={styles.body}>
-                {deviceOffline ? 'This device has no network. muxr reconnects on its own once you are back online.'
+                {deviceOffline ? 'This device has no network. Check the connection, then tap Retry once you are back online.'
                     : copy ? copy.lead
                     : mode === 'pair' ? reason?.includes('no longer recognises')
                     ? 'Your computer no longer recognises this phone. Pair once to reconnect.'
@@ -148,7 +148,7 @@ export function HomeRecoveryCard({
                     </Pressable>
                 </>}
             </View>
-            {!rePair && feedback ? <Text accessibilityLiveRegion="polite" style={styles.body}>{feedback}</Text> : null}
+            {!rePair && !deviceOffline && feedback ? <Text accessibilityLiveRegion="polite" style={styles.body}>{feedback}</Text> : null}
         </View>
     );
 }
@@ -192,7 +192,7 @@ export function BusyConnectingCard({ since, computer }: { since: number; compute
             <Text style={styles.title}>{deviceOffline ? "You're offline." : `${computer} isn't answering, likely busy.`}</Text>
             <Text accessibilityLiveRegion="polite" style={styles.body}>
                 {deviceOffline
-                    ? `This device has no network. muxr reconnects to ${computer} on its own once you're back online.`
+                    ? `This device has no network, so it can't reach ${computer}. Check the connection once you're back online.`
                     : `Reconnecting on its own… No answer for ${elapsed}. Your terminals come back when the computer catches up; nothing to do there.`}
             </Text>
             <View style={styles.actions}>

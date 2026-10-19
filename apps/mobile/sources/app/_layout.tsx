@@ -392,13 +392,6 @@ export default function RootLayout() {
         return () => subscription.remove();
     }, [initState?.credentials]);
 
-    React.useEffect(() => {
-        if (initState?.credentials === undefined || Platform.OS !== 'web') return;
-        const onOnline = () => void syncResume().catch(() => undefined);
-        window.addEventListener('online', onOnline);
-        return () => window.removeEventListener('online', onOnline);
-    }, [initState?.credentials]);
-
     const handledNotificationIds = React.useRef<Set<string>>(new Set());
     const handleNotificationResponse = React.useCallback(async (response: Notifications.NotificationResponse | null) => {
         if (!response) {

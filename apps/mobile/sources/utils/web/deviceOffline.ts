@@ -12,7 +12,7 @@ function isDeviceOffline(): boolean {
 /** Retry feedback that never blames the computer while this device has no network. */
 export function unavailableFeedback(): string {
     return isDeviceOffline()
-        ? 'This device is offline. muxr will retry when you are back online.'
+        ? 'This device is offline. Check the connection, then tap Retry once you are back online.'
         : 'Still unavailable. Run the command on your computer, check its network, then retry.';
 }
 
