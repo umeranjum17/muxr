@@ -250,6 +250,7 @@ export function createFakeSessionSource(): SessionSource {
             const session: SessionInfo = {
                 id,
                 cwd: options.cwd,
+                ...(options.kind === undefined ? {} : { agentKind: options.kind }),
                 path: `${options.cwd}/.pi/sessions/${id}.jsonl`,
                 created: now,
                 modified: now,
