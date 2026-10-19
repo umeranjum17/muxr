@@ -114,7 +114,6 @@ export const ca: TranslationStructure = {
             paceAhead: 'Per davant del ritme',
             paceBurning: 'Consum ràpid',
             percentLeft: ({ percent }: { percent: number }) => `${percent}% restant`,
-            percentUsed: ({ percent }: { percent: number }) => `${percent}% usat`,
             runsOutIn: ({ time }: { time: string }) => `esgota en ${time}`,
             asOf: ({ time }: { time: string }) => `Límits des de les ${time}`,
         },
@@ -127,6 +126,8 @@ export const ca: TranslationStructure = {
             refreshNow: 'Actualitza l’ús ara',
             refreshThrottled: ({ seconds }: { seconds: number }) => `Actualització disponible en ${seconds} s`,
             refreshIn: ({ seconds }: { seconds: number }) => `en ${seconds} s`,
+            healthy: 'Bé',
+            busy: 'Ocupat',
             notConnected: 'Límits del pla no connectats',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `es renova en ${time}`,
@@ -203,6 +204,9 @@ export const ca: TranslationStructure = {
     },
 
     pairing: {
+        pageTitle: 'Vincula un ordinador',
+        copy: 'Copia',
+        copied: 'Copiat',
         busy: 'Aparellant…',
         connecting: "Connectant de manera segura amb el teu ordinador…",
         compareWords: ({ name }: { name: string }) => `Comprova que ${name} mostra aquestes dues paraules i després aprova-ho a l'ordinador.`,

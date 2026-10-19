@@ -207,6 +207,8 @@ export interface UsageVitals {
     diskUsed?: number;
     diskTotal?: number;
     load1: number;
+    /** Logical CPUs, so the phone can say whether `load1` means busy. Absent from older hosts. */
+    cpus?: number;
     uptimeSeconds: number;
 }
 

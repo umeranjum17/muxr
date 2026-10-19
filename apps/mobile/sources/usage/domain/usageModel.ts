@@ -1,26 +1,39 @@
 import type { UsageConnectedProvider, UsageLimitsWindow, UsageVitals } from '@trymuxr/contract';
 import { compactAge } from '@/utils/compactAge';
 
-/** The Right now vitals line's figures: rounded shares, a one-decimal load
- *  and an uptime in the same compactAge voice the activity rows speak.
+/** The machine's figures behind Home's one word: rounded shares, a one-decimal
+ *  load and an uptime in the same compactAge voice the activity rows speak.
  *  Impossible figures (a zero ceiling would divide by zero) read as no
  *  vitals rather than as a fabricated percentage. */
 export interface VitalsFacts {
+    /** Busy when memory is nearly full or the run queue reaches the core count; healthy only when the core count is known. */
+    state?: 'healthy' | 'busy';
     memoryPercent: number;
     diskPercent?: number;
     load: string;
     uptime: string;
 }
 
+/** Memory share at which the machine counts as busy, whatever its load. */
+const BUSY_MEMORY_PERCENT = 90;
+
 export function vitalsFacts(vitals: UsageVitals): VitalsFacts | undefined {
     if (vitals.memoryTotal <= 0 || vitals.uptimeSeconds < 0 || !Number.isFinite(vitals.load1)) return undefined;
+    const memoryPercent = share(vitals.memoryUsed, vitals.memoryTotal);
+    const busy = memoryPercent >= BUSY_MEMORY_PERCENT || (vitals.cpus !== undefined && vitals.load1 >= vitals.cpus);
     const facts: VitalsFacts = {
-        memoryPercent: share(vitals.memoryUsed, vitals.memoryTotal),
+        state: vitalsState(busy, vitals.cpus),
+        memoryPercent,
         load: Number(vitals.load1.toFixed(1)).toString(),
         uptime: compactAge(vitals.uptimeSeconds * 1_000),
     };
     const disk = diskShare(vitals);
     return disk === undefined ? facts : { ...facts, diskPercent: disk };
+}
+
+function vitalsState(busy: boolean, cpus: number | undefined): VitalsFacts['state'] {
+    if (busy) return 'busy';
+    return cpus === undefined ? undefined : 'healthy';
 }
 
 function diskShare(vitals: UsageVitals): number | undefined {

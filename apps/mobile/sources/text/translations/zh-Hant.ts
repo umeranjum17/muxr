@@ -116,7 +116,6 @@ export const zhHant: TranslationStructure = {
             paceAhead: '用量充裕',
             paceBurning: '消耗過快',
             percentLeft: ({ percent }: { percent: number }) => `剩餘 ${percent}%`,
-            percentUsed: ({ percent }: { percent: number }) => `已使用 ${percent}%`,
             runsOutIn: ({ time }: { time: string }) => `${time}後用盡`,
             asOf: ({ time }: { time: string }) => `${time} 時的上限`,
         },
@@ -129,6 +128,8 @@ export const zhHant: TranslationStructure = {
             refreshNow: '立即重新整理用量',
             refreshThrottled: ({ seconds }: { seconds: number }) => `${seconds} 秒後可重新整理`,
             refreshIn: ({ seconds }: { seconds: number }) => `${seconds} 秒後`,
+            healthy: '良好',
+            busy: '繁忙',
             notConnected: '未連線方案限額',
             planRemaining: ({ plan, remainings }: { plan: string; remainings: string }) => `${plan}: ${remainings}`,
             resetsIn: ({ time }: { time: string }) => `${time}後重置`,
@@ -204,6 +205,9 @@ export const zhHant: TranslationStructure = {
     },
 
     pairing: {
+        pageTitle: '配對電腦',
+        copy: '複製',
+        copied: '已複製',
         busy: '配對中…',
         connecting: '正在安全地連線到你的電腦…',
         compareWords: ({ name }: { name: string }) => `確認 ${name} 顯示同樣的兩個詞，然後在電腦上核准。`,

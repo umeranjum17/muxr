@@ -10,3 +10,4 @@ export * from './domain/chartModel';
 export * from './domain/limitsModel';
 export { useUsageNow } from './application/useUsageNow';
 export { vitalsFacts, type VitalsFacts } from './domain/usageModel';
+export { hostVitalsDetails } from './presentation/hostVitalsDetails';
