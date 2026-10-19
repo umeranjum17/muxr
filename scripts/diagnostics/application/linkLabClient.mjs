@@ -42,7 +42,8 @@ async function routeLabRelay(serial, ports, deadline) {
     if (state !== 'device') throw new Error(state || 'empty answer');
     for (const port of ports) await adb(serial, ['reverse', `tcp:${port}`, `tcp:${port}`], deadline);
     const listed = await adb(serial, ['reverse', '--list'], deadline);
-    const missing = ports.find((port) => !listed.includes(`tcp:${port} tcp:${port}`));
+    const routes = listed.split('\n').map((line) => line.trim().split(/\s+/).slice(-2).join(' '));
+    const missing = ports.find((port) => !routes.includes(`tcp:${port} tcp:${port}`));
     if (missing !== undefined) throw new Error(`no reverse route on tcp:${missing}: ${lastLine(listed) || 'the device lists no reverse routes'}`);
 }
 
