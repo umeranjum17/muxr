@@ -4,6 +4,7 @@ import { isIP } from 'node:net';
 import { join } from 'node:path';
 import { validMachineCrypto } from '../domain/dist/index.js';
 import { atomicWrite, error, flagValue, machineIdentity, print, randomBytes, relayPortFromEnv, stateDir } from '../infrastructure/runtime.mjs';
+import { ensureHerdr } from '../infrastructure/herdr.mjs';
 import { isTailnetIPv4, readSelfhostState, selfhostPath, writeSelfhostState } from '../infrastructure/selfhost.mjs';
 import { resolveAdvertise } from '../infrastructure/selfhostRelay.mjs';
 
@@ -17,8 +18,11 @@ export async function configureSelfHost(args) {
         const url = new URL(advertise.url);
         if (url.protocol !== 'ws:') throw new Error('--configure-only serves plain ws:// on the tailnet address; use --advertise ws://<name>:<port>');
         if (Number(url.port || 80) !== port) throw new Error('the ws:// advertise port must match --port (default 8792)');
-        const bindHost = isIP(url.hostname) ? url.hostname : (await lookup(url.hostname, { family: 4 })).address;
-        if (!isTailnetIPv4(bindHost)) throw new Error('--advertise must resolve to a Tailscale IPv4 address (100.64.0.0/10)');
+        // --loopback: Tailscale Serve forwards the tailnet port to loopback (a BYOKit cloud computer), so there may be no tailnet address to bind.
+        const loopback = args.includes('--loopback');
+        if (loopback && !/^[a-z0-9-]+(\.[a-z0-9-]+)*\.ts\.net$/i.test(url.hostname)) throw new Error('--loopback needs --advertise ws://<machine>.<tailnet>.ts.net:<port>');
+        const bindHost = loopback ? '127.0.0.1' : isIP(url.hostname) ? url.hostname : (await lookup(url.hostname, { family: 4 })).address;
+        if (!loopback && !isTailnetIPv4(bindHost)) throw new Error('--advertise must resolve to a Tailscale IPv4 address (100.64.0.0/10)');
         let state = readSelfhostState();
         if (existsSync(selfhostPath())) {
             const info = lstatSync(selfhostPath());
@@ -26,9 +30,10 @@ export async function configureSelfHost(args) {
             if (!state?.machine?.id || !validMachineCrypto(state.machine.crypto, 'selfhost') || typeof state.mintSecret !== 'string' || !state.mintSecret) throw new Error('existing self-host state is invalid; refusing to replace its pairing identity');
             const sameConfiguration = state.relayUrl === advertise.url && state.relayPort === port
                 && state.relayLocation === 'local' && state.relayRole === 'single-machine'
-                && state.bindHost === bindHost && state.connectionMode === 'private' && !state.webEnabled && !state.ingress;
+                && state.bindHost === bindHost && (state.tailscaleServe === true) === loopback && state.connectionMode === 'private' && !state.webEnabled && !state.ingress;
             if (!sameConfiguration) throw new Error('--configure-only cannot replace an existing connection; use `muxr setup` to reconfigure it');
         }
+        if (args.includes('--install-herdr')) await ensureHerdr({ dryRun: false, noInstall: false, installRequested: true });
         const mintPath = join(stateDir(), 'relay', 'mint-secret');
         let secret;
         if (existsSync(mintPath)) {
@@ -46,10 +51,10 @@ export async function configureSelfHost(args) {
         if (!state) {
             state = { version: 1, machine: machineIdentity(undefined), relayPort: port,
                 relayUrl: advertise.url, relayLocation: 'local', relayRole: 'single-machine',
-                connectionMode: 'private', webEnabled: false, bindHost, mintSecret: secret };
+                connectionMode: 'private', webEnabled: false, bindHost, ...(loopback ? { tailscaleServe: true } : {}), mintSecret: secret };
             writeSelfhostState(state);
         }
-        print(`Configured ${advertise.url} (bind ${bindHost}:${port}, Tailscale only); no relay or service started.`);
+        print(`Configured ${advertise.url} (bind ${bindHost}:${port}, Tailscale ${loopback ? 'Serve' : 'only'}); no relay or service started.`);
         print('Start with `MUXR_MODE=selfhost muxr up`; once running, use `muxr pair` in another shell for the pairing offer.');
         return 0;
     } catch (cause) {

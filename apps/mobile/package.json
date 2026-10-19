@@ -23,7 +23,7 @@
     "@expo/ui": "~57.0.16",
     "@expo/vector-icons": "^15.0.2",
     "@desklink/react-native": "0.5.8",
-    "@byokit/cloud": "0.1.0",
+    "@byokit/cloud": "0.2.1",
     "@byokit/dictation": "0.5.0",
     "@byokit/pair": "0.10.3",
     "@byokit/reach": "0.6.0",

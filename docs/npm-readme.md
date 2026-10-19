@@ -60,7 +60,7 @@ muxr state lives under `~/.muxr` unless `MUXR_HOME` is set. Use `muxr setup --dr
 ```text
 muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]
                [--port <n>] [--relay-only|--host-only] [--web] [--yes]
-muxr self-host --configure-only --advertise <ws-url> [--port <n>]
+muxr self-host --configure-only --advertise <ws-url> [--port <n>] [--loopback] [--install-herdr]
 ```
 
 For a headless cloud machine with Herdr and Tailscale already set up, configure

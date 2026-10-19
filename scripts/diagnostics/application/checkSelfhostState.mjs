@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
+import { waitForRelay } from './waitForRelay.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-selfhost-state-'));
 process.env.MUXR_HOME = scratch;
@@ -206,6 +207,36 @@ try {
     } finally {
         await stopOwnedSelfhostRelay();
         process.env.MUXR_HOME = scratch;
+    }
+
+    // A cloud computer the phone created: Tailscale Serve forwards the tailnet
+    // port to loopback, so the foreground unit binds 127.0.0.1 with no tailnet
+    // address present, and the record is as final as a tailnet bind.
+    const serveHome = join(scratch, 'serve-headless');
+    mkdirSync(serveHome, { mode: 0o700 });
+    const serveEnvironment = { ...environment, HOME: serveHome, MUXR_HOME: serveHome };
+    const servePort = await new Promise((resolve) => {
+        const probe = createServer();
+        probe.listen(0, '127.0.0.1', () => {
+            const { port } = probe.address();
+            probe.close(() => resolve(port));
+        });
+    });
+    const serveRun = (args) => execFileSync(process.execPath, [cli, 'self-host', ...args], { env: serveEnvironment, encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] });
+    assert.throws(() => serveRun(['--configure-only', '--loopback', '--advertise', `ws://100.127.255.254:${servePort}`, '--port', String(servePort)]), /--loopback needs/);
+    assert.match(serveRun(['--configure-only', '--loopback', '--advertise', `ws://box.tail1234.ts.net:${servePort}`, '--port', String(servePort)]), /bind 127\.0\.0\.1:\d+, Tailscale Serve/);
+    const served = JSON.parse(readFileSync(join(serveHome, 'selfhost.json'), 'utf8'));
+    assert.equal(served.bindHost, '127.0.0.1');
+    assert.equal(served.relayUrl, `ws://box.tail1234.ts.net:${servePort}`);
+    assert.throws(() => serveRun([]), /runs headless on Tailscale/);
+    const serveUp = spawn(process.execPath, [cli, 'up'], { env: { ...serveEnvironment, MUXR_MODE: 'relay' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const serveClosed = once(serveUp, 'exit');
+    try {
+        assert.equal(await waitForRelay(serveUp), servePort, 'the foreground unit did not serve its relay on loopback');
+        assert.equal((await fetch(`http://127.0.0.1:${servePort}/health`, { signal: AbortSignal.timeout(2_000) }).then((response) => response.json())).ok, true);
+    } finally {
+        serveUp.kill('SIGTERM');
+        await serveClosed;
     }
 } finally {
     await new Promise((resolve) => occupied.close(resolve));
