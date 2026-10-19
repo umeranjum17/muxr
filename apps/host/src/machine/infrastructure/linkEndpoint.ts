@@ -477,7 +477,12 @@ export class LinkEndpoint {
     notifyGeneral(input: GeneralNoticeInput): number {
         if (this.client === undefined) return 0;
         const crypto = this.currentCrypto();
-        const recipients = this.host.devices().filter((grant) => trusted(grant, crypto));
+        const recipients = this.host.devices().filter((grant) => {
+            if (!trusted(grant, crypto)) return false;
+            // Only a device that registered for push has a relay address; count just those.
+            const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
+            return device?.pushLevel !== undefined;
+        });
         if (recipients.length === 0) return 0;
         const notice = (url: string | undefined) => generalNoticeEnvelope(
             url === undefined ? { title: input.title, body: input.body, id: input.id, machineId: input.machineId } : { ...input, url });
