@@ -78,6 +78,9 @@ rules, with no H2 sections.
   the tapped password field stays above the keyboard and takes typed text.
 - [Hand a conversation to another computer](./session-handoff.md) —
   the agent writes its own handoff note over a real lab Herdr with a stand-in agent; busy agents refused with handoff-busy and no prompt sent.
+- [Approve a lab device pairing from the lab helper](./lab-device-approval.md) —
+  the lab helper hands its pairing offer to an external device and answers the
+  computer approval; the host reports the device it approved.
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
 - [Keep a source-build host off the real muxr home](./host-home-guard.md) —

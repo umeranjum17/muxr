@@ -68,6 +68,43 @@ export async function linkLabClient(socketPath, onEvent, deadline = Date.now() +
     }
 }
 
+/** A native code lasts about two minutes, so a device has that long to approve it. */
+const APPROVAL_WAIT_MS = 120_000;
+
+/**
+ * The computer side for a device this client does not run itself, such as the
+ * Android app pairing from a lab offer. Each offer goes to `presentOffer`; the
+ * computer's approval is answered yes; the host's result resolves with the
+ * device record it approved once that device has proven itself on the link.
+ */
+export async function approveLabOffer(socketPath, presentOffer, deadline = Date.now() + APPROVAL_WAIT_MS) {
+    const socket = createConnection(socketPath);
+    let text = '';
+    let result;
+    let error;
+    socket.on('data', (chunk) => {
+        text += chunk.toString('utf8');
+        const lines = text.split('\n');
+        text = lines.pop() ?? '';
+        for (const line of lines) {
+            const event = JSON.parse(line);
+            if (event.offer) presentOffer(event.offer.text);
+            if (event.approval) socket.write(`${JSON.stringify({ yes: true })}\n`);
+            if (event.result) result = event.result;
+            if (event.error) error = event.error;
+        }
+    });
+    socket.on('error', (cause) => { error = cause.message; });
+    const connected = new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject); });
+    try {
+        await connected;
+        socket.write(`${JSON.stringify({ intent: { kind: 'native', authority: 'control', personal: false }, lab: true })}\n`);
+        return await until(() => { if (error) throw new Error(error); return result; }, 'approved device pairing', deadline);
+    } finally {
+        socket.destroy();
+    }
+}
+
 export async function requestLab(device, type, params = {}) {
     const frame = await device.request(type, { type, requestId: nextRequestId('lab'), params });
     if (frame?.type !== 'result') throw new Error(`unexpected ${type} answer`);
