@@ -1,7 +1,13 @@
 import { getWebSecret, listWebSecretNames } from '../pairing/infrastructure/webSecureStore';
-import { openLifecycleNotice } from './openLifecycleNotice';
+import { isOpenableNotifyUrl, openLifecycleNotice } from './openLifecycleNotice';
 
-declare const self: { openLifecyclePush: (payload: unknown) => Promise<ReturnType<typeof openLifecycleNotice>> };
+declare const self: {
+    openLifecyclePush: (payload: unknown) => Promise<ReturnType<typeof openLifecycleNotice>>;
+    // The same link acceptance the native tap applies, so a web tap opens exactly what native does.
+    isOpenableNoticeUrl: typeof isOpenableNotifyUrl;
+};
+
+self.isOpenableNoticeUrl = isOpenableNotifyUrl;
 
 self.openLifecyclePush = async (payload) => {
     try {
