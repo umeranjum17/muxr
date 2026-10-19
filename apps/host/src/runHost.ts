@@ -565,6 +565,23 @@ async function main(): Promise<void> {
         defaultStartFolder: currentDefaultStartFolder,
     });
 
+    // The saved folder reaches a phone already paired as a notice to refetch
+    // machines.list: pairing stays non-blocking, so the folder can be answered
+    // after the phone last read the catalog.
+    let announcedStartFolder = currentDefaultStartFolder();
+    const announceStartFolder = (): void => {
+        let folder: string | undefined;
+        try {
+            folder = liveDefaultStartFolder(process.env);
+        } catch {
+            return;
+        }
+        if (folder === announcedStartFolder) return;
+        announcedStartFolder = folder;
+        host.broadcastFrame({ type: 'machines.changed' });
+    };
+    stateFilePolls.push(setInterval(announceStartFolder, 2_000));
+
     // A dead host must never leave --takeover streams holding the desk's panes.
     let shuttingDown = false;
     let pairingServer: { close(): Promise<void> } | undefined;
