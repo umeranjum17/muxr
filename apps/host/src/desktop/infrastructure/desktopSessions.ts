@@ -293,7 +293,7 @@ export class DesktopSessions {
                 return undefined;
             }
         };
-        const idleBeforeOpen = this.opening === 0;
+        const idleBeforeOpen = this.opening === 0 || this.client === null;
         this.opening += 1;
         let client: EngineClient;
         let restoreToken: string | undefined;

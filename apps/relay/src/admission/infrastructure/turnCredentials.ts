@@ -31,7 +31,7 @@ export async function readTurnConfig(dataDir: string): Promise<{ urls: string[];
  * `use-auth-secret`: the username is `<expiry>:<who>`, the password its
  * HMAC-SHA1 under the shared secret. The secret itself never leaves the relay.
  */
-export function mintIceServers(turn: { urls: string[]; secret?: string }, who: string, nowMs: number): { iceServers: IceServer[]; ttlSeconds: number } {
+export function mintIceServers(turn: { urls: string[]; secret?: string }, who: string, nowMs: number): IceServer[] {
     const stun = turn.urls.filter((url) => url.startsWith('stun:'));
     const relayed = turn.urls.filter((url) => !url.startsWith('stun:'));
     const iceServers: IceServer[] = stun.length === 0 ? [] : [{ urls: stun }];
@@ -39,5 +39,5 @@ export function mintIceServers(turn: { urls: string[]; secret?: string }, who: s
         const username = `${Math.floor(nowMs / 1000) + TURN_TTL_SECONDS}:${who}`;
         iceServers.push({ urls: relayed, username, credential: createHmac('sha1', turn.secret).update(username).digest('base64') });
     }
-    return { iceServers, ttlSeconds: TURN_TTL_SECONDS };
+    return iceServers;
 }

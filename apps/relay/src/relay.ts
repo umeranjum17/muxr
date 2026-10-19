@@ -214,8 +214,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 try { turn = await readTurnConfig(config.dataDir); }
                 catch (error) { writeJsonError(res, 500, `the relay's turn.json is unusable: ${error instanceof Error ? error.message : String(error)}`); return; }
                 if (turn === undefined) { writeJsonError(res, 404, 'turn_not_configured'); return; }
-                const minted = mintIceServers(turn, machine?.slug ?? 'owner', Date.now());
-                writeJson(res, 200, { ice_servers: minted.iceServers, ttl_seconds: minted.ttlSeconds }); return;
+                writeJson(res, 200, { ice_servers: mintIceServers(turn, machine?.slug ?? 'owner', Date.now()) }); return;
             }
             if (url.pathname === '/v1/selfhost/machines' && req.method === 'GET') {
                 if (!owner(req)) { writeJsonError(res, 403, 'relay owner required'); return; }
