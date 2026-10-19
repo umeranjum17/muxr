@@ -73,13 +73,17 @@ const APPROVAL_WAIT_MS = 120_000;
 
 /**
  * The computer side for a device this client does not run itself, such as the
- * Android app pairing from a lab offer. Each offer goes to `presentOffer`; the
- * computer's approval is answered yes; the host's result resolves with the
- * device record it approved once that device has proven itself on the link.
+ * Android app pairing from a lab offer. Only the first offer goes to
+ * `presentOffer`: the host mints a fresh code once it answers, and handing that
+ * one to a device already pairing restarts its consent screen on a code this
+ * call no longer serves. The computer's approval is answered yes; the host's
+ * result resolves with the device record it approved once that device has
+ * proven itself on the link.
  */
 export async function approveLabOffer(socketPath, presentOffer, deadline = Date.now() + APPROVAL_WAIT_MS) {
     const socket = createConnection(socketPath);
     let text = '';
+    let offered = false;
     let result;
     let error;
     socket.on('data', (chunk) => {
@@ -87,11 +91,14 @@ export async function approveLabOffer(socketPath, presentOffer, deadline = Date.
         const lines = text.split('\n');
         text = lines.pop() ?? '';
         for (const line of lines) {
-            const event = JSON.parse(line);
-            if (event.offer) presentOffer(event.offer.text);
-            if (event.approval) socket.write(`${JSON.stringify({ yes: true })}\n`);
-            if (event.result) result = event.result;
-            if (event.error) error = event.error;
+            // A line that cannot be handled ends this pairing rather than the process, so the caller's cleanup still runs.
+            try {
+                const event = JSON.parse(line);
+                if (event.offer && !offered) { offered = true; presentOffer(event.offer.text); }
+                if (event.approval) socket.write(`${JSON.stringify({ yes: true })}\n`);
+                if (event.result) result = event.result;
+                if (event.error) error = event.error;
+            } catch (cause) { error = cause instanceof Error ? cause.message : String(cause); return; }
         }
     });
     socket.on('error', (cause) => { error = cause.message; });

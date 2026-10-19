@@ -4,7 +4,7 @@ The lab helper can hand its pairing offer to an external device, such as the And
 
 ## Sub-features
 
-- `approveLabOffer` in `scripts/diagnostics/application/linkLabClient.mjs` sends each offer to the caller, answers `{"approval"}` with `{"yes":true}`, and resolves with the host's `result` record.
+- `approveLabOffer` in `scripts/diagnostics/application/linkLabClient.mjs` hands the first offer to the caller, answers `{"approval"}` with `{"yes":true}`, and resolves with the host's `result` record.
 - `linkHerdrLab(root, label, onEvent, beforeHost, hostEnv, presentOffer)` in `linkHerdrLab.mjs` takes the offer callback. Without it the helper pairs itself, as before. With it the returned `approved` is the device record and `link` is undefined.
 
 ## How to get to it (user POV)
@@ -23,5 +23,6 @@ Preconditions: a guarded non-default Herdr lab from `fm-herdr-lab.sh` with `HERD
 ## Gotchas
 
 - The offer is a pairing credential for its lifetime (about two minutes). Keep it out of logs and evidence.
+- `presentOffer` is called once, with the first offer. The host mints a fresh code after it answers the approval, and `approveLabOffer` does not hand that one over: delivering it to a device already pairing drops it back to a consent card for a code this call no longer serves.
 - The approval wait is 120 s from the call. A device that never pairs fails the call with `timed out: approved device pairing`.
 - A scratch driver that stands in for the device with `@byokit/pair` proves the approval step, not the Android app's own pairing UI.
