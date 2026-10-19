@@ -2,10 +2,13 @@
   "name": "muxr",
   "short_name": "muxr",
   "description": "Every coding agent on your phone — paired browser client for your own muxr host.",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
+  "categories": ["productivity", "developer"],
+  "launch_handler": { "client_mode": "navigate-existing" },
   "theme_color": "#000000",
   "background_color": "#F2F2F7",
   "icons": [

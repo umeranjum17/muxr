@@ -22,6 +22,8 @@ deletes the old caches).
   `muxr-shell-<hash>`, and deletes the previous caches on activate.
 - Relay, link, API and `/health` traffic is never cached.
 - Push and notification-click behaviour is unchanged.
+- With `navigator.onLine === false` Home's connecting and unreachable cards read "You're offline" (no restart command, no blame on the computer). Prove: pair via the lab hook, `emulate --network Offline`, force `Navigator.prototype.onLine` false and dispatch `offline` (CDP offline leaves `onLine` true), wait past 5 s.
+- The finalized shell carries a light/dark `theme-color` pair equal to the splash colours; the manifest has `id`, `launch_handler` and `categories`.
 
 ## How to get to it (user POV)
 

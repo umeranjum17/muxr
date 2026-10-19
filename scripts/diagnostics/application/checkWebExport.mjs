@@ -149,7 +149,7 @@ if (!existsSync(distIndex)) {
     check('dist service worker carries a build shell version', /const SHELL_VERSION = '[0-9a-f]{16}'/.test(distWorker));
     check('dist service worker omits the unfinalized version token', !distWorker.includes('__MUXR_SHELL_VERSION__'));
     check('dist index links the manifest', distHtml.includes('<link rel="manifest" href="/manifest.webmanifest">'));
-    check('dist index theme-color', distHtml.includes('name="theme-color"'));
+    check('dist index theme-color follows the system scheme', distHtml.includes('name="theme-color" media="(prefers-color-scheme: light)" content="#F2F2F7"') && distHtml.includes('name="theme-color" media="(prefers-color-scheme: dark)" content="#000000"') && (distHtml.match(/name="theme-color"/g) ?? []).length === 2);
     check('dist index iOS web-app metadata', distHtml.includes('apple-mobile-web-app-capable') && distHtml.includes('rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"'));
     check('dist index viewport resizes content for the keyboard', /<meta name="viewport" content="[^"]*interactive-widget=resizes-content[^"]*"/.test(distHtml));
     check('dist index has exactly one viewport meta', (distHtml.match(/<meta name="viewport"/g) ?? []).length === 1);
