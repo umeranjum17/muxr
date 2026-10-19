@@ -44,6 +44,9 @@ without a terminal.
   Tailscale is signed out or removed moves back to the Wi-Fi address with the
   sentence, while an unclear probe (daemon not up yet) keeps the stored route.
   Serve is never touched.
+- The page a newcomer downloads from, `/desktop`, names the FUSE 2
+  requirement beside the download: the computer needs `libfuse2`, and without it
+  the file starts with `--appimage-extract-and-run`.
 - Keep-awake and Start-at-login toggles persist and act immediately; autostart
   writes an XDG autostart entry pointing at the AppImage.
 - Closing the window keeps the relay and host running in the tray.
@@ -102,6 +105,12 @@ APK.
    `window.muxr.quit()` (pair.sock stays) and relaunch over it. Poll the card
    text every 50 ms: the old raw `connect ECONNREFUSED …/pair.sock` card lived
    about 3 s, so a coarse poll misses it.
+9. FUSE-less download copy: open the lab site's `/desktop` with the catalog
+   fixture from [add-your-computer.md](./add-your-computer.md) (its
+   Preconditions, naming this local AppImage as the stable `linux` asset) and
+   read the sentence beside **Download for Linux**: `libfuse2` is named, and so
+   is starting the file with `--appimage-extract-and-run`. Then start that
+   AppImage on this FUSE-less host with the flag and reach Ready to pair.
 
 ## Gotchas
 
