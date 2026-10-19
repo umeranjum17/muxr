@@ -22,7 +22,7 @@ export function isOpenableNotifyUrl(value: unknown): value is string {
     if (url.protocol === 'https:') return true;
     if (url.protocol !== 'http:') return false;
     const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    return host === 'localhost' || host === '::1' || /^127\./.test(host) || host.endsWith('.ts.net');
+    return host === 'localhost' || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host) || host.endsWith('.ts.net');
 }
 
 export function openLifecycleNotice(payload: unknown, grants: Iterable<{ machineId: string; deviceKey: { secretKey: string } }>): LifecycleNotice {

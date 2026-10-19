@@ -57,7 +57,9 @@ describe('general notification seal agreement', () => {
     it('only opens loopback/tailnet http and any https link', () => {
         expect(isOpenableNotifyUrl('https://example.com/a')).toBe(true);
         expect(isOpenableNotifyUrl('http://localhost:3000/a')).toBe(true);
+        expect(isOpenableNotifyUrl('http://127.0.0.1:3000/a')).toBe(true);
         expect(isOpenableNotifyUrl('http://desk.ts.net/a')).toBe(true);
+        expect(isOpenableNotifyUrl('http://127.0.0.1.attacker.example/a')).toBe(false);
         expect(isOpenableNotifyUrl('http://192.168.1.2/a')).toBe(false);
         expect(isOpenableNotifyUrl('ftp://x/y')).toBe(false);
         expect(isOpenableNotifyUrl(undefined)).toBe(false);

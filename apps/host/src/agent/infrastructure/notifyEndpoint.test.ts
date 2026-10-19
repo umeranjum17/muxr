@@ -57,6 +57,7 @@ describe('POST /v1/notify', () => {
 
         expect(await (await post({ title: '' }, token)).status).toBe(400);
         expect(await (await post({ title: 'Hello', url: 'ftp://x/y' }, token)).status).toBe(400);
+        expect(await (await post({ title: 'Hello', url: 'http://127.0.0.1.attacker.example/x' }, token)).status).toBe(400);
         expect(await (await post({ title: 'Hi', id: '_note' }, token)).status).toBe(400);
         expect(await (await post('not json', token)).status).toBe(400);
 

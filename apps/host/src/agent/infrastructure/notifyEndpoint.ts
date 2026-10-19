@@ -59,7 +59,7 @@ export function allowedNotifyUrl(value: string): boolean {
     if (url.protocol === 'https:') return true;
     if (url.protocol !== 'http:') return false;
     const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    return host === 'localhost' || host === '::1' || /^127\./.test(host) || host.endsWith('.ts.net');
+    return host === 'localhost' || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host) || host.endsWith('.ts.net');
 }
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
