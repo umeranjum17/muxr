@@ -5,10 +5,10 @@ real agent (never Shell) is ready on the connected computer — installed and
 signed in, per the host's `herdr.agentKinds` readiness, with Pi never the
 automatic choice — the card's primary button reads `Start <agent>` and starts
 it straight away in the last folder, else the setup-chosen folder on that
-computer, else `~`, with no picker. When none is
-ready it says in one plain sentence what to do for the best candidate (sign in
-on the computer, choose the installed one, or install one), keeps `Check again`
-for the steps the computer must finish, and keeps the full picker one tap away.
+computer, else `~`, with no picker. When none is ready it says in one plain
+sentence what to do for the best candidate (sign in on the computer, choose the
+installed one, or install one), keeps `Check again` for the steps the computer
+must finish, and keeps the full picker one tap away.
 The offer is `firstAgentOffer` in `apps/mobile/sources/spawn/application/homeDockEnvironment.ts`;
 the card is `FirstAgentCard` in `apps/mobile/sources/herd/presentation/HomeFirstRunCards.tsx`.
 
