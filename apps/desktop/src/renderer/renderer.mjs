@@ -96,9 +96,11 @@ window.muxr.onState((state) => {
     const askProject = state.needsProjectFolder === true;
     cards.project.hidden = !askProject;
     if (askProject) {
-        if (!projectShown && typeof state.projectFolderSuggestion === 'string') projectInput.value = state.projectFolderSuggestion;
+        if (!projectShown) {
+            if (typeof state.projectFolderSuggestion === 'string') projectInput.value = state.projectFolderSuggestion;
+            projectError.hidden = true;
+        }
         projectNoRepo.hidden = state.projectFolderNoRepo !== true;
-        projectError.hidden = true;
     }
     projectShown = askProject;
     if (state.phase === 'starting') { show('starting'); }

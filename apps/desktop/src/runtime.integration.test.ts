@@ -461,7 +461,7 @@ describe('desktop setup project folder', () => {
     it('preselects the most recently used git repo and saves the choice beside host state', () => {
         const home = mkdtempSync(join(tmpdir(), 'muxr-desktop-projects-'));
         repo(home, 'old-notes', 1_700_000_000_000);
-        const freshRepo = repo(home, 'api', 1_790_000_000_000);
+        const freshRepo = repo(home, 'zz-api', 1_790_000_000_000);
         mkdirSync(join(home, 'not-a-repo'));
         expect(suggestProjectFolder(home)).toBe(freshRepo);
 
@@ -483,12 +483,15 @@ describe('desktop setup project folder', () => {
         expect(suggestProjectFolder(crowdedHome)).toBeNull();
 
         const muxrHome = mkdtempSync(join(tmpdir(), 'muxr-desktop-home-'));
+        writeFileSync(join(muxrHome, 'config.json'), `${JSON.stringify({ mode: 'selfhost' })}\n`, { mode: 0o600 });
         expect(readSavedFolder(muxrHome)).toBeUndefined();
         expect(saveFolder(muxrHome, freshRepo)).toBe(freshRepo);
         expect(readSavedFolder(muxrHome)).toBe(freshRepo);
         // A later answer replaces the earlier one; other keys survive.
         expect(saveFolder(muxrHome, '~')).toBe('~');
-        expect(JSON.parse(readFileSync(join(muxrHome, 'config.json'), 'utf8')).defaultStartFolder).toBe('~');
+        const saved = JSON.parse(readFileSync(join(muxrHome, 'config.json'), 'utf8'));
+        expect(saved.defaultStartFolder).toBe('~');
+        expect(saved.mode).toBe('selfhost');
     });
 
     it('finds nothing to preselect without a repo and refuses a bad folder', () => {
