@@ -9,6 +9,9 @@
  *
  * URLs are unguessable one-time capabilities (16 random bytes, 5min TTL) --
  * no auth header, because anchor downloads can't set any.
+ *
+ * The same loopback listener serves `POST /v1/notify` (see `notifyEndpoint.ts`),
+ * which does require a bearer token; there is no second server.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
