@@ -130,9 +130,10 @@ APK.
   fail; unset every `HERDR_*` variable before launching. For the with-Herdr
   timing, set `HERDR_SOCKET_PATH` to the lab session's own socket (from the lab
   helper's `session list --json`), never the default one.
-- Without libfuse2 the AppImage cannot mount; extract it once with
-  `--appimage-extract` and launch its `muxr` binary, so extraction never lands
-  inside the launch→Ready timing.
+- Without libfuse2 the AppImage cannot mount: `--appimage-extract-and-run`
+  starts it, but that re-extracts on every launch, which would land inside the
+  launch→Ready timing. Extract it once with `--appimage-extract` and launch its
+  `muxr` binary instead, and use the flag only for the `/desktop` copy check.
 - Keep the lab `TMPDIR` short. Chromium puts its singleton socket under it, and
   a socket path past the 108-byte limit kills the app at launch with SIGTRAP
   and an empty log (`coredumpctl list` shows it).
