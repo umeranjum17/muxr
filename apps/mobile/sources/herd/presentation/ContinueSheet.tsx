@@ -30,9 +30,9 @@ function mapHomePath(path: string | undefined, sourceHome: string | undefined, t
     return { cwd: `${target}${separator}${relative.replace(/[/\\]+/g, separator)}`, folder: `~/${relative.replace(/\\/g, '/')}` };
 }
 
-/** Close the source only while it is at rest (strict: isSessionIdle also counts blocked/failed). Returns a notice when it stays open. */
 type Ask = { title: string; message: string; confirmText: string; resolve: (yes: boolean) => void };
 
+/** Close the source only while it is at rest (strict: isSessionIdle also counts blocked/failed). Returns a notice when it stays open. */
 async function retireSource(sessionId: string, sourceName: string, ask: (prompt: Omit<Ask, 'resolve'>) => Promise<boolean>): Promise<string | undefined> {
     const kept = (why: string) => `${why} It is still open on ${sourceName}. Close it when you are done.`;
     try {
