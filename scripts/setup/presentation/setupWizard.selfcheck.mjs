@@ -215,7 +215,7 @@ async function checkWizard() {
         const installed = await run(['2', 'b', () => { tailscaleInstalled = true; tailscaleConnected = true; return ''; }, '']);
         assert.match(installed, /Check again[\s\S]*Tailscale isn't on this computer yet\. Install it from https:\/\/tailscale\.com\/download and sign in, then press Enter to check again\.[\s\S]*Use muxr away from home \(Tailscale\) · Recommended/);
         recommended(installed, 'Use muxr away from home (Tailscale)');
-        assert.doesNotMatch(installed, /Apply this setup\?/);
+        assert.doesNotMatch(installed, /Works only on this Wi-Fi|Apply this setup\?/);
         assert.deepEqual([...installed.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
             ['1', '2', '2', '2', '2', '3'].map((step) => [step, '3']));
         assert.deepEqual(calls.find(([name]) => name === 'start')[1].slice(0, 4), ['--port', '18792', '--connection-mode', 'tailscale']);
@@ -254,6 +254,7 @@ async function checkWizard() {
         // second confirmation, then the plain final receipt.
         const completed = await run(['2', '6', 'wss://relay.example']);
         assert.match(completed, /Other ways[\s\S]*Use muxr away from home \(your own server\)/);
+        assert.match(completed, /Works only on this Wi-Fi/);
         lan = undefined;
         assert.deepEqual([...completed.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
             ['1', '2', '2', '3'].map((step) => [step, '3']));
