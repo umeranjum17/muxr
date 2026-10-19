@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionButton } from '@/components/ActionButton';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/account/ui';
-import { pairLinkOffer } from '@/pairing/application/usePairing';
+import { pairLinkOffer } from '@/pairing';
 import { getNativeSecret, setNativeSecret } from '@/pairing/secrets';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { Typography } from '@/constants/Typography';
