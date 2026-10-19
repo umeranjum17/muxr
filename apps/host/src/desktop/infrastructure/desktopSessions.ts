@@ -315,8 +315,8 @@ export class DesktopSessions {
             }
         };
         const restoreToken = takeGrant();
-        const iceServers = await this.iceServers();
         this.opening += 1;
+        const iceServers = await this.iceServers();
         const openParams = {
             permissions: request.permissions,
             ...(iceServers.length === 0 ? {} : { iceServers }),
