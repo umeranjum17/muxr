@@ -273,7 +273,8 @@ rules, with no H2 sections.
   first, whole-item wrap, no ellipsis, at 270dp and font 1.3/2.0, both themes.
 - [Count local activity without loading the computer](./usage-backend-runs-quietly.md) —
   the ccusage backend runs only for an open Usage screen, one run at a time, at
-  idle priority, blind to the ledger's stores: flow test plus a /proc memory proof.
+  idle priority, blind to the ledger's stores, under a 1 GB cap; the ledger counts in
+  an idle child off the host loop: flow tests plus a /proc memory proof.
 - [Read a space's agent count whole on Home](./home-spaces-count.md) —
   native app and PWA over a fake-Herdr stack: the count stays whole while the
   path chip ellipsizes, at 270 and 393 wide and font 1.3/2.0, both themes.
