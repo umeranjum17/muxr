@@ -471,7 +471,7 @@ index 2d3ed62..2ad59fa 100644
    internal fun setTheme(theme: TerminalThemeRecord?) = terminal.setTheme(
      foreground = theme?.foreground,
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
-index 9d6ad16..2167e22 100644
+index 9d6ad16..f444b52 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 @@ -9,7 +9,11 @@ import android.graphics.Canvas
@@ -649,16 +649,37 @@ index 9d6ad16..2167e22 100644
        blinkPhaseOn = !blinkPhaseOn
        invalidate()
        postDelayed(this, BLINK_INTERVAL_MS)
-@@ -166,7 +259,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
-       val deltaRows = (scrollAccum / cellHeight).toInt()
+@@ -150,6 +243,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+   // ── Scrollback state ──
+   private val scroller = OverScroller(context)
+   private var flingLastY = 0
++  // A fling through local history runs in rows, not pixels, so it covers
++  // hundreds of rows and settles fast instead of crawling at the end.
++  private var flingInRows = false
+   private var scrollbarTotal = 0L
+   private var scrollbarOffset = 0L
+   private var scrollbarLen = 0L
+@@ -161,12 +257,15 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+     override fun run() {
+       if (handle == 0L || !scroller.computeScrollOffset()) return
+       val y = scroller.currY
+-      scrollAccum += (y - flingLastY).toFloat()
++      val deltaRows = if (flingInRows) {
++        y - flingLastY
++      } else {
++        scrollAccum += (y - flingLastY).toFloat()
++        (scrollAccum / cellHeight).toInt().also { scrollAccum -= it * cellHeight }
++      }
+       flingLastY = y
+-      val deltaRows = (scrollAccum / cellHeight).toInt()
        if (deltaRows != 0) {
-         scrollAccum -= deltaRows * cellHeight
+-        scrollAccum -= deltaRows * cellHeight
 -        GhosttyVt.nativeScroll(handle, deltaRows)
 +        scrollRows(deltaRows)
          markScrollActivity()
          scheduleFrame()
        }
-@@ -180,7 +273,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -180,7 +279,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        override fun onDown(e: MotionEvent) = true
  
        override fun onSingleTapUp(e: MotionEvent): Boolean {
@@ -667,7 +688,7 @@ index 9d6ad16..2167e22 100644
            val (cx, cy) = jumpChipCenter()
            val slop = JUMP_CHIP_RADIUS_DP * 1.5f * resources.displayMetrics.density
            if (hypot(e.x - cx, e.y - cy) <= slop) {
-@@ -193,9 +286,17 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -193,9 +292,17 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
            clearSelection()
            return true
          }
@@ -687,7 +708,7 @@ index 9d6ad16..2167e22 100644
          return true
        }
  
-@@ -204,7 +305,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -204,7 +311,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          lastPressCol = (e.x / cellWidth).toInt().coerceIn(0, cols - 1)
          lastPressRow = (e.y / cellHeight).toInt().coerceIn(0, rows - 1)
          performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -702,7 +723,7 @@ index 9d6ad16..2167e22 100644
          scheduleFrame()
          if (selectionMode) {
            // Keep dragging without lifting: extend from the pressed cell.
-@@ -229,7 +336,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -229,7 +342,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          val deltaRows = (scrollAccum / cellHeight).toInt()
          if (deltaRows != 0) {
            scrollAccum -= deltaRows * cellHeight
@@ -711,7 +732,18 @@ index 9d6ad16..2167e22 100644
            markScrollActivity()
            scheduleFrame()
          }
-@@ -262,11 +369,19 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -245,7 +358,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+         if (handle == 0L || scaleDetector.isInProgress) return false
+         // Finger up (negative velocity) scrolls content down: invert.
+         flingLastY = 0
+-        scroller.fling(0, 0, 0, -velocityY.toInt(), 0, 0, Int.MIN_VALUE, Int.MAX_VALUE)
++        flingInRows = scrollsLocally(if (velocityY > 0) -1 else 1)
++        val velocity = if (flingInRows) velocityY * FLING_ROWS_PER_PX else velocityY
++        scroller.fling(0, 0, 0, -velocity.toInt(), 0, 0, Int.MIN_VALUE, Int.MAX_VALUE)
+         postOnAnimation(flingRunnable)
+         return true
+       }
+@@ -262,11 +377,19 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
          pinchScale = 1f
          pinchLastScale = 1f
@@ -731,7 +763,7 @@ index 9d6ad16..2167e22 100644
          val steps = ((pinchScale - pinchLastScale) / PINCH_SCALE_STEP).toInt()
          if (steps != 0) {
            pinchLastScale += steps * PINCH_SCALE_STEP
-@@ -274,6 +389,10 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -274,6 +397,10 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          }
          return true
        }
@@ -742,7 +774,7 @@ index 9d6ad16..2167e22 100644
      }
    )
  
-@@ -285,6 +404,28 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -285,6 +412,28 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private fun newTextPaint(typeface: Typeface) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
      this.typeface = typeface
      textSize = fontSizeDp * resources.displayMetrics.density
@@ -771,7 +803,7 @@ index 9d6ad16..2167e22 100644
    }
  
    /**
-@@ -300,7 +441,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -300,7 +449,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      for (paint in arrayOf(textPaint, boldPaint, italicPaint, boldItalicPaint, symbolsPaint)) {
        paint?.textSize = px
      }
@@ -780,7 +812,7 @@ index 9d6ad16..2167e22 100644
      cellHeight = ceil(textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent).toInt()
      baseline = -textPaint.fontMetrics.ascent
      // Cell geometry moved under any active selection handles.
-@@ -329,7 +470,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -329,7 +478,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      selectionFg = selectionForeground
        ?.let { GhosttyVt.nativeParseColor(it) }
        ?.takeIf { it != 0 }
@@ -791,7 +823,7 @@ index 9d6ad16..2167e22 100644
      scheduleFrame()
    }
  
-@@ -339,9 +482,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -339,9 +490,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    fun write(data: ByteArray) {
      if (handle == 0L) return
      val response = GhosttyVt.nativeWrite(handle, data)
@@ -803,7 +835,7 @@ index 9d6ad16..2167e22 100644
      holdBlinkSolid()
      scheduleFrame()
    }
-@@ -361,16 +506,24 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -361,16 +514,24 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      scroller.abortAnimation()
      removeCallbacks(flingRunnable)
      actionMode?.finish()
@@ -828,7 +860,7 @@ index 9d6ad16..2167e22 100644
        if (handle != 0L && scrollbarOffset + scrollbarLen < scrollbarTotal) {
          GhosttyVt.nativeScrollToBottom(handle)
          scheduleFrame()
-@@ -380,6 +533,69 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -380,6 +541,72 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -850,7 +882,7 @@ index 9d6ad16..2167e22 100644
 +      GhosttyVt.nativeScroll(handle, deltaRows)
 +      return
 +    }
-+    if (localHistory && mirror != 0L && (showingMirror || (deltaRows < 0 && mirrorHasHistory()))) {
++    if (scrollsLocally(deltaRows)) {
 +      if (!showingMirror) {
 +        if (selectionMode) clearSelection()
 +        showingMirror = true
@@ -864,6 +896,9 @@ index 9d6ad16..2167e22 100644
 +    if (deltaRows < 0) GhosttyVt.nativeMirrorPause(handle, true)
 +    remote(deltaRows)
 +  }
++
++  private fun scrollsLocally(deltaRows: Int): Boolean =
++    localHistory && mirror != 0L && (showingMirror || (deltaRows < 0 && mirrorHasHistory()))
 +
 +  private fun mirrorHasHistory(): Boolean =
 +    GhosttyVt.nativeScrollbar(mirror)?.let { it[0] > it[2] } ?: false
@@ -898,7 +933,7 @@ index 9d6ad16..2167e22 100644
    private fun markScrollActivity() {
      lastScrollActivityAt = android.os.SystemClock.uptimeMillis()
    }
-@@ -454,10 +670,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -454,10 +681,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      val changed = newCols != cols || newRows != rows
      cols = newCols
      rows = newRows
@@ -912,7 +947,7 @@ index 9d6ad16..2167e22 100644
      }
      scheduleFrame()
    }
-@@ -465,9 +682,27 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -465,9 +693,27 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private fun allocateGridBuffers() {
      val widthPx = max(1, ceil(cols * cellWidth).toInt())
      val heightPx = max(1, rows * cellHeight)
@@ -943,7 +978,7 @@ index 9d6ad16..2167e22 100644
      }
      val capacity = HEADER_BYTES +
        rows * (ROW_HEADER_BYTES + cols * CELL_RECORD_BYTES + cols * MAX_CELL_TEXT_UNITS * 2 + 4)
-@@ -481,6 +716,10 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -481,6 +727,10 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      rowSelStart = IntArray(rows) { -1 }
      rowSelEnd = IntArray(rows) { -1 }
      rowSelEndWide = BooleanArray(rows)
@@ -954,7 +989,7 @@ index 9d6ad16..2167e22 100644
    }
  
    // ── Rendering ──
-@@ -493,16 +732,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -493,16 +743,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun renderFrame() {
      val buf = snapshotBuf ?: return
@@ -976,7 +1011,7 @@ index 9d6ad16..2167e22 100644
  
      buf.position(0)
      buf.int // version
-@@ -520,12 +761,200 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -520,12 +772,200 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      cursorColor = buf.int
      syncBlinkTimer()
  
@@ -1179,7 +1214,7 @@ index 9d6ad16..2167e22 100644
    // ── Selection ──
  
    /** Top-left / bottom-right cells of the rendered selection, or null. */
-@@ -558,7 +987,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -558,7 +998,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
  
    private fun clearSelection() {
@@ -1188,7 +1223,7 @@ index 9d6ad16..2167e22 100644
      selectionMode = false
      draggingHandle = HANDLE_NONE
      actionMode?.finish()
-@@ -567,7 +996,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -567,7 +1007,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun selectAllContent() {
      if (handle == 0L) return
@@ -1197,7 +1232,7 @@ index 9d6ad16..2167e22 100644
        selectionMode = true
        scheduleFrame()
        actionMode?.invalidate()
-@@ -576,7 +1005,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -576,7 +1016,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun copySelection() {
      if (handle == 0L) return
@@ -1206,7 +1241,7 @@ index 9d6ad16..2167e22 100644
      val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
      clipboard.setPrimaryClip(
        ClipData.newPlainText("terminal", String(bytes, Charsets.UTF_8))
-@@ -705,7 +1134,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -705,7 +1145,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      if (handle == 0L) return
      val col = (x / cellWidth).toInt().coerceIn(0, cols - 1)
      val row = ((y / cellHeight).toInt() - dragBiasRows).coerceIn(0, rows - 1)
@@ -1215,7 +1250,7 @@ index 9d6ad16..2167e22 100644
      magnifier?.show(x, y)
      scheduleFrame()
    }
-@@ -730,6 +1159,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -730,6 +1170,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun wantsBlink(): Boolean {
      return cursorBlinks && cursorVisible && isAttachedToWindow && hasWindowFocus() &&
@@ -1223,7 +1258,7 @@ index 9d6ad16..2167e22 100644
        Settings.Global.getFloat(
          context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f
        ) != 0f
-@@ -756,9 +1186,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -756,9 +1197,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        blinkPhaseOn = true
        invalidate()
      }
@@ -1238,7 +1273,7 @@ index 9d6ad16..2167e22 100644
      }
    }
  
-@@ -777,11 +1210,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -777,11 +1221,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      syncBlinkTimer()
    }
  
@@ -1253,7 +1288,7 @@ index 9d6ad16..2167e22 100644
      if (rowIndex < rowSelStart.size) {
        rowSelStart[rowIndex] = selStart
        rowSelEnd[rowIndex] = selEnd
-@@ -836,12 +1271,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -836,12 +1282,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
      buf.position(nextRecord)
  
@@ -1275,7 +1310,7 @@ index 9d6ad16..2167e22 100644
      for (col in 0 until colCount) {
        val bg = cellBg[col]
        if (bg == defaultBg) continue
-@@ -851,12 +1292,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -851,12 +1303,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        canvas.drawRect(x, top, x + width, bottom, fillPaint)
      }
  
@@ -1300,7 +1335,7 @@ index 9d6ad16..2167e22 100644
        val paint = when {
          symbolsPaint != null &&
            (codepoint in PUA_BMP_FIRST..PUA_BMP_LAST || codepoint >= PUA_SUPPLEMENTARY_FIRST) ->
-@@ -868,23 +1317,122 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -868,23 +1328,122 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        }
        paint.color = cellFg[col]
        if (flags and FLAG_FAINT != 0) paint.alpha = 160
@@ -1432,7 +1467,7 @@ index 9d6ad16..2167e22 100644
      drawCursor(canvas)
      drawSelectionHandles(canvas)
      drawScrollIndicator(canvas)
-@@ -921,7 +1469,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -921,7 +1480,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
  
    private fun drawJumpToBottomChip(canvas: Canvas) {
@@ -1441,7 +1476,7 @@ index 9d6ad16..2167e22 100644
      val density = resources.displayMetrics.density
      val (cx, cy) = jumpChipCenter()
      val radius = JUMP_CHIP_RADIUS_DP * density
-@@ -970,6 +1518,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -970,6 +1529,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -1462,7 +1497,7 @@ index 9d6ad16..2167e22 100644
    // ── Input ──
  
    override fun onTouchEvent(event: MotionEvent): Boolean {
-@@ -1094,17 +1656,26 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1094,17 +1667,28 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -1475,6 +1510,8 @@ index 9d6ad16..2167e22 100644
      const val PINCH_SCALE_STEP = 0.1f
 +    // A reported pinch is quiet between changes smaller than this.
 +    const val PINCH_REPORT_STEP = 0.02f
++    // The reference rate for a fling in rows: a quarter of the finger's px/s.
++    const val FLING_ROWS_PER_PX = 0.25f
      const val INITIAL_COLS = 80
      const val INITIAL_ROWS = 24
      const val MAX_SCROLLBACK = 10_000L
@@ -1490,7 +1527,7 @@ index 9d6ad16..2167e22 100644
  
      // Nerd Font glyph ranges: BMP private-use area plus the supplementary
      // private-use planes (material icons live at U+F0000+ since v3).
-@@ -1131,7 +1702,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1131,7 +1715,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
  
      const val HEADER_BYTES = 52
@@ -1499,7 +1536,7 @@ index 9d6ad16..2167e22 100644
      const val CELL_RECORD_BYTES = 16
      const val MAX_CELL_TEXT_UNITS = 32
  
-@@ -1153,5 +1724,22 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1153,5 +1737,22 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val FLAG_SPACER = 1 shl 8
      const val FLAG_FG_DEFAULT = 1 shl 9
      const val FLAG_BG_NONE = 1 shl 10
