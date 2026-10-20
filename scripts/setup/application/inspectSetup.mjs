@@ -45,6 +45,7 @@ import {
     daemonMode,
     runDaemon,
     serviceCommand,
+    serviceScopeRefusal,
 } from '../infrastructure/daemon.mjs';
 import {
     advertisedRelayHealthy,
@@ -389,21 +390,31 @@ export async function inspectSetup() {
     }
     // Installed-but-disabled: works now, silently gone at the next boot.
     if (platform() === 'linux' && existsSync(muxrServicePath) && env('MUXR_NO_SERVICE_COMMANDS') !== '1') {
-        const enabled = run('systemctl', ['--user', 'is-enabled', 'muxr.service']);
-        const isEnabled = enabled.stdout === 'enabled' || enabled.stdout === 'enabled-runtime';
-        add(isEnabled ? 'ok' : 'fail', 'service enabled', isEnabled
-            ? 'muxr.service starts at login'
-            : `muxr.service is ${enabled.stdout || 'not enabled'} — it will not survive a reboot; enable it with \`muxr daemon start\``,
-            isEnabled ? undefined : { label: 'enable and start the muxr service', run: () => runDaemon(['start']) });
+        const scopeRefusal = serviceScopeRefusal();
+        if (scopeRefusal !== undefined) {
+            add('warn', 'service enabled', `not checked — ${scopeRefusal}`);
+        } else {
+            const enabled = run('systemctl', ['--user', 'is-enabled', 'muxr.service']);
+            const isEnabled = enabled.stdout === 'enabled' || enabled.stdout === 'enabled-runtime';
+            add(isEnabled ? 'ok' : 'fail', 'service enabled', isEnabled
+                ? 'muxr.service starts at login'
+                : `muxr.service is ${enabled.stdout || 'not enabled'} — it will not survive a reboot; enable it with \`muxr daemon start\``,
+                isEnabled ? undefined : { label: 'enable and start the muxr service', run: () => runDaemon(['start']) });
+        }
     }
     if (platform() === 'darwin' && existsSync(muxrServicePath) && env('MUXR_NO_SERVICE_COMMANDS') !== '1') {
-        const definition = readFileSync(muxrServicePath, 'utf8');
-        const loaded = serviceCommand('status');
-        const startsAtLogin = /<key>RunAtLoad<\/key><true\/>/.test(definition);
-        add(loaded.ok && startsAtLogin ? 'ok' : 'fail', 'service loaded', loaded.ok && startsAtLogin
-            ? 'com.muxr.host is loaded and starts at login'
-            : `${loaded.ok ? 'service is loaded but RunAtLoad is off' : 'com.muxr.host is not loaded'} — run \`muxr daemon start\``,
-            loaded.ok && startsAtLogin ? undefined : { label: 'load the muxr service for login', run: () => runDaemon(['start']) });
+        const scopeRefusal = serviceScopeRefusal();
+        if (scopeRefusal !== undefined) {
+            add('warn', 'service loaded', `not checked — ${scopeRefusal}`);
+        } else {
+            const definition = readFileSync(muxrServicePath, 'utf8');
+            const loaded = serviceCommand('status');
+            const startsAtLogin = /<key>RunAtLoad<\/key><true\/>/.test(definition);
+            add(loaded.ok && startsAtLogin ? 'ok' : 'fail', 'service loaded', loaded.ok && startsAtLogin
+                ? 'com.muxr.host is loaded and starts at login'
+                : `${loaded.ok ? 'service is loaded but RunAtLoad is off' : 'com.muxr.host is not loaded'} — run \`muxr daemon start\``,
+                loaded.ok && startsAtLogin ? undefined : { label: 'load the muxr service for login', run: () => runDaemon(['start']) });
+        }
     }
     let selfhost = readSelfhostState();
     if (selfhostStateUnreadable()) {

@@ -41,12 +41,16 @@ function realPath(path) {
 }
 
 function overriddenHomeRefusal() {
+    if (env('MUXR_TEST_FAKE_SERVICE_MANAGERS') === '1') return undefined;
     let passwdHome;
-    try { passwdHome = userInfo().homedir; } catch { passwdHome = undefined; }
+    try { passwdHome = userInfo().homedir; } catch { return undefined; }
     const current = realPath(home());
-    if (current !== undefined && passwdHome !== undefined && current === realPath(passwdHome)) return undefined;
-    const realHomeLabel = passwdHome === undefined ? 'with no passwd entry' : resolve(passwdHome);
-    return `HOME=${resolve(home())} is not the user's real home ${realHomeLabel}; service commands under an overridden HOME never touch the real muxr.service`;
+    if (current !== undefined && current === realPath(passwdHome)) return undefined;
+    return `HOME=${resolve(home())} is not the user's real home ${resolve(passwdHome)}; service commands under an overridden HOME never touch the real muxr.service`;
+}
+
+export function serviceScopeRefusal() {
+    return scopedHomeRefusal() ?? overriddenHomeRefusal();
 }
 
 export function daemonDefinition(mode) {
@@ -119,7 +123,7 @@ export function bootstrapMacService(domain, plist) {
 
 export function serviceCommand(action) {
     if (env('MUXR_NO_SERVICE_COMMANDS') === '1') return { ok: true, stdout: 'service command skipped by test environment', stderr: '' };
-    const scopeRefusal = scopedHomeRefusal() ?? overriddenHomeRefusal();
+    const scopeRefusal = serviceScopeRefusal();
     if (scopeRefusal !== undefined) return { ok: false, stdout: '', stderr: `refusing service ${action}: ${scopeRefusal}` };
     if (platform() === 'darwin') {
         const domain = `gui/${process.getuid()}`;
@@ -311,7 +315,7 @@ export async function runDaemon(args = []) {
                 print(existsSync(path) ? readFileSync(path, 'utf8') : 'No daemon log yet.');
                 return 0;
             }
-            const refusal = scopedHomeRefusal();
+            const refusal = serviceScopeRefusal();
             if (refusal !== undefined) {
                 error(`refusing service logs: ${refusal}`);
                 return 1;
@@ -321,6 +325,11 @@ export async function runDaemon(args = []) {
             return result.ok ? 0 : 1;
         }
         if (!['start', 'stop', 'restart', 'status'].includes(action)) throw new Error('usage: muxr daemon install|uninstall|start|stop|restart|status|logs');
+        const scopeRefusal = serviceScopeRefusal();
+        if (scopeRefusal !== undefined && ['start', 'restart', 'status'].includes(action)) {
+            error(action === 'status' ? `muxr service status not checked: ${scopeRefusal}` : `refusing service ${action}: ${scopeRefusal}`);
+            return 1;
+        }
         const installedMode = daemonMode();
         const serviceWasRunning = (action === 'start' || action === 'restart') && daemonIsRunning();
         const replacesService = action === 'restart'
