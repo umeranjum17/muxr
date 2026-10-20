@@ -44,7 +44,7 @@ vi.mock('@/utils/openExternalUrl', () => ({
 }));
 
 let server: SandboxServer;
-let current: TestRenderer.ReactTestInstance;
+let current: any;
 let CloudSetupScreen: typeof import('./CloudSetupScreen').CloudSetupScreen;
 const realFetch = globalThis.fetch;
 const realSetTimeout = globalThis.setTimeout;
@@ -66,12 +66,12 @@ afterAll(async () => {
     await server.close();
 });
 
-function texts(root: TestRenderer.ReactTestInstance): string[] {
-    return root.findAllByType('Text' as never).map((node) => [node.props.children].flat().filter((c) => typeof c === 'string').join(''));
+function texts(root: any): string[] {
+    return root.findAllByType('Text').map((node: any) => [node.props.children].flat().filter((c) => typeof c === 'string').join(''));
 }
 
-function button(root: TestRenderer.ReactTestInstance, label: string) {
-    return root.findAll((node) => (node.type as unknown) === 'Pressable' && node.props.accessibilityLabel === label)[0];
+function button(root: any, label: string) {
+    return root.findAll((node: any) => node.type === 'Pressable' && node.props.accessibilityLabel === label)[0];
 }
 
 async function until(check: () => boolean, what: string) {
@@ -80,7 +80,7 @@ async function until(check: () => boolean, what: string) {
 }
 
 it('signs in to Boat once the person opens the page, and gives up with a retry after ten minutes', async () => {
-    let renderer!: TestRenderer.ReactTestRenderer;
+    let renderer!: any;
     await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(CloudSetupScreen)); });
     const root = renderer.root;
     current = root;
@@ -111,7 +111,7 @@ it('signs in to Boat once the person opens the page, and gives up with a retry a
         TestRenderer.act(() => { again.findByType('TextInput' as never).props.onChangeText('umer@example.com'); });
         TestRenderer.act(() => { button(again, 'Connect Boat account').props.onPress(); });
         await until(() => texts(again).includes('Code · 123456'), 'the second Boat code');
-        await TestRenderer.act(() => vi.advanceTimersByTimeAsync(10 * 60_000));
+        await TestRenderer.act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000); });
         await until(() => !texts(again).includes('Waiting for Boat…'), 'the wait to end');
         expect(texts(again)).toContain('Boat did not finish signing in within 10 minutes. Try again.');
         expect(button(again, 'Try again')).toBeDefined();
