@@ -2,6 +2,7 @@ import { Platform, Linking } from 'react-native';
 import { Modal } from '@/modal';
 import { AudioModule, setAudioModeAsync } from 'expo-audio';
 import * as Notifications from 'expo-notifications';
+import { openNotificationSettings } from '@/../modules/voice-overlay';
 
 export interface MicrophonePermissionResult {
   granted: boolean;
@@ -84,11 +85,40 @@ export function requestNotificationPermission(userInitiated = true): Promise<boo
   return pendingNotificationPermission;
 }
 
+/** Where the platform notification permission stands; 'blocked' can no longer be asked for.
+ * Android 13+ reports a never-asked app as 'denied', so only iOS ever reads 'not-asked'. */
+export type NotificationPermission = 'granted' | 'not-asked' | 'denied' | 'blocked';
+
+export function notificationPermissionState(permission: { granted: boolean; status: string; canAskAgain: boolean }): NotificationPermission {
+    if (permission.granted) return 'granted';
+    if (!permission.canAskAgain) return 'blocked';
+    return permission.status === 'undetermined' ? 'not-asked' : 'denied';
+}
+
 /** Read the platform notification permission without ever prompting. */
-export async function notificationPermissionStatus(): Promise<{ granted: boolean; canAskAgain: boolean }> {
-    if (Platform.OS === 'web' || (Platform.OS === 'android' && Platform.Version < 33)) return { granted: true, canAskAgain: false };
-    const { granted, canAskAgain } = await Notifications.getPermissionsAsync();
-    return { granted, canAskAgain };
+export async function notificationPermissionStatus(): Promise<NotificationPermission> {
+    if (Platform.OS === 'web' || (Platform.OS === 'android' && Platform.Version < 33)) return 'granted';
+    return notificationPermissionState(await Notifications.getPermissionsAsync());
+}
+
+let askAfterPairing = false;
+
+/** A pairing just finished: the next connected Home may ask for notifications once. */
+export function askForNotificationsAfterPairing(): void {
+    askAfterPairing = true;
+}
+
+/** True once per pairing; the caller that reads it owns that ask. */
+export function takeNotificationAskAfterPairing(): boolean {
+    const due = askAfterPairing;
+    askAfterPairing = false;
+    return due;
+}
+
+/** Sound, vibration and banners belong to the system; this opens muxr's page there. */
+export function openSystemNotificationSettings(): void {
+    if (Platform.OS === 'android' && openNotificationSettings()) return;
+    void Linking.openSettings();
 }
 
 /**

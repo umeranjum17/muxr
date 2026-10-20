@@ -364,8 +364,8 @@ export const HerdView = React.memo(({
                         cardBadge={liveCardBadge}
                     />}
                     {noAgents && !needsRecovery && !busy && searchQuery.trim() === '' ? (showFirstAgent ? <FirstAgentCard /> : <HomeDiscoveryRows />) : null}
-                    {!needsRecovery && searchQuery.trim() === '' && <HomeBatteryCard />}
                     {!needsRecovery && searchQuery.trim() === '' && <HomeNotificationPrimerCard />}
+                    {!needsRecovery && searchQuery.trim() === '' && <HomeBatteryCard />}
                 </>}
                 listFooterComponent={<VersionNotice />}
                 topContentInset={topContentInset}

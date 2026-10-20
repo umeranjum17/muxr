@@ -5,6 +5,7 @@ import { TokenStorage, type AuthCredentials } from '../infrastructure/tokenStora
 import { sync, syncCreate } from '@/catalog/sync';
 import { clearPersistence } from '@/catalog';
 import { clearHostedE2ee } from '@/pairing/e2ee';
+import { askForNotificationsAfterPairing } from '@/utils/microphonePermissions';
 import { unregisterNativePushNotifications } from '@/utils/nativePushNotifications';
 import { unsubscribeWebPush } from '@/utils/pushNotifications';
 
@@ -46,6 +47,7 @@ export function AuthProvider({ children, initialCredentials }: { children: React
         const success = await TokenStorage.setCredentials(newCredentials);
         if (!success) throw new Error('Failed to save credentials');
         await syncCreate(newCredentials);
+        askForNotificationsAfterPairing();
         setCredentials(newCredentials);
         setIsAuthenticated(true);
     }, []);

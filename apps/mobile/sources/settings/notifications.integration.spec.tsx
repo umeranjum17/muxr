@@ -5,9 +5,25 @@ import TestRenderer from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({ level: 'all' as 'off' | 'important' | 'all', machineId: 'machine', listeners: new Set<() => void>() }));
-vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { addEventListener: () => ({ remove() {} }) }, Linking: {} }));
-vi.mock('expo-application', () => ({ applicationId: null }));
-vi.mock('expo-notifications', () => ({}));
+const device = vi.hoisted(() => ({
+    platform: { OS: 'web', Version: 34 },
+    appActive: [] as Array<(state: string) => void>,
+    // Android 13+ answers a never-asked app this way.
+    permission: { granted: false, status: 'denied', canAskAgain: true },
+    answer: { granted: false, status: 'denied', canAskAgain: true },
+    asks: 0,
+    opened: [] as string[],
+}));
+vi.mock('react-native', () => ({
+    Platform: device.platform,
+    AppState: { addEventListener: (_: string, listener: (state: string) => void) => { device.appActive.push(listener); return { remove() {} }; } },
+    Linking: { openSettings: async () => { device.opened.push('app info'); } },
+}));
+vi.mock('expo-audio', () => ({}));
+vi.mock('expo-notifications', () => ({
+    getPermissionsAsync: async () => device.permission,
+    requestPermissionsAsync: async () => { device.asks += 1; device.permission = device.answer; return device.permission; },
+}));
 vi.mock('@/settings/WebInstallSupport', () => ({ openWebInstallGuide: vi.fn() }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('@/catalog/store', () => ({
@@ -22,16 +38,16 @@ vi.mock('@/catalog/store', () => ({
 }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ mode: 'hosted', machineId: state.machineId, relayUrl: 'wss://relay.test', token: '' }) }));
 vi.mock('@/pairing/e2ee', () => ({ getCachedHostedGrant: () => ({ credential: 'credential' }) }));
-vi.mock('@/utils/microphonePermissions', () => ({ requestNotificationPermission: vi.fn() }));
 vi.mock('@/utils/nativePushNotifications', () => ({ registerNativePushNotifications: vi.fn(), updateNativePushNotificationLevel: vi.fn() }));
 vi.mock('@/../modules/voice-overlay', () => ({
     supportsLiveActivities: () => false,
     canPostLiveActivities: () => false,
     openBackgroundActivitySettings: vi.fn(),
     openLiveActivitySettings: vi.fn(),
+    openNotificationSettings: () => { device.opened.push('notification settings'); return true; },
 }));
 vi.mock('@/settings', () => ({ browserNotificationSummary: (browser: string) => browser }));
-vi.mock('@/modal', () => ({ Modal: { confirm: vi.fn() } }));
+vi.mock('@/modal', () => ({ Modal: { confirm: vi.fn(async () => false) } }));
 vi.mock('@/components/Item', () => ({ Item: (props: Record<string, unknown>) => React.createElement('Item', props, props.rightElement as React.ReactNode) }));
 vi.mock('@/components/ItemGroup', () => ({ ItemGroup: (props: Record<string, unknown>) => React.createElement('ItemGroup', props, props.children as React.ReactNode) }));
 vi.mock('@/components/ItemList', () => ({ ItemList: (props: Record<string, unknown>) => React.createElement('ItemList', props, props.children as React.ReactNode) }));
@@ -46,6 +62,7 @@ import { openWebInstallGuide } from '@/settings/WebInstallSupport';
 let rendered: ReturnType<typeof TestRenderer.create> | undefined;
 
 afterEach(() => {
+    device.platform.OS = 'web';
     if (rendered) TestRenderer.act(() => rendered?.unmount());
     rendered = undefined;
     vi.unstubAllGlobals();
@@ -229,4 +246,44 @@ it('sends an iOS Safari tab to the Home Screen guide instead of a dead push swit
     expect(rows('Switch').some((item) => item.props.accessibilityLabel === 'Browser notifications')).toBe(false);
     itemFor('webInstall.guideTitle').props.onPress();
     expect(openWebInstallGuide).toHaveBeenCalledOnce();
+});
+
+it('asks when alerts are turned on, never after a permanent denial, and says so while notifications are off', async () => {
+    device.platform.OS = 'android';
+    state.level = 'off';
+    await TestRenderer.act(async () => { rendered = TestRenderer.create(React.createElement(NotificationSettingsScreen)); });
+    const rows = (type: string) => (rendered!.root as { findAllByType(type: string): { props: any }[] }).findAllByType(type);
+    const alerts = (on: boolean) => TestRenderer.act(async () => {
+        await rows('Switch').find((item) => item.props.accessibilityLabel === 'An agent needs you')!.props.onValueChange(on);
+    });
+    const hint = () => rows('ItemGroup')[0].props.footer as string;
+    const allow = () => rows('Item').find((item) => item.props.title === 'Allow notifications')!;
+    expect(device.asks).toBe(0);
+    expect(hint()).toBe('Sound, vibration and banners are set in Android settings.');
+
+    // Never asked: turning alerts on is the ask. Android lets a first "Don't allow" be asked again.
+    await alerts(true);
+    expect(device.asks).toBe(1);
+    expect(state.level).toBe('important');
+    expect(allow().props.subtitle).toBe('Off');
+    expect(hint()).toBe("Notifications are off for muxr, so these alerts can't reach you. Tap Allow notifications to turn them on.");
+
+    // The second "Don't allow" is permanent: no further prompt, only the way to system settings.
+    device.answer = { granted: false, status: 'denied', canAskAgain: false };
+    await alerts(false);
+    await alerts(true);
+    expect(device.asks).toBe(2);
+    await alerts(false);
+    await alerts(true);
+    expect(device.asks).toBe(2);
+    expect(hint()).toBe("Notifications are off for muxr, so these alerts can't reach you. Tap Allow notifications to turn them on in Android settings.");
+    await TestRenderer.act(async () => { await allow().props.onPress(); });
+    expect(device.asks).toBe(2);
+    expect(device.opened).toEqual(['notification settings']);
+
+    // Turned on in system settings: coming back clears the hint.
+    device.permission = { granted: true, status: 'granted', canAskAgain: true };
+    await TestRenderer.act(async () => { for (const listener of device.appActive) listener('active'); });
+    await vi.waitFor(() => expect(allow().props.subtitle).toBe('On'));
+    expect(hint()).toBe('Sound, vibration and banners are set in Android settings.');
 });
