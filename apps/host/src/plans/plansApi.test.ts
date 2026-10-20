@@ -14,6 +14,7 @@ import { loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
 import { planAccounts } from './planAccounts.js';
 import { opencodeLaunchArgs } from './opencodeAccounts.js';
 import { AgentCatalog } from '../requests/index.js';
+import type { HerdrTreePane } from '@trymuxr/contract';
 
 const mockState = vi.hoisted(() => ({ failRename: false, failRefreshAllocation: false, failRefreshCleanup: false }));
 vi.mock('node:fs', async (importOriginal) => {
@@ -136,7 +137,7 @@ it('names a pane by its own agent account and leaves an unknown Pi pane without 
     savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder: addedClaude('work'), found: false }]);
     const listed = (await listPlans(env)).providers;
     const own = listed[0]!.accounts.find((account) => account.foundOnComputer)!.name;
-    const pane = (paneId: string, agentKind: string, provider?: string) => ({
+    const pane = (paneId: string, agentKind: string, provider?: string): HerdrTreePane => ({
         paneId, tabId: 't1', focused: false, agentKind, agentStatus: 'idle' as const, promptable: true, ...(provider === undefined ? {} : { provider }),
     });
     const panes = [pane('claude-own', 'claude'), pane('pi-gpt', 'pi', 'openai'), pane('pi-bare', 'pi'), pane('pi-work', 'pi', 'anthropic'), pane('pi-moved', 'pi', 'openai')];
