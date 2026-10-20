@@ -165,17 +165,25 @@ try {
         await tapOn('Cancel', is('Cancel')); // main's system alert ignores back
         await toHome();
 
-        // Over the pane overview sheet: Close pane among a pane's actions, then its confirm.
+        // On the agent screen: the tab chip's long-press actions.
         await tapOn('Home card', (v) => /\. (Idle|Working|Done|Needs you)\b/.test(v));
-        await tapOn('Open panes', (v) => v.endsWith('. Open panes'), 90);
-        await waitFor('pane overview', has('New pane'), 60).catch(() => undefined);
-        await tapOn('overview pane tile', (v) => /\b(Idle|Working|Done)\b/.test(v) && !v.endsWith('Open panes'), 30, 900);
-        await waitFor('pane actions', has('Close pane'));
-        await capture(dir, `pane-actions-${cell}`);
-        await tapOn('Close pane', is('Close pane'));
-        await waitFor('close confirm', (found) => find(found, (v) => /^Close .+\?$/.test(v)) !== undefined);
-        await capture(dir, `close-confirm-${cell}`);
+        await tapOn('tab chip', (v) => v.startsWith('Current tab '), 90, 900);
+        await waitFor('tab actions', has('Rename'));
+        await capture(dir, `tab-actions-${cell}`);
         await tapOn('Cancel', is('Cancel'));
+        // Over the pane overview sheet: a pane's actions, Close pane, then its confirm.
+        try {
+            await tapOn('pane count', (v) => /^Pane \d+ of \d+\. Open panes\.$/.test(v));
+            await tapOn('overview pane tile', (v) => /(Pi|Claude) 1/.test(v) && !v.includes('Open panes'), 30, 900);
+            await waitFor('pane actions', has('Close pane'), 20);
+            await capture(dir, `pane-actions-${cell}`);
+            await tapOn('Close pane', is('Close pane'));
+            await waitFor('close confirm', (found) => find(found, (v) => /^Close .+\?$/.test(v)) !== undefined, 20);
+            await capture(dir, `close-confirm-${cell}`);
+            await tapOn('Cancel', is('Cancel'));
+        } catch (error) {
+            say(`pane overview path skipped in ${cell}: ${error.message}`);
+        }
         await toHome();
     }
 

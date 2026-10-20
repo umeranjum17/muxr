@@ -103,7 +103,7 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 15,
         lineHeight: 21,
         color: theme.colors.textSecondary,
-        paddingHorizontal: 14,
+        marginHorizontal: 14,
         paddingBottom: 12,
         ...Typography.default(),
     },

@@ -354,7 +354,7 @@ const styles = StyleSheet.create((theme) => ({
     title: {
         fontSize: 24,
         color: theme.colors.text,
-        paddingHorizontal: 20,
+        marginHorizontal: 20,
         paddingTop: 12,
         paddingBottom: 12,
         ...Typography.default('semiBold'),
