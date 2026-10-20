@@ -7,7 +7,7 @@ import { build } from 'esbuild';
 import { waitForRelay } from './waitForRelay.mjs';
 import { linkLabClient, requestLab } from './linkLabClient.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
-import { runtimeDependencies } from '../../release/application/runtimeDependencies.mjs';
+import { runtimeDependencies } from '../../release/index.mjs';
 
 // 0.2.8: the bundle spawned itself as the Usage ledger child, and that child
 // ran the whole host: it dialled the relay as this machine and replaced the
