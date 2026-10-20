@@ -36,10 +36,17 @@ export function scopedHomeRefusal() {
 
 // A HOME override (a test or lab home) does not move the systemd user manager or launchd:
 // `systemctl --user` still reaches the real user's muxr.service, so service commands refuse it.
+function realPath(path) {
+    try { return realpathSync(path); } catch { return undefined; }
+}
+
 function overriddenHomeRefusal() {
-    const realHome = userInfo().homedir;
-    if (resolve(home()) === resolve(realHome)) return undefined;
-    return `HOME=${resolve(home())} is not the user's real home ${resolve(realHome)}; service commands under an overridden HOME never touch the real muxr.service`;
+    let passwdHome;
+    try { passwdHome = userInfo().homedir; } catch { passwdHome = undefined; }
+    const current = realPath(home());
+    if (current !== undefined && passwdHome !== undefined && current === realPath(passwdHome)) return undefined;
+    const realHomeLabel = passwdHome === undefined ? 'with no passwd entry' : resolve(passwdHome);
+    return `HOME=${resolve(home())} is not the user's real home ${realHomeLabel}; service commands under an overridden HOME never touch the real muxr.service`;
 }
 
 export function daemonDefinition(mode) {
