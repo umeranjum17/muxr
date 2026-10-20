@@ -25,7 +25,7 @@ const run = (bin, args) => new Promise((resolve, reject) => {
 });
 
 // A canned-output fixture stands in for every model: each agent's provider points at it.
-const stub = spawn(process.execPath, [new URL('./labStub.mjs', `file://${process.cwd()}/.agents/skills/verify-pockit/features/`).pathname],
+const stub = spawn(process.execPath, [new URL('./labStub.mjs', `file://${process.cwd()}/.agents/skills/done-done-verify-pockit/features/`).pathname],
     { env: { ...process.env, STUB_LPS: process.env.STUB_LPS ?? '15' }, stdio: ['ignore', 'pipe', 'inherit'] });
 const stubUrl = await new Promise((resolve) => stub.stdout.on('data', (chunk) => {
     const port = /listening on (\d+)/.exec(String(chunk))?.[1];

@@ -84,7 +84,7 @@ Key exchange is curve25519 and ECDH. Host-key and login-key algorithms are
 RSA, ECDSA, and Ed25519, with the RSA/ECDSA preference order kept first so
 saved RSA/ECDSA host-key pins keep verifying. Ed25519 host keys still go
 through pinned verification. The Android behaviour is proven on device only
-through the verify-pockit `ssh-login-keys` lab. iOS (libssh2/OpenSSL) is not
+through the done-done-verify-pockit `ssh-login-keys` lab. iOS (libssh2/OpenSSL) is not
 covered by this amendment.
 
 ## iOS counterpart

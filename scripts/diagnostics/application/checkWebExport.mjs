@@ -229,7 +229,7 @@ if (!existsSync(distIndex)) {
     // guarded at source level above (`web entry never loads CanvasKit at
     // startup`); this asserts the built artifact keeps the glue lazy. The
     // runtime "no request before first paint" proof lives in
-    // .agents/skills/verify-pockit/features/pwa-coldstart.md.
+    // .agents/skills/done-done-verify-pockit/features/pwa-coldstart.md.
     check('eager payload carries no CanvasKit glue', !initialAssets.includes('canvaskit.wasm'));
     check('dist initial JS carries no syntax grammar payload', !initialAssets.includes('source.cpp'));
     // The mermaid engine must never be bundled. Mermaid's diagram modules load

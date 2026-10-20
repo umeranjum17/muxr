@@ -53,7 +53,7 @@ Preconditions:
   export each tree and serve each on its own port (a new origin, so the
   service worker never serves the other build), pairing each.
 - A real Herdr lab: run
-  `EVIDENCE=<dir> node --input-type=module -e "$(< .agents/skills/verify-pockit/features/terminalFloorLab.mjs)"`
+  `EVIDENCE=<dir> node --input-type=module -e "$(< .agents/skills/done-done-verify-pockit/features/terminalFloorLab.mjs)"`
   with stdin attached (a FIFO works). It prints the folder; no `signin` is
   needed for this check.
 

@@ -33,8 +33,8 @@ Preconditions: two lab hosts with distinct machine names. Run one instance per
 host in its own UTS namespace from the repo root:
 
 ```sh
-unshare -Ur --uts -- sh -c "hostname Study-PC; exec node $PWD/.agents/skills/verify-pockit/features/computersLab.mjs A"
-unshare -Ur --uts -- sh -c "hostname Desk-Mac; exec node $PWD/.agents/skills/verify-pockit/features/computersLab.mjs B"
+unshare -Ur --uts -- sh -c "hostname Study-PC; exec node $PWD/.agents/skills/done-done-verify-pockit/features/computersLab.mjs A"
+unshare -Ur --uts -- sh -c "hostname Desk-Mac; exec node $PWD/.agents/skills/done-done-verify-pockit/features/computersLab.mjs B"
 ```
 
 Each prints `host <label> (<name>) ready: relay <port>` and a `pairing link`.

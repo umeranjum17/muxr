@@ -35,7 +35,7 @@ Run `dictationLab.mjs` from the repo root after `yarn build`:
 
 ```sh
 EXPO_PUBLIC_MUXR_LAB_DICTATE=1 node perf/buildPrApk.mjs <out>
-node .agents/skills/verify-pockit/features/dictationLab.mjs --apk <out>/app-release.apk \
+node .agents/skills/done-done-verify-pockit/features/dictationLab.mjs --apk <out>/app-release.apk \
   --evidence <dir> --avd-home <dir> [--launcher <host memory gate>]
 ```
 

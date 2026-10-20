@@ -37,7 +37,7 @@ test:
     failed tests honestly.
 
     For host, relay, or public-CLI behavior outside the journey, drive the
-    mapped feature with the project-local verify-pockit skill
-    (.agents/skills/verify-pockit/SKILL.md) and keep its feature map current
+    mapped feature with the project-local done-done-verify-pockit skill
+    (.agents/skills/done-done-verify-pockit/SKILL.md) and keep its feature map current
     when a feature changes. Its private-stack proof never substitutes for the
     journey and adds no runner.

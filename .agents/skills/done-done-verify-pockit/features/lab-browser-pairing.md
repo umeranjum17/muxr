@@ -47,7 +47,7 @@ web:export`), then confirm it shipped
 Never point the lab at the owner's relay (8792/8793) or his real Herdr session.
 
 1. Start the lab from the repo root and read its lines:
-   `node --input-type=module -e "$(< .agents/skills/verify-pockit/features/browserPairLab.mjs)"`.
+   `node --input-type=module -e "$(< .agents/skills/done-done-verify-pockit/features/browserPairLab.mjs)"`.
    It prints `lab ready: relay port <p>` and `browser link: <url>`. Send the
    process `SIGUSR1` to mint another browser link. Keep it running until the
    pairing finishes; its `pair.sock` stays open so the PWA can complete the
