@@ -387,6 +387,12 @@ export class LinkEndpoint {
         this.connectionTimer.unref?.();
     }
 
+    /** Dial the relay again after it stopped this client (another host took the link). */
+    reconnect(): void {
+        this.client?.stop();
+        this.client = this.connectRelay();
+    }
+
     /** Enrol the phones this machine now trusts and revoke the ones it no longer does. */
     sync(crypto: MachineCryptoState): Promise<boolean> {
         this.synced = this.synced.then(async () => {
