@@ -77,7 +77,14 @@ async function waitFor(what, test, seconds = 60) {
     throw new Error(`${what} never appeared within ${seconds}s`);
 }
 async function tapOn(what, test, seconds = 60, hold = 0) {
-    const node = find(await waitFor(what, (found) => find(found, test) !== undefined, seconds), test);
+    // Tap only once the target holds still across two reads: Home re-lays out as cards load.
+    let node = find(await waitFor(what, (found) => find(found, test) !== undefined, seconds), test);
+    for (let i = 0; i < 10; i += 1) {
+        await sleep(1000);
+        const again = find(await screen(), test);
+        if (again !== undefined && String(again.box) === String(node.box)) break;
+        node = again ?? node;
+    }
     const [x, y] = center(node);
     say(`${hold ? 'long-press' : 'tap'} ${what}`);
     if (hold) await sh(`input swipe ${x} ${y} ${x} ${y} ${hold}`);
