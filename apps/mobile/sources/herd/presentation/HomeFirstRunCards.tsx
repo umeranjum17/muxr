@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AppState, Linking, Platform, Pressable, View } from 'react-native';
+import { AppState, Platform, Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,7 +14,13 @@ import { getCachedConnectionSettings } from '@/connection';
 import { agentName, dockStartPath, firstAgentOffer, startNewAgent, type FirstAgentOffer } from '@/spawn';
 import { useAllMachines, useHerdrTree, useLocalSettingMutable, useSessions, useSocketStatus } from '@/catalog/store';
 import { openBackgroundActivitySettings } from '@/../modules/voice-overlay';
-import { notificationPermissionStatus, requestNotificationPermission } from '@/utils/microphonePermissions';
+import {
+    notificationPermissionStatus,
+    openSystemNotificationSettings,
+    requestNotificationPermission,
+    takeNotificationAskAfterPairing,
+    type NotificationPermission,
+} from '@/utils/microphonePermissions';
 import { getWebInstallState, promptWebInstall, subscribeWebInstall, type WebInstallState } from '@/utils/webInstall';
 import { openWebInstallGuide } from '@/settings';
 import { t } from '@/text';
@@ -131,21 +137,25 @@ export function FirstAgentCard() {
 }
 
 /**
- * In-app primer before the OS notification prompt. The system prompt only
- * ever follows the person's own turn-on tap, never fires on its own, and
- * never appears while Home is still connecting. "Not now" answers for
- * good; Settings > Notifications stays the way back. A permanent denial
- * points at system settings instead of a dead turn-on button.
+ * Notifications on Home. Right after a pairing the first connected Home asks
+ * the system once, and only if muxr never asked before; otherwise the system
+ * prompt only follows the person's own turn-on tap. While notifications are
+ * off this card says so until "Not now", and comes back whenever an agent
+ * needs you, because that alert could not reach you. A permanent denial
+ * points at muxr's system notification settings instead of a dead button.
  */
 export function HomeNotificationPrimerCard() {
     const { theme } = useUnistyles();
     const { status } = useSocketStatus();
     const { isAuthenticated } = useAuth();
+    const herd = useHerdNotificationState();
     const [answered, setAnswered] = useLocalSettingMutable('notificationPrimerAnswered');
-    const [permission, setPermission] = React.useState<{ granted: boolean; canAskAgain: boolean } | null>(null);
+    const [level] = useLocalSettingMutable('lifecycleNotificationLevel');
+    const [permission, setPermission] = React.useState<NotificationPermission | null>(null);
     const primerPlatform = Platform.OS === 'ios' || (Platform.OS === 'android' && Platform.Version >= 33);
+    const connected = status === 'connected';
     React.useEffect(() => {
-        if (!primerPlatform || !isAuthenticated || answered) return;
+        if (!primerPlatform || !isAuthenticated) return;
         let live = true;
         const read = () => {
             void notificationPermissionStatus().then((next) => { if (live) setPermission(next); });
@@ -153,38 +163,55 @@ export function HomeNotificationPrimerCard() {
         read();
         const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') read(); });
         return () => { live = false; subscription.remove(); };
-    }, [answered, isAuthenticated, primerPlatform]);
-    if (!primerPlatform || !isAuthenticated || status !== 'connected' || answered || permission === null || permission.granted) return null;
-    const denied = !permission.canAskAgain;
-    const turnOn = async () => {
+    }, [isAuthenticated, primerPlatform]);
+    const turnOn = React.useCallback(async () => {
         await requestNotificationPermission();
         const next = await notificationPermissionStatus();
-        if (next.granted) setAnswered(true);
+        if (next === 'granted') setAnswered(true);
         setPermission(next);
-    };
+    }, [setAnswered]);
+    React.useEffect(() => {
+        if (!connected || answered || permission !== 'not-asked' || !takeNotificationAskAfterPairing()) return;
+        void turnOn();
+    }, [answered, connected, permission, turnOn]);
+    const missedAlert = herd.mode === 'attention' && level !== 'off';
+    if (!primerPlatform || !isAuthenticated || !connected || permission === null || permission === 'granted' || (answered && !missedAlert)) return null;
+    const blocked = permission === 'blocked';
     return (
         <View style={[styles.card, cardStyle(theme)]}>
             <View style={styles.row}>
-                <Ionicons name="notifications-outline" size={22} color={theme.colors.accent} />
-                <Text style={styles.title}>Know when an agent needs you</Text>
+                <Ionicons name={answered ? 'notifications-off-outline' : 'notifications-outline'} size={22} color={theme.colors.accent} />
+                <Text style={styles.title}>{answered ? 'Notifications are off' : 'Know when an agent needs you'}</Text>
             </View>
             <Text style={styles.body}>
-                {denied
-                    ? 'Notifications are turned off for muxr. Turn them on in system settings to hear when an agent asks you something or runs into trouble.'
-                    : 'muxr can tell you when an agent asks you a question or runs into a problem, even when you are not looking at the app.'}
+                {answered
+                    ? 'An agent needs you, but muxr cannot alert you while notifications are off.'
+                    : blocked
+                        ? 'Notifications are turned off for muxr. Turn them on in system settings to hear when an agent asks you something or runs into trouble.'
+                        : 'muxr can tell you when an agent asks you a question or runs into a problem, even when you are not looking at the app.'}
             </Text>
             <View style={styles.actions}>
-                {denied ? (
-                    <ActionButton title="Open settings" icon="settings-outline" onPress={() => Linking.openSettings()} />
+                {blocked ? (
+                    <ActionButton title="Open settings" icon="settings-outline" onPress={openSystemNotificationSettings} />
                 ) : (
                     <ActionButton title="Turn on" icon="notifications-outline" action={turnOn} />
                 )}
-                <Pressable accessibilityRole="button" accessibilityLabel="Dismiss notification primer card" onPress={() => setAnswered(true)} style={styles.dismissTarget}>
-                    <Text style={styles.dismiss}>Not now</Text>
-                </Pressable>
+                {!answered && (
+                    <Pressable accessibilityRole="button" accessibilityLabel="Dismiss notification primer card" onPress={() => setAnswered(true)} style={styles.dismissTarget}>
+                        <Text style={styles.dismiss}>Not now</Text>
+                    </Pressable>
+                )}
             </View>
         </View>
     );
+}
+
+function useHerdNotificationState() {
+    const sessions = useSessions();
+    const { workspaces } = useHerdrTree();
+    const { status } = useSocketStatus();
+    const panes = React.useMemo(() => sortHerd(sessions, workspaces), [sessions, workspaces]);
+    return React.useMemo(() => herdNotificationState(panes, status), [panes, status]);
 }
 
 /**
@@ -194,13 +221,9 @@ export function HomeNotificationPrimerCard() {
  */
 export function HomeBatteryCard() {
     const { theme } = useUnistyles();
-    const sessions = useSessions();
-    const { workspaces } = useHerdrTree();
-    const { status } = useSocketStatus();
     const { isAuthenticated } = useAuth();
     const [prompted, setPrompted] = useLocalSettingMutable('backgroundConnectionPrompted');
-    const panes = React.useMemo(() => sortHerd(sessions, workspaces), [sessions, workspaces]);
-    const herd = React.useMemo(() => herdNotificationState(panes, status), [panes, status]);
+    const herd = useHerdNotificationState();
     const herdActive = herd.mode === 'working' || herd.mode === 'attention';
     if (Platform.OS !== 'android' || !isAuthenticated || !herdActive || prompted) return null;
     const openSettings = () => {
