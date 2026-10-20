@@ -1,6 +1,45 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.8",
+            "title": "Steadier Claude scrolling, right pane names, a lighter host",
+            "summary": "Since 0.2.7: Claude panes scroll under your finger, panes carry their Herdr tab names, and the host stops reading every agent log for the Usage screen.",
+            "features": [
+                {
+                    "title": "Instant Latest in Claude panes",
+                    "detail": "Latest in a fullscreen Claude pane lands on the newest line at once and follows new output from there."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Claude pane scroll",
+                    "detail": "A fullscreen Claude pane now scrolls with your finger, stops when you lift it, and no longer follows new output while you scroll."
+                },
+                {
+                    "title": "Pane names",
+                    "detail": "A pane is named by its Herdr tab label, as Herdr's sidebar shows it, with the agent and its state under it. A restart no longer renames every Claude pane after its last chat topic."
+                },
+                {
+                    "title": "Cloud computer sign-in",
+                    "detail": "While setting up a cloud computer, its sign-in page opens from the phone while it waits, and a stalled sign-in retries after ten minutes."
+                },
+                {
+                    "title": "Usage report memory",
+                    "detail": "The computer counts usage only while the Usage screen is open, one run at a time, at low priority and off the main loop, with a 1 GB memory cap. Other screens no longer say the computer is busy after you open Usage, and the Pi tab finishes counting."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Checks",
+                    "status": "not-run",
+                    "detail": "Not accepted on a device."
+                }
+            ],
+            "knownLimits": [
+                "Update phone and computer together."
+            ]
+        },
+        {
             "appVersion": "0.2.7",
             "title": "Prompts reach your own panes",
             "summary": "Since 0.2.6: the phone can message a Claude pane you started by hand.",
