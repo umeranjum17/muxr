@@ -2,25 +2,23 @@
     "releases": [
         {
             "appVersion": "0.2.7",
-            "title": "Prompts reach hand-started Claude panes",
+            "title": "Prompts reach your own panes",
             "summary": "Since 0.2.6: the phone can message a Claude pane you started by hand.",
             "features": [],
             "fixes": [
                 {
-                    "title": "Send to your own panes",
-                    "detail": "Sending to a pane you started yourself no longer times out."
+                    "title": "No more timeout",
+                    "detail": "Sending to your own pane works."
                 }
             ],
             "verification": [
                 {
-                    "title": "Candidate checks",
+                    "title": "Checks",
                     "status": "not-run",
-                    "detail": "Not yet accepted on a device."
+                    "detail": "Not accepted on a device."
                 }
             ],
-            "knownLimits": [
-                "Update the phone app and computer together; mixed versions were not tested."
-            ]
+            "knownLimits": []
         },
         {
             "appVersion": "0.2.6",
