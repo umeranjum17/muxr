@@ -371,3 +371,13 @@ rules, with no H2 sections.
   a loopback `POST /v1/notify` with the minted bearer token over a real relay
   and host: `202 {id, delivered_to}`, the count following each device's
   notification level, and the 400/401/405 refusals.
+- [Herd is discoverable as sessions](./herd-is-discoverable-as-sessions.md) —
+  the headless stack smoke: the host lists the herd over the relay via session.list.
+- [Agent terminal and shell terminal stream live](./agent-terminal-and-shell-terminal-stream.md) —
+  herdr.tree then terminal.attach, reading live terminal frames over the relay.
+- [Scrolling gets a full repaint](./scrolling-gets-a-full-repaint.md) —
+  terminal.scroll on the terminal socket repaints the pane.
+- [Dropped files appear in Shared Artifacts](./dropped-files-appear-in-shared-artifacts.md) —
+  a file in a pane's attachment folder shows in that session's Shared Artifacts list.
+- [Title churn stays off the session feed](./title-churn-stays-off-the-session-feed.md) —
+  pane renames show on the tree, never as pushes on the session feed.

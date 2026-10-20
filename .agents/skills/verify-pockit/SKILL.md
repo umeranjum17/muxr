@@ -1,6 +1,6 @@
 ---
 name: verify-pockit
-description: Verify muxr's self-hosted relay/host, public CLI and phone screens the way a user drives them, from this pockit checkout and without touching the owner's installed muxr. Use before claiming a host, relay, Shared Artifacts, naming, retention, CLI or phone/PWA/iOS Simulator UI change works (every UI change runs the Visual check), when a check fails and you need a live instance to reproduce against, or when asked to run the verify-pockit flow.
+description: Verify muxr's self-hosted relay/host, public CLI and phone screens the way a user drives them, from this pockit checkout and without touching the owner's installed muxr. Proof runs through done-done (sealed run, evidence, judge, receipt). Use before claiming a host, relay, Shared Artifacts, naming, retention, CLI or phone/PWA/iOS Simulator UI change works (every UI change runs the Visual check), when a check fails and you need a live instance to reproduce against, or when asked to run the verify-pockit flow.
 license: Apache-2.0
 ---
 
@@ -11,6 +11,27 @@ Drives a private muxr stack (relay + host + naming loopback) plus the public
 inspected from this repo's own launch code (`scripts/setup/presentation/up.mjs`,
 `scripts/diagnostics/application/checkHostTakeover.mjs`, `scripts/cli.mjs`) and
 uses only repo-shipped commands — no new harness.
+
+## Proof through done-done
+
+Every proof is a done-done run. `.done-done.yaml` owns the journeys:
+
+- `fast`: `yarn run check:fast` (the pull-request lane; the fast default).
+- `suite`: `yarn run check` (the full suite, 30 min timeout).
+
+Prerequisites per checkout: `yarn install --frozen-lockfile --non-interactive && yarn build`.
+
+```sh
+done-done run fast                      # seals a run, records its evidence folder
+done-done check --outcome "<what a user can now do>" <files it recorded>
+done-done verify fast --outcome "<claim>"   # drives the journey, judges captures, records a receipt
+done-done receipt --verify <head>       # read-only: verify the recorded receipt
+```
+
+- Run evidence lives under `~/.done-done/evidence/pockit/`, never in the repo.
+- A PR's `## Checks` block names this skill for `proof:` and the run's files for `evidence:`.
+- After a drive, `done-done maintain` reports drift between this skill and the source; fix the skill, not the run.
+- Headless smoke entry (done-done scaffold): `node perf/fake-herdr/stack.smoke.mjs` runs the relay and host over a fake Herdr with a scripted phone client; success is exit 0 and the final line `fake-herdr stack smoke ok`. It uses `MUXR_RELAY_PORT=0` and tears down what it starts. The per-feature entries in `features/` cite it.
 
 ## Isolation contract (read first)
 
@@ -127,10 +148,12 @@ synthesizing flags.
 
 ## Evidence
 
-Define the run's stable evidence directory up front; cleanup never touches it:
+Inside a `done-done run`, `$DONE_DONE_EVIDENCE_ROOT` is the stable evidence
+folder and the judge reads only what is saved there. Outside one, define the
+evidence directory up front; cleanup never touches it:
 
 ```sh
-EVIDENCE="/tmp/verify-pockit-evidence/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$EVIDENCE"
+EVIDENCE="$HOME/.done-done/evidence/pockit/manual-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$EVIDENCE"
 ```
 
 Capture, per proof, into `$EVIDENCE` (outside `RUN_ROOT`):
