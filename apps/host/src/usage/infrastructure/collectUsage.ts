@@ -9,7 +9,8 @@ import { fingerprint, type Source } from '@byokit/usage';
 import { claudeSource, claudeHintSource } from './claudeSource.js';
 import { planReader, planHintReader, sourcesFor, planLabel, readPlan } from './planUsage.js';
 import { spawn } from 'node:child_process';
-import { accessSync, chmodSync, constants, readFileSync, statSync } from 'node:fs';
+import { accessSync, chmodSync, constants, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { setPriority, tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { delimiter, join } from 'node:path';
 import type { UsageActivity, UsageConnectedProvider, UsageReport, UsageSeriesPoint } from '@trymuxr/contract';
@@ -56,10 +57,14 @@ function installedAgent(agent: string, command: string, env: NodeJS.ProcessEnv):
 }
 
 function available(command: string, env: NodeJS.ProcessEnv): boolean {
+    return onPath(command, env) !== undefined;
+}
+
+function onPath(command: string, env: NodeJS.ProcessEnv): string | undefined {
     for (const directory of (env.PATH ?? '').split(delimiter)) {
-        try { const path = join(directory, command); accessSync(path, constants.X_OK); if (statSync(path).isFile()) return true; } catch { /* not here */ }
+        try { const path = join(directory, command); accessSync(path, constants.X_OK); if (statSync(path).isFile()) return path; } catch { /* not here */ }
     }
-    return false;
+    return undefined;
 }
 
 /** The pinned offline ccusage backend: resolved once per collection, with the
@@ -83,9 +88,11 @@ function ccusageBinary(env: NodeJS.ProcessEnv): { binary?: string; failure?: str
     } catch { return { failure: 'Local activity backend is missing · reinstall muxr' }; }
 }
 
-function runJson<T = unknown>(command: string, args: string[], timeout = 8_000): Promise<T | undefined> {
+function runJson<T = unknown>(command: string, args: string[], timeout = 8_000, env?: NodeJS.ProcessEnv): Promise<T | undefined> {
     return new Promise((resolve) => {
-        const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'] });
+        const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], ...(env === undefined ? {} : { env }) });
+        // A background count must not compete with the agents it is counting.
+        try { if (child.pid !== undefined) setPriority(child.pid, 19); } catch { /* best effort */ }
         let buffer = '';
         let settled = false;
         let escalation: NodeJS.Timeout | undefined;
@@ -122,6 +129,11 @@ const EXTRAS_WAIT_MS = 8_000;
 /** The daily backend rereads every store it knows, so its answer is kept
  *  this long rather than paid for on every collection. */
 const EXTRAS_REUSE_MS = 10 * 60_000;
+const EXTRAS_REFRESH_MS = 2 * 60_000;
+/** The stores the token ledger reads itself, by the variable the backend
+ *  finds each through. The backend would otherwise load all of them -- on a
+ *  busy machine gigabytes of logs -- only for the rows it returns to be dropped. */
+const LEDGER_STORE_ENV = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'OPENCODE_DATA_DIR', 'PI_AGENT_DIR'] as const;
 
 function nowDate(env: NodeJS.ProcessEnv): Date {
     const raw = env.MUXR_USAGE_NOW;
@@ -158,27 +170,54 @@ interface CcusageRange {
 async function ccusageRange(env: NodeJS.ProcessEnv, since: string): Promise<{ range?: CcusageRange; failure?: string }> {
     const { binary, failure } = ccusageBinary(env);
     if (binary === undefined) return failure === undefined ? {} : { failure };
-    const result = await runJson<CcusageRange>(binary, ['daily', '--by-agent', '--sections', 'daily,session', '--json', '--offline', '--since', since], 120_000);
+    // An empty Claude store still needs the folder the backend looks for.
+    const emptyStore = join(tmpdir(), 'muxr-ccusage-no-store');
+    mkdirSync(join(emptyStore, 'projects'), { recursive: true });
+    const childEnv = { ...process.env, ...Object.fromEntries(LEDGER_STORE_ENV.map((key) => [key, emptyStore])) };
+    const args = ['daily', '--by-agent', '--sections', 'daily,session', '--json', '--offline', '--since', since];
+    // Idle IO class where the host has it: the count reads every log it knows.
+    const ionice = process.platform === 'linux' ? onPath('ionice', env) : undefined;
+    const result = await runJson<CcusageRange>(ionice ?? binary, ionice === undefined ? args : ['-c', '3', binary, ...args], 120_000, childEnv);
     if (!Array.isArray(result?.daily)) return { failure: 'Local activity unavailable · refresh to try again' };
     return { range: result };
 }
 
-let extras: { at: number; key: string; answer: Promise<{ range?: CcusageRange; failure?: string }>; settled?: { at: number; range: CcusageRange } } | undefined;
+let extras: { at: number; key: string; running: boolean; answer: Promise<{ range?: CcusageRange; failure?: string }>; settled?: { at: number; range: CcusageRange } } | undefined;
 
-/** The daily backend's answer, only when an agent it alone measures is
- *  installed, reused for a while, and never waited on past `EXTRAS_WAIT_MS`. */
-async function extrasRange(env: NodeJS.ProcessEnv, since: string): Promise<{ range?: CcusageRange; failure?: string; counting?: true; settledAt?: number }> {
-    if (![...CCUSAGE_AGENTS].some((agent) => installedAgent(agent, AGENT_COMMANDS[agent] ?? agent, env))) return {};
+function extrasInstalled(env: NodeJS.ProcessEnv): boolean {
+    return [...CCUSAGE_AGENTS].some((agent) => installedAgent(agent, AGENT_COMMANDS[agent] ?? agent, env));
+}
+
+/** Starts the daily backend when its answer is due. Only the Usage screen
+ *  calls this: the Home card reads whatever the last run said. One run at a
+ *  time, whichever window it was asked for. */
+function startExtras(env: NodeJS.ProcessEnv, since: string, refresh: boolean): void {
+    if (!extrasInstalled(env)) return;
     const key = `${env.MUXR_CCUSAGE_BIN ?? ''}\u0000${since}`;
-    if (extras === undefined || extras.key !== key || Date.now() - extras.at > EXTRAS_REUSE_MS) {
+    // The Usage screen refreshes on every return to the foreground: that
+    // re-runs a failed count, but a good one only once it is a while old.
+    const refreshDue = refresh && extras !== undefined && (extras.settled === undefined || extras.settled.at < extras.at || Date.now() - extras.at > EXTRAS_REFRESH_MS);
+    const due = extras === undefined || extras.key !== key || Date.now() - extras.at > EXTRAS_REUSE_MS || refreshDue;
+    if (due && !extras?.running) {
         const settled = extras?.settled;
-        const next: NonNullable<typeof extras> = { at: Date.now(), key, answer: ccusageRange(env, since) };
-        // A failed run is not kept for the reuse window: the next ask, a
-        // refresh included, runs it again, as the failure line promises.
-        void next.answer.then((answer) => { if (answer.range !== undefined) next.settled = { at: Date.now(), range: answer.range }; else next.at = 0; });
+        const next: NonNullable<typeof extras> = { at: Date.now(), key, running: true, answer: ccusageRange(env, since) };
+        // A failed run is kept like a good one: a refresh, not every ask,
+        // runs it again, as the failure line promises.
+        void next.answer.then((answer) => {
+            next.running = false;
+            next.at = Date.now();
+            if (answer.range !== undefined) next.settled = { at: next.at, range: answer.range };
+        });
         if (settled !== undefined) next.settled = settled;
         extras = next;
     }
+}
+
+/** The daily backend's answer, only when an agent it alone measures is
+ *  installed, reused for a while, and never waited on past `EXTRAS_WAIT_MS`. */
+async function extrasRange(env: NodeJS.ProcessEnv): Promise<{ range?: CcusageRange; failure?: string; counting?: true; settledAt?: number }> {
+    if (!extrasInstalled(env)) return {};
+    if (extras === undefined) return { counting: true };
     const current = extras;
     const answer = await Promise.race([current.answer, new Promise<undefined>((resolve) => { setTimeout(() => resolve(undefined), EXTRAS_WAIT_MS).unref(); })]);
     const settled = current.settled !== undefined && Date.now() - current.settled.at <= PLAN_LAST_KNOWN_MS ? current.settled : undefined;
@@ -407,6 +446,8 @@ export interface CollectUsageInput {
     provider?: string;
     /** Re-collect past the recent shared collection on an explicit refresh. */
     refresh?: boolean;
+    /** The Usage screen is open and wants every agent's activity counted. */
+    activity?: boolean;
 }
 
 /** A plan tab's own words for limits it could not read; other tabs have no
@@ -434,13 +475,15 @@ async function collection(input: CollectUsageInput, env: NodeJS.ProcessEnv): Pro
     const accounts = planAccounts(env);
     const identity = `${cacheIdentity(env)}:${JSON.stringify(accounts)}`;
     const key = `${identity}\u0000${TODAY}`;
+    // Before any reuse: the screen's ask is what starts the count it will read.
+    if (input.activity === true) startExtras(env, windowPeriods(NOW, LEDGER_DAYS)[0]!, input.refresh === true);
     let pending = inFlight.get(key);
     if (input.refresh !== true && pending === undefined) {
         const cached = completed.get(key);
         // A collection taken while the first count ran is not reused once the
         // count has landed: the tab asking again is asking for it.
         const counted = (cached?.counting === true && ledgerFor(ledgerRoots(env)).ready)
-            || (cached?.extrasCounting === true && extras?.settled !== undefined);
+            || (cached?.extrasCounting === true && (extras?.settled !== undefined || (extras !== undefined && extras.at > cached.at)));
         if (cached !== undefined && !counted && NOW.getTime() - cached.at < PLAN_MIN_READ_MS) return { raw: cached, now: NOW.getTime() };
     }
     if (pending === undefined) {
@@ -461,7 +504,7 @@ async function collection(input: CollectUsageInput, env: NodeJS.ProcessEnv): Pro
 export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.ProcessEnv = process.env): Promise<UsageReport> {
     const requested = (input.provider ?? '').slice(0, MAX_PROVIDER_INPUT);
     const selected = Object.hasOwn(AGENTS, requested) ? requested : '';
-    const { raw, now } = await collection(input, env);
+    const { raw, now } = await collection({ ...input, activity: true }, env);
     return project(raw, selected, now);
 }
 
@@ -509,7 +552,7 @@ async function collectFresh(NOW: Date, env: NodeJS.ProcessEnv): Promise<RawColle
     const ledger = ledgerFor(ledgerRoots(env));
     const counted = ledger.refresh(NOW.getTime()).catch(() => undefined);
     const [extrasAnswer] = await Promise.all([
-        extrasRange(env, DATES[0]!),
+        extrasRange(env),
         Promise.race([counted, new Promise((resolve) => { setTimeout(resolve, LEDGER_WAIT_MS).unref(); })]),
     ]);
     // Per-provider isolation: a plan whose read failed this time -- a
