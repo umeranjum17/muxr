@@ -34,7 +34,6 @@ const RECIPE: HostRecipe = {
         },
     },
     install: [
-        ['mkdir', '-p', WORK_DIR],
         ['node', '-e', FETCH_TARBALL, CLI_TARBALL_URL, CLI_TARBALL_SHA256, `${WORK_DIR}/cli.tgz`],
         ['npm', 'install', '--global', '--prefix', `${WORK_DIR}/npm`, '--ignore-scripts', `${WORK_DIR}/cli.tgz`],
     ],
