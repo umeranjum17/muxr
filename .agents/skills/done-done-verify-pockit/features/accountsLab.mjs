@@ -33,6 +33,15 @@ const stack = await startFakeStack({
         // The computer's own sign-in: the "found" Umer the new account sits next to.
         mkdirSync(join(home, '.claude'), { recursive: true });
         writeFileSync(join(home, '.claude/lab-account.json'), '{"loggedIn":true,"authMethod":"claude.ai","email":"umer@example.com","subscriptionType":"max"}\n');
+        // LAB_WORK_ACCOUNT=1 starts with a second, already signed-in "Work"
+        // account, so the provider has a choice and panes wear account chips.
+        if (process.env.LAB_WORK_ACCOUNT === '1') {
+            const plans = join(dirname(home), 'muxr', 'plans');
+            const folder = join(plans, 'claude', Buffer.from('work').toString('hex'));
+            mkdirSync(folder, { recursive: true });
+            writeFileSync(join(folder, 'lab-account.json'), '{"loggedIn":true,"authMethod":"claude.ai","email":"umer.work@example.com","subscriptionType":"max"}\n');
+            writeFileSync(join(plans, 'accounts-v1.json'), JSON.stringify({ version: 1, accounts: [{ id: 'pa_work', provider: 'claude', name: 'Work', folder, found: false }] }), { mode: 0o600 });
+        }
         console.log(`lab home: ${home} (touch signin-hold / signin-fail there)`);
         return { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin` };
     },
