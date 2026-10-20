@@ -13,7 +13,7 @@ import {
     statSync,
     writeFileSync,
 } from 'node:fs';
-import { homedir, hostname, networkInterfaces, platform as hostPlatform } from 'node:os';
+import { homedir, hostname, networkInterfaces, platform as hostPlatform, userInfo } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
@@ -160,6 +160,22 @@ export function run(command, args, options = {}) {
             : result.error?.message ?? ''),
         errorCode: result.error?.code,
     };
+}
+
+// systemctl --user and launchctl ignore HOME, so an overridden HOME would still reach the real user's services.
+function overriddenHomeRefusal() {
+    if (env('MUXR_TEST_FAKE_SERVICE_MANAGERS') === '1') return undefined;
+    let passwdHome;
+    try { passwdHome = userInfo().homedir; } catch { return undefined; }
+    const realPasswdHome = realpathOrUndefined(passwdHome);
+    if (realPasswdHome === undefined || realpathOrUndefined(home()) === realPasswdHome) return undefined;
+    return `HOME=${resolve(home())} is not the user's real home ${resolve(passwdHome)}; service commands under an overridden HOME never touch the real muxr.service`;
+}
+
+export function serviceManagerRun(command, args, options) {
+    const refusal = overriddenHomeRefusal();
+    if (refusal !== undefined) return { ok: false, status: 1, stdout: '', stderr: refusal, errorCode: undefined, refused: true };
+    return run(command, args, options);
 }
 
 export function writeOwned(path, content, manifest, { dryRun, force, mode = 0o600 }) {

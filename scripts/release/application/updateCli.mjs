@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runBootstrap, daemonIsRunning, daemonMode, githubPluginSource, headlessState, herdrBin, panePackManagingThisCli, readSelfhostState, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
+import { runBootstrap, daemonMode, daemonState, githubPluginSource, headlessState, herdrBin, panePackManagingThisCli, readSelfhostState, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
 import { compareVersions, channelTags, releaseVersion, resolveChannel } from '../domain/channel.mjs';
 
 const PACKAGE = '@trymuxr/cli';
@@ -166,7 +166,7 @@ export async function updateCli(command = {}) {
     }
 
     if (managed === undefined && !activePackageUsesCurrentNpmPrefix()) return 1;
-    const restart = daemonIsRunning();
+    const restart = daemonState() !== 'stopped';
     const restartMode = installedMode;
     // A tailnet-recorded relay belongs to the foreground `muxr up`; an update never stops, restarts or respawns it.
     const headless = headlessState(readSelfhostState());

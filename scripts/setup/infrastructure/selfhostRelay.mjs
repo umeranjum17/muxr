@@ -22,7 +22,7 @@ import {
     publicRelayUrl,
     stateDir,
 } from './runtime.mjs';
-import { daemonDefinition, daemonIsRunning, runDaemon } from './daemon.mjs';
+import { daemonDefinition, daemonState, runDaemon } from './daemon.mjs';
 import {
     advertisedRelayHealthy,
     cloudflaredAlive,
@@ -90,7 +90,7 @@ export async function selfhostPublicSummary() {
         webUrl: state.webEnabled === true ? publicRelayUrl(state.relayUrl)?.replace(/^ws/, 'http') : undefined,
         relayHealthy,
         publicHealthy,
-        hostRunning: daemonIsRunning(),
+        hostRunning: daemonState() === 'running',
         credentialExpiresAt: typeof state.credentialExpiresAt === 'string' ? state.credentialExpiresAt : undefined,
     };
 }
