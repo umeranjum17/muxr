@@ -184,7 +184,13 @@ try {
     // Under load the package service answers well after boot completes, and a release APK
     // outlasts the usual adb bound.
     for (let attempt = 1; ; attempt++) {
-        try { execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 600_000 }); break; }
+        try {
+            for (const deadline = Date.now() + 300_000; !/package:/.test(adb('shell', 'pm', 'path', 'android')); await sleep(5000)) {
+                if (Date.now() > deadline) throw new Error('package service never answered');
+            }
+            execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 180_000 });
+            break;
+        }
         catch (error) { if (attempt === 4) throw error; log(`install retry ${attempt}`); await sleep(30_000); }
     }
     log('installed');
