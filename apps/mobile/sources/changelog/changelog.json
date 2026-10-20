@@ -2,102 +2,50 @@
     "releases": [
         {
             "appVersion": "0.2.6",
-            "title": "Continue agents elsewhere, set up a cloud computer, and steadier connections",
-            "summary": "Since 0.2.5: an agent can continue on another computer, a cloud computer can be set up from the phone, and Home shows whether each computer is healthy or busy. Connections recover by themselves after a stall, and the computer picture and screen share are steadier. Update the phone app and computer together.",
+            "title": "Continue agents on another computer and set up a cloud computer",
+            "summary": "Since 0.2.5: continue an agent on another computer, set up a cloud computer from the phone, and see whether each computer is healthy or busy. Update the phone app and computer together.",
             "features": [
                 {
-                    "title": "Continue an agent on another computer",
-                    "detail": "Pick another computer and the agent carries on there; the original agent is retired once the new one has taken over."
+                    "title": "Continue an agent elsewhere",
+                    "detail": "Pick another computer and the agent carries on there."
                 },
                 {
-                    "title": "Set up a cloud computer from the phone",
-                    "detail": "Sign in to a cloud account and the phone sets up a computer for you, and a retry never creates a second one."
+                    "title": "Set up a cloud computer",
+                    "detail": "The phone sets up a cloud computer for you, and a retry never makes a second one."
                 },
                 {
                     "title": "Healthy or Busy on Home",
-                    "detail": "Each computer on Home says whether it is healthy or busy, so you know before you start something."
+                    "detail": "Home says whether each computer is healthy or busy."
                 },
                 {
                     "title": "Linux computer app download",
-                    "detail": "The Linux computer app is available as a download from the website, with the one system requirement named on the page."
-                },
-                {
-                    "title": "Computer sharing through your own relay",
-                    "detail": "The desktop picture can travel through the relay you own, so it reaches your phone from networks that block direct links."
-                },
-                {
-                    "title": "Start the first agent in a chosen folder",
-                    "detail": "The computer app starts the first agent in the project folder you pick."
-                },
-                {
-                    "title": "Notifications open their page",
-                    "detail": "Tapping a notification in the installed web app opens the page it is about, and computers can send general notifications to paired phones."
-                },
-                {
-                    "title": "Sign in to the Go agent route",
-                    "detail": "The Go route signs in through the accounts service, the same way as the other routes."
-                },
-                {
-                    "title": "Wi-Fi advice only where it fits",
-                    "detail": "Setup recommends Wi-Fi only on a plain computer, not on one that is reachable away from home."
+                    "detail": "The Linux computer app is a download on the website."
                 }
             ],
             "fixes": [
                 {
                     "title": "Stalled computers recover",
-                    "detail": "When the agent runner stalls or the host stops answering, the phone reconnects on its own instead of waiting for you."
+                    "detail": "The phone reconnects on its own after a stall."
                 },
                 {
                     "title": "Honest pairing codes",
-                    "detail": "An expired pairing code says it expired, and is no longer shown as a declined approval."
+                    "detail": "An expired pairing code says it expired."
                 },
                 {
                     "title": "Home knows when you are offline",
-                    "detail": "Home judges offline by whether it can really reach the computer, not by the device's network flag."
-                },
-                {
-                    "title": "Computer view says what is wrong",
-                    "detail": "The Computer view names a missing path, refuses sharing at once when the system share prompt is stuck, and wraps the restart command whole at any text size."
-                },
-                {
-                    "title": "Terminals pan in whole rows",
-                    "detail": "A terminal taller than its box pans in whole rows, and each queued scroll step is checked again before it is sent."
-                },
-                {
-                    "title": "Narrow windows",
-                    "detail": "The agent header and side rail fit the narrowest windows, and the installed web app window follows the theme."
-                },
-                {
-                    "title": "Safe cloud retries",
-                    "detail": "A cloud computer setup that is retried reuses the computer it already made and installs the pinned version of the tools."
+                    "detail": "Home judges offline by whether the computer can really be reached."
                 }
             ],
             "verification": [
                 {
-                    "title": "Automated checks on the release candidate",
+                    "title": "Release candidate checks",
                     "status": "not-run",
-                    "detail": "The full suite and signed Android and computer candidate build had not run for this version when these notes were written. Checks on the individual changes are not acceptance of the combined release."
-                },
-                {
-                    "title": "Mac and iPhone acceptance",
-                    "status": "not-run",
-                    "detail": "The combined candidate has not been run on a Mac host with an iPhone."
-                },
-                {
-                    "title": "Real-phone voice and dictation",
-                    "status": "not-run",
-                    "detail": "Realtime voice and dictation on a real phone have not been checked for this candidate."
-                },
-                {
-                    "title": "Android acceptance",
-                    "status": "not-run",
-                    "detail": "The exact signed candidate has not been installed or accepted on an Android phone or emulator."
+                    "detail": "The signed candidate has not been accepted on a phone, Mac or iPhone."
                 }
             ],
             "knownLimits": [
-                "Update the phone app and computer together: continuing an agent on another computer and general notifications depend on the new computer, and mixed versions were not tested.",
-                "A self-hosted computer and relay are required.",
-                "This is a candidate for acceptance. npm latest and Play production are not updated by building it; a successful build does not prove phone, microphone or desktop behaviour."
+                "Update the phone app and computer together; mixed versions were not tested.",
+                "This is a candidate for acceptance. A successful build does not prove phone, microphone or desktop behaviour."
             ]
         },
         {
