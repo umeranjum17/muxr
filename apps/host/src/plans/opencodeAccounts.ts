@@ -41,8 +41,7 @@ function opencodeMajor(binary: string): number | undefined {
  * server. 1.x rejects that flag, so only 2.x launches carry it.
  */
 export function opencodeLaunchArgs(env: NodeJS.ProcessEnv = process.env): string[] {
-    const probe = agentProbePath((env.PATH ?? '').split(delimiter), env.HOME?.trim() || homedir());
-    const binary = resolveAgentBinary('opencode', { path: probe }).path;
+    const binary = opencodeBinary(env);
     if (binary === undefined) return [];
     const major = opencodeMajor(binary);
     return major !== undefined && major >= 2 ? ['--standalone'] : [];
