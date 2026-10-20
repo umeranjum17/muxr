@@ -4,11 +4,16 @@
             "appVersion": "0.2.8",
             "title": "Steadier Claude scrolling, right pane names, a lighter host",
             "summary": "Since 0.2.7: Claude panes scroll under your finger, panes carry their Herdr tab names, and the host stops reading every agent log for the Usage screen.",
-            "features": [],
+            "features": [
+                {
+                    "title": "Instant Latest in Claude panes",
+                    "detail": "Latest in a fullscreen Claude pane lands on the newest line at once and follows new output from there."
+                }
+            ],
             "fixes": [
                 {
                     "title": "Claude pane scroll",
-                    "detail": "A fullscreen Claude pane now scrolls with your finger, stops when you lift it, and no longer follows new output while you scroll. Latest jumps to the newest line at once."
+                    "detail": "A fullscreen Claude pane now scrolls with your finger, stops when you lift it, and no longer follows new output while you scroll."
                 },
                 {
                     "title": "Pane names",
