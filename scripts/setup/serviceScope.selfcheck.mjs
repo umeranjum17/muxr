@@ -77,18 +77,22 @@ if (code === 0) fail('pairDevice() unexpectedly succeeded against a dead lab rel
 if (namesDefaultUnit(loggedCalls())) fail(`pair flow named the default unit: ${loggedCalls()}`);
 if (loggedCalls() !== '') fail(`pair flow spawned a service manager at all: ${loggedCalls()}`);
 
-// 3. An overridden HOME (no MUXR_HOME) is refused too: systemctl --user ignores HOME.
-delete process.env.MUXR_HOME;
-resetLog();
-const homeOverride = daemon.serviceCommand('restart');
-if (homeOverride.ok || loggedCalls() !== '') fail(`serviceCommand('restart') ran under an overridden HOME: ${loggedCalls()}`);
+// Without a passwd entry the HOME comparison is skipped, so steps 3 and 4 have nothing to check.
+const passwdHome = (() => { try { return userInfo().homedir; } catch { return undefined; } })();
+if (passwdHome !== undefined) {
+    // 3. An overridden HOME (no MUXR_HOME) is refused too: systemctl --user ignores HOME.
+    delete process.env.MUXR_HOME;
+    resetLog();
+    const homeOverride = daemon.serviceCommand('restart');
+    if (homeOverride.ok || loggedCalls() !== '') fail(`serviceCommand('restart') ran under an overridden HOME: ${loggedCalls()}`);
 
-// 4. Default home keeps working: restart still targets muxr.service.
-process.env.HOME = userInfo().homedir;
-resetLog();
-const restart = daemon.serviceCommand('restart');
-if (!restart.ok) fail(`serviceCommand('restart') refused for the default MUXR_HOME: ${restart.stderr}`);
-if (!namesDefaultUnit(loggedCalls())) fail('serviceCommand(\'restart\') stopped targeting muxr.service for the default MUXR_HOME');
+    // 4. Default home keeps working: restart still targets muxr.service.
+    process.env.HOME = passwdHome;
+    resetLog();
+    const restart = daemon.serviceCommand('restart');
+    if (!restart.ok) fail(`serviceCommand('restart') refused for the default MUXR_HOME: ${restart.stderr}`);
+    if (!namesDefaultUnit(loggedCalls())) fail('serviceCommand(\'restart\') stopped targeting muxr.service for the default MUXR_HOME');
+}
 
 rmSync(root, { recursive: true, force: true });
 process.stdout.write('service-scope self-check: lab MUXR_HOME never touches muxr.service; default home unchanged\n');
