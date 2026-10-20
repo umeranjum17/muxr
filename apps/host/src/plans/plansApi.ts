@@ -31,6 +31,8 @@ function providerRecords(provider: PlanProvider, env: NodeJS.ProcessEnv): PlanAc
     return [found, ...own];
 }
 
+const OPENCODE_AMBIENT_AUTH_ENV = ['OPENCODE_AUTH', 'OPENCODE_AUTH_CONTENT', 'OPENCODE_TEST_HOME'];
+
 export const AUTO_TERMS_NOTE = 'Auto may use either of a provider\'s accounts.';
 
 export async function planLaunchEnv(env: NodeJS.ProcessEnv, record: PlanAccountRecord): Promise<{ set: Record<string, string>; unset: string[] }> {
@@ -41,8 +43,8 @@ export async function planLaunchEnv(env: NodeJS.ProcessEnv, record: PlanAccountR
         // OpenCode's key reaches it through files the kit writes at launch, so only `launch` gives its env.
         const launched = await kit.launch(record.id);
         if (!launched.ok) throw Object.assign(new Error(launched.message), { code: 'plan-account-unavailable' });
-        // The kit does not clear OpenCode's inline auth, which would put the computer's own sign-in on the account.
-        return { set: launched.set, unset: [...new Set([...launched.unset, 'OPENCODE_AUTH_CONTENT'])] };
+        // The kit sheds the rest of OpenCode's ambient auth; these inline and test redirects it does not.
+        return { set: launched.set, unset: [...new Set([...launched.unset, ...OPENCODE_AMBIENT_AUTH_ENV])] };
     } catch (error) { return planError(error); }
 }
 

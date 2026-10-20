@@ -538,7 +538,7 @@ it('signs two OpenCode accounts in with a typed Go key and keeps each key apart 
     const computerOwn = join(root, 'share', 'opencode');
     mkdirSync(computerOwn, { recursive: true });
     writeFileSync(join(computerOwn, 'auth.json'), '{"ambient":{"type":"api","key":"NEVER_ADOPTED"}}');
-    env = { ...env, PATH: `${bin}:${env.PATH}`, XDG_DATA_HOME: join(root, 'share'), OPENCODE_AUTH_CONTENT: 'ambient-auth' };
+    env = { ...env, PATH: `${bin}:${env.PATH}`, XDG_DATA_HOME: join(root, 'share'), OPENCODE_AUTH_CONTENT: 'ambient-auth', OPENCODE_AUTH: '/ambient/auth.json', OPENCODE_TEST_HOME: '/ambient/home' };
     // The kit lists the key's workspaces when it launches; the console refuses these keys, so no workspace header.
     vi.stubGlobal('fetch', async () => new Response('', { status: 401 }));
     const typeKey = (prepared: Awaited<ReturnType<typeof preparePlanSignIn>>, key: string) =>
@@ -591,7 +591,7 @@ it('signs two OpenCode accounts in with a typed Go key and keeps each key apart 
     // The account runs on its own data folder; the computer's own sign-in is never read, copied or exported to it.
     expect(launch.set.XDG_DATA_HOME?.startsWith(a.record.folder)).toBe(true);
     expect(launch.set.OPENCODE_AUTH_CONTENT).toBeUndefined();
-    expect(launch.unset).toContain('OPENCODE_AUTH_CONTENT');
+    for (const name of ['OPENCODE_AUTH_CONTENT', 'OPENCODE_AUTH', 'OPENCODE_TEST_HOME']) expect(launch.unset).toContain(name);
     expect(existsSync(join(a.record.folder, 'data', 'opencode', 'auth.json'))).toBe(false);
     expect(readFileSync(join(env.MUXR_HOME!, 'plans', 'secrets.json'), 'utf8')).not.toContain('INERT_KEY_A');
     expect(statSync(join(a.record.folder, 'go.key')).mode & 0o777).toBe(0o600);

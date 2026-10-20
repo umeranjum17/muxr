@@ -1495,3 +1495,149 @@ describe('OpenCode account isolation', () => {
         }
     }, 20_000);
 });
+
+describe('handoff: the agent writes its own note', () => {
+    it('returns the note its agent wrote, refuses a busy agent before typing, and leaves no result file behind', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-handoff-'));
+        const cwd = join(dir, 'repo');
+        mkdirSync(cwd, { recursive: true });
+        const herdr = fakeHerdr(dir, cwd);
+        const note = 'Finish the launch test: the handoff case is the only one left.';
+        herdr.state.handoffNote = note;
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const started = await source.start({ cwd, kind: 'claude' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            Object.assign(herdr.agents[0]!, {
+                agent: 'claude',
+                agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
+            });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p1' });
+            await source.refreshHerdr();
+
+            await expect(source.handoff({ sessionId: started.info.id, targetName: 'Laptop' })).resolves.toEqual({ note });
+            expect(herdr.state.prompts.filter((text) => text.includes('.byokit-turn-'))).toHaveLength(1);
+            expect(readdirSync(cwd).filter((name) => name.startsWith('.byokit-turn-'))).toEqual([]);
+            expect(herdr.agents[0]!.agent_status).toBe('idle');
+
+            const firstTurn = source.handoff({ sessionId: started.info.id, targetName: 'Laptop' });
+            await expect(source.handoff({ sessionId: started.info.id, targetName: 'Laptop' }))
+                .rejects.toMatchObject({ code: 'handoff-busy' });
+            await expect(firstTurn).resolves.toEqual({ note });
+            expect(herdr.state.prompts.filter((text) => text.includes('.byokit-turn-'))).toHaveLength(2);
+
+            herdr.agents[0]!.agent_status = 'working';
+            const sent = herdr.state.prompts.length;
+            await expect(source.handoff({ sessionId: started.info.id, targetName: 'Laptop' }))
+                .rejects.toMatchObject({ code: 'handoff-busy' });
+            expect(herdr.state.prompts).toHaveLength(sent);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+});
+
+describe('source close lets the process exit', () => {
+    it('clears watch guard timers and closes idempotently', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-close-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        // The hang: agentWatch arms one guard timer per session, up to an
+        // hour out. Track that exact delay directly, plus the kit's own
+        // in-flight agent.wait client timeout (timeout_ms + 5 s), which lands
+        // on the same 65 s while the delayed reply is pending: launch
+        // confirmation polls (200 ms sleeps, 60 s budgets) come and go, but
+        // nothing else ever arms a 65 s timer. close() releases both.
+        const guards = new Set<number>();
+        const hook = createHook({
+            init(asyncId, type, _trigger, resource) {
+                if (type === 'Timeout'
+                    && (resource as { _idleTimeout?: unknown })._idleTimeout === 65_000) {
+                    guards.add(asyncId);
+                }
+            },
+            destroy(asyncId) { guards.delete(asyncId); },
+        });
+        hook.enable();
+        try {
+            const started = await source.start({ cwd, kind: 'claude' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            // Delay the wait reply past teardown: the watch is still in
+            // flight when close() runs, so only close() itself can release
+            // the guard and the assertions cannot race its settlement.
+            herdr.state.delayAgentWaitMs = 300;
+            await source.agentWatch({ sessionId: started.info.id, timeoutMs: 60_000 });
+            expect(guards.size).toBe(2);
+            await source.close();
+            await source.close();
+            await source.dispose();
+            // async_hooks destroy delivery rides the loop, not the microtask
+            // queue; the reply still cannot land inside this budget, so a
+            // leaked guard stays to the deadline.
+            await source.close();
+            await source.close();
+            await source.dispose();
+            // async_hooks destroy delivery rides the loop, not the microtask
+            // queue; the reply still cannot land inside this budget, so a
+            // leaked guard stays to the deadline.
+            const deadline = Date.now() + 200;
+            while (guards.size !== 0 && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            expect(guards.size).toBe(0);
+            // Launch confirmation is still sleeping when close runs. Shutdown
+            // must not turn its cancellation into a failed launch and erase
+            // the durable route after dispose has flushed it.
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            const routes = JSON.parse(readFileSync(join(dir, 'data', 'herdr-routes.json'), 'utf8'));
+            expect(routes.bindings).toEqual([expect.objectContaining({ route: started.info.id })]);
+        } finally {
+            hook.disable();
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
+});
+
+describe('source close exits the process', () => {
+    it('a script watching against fake Herdr exits on its own after close()', async () => {
+        const root = fileURLToPath(new URL('../../../../../', import.meta.url));
+        const script = join(root, 'scripts', 'diagnostics', 'application', 'checkHerdrSourceClose.mjs');
+        // The script drives the compiled source: the suite typechecks (and so
+        // rebuilds dist) before vitest runs, but a bare vitest invocation can
+        // sit on a stale build -- fail loud instead of testing old code.
+        const src = fileURLToPath(new URL('./herdrSessionSource.ts', import.meta.url));
+        const dist = join(root, 'apps', 'host', 'dist', 'agent', 'infrastructure', 'herdrSessionSource.js');
+        expect(statSync(dist).mtimeMs).toBeGreaterThanOrEqual(statSync(src).mtimeMs);
+        const child = spawn(process.execPath, [script], { stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (chunk) => { stdout += String(chunk); });
+        child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+        const exit = await Promise.race([
+            new Promise<number | null>((resolve) => child.on('close', resolve)),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
+        ]);
+        if (exit === null) {
+            child.kill('SIGKILL');
+            throw new Error(`close script still alive after 20 s (a leftover handle wedges it): ${stderr.slice(-500)}`);
+        }
+        expect(stderr).toBe('');
+        expect(stdout).toContain('herdr-source-close: ok');
+        expect(exit).toBe(0);
+    }, 30_000);
+});

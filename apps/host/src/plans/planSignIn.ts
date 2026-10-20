@@ -1,5 +1,5 @@
 /** muxr owns sign-in tabs and pane/account bookkeeping. Each sign-in attempt owns a kit instance. */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import type { HerdrTreePane, HerdrTreeWorkspace, PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
@@ -69,6 +69,15 @@ function forgetSignInScript(accountId: string): void {
     rmSync(`${script}.key`, { force: true });
     rmSync(`${script}.key.part`, { force: true });
     signInScripts.delete(accountId);
+}
+
+/** A host that stopped before a status read leaves its typed key on disk, and no in-memory entry can reach it again. */
+export function sweepStaleSignInKeys(env: NodeJS.ProcessEnv): void {
+    const dir = plansDir(env);
+    if (!existsSync(dir)) return;
+    for (const name of readdirSync(dir)) {
+        if (/^signin-.*\.key(\.part)?$/.test(name)) rmSync(join(dir, name), { force: true });
+    }
 }
 
 function signInFailed(accountId: string): boolean {

@@ -1,9 +1,10 @@
 /**
- * OpenCode accounts run on the BYOKit accounts kit's Go plan-key route
- * (`@byokit/accounts/opencode-go`): the kit owns the account folder, the saved
- * key and its delivery to OpenCode. What stays here is muxr's own: the secrets
- * store the kit saves keys into, the `--standalone` flag a 2.x OpenCode needs,
- * and the config content every OpenCode pane starts with.
+ * OpenCode Go accounts sign in through the BYOKit accounts kit's plan-key route,
+ * reached through `cliAccounts` with muxr's `keyStore` and the kit's `saveKey`:
+ * the kit owns the account folder, the saved key and its delivery to OpenCode.
+ * What stays here is muxr's own: the secrets store the kit saves keys into, the
+ * `--standalone` flag a 2.x OpenCode needs, and the config content every
+ * OpenCode pane starts with.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -126,33 +127,35 @@ function opencodeConfigFiles(env: NodeJS.ProcessEnv, cwd: string): string[] {
  * OpenCode deep-merges that content last, and a plain string rule there would
  * be replaced by our rule map, so the user's own rules for that tool are read —
  * config files only, never auth — and carried in as `"*"`. Nothing is injected
- * (the prompt stays, never a guess) when the launch already sets
- * OPENCODE_CONFIG_CONTENT, a config cannot be read or parsed (JSONC comments),
- * or `permission` is one value for every tool.
+ * when the launch already sets OPENCODE_CONFIG_CONTENT. A config that cannot be
+ * read or parsed (JSONC comments), or whose `permission` is one value for every
+ * tool, drops only the attachment grant: the prompt stays, the Go model still applies.
  */
 export function opencodeConfigEnv(env: NodeJS.ProcessEnv, dir: string, cwd: string, goModel = false): Record<string, string> {
     if (env.OPENCODE_CONFIG_CONTENT !== undefined || dir === '') return {};
     const permission: Record<string, unknown> = {};
     let modelNamed = false;
+    let unreadable = false;
     for (const file of opencodeConfigFiles(env, cwd)) {
         let parsed: unknown;
         try { parsed = JSON.parse(readFileSync(file, 'utf8')); }
         catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
-            return {};
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') unreadable = true;
+            continue;
         }
-        if (!isRecord(parsed)) return {};
+        if (!isRecord(parsed)) { unreadable = true; continue; }
         if ('model' in parsed) modelNamed = true;
         if (parsed.permission === undefined) continue;
-        if (!isRecord(parsed.permission)) return {};
+        if (!isRecord(parsed.permission)) { unreadable = true; continue; }
         // OpenCode's merge: a later rule map joins an earlier one, anything else replaces it.
         for (const [key, value] of Object.entries(parsed.permission)) {
             const before = permission[key];
             permission[key] = isRecord(before) && isRecord(value) ? { ...before, ...value } : value;
         }
     }
-    return { OPENCODE_CONFIG_CONTENT: JSON.stringify({
+    const content = {
         ...(goModel && !modelNamed ? { model: OPENCODE_GO_DEFAULT_MODEL } : {}),
-        permission: attachmentRules(permission, dir),
-    }) };
+        ...(unreadable ? {} : { permission: attachmentRules(permission, dir) }),
+    };
+    return Object.keys(content).length === 0 ? {} : { OPENCODE_CONFIG_CONTENT: JSON.stringify(content) };
 }
