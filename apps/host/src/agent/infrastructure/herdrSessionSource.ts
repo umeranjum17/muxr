@@ -390,12 +390,16 @@ function handoffError(cause: unknown): Error {
     return Object.assign(new Error(`${reason ?? 'The agent did not write a handoff note.'} It is still here.`), { code: 'handoff-failed', cause });
 }
 
-/** Listed-agent gate. Omitted interactive_ready is ready when lifecycle is live. Starting stays closed. */
+/**
+ * Listed-agent gate: live lifecycle and not launch-pending. interactive_ready is
+ * not read: Herdr omits it for panes it did not start, the kit reads that as
+ * false, and Herdr's agent.prompt accepts those panes anyway.
+ */
 export function herdrAgentIsPromptable(
-    agent: Pick<AgentRecord, 'interactive_ready' | 'launch_pending'>,
+    agent: Pick<AgentRecord, 'launch_pending'>,
     lifecycle: AgentLifecycle,
 ): boolean {
-    if (agent.launch_pending === true || agent.interactive_ready === false) return false;
+    if (agent.launch_pending === true) return false;
     return lifecycle === 'idle' || lifecycle === 'working' || lifecycle === 'blocked' || lifecycle === 'done';
 }
 
@@ -1817,8 +1821,7 @@ export async function createHerdrSessionSource(
 
     /**
      * agent.wait returns the moment a pane looks idle, which is earlier than
-     * promptable. Kinds that skip screen detection never report
-     * interactive_ready at all, so readiness uses the one promptable rule.
+     * promptable, so readiness uses the one promptable rule.
      * `launched` also takes an agent Herdr shows blocked on a first-run question
      * (Claude Code's folder trust) as started: Herdr keeps it launch-pending until
      * the person answers, and that wait is theirs, not a failed launch. Prompts

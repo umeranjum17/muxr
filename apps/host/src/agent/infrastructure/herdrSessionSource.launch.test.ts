@@ -1105,7 +1105,9 @@ describe('realtime prompt boundary', () => {
         try {
             const started = await source.start({ cwd, kind: 'claude' });
             if (!('info' in started)) throw new Error('launch rejected');
+            // A pane started by hand in Herdr: the kit reports interactive_ready=false for it.
             Object.assign(herdr.agents[0]!, {
+                interactive_ready: false,
                 agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
             });
             herdr.emit('pane.agent_detected', { pane_id: 'w1:p1' });
