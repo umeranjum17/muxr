@@ -477,7 +477,10 @@ export async function inspectSetup() {
         if (hostState === 'stopped') hostDetail = 'not running — start it with `muxr daemon start`';
         else if (hostState === 'unknown') hostDetail = 'not checked — service commands are refused in this scope';
         else if (hostAuthenticated) hostDetail = 'running and authenticated';
-        add(hostState === 'unknown' ? 'warn' : hostRunning && hostAuthenticated ? 'ok' : 'fail', serviceName, hostDetail,
+        let hostLevel = 'fail';
+        if (hostState === 'unknown') hostLevel = 'warn';
+        else if (hostRunning && hostAuthenticated) hostLevel = 'ok';
+        add(hostLevel, serviceName, hostDetail,
             hostState === 'stopped' ? { label: 'start and enable the muxr service', run: () => runDaemon(['start']) } : undefined);
         const devices = selfhost.machine?.crypto?.devices;
         if (Array.isArray(devices)) {
