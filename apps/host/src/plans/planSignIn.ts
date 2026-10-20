@@ -42,6 +42,7 @@ function opencodeKeyEntry(script: string): string {
     const key = quote(`${script}.key`);
     return [
         "{ printf 'Paste your OpenCode Go key.\nKey (hidden): '",
+        "trap 'stty echo 2>/dev/null' EXIT INT TERM",
         'stty -echo 2>/dev/null',
         'IFS= read -r key',
         'stty echo 2>/dev/null',
