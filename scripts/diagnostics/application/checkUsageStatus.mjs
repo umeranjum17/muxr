@@ -815,8 +815,12 @@ try {
     const slowCold = join(scratch, 'ccusage-cold');
     writeFileSync(slowCold, `#!/usr/bin/env node\nsetTimeout(() => process.exit(1), 9000);\n`, { mode: 0o755 });
     const coldHome = join(scratch, 'now-cold');
+    const coldEnv = { ...baseEnv(), HOME: coldHome, MUXR_HOME: coldHome, MUXR_CCUSAGE_BIN: slowCold };
+    // The card starts no count of its own: it is cold while the Usage
+    // screen's count runs.
+    const screenAsk = drive(coldEnv, {});
     const coldStarted = Date.now();
-    const coldNow = await driveNow({ ...baseEnv(), HOME: coldHome, MUXR_HOME: coldHome, MUXR_CCUSAGE_BIN: slowCold });
+    const coldNow = await driveNow(coldEnv);
     const coldMs = Date.now() - coldStarted;
     assert.equal(coldNow.collecting, true, 'a usage read that cannot answer in time must report collecting');
     assert.equal(coldNow.capturedAt, undefined, 'a collecting answer has no capture to name');
@@ -826,7 +830,7 @@ try {
     // A successful plan read is durable independently of the unfinished
     // activity collection. Restart the kit to verify the persisted reading,
     // while the Home answer above still honestly reports collecting.
-    await drive({ ...baseEnv(), HOME: coldHome, MUXR_HOME: coldHome, MUXR_CCUSAGE_BIN: slowCold }, {});
+    await screenAsk;
     const restarted = usage({ stateDir: join(coldHome, 'usage'), salt: 'muxr/usage/account' });
     const knownCodex = restarted.lastKnown({ provider: 'codex', bin: join(scratch, 'codex'), home: join(scratch, '.codex') }, { nowMs: today.getTime() });
     assert.deepEqual(knownCodex?.windows.map((window) => window.usedPercent), [25, 90]);

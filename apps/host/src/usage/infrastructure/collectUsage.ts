@@ -198,9 +198,11 @@ function startExtras(env: NodeJS.ProcessEnv, since: string, refresh: boolean): v
     // re-runs a failed count, but a good one only once it is a while old.
     const refreshDue = refresh && extras !== undefined && (extras.settled === undefined || extras.settled.at < extras.at || Date.now() - extras.at > EXTRAS_REFRESH_MS);
     const due = extras === undefined || extras.key !== key || Date.now() - extras.at > EXTRAS_REUSE_MS || refreshDue;
-    if (due && !extras?.running) {
+    // A new window waits for the run going now instead of reading its answer.
+    if (due && (!extras?.running || extras.key !== key)) {
         const settled = extras?.settled;
-        const next: NonNullable<typeof extras> = { at: Date.now(), key, running: true, answer: ccusageRange(env, since) };
+        const before = extras?.running === true ? extras.answer : Promise.resolve();
+        const next: NonNullable<typeof extras> = { at: Date.now(), key, running: true, answer: before.then(() => ccusageRange(env, since)) };
         // A failed run is kept like a good one: a refresh, not every ask,
         // runs it again, as the failure line promises.
         void next.answer.then((answer) => {
