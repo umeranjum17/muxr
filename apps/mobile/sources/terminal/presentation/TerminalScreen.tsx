@@ -177,9 +177,12 @@ const DRAWS_OWN_LATEST = new Set(['codex']);
  * Full-screen agents whose Latest is a key of their own rather than muxr
  * turning their wheel. OpenCode drops a wheel turned down while it is still
  * writing a reply, or overshoots its end into blank rows; End takes it to the
- * newest output and it follows from there.
+ * newest output and it follows from there. Claude Code's own Ctrl+End lands on
+ * its newest line at once, where a wheel turned down stops at whatever end it
+ * reads. Only where the program holds the scroll: output in Herdr's own
+ * scrollback (a Claude kept on the main screen, a shell) is moved by muxr.
  */
-const LATEST_KEY: Partial<Record<string, string>> = { opencode: BUILTIN_KEY_CATALOG.end?.send };
+const LATEST_KEY: Partial<Record<string, string>> = { opencode: BUILTIN_KEY_CATALOG.end?.send, claude: '\u001b[1;5F' };
 /** What the terminal answers for the program unasked: focus, cursor, mode, colour and mouse reports. */
 /** The menu row that opens a pane's device preview, per kind. */
 const WATCH_LABEL = { android: 'preview.watchAndroid', ios: 'preview.watchIos' } as const;
@@ -562,10 +565,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         const channel = channelRef.current;
         if (channel === undefined) return;
         pan.follow();
-        const key = LATEST_KEY[kind ?? ''];
+        const key = hostHasScrollback === true ? undefined : LATEST_KEY[kind ?? ''];
         if (key !== undefined) channel.sendText(key);
         else channel.bottom();
-    }, [pan]);
+    }, [hostHasScrollback, pan]);
     // A host frame is first-hand proof the pane is live: it clears a return's
     // provisional stale mark, so a link that never dropped shakes it off the
     // moment its answer lands. A link that did drop sends no frame, and the

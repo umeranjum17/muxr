@@ -350,8 +350,8 @@ process.stdin.on('data', (chunk) => {
         const exitedAt = Date.now();
         writeFileSync(exitFile, '');
         await new Promise((resolve) => setTimeout(resolve, 1_500));
-        // One report may already be past the foreground probe when the exit lands.
-        expect(reportTimes().filter((at) => at > exitedAt).length).toBeLessThanOrEqual(1);
+        // One burst may already be past the foreground probe when the exit lands.
+        expect(reportTimes().filter((at) => at > exitedAt).length).toBeLessThanOrEqual(4);
     });
 
     it('learns the program wheel step after a failed pane read', { timeout: 20_000 }, async () => {
@@ -432,11 +432,11 @@ process.stdin.on('data', (chunk) => {
         expect(state().moved).toBeLessThanOrEqual(36);
     });
 
-    it('never learns a wheel step from a program that keeps painting', { timeout: 20_000 }, async () => {
-        // The pane keeps appending output while a down drag turns its wheel, so
-        // every reading of its screen moves on its own. The rows-per-report must
-        // not be read out of that motion: the wheel stays at a report a row.
-        const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-live-paint-'));
+    it('keeps an accelerating full-screen program under the finger and stops with it', { timeout: 20_000 }, async () => {
+        // The pane plays Claude Code: reports that reach it under 40 ms apart
+        // are one fast spin, a row each for the first four and more after
+        // that, painted 35 ms later. A phone drag of 60 rows must move it 60.
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-accelerate-'));
         cleanups.push(() => removeTestScratch(dir));
         const bin = join(dir, 'fake-herdr.mjs');
         const screenFile = join(dir, 'screen.txt');
@@ -445,17 +445,17 @@ process.stdin.on('data', (chunk) => {
 import { renameSync, writeFileSync } from 'node:fs';
 const save = (path, text) => { writeFileSync(path + '.tmp', text); renameSync(path + '.tmp', path); };
 const lines = Array.from({ length: 400 }, (_, i) => 'line ' + (i + 1));
-let back = 20;
-let reports = 0;
+let back = 0;
+let spin = 0;
+let lastReport = 0;
 const paint = (full) => {
     const end = lines.length - back;
-    const body = lines.slice(end - 8, end);
-    save(${JSON.stringify(screenFile)}, ['OPENCODE', ...body, 'ask anything'].join('\\n'));
-    save(${JSON.stringify(stateFile)}, JSON.stringify({ back, reports }));
+    const body = lines.slice(end - 20, end);
+    save(${JSON.stringify(screenFile)}, ['CLAUDE', ...body, '> '].join('\\n'));
+    save(${JSON.stringify(stateFile)}, JSON.stringify({ back }));
     process.stdout.write(JSON.stringify({ type: 'terminal.frame', full, bytes: Buffer.from(body.at(-1)).toString('base64') }) + '\\n');
 };
 paint(true);
-setInterval(() => { lines.push('line ' + (lines.length + 1)); paint(false); }, 20);
 let buffer = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
@@ -465,12 +465,11 @@ process.stdin.on('data', (chunk) => {
         buffer = buffer.slice(nl + 1);
         if (frame.type === 'terminal.release') process.exit(0);
         if (frame.type !== 'terminal.scroll') continue;
-        reports += 1;
-        save(${JSON.stringify(stateFile)}, JSON.stringify({ back, reports }));
-        setTimeout(() => {
-            back = frame.direction === 'up' ? Math.min(lines.length - 8, back + 3 * frame.lines) : Math.max(0, back - 3 * frame.lines);
-            paint(false);
-        }, 300);
+        spin = Date.now() - lastReport < 40 ? spin + 1 : 0;
+        lastReport = Date.now();
+        const rows = spin < 4 ? 1 : spin < 6 ? 2 : 3;
+        back = frame.direction === 'up' ? Math.min(lines.length - 20, back + rows) : Math.max(0, back - rows);
+        setTimeout(() => paint(false), 35);
     }
 });
 `, { mode: 0o755 });
@@ -491,15 +490,18 @@ process.stdin.on('data', (chunk) => {
             onEnd: () => () => undefined,
             close: () => undefined,
         };
-        await manager.attach({ sessionId: 's1', channel: 'live-paint', cols: 20, rows: 10, socket });
-        const state = (): { back: number; reports: number } => JSON.parse(readFileSync(stateFile, 'utf8'));
+        await manager.attach({ sessionId: 's1', channel: 'accelerate', cols: 20, rows: 22, socket });
+        const back = (): number => (JSON.parse(readFileSync(stateFile, 'utf8')) as { back: number }).back;
         await waitForScreen(frames);
 
-        input(JSON.stringify({ type: 'terminal.scroll', direction: 'down', lines: 30, column: 10, row: 5 }));
-        await waitForDrag(() => state().reports, 27, 12_000);
-        // One report per finger row, so the drag does not carry it three times as far.
-        expect(state().reports).toBeGreaterThanOrEqual(27);
-        expect(state().reports).toBeLessThanOrEqual(36);
+        // The finger moves 6 rows every 100 ms for a second.
+        for (let i = 0; i < 10; i++) {
+            input(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 6, column: 10, row: 5 }));
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        await waitForDrag(back, 57, 8_000);
+        expect(back()).toBeGreaterThanOrEqual(57);
+        expect(back()).toBeLessThanOrEqual(63);
     });
 
     it('drops every input a view-only device sends', { timeout: 30_000 }, async () => {

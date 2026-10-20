@@ -108,10 +108,11 @@ describe('terminal wheel gate and stale-mode reset', () => {
             expect(restores).toEqual(['pane-1', 'pane-1']);
 
             // A different program holds it now: its pid replaces the gone one,
-            // so the swipe is its wheel and nothing is cleared.
+            // so the swipe is its wheel and nothing is cleared. The first
+            // program's last burst may still be waiting out its paint.
             foreground = [second.pid!];
             await swipe();
-            expect(wheelSent(session)).toBe(true);
+            await waitFor(() => wheelSent(session));
             expect(restores).toEqual(['pane-1', 'pane-1']);
         } finally {
             manager.closeAll();
