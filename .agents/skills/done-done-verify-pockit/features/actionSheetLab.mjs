@@ -7,11 +7,11 @@
 //   node .agents/skills/done-done-verify-pockit/features/actionSheetLab.mjs --apk <apk> --evidence <dir> \
 //     --avd-home <dir> [--ref <main evidence dir>] [--interact]
 import { execFile } from 'node:child_process';
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
-import { dismissPrompts, dumpUiXml, screenshot } from '../../../../perf/lib/androidSignals.mjs';
+import { dismissPrompts, dumpUiXml } from '../../../../perf/lib/androidSignals.mjs';
 import { startFakeStack } from '../../../../perf/lib/fakeStack.mjs';
 import { pairPhone } from '../../../../perf/lib/pairPhone.mjs';
 
@@ -31,6 +31,7 @@ const say = (line) => { const out = `${new Date().toISOString()} ${line}`; conso
 let serial = '';
 const adb = async (args, timeout = 60_000) => (await exec('adb', ['-s', serial, ...args], { timeout, maxBuffer: 64 << 20 })).stdout;
 const sh = (cmd) => adb(['shell', cmd]);
+const screenshot = async (path) => writeFileSync(path, (await exec('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { encoding: 'buffer', maxBuffer: 64 << 20, timeout: 30_000 })).stdout);
 
 const unescape = (s) => s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#10;/g, '\n').replace(/&amp;/g, '&');
 function nodes(xml) {
@@ -43,13 +44,25 @@ function nodes(xml) {
 async function screen() {
     for (let attempt = 0; attempt < 5; attempt += 1) {
         const xml = await dumpUiXml(30_000);
-        if (xml !== '') return nodes(xml);
+        if (xml !== '') {
+            const found = nodes(xml);
+            // A slow emulator raises "System UI isn't responding" over everything; wait it out.
+            const wait = found.find((n) => n.text === 'Wait');
+            if (found.some((n) => n.text.endsWith("isn't responding")) && wait) {
+                await adb(['shell', 'input', 'tap', ...center(wait).map(String)]);
+                await sleep(2000);
+                continue;
+            }
+            return found;
+        }
         await sleep(1500);
     }
     return [];
 }
 const find = (found, test) => found.find((n) => test(n.text) || test(n.desc));
-const has = (label) => (found) => find(found, (value) => value === label) !== undefined;
+// The system dialog on main paints its buttons in capitals.
+const is = (label) => (value) => value.toLowerCase() === label.toLowerCase();
+const has = (label) => (found) => find(found, is(label)) !== undefined;
 const center = ({ box: [l, t, r, b] }) => [Math.round((l + r) / 2), Math.round((t + b) / 2)];
 async function waitFor(what, test, seconds = 60) {
     const deadline = Date.now() + seconds * 1000;
@@ -58,7 +71,9 @@ async function waitFor(what, test, seconds = 60) {
         if (test(found)) return found;
         await sleep(1500);
     }
-    await screenshot(join(EVIDENCE, `missing-${what.replace(/\W+/g, '-')}.png`)).catch(() => undefined);
+    const stem = join(EVIDENCE, `missing-${what.replace(/\W+/g, '-')}`);
+    await screenshot(`${stem}.png`).catch((error) => say(`screenshot failed: ${error.message}`));
+    writeFileSync(`${stem}.txt`, (await screen()).filter((n) => n.text || n.desc).map((n) => `${n.text} | ${n.desc} | ${n.box}`).join('\n'));
     throw new Error(`${what} never appeared within ${seconds}s`);
 }
 async function tapOn(what, test, seconds = 60, hold = 0) {
@@ -68,7 +83,20 @@ async function tapOn(what, test, seconds = 60, hold = 0) {
     if (hold) await sh(`input swipe ${x} ${y} ${x} ${y} ${hold}`);
     else await sh(`input tap ${x} ${y}`);
 }
-const atHome = (found) => has('connected')(found) && find(found, (v) => v === 'Add attachment') !== undefined;
+const atHome = (found) => has('connected')(found) && has('Plan, ask, build…')(found);
+// Add attachment sits in the open composer; the collapsed dock shows only its entry.
+async function openAttach() {
+    await tapOn('composer entry', (v) => v === 'Plan, ask, build…');
+    await tapOn('Add attachment', is('Add attachment'));
+    return waitFor('attachment choices', has('Files'));
+}
+async function toHome() {
+    for (let i = 0; i < 4; i += 1) {
+        if (atHome(await screen())) return;
+        await back();
+    }
+    await waitFor('connected Home', atHome, 30);
+}
 
 const defects = [];
 async function capture(dir, name) {
@@ -85,7 +113,7 @@ async function back() { await sh('input keyevent KEYCODE_BACK'); await sleep(120
 async function openOffer(_flow, { PAIR_CODE }) {
     try {
         await sh(`am start -a android.intent.action.VIEW -d 'muxr://pair#${PAIR_CODE}' ${PKG}`);
-        await tapOn('Pair', (v) => v === 'Pair', 60);
+        await tapOn('Pair', is('Pair'), 60);
         await waitFor('connected after Pair', has('connected'), 120);
         return { code: 0, output: 'paired through the consent card' };
     } catch (error) {
@@ -118,16 +146,17 @@ try {
         await waitFor('connected Home', atHome, 120);
         await sleep(2000);
 
-        await tapOn('Add attachment', (v) => v === 'Add attachment');
-        await waitFor('attachment choices', has('Files'));
+        await openAttach();
         await capture(dir, `add-attachment-${cell}`);
-        await back();
+        await tapOn('Cancel', is('Cancel')); // main's system alert ignores back
+        await toHome();
 
         // A Home card's long-press: its rename (and close) choices.
         await tapOn('Home card', (v) => /\. (Idle|Working|Done|Needs you)\b/.test(v), 60, 900);
         await waitFor('card actions', has('Rename'));
         await capture(dir, `card-actions-${cell}`);
-        await back();
+        await tapOn('Cancel', is('Cancel')); // main's system alert ignores back
+        await toHome();
 
         // Over the pane overview sheet: Close pane among a pane's actions, then its confirm.
         await tapOn('Home card', (v) => /\. (Idle|Working|Done|Needs you)\b/.test(v));
@@ -136,11 +165,11 @@ try {
         await tapOn('overview pane tile', (v) => /\b(Idle|Working|Done)\b/.test(v) && !v.endsWith('Open panes'), 30, 900);
         await waitFor('pane actions', has('Close pane'));
         await capture(dir, `pane-actions-${cell}`);
-        await tapOn('Close pane', (v) => v === 'Close pane');
+        await tapOn('Close pane', is('Close pane'));
         await waitFor('close confirm', (found) => find(found, (v) => /^Close .+\?$/.test(v)) !== undefined);
         await capture(dir, `close-confirm-${cell}`);
-        await tapOn('Cancel', (v) => v === 'Cancel' || v === 'CANCEL');
-        for (let i = 0; i < 4 && !atHome(await screen()); i += 1) await back();
+        await tapOn('Cancel', is('Cancel'));
+        await toHome();
     }
 
     if (opts.interact) {
@@ -150,15 +179,15 @@ try {
         await waitFor('connected Home', atHome, 120);
         await sleep(2000);
         // Tap outside: the backdrop above the sheet.
-        await tapOn('Add attachment', (v) => v === 'Add attachment');
-        await waitFor('attachment choices', has('Files'));
+        await openAttach();
         await sh('input tap 540 300');
         await sleep(1500);
         const outside = !has('Files')(await screen());
         say(`tap outside dismisses: ${outside ? 'PASS' : 'FAIL'}`);
         // Swipe down from the handle and title.
-        await tapOn('Add attachment', (v) => v === 'Add attachment');
-        const found = await waitFor('attachment choices', has('Files'));
+        await back();
+        await toHome();
+        const found = await openAttach();
         // The sheet's title, not the dock button under it of the same name.
         const [tx, ty] = center(found.filter((n) => n.text === 'Add attachment').pop());
         await screenshot(join(EVIDENCE, 'swipe-before.png'));
@@ -168,8 +197,9 @@ try {
         await screenshot(join(EVIDENCE, 'swipe-after.png'));
         say(`swipe down dismisses: ${swiped ? 'PASS' : 'FAIL'}`);
         // Files opens the system document picker; back out without picking.
-        await tapOn('Add attachment', (v) => v === 'Add attachment');
-        await tapOn('Files', (v) => v === 'Files');
+        await toHome();
+        await openAttach();
+        await tapOn('Files', is('Files'));
         const picker = await waitFor('system file picker', (f) => f.some((n) => n.pkg.includes('documentsui')), 30).then(() => true, () => false);
         await screenshot(join(EVIDENCE, 'files-picker.png'));
         say(`Files opens the system file picker: ${picker ? 'PASS' : 'FAIL'}`);
