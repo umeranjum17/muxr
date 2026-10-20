@@ -6,7 +6,7 @@ ccusage backend. The Home card never starts it; only an open Usage screen does,
 one run at a time, at idle CPU and IO priority, and the backend is pointed away
 from the Claude, Codex, OpenCode and Pi stores the ledger already counts. A
 good answer is reused for 10 minutes, and a failed one stays until a refresh.
-Each run is capped at 1 GB of address space; one the cap kills reports
+Each run is watched and killed past 1 GB resident (Linux `/proc`); one the cap kills reports
 "Local activity is too large to count within 1 GB" and the last good count
 stays on screen.
 
@@ -21,7 +21,7 @@ nobody has asked about for 30 s is paused (SIGSTOP) and resumed on the next ask.
 - `idle-priority` the run is nice 19 and, where `ionice` exists, IO class idle.
 - `ledger-stores-hidden` `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_DATA_DIR`, `PI_AGENT_DIR` point at one empty store.
 - `failure-backoff` a failed run is not repeated on every ask; a refresh re-runs it.
-- `memory-cap` the backend runs under `ulimit -v 1048576`; an abort over it is reported as too large.
+- `memory-cap` a run over 1 GB resident (`MUXR_CCUSAGE_MEMORY_KB` lowers it in tests) is killed and reported as too large. Not `ulimit -v`: Node cannot start under a 1 GB address-space limit.
 - `ledger-off-loop` a large Pi store is counted in the child: the host's own CPU barely moves, and the Pi tab shows the numbers.
 
 ## How to get to it (user POV)
