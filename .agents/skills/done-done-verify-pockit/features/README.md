@@ -190,8 +190,9 @@ rules, with no H2 sections.
   and 393/270 px, dark and light.
 - [Pick which computer an agent runs on](./computers-sheet.md) —
   two-host lab (distinct UTS hostnames) driven on a release APK and the lab PWA:
-  the Computers sheet lists the cloud row and each paired computer with its
-  Online/Asleep/Offline state and the one in use; tapping another online computer
+  the pane menu's one Computers row opens the sheet: View screen, each paired
+  computer with its Online/Asleep/Offline state and the one in use, and the
+  Pair a computer / Add a cloud computer rows; tapping another online computer
   switches it after a confirmation and the next prompt runs there, dark and light at 393/270 px.
 - [Continue an agent on another computer](./continue-on-computer.md) —
   source-written note, read-only preview, same-kind start and prompt on a paired
