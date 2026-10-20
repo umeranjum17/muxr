@@ -10,7 +10,7 @@
  */
 
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 
 const fail = (message) => {
@@ -77,8 +77,14 @@ if (code === 0) fail('pairDevice() unexpectedly succeeded against a dead lab rel
 if (namesDefaultUnit(loggedCalls())) fail(`pair flow named the default unit: ${loggedCalls()}`);
 if (loggedCalls() !== '') fail(`pair flow spawned a service manager at all: ${loggedCalls()}`);
 
-// 3. Default home keeps working: restart still targets muxr.service.
+// 3. An overridden HOME (no MUXR_HOME) is refused too: systemctl --user ignores HOME.
 delete process.env.MUXR_HOME;
+resetLog();
+const homeOverride = daemon.serviceCommand('restart');
+if (homeOverride.ok || loggedCalls() !== '') fail(`serviceCommand('restart') ran under an overridden HOME: ${loggedCalls()}`);
+
+// 4. Default home keeps working: restart still targets muxr.service.
+process.env.HOME = userInfo().homedir;
 resetLog();
 const restart = daemon.serviceCommand('restart');
 if (!restart.ok) fail(`serviceCommand('restart') refused for the default MUXR_HOME: ${restart.stderr}`);

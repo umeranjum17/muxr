@@ -34,6 +34,14 @@ export function scopedHomeRefusal() {
     return `MUXR_HOME=${resolve(override)} is not the default ${resolve(defaultStateDir())}; service commands scoped to a non-default MUXR_HOME never touch muxr.service`;
 }
 
+// A HOME override (a test or lab home) does not move the systemd user manager or launchd:
+// `systemctl --user` still reaches the real user's muxr.service, so service commands refuse it.
+function overriddenHomeRefusal() {
+    const realHome = userInfo().homedir;
+    if (resolve(home()) === resolve(realHome)) return undefined;
+    return `HOME=${resolve(home())} is not the user's real home ${resolve(realHome)}; service commands under an overridden HOME never touch the real muxr.service`;
+}
+
 export function daemonDefinition(mode) {
     const scopeRefusal = scopedHomeRefusal();
     if (scopeRefusal !== undefined) throw new Error(`refusing service definition: ${scopeRefusal}`);
@@ -104,7 +112,7 @@ export function bootstrapMacService(domain, plist) {
 
 export function serviceCommand(action) {
     if (env('MUXR_NO_SERVICE_COMMANDS') === '1') return { ok: true, stdout: 'service command skipped by test environment', stderr: '' };
-    const scopeRefusal = scopedHomeRefusal();
+    const scopeRefusal = scopedHomeRefusal() ?? overriddenHomeRefusal();
     if (scopeRefusal !== undefined) return { ok: false, stdout: '', stderr: `refusing service ${action}: ${scopeRefusal}` };
     if (platform() === 'darwin') {
         const domain = `gui/${process.getuid()}`;
