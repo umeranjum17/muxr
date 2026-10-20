@@ -313,8 +313,8 @@ export async function runDaemon(args = []) {
         }
         if (!['start', 'stop', 'restart', 'status'].includes(action)) throw new Error('usage: muxr daemon install|uninstall|start|stop|restart|status|logs');
         const scopeRefusal = scopedHomeRefusal();
-        if (scopeRefusal !== undefined && env('MUXR_NO_SERVICE_COMMANDS') !== '1' && ['start', 'restart', 'status'].includes(action)) {
-            error(action === 'status' ? `muxr service status not checked: ${scopeRefusal}` : `refusing service ${action}: ${scopeRefusal}`);
+        if (scopeRefusal !== undefined && ['start', 'restart'].includes(action)) {
+            error(`refusing service ${action}: ${scopeRefusal}`);
             return 1;
         }
         const installedMode = daemonMode();

@@ -29,7 +29,7 @@ const CLI_SOURCE: CliSource = {
 };
 const NPM_INSTALL = ['npm', 'install', '--global', '--prefix', `${WORK_DIR}/npm`, '--ignore-scripts'];
 /** Fetch with the kit's node (22 has fetch), refuse a hash mismatch, then install the file. */
-const FETCH_TARBALL = `const c=require('crypto'),f=require('fs');fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error('download '+r.status);return r.arrayBuffer()}).then(b=>{const h=c.createHash('sha256').update(Buffer.from(b)).digest('hex');if(h!==process.argv[2])throw new Error('sha256 mismatch '+h);f.writeFileSync(process.argv[3],Buffer.from(b))})`;
+const FETCH_TARBALL = `const c=require('crypto'),f=require('fs');fetch(process.argv[1]).then(r=>{if(!r.ok)throw Error(r.status);return r.arrayBuffer()}).then(b=>{if(c.createHash('sha256').update(Buffer.from(b)).digest('hex')!==process.argv[2])throw Error('sha256 mismatch');f.writeFileSync(process.argv[3],Buffer.from(b))})`;
 const installSteps = (source: CliSource): string[][] => source.kind === 'npm'
     ? [[...NPM_INSTALL, `@trymuxr/cli@${source.version}`]]
     : [
