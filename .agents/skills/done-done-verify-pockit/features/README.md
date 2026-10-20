@@ -296,6 +296,10 @@ rules, with no H2 sections.
   release APK on an emulator over a fake-Herdr stack with two Claude
   accounts: a Pi pane muxr did not start wears no chip, a Claude pane keeps
   its own, at 270 and 393 wide and font 1.0/2.0, both themes, before/after.
+- [Manage Claude accounts by hand from the CLI](./accounts-cli.md) — real lab
+  Herdr and host with two stand-in Claude accounts: `muxr accounts` lists them
+  with 5-hour and 7-day quota, starts an agent, shows each agent's account and
+  moves one, and refuses `auto`.
 - [Move a conversation to another account](./plan-move.md) — release APK on
   an emulator over a real lab Herdr and host with two stand-in Claude accounts:
   the same conversation moves A to B and back, recorded.

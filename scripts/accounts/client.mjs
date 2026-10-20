@@ -18,8 +18,11 @@ const USAGE = `usage: muxr accounts [list] [--json]
        muxr accounts start <account> [--cwd <dir>] [--label <text>]
        muxr accounts move <agent> <account>`;
 
+/** The host's data directory, as the host resolves it: `MUXR_DATA_DIR`, else `<muxr home>/host`. */
 function socketPath() {
-    return join(process.env.MUXR_HOME?.trim() || join(process.env.HOME?.trim() || homedir(), '.muxr'), 'host', 'accounts.sock');
+    const dataDir = process.env.MUXR_DATA_DIR?.trim()
+        || join(process.env.MUXR_HOME?.trim() || join(process.env.HOME?.trim() || homedir(), '.muxr'), 'host');
+    return join(dataDir, 'accounts.sock');
 }
 
 function ask(type, params = {}) {
@@ -107,7 +110,8 @@ async function panes(args) {
     }));
     if (args.json) { process.stdout.write(`${JSON.stringify({ agents: shown })}\n`); return 0; }
     if (shown.length === 0) { process.stdout.write('No agents are running.\n'); return 0; }
-    process.stdout.write(`${shown.map((row) => `${row.agent}${row.kind === undefined ? '' : ` (${row.kind})`}  ${row.account === null ? 'no Claude account' : `${row.account.name}${row.account.email === null ? '' : ` <${row.account.email}>`}`}`).join('\n')}\n`);
+    const who = (row) => (row.account === null ? 'no Claude account' : `${row.account.name}${row.account.email === null ? '' : ` <${row.account.email}>`}`);
+    process.stdout.write(`${shown.map((row) => `${row.agent}${row.kind === undefined ? '' : ` (${row.kind})`}${row.task === undefined ? '' : ` · ${row.task}`}  ${who(row)}`).join('\n')}\n`);
     return 0;
 }
 
