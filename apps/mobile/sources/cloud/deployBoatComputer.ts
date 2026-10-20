@@ -38,12 +38,6 @@ const RECIPE: HostRecipe = {
 const MUXR = 'n=$(ls -d "$HOME"/.local/share/byokit/node/*/bin 2>/dev/null | tail -n1); PATH="${n:+$n:}$PATH"; cd "$0" && exec node npm/bin/muxr "$@"';
 const NEWEST_OFFER = 'f=$(ls -t "$0"/.byokit/outbox/muxr-pair-*.json 2>/dev/null | head -n1); [ -z "$f" ] || cat "$f"';
 
-// One store per deploy: the kit caches the record it loaded under the store object, so a shared one would keep a cleared machine.
-const newStore = (): MachineStore => ({
-    load: async () => JSON.parse((await getNativeSecret(MACHINE_KEY)) ?? 'null'),
-    save: (record) => setNativeSecret(MACHINE_KEY, JSON.stringify(record)),
-});
-
 export type DeployStep =
     | { step: 'creating' | 'starting' | 'installing' | 'securing' | 'configuring' | 'pairing' }
     | { step: 'sign-in'; url: string };
@@ -91,7 +85,11 @@ export async function deployBoatComputer(o: {
             return key;
         },
     });
-    const store = newStore();
+    // One store per deploy: the kit caches the record it loaded under the store object, so a shared one would keep a cleared machine.
+    const store: MachineStore = {
+        load: async () => JSON.parse((await getNativeSecret(MACHINE_KEY)) ?? 'null'),
+        save: (record) => setNativeSecret(MACHINE_KEY, JSON.stringify(record)),
+    };
     const m = machine({ provider, store });
     // A retry after a later step failed reuses the machine this phone already created.
     let ref: MachineRef | null = (await store.load())?.ref ?? null;
