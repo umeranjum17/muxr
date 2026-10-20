@@ -52,5 +52,7 @@ export async function publishCandidate() {
     const notes = join(directory, reportFiles.markdown);
     if (!existsSync(notes)) throw new Error('Candidate carries no release notes');
     execFileSync('gh', ['release', 'create', `v${VERSION}`, ...readdirSync(directory).map((name) => join(directory, name)), '--repo', GITHUB_REPOSITORY,
-        '--target', GITHUB_SHA, '--title', `muxr ${VERSION}`, '--prerelease', '--latest=false', '--notes-file', notes], { stdio: 'inherit' });
+        '--target', GITHUB_SHA, '--title', `muxr ${VERSION}`,
+        // A stable candidate is a normal release and GitHub's Latest from the start; only nightly stays a prerelease.
+        ...(CHANNEL === 'stable' ? ['--latest'] : ['--prerelease', '--latest=false']), '--notes-file', notes], { stdio: 'inherit' });
 }
