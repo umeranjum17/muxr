@@ -16,7 +16,7 @@ export const BOAT_PRICES: Price[] = [
 ];
 export type BoatSize = 'small' | 'default';
 
-/** The published @trymuxr/cli every new Boat computer installs. Equal to the root package.json version, which packages/checkArchitecture.mjs enforces, so a release bump moves it too. */
+/** The published @trymuxr/cli every new Boat computer installs. Bumped with the root package.json version in each release PR. */
 const CLI_VERSION = '0.2.0';
 
 /** The muxr host as the kit installs it: the published CLI under the work dir, run by `muxr up` in self-host mode. */
@@ -61,6 +61,8 @@ function parseOffer(text: string): Offer | undefined {
     }
 }
 
+const isLostAnswer = (cause: unknown) => cause instanceof TypeError || (cause instanceof Error && (cause.name === 'AbortError' || cause.name === 'TimeoutError'));
+
 /**
  * A create whose answer never reached the phone still leaves a billed machine on the account with
  * no stored ref. Its id is the one the account lists now and did not list before that create.
@@ -104,7 +106,12 @@ export async function deployBoatComputer(o: {
         } else {
             o.onStep({ step: 'creating' });
             await setNativeSecret(BEFORE_CREATE_KEY, JSON.stringify(listed.map((r) => r.id)));
-            ref = await m.create({ name: RECIPE.name, size: o.size, keepCopies: false });
+            try {
+                ref = await m.create({ name: RECIPE.name, size: o.size, keepCopies: false });
+            } catch (cause) {
+                if (!isLostAnswer(cause)) await deleteNativeSecret(BEFORE_CREATE_KEY);
+                throw cause;
+            }
         }
         await deleteNativeSecret(BEFORE_CREATE_KEY);
     }

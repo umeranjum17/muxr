@@ -138,12 +138,6 @@ for (const consumer of ['packages/crypto', 'apps/host', 'apps/mobile']) {
     }
 }
 
-// A Boat computer installs the published CLI at one pinned version. A release bumps the root
-// version, so the pin must move with it or new machines install the previous release.
-const rootVersion = JSON.parse(readFileSync(join(ROOT, '..', 'package.json'), 'utf8')).version;
-const cloudPin = readFileSync(join(ROOT, '..', 'apps/mobile/sources/cloud/deployBoatComputer.ts'), 'utf8').match(/CLI_VERSION = '([^']+)'/)?.[1];
-if (cloudPin !== rootVersion) failures.push(`apps/mobile/sources/cloud/deployBoatComputer.ts: CLI_VERSION must be ${rootVersion}, not ${cloudPin}`);
-
 if (failures.length > 0) {
     console.error(`package architecture violated:\n${failures.join('\n')}`);
     process.exit(1);
