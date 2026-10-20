@@ -1,9 +1,13 @@
 # Pick which computer an agent runs on
 
-Over an agent, the `…` overflow opens a **Computers** sheet: one `Cloud computer`
-row (Coming soon, not selectable), then one row per paired computer under **Your
+Over an agent, the `…` overflow has one **Computers** row (there is no separate
+`Computer` row) that opens the **Computers** sheet: **View screen** with the
+connected computer's name (only where the desktop view is offered and this phone
+controls the pane; it opens the same Computer view the floating ring's Computer
+slot does), then one row per paired computer under **Your
 computers**, each with a plain state — `Online`, `Asleep`, `Offline`, or
-`Not paired` — a check on the one the agent runs on. Tapping
+`Not paired` — a check on the one the agent runs on, then **Add a computer**:
+**Pair a computer** (opens the add-computer steps) and **Add a cloud computer**. Tapping
 another online computer switches the agent's computer after a confirmation, so
 the next prompt runs there. The sheet is one list over the app's own pairing
 grants; a computer that is not the connected one is checked with a fresh host
@@ -17,14 +21,18 @@ request before its row says Online.
 - `switch` tapping an online, not-in-use row asks to confirm, then reconnects the
   app to that computer with its stored pairing; the agent's next prompt runs there
   and the check moves.
+- `view-screen` **View screen** closes the sheet and opens the Computer view of
+  the connected computer.
+- `add` **Pair a computer** opens the add-computer steps; **Add a cloud computer**
+  opens the cloud checklist (native) or the phone-app note (PWA).
 - `not-paired` a computer the app is connected to but holds no pairing for is
   labelled `Not paired` rather than hidden (defensive; see Gotchas).
 
 ## How to get to it (user POV)
 
 Open an agent from Home, tap the `…` in the pane header, then **Computers**. The
-sheet lists the cloud row and every computer this device has paired, whatever the
-app theme. Tapping an online computer that is not in use asks to confirm and
+sheet lists View screen, every computer this device has paired and the two add
+rows, whatever the app theme. Tapping an online computer that is not in use asks to confirm and
 switches; offline and asleep rows are not tappable and say why.
 
 ## Driving it with the private stack

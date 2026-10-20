@@ -2042,7 +2042,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     />}
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} onOpenSpaces={() => setTreeOpen(true)} />
                     <WorkspaceTreeSheet visible={treeOpen} sessionId={props.id} onClose={() => setTreeOpen(false)} />
-                    <ComputersSheet visible={computersOpen} sessionId={props.id} onClose={() => setComputersOpen(false)} />
+                    <ComputersSheet visible={computersOpen} sessionId={props.id} onClose={() => setComputersOpen(false)}
+                        onViewScreen={desktopAvailable && canControl ? () => { setComputersOpen(false); openDesktop(); } : undefined} />
                     <ContinueSheet visible={continueOpen} sessionId={props.id} agentKind={paneKind} sourceCwd={storedPane?.cwd ?? session?.metadata?.path} onClose={() => setContinueOpen(false)} />
 
                     {/* Secondary actions belong to the header; view controls stay with the terminal. */}
@@ -2089,15 +2090,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     <TerminalMenuQuickActions slots={ringSlots.filter((slot) => slot.id !== 'computer' && slot.id !== 'changes')} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
-                                    {desktopAvailable && canControl && <Pressable onPress={openDesktop} accessibilityRole="button" accessibilityLabel="Computer"
-                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <SheetIcon name="desktop-outline" size={18} color={theme.colors.textSecondary} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>
-                                        <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                    </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); setComputersOpen(true); }} accessibilityRole="button" accessibilityLabel="Computers"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <SheetIcon name="layers-outline" size={18} color={theme.colors.textSecondary} />
+                                        <SheetIcon name="desktop-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computers</Text>
                                         <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
