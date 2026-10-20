@@ -12,7 +12,7 @@ import {
     loadManifest,
     platform,
     print,
-    run,
+    serviceManagerRun,
     saveManifest,
     stateDir,
     systemdArg,
@@ -32,25 +32,6 @@ export function scopedHomeRefusal() {
     const override = env('MUXR_HOME');
     if (override === undefined || resolve(override) === resolve(defaultStateDir())) return undefined;
     return `MUXR_HOME=${resolve(override)} is not the default ${resolve(defaultStateDir())}; service commands scoped to a non-default MUXR_HOME never touch muxr.service`;
-}
-
-// A HOME override (a test or lab home) does not move the systemd user manager or launchd:
-// `systemctl --user` still reaches the real user's muxr.service, so service commands refuse it.
-function realPath(path) {
-    try { return realpathSync(path); } catch { return undefined; }
-}
-
-function overriddenHomeRefusal() {
-    if (env('MUXR_TEST_FAKE_SERVICE_MANAGERS') === '1') return undefined;
-    let passwdHome;
-    try { passwdHome = userInfo().homedir; } catch { return undefined; }
-    const current = realPath(home());
-    if (current !== undefined && current === realPath(passwdHome)) return undefined;
-    return `HOME=${resolve(home())} is not the user's real home ${resolve(passwdHome)}; service commands under an overridden HOME never touch the real muxr.service`;
-}
-
-export function serviceScopeRefusal() {
-    return scopedHomeRefusal() ?? overriddenHomeRefusal();
 }
 
 export function daemonDefinition(mode) {
@@ -112,19 +93,19 @@ export function daemonDefinition(mode) {
 const launchdRetrySignal = new Int32Array(new SharedArrayBuffer(4));
 
 export function bootstrapMacService(domain, plist) {
-    let result = run('launchctl', ['bootstrap', domain, plist]);
+    let result = serviceManagerRun('launchctl', ['bootstrap', domain, plist]);
     for (let attempt = 0; !result.ok && attempt < 19
         && /Bootstrap failed:\s*5\b|Input\/output error/i.test(`${result.stdout}\n${result.stderr}`); attempt += 1) {
         Atomics.wait(launchdRetrySignal, 0, 0, 100);
-        result = run('launchctl', ['bootstrap', domain, plist]);
+        result = serviceManagerRun('launchctl', ['bootstrap', domain, plist]);
     }
     return result;
 }
 
 export function serviceCommand(action) {
     if (env('MUXR_NO_SERVICE_COMMANDS') === '1') return { ok: true, stdout: 'service command skipped by test environment', stderr: '' };
-    const scopeRefusal = serviceScopeRefusal();
-    if (scopeRefusal !== undefined) return { ok: false, stdout: '', stderr: `refusing service ${action}: ${scopeRefusal}` };
+    const scopeRefusal = scopedHomeRefusal();
+    if (scopeRefusal !== undefined) return { ok: false, refused: true, stdout: '', stderr: scopeRefusal };
     if (platform() === 'darwin') {
         const domain = `gui/${process.getuid()}`;
         const label = 'com.muxr.host';
@@ -132,37 +113,39 @@ export function serviceCommand(action) {
         const plist = join(home(), 'Library', 'LaunchAgents', 'com.muxr.host.plist');
         if (action === 'reload') return { ok: true, stdout: '', stderr: '' };
         if (action === 'start' || action === 'restart') {
-            const loaded = run('launchctl', ['print', service]);
+            const loaded = serviceManagerRun('launchctl', ['print', service]);
             if (loaded.ok) {
-                const unloaded = run('launchctl', ['bootout', service]);
+                const unloaded = serviceManagerRun('launchctl', ['bootout', service]);
                 if (!unloaded.ok) return unloaded;
             }
             const bootstrapped = bootstrapMacService(domain, plist);
-            return bootstrapped.ok ? run('launchctl', ['kickstart', '-k', service]) : bootstrapped;
+            return bootstrapped.ok ? serviceManagerRun('launchctl', ['kickstart', '-k', service]) : bootstrapped;
         }
-        if (action === 'stop' || action === 'unload') return run('launchctl', ['bootout', service]);
+        if (action === 'stop' || action === 'unload') return serviceManagerRun('launchctl', ['bootout', service]);
         if (action === 'status') {
-            const printed = run('launchctl', ['print', service], { timeout: 2_000 });
+            const printed = serviceManagerRun('launchctl', ['print', service], { timeout: 2_000 });
             return { ...printed, ok: printed.ok && /\bstate = running\b/.test(printed.stdout) };
         }
     }
-    if (action === 'reload') return run('systemctl', ['--user', 'daemon-reload']);
-    if (action === 'start') return run('systemctl', ['--user', 'enable', '--now', 'muxr.service']);
+    if (action === 'reload') return serviceManagerRun('systemctl', ['--user', 'daemon-reload']);
+    if (action === 'start') return serviceManagerRun('systemctl', ['--user', 'enable', '--now', 'muxr.service']);
     if (action === 'restart') {
         // Restart must also enable: a stop-then-restart unit is otherwise
         // active now but silently gone at the next boot.
-        const enabled = run('systemctl', ['--user', 'enable', 'muxr.service']);
+        const enabled = serviceManagerRun('systemctl', ['--user', 'enable', 'muxr.service']);
         if (!enabled.ok) return enabled;
-        return run('systemctl', ['--user', 'restart', 'muxr.service']);
+        return serviceManagerRun('systemctl', ['--user', 'restart', 'muxr.service']);
     }
-    if (action === 'stop') return run('systemctl', ['--user', 'stop', 'muxr.service']);
-    if (action === 'status') return run('systemctl', ['--user', 'status', 'muxr.service', '--no-pager'], { timeout: 2_000 });
-    if (action === 'unload') return run('systemctl', ['--user', 'disable', '--now', 'muxr.service']);
+    if (action === 'stop') return serviceManagerRun('systemctl', ['--user', 'stop', 'muxr.service']);
+    if (action === 'status') return serviceManagerRun('systemctl', ['--user', 'status', 'muxr.service', '--no-pager'], { timeout: 2_000 });
+    if (action === 'unload') return serviceManagerRun('systemctl', ['--user', 'disable', '--now', 'muxr.service']);
     return { ok: false, stdout: '', stderr: `unknown service action ${action}` };
 }
 
-export function daemonIsRunning() {
-    return serviceCommand('status').ok;
+export function daemonState() {
+    const status = serviceCommand('status');
+    if (status.refused) return 'unknown';
+    return status.ok ? 'running' : 'stopped';
 }
 
 export function readPeerBrokerAccess() {
@@ -248,7 +231,7 @@ export async function runDaemon(args = []) {
             const definition = daemonDefinition(mode);
             const existed = existsSync(definition.path);
             const previousContent = existed ? readFileSync(definition.path, 'utf8') : undefined;
-            const wasRunning = daemonIsRunning();
+            const wasRunning = daemonState() !== 'stopped';
             let content = definition.content;
             if (previousContent !== undefined) {
                 // Preserve Environment lines this generator did not author —
@@ -271,9 +254,9 @@ export async function runDaemon(args = []) {
                 // logout and never starts on a headless or SSH-only box.
                 if (platform() === 'linux' && env('MUXR_NO_SERVICE_COMMANDS') !== '1') {
                     const username = userInfo().username;
-                    const linger = run('loginctl', ['show-user', username, '-p', 'Linger', '--value']);
+                    const linger = serviceManagerRun('loginctl', ['show-user', username, '-p', 'Linger', '--value']);
                     if (!linger.ok || linger.stdout.trim() !== 'yes') {
-                        const enabled = run('loginctl', ['enable-linger', username]);
+                        const enabled = serviceManagerRun('loginctl', ['enable-linger', username]);
                         // WSL and containers have no loginctl; warn, don't fail.
                         if (!enabled.ok) print(`  warn: could not enable boot persistence (${enabled.stderr || enabled.stdout || 'loginctl unavailable'}); the service will not restart after logout`);
                     }
@@ -315,23 +298,27 @@ export async function runDaemon(args = []) {
                 print(existsSync(path) ? readFileSync(path, 'utf8') : 'No daemon log yet.');
                 return 0;
             }
-            const refusal = serviceScopeRefusal();
+            const refusal = scopedHomeRefusal();
             if (refusal !== undefined) {
                 error(`refusing service logs: ${refusal}`);
                 return 1;
             }
-            const result = run('journalctl', ['--user', '-u', 'muxr.service', '-n', '100', '--no-pager']);
+            const result = serviceManagerRun('journalctl', ['--user', '-u', 'muxr.service', '-n', '100', '--no-pager']);
+            if (result.refused) {
+                error(`refusing service logs: ${result.stderr}`);
+                return 1;
+            }
             print(result.stdout || result.stderr || 'No daemon log yet.');
             return result.ok ? 0 : 1;
         }
         if (!['start', 'stop', 'restart', 'status'].includes(action)) throw new Error('usage: muxr daemon install|uninstall|start|stop|restart|status|logs');
-        const scopeRefusal = serviceScopeRefusal();
+        const scopeRefusal = scopedHomeRefusal();
         if (scopeRefusal !== undefined && ['start', 'restart', 'status'].includes(action)) {
             error(action === 'status' ? `muxr service status not checked: ${scopeRefusal}` : `refusing service ${action}: ${scopeRefusal}`);
             return 1;
         }
         const installedMode = daemonMode();
-        const serviceWasRunning = (action === 'start' || action === 'restart') && daemonIsRunning();
+        const serviceWasRunning = (action === 'start' || action === 'restart') && daemonState() !== 'stopped';
         const replacesService = action === 'restart'
             || action === 'start' && (platform() === 'darwin' || !serviceWasRunning);
         const previousPeerCapability = replacesService ? readPeerBrokerAccess()?.capability : undefined;
@@ -343,7 +330,8 @@ export async function runDaemon(args = []) {
         if (!dryRun && (action === 'start' || action === 'restart')) rotateMacDaemonLog();
         const result = serviceCommand(action);
         if (!result.ok) {
-            if (action === 'status') print('muxr service is stopped or unavailable.');
+            if (result.refused) error(action === 'status' ? `muxr service status not checked: ${result.stderr}` : `refusing service ${action}: ${result.stderr}`);
+            else if (action === 'status') print('muxr service is stopped or unavailable.');
             else error(result.stderr || result.stdout || `muxr service ${action} failed`);
             return 1;
         }
@@ -375,14 +363,14 @@ export async function runDaemon(args = []) {
 
 export async function startMuxrDaemon(mode, args = [], restartRunning = true) {
     const dryRun = args.includes('--dry-run');
-    const wasRunning = daemonIsRunning();
+    const wasRunning = daemonState() !== 'stopped';
     const common = [...(dryRun ? ['--dry-run'] : []), ...(args.includes('--force') ? ['--force'] : [])];
     if ((await runDaemon(['install', '--mode', mode, '--quiet', ...common])) !== 0) throw new Error('daemon registration failed');
     if (dryRun) {
         print(`  would start muxr services in ${mode} mode`);
         return;
     }
-    const running = daemonIsRunning();
+    const running = daemonState() !== 'stopped';
     if (!running || restartRunning) {
         const action = running ? 'restart' : 'start';
         if ((await runDaemon([action, '--quiet'])) !== 0) throw new Error(`muxr host did not ${action}`);
