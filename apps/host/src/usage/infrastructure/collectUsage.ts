@@ -478,7 +478,11 @@ async function collection(input: CollectUsageInput, env: NodeJS.ProcessEnv): Pro
     const identity = `${cacheIdentity(env)}:${JSON.stringify(accounts)}`;
     const key = `${identity}\u0000${TODAY}`;
     // Before any reuse: the screen's ask is what starts the count it will read.
-    if (input.activity === true) startExtras(env, windowPeriods(NOW, LEDGER_DAYS)[0]!, input.refresh === true);
+    if (input.activity === true) {
+        startExtras(env, windowPeriods(NOW, LEDGER_DAYS)[0]!, input.refresh === true);
+        // The screen asking again, even for a reused answer, keeps its count going.
+        ledgerFor(ledgerRoots(env)).watch();
+    }
     let pending = inFlight.get(key);
     if (input.refresh !== true && pending === undefined) {
         const cached = completed.get(key);
@@ -563,7 +567,7 @@ async function collectFresh(NOW: Date, env: NodeJS.ProcessEnv): Promise<RawColle
     // vanishing from the card.
     let readingsFrom = NOW.getTime();
     if (extrasAnswer.settledAt !== undefined) readingsFrom = Math.min(readingsFrom, extrasAnswer.settledAt);
-    const snapshot = ledger.snapshot(NOW.getTime());
+    const snapshot = ledger.snapshot();
     const counting = !ledger.ready;
     const rows = [...snapshot.rows, ...extrasRows(extrasAnswer.range, new Set(DATES))];
     const latest = new Map<string, number>();

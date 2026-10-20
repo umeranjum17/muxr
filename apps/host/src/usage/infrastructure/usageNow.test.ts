@@ -392,3 +392,43 @@ it('answers the card and every Usage tab from one collection, and never lends a 
     const malformed = await collectUsage({ provider: 'claude', refresh: true }, env);
     expect(malformed.limits.windows.map(({ used }) => used)).toEqual([10, 40]);
 }, 20_000);
+
+it('counts a large Pi store off the host loop, and the Pi tab shows it', async () => {
+    vi.stubGlobal('fetch', vi.fn(provider));
+    const env = host();
+    const sessions = join(env.PI_AGENT_DIR!, 'sessions', '--repo--');
+    mkdirSync(sessions, { recursive: true });
+    // ~180 MB of turns, each carrying a large tool output as real ones do.
+    const pad = 'x'.repeat(6_000);
+    const turn = (file: number, index: number) => `${JSON.stringify({
+        type: 'message', id: `t${file}-${index}`, timestamp: new Date(Date.now() - 60_000).toISOString(),
+        message: { role: 'assistant', provider: 'anthropic', model: 'claude-sonnet-4', timestamp: Date.now() - 60_000, content: [{ type: 'text', text: pad }], usage: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0 } },
+    })}\n`;
+    for (let file = 0; file < 30; file += 1) writeFileSync(join(sessions, `s${file}.jsonl`), Array.from({ length: 1_000 }, (_, index) => turn(file, index)).join(''));
+    const { collectUsage } = await import('./collectUsage.js');
+    const count = async (machine: NodeJS.ProcessEnv) => {
+        const cpu = process.cpuUsage();
+        let report = await collectUsage({ provider: 'pi' }, machine);
+        while (report.activity?.state === 'counting') {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            report = await collectUsage({ provider: 'pi' }, machine);
+        }
+        const spent = process.cpuUsage(cpu);
+        return { report, cpuMs: (spent.user + spent.system) / 1_000 };
+    };
+    // What a collection costs the host with nothing to count.
+    const baseline = await count(host());
+
+    let worstWait = 0;
+    let last = performance.now();
+    const ping = setInterval(() => { const now = performance.now(); worstWait = Math.max(worstWait, now - last - 10); last = now; }, 10);
+    const { report, cpuMs } = await count(env);
+    clearInterval(ping);
+
+    expect(report.activity?.state).toBe('measured');
+    expect(report.activity?.days.reduce((sum, day) => sum + day.output, 0)).toBeGreaterThan(0);
+    // The count's reading and parsing are the child's: on the host's loop
+    // they cost ~250 ms here, off it nothing the store's size adds.
+    expect(cpuMs - baseline.cpuMs).toBeLessThan(100);
+    expect(worstWait).toBeLessThan(100);
+}, 60_000);
