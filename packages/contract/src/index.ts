@@ -51,6 +51,7 @@ export {
     agentIsWorking,
     agentAlertTitle,
     agentTask,
+    labelWords,
     agentFolderName,
     agentKindLabel,
     derivedAgentName,

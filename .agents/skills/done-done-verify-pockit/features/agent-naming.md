@@ -7,7 +7,10 @@ client and the phone agree on the label.
 ## Sub-features
 
 - `name-pane` sets the pane's human-readable title.
-- `name-workspace` sets the workspace label.
+- `name-workspace` sets the workspace label when the workspace is the agent's
+  alone (one tab).
+- `name-workspace-shared` a workspace holding other tabs keeps its label; the
+  phone shows that label, never the last lane's task slug.
 - `name-attribution` records provider/model pane metadata for display surfaces.
 - `name-report` prints the per-field apply result as one JSON line.
 
@@ -34,6 +37,21 @@ Preconditions:
   `herdr --session <yours> pane get "$HERDR_PANE_ID"` shows the new title.
 - **Name the workspace.** `node scripts/cli.mjs name --workspace 'done-done-verify-pockit'`
   exits `0` and `herdr --session <yours> workspace list` shows the label.
+- **Shared workspace (phone).** `node .agents/skills/done-done-verify-pockit/features/workspaceNameLab.mjs <apk> <evidence> <labRoot> <cliRepo>`
+  (release APK from `node perf/buildPrApk.mjs <out>`, `yarn build`,
+  `HERDR_LAB_HELPER` set, under the emulator lock). Workspace `umer-desk` holds
+  tabs `fd-prompt-nosript` and `fm-crewhouse`; each lane runs `muxr name
+  --workspace <slug>`, the last `ssh-ed25519`, and a lone-tab workspace runs
+  `--workspace solo-task`. Pass: `herdr-after-self-naming.txt` keeps
+  `umer-desk` and shows `solo-task`, both lanes print
+  `"workspace":"kept: shared with other tabs"`, and Home and Panes
+  (393 dp light, 270 dp font 2.0 dark) read `umer-desk`, never `ssh-ed25519`.
+  The same run carries a lead in an unlabelled tab, agent `firstmate-addons`,
+  titled with Claude's doorbell topic: its row reads `Firstmate addons` over
+  `claude · Idle`, and the `fm-crewhouse` lead, titled by the task-titles
+  plugin, reads `Show the SSH key fingerprint` (see `pane-tab-names.md`).
+  `<cliRepo>` at `origin/main` is the before case: the label becomes
+  `ssh-ed25519`.
 - **Attribution.** `node scripts/cli.mjs name --provider pi --model glm-5.3`
   exits `0`; `herdr --session <yours> pane get "$HERDR_PANE_ID"` (or
   `pane report-metadata` output consumed by display surfaces) carries the

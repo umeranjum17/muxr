@@ -1,5 +1,5 @@
 // Pane-name proof on a real (lab) Herdr: tabs labelled like Firstmate's, agents whose
-// terminal title is Claude's restart topic, a workspace labelled `ssh-ed25519`. Pairs the
+// terminal title is Claude's restart topic. Pairs the
 // candidate release APK on an owned emulator, captures, restarts the lab Herdr through the
 // guarded helper, captures the matrix, then relabels a tab live and captures again.
 // See pane-tab-names.md. Run from the repo root with HERDR_LAB_HELPER set:
@@ -32,7 +32,7 @@ writeFileSync(join(bin, 'claude'), standIn('✳ Firstmate operational inbox mess
 writeFileSync(join(bin, 'codex'), standIn('Firstmate operational inbox message'), { mode: 0o755 });
 const TABS = [['fd-prompt-nosript', 'claude'], ['fm-crewhouse', 'claude'], ['fm-muxr', 'codex']];
 const buildScene = () => {
-    herdr('workspace', 'create', '--cwd', folder, '--label', 'ssh-ed25519', '--no-focus');
+    herdr('workspace', 'create', '--cwd', folder, '--label', 'muxr', '--no-focus');
     herdr('tab', 'rename', 'w1:t1', TABS[0][0]);
     for (const [label] of TABS.slice(1)) herdr('tab', 'create', '--workspace', 'w1', '--cwd', folder, '--label', label, '--no-focus');
 };
@@ -113,7 +113,7 @@ try {
     await sleep(4000);
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr://pair#${offer}' -n ${activity}`);
     await tapText(/^Pair$/);
-    await waitFor(/fd-prompt-nosript/, 90);
+    await waitFor(/Fd prompt nosript/, 90);
     offering?.destroy();
 
     const capture = async (dir, name, screen) => {
@@ -121,7 +121,7 @@ try {
         sh(`am start -W -n ${activity}`);
         await sleep(3000);
         if (screen === 'panes') sh(`am start -W -a android.intent.action.VIEW -d 'muxr:///panes' -n ${activity}`);
-        await waitFor(/fd-prompt-nosript/, 60).catch(() => log(`${name}: names not seen`));
+        await waitFor(/Fd prompt nosript/, 60).catch(() => log(`${name}: names not seen`));
         await sleep(2500);
         mkdirSync(dir, { recursive: true });
         try {
@@ -158,7 +158,7 @@ try {
     saveHerdr('after-relabel');
     await sleep(3000);
     await capture(join(evidence, 'after-relabel'), 'panes-393-1.0-light', 'panes');
-    if (!/fm-office/.test(dump())) { defects += 1; log('relabel not shown'); }
+    if (!/Office/.test(dump())) { defects += 1; log('relabel not shown'); }
 } finally {
     try { sh('wm size reset'); sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
     offering?.destroy();
