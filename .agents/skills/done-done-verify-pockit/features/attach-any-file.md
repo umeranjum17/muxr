@@ -1,7 +1,7 @@
 # Send any file from the phone to a live agent
 
-The session composer's and Home's `+` attach control offers `Photo Library` and
-`Files`. An image keeps its current path — resized, JPEG-re-encoded, shown as a
+The session composer's and Home's `+` attach control opens the shared action sheet
+(`action-sheet.md`) with `Photo library`, `Camera` and `Files`. An image keeps its current path — resized, JPEG-re-encoded, shown as a
 thumbnail. Any other file (zip, pdf, txt, binary) is written to the host under
 the session's attachments directory with its original name and extension, and
 the agent receives the absolute path appended to the prompt, exactly as images

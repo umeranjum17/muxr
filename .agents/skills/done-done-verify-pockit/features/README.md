@@ -175,8 +175,13 @@ rules, with no H2 sections.
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
   versioned page shares and their refusals, and the retention view of the
   same timeline.
+- [Choose from one app-styled action sheet](./action-sheet.md) —
+  release APKs (main and candidate) on an owned emulator over the fake stack:
+  Add attachment, a Home card's long-press and Close pane over the pane
+  overview, 270/393 dp x font 1.0/2.0 x light/dark, plus tap-outside,
+  swipe-down and Files-opens-the-picker on the candidate.
 - [Send any file from the phone to a live agent](./attach-any-file.md) —
-  the composer's `+` offers Photo Library and Files: a zip, pdf and txt land on
+  the composer's `+` offers Photo library, Camera and Files: a zip, pdf and txt land on
   the host with their original names against a live Herdr agent that opens each
   with no permission prompt (OpenCode's external-directory pre-allow), the saved
   paths carry an opaque digest folder and never the internal pane id, the 10 MB
