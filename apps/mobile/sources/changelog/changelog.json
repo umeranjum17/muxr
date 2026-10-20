@@ -1,6 +1,32 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.9",
+            "title": "A second host no longer replaces the first",
+            "summary": "Since 0.2.8: opening Usage can no longer start a second host that replaces the one you are using, and muxr up fails loudly when it runs out of restarts.",
+            "features": [],
+            "fixes": [
+                {
+                    "title": "Host drop-off",
+                    "detail": "A second host no longer replaces the first, so the phone stops losing its computer after you open Usage."
+                },
+                {
+                    "title": "Restart limit",
+                    "detail": "When the host runs out of restarts, muxr up now exits with an error instead of quietly stopping."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Checks",
+                    "status": "not-run",
+                    "detail": "Not accepted on a device."
+                }
+            ],
+            "knownLimits": [
+                "Update phone and computer together."
+            ]
+        },
+        {
             "appVersion": "0.2.8",
             "title": "Steadier Claude scrolling, right pane names, a lighter host",
             "summary": "Since 0.2.7: Claude panes scroll under your finger, panes carry their Herdr tab names, and the host stops reading every agent log for the Usage screen.",
