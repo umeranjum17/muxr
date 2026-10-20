@@ -258,6 +258,10 @@ rules, with no H2 sections.
   native release app over a real-Herdr lab with no panes: fresh install,
   Home's Start an agent opens Claude Code and neither notifications modal
   appears in 30 s of 0.5 s screenshots; the Home card still asks.
+- [Ask for notifications after pairing and say when they are off](./notification-permission.md) —
+  native release app over a one-agent fake stack: the prompt right after
+  Pair, Home's off card and its missed-alert form when an agent needs you,
+  the Settings > Notifications hint, no prompt after a permanent denial.
 - [Read the computer name in the Home header](./home-header-name.md) —
   native app over a named fake-Herdr stack: one line with an ellipsis, at
   270dp and font scale 2.0, light and dark.

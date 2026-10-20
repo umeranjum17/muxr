@@ -1,8 +1,8 @@
 import { Platform, Linking } from 'react-native';
 import { Modal } from '@/modal';
 import { AudioModule, setAudioModeAsync } from 'expo-audio';
-import * as Application from 'expo-application';
 import * as Notifications from 'expo-notifications';
+import { openNotificationSettings } from '@/../modules/voice-overlay';
 
 export interface MicrophonePermissionResult {
   granted: boolean;
@@ -85,7 +85,8 @@ export function requestNotificationPermission(userInitiated = true): Promise<boo
   return pendingNotificationPermission;
 }
 
-/** Where the platform notification permission stands; 'blocked' can no longer be asked for. */
+/** Where the platform notification permission stands; 'blocked' can no longer be asked for.
+ * Android 13+ reports a never-asked app as 'denied', so only iOS ever reads 'not-asked'. */
 export type NotificationPermission = 'granted' | 'not-asked' | 'denied' | 'blocked';
 
 export function notificationPermissionState(permission: { granted: boolean; status: string; canAskAgain: boolean }): NotificationPermission {
@@ -116,13 +117,7 @@ export function takeNotificationAskAfterPairing(): boolean {
 
 /** Sound, vibration and banners belong to the system; this opens muxr's page there. */
 export function openSystemNotificationSettings(): void {
-    const packageName = Application.applicationId;
-    if (Platform.OS === 'android' && packageName !== null) {
-        Linking.sendIntent('android.settings.APP_NOTIFICATION_SETTINGS', [
-            { key: 'android.provider.extra.APP_PACKAGE', value: packageName },
-        ]).catch(() => Linking.openSettings());
-        return;
-    }
+    if (Platform.OS === 'android' && openNotificationSettings()) return;
     void Linking.openSettings();
 }
 

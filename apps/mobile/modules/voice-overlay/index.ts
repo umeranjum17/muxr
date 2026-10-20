@@ -44,6 +44,7 @@ interface VoiceNative {
     canPostLiveActivities?: () => boolean;
     openLiveActivitySettings?: () => boolean;
     openBackgroundActivitySettings: () => boolean;
+    openNotificationSettings?: () => boolean;
     clearNotification: () => boolean;
     setVoiceGeneration?: (token: string) => void;
     addListener: (
@@ -191,6 +192,15 @@ export function openLiveActivitySettings(): void {
 export function openBackgroundActivitySettings(): boolean {
     try {
         return native?.openBackgroundActivitySettings() ?? false;
+    } catch {
+        return false;
+    }
+}
+
+/** Android: muxr's own page in the system notification settings. */
+export function openNotificationSettings(): boolean {
+    try {
+        return native?.openNotificationSettings?.() ?? false;
     } catch {
         return false;
     }

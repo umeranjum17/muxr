@@ -2,9 +2,10 @@
 
 A newcomer who starts their first agent lands straight in it. No "Allow muxr
 notifications?" or "Show live agent updates?" modal covers the new agent: the
-Home card "Know when an agent needs you" is the one place that asks for the
-notification permission, and Settings > Notifications keeps the permission and
-Android's Live agent updates rows for anyone who said Not now.
+notification permission is asked right after pairing and from the Home card
+"Know when an agent needs you" (see `notification-permission.md`), and
+Settings > Notifications keeps the permission and Android's Live agent updates
+rows for anyone who said Not now.
 
 ## Sub-features
 
@@ -40,6 +41,8 @@ Preconditions:
 3. Enter `pair`, `adb reverse tcp:<relayPort> tcp:<relayPort>` (the port is
    `relayPort` in the lab's `muxr/selfhost.json`), open the written
    `muxr://pair#…` link with `am start`, tap `Pair`.
+   Answer the notification prompt that follows the pairing with `Don't allow`
+   so the card below still shows.
 4. On Home check the notifications card, then `Start an agent` -> `Claude Code`
    -> `Start Claude Code in …`. From that tap take a screenshot every 0.5 s for
    30 s (a phone that refuses `screenrecord` gets only these; see Gotchas for

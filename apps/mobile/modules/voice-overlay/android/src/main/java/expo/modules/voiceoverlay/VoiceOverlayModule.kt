@@ -250,6 +250,20 @@ class VoiceOverlayModule : Module() {
         .getOrDefault(false)
     }
 
+    // Started directly: Linking.sendIntent resolves first, and package
+    // visibility hides the Settings activity from that check on Android 11+.
+    Function("openNotificationSettings") {
+      val context = context() ?: return@Function false
+      val page = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      runCatching {
+        context.startActivity(page)
+        true
+      }.onFailure { Log.w(TAG, "Opening notification settings failed", it) }
+        .getOrDefault(false)
+    }
+
     Function("clearNotification") {
       val context = context() ?: return@Function false
       VoiceOverlayService.clearNotification(context)

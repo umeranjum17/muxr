@@ -138,7 +138,7 @@ export function FirstAgentCard() {
 
 /**
  * Notifications on Home. Right after a pairing the first connected Home asks
- * the system once, and only if muxr never asked before; otherwise the system
+ * the system once, unless it can no longer ask or Not now was chosen; otherwise the system
  * prompt only follows the person's own turn-on tap. While notifications are
  * off this card says so until "Not now", and comes back whenever an agent
  * needs you, because that alert could not reach you. A permanent denial
@@ -171,7 +171,8 @@ export function HomeNotificationPrimerCard() {
         setPermission(next);
     }, [setAnswered]);
     React.useEffect(() => {
-        if (!connected || answered || permission !== 'not-asked' || !takeNotificationAskAfterPairing()) return;
+        // Android 13+ reads a never-asked app as denied, so "can still ask" is the test.
+        if (!connected || answered || (permission !== 'not-asked' && permission !== 'denied') || !takeNotificationAskAfterPairing()) return;
         void turnOn();
     }, [answered, connected, permission, turnOn]);
     const missedAlert = herd.mode === 'attention' && level !== 'off';

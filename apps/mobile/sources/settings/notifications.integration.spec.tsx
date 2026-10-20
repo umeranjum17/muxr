@@ -8,7 +8,8 @@ const state = vi.hoisted(() => ({ level: 'all' as 'off' | 'important' | 'all', m
 const device = vi.hoisted(() => ({
     platform: { OS: 'web', Version: 34 },
     appActive: [] as Array<(state: string) => void>,
-    permission: { granted: false, status: 'undetermined', canAskAgain: true },
+    // Android 13+ answers a never-asked app this way.
+    permission: { granted: false, status: 'denied', canAskAgain: true },
     answer: { granted: false, status: 'denied', canAskAgain: true },
     asks: 0,
     opened: [] as string[],
@@ -16,9 +17,8 @@ const device = vi.hoisted(() => ({
 vi.mock('react-native', () => ({
     Platform: device.platform,
     AppState: { addEventListener: (_: string, listener: (state: string) => void) => { device.appActive.push(listener); return { remove() {} }; } },
-    Linking: { sendIntent: async (action: string) => { device.opened.push(action); }, openSettings: async () => { device.opened.push('app'); } },
+    Linking: { openSettings: async () => { device.opened.push('app info'); } },
 }));
-vi.mock('expo-application', () => ({ applicationId: 'dev.muxr.test' }));
 vi.mock('expo-audio', () => ({}));
 vi.mock('expo-notifications', () => ({
     getPermissionsAsync: async () => device.permission,
@@ -44,6 +44,7 @@ vi.mock('@/../modules/voice-overlay', () => ({
     canPostLiveActivities: () => false,
     openBackgroundActivitySettings: vi.fn(),
     openLiveActivitySettings: vi.fn(),
+    openNotificationSettings: () => { device.opened.push('notification settings'); return true; },
 }));
 vi.mock('@/settings', () => ({ browserNotificationSummary: (browser: string) => browser }));
 vi.mock('@/modal', () => ({ Modal: { confirm: vi.fn(async () => false) } }));
@@ -278,7 +279,7 @@ it('asks when alerts are turned on, never after a permanent denial, and says so 
     expect(hint()).toBe("Notifications are off for muxr, so these alerts can't reach you. Tap Allow notifications to turn them on in Android settings.");
     await TestRenderer.act(async () => { await allow().props.onPress(); });
     expect(device.asks).toBe(2);
-    expect(device.opened).toEqual(['android.settings.APP_NOTIFICATION_SETTINGS']);
+    expect(device.opened).toEqual(['notification settings']);
 
     // Turned on in system settings: coming back clears the hint.
     device.permission = { granted: true, status: 'granted', canAskAgain: true };
