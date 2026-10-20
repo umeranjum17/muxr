@@ -2,20 +2,20 @@
     "releases": [
         {
             "appVersion": "0.2.7",
-            "title": "Send prompts to Claude panes you started by hand",
-            "summary": "Since 0.2.6: the phone can send a message to a Claude pane you started by hand in Herdr.",
+            "title": "Prompts reach hand-started Claude panes",
+            "summary": "Since 0.2.6: the phone can message a Claude pane you started by hand.",
             "features": [],
             "fixes": [
                 {
-                    "title": "Prompts reach hand-started Claude panes",
-                    "detail": "Sending from the phone no longer fails with \"your computer didn't answer in time\" on a pane you started yourself."
+                    "title": "Send to your own panes",
+                    "detail": "Sending to a pane you started yourself no longer times out."
                 }
             ],
             "verification": [
                 {
-                    "title": "Release candidate checks",
+                    "title": "Candidate checks",
                     "status": "not-run",
-                    "detail": "The signed candidate has not been accepted on a phone, Mac or iPhone."
+                    "detail": "Not yet accepted on a device."
                 }
             ],
             "knownLimits": [
