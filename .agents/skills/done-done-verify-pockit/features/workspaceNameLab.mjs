@@ -169,7 +169,18 @@ try {
     }
     // Each buildPrApk run signs with its own throwaway key: a kept AVD may hold another build.
     try { adb('uninstall', PKG); } catch { /* not installed */ }
-    execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 600_000 });
+    // A loaded host can report boot before the package service answers: an install then dies with a broken pipe.
+    for (let attempt = 1; ; attempt += 1) {
+        try {
+            sh('pm path android');
+            execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 600_000 });
+            break;
+        } catch (cause) {
+            if (attempt >= 3) throw cause;
+            log(`install attempt ${attempt} failed; retrying`);
+            await sleep(20_000);
+        }
+    }
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     sh(`pm clear ${PKG}`);
     adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
