@@ -1,5 +1,5 @@
-/** Refreshing Usage on the shipped host bundle never starts a second host under the machine key. */
-import { spawn } from 'node:child_process';
+/** Refreshing Usage on the shipped host bundle keeps exactly one host process under the machine key. */
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -88,6 +88,14 @@ try {
             report = await Promise.race([requestLab(device, 'usage.report', { refresh: true }), replaced]);
             await Promise.race([new Promise((resolve) => setTimeout(resolve, 2000)), replaced]);
         }
+        // Exactly one host: the ledger child is running, and only the host
+        // process (besides this lab device) holds a socket to the relay.
+        const ledger = execFileSync('ps', ['-o', 'pid=,args=', '--ppid', String(host.pid)], { encoding: 'utf8' })
+            .split('\n').find((line) => line.includes('--muxr-token-ledger'));
+        if (ledger === undefined) throw new Error('the Usage ledger child is not running');
+        const dialers = new Set([...execFileSync('ss', ['-Htnp', 'state', 'established', 'dport', `= :${port}`], { encoding: 'utf8' })
+            .matchAll(/pid=(\d+)/g)].map((match) => Number(match[1])).filter((pid) => pid !== process.pid));
+        if (dialers.size !== 1 || !dialers.has(host.pid)) throw new Error(`expected only host ${host.pid} on the relay, found ${[...dialers].join(', ') || 'none'} (ledger child: ${ledger.trim().split(/\s+/)[0]})`);
     } finally { device.stop(); }
     if (lost()) await replaced;
     finished = true;
