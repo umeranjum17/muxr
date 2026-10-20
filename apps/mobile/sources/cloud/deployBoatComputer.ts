@@ -14,30 +14,8 @@ export const BOAT_PRICES: Price[] = [
 ];
 export type BoatSize = 'small' | 'default';
 
-/**
- * Where every new Boat computer gets @trymuxr/cli. `npm` is the release pin, bumped with the root package.json version in each release PR.
- * `tarball` is a published GitHub release asset, checked against its sha256 before install: used while no npm release has
- * `self-host --configure-only` and `pair --handoff` (0.2.0 predates both). The real fix is the CLI release with its matching app in
- * the go-live plan; then switch back to `npm`.
- * Pinned asset: v0.2.5-nightly.27.1, source commit d0cade001220b32bffa950abb3ca988601edbef6; the hash matches the release's npm-manifest.json.
- */
-type CliSource = { kind: 'npm'; version: string } | { kind: 'tarball'; url: string; sha256: string };
-const CLI_SOURCE: CliSource = {
-    kind: 'tarball',
-    url: 'https://github.com/umeranjum17/muxr/releases/download/v0.2.5-nightly.27.1/trymuxr-cli-0.2.5-nightly.27.1.tgz',
-    sha256: 'e98ccbfd066d3993551c1bdfb93cc1350d1a308dee0ab8793b276749922edec8',
-};
-const NPM_INSTALL = ['npm', 'install', '--global', '--prefix', `${WORK_DIR}/npm`, '--ignore-scripts'];
-/** Fetch with the kit's node (22 has fetch), refuse a hash mismatch, then install the file. */
-const FETCH_TARBALL = `const c=require('crypto'),f=require('fs');fetch(process.argv[1]).then(r=>{if(!r.ok)throw Error(r.status);return r.arrayBuffer()}).then(b=>{if(c.createHash('sha256').update(Buffer.from(b)).digest('hex')!==process.argv[2])throw Error('sha256 mismatch');f.writeFileSync(process.argv[3],Buffer.from(b))})`;
-const installSteps = (source: CliSource): string[][] => source.kind === 'npm'
-    ? [[...NPM_INSTALL, `@trymuxr/cli@${source.version}`]]
-    : [
-        ['mkdir', '-p', WORK_DIR],
-        ['node', '-e', FETCH_TARBALL, source.url, source.sha256, `${WORK_DIR}/cli.tgz`],
-        [...NPM_INSTALL, `${WORK_DIR}/cli.tgz`],
-    ];
-const INSTALL = installSteps(CLI_SOURCE);
+/** The published @trymuxr/cli every new Boat computer installs. Bumped with the root package.json version in each release PR. */
+const CLI_VERSION = '0.2.6';
 
 /** The muxr host as the kit installs it: the published CLI under the work dir, run by `muxr up` in self-host mode. */
 const RECIPE: HostRecipe = {
@@ -49,7 +27,7 @@ const RECIPE: HostRecipe = {
             'linux-arm64': 'a44aeb94849a299b22df10b9e622ec2f605c2183501bc40590705131de7c740f',
         },
     },
-    install: INSTALL,
+    install: [['npm', 'install', '--global', '--prefix', `${WORK_DIR}/npm`, '--ignore-scripts', `@trymuxr/cli@${CLI_VERSION}`]],
     run: { argv: ['node', `${WORK_DIR}/npm/bin/muxr`, 'up'], env: { MUXR_MODE: 'selfhost' } },
     workDir: WORK_DIR,
 };
