@@ -11,7 +11,7 @@ import {
     relayPortFromEnv,
     stateDir,
 } from '../infrastructure/runtime.mjs';
-import { daemonIsRunning, runDaemon, startMuxrDaemon } from '../infrastructure/daemon.mjs';
+import { daemonState, runDaemon, startMuxrDaemon } from '../infrastructure/daemon.mjs';
 import {
     cleanupManagedIngress,
     cloudflaredAlive,
@@ -88,7 +88,7 @@ export async function startSelfHost(args = []) {
         if (state === undefined) {
             state = { version: 1, machine: machineIdentity(undefined), relayPort: port };
         }
-        const hostWasRunning = daemonIsRunning();
+        const hostWasRunning = daemonState() !== 'stopped';
         const explicitAdvertise = flagValue(args, '--advertise')?.replace(/\/$/, '');
         const connection = parseConnection(state);
         const sameConfiguration = connection.ok && connection.value.sameAs({ port, connectionMode, web, explicitAdvertise });
