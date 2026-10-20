@@ -17,38 +17,35 @@ workspace label in `syncFromKit` (`herdrSessionSource.ts`).
   verbatim, on Home and the Panes screen, and its agent name (the same word)
   is not repeated under it.
 - `pane-title-fallback` a pane in a tab labelled with a bare number keeps its
-  terminal title.
+  terminal title (the host naming test drives it).
 - `workspace-key-label` a workspace labelled `ssh-ed25519` shows its panes'
   folder name, never the key type.
+
+- `pane-name-live` after a Herdr restart, and after a tab relabel with no
+  restart, the rows read Herdr's current labels; nothing first-seen sticks.
 
 ## How to get to it (user POV)
 
 - Pair a computer whose Herdr has agent tabs labelled `fm-<name>` and a
   workspace labelled `ssh-ed25519`, open Home, then the Panes screen.
 
-## Driving it with the private stack
+## Driving it on a lab Herdr
 
-Preconditions:
-
-- `yarn build`, and a release APK from `node perf/buildPrApk.mjs <out>` on an
-  owned emulator `SERIAL`; drive the phone over `perf/lib/fakeStack.mjs` with
-  `{ panes: 3, agents: 3, titleChurnHz: 0 }`, paired with `mintPairing()` and
-  `muxr://pair#<code>`.
-- The fake Herdr has no rename method, so seed the world before starting, and
-  revert the edit before running the suite: in `perf/fake-herdr/world.mjs` set
-  `PANES_PER_TAB = 1`, `KINDS = ['claude']`,
-  `TAB_LABELS = ['fd-prompt-nosript', 'fm-crewhouse', '3']`, each agent's
-  `name` to its tab's label, the workspace `label` to `'ssh-ed25519'` with no
-  `worktree`, every agent pane's title to
-  `'Firstmate operational inbox message'`, and no pane `label`.
-- For the before shot, build `apps/host` and `packages/contract` from
-  `origin/main` and run the same world: every row reads
-  `Firstmate operational inbox message` and the space reads `ssh-ed25519`.
-- Capture Home and the Panes screen at 393 dp and 270 dp, font 1.0 and 2.0,
-  light and dark, through `../SKILL.md`'s Visual check.
-- Pass: rows read `fd-prompt-nosript` and `fm-crewhouse` with `claude` and the
-  state under them (the `3` tab keeps the title), in Herdr's tab order; the
-  space reads the panes' folder (`project`), and `ssh-ed25519` shows nowhere.
+- `yarn build`, a release APK from `node perf/buildPrApk.mjs <out>`, and a
+  Herdr lab helper in `HERDR_LAB_HELPER` (see `linkHerdrLab.mjs`); take the
+  emulator lock as in `../SKILL.md`.
+- `node .agents/skills/done-done-verify-pockit/features/paneTabNamesLab.mjs <apk> <evidence> <labRoot>`
+  (a short `<labRoot>`: the lab sockets live under it). It builds a workspace
+  labelled `ssh-ed25519` with tabs `fd-prompt-nosript`, `fm-crewhouse` (claude
+  stand-ins) and `fm-muxr` (a codex stand-in), every terminal titled
+  `Firstmate operational inbox message`, pairs the APK to a lab host, captures,
+  restarts the lab Herdr through the helper, captures Home and Panes at 393 and
+  270 dp, font 1.0 and 2.0, light and dark, then relabels `fm-crewhouse` to
+  `fm-office` and captures Panes again. `herdr-*.txt` keeps Herdr's own
+  workspace, tab and agent lists beside each step.
+- Pass: rows read the tab labels in Herdr's tab order with `claude · Idle` /
+  `codex · Idle` under them, the space reads `muxr`, `ssh-ed25519` and the
+  Claude title show nowhere, and the relabelled row reads `fm-office`.
 
 ## Gotchas
 
@@ -57,3 +54,7 @@ Preconditions:
 - The phone re-derives the name from each tree pane (`agentLabels`), so a host
   without `tabLabel` on its tree panes keeps the terminal title on the phone
   even when its own `taskTitle` is right.
+- Herdr restores tabs and labels on restart but not the stand-in processes; the
+  journey restarts them, as a resumed Claude would.
+- The guarded helper refuses `session attach`, so there is no capture of
+  Herdr's own sidebar; the `herdr-*.txt` lists are what it draws.

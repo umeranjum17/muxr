@@ -233,7 +233,7 @@ rules, with no H2 sections.
 - [Name the current workspace and pane](./agent-naming.md) — `muxr name`
   inside a Herdr pane, with provider/model attribution.
 - [Name panes by their Herdr tab label](./pane-tab-names.md) — release APK
-  over a seeded fake-Herdr stack: Herdr tab labels name Home and Panes rows
+  on a lab Herdr, across a restart and a live relabel: Herdr tab labels name Home and Panes rows
   verbatim instead of a shared Claude title, and an `ssh-ed25519` space shows
   its folder.
 - [Inspect and prune Shared Artifacts history](./artifact-retention.md) —
