@@ -72,7 +72,7 @@ export function CloudSetupScreen() {
             if (!mounted.current) return;
             setSizeLocked(pending !== undefined);
             if (pending !== undefined) setSize(pending);
-        });
+        }).catch(() => undefined);
     }, []);
 
     const settle = React.useCallback(async (run: Promise<void>) => {
