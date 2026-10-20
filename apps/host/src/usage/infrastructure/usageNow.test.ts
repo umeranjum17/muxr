@@ -258,6 +258,53 @@ it('carries the daily backend\'s unitemized remainder as its own kind, never as 
     expect(report.todayTokens).toBe('60.0K');
 }, 20_000);
 
+it('runs the daily backend for the Usage screen only, one run at a time, quietly and without the ledger\'s stores', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'muxr-usage-'));
+    const bin = join(home, 'bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'kimi'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const runs = join(home, 'runs');
+    writeFileSync(join(bin, 'ionice'), `#!/bin/sh\n[ "$1 $2" = "-c 3" ] && shift 2 && echo idle-io >> ${runs} && exec "$@"\nexit 9\n`, { mode: 0o755 });
+    const fail = join(home, 'fail');
+    const backend = join(bin, 'ccusage-backend');
+    // Each run notes where it was pointed and how nice it was, then takes a moment.
+    writeFileSync(backend, `#!/bin/sh\necho "run $CLAUDE_CONFIG_DIR $CODEX_HOME $OPENCODE_DATA_DIR $PI_AGENT_DIR $(cut -d' ' -f19 /proc/$$/stat)" >> ${runs}\nsleep 1\n[ -f ${fail} ] && exit 1\nprintf '{"daily":[{"period":"%s","agents":[{"agent":"kimi","totalTokens":1240,"modelBreakdowns":[{"modelName":"kimi-latest","inputTokens":1200,"outputTokens":40,"cacheReadTokens":0,"cacheCreationTokens":0,"cost":0.5}]}]}]}' "$(date +%F)"; echo\n`, { mode: 0o755 });
+    const env: NodeJS.ProcessEnv = { HOME: home, PATH: bin, MUXR_HOME: join(home, 'muxr'), MUXR_CCUSAGE_BIN: backend, CLAUDE_CONFIG_DIR: join(home, 'claude') };
+    const started = () => (() => { try { return readFileSync(runs, 'utf8'); } catch { return ''; } })().split('\n').filter((line) => line.startsWith('run '));
+    const { collectUsage } = await import('./collectUsage.js');
+    const { usageNow } = await import('./usageNow.js');
+
+    // The Home card asks all the time; it never starts a count of every agent's logs.
+    await usageNow(env);
+    await usageNow(env, { refresh: true });
+    expect(started()).toEqual([]);
+
+    // The Usage screen does, once however many tabs ask together.
+    const [first, second] = await Promise.all([collectUsage({ provider: 'kimi' }, env), collectUsage({ provider: 'kimi', refresh: true }, env)]);
+    expect([first.todayTokens, second.todayTokens]).toEqual(['1.2K', '1.2K']);
+    expect(started()).toHaveLength(1);
+    // At idle CPU and IO priority, and blind to the stores the ledger reads itself.
+    const [, claude, codex, opencode, pi, nice] = started()[0]!.split(' ');
+    expect(readFileSync(runs, 'utf8')).toContain('idle-io');
+    expect(nice).toBe('19');
+    expect(new Set([claude, codex, opencode, pi]).size).toBe(1);
+    expect(claude).not.toBe(env.CLAUDE_CONFIG_DIR);
+
+    // A failed count is not run again on every ask once it ends; a refresh does.
+    writeFileSync(fail, '');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 11 * 60_000);
+    expect((await collectUsage({ provider: 'kimi' }, env)).activity?.state).toBe('measured');
+    await new Promise((resolve) => { setTimeout(resolve, 1_500); });
+    vi.setSystemTime(Date.now() + 2 * 60_000);
+    await collectUsage({ provider: 'kimi' }, env);
+    await collectUsage({ provider: 'kimi' }, env);
+    expect(started()).toHaveLength(2);
+    rmSync(fail);
+    expect((await collectUsage({ provider: 'kimi', refresh: true }, env)).activity?.state).toBe('measured');
+    expect(started()).toHaveLength(3);
+}, 30_000);
+
 it('answers the card and every Usage tab from one collection, and never lends a plan to an aggregator', async () => {
     const fetch = vi.fn(provider);
     vi.stubGlobal('fetch', fetch);
