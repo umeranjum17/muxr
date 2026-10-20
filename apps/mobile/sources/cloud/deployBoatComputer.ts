@@ -1,7 +1,8 @@
 import { boat, machine, MachineError, setup, words, type HostRecipe, type MachineRef, type MachineStore, type Price, type Provider, type TailnetStep } from '@byokit/cloud';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/pairing/secrets';
 
-export const BOAT_API = 'https://boat.dev/api/v1';
+/** A lab build may point at its own Boat stand-in; every other build talks to Boat. */
+export const BOAT_API = process.env.EXPO_PUBLIC_MUXR_BOAT_API || 'https://boat.dev/api/v1';
 export const BOAT_KEY = 'muxr.cloud.boat-key.v1';
 const MACHINE_KEY = 'muxr.cloud.boat-machine.v1';
 const PORT = 8792;

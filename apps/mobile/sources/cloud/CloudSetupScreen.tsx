@@ -26,6 +26,9 @@ const STEP_WORDS: Record<DeployStep['step'], string> = {
     pairing: words('setup.pairing', { app: 'muxr' }),
 };
 let deployRun: Promise<void> | undefined;
+/** Longer than Boat's sign-in code lives, so a person who is still typing it is never cut off; a lost connection still ends. */
+const SIGN_IN_TIMEOUT_MS = 10 * 60_000;
+const SIGN_IN_TIMEOUT = 'Boat did not finish signing in within 10 minutes. Try again.';
 const perHour = (size: BoatSize) => `$${BOAT_PRICES.find((p) => p.size === size)?.perHour} an hour while on`;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const checkedLabel = (iso: string) => {
@@ -128,9 +131,14 @@ export function CloudSetupScreen() {
         setError(undefined);
         setUrl(undefined);
         setCode(undefined);
+        let timedOut = false;
+        const deadline = setTimeout(() => {
+            timedOut = true;
+            abort.abort();
+        }, SIGN_IN_TIMEOUT_MS);
         try {
             for await (const step of claim({ baseUrl: BOAT_API, email: address, signal: abort.signal })) {
-                if (abort.signal.aborted) return;
+                if (abort.signal.aborted) break;
                 if (step.step === 'open-page') setUrl(step.url);
                 if (step.step === 'type-code') {
                     setUrl(step.url);
@@ -143,10 +151,12 @@ export function CloudSetupScreen() {
                     setBusy(false);
                 }
             }
+            if (timedOut) throw new Error(SIGN_IN_TIMEOUT);
         } catch (cause) {
-            if (!abort.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause));
+            if (timedOut || !abort.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause));
         } finally {
-            if (!abort.signal.aborted) setBusy(false);
+            clearTimeout(deadline);
+            if (timedOut || !abort.signal.aborted) setBusy(false);
         }
     }, [email]);
 
@@ -214,7 +224,7 @@ export function CloudSetupScreen() {
                                         {!url ? (
                                             <ActionButton title="Connect Boat account" icon="link-outline" disabled={busy} onPress={() => { void connect(); }} wrap />
                                         ) : (
-                                            <ActionButton title="Sign in to Boat" icon="link-outline" disabled={busy} onPress={() => { void openExternalUrl(url).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />
+                                            <ActionButton title="Sign in to Boat" icon="link-outline" onPress={() => { void openExternalUrl(url).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />
                                         )}
                                         {url && code && <Text selectable style={styles.code}>Code · {code}</Text>}
                                         {busy && <View style={styles.waiting}><ActivityIndicator /><Text style={styles.detail}>Waiting for Boat…</Text></View>}
