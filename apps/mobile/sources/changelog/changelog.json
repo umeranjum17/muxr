@@ -4,15 +4,16 @@
             "appVersion": "0.2.9",
             "title": "A second host no longer replaces the first",
             "summary": "Since 0.2.8: opening Usage can no longer start a second host that replaces the one you are using, and muxr up fails loudly when it runs out of restarts.",
-            "features": [],
+            "features": [
+                {
+                    "title": "Clear failure when the host cannot restart",
+                    "detail": "When the host runs out of restarts, muxr up now exits with an error instead of quietly stopping."
+                }
+            ],
             "fixes": [
                 {
                     "title": "Host drop-off",
                     "detail": "A second host no longer replaces the first, so the phone stops losing its computer after you open Usage."
-                },
-                {
-                    "title": "Restart limit",
-                    "detail": "When the host runs out of restarts, muxr up now exits with an error instead of quietly stopping."
                 }
             ],
             "verification": [
