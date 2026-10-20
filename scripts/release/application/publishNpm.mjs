@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { verifyRelease } from './verifyRelease.mjs';
-import { compareVersions, distribution } from '../domain/channel.mjs';
+import { compareVersions, publishTags, releaseVersion } from '../domain/channel.mjs';
 import { desktopHostOfTarball, requireDesktopEngine } from './requireDesktopEngine.mjs';
 import { requireLinkProtocol } from './requireLinkProtocol.mjs';
 
@@ -47,9 +47,8 @@ const tagAtLeast = (version, distTag) => settle(['view', '@trymuxr/cli', `dist-t
 
 /** A version already on npm was published by an earlier run: confirm it, never rebuild or republish it. */
 export async function confirmPublished(version) {
-    const { distTag } = distribution(version);
     await integrityOf(version);
-    await tagAtLeast(version, distTag);
+    await tagAtLeast(version, publishTags[releaseVersion(version).channel]);
 }
 
 export async function publishNpm() {
@@ -66,14 +65,15 @@ export async function publishNpm() {
     requireDesktopEngine(desktopHostOfTarball(path));
     const existing = npm(['view', spec(RELEASE_VERSION), 'dist.integrity', '--json'], true);
     if (existing !== undefined && JSON.parse(existing) !== integrity) throw new Error('An existing npm version has different bytes');
+    const publishTag = publishTags[manifest.release.channel];
     const tags = JSON.parse(npm(['view', '@trymuxr/cli', 'dist-tags', '--json']));
-    const current = tags[manifest.release.distTag];
+    const current = tags[publishTag];
     if (current && compareVersions(current, RELEASE_VERSION) === undefined) throw new Error('Invalid registry channel version');
     if (current && compareVersions(current, RELEASE_VERSION) > 0) throw new Error('Refusing to move the channel backwards');
-    if (existing === undefined) npm(['publish', path, '--tag', manifest.release.distTag, '--access', 'public', '--provenance']);
-    else if (current !== RELEASE_VERSION) npm(['dist-tag', 'add', spec(RELEASE_VERSION), manifest.release.distTag]);
+    if (existing === undefined) npm(['publish', path, '--tag', publishTag, '--access', 'public', '--provenance']);
+    else if (current !== RELEASE_VERSION) npm(['dist-tag', 'add', spec(RELEASE_VERSION), publishTag]);
     // Different bytes under the same version is never a propagation delay.
     if (await integrityOf(RELEASE_VERSION) !== integrity) throw new Error('Published npm integrity mismatch');
-    await tagAtLeast(RELEASE_VERSION, manifest.release.distTag);
-    process.stdout.write(`Verified ${spec(RELEASE_VERSION)} on ${manifest.release.distTag}; published bytes match the candidate.\n`);
+    await tagAtLeast(RELEASE_VERSION, publishTag);
+    process.stdout.write(`Verified ${spec(RELEASE_VERSION)} on ${publishTag}; published bytes match the candidate.\n`);
 }

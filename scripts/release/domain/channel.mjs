@@ -1,6 +1,12 @@
 /** Distribution channel is independent of server environment and app identity. */
 export const channelTags = Object.freeze({ stable: 'latest', nightly: 'nightly' });
 /**
+ * The npm tag CI publishes under. Stable goes to `next`: `latest` (channelTags)
+ * moves only by hand, after the version passed its proof run:
+ * `npm dist-tag add @trymuxr/cli@<version> latest`.
+ */
+export const publishTags = Object.freeze({ stable: 'next', nightly: 'nightly' });
+/**
  * Beta and dev are historical. Their published versions, tags and releases stay
  * exactly as they are: readable, installable, never written to again. An input
  * naming one resolves to nightly, which is where that work continues.

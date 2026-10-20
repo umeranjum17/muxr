@@ -116,8 +116,21 @@ jobs:
           path: ${{ runner.temp }}/package
       - name: Publish with provenance
         run: node scripts/release/presentation/publishNpm.mjs
+      # CI publishes stable under `next`. `latest` moves by hand once the
+      # version passed its proof (npm dist-tag add @trymuxr/cli@<version> latest);
+      # re-run this job after that to promote the release and point the catalog.
+      - id: live
+        name: Check whether npm latest serves this version
+        run: |
+          if [ "$RELEASE_CHANNEL" != stable ] || [ "$(npm view @trymuxr/cli dist-tags.latest)" = "$RELEASE_VERSION" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "$RELEASE_VERSION is on npm as next. The release and catalog stay unchanged until npm latest is moved by hand: npm dist-tag add @trymuxr/cli@$RELEASE_VERSION latest, then re-run this job." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - id: github-release
         name: Check for the candidate's GitHub release
+        if: steps.live.outputs.ready == 'true'
         run: |
           if gh release view "$GITHUB_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -126,16 +139,16 @@ jobs:
             echo "The public channel catalog and GitHub release were not updated: no $GITHUB_RELEASE_TAG GitHub release exists, and only the candidate flow creates one." >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Promote the accepted stable release to GitHub Latest
-        if: steps.github-release.outputs.exists == 'true' && needs.build.outputs.channel == 'stable'
+        if: steps.live.outputs.ready == 'true' && steps.github-release.outputs.exists == 'true' && needs.build.outputs.channel == 'stable'
         run: node scripts/release/presentation/promoteReleaseVisibility.mjs --tag "$GITHUB_RELEASE_TAG"
       - name: Point the public channel at this release
-        if: steps.github-release.outputs.exists == 'true'
+        if: steps.live.outputs.ready == 'true' && steps.github-release.outputs.exists == 'true'
         run: node scripts/release/presentation/updateChannelCatalog.mjs --tag "$GITHUB_RELEASE_TAG"
       - name: Verify every public surface serves this release
-        if: steps.github-release.outputs.exists == 'true'
+        if: steps.live.outputs.ready == 'true' && steps.github-release.outputs.exists == 'true'
         run: node scripts/release/presentation/verifyPublicRelease.mjs --tag "$GITHUB_RELEASE_TAG" --channel "$RELEASE_CHANNEL"
       - name: Summarize the completed release
-        if: steps.github-release.outputs.exists == 'true'
+        if: steps.live.outputs.ready == 'true' && steps.github-release.outputs.exists == 'true'
         run: |
           set -euo pipefail
           # The npm tag is the domain's, not the channel name: stable is latest.
