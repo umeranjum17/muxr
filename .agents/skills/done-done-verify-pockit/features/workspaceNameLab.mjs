@@ -146,6 +146,7 @@ const tapText = async (re, seconds = 60) => {
 };
 let lab;
 let defects = 0;
+let finished = false;
 try {
     mkdirSync(join(root, 'lab'), { recursive: true });
     lab = await linkHerdrLab(join(root, 'lab'), 'wl', undefined, (_herdr, labSession) => { session = labSession; buildScene(); });
@@ -226,11 +227,12 @@ try {
         for (const screen of ['home', 'panes']) await capture(`${screen}-${width}-${font}-${theme}`, screen);
     }
     log(`phone shows: ${[...shown].sort().join(', ') || 'none of the watched words'}`);
+    finished = true;
 } finally {
     if (emu) try { sh('wm size reset'); sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
     offering?.destroy();
     await lab?.stop();
     if (emu) try { execFileSync('adb', ['-s', serial, 'emu', 'kill'], { timeout: 30_000 }); } catch { /* already gone */ }
     await emu?.stop?.();
-    log(`done; cells with visual-check defects: ${defects}`);
+    log(finished ? `done; cells with visual-check defects: ${defects}` : 'failed before every cell was captured');
 }
