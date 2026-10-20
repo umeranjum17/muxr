@@ -88,15 +88,20 @@ function ccusageBinary(env: NodeJS.ProcessEnv): { binary?: string; failure?: str
     } catch { return { failure: 'Local activity backend is missing · reinstall muxr' }; }
 }
 
-function runJson<T = unknown>(command: string, args: string[], timeout = 8_000, env?: NodeJS.ProcessEnv): Promise<T | undefined> {
+/** What one count may hold. A larger one is killed, and says so, rather than
+ *  holding a gigabyte the agents it counts need. */
+const BACKEND_MEMORY_KB = 1024 * 1024;
+
+function runJson<T = unknown>(command: string, args: string[], timeout = 8_000, env?: NodeJS.ProcessEnv): Promise<{ json?: T; overMemory?: true }> {
     return new Promise((resolve) => {
-        const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], ...(env === undefined ? {} : { env }) });
+        // The cap is the shell's own limit, inherited by what it execs.
+        const child = spawn('/bin/sh', ['-c', `ulimit -c 0; ulimit -v ${BACKEND_MEMORY_KB} 2>/dev/null; exec "$0" "$@"`, command, ...args], { stdio: ['ignore', 'pipe', 'ignore'], ...(env === undefined ? {} : { env }) });
         // A background count must not compete with the agents it is counting.
         try { if (child.pid !== undefined) setPriority(child.pid, 19); } catch { /* best effort */ }
         let buffer = '';
         let settled = false;
         let escalation: NodeJS.Timeout | undefined;
-        const finish = (value: T | undefined) => {
+        const finish = (value: { json?: T; overMemory?: true }) => {
             if (settled) return;
             settled = true;
             clearTimeout(timer);
@@ -106,17 +111,19 @@ function runJson<T = unknown>(command: string, args: string[], timeout = 8_000, 
             }
             resolve(value);
         };
-        const timer = setTimeout(() => finish(undefined), timeout);
-        child.once('error', () => finish(undefined));
+        const timer = setTimeout(() => finish({}), timeout);
+        child.once('error', () => finish({}));
         child.stdout.setEncoding('utf8');
         child.stdout.on('data', (chunk: string) => {
             buffer += chunk;
-            if (buffer.length > 8 * 1024 * 1024) finish(undefined);
+            if (buffer.length > 8 * 1024 * 1024) finish({});
         });
-        child.once('close', (code) => {
+        child.once('close', (code, signal) => {
             if (escalation) clearTimeout(escalation);
-            if (code !== 0) { finish(undefined); return; }
-            try { finish(JSON.parse(buffer) as T); } catch { finish(undefined); }
+            // Out of memory under the cap, the backend aborts.
+            if (signal === 'SIGABRT' || code === 134) { finish({ overMemory: true }); return; }
+            if (code !== 0) { finish({}); return; }
+            try { finish({ json: JSON.parse(buffer) as T }); } catch { finish({}); }
         });
     });
 }
@@ -177,7 +184,8 @@ async function ccusageRange(env: NodeJS.ProcessEnv, since: string): Promise<{ ra
     const args = ['daily', '--by-agent', '--sections', 'daily,session', '--json', '--offline', '--since', since];
     // Idle IO class where the host has it: the count reads every log it knows.
     const ionice = process.platform === 'linux' ? onPath('ionice', env) : undefined;
-    const result = await runJson<CcusageRange>(ionice ?? binary, ionice === undefined ? args : ['-c', '3', binary, ...args], 120_000, childEnv);
+    const { json: result, overMemory } = await runJson<CcusageRange>(ionice ?? binary, ionice === undefined ? args : ['-c', '3', binary, ...args], 120_000, childEnv);
+    if (overMemory) return { failure: 'Local activity is too large to count within 1 GB' };
     if (!Array.isArray(result?.daily)) return { failure: 'Local activity unavailable · refresh to try again' };
     return { range: result };
 }

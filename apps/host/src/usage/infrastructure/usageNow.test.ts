@@ -266,10 +266,11 @@ it('runs the daily backend for the Usage screen only, one run at a time, quietly
     const runs = join(home, 'runs');
     writeFileSync(join(bin, 'ionice'), `#!/bin/sh\n[ "$1 $2" = "-c 3" ] && shift 2 && echo idle-io >> ${runs} && exec "$@"\nexit 9\n`, { mode: 0o755 });
     const fail = join(home, 'fail');
+    const huge = join(home, 'huge');
     const backend = join(bin, 'ccusage-backend');
     // Each run notes where it was pointed and how nice it was, then takes a moment.
     // The host renices the run just after it starts, so the note waits (up to 5 s) for that.
-    writeFileSync(backend, `#!/bin/sh\nn=0; while [ "$(cut -d' ' -f19 /proc/$$/stat)" != 19 ] && [ $n -lt 500 ]; do n=$((n+1)); sleep 0.01; done\necho "run $CLAUDE_CONFIG_DIR $CODEX_HOME $OPENCODE_DATA_DIR $PI_AGENT_DIR $(cut -d' ' -f19 /proc/$$/stat)" >> ${runs}\nsleep 1\n[ -f ${fail} ] && exit 1\nprintf '{"daily":[{"period":"%s","agents":[{"agent":"kimi","totalTokens":1240,"modelBreakdowns":[{"modelName":"kimi-latest","inputTokens":1200,"outputTokens":40,"cacheReadTokens":0,"cacheCreationTokens":0,"cost":0.5}]}]}]}' "$(date +%F)"; echo\n`, { mode: 0o755 });
+    writeFileSync(backend, `#!/bin/sh\nn=0; while [ "$(cut -d' ' -f19 /proc/$$/stat)" != 19 ] && [ $n -lt 500 ]; do n=$((n+1)); sleep 0.01; done\necho "run $CLAUDE_CONFIG_DIR $CODEX_HOME $OPENCODE_DATA_DIR $PI_AGENT_DIR $(cut -d' ' -f19 /proc/$$/stat) $(ulimit -v)" >> ${runs}\nsleep 1\n[ -f ${fail} ] && exit 1\n[ -f ${huge} ] && kill -ABRT $$\nprintf '{"daily":[{"period":"%s","agents":[{"agent":"kimi","totalTokens":1240,"modelBreakdowns":[{"modelName":"kimi-latest","inputTokens":1200,"outputTokens":40,"cacheReadTokens":0,"cacheCreationTokens":0,"cost":0.5}]}]}]}' "$(date +%F)"; echo\n`, { mode: 0o755 });
     const env: NodeJS.ProcessEnv = { HOME: home, PATH: bin, MUXR_HOME: join(home, 'muxr'), MUXR_CCUSAGE_BIN: backend, CLAUDE_CONFIG_DIR: join(home, 'claude') };
     const started = () => (() => { try { return readFileSync(runs, 'utf8'); } catch { return ''; } })().split('\n').filter((line) => line.startsWith('run '));
     const { collectUsage } = await import('./collectUsage.js');
@@ -285,9 +286,11 @@ it('runs the daily backend for the Usage screen only, one run at a time, quietly
     expect([first.todayTokens, second.todayTokens]).toEqual(['1.2K', '1.2K']);
     expect(started()).toHaveLength(1);
     // At idle CPU and IO priority, and blind to the stores the ledger reads itself.
-    const [, claude, codex, opencode, pi, nice] = started()[0]!.split(' ');
+    const [, claude, codex, opencode, pi, nice, memoryKb] = started()[0]!.split(' ');
     expect(readFileSync(runs, 'utf8')).toContain('idle-io');
     expect(nice).toBe('19');
+    // Never more than 1 GB of it.
+    expect(memoryKb).toBe(String(1024 * 1024));
     expect(new Set([claude, codex, opencode, pi]).size).toBe(1);
     expect(claude).not.toBe(env.CLAUDE_CONFIG_DIR);
 
@@ -304,6 +307,13 @@ it('runs the daily backend for the Usage screen only, one run at a time, quietly
     rmSync(fail);
     expect((await collectUsage({ provider: 'kimi', refresh: true }, env)).activity?.state).toBe('measured');
     expect(started()).toHaveLength(3);
+
+    // A count past its memory cap is killed and says why, once no recent count stands in.
+    writeFileSync(huge, '');
+    vi.setSystemTime(Date.now() + 25 * 60 * 60_000);
+    let killed = await collectUsage({ provider: 'kimi', refresh: true }, env);
+    while (killed.activity?.state === 'counting') killed = await collectUsage({ provider: 'kimi' }, env);
+    expect(killed.activity).toMatchObject({ state: 'unavailable', reason: 'Local activity is too large to count within 1 GB' });
 }, 30_000);
 
 it('answers the card and every Usage tab from one collection, and never lends a plan to an aggregator', async () => {

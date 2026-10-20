@@ -613,7 +613,8 @@ export class LedgerProcess {
     }
 
     private spawn(): ChildProcess {
-        const args = ['--no-warnings', fileURLToPath(import.meta.url), CHILD_FLAG, JSON.stringify(this.roots)];
+        // Capped like the daily backend: a store too large to count fails, it never holds 1 GB.
+        const args = ['--no-warnings', '--max-old-space-size=512', fileURLToPath(import.meta.url), CHILD_FLAG, JSON.stringify(this.roots)];
         const ionice = process.platform === 'linux' && exists('/usr/bin/ionice');
         const child = spawn(ionice ? '/usr/bin/ionice' : process.execPath, ionice ? ['-c', '3', process.execPath, ...args] : args, { stdio: ['pipe', 'pipe', 'ignore'] });
         try { if (child.pid !== undefined) setPriority(child.pid, 19); } catch { /* best effort */ }
