@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@trymuxr/contract';
 import { deviceTableCanMutate, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher, viewOnlyRequestAllowed } from './requests/index.js';
-import { AndroidEmulatorWatcher, DesktopSessions, IosSimulatorWatcher, PreviewLeaseTracker, filePreviewLeaseSink, PREVIEW_LEASE_FILENAME, withPreview } from './desktop/index.js';
+import { AndroidEmulatorWatcher, DesktopSessions, fetchRelayIceServers, IosSimulatorWatcher, PreviewLeaseTracker, filePreviewLeaseSink, PREVIEW_LEASE_FILENAME, withPreview } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import { sweepStaleSignInKeys } from './plans/index.js';
 import type { PeerRuntime } from './peer/index.js';
@@ -96,6 +96,7 @@ export function startHost(options: HostOptions): Host {
         // The engine's own account of a failure (a refused portal, a
         // missing library) belongs in the host's log with everything else.
         onDiagnostic: (line: string) => process.stderr.write(`desktop engine: ${line}\n`),
+        ...(options.token === undefined ? {} : { iceServers: () => fetchRelayIceServers(options.relayUrl, options.token!) }),
     };
     const desktop = new DesktopSessions(desktopEngineOptions);
     // The human lease: which panes a phone is driving right now. It persists

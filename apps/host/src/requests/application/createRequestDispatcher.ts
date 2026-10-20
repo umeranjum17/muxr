@@ -101,7 +101,7 @@ export interface RequestDispatcherOptions {
     isDesktopConnectionActive?: (connectionId: string) => boolean;
 }
 
-type RequestContext = { deviceId: string; requestId: string; connectionId?: string };
+type RequestContext = { deviceId: string; requestId: string; connectionId?: string; viewOnly: boolean };
 type Handler<T extends RequestType> = (params: RequestMap[T]['params'], context: RequestContext) => Promise<RequestResult<T>>;
 type NonPeerRequestType = Exclude<RequestType, PeerRequestType>;
 const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
@@ -348,7 +348,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plugin.invoke': async () => { throw new Error('plugins are no longer supported'); },
         'plugin.call': async () => { throw new Error('plugins are no longer supported'); },
         'host.update': (params, context) => repairHost(params, context.deviceId),
-        'desktop.capabilities': async (params) => {
+        'desktop.capabilities': async (params, context) => {
             if (params.target !== undefined) {
                 const sessionId = params.target.sessionId;
                 await firstDeviceTarget(options, (targets) => targets.resolveTarget(sessionId));
@@ -357,7 +357,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             if (options.desktop === undefined) {
                 return { available: false, unavailableReason: 'This host has no desktop engine.', input: false, clipboard: false };
             }
-            return options.desktop.capabilities();
+            const capabilities = await options.desktop.capabilities();
+            if (context.viewOnly) return capabilities;
+            const iceServers = await options.desktop.iceServers();
+            return iceServers.length === 0 ? capabilities : { ...capabilities, iceServers };
         },
         'desktop.open': async (params, context) => {
             const connectionId = context.connectionId;
@@ -733,7 +736,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             );
         }
         try {
-            const data = await handler(request.params, { deviceId, requestId: request.requestId, ...(connectionId === undefined ? {} : { connectionId }) });
+            const data = await handler(request.params, { deviceId, requestId: request.requestId, viewOnly: isViewOnlyDevice, ...(connectionId === undefined ? {} : { connectionId }) });
             return ok(request.requestId, data);
         } catch (error: unknown) {
             return fromCaught(request.requestId, error);

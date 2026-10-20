@@ -246,7 +246,14 @@ export interface DesktopCapabilities {
     inputUnavailableReason?: string;
     clipboard: boolean;
     codec?: string;
+    /**
+     * The owner's own STUN/TURN servers with credentials minted for this open
+     * by their relay; absent when the relay has none configured.
+     */
+    iceServers?: DesktopIceServer[];
 }
+
+export interface DesktopIceServer { urls: string[]; username?: string; credential?: string }
 
 /**
  * How long `desktop.open` may wait on the computer's screen-sharing prompt

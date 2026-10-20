@@ -1,5 +1,6 @@
 /** Public API of the host's desktop feature. Import this, not internals. */
 export { DesktopSessions, hostDesktopForPanes, type DesktopEngineOptions } from './infrastructure/desktopSessions.js';
+export { fetchRelayIceServers } from './infrastructure/relayIceServers.js';
 export { nextDesktopId, type DesktopSessionRecord } from './domain/desktopSession.js';
 export {
     PreviewLeaseTracker,

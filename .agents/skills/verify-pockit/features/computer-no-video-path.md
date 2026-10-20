@@ -22,6 +22,10 @@ no-path message.
   from here" with the generic body ("The screen goes straight from your
   computer to this phone, and this network has no way through. …") and Try
   again. No browser-specific body is shown.
+- `own-turn` PWA, no UDP path, the owner's own TURN configured (`turn.json`
+  in the relay data dir, see SELF-HOSTING.md "Your own TURN server"): the
+  same open goes live through coturn instead of showing the message, and
+  coturn logs `CREATE_PERMISSION`/`CHANNEL_BIND ... success`.
 - `retry` Try again starts a new open ("Starting desktop…").
 - `large-text` at the largest text the overlay scrolls, so Try again is
   reachable (on main it was cut off).
@@ -62,6 +66,20 @@ Installed PWA (no UDP path):
    `… tap <debug> 'Pane actions'`, `… tap <debug> Computer`. Poll
    `document.body.innerText` for `Try again` (about 30 s), then shoot each
    cell and run `visualCheck.mjs pwa-check`; at font 2.0 also scroll to the end.
+
+Own TURN (`own-turn`), on the same PWA lab:
+
+1. Give the namespace an interface before Chromium starts:
+   `ip link add wlan0 type dummy; ip addr add 10.99.0.2/24 dev wlan0; ip link set wlan0 up`.
+   It routes nowhere, so there is still no UDP path, but a loopback-only
+   Chromium gathers no TURN candidate for an answer or a video offer.
+2. Run the self-host one-liner with `TURN_HOST=127.0.0.1`, the lab relay's
+   data dir in place of `~/.muxr/relay`, a task-owned container name, no
+   `--restart`, and `--relay-ip=<the host's LAN address>` added: the PWA
+   reaches coturn at 127.0.0.1, and a loopback relayed address is refused as
+   a peer. Bridge TCP 3478 into the namespace like the relay port.
+3. Open Computer first with no `turn.json` (the message), then write it and
+   tap Try again: the picture goes live within seconds, with no restart.
 
 Native Android (no UDP path; expect `relay-live`, not the message):
 

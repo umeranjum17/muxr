@@ -1,6 +1,7 @@
 export type {
     ApplicationLauncher,
     DesktopCapabilities,
+    DesktopIceServer,
     HerdrRenameTarget,
     DesktopEvent,
     DesktopPermission,

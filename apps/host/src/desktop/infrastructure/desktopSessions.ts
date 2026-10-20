@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
 import type { EngineCapabilities, EngineEvent, SourceRequest } from '@desklink/host';
 import { DESKTOP_CONSENT_WAIT_MS, DESKTOP_LOOPBACK_TCP, DESKTOP_NO_PICTURE, desktopPortalBusy } from '@trymuxr/contract';
-import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@trymuxr/contract';
+import type { DesktopCapabilities, DesktopEvent, DesktopIceServer, DesktopPermission, DesktopSurfaceGeometry } from '@trymuxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
 import { silentPortalBackends } from './portalBackends.js';
@@ -113,6 +113,8 @@ export interface DesktopEngineOptions {
     onDiagnostic?: (line: string) => void;
     /** Existing host state root. Without one, portal grants are not retained. */
     stateRoot?: string;
+    /** The owner's own STUN/TURN servers, freshly credentialed; absent means none. */
+    iceServers?: () => Promise<DesktopIceServer[]>;
 }
 
 interface LiveSession extends DesktopSessionRecord {
@@ -162,6 +164,7 @@ export class DesktopSessions {
     private sessions = new Map<string, LiveSession>();
     private starting: Promise<EngineClient | null> | null = null;
     private opening = 0;
+    private silentPortal: ReturnType<typeof silentPortalBackends> | null = null;
     private readonly connectedLinkDevices = new Set<string>();
     private readonly disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
     /** The reason the last start attempt failed, when the engine resolved but did not come up. */
@@ -189,6 +192,20 @@ export class DesktopSessions {
     /** Stop the screen this host started, if any; the host calls this as it stops. */
     stopVirtualDisplay(): void {
         this.virtualDisplay.stop();
+    }
+
+    /**
+     * The owner's STUN/TURN servers for one side of a session. Each side gets
+     * its own credentials; a relay that cannot mint them leaves the picture to
+     * the direct and link paths, and the reason goes to the host log.
+     */
+    async iceServers(): Promise<DesktopIceServer[]> {
+        try {
+            return await this.options.iceServers?.() ?? [];
+        } catch (error) {
+            this.options.onDiagnostic?.(`no TURN servers for this desktop: ${error instanceof Error ? error.message : String(error)}`);
+            return [];
+        }
     }
 
     /** No sessions and nothing opening: the target reaper may drop this instance. */
@@ -266,28 +283,7 @@ export class DesktopSessions {
         if (request.permissions.includes('clipboard') && !capabilities.clipboard) {
             throw new EngineRefused('clipboard-unsupported', 'clipboard is unavailable for this desktop source');
         }
-        const client = await this.ensureClient();
-        if (client === null) {
-            throw new EngineRefused('desktop-unavailable', this.startFailure ?? this.missingEngineReason());
-        }
         let source = configuredSource(this.environment, this.x11SocketDirectory);
-        if (source === undefined && this.startsOwnDisplay()) {
-            try {
-                source = { kind: 'x11', display: await this.virtualDisplay.ensure() };
-            } catch (error) {
-                throw new EngineRefused('desktop-unavailable', error instanceof Error ? error.message : 'the virtual screen did not start');
-            }
-        }
-        if (source?.kind !== 'x11' && this.opening === 0) {
-            // A portal backend that cannot answer a ping cannot show a prompt
-            // either: say so now rather than after the whole consent wait.
-            const [silent] = await silentPortalBackends();
-            if (silent !== undefined) {
-                this.options.onDiagnostic?.(`desktop open refused: ${silent.name} does not answer (${silent.restartCommand})`);
-                await this.stopIfIdle();
-                throw new EngineRefused('portal-busy', desktopPortalBusy(silent.restartCommand));
-            }
-        }
         const takeGrant = (): string | undefined => {
             if (source?.kind === 'x11') return undefined;
             try {
@@ -298,10 +294,44 @@ export class DesktopSessions {
                 return undefined;
             }
         };
-        const restoreToken = takeGrant();
+        if (this.opening === 0) this.silentPortal = null;
         this.opening += 1;
+        let client: EngineClient;
+        let restoreToken: string | undefined;
+        let iceServers: DesktopIceServer[];
+        try {
+            const acquired = await this.ensureClient();
+            if (acquired === null) {
+                throw new EngineRefused('desktop-unavailable', this.startFailure ?? this.missingEngineReason());
+            }
+            client = acquired;
+            if (source === undefined && this.startsOwnDisplay()) {
+                try {
+                    source = { kind: 'x11', display: await this.virtualDisplay.ensure() };
+                } catch (error) {
+                    throw new EngineRefused('desktop-unavailable', error instanceof Error ? error.message : 'the virtual screen did not start');
+                }
+            }
+            if (source?.kind !== 'x11') {
+                // A portal backend that cannot answer a ping cannot show a prompt
+                // either: say so now rather than after the whole consent wait.
+                this.silentPortal ??= silentPortalBackends();
+                const [silent] = await this.silentPortal;
+                if (silent !== undefined) {
+                    this.options.onDiagnostic?.(`desktop open refused: ${silent.name} does not answer (${silent.restartCommand})`);
+                    throw new EngineRefused('portal-busy', desktopPortalBusy(silent.restartCommand));
+                }
+            }
+            restoreToken = takeGrant();
+            iceServers = await this.iceServers();
+        } catch (error) {
+            this.opening -= 1;
+            await this.stopIfIdle();
+            throw error;
+        }
         const openParams = {
             permissions: request.permissions,
+            ...(iceServers.length === 0 ? {} : { iceServers }),
             ...(restoreToken === undefined ? {} : { restoreToken }),
             ...(source === undefined ? {} : { source }),
             ...(request.maxWidth === undefined ? {} : { maxWidth: request.maxWidth }),
