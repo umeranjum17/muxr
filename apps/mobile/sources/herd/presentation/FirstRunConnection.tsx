@@ -113,7 +113,7 @@ export function FirstRunConnection() {
                     )}
                     <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={browser ? 'Cloud computer. Set up from the muxr phone app.' : 'Add a cloud computer. Boat, 2 to 5 minutes.'}
+                        accessibilityLabel={browser ? 'Cloud computer. Set up from the muxr phone app.' : 'Add a cloud computer. Boat.'}
                         style={({ pressed }) => [styles.wayTile, { flexBasis: 112 * fontScale }, pressed && styles.wayTilePressed]}
                         onPress={() => router.push('/cloud-computer')}
                     >

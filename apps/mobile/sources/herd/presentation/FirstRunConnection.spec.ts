@@ -201,10 +201,10 @@ describe('link-first connect shell', () => {
         expect(routerPush).toHaveBeenCalledWith('/pair?route=ssh');
         routerPush.mockClear();
         // Cloud setup is an active first-run entry without changing the existing connect paths.
-        const cloud = buttons(renderer.root).find((node) => node.props.accessibilityLabel === 'Add a cloud computer. Boat, 2 to 5 minutes.');
+        const cloud = buttons(renderer.root).find((node) => node.props.accessibilityLabel === 'Add a cloud computer. Boat.');
         expect(cloud).toBeDefined();
         expect(cloud.props.disabled).not.toBe(true);
-        press(renderer.root, 'Add a cloud computer. Boat, 2 to 5 minutes.');
+        press(renderer.root, 'Add a cloud computer. Boat.');
         expect(routerPush).toHaveBeenCalledWith('/cloud-computer');
         routerPush.mockClear();
         // More ways holds the computer setup command and the fallback routes.

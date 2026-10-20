@@ -7,7 +7,7 @@ The native first-run screen opens the cloud checklist. With a linked Boat accoun
 - `first-run-entry`: native cloud entry opens the checklist without changing link pairing or SSH routes.
 - `account-link`: email starts the kit claim stream, the sign-in page and short code are shown, and a completed key is stored only in native secure storage. A stored key skips straight to size and price on the next visit.
 - `size-and-price`: Small or Standard with Boat's dated per-hour price and plan floor; nothing is created before **Create cloud computer**.
-- `deploy`: `machine().create` once (a retry reuses the stored machine), then `setup()` installs the published `@trymuxr/cli` as a systemd unit running `MUXR_MODE=selfhost muxr up`, joins the tailnet (a Tailscale sign-in link is shown when the machine needs one) and serves port 8792 through Tailscale Serve.
+- `deploy`: `machine().create` once (a retry reuses the stored machine, or takes the one new Boat computer a lost create left; a failed or gone computer is cleared, the failed one removed; leaving the screen keeps the deploy running and returning never starts a second), then `setup()` installs the published `@trymuxr/cli` as a systemd unit running `MUXR_MODE=selfhost muxr up`, joins the tailnet (a Tailscale sign-in link is shown when the machine needs one) and serves port 8792 through Tailscale Serve.
 - `pair`: the setup pair gate runs `muxr self-host --configure-only --loopback --install-herdr` then `muxr pair --handoff` on the machine, reads the offer from the kit outbox, pairs over the link and delivers the two words with kit `deliver`; success lands on Home.
 - `web-boundary`: PWA shows the phone-app instruction and never runs provider calls.
 
@@ -27,6 +27,6 @@ Preconditions: use `../SKILL.md` isolation and its native Android + installed-PW
 
 ## Gotchas
 
-- The machine installs `@trymuxr/cli@latest` from npm. A real run needs a CLI release that has `--loopback`, `--install-herdr` and `pair --handoff`; older releases fail at "Setting up muxr".
+- The machine installs the `CLI_VERSION` pin in `deployBoatComputer.ts` from npm; the release bump moves it (see `docs/RELEASING.md`), nothing checks it automatically. A real run needs a published CLI that has `--loopback`, `--install-herdr` and `pair --handoff`; older releases (0.2.0) fail at "Setting up muxr".
 - Tailscale inside a Boat sandbox and a claimed key's create scope are unproven until a real run (BYOKit M6).
 - Boat bills per second while on; the price rows are dated in `deployBoatComputer.ts` and must be rechecked against https://docs.boat.dev/pricing when they age.
