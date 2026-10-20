@@ -3,18 +3,23 @@
  * call this, so a row, the terminal header and a notification say the same thing.
  *
  * Sources, first meaningful one wins:
- * 1. the pane label: a rename, or the agent's own `muxr name --pane`;
- * 2. the harness's own window title (Claude keeps its session topic there);
- * 3. Herdr title metadata, from a naming plugin;
- * 4. the task workspace's label, when that workspace holds only this agent.
+ * 1. the Herdr tab label, verbatim as Herdr's sidebar shows it, even when it is
+ *    the agent's own name (a launcher names both alike); Herdr's default bare
+ *    number names nothing;
+ * 2. the pane label: the agent's own `muxr name --pane`;
+ * 3. the harness's own window title (Claude keeps its session topic there);
+ * 4. Herdr title metadata, from a naming plugin;
+ * 5. the task workspace's label, when that workspace holds only this agent.
  *
  * A source says nothing about the work when all it leaves is the folder or repo
  * name (`π - pockit`, a plugin's `Pockit` fallback), the program's or agent's
  * own name, a state word (`Ready`), or a shell prompt or path. Leading with those made every agent in
- * one repo read the same, so they never count.
+ * one repo read the same, so they never count. The tab label is the exception:
+ * the phone names a pane exactly as Herdr's sidebar does.
  */
 export interface AgentTaskSources {
     label?: string | null | undefined;
+    tabLabel?: string | null | undefined;
     terminalTitle?: string | null | undefined;
     title?: string | null | undefined;
     workspaceLabel?: string | null | undefined;
@@ -153,7 +158,10 @@ function folderName(cwd: string | null | undefined): string | undefined {
 export function agentTask(sources: AgentTaskSources): string | undefined {
     const folder = folderName(sources.cwd);
     const noise = new Set([...PROGRAM_NAMES, ...[folder, sources.agentName, sources.agentKind].flatMap((value) => value ? [squash(value)] : [])]);
-    return meaningful(sources.label, noise)
+    // A bare number is Herdr's default tab label: it names no work.
+    const tabLabel = sources.tabLabel?.trim();
+    return (tabLabel && !/^\d+$/.test(tabLabel) ? tabLabel : undefined)
+        ?? meaningful(sources.label, noise)
         ?? meaningful(sources.terminalTitle, noise)
         ?? meaningful(sources.title, noise)
         ?? meaningful(sources.workspaceLabel, noise);

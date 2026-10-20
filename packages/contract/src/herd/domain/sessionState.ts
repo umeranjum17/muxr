@@ -139,6 +139,8 @@ export interface HerdrTreePane extends AgentInfo {
     paneId: string;
     tabId: string;
     label?: string;
+    /** The label of the tab this pane is in; a naming source in `agentTask`. */
+    tabLabel?: string;
     cwd?: string;
     terminalTitle?: string;
     focused: boolean;

@@ -1,6 +1,33 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.7",
+            "title": "Prompts reach your own panes",
+            "summary": "Since 0.2.6: the phone can message a Claude pane you started by hand.",
+            "features": [
+                {
+                    "title": "Send to your own panes",
+                    "detail": "Messaging a pane you started works."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "No timeout",
+                    "detail": "Fixes a send failure."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Checks",
+                    "status": "not-run",
+                    "detail": "Not accepted on a device."
+                }
+            ],
+            "knownLimits": [
+                "Update phone and computer together."
+            ]
+        },
+        {
             "appVersion": "0.2.6",
             "title": "Continue agents on another computer and set up a cloud computer",
             "summary": "Since 0.2.5: continue an agent on another computer, set up a cloud computer from the phone, and see whether each computer is healthy or busy.",
