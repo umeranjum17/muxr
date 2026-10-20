@@ -11,6 +11,8 @@ import {
     Platform,
     TouchableWithoutFeedback,
     useWindowDimensions,
+    Animated,
+    PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -117,6 +119,20 @@ export function OptionSheet({
         };
     }, [visible]);
 
+    // A drag down on the handle and title follows the finger; far enough closes the sheet.
+    const dragY = React.useRef(new Animated.Value(0)).current;
+    const onCloseRef = React.useRef(onClose);
+    onCloseRef.current = onClose;
+    const swipe = React.useMemo(() => PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, state) => state.dy > 6 && Math.abs(state.dy) > Math.abs(state.dx),
+        onPanResponderMove: (_event, state) => dragY.setValue(Math.max(0, state.dy)),
+        onPanResponderRelease: (_event, state) => {
+            if (state.dy > 72 || state.vy > 0.8) onCloseRef.current();
+            Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start();
+        },
+        onPanResponderTerminate: () => Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start(),
+    }), [dragY]);
+
     const providers = React.useMemo(() => groupByProvider(models), [models]);
     const visibleModels = React.useMemo(
         () => filterModels(models, provider, search),
@@ -201,8 +217,9 @@ export function OptionSheet({
                     <TouchableWithoutFeedback onPress={onClose}>
                         <View style={styles.backdrop} />
                     </TouchableWithoutFeedback>
-                    <View style={[
+                    <Animated.View style={[
                         styles.sheet,
+                        { transform: [{ translateY: dragY }] },
                         maxWidth === undefined ? null : { maxWidth },
                         // A body sheet has no rows to measure, so it grows with its content
                         // and the inner ScrollView takes the cap instead.
@@ -218,10 +235,12 @@ export function OptionSheet({
                             },
                         { paddingBottom: Math.max(12, safeArea.bottom) },
                     ]}>
-                        <View style={styles.handleRow}>
-                            <View style={styles.handle} />
+                        <View {...swipe.panHandlers}>
+                            <View style={styles.handleRow}>
+                                <View style={styles.handle} />
+                            </View>
+                            {title !== '' && <Text style={styles.title}>{title}</Text>}
                         </View>
-                        {title !== '' && <Text style={styles.title}>{title}</Text>}
 
                         {body ? (
                             fill
@@ -296,7 +315,7 @@ export function OptionSheet({
                             </View>
                         </View>
                         )}
-                    </View>
+                    </Animated.View>
                 </View>
             </KeyboardAvoidingView>
         </RNModal>

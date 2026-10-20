@@ -23,9 +23,10 @@ class ModalManagerClass implements IModal {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
     }
 
+    // iOS keeps its own alert: a sheet from the root cannot present over a
+    // sheet that is already open there, so it would never show.
     alert(title: string, message?: string, buttons?: AlertButton[]): void {
-        if (Platform.OS === 'web') {
-            // Show custom web modal
+        if (Platform.OS !== 'ios') {
             if (!this.showModalFn) {
                 console.error('ModalManager not initialized. Make sure ModalProvider is mounted.');
                 return;
@@ -38,7 +39,6 @@ class ModalManagerClass implements IModal {
                 buttons: buttons || [{ text: t('common.ok') }]
             } as Omit<ModalConfig, 'id'>);
         } else {
-            // Use native alert
             Alert.alert(title, message, buttons);
         }
     }
@@ -52,8 +52,7 @@ class ModalManagerClass implements IModal {
             destructive?: boolean;
         }
     ): Promise<boolean> {
-        if (Platform.OS === 'web') {
-            // Show custom web modal
+        if (Platform.OS !== 'ios') {
             if (!this.showModalFn) {
                 console.error('ModalManager not initialized. Make sure ModalProvider is mounted.');
                 return false;
@@ -72,7 +71,6 @@ class ModalManagerClass implements IModal {
                 this.confirmResolvers.set(modalId, resolve);
             });
         } else {
-            // Use native alert
             return new Promise<boolean>((resolve) => {
                 Alert.alert(
                     title,
@@ -183,7 +181,6 @@ class ModalManagerClass implements IModal {
                 );
             });
         } else {
-            // Use custom modal for web and Android
             if (!this.showModalFn) {
                 console.error('ModalManager not initialized. Make sure ModalProvider is mounted.');
                 return null;

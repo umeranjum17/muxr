@@ -464,7 +464,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
 
     insertDraftRef.current = insertDraft;
 
-    const { attachments: pendingAttachments, pickImages, pickFiles, clearAttachments, addAttachments } = useAttachmentPicker();
+    const { attachments: pendingAttachments, pickImages, takePhoto, pickFiles, clearAttachments, addAttachments } = useAttachmentPicker();
     // Every chip the composer shows: saved ones, then those still uploading.
     const composerAttachments = React.useMemo(() => [
         ...attachedImages,
@@ -1192,8 +1192,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
 
     // Images and files both land on the host; the paths are appended when sending.
     const attach = React.useCallback(() => {
-        chooseAttachmentSource(pickImages, pickFiles);
-    }, [pickImages, pickFiles]);
+        chooseAttachmentSource({ pickImages, takePhoto, pickFiles });
+    }, [pickImages, takePhoto, pickFiles]);
 
     React.useEffect(() => {
         if (pendingAttachments.length === 0 || attaching) return;
