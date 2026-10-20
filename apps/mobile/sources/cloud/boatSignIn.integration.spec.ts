@@ -118,6 +118,8 @@ it('signs in to Boat once the person opens the page, and gives up with a retry a
         expect(lab.secrets.has('muxr.cloud.boat-key.v1')).toBe(false);
         TestRenderer.act(() => renderer.unmount());
     } finally {
+        // Node 22's fetch parks the aborted poll's socket on a (faked) timer; fire it or server.close() never returns.
+        await vi.runOnlyPendingTimersAsync();
         vi.useRealTimers();
     }
 });
