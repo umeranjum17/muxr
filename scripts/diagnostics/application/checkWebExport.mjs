@@ -177,8 +177,9 @@ if (!existsSync(distIndex)) {
     }
     // Ratchet, not target. The 2.0 MiB (2,097,152 B) compressed usable-screen
     // target is met at this head: CI measured 1,774,861 B of initial transfer
-    // with the pinned Boat CLI tarball (1,765,988 B before that pin). The ceiling
-    // is that CI figure plus a 139 B margin, not a multiplier.
+    // with the Boat CLI tarball pin (1,765,988 B before that pin), since replaced
+    // by the npm 0.2.6 pin, which CI has not measured. The ceiling is that CI
+    // figure plus a 139 B margin, not a multiplier.
     // The terminal, editor/diff surfaces, syntax highlighter and the mermaid
     // diagram engine all load off the landing and pair routes. The highlighter's
     // grammar set is a single static slim list reached only through the diff
