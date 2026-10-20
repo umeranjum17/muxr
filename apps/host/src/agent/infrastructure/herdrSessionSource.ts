@@ -964,8 +964,10 @@ export async function createHerdrSessionSource(
         // A task workspace's label names the task only while this agent is its one agent.
         const soleAgent = workspaceId !== undefined
             && [...agentsByPane.values()].filter((agent) => agent.workspace_id === workspaceId).length === 1;
+        const tabId = session.agent?.tab_id ?? session.pane.tab_id;
         return agentTask({
             label: session.pane.label,
+            tabLabel: tabId === undefined ? undefined : tabsById.get(tabId)?.label,
             terminalTitle: stripTitleTick(session.pane.terminal_title_stripped),
             title: session.agent?.title,
             workspaceLabel: soleAgent ? workspacesById.get(workspaceId)?.label : undefined,
@@ -1496,7 +1498,9 @@ export async function createHerdrSessionSource(
         for (const ws of snap.workspaces) {
             const workspace: WorkspaceRecord = {
                 workspace_id: ws.id,
-                label: ws.label,
+                // An SSH public key's type word (`ssh-ed25519`) has landed here as a
+                // label. It names nothing, so clients fall back to the panes' folder.
+                ...(/^(ssh-|ecdsa-|sk-)/.test(ws.label ?? '') ? {} : { label: ws.label }),
                 focused: ws.focused,
                 number: ws.number,
             };
@@ -2713,6 +2717,7 @@ export async function createHerdrSessionSource(
                             paneId: pane.pane_id,
                             tabId,
                             ...(pane.label === undefined || pane.label === null ? {} : { label: pane.label }),
+                            ...(tabLabel === undefined ? {} : { tabLabel }),
                             ...(cwd === undefined ? {} : { cwd }),
                             ...(agentKind === undefined ? {} : { agentKind }),
                             ...(naming?.provider === undefined ? {} : { provider: naming.provider }),

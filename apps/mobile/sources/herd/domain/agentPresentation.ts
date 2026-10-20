@@ -109,7 +109,7 @@ function publicSource(value: string | null | undefined): string | undefined {
  * kind; it is flagged `shell` and leads with its pane label, else its window
  * title (`user@host:path`).
  */
-export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'terminalTitle' | 'cwd'>>): AgentLabels {
+export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'tabLabel' | 'terminalTitle' | 'cwd'>>): AgentLabels {
     const rawName = pane?.agentName?.trim();
     // `parseAgentName` rejects the internal launch id (and control chars), so a
     // host that leaked `pp_*` as the name leaves this agent unnamed and the
@@ -130,6 +130,7 @@ export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'labe
     const agentName = derivedAgentName({ agentName: named, agentKind: kind, cwd: pane?.cwd });
     const task = hasAgent ? agentTask({
         label,
+        tabLabel: publicSource(pane?.tabLabel),
         terminalTitle,
         title: taskTitle,
         agentName: named,

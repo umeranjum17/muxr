@@ -4,9 +4,10 @@
  *
  * Sources, first meaningful one wins:
  * 1. the pane label: a rename, or the agent's own `muxr name --pane`;
- * 2. the harness's own window title (Claude keeps its session topic there);
- * 3. Herdr title metadata, from a naming plugin;
- * 4. the task workspace's label, when that workspace holds only this agent.
+ * 2. the Herdr tab label, without a launcher's `fm-` prefix (`fm-muxr` reads `muxr`);
+ * 3. the harness's own window title (Claude keeps its session topic there);
+ * 4. Herdr title metadata, from a naming plugin;
+ * 5. the task workspace's label, when that workspace holds only this agent.
  *
  * A source says nothing about the work when all it leaves is the folder or repo
  * name (`π - pockit`, a plugin's `Pockit` fallback), the program's or agent's
@@ -15,6 +16,7 @@
  */
 export interface AgentTaskSources {
     label?: string | null | undefined;
+    tabLabel?: string | null | undefined;
     terminalTitle?: string | null | undefined;
     title?: string | null | undefined;
     workspaceLabel?: string | null | undefined;
@@ -153,7 +155,10 @@ function folderName(cwd: string | null | undefined): string | undefined {
 export function agentTask(sources: AgentTaskSources): string | undefined {
     const folder = folderName(sources.cwd);
     const noise = new Set([...PROGRAM_NAMES, ...[folder, sources.agentName, sources.agentKind].flatMap((value) => value ? [squash(value)] : [])]);
+    // A bare number is Herdr's default tab label: it names no work.
+    const tabLabel = /^\d+$/.test(sources.tabLabel?.trim() ?? '') ? undefined : sources.tabLabel?.trim().replace(/^fm-/, '');
     return meaningful(sources.label, noise)
+        ?? meaningful(tabLabel, noise)
         ?? meaningful(sources.terminalTitle, noise)
         ?? meaningful(sources.title, noise)
         ?? meaningful(sources.workspaceLabel, noise);
