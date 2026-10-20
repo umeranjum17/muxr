@@ -15,7 +15,7 @@ export const BOAT_PRICES: Price[] = [
 export type BoatSize = 'small' | 'default';
 
 /** The published @trymuxr/cli every new Boat computer installs. Bumped with the root package.json version in each release PR. */
-const CLI_VERSION = '0.2.6';
+const CLI_VERSION = '0.2.7';
 
 /** The muxr host as the kit installs it: the published CLI under the work dir, run by `muxr up` in self-host mode. */
 const RECIPE: HostRecipe = {
