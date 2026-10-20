@@ -13,7 +13,8 @@ import { claudeIdentity, codexIdentity, type DefaultLoginDeps, type PlanIdentity
 
 export type PlanPreparation = (folder: string, provider: CliProvider) => Promise<void>;
 
-export function planAccounts(env: NodeJS.ProcessEnv, prepare?: PlanPreparation) {
+// Named by reference: the kit's nested @byokit/usage types are not portable to a declaration.
+export function planAccounts(env: NodeJS.ProcessEnv, prepare?: PlanPreparation): ReturnType<typeof cliAccounts> {
     const home = env.HOME?.trim() || homedir();
     const path = agentProbePath((env.PATH ?? '').split(delimiter), home);
     const bins: Partial<Record<CliProvider, string>> = {};

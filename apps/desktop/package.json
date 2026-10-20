@@ -12,7 +12,7 @@
         "start:tray": "electron . --hidden"
     },
     "dependencies": {
-        "@byokit/accounts": "0.24.1",
+        "@byokit/accounts": "0.28.2",
         "@byokit/herdr": "0.16.1",
         "@byokit/pair": "0.10.3",
         "@byokit/reach": "0.6.0",
