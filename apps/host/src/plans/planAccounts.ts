@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { defaultPlanFolder, muxrHome, plansDir, loadPlanAccounts, type PlanAccountRecord } from './planStore.js';
-import { opencodeLaunchEnv } from './opencodeAccounts.js';
+import { opencodeBinary, opencodeKeyStore } from './opencodeAccounts.js';
 import type { PlanAccount } from '@trymuxr/contract';
 import { accountNameFrom } from '@trymuxr/contract';
 import { claudeIdentity, codexIdentity, type DefaultLoginDeps, type PlanIdentity } from './planIdentity.js';
@@ -22,6 +22,8 @@ export function planAccounts(env: NodeJS.ProcessEnv, prepare?: PlanPreparation):
         const resolved = resolveAgentBinary(provider, { path });
         if (resolved.path !== undefined) bins[provider] = resolve(resolved.path);
     }
+    const opencode = opencodeBinary(env);
+    if (opencode !== undefined) bins.opencode = opencode;
     mkdirSync(muxrHome(env), { recursive: true, mode: 0o700 });
     const childEnv = launchEnv({ base: {
         HOME: home,
@@ -33,6 +35,8 @@ export function planAccounts(env: NodeJS.ProcessEnv, prepare?: PlanPreparation):
     return cliAccounts({
         stateDir: plansDir(env),
         bins,
+        // OpenCode Go signs in with a plan key, which the kit saves here and delivers to the account's folder.
+        keyStore: opencodeKeyStore(env),
         // The kit's CLI children receive this copy; isolate no longer changes the parent process.
         env: { ...childEnv, HOME: home, PATH: path.join(delimiter) },
         // The kit links history inside its own folders; it never creates or writes these targets.
@@ -61,18 +65,25 @@ export function planError(error: unknown): never {
 }
 
 /** Names this provider's other accounts already carry: what a fresh
- *  suggestion must never duplicate. */
-function savedNames(env: NodeJS.ProcessEnv, record: PlanAccountRecord): string[] {
-    return loadPlanAccounts(env)
-        .filter((entry) => entry.provider === record.provider && entry.id !== record.id)
-        .map((entry) => entry.name.trim())
-        .filter((name) => name !== '');
+ *  suggestion must never duplicate. OpenCode rows have no email to tell them
+ *  apart, so each takes the first default name no earlier row uses. */
+function takenNames(env: NodeJS.ProcessEnv, record: PlanAccountRecord): string[] {
+    const rows = loadPlanAccounts(env).filter((entry) => entry.provider === record.provider);
+    if (record.provider !== 'opencode') {
+        return rows.filter((entry) => entry.id !== record.id).map((entry) => entry.name.trim()).filter((name) => name !== '');
+    }
+    const taken: string[] = [];
+    for (const entry of rows) {
+        if (entry.id === record.id) break;
+        taken.push(entry.name.trim() || accountNameFrom(undefined, 'opencode', taken));
+    }
+    return taken;
 }
 
 /** The person's own name for an account, or a suggestion from that account's
  *  OWN email when nobody has named it yet. */
 export function accountName(record: PlanAccountRecord, env: NodeJS.ProcessEnv, email: string | undefined): string {
-    return record.name.trim() || accountNameFrom(email, record.provider, savedNames(env, record));
+    return record.name.trim() || accountNameFrom(email, record.provider, takenNames(env, record));
 }
 
 export function fromCliAccount(account: CliAccount, record: PlanAccountRecord, env: NodeJS.ProcessEnv): PlanAccount {
@@ -103,11 +114,7 @@ export function resolvePlanRecord(env: NodeJS.ProcessEnv, accountId: string): Pl
         throw Object.assign(new Error('Unknown account. List accounts again and pick one shown there.'), { code: 'unknown-plan-account' });
     }
     if (!record.found) {
-        // Managed Claude/Codex folders validate through the kit; an OpenCode root through its own descriptor.
-        if (record.provider === 'opencode') opencodeLaunchEnv(env, record);
-        else {
-            try { planAccounts(env).launchEnv(accountId); } catch (error) { return planError(error); }
-        }
+        try { planAccounts(env).launchEnv(accountId); } catch (error) { return planError(error); }
     }
     return record;
 }

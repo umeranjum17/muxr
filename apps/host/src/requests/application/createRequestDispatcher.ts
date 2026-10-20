@@ -52,6 +52,7 @@ import {
     withPlanAccounts,
     planAccountStatus,
     planLaunchEnv,
+    opencodeAccountStates,
     planPaneAccount,
     planAccounts,
     cancelPlanSignIn,
@@ -66,7 +67,6 @@ import {
     renamePlanAccount,
     resolvePlanRecord,
     resolvePlanLaunch,
-    loadPlanAccounts,
 } from '../../plans/index.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
@@ -318,13 +318,13 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 );
             }
             const record = chosen === undefined ? undefined : await resolvePlanLaunch(process.env, chosen, start.kind);
-            const openCodeAccounts = loadPlanAccounts(process.env).filter((entry) => entry.provider === 'opencode');
+            const openCodeAccounts = await opencodeAccountStates(process.env);
             const openCodeStart = planAccount === undefined ? start.kind === 'opencode' && openCodeAccounts.length > 0
                 : openCodeAccounts.some((entry) => entry.id === planAccount);
             if (openCodeStart && record === undefined) {
                 throw Object.assign(new Error('Sign in to an OpenCode account before starting an agent.'), { code: 'plan-account-unavailable' });
             }
-            const launchEnv = record === undefined ? undefined : planLaunchEnv(process.env, record);
+            const launchEnv = record === undefined ? undefined : await planLaunchEnv(process.env, record);
             const started = useCaseData(await startAgent({
                 exists: existsSync,
                 create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
@@ -590,7 +590,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                         { code: 'host-contract-mismatch' },
                     );
                 }
-                const launchEnv = planLaunchEnv(process.env, record);
+                const launchEnv = await planLaunchEnv(process.env, record);
                 if (record.found) {
                     if (record.provider === 'claude') launchEnv.set.CLAUDE_CONFIG_DIR = record.folder;
                     else launchEnv.set.CODEX_HOME = record.folder;
@@ -627,6 +627,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 throw Object.assign(new Error('That account belongs to another provider.'), { code: 'plan-kind-mismatch' });
             }
             const prepare = async (folder: string, provider: string) => {
+                // OpenCode has no Herdr integration hook to install.
+                if (provider === 'opencode') return;
                 const folderVar = provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
                 const result = await source.herdrCli(['integration', 'install', provider], 15_000, { [folderVar]: folder });
                 if (result.exitCode !== 0 || result.timedOut) throw new Error('Account hook preparation failed.');
