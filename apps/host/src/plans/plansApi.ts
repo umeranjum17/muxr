@@ -94,12 +94,11 @@ async function providerRooms(provider: PlanProvider, env: NodeJS.ProcessEnv, dep
 
 type ProviderRooms = Array<{ account: PlanAccount & { provider: PlanProvider; roomLeftPercent?: number; roomLabel?: string }; room: Room }>;
 
-/** The OpenCode accounts the kit knows now, and whether each holds a saved key. A stored row the kit no longer owns reads as absent. */
+/** Every stored OpenCode account, and whether the kit reads it as signed in. A row the kit cannot status still counts, as signed out. */
 export async function opencodeAccountStates(env: NodeJS.ProcessEnv): Promise<Array<{ id: string; signedIn: boolean }>> {
     const kit = planAccounts(env);
-    const rows = await Promise.all(loadPlanAccounts(env).filter((record) => record.provider === 'opencode').map(
-        (record) => kit.status(record.id).then((account) => ({ id: record.id, signedIn: account.state === 'ready' }), () => undefined)));
-    return rows.filter((row): row is { id: string; signedIn: boolean } => row !== undefined);
+    return Promise.all(loadPlanAccounts(env).filter((record) => record.provider === 'opencode').map(
+        (record) => kit.status(record.id).then((account) => ({ id: record.id, signedIn: account.state === 'ready' }), () => ({ id: record.id, signedIn: false }))));
 }
 
 /** Accounts a provider needs before its choice is listed or Auto picks: one OpenCode account already is one. */
