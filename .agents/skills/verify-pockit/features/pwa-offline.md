@@ -22,7 +22,7 @@ deletes the old caches).
   `muxr-shell-<hash>`, and deletes the previous caches on activate.
 - Relay, link, API and `/health` traffic is never cached.
 - Push and notification-click behaviour is unchanged.
-- With `navigator.onLine === false` Home's connecting and unreachable cards read "You're offline" (no restart command, no blame on the computer).
+- Home's connecting and unreachable cards read "You're offline" (no restart command, no blame on the computer) when a 3 s fetch to the paired relay's `/health` fails, even while `navigator.onLine` stays true (a VPN holds the network up with no route out).
 - The finalized shell carries a light/dark `theme-color` pair equal to the splash colours; the manifest has `id`, `launch_handler` and `categories`.
 
 ## How to get to it (user POV)
@@ -68,10 +68,11 @@ offline session, not just the shell) pair it with the lab hook first — see
    `muxr-shell-<hash>`, and the old cache is gone.
 7. Record the offline→online transition as a short screen recording (screenshot
    frames through `ffmpeg`) into the evidence folder.
-8. Offline copy: pair via the lab hook, run `emulate --network Offline`, force
-   `Navigator.prototype.onLine` to false and dispatch `offline` (CDP offline
-   leaves `onLine` true), wait past 5 s, then assert the connecting and
-   unreachable cards say "You're offline" with no restart command.
+8. Offline copy: pair via the lab hook, then kill the lab relay by its exact PID
+   (the phone's path to the computer is gone while `navigator.onLine` stays
+   true), wait about 20 s, and assert the connecting card says "You're offline"
+   with no restart command. Read `navigator.onLine` in the same page to show it
+   was still true.
 
 ## Gotchas
 
