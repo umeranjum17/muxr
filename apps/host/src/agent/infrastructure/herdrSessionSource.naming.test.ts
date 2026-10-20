@@ -26,6 +26,13 @@ function fakeHerdr(dir: string) {
         tokens: {},
     });
     const panes = [pane('1', 'w2:t1'), pane('2', 'w2:t2'), pane('3', 'w2:t3')];
+    const workspace = { workspace_id: 'w2', label: 'ssh-ed25519' };
+    const tabs = [
+        { tab_id: 'w2:t1', workspace_id: 'w2', label: 'fd-prompt-nosript' },
+        { tab_id: 'w2:t2', workspace_id: 'w2', label: 'fm-crewhouse' },
+        // Herdr's default numbered tab names nothing: the title stands.
+        { tab_id: 'w2:t3', workspace_id: 'w2', label: '12' },
+    ];
     const server = createServer((socket: Socket) => {
         let buffer = '';
         socket.on('data', (chunk) => {
@@ -44,21 +51,17 @@ function fakeHerdr(dir: string) {
                 if (method === 'session.snapshot') {
                     result = {
                         snapshot: {
-                            workspaces: [{ workspace_id: 'w2', label: 'ssh-ed25519' }],
-                            tabs: [
-                                { tab_id: 'w2:t1', workspace_id: 'w2', label: 'fd-prompt-nosript' },
-                                { tab_id: 'w2:t2', workspace_id: 'w2', label: 'fm-crewhouse' },
-                                // Herdr's default numbered tab names nothing: the title stands.
-                                { tab_id: 'w2:t3', workspace_id: 'w2', label: '12' },
-                            ],
+                            workspaces: [workspace],
+                            tabs,
                             panes,
                             agents: panes.map((entry, index) => ({
                                 ...entry,
                                 // A launcher names the agent after its tab.
                                 name: ['fd-prompt-nosript', 'fm-crewhouse', 'lead-3'][index],
-                                agent: 'claude',
+                                // Every agent kind names the same way.
+                                agent: index === 1 ? 'codex' : 'claude',
                                 interactive_ready: true,
-                                agent_session: { source: 'herdr:claude', agent: 'claude', kind: 'id', value: `claude-${index + 1}` },
+                                agent_session: { source: `herdr:${index === 1 ? 'codex' : 'claude'}`, agent: index === 1 ? 'codex' : 'claude', kind: 'id', value: `agent-${index + 1}` },
                             })),
                         },
                     };
@@ -70,7 +73,7 @@ function fakeHerdr(dir: string) {
     });
     const socketPath = join(dir, 'herdr.sock');
     server.listen(socketPath);
-    return { socketPath, close: () => server.close() };
+    return { socketPath, workspace, tabs, close: () => server.close() };
 }
 
 describe('pane and workspace names', () => {
@@ -102,6 +105,13 @@ describe('pane and workspace names', () => {
                 cwd: pane.cwd,
             }));
             expect(shown).toEqual(['fd-prompt-nosript', 'fm-crewhouse', 'Firstmate operational inbox message']);
+
+            // A relabel in Herdr renames the pane and the workspace on the next read: no first-seen name sticks.
+            herdr.tabs[0]!.label = 'fd-renamed';
+            herdr.workspace.label = 'muxr';
+            const relisted = await source.list();
+            expect(relisted.map((info) => info.taskTitle).sort()).toEqual(['Firstmate operational inbox message', 'fd-renamed', 'fm-crewhouse']);
+            expect(relisted.every((info) => info.workspaceLabel === 'muxr')).toBe(true);
         } finally {
             await source.dispose();
             herdr.close();
