@@ -4,8 +4,6 @@ import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/pairing/
 export const BOAT_API = 'https://boat.dev/api/v1';
 export const BOAT_KEY = 'muxr.cloud.boat-key.v1';
 const MACHINE_KEY = 'muxr.cloud.boat-machine.v1';
-// The Boat computers that existed before a create started: what a retry compares against when that create's answer was lost.
-const BEFORE_CREATE_KEY = 'muxr.cloud.boat-before-create.v1';
 const PORT = 8792;
 const WORK_DIR = '/home/user/muxr';
 
@@ -33,10 +31,8 @@ const RECIPE: HostRecipe = {
     run: { argv: ['node', `${WORK_DIR}/npm/bin/muxr`, 'up'], env: { MUXR_MODE: 'selfhost' } },
     workDir: WORK_DIR,
 };
-// Temporary bridge until @byokit/cloud has a recipe-env exec and a newest-offer read (kit gap 10).
-// `muxr <args>` in the work dir with the kit's node first on PATH, as the unit runs it.
-const MUXR = 'n=$(ls -d "$HOME"/.local/share/byokit/node/*/bin 2>/dev/null | tail -n1); PATH="${n:+$n:}$PATH"; cd "$0" && exec node npm/bin/muxr "$@"';
-const NEWEST_OFFER = 'f=$(ls -t "$0"/.byokit/outbox/muxr-pair-*.json 2>/dev/null | head -n1); [ -z "$f" ] || cat "$f"';
+/** The muxr CLI as the recipe's unit runs it; `machine.run` puts the kit's node first on PATH and sets `recipe.run.env`. */
+const MUXR = ['node', `${WORK_DIR}/npm/bin/muxr`];
 
 export type DeployStep =
     | { step: 'creating' | 'starting' | 'installing' | 'securing' | 'configuring' | 'pairing' }
@@ -53,19 +49,6 @@ function parseOffer(text: string): Offer | undefined {
     } catch {
         return undefined;
     }
-}
-
-/**
- * A create whose answer never reached the phone still leaves a billed machine on the account with
- * no stored ref. Its id is the one the account lists now and did not list before that create.
- * ponytail: Boat names no sandbox, so a computer made elsewhere in the same window is also "new"; more than one is refused, exactly one is taken.
- */
-async function findLostCreate(listed: MachineRef[]): Promise<MachineRef | null> {
-    const before: string[] | null = JSON.parse((await getNativeSecret(BEFORE_CREATE_KEY)) ?? 'null');
-    if (before === null) return null;
-    const fresh = listed.filter((r) => !before.includes(r.id));
-    if (fresh.length > 1) throw new Error('Boat shows more than one new computer from earlier tries. Remove the extra ones in your Boat account, then try again.');
-    return fresh[0] ? { ...fresh[0], name: RECIPE.name } : null;
 }
 
 /**
@@ -94,17 +77,9 @@ export async function deployBoatComputer(o: {
     // A retry after a later step failed reuses the machine this phone already created.
     let ref: MachineRef | null = (await store.load())?.ref ?? null;
     if (ref === null) {
-        // A retry after a create whose answer was lost takes that machine instead of billing a second one.
-        const listed = await provider.list?.() ?? [];
-        ref = await findLostCreate(listed);
-        if (ref !== null) {
-            await store.save({ ref, providerKey: '' });
-        } else {
-            o.onStep({ step: 'creating' });
-            await setNativeSecret(BEFORE_CREATE_KEY, JSON.stringify(listed.map((r) => r.id)));
-            ref = await m.create({ name: RECIPE.name, size: o.size, keepCopies: false });
-        }
-        await deleteNativeSecret(BEFORE_CREATE_KEY);
+        o.onStep({ step: 'creating' });
+        // The kit saves the create's idempotency key in the store first, so a retry after a lost answer gets the same computer back.
+        ref = await m.create({ name: RECIPE.name, size: o.size, keepCopies: false });
     }
     const created = ref;
     o.onStep({ step: 'starting' });
@@ -126,7 +101,6 @@ export async function deployBoatComputer(o: {
 
     const id = created.id;
     let detail: string | undefined;
-    const exec = (argv: string[], timeoutMs: number) => provider.exec(created, ['sh', '-c', ...argv], { timeoutMs });
     for await (const step of setup({
         provider, store, recipe: RECIPE, confirmId: id,
         pick: (listed) => {
@@ -141,30 +115,32 @@ export async function deployBoatComputer(o: {
         pair: async (_ref, { urls }) => {
             try {
                 o.onStep({ step: 'configuring' });
-                const configured = await exec([MUXR, WORK_DIR, 'self-host', '--configure-only', '--loopback', '--install-herdr', '--advertise', urls[0], '--port', String(PORT)], 600_000);
+                const configured = await m.run(RECIPE, [...MUXR, 'self-host', '--configure-only', '--loopback', '--install-herdr', '--advertise', urls[0], '--port', String(PORT)], { timeoutMs: 600_000 });
                 if (configured.code !== 0) throw new Error(`muxr could not set itself up there: ${configured.stderr.trim().slice(-300)}`);
                 o.onStep({ step: 'pairing' });
                 // The unit restarts into the configured host within seconds; handoff fails until it is up.
                 // ponytail: one long exec holds the handoff open; a provider that caps exec time needs a detached start.
                 for (let attempt = 0; attempt < 12; attempt += 1) {
-                    // An offer left by an interrupted earlier handoff must never be read as this one.
-                    const cleared = await exec(['rm -f "$0"/.byokit/outbox/muxr-pair-*.json', WORK_DIR], 30_000).then(() => true, () => false);
-                    if (!cleared) {
-                        detail = 'muxr could not clear the old pairing offer on your Boat computer.';
+                    let handoff: Awaited<ReturnType<typeof m.handoff>>;
+                    try {
+                        handoff = await m.handoff(RECIPE, [...MUXR, 'pair', '--handoff'], { prefix: 'muxr-pair-', timeoutMs: 180_000 });
+                    } catch (cause) {
+                        detail = cause instanceof Error ? cause.message : String(cause);
                         await sleep(5_000);
                         continue;
                     }
-                    let settled = false;
-                    const handoff = exec([MUXR, WORK_DIR, 'pair', '--handoff'], 180_000)
-                        .catch((cause) => ({ code: 1, stdout: '', stderr: String(cause), timedOut: false }))
-                        .finally(() => { settled = true; });
+                    const done = handoff.done.catch((cause) => ({ code: 1, stdout: '', stderr: String(cause), timedOut: false }));
                     let offer: Offer | undefined;
-                    while (!settled && offer === undefined) {
-                        await sleep(2_000);
-                        offer = await exec([NEWEST_OFFER, WORK_DIR], 30_000).then((r) => parseOffer(r.stdout), () => undefined);
+                    try {
+                        for await (const read of handoff.offer) {
+                            offer = parseOffer(read.text);
+                            if (offer !== undefined) break;
+                        }
+                    } catch (cause) {
+                        detail = cause instanceof Error ? cause.message : String(cause);
                     }
                     if (offer === undefined) {
-                        detail = (await handoff).stderr.trim().slice(-300);
+                        detail = (await done).stderr.trim().slice(-300) || detail;
                         await sleep(5_000);
                         continue;
                     }
@@ -172,14 +148,14 @@ export async function deployBoatComputer(o: {
                     let delivery: Promise<unknown> | undefined;
                     try {
                         await o.pair(offer.offer, (w) => {
-                            delivery = m.deliver(RECIPE, wordsFile, new TextEncoder().encode(w));
+                            delivery = handoff.deliver(wordsFile, new TextEncoder().encode(w));
                             delivery.catch(() => {});
                         });
                     } catch (cause) {
-                        await handoff;
+                        await done;
                         throw cause;
                     }
-                    const result = await handoff;
+                    const result = await done;
                     await delivery;
                     if (result.code !== 0) throw new Error(`muxr did not finish pairing on your Boat computer: ${result.stderr.trim().slice(-300)}`);
                     return;
