@@ -10,7 +10,8 @@ import { createLifecycleStore } from './lifecycleStore.js';
 /**
  * After a restart Claude titles every lead pane with its first chat topic
  * (`Firstmate operational inbox message`). The Herdr tab label names the pane
- * instead, and a workspace labelled with an SSH key's type word is unnamed.
+ * as Herdr's sidebar does, even when the launcher gave the agent the same
+ * name, and a workspace labelled with an SSH key's type word is unnamed.
  */
 function fakeHerdr(dir: string) {
     const pane = (n: string, tab: string) => ({
@@ -45,7 +46,7 @@ function fakeHerdr(dir: string) {
                         snapshot: {
                             workspaces: [{ workspace_id: 'w2', label: 'ssh-ed25519' }],
                             tabs: [
-                                { tab_id: 'w2:t1', workspace_id: 'w2', label: 'fm-muxr' },
+                                { tab_id: 'w2:t1', workspace_id: 'w2', label: 'fd-prompt-nosript' },
                                 { tab_id: 'w2:t2', workspace_id: 'w2', label: 'fm-crewhouse' },
                                 // Herdr's default numbered tab names nothing: the title stands.
                                 { tab_id: 'w2:t3', workspace_id: 'w2', label: '12' },
@@ -53,7 +54,8 @@ function fakeHerdr(dir: string) {
                             panes,
                             agents: panes.map((entry, index) => ({
                                 ...entry,
-                                name: `lead-${index + 1}`,
+                                // A launcher names the agent after its tab.
+                                name: ['fd-prompt-nosript', 'fm-crewhouse', 'lead-3'][index],
                                 agent: 'claude',
                                 interactive_ready: true,
                                 agent_session: { source: 'herdr:claude', agent: 'claude', kind: 'id', value: `claude-${index + 1}` },
@@ -84,7 +86,7 @@ describe('pane and workspace names', () => {
         });
         try {
             const listed = await source.list();
-            expect(listed.map((info) => info.taskTitle).sort()).toEqual(['Firstmate operational inbox message', 'crewhouse', 'muxr']);
+            expect(listed.map((info) => info.taskTitle).sort()).toEqual(['Firstmate operational inbox message', 'fd-prompt-nosript', 'fm-crewhouse']);
             expect(listed.every((info) => info.workspaceLabel === undefined)).toBe(true);
 
             const { workspaces } = await source.herdrTree();
@@ -99,7 +101,7 @@ describe('pane and workspace names', () => {
                 agentKind: pane.agentKind,
                 cwd: pane.cwd,
             }));
-            expect(shown).toEqual(['muxr', 'crewhouse', 'Firstmate operational inbox message']);
+            expect(shown).toEqual(['fd-prompt-nosript', 'fm-crewhouse', 'Firstmate operational inbox message']);
         } finally {
             await source.dispose();
             herdr.close();

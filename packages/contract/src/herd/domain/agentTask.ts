@@ -4,7 +4,8 @@
  *
  * Sources, first meaningful one wins:
  * 1. the pane label: a rename, or the agent's own `muxr name --pane`;
- * 2. the Herdr tab label, without a launcher's `fm-` prefix (`fm-muxr` reads `muxr`);
+ * 2. the Herdr tab label, verbatim as Herdr's sidebar shows it, even when it is
+ *    the agent's own name (a launcher names both alike);
  * 3. the harness's own window title (Claude keeps its session topic there);
  * 4. Herdr title metadata, from a naming plugin;
  * 5. the task workspace's label, when that workspace holds only this agent.
@@ -12,7 +13,8 @@
  * A source says nothing about the work when all it leaves is the folder or repo
  * name (`π - pockit`, a plugin's `Pockit` fallback), the program's or agent's
  * own name, a state word (`Ready`), or a shell prompt or path. Leading with those made every agent in
- * one repo read the same, so they never count.
+ * one repo read the same, so they never count. The tab label is the exception:
+ * the phone names a pane exactly as Herdr's sidebar does.
  */
 export interface AgentTaskSources {
     label?: string | null | undefined;
@@ -156,9 +158,9 @@ export function agentTask(sources: AgentTaskSources): string | undefined {
     const folder = folderName(sources.cwd);
     const noise = new Set([...PROGRAM_NAMES, ...[folder, sources.agentName, sources.agentKind].flatMap((value) => value ? [squash(value)] : [])]);
     // A bare number is Herdr's default tab label: it names no work.
-    const tabLabel = /^\d+$/.test(sources.tabLabel?.trim() ?? '') ? undefined : sources.tabLabel?.trim().replace(/^fm-/, '');
+    const tabLabel = sources.tabLabel?.trim();
     return meaningful(sources.label, noise)
-        ?? meaningful(tabLabel, noise)
+        ?? (tabLabel && !/^\d+$/.test(tabLabel) ? tabLabel : undefined)
         ?? meaningful(sources.terminalTitle, noise)
         ?? meaningful(sources.title, noise)
         ?? meaningful(sources.workspaceLabel, noise);
