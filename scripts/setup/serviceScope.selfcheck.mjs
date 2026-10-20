@@ -91,4 +91,5 @@ if (passwdHome !== undefined) {
 }
 
 rmSync(root, { recursive: true, force: true });
-process.stdout.write('service-scope self-check: lab MUXR_HOME never touches muxr.service; default home unchanged\n');
+const defaultHomeNote = passwdHome !== undefined ? 'default home unchanged' : 'overridden-HOME and default-home checks skipped: no passwd home';
+process.stdout.write(`service-scope self-check: lab MUXR_HOME never touches muxr.service; ${defaultHomeNote}\n`);
