@@ -266,10 +266,12 @@ it('runs the daily backend for the Usage screen only, one run at a time, quietly
     const runs = join(home, 'runs');
     writeFileSync(join(bin, 'ionice'), `#!/bin/sh\n[ "$1 $2" = "-c 3" ] && shift 2 && echo idle-io >> ${runs} && exec "$@"\nexit 9\n`, { mode: 0o755 });
     const fail = join(home, 'fail');
+    const huge = join(home, 'huge');
     const backend = join(bin, 'ccusage-backend');
     // Each run notes where it was pointed and how nice it was, then takes a moment.
-    writeFileSync(backend, `#!/bin/sh\necho "run $CLAUDE_CONFIG_DIR $CODEX_HOME $OPENCODE_DATA_DIR $PI_AGENT_DIR $(cut -d' ' -f19 /proc/$$/stat)" >> ${runs}\nsleep 1\n[ -f ${fail} ] && exit 1\nprintf '{"daily":[{"period":"%s","agents":[{"agent":"kimi","totalTokens":1240,"modelBreakdowns":[{"modelName":"kimi-latest","inputTokens":1200,"outputTokens":40,"cacheReadTokens":0,"cacheCreationTokens":0,"cost":0.5}]}]}]}' "$(date +%F)"; echo\n`, { mode: 0o755 });
-    const env: NodeJS.ProcessEnv = { HOME: home, PATH: bin, MUXR_HOME: join(home, 'muxr'), MUXR_CCUSAGE_BIN: backend, CLAUDE_CONFIG_DIR: join(home, 'claude') };
+    // The host renices the run just after it starts, so the note waits (up to 5 s) for that.
+    writeFileSync(backend, `#!/bin/sh\nn=0; while [ "$(cut -d' ' -f19 /proc/$$/stat)" != 19 ] && [ $n -lt 500 ]; do n=$((n+1)); sleep 0.01; done\necho "run $CLAUDE_CONFIG_DIR $CODEX_HOME $OPENCODE_DATA_DIR $PI_AGENT_DIR $(cut -d' ' -f19 /proc/$$/stat)" >> ${runs}\nsleep 1\n[ -f ${fail} ] && exit 1\n[ -f ${huge} ] && x=$(head -c 60000000 /dev/zero | tr '\\0' x) && sleep 5\nprintf '{"daily":[{"period":"%s","agents":[{"agent":"kimi","totalTokens":1240,"modelBreakdowns":[{"modelName":"kimi-latest","inputTokens":1200,"outputTokens":40,"cacheReadTokens":0,"cacheCreationTokens":0,"cost":0.5}]}]}]}' "$(date +%F)"; echo\n`, { mode: 0o755 });
+    const env: NodeJS.ProcessEnv = { HOME: home, PATH: bin, MUXR_HOME: join(home, 'muxr'), MUXR_CCUSAGE_BIN: backend, CLAUDE_CONFIG_DIR: join(home, 'claude'), MUXR_CCUSAGE_MEMORY_KB: '30000' };
     const started = () => (() => { try { return readFileSync(runs, 'utf8'); } catch { return ''; } })().split('\n').filter((line) => line.startsWith('run '));
     const { collectUsage } = await import('./collectUsage.js');
     const { usageNow } = await import('./usageNow.js');
@@ -303,6 +305,14 @@ it('runs the daily backend for the Usage screen only, one run at a time, quietly
     rmSync(fail);
     expect((await collectUsage({ provider: 'kimi', refresh: true }, env)).activity?.state).toBe('measured');
     expect(started()).toHaveLength(3);
+
+    // A count past its memory cap (30 MB here, 1 GB for real) is killed and
+    // says why, once no recent count stands in.
+    writeFileSync(huge, '');
+    vi.setSystemTime(Date.now() + 25 * 60 * 60_000);
+    let killed = await collectUsage({ provider: 'kimi', refresh: true }, env);
+    while (killed.activity?.state === 'counting') killed = await collectUsage({ provider: 'kimi' }, env);
+    expect(killed.activity).toMatchObject({ state: 'unavailable', reason: 'Local activity is too large to count within 1 GB' });
 }, 30_000);
 
 it('answers the card and every Usage tab from one collection, and never lends a plan to an aggregator', async () => {
@@ -392,3 +402,38 @@ it('answers the card and every Usage tab from one collection, and never lends a 
     const malformed = await collectUsage({ provider: 'claude', refresh: true }, env);
     expect(malformed.limits.windows.map(({ used }) => used)).toEqual([10, 40]);
 }, 20_000);
+
+it('counts a large Pi store off the host loop, and the Pi tab shows it', async () => {
+    vi.stubGlobal('fetch', vi.fn(provider));
+    const env = host();
+    const sessions = join(env.PI_AGENT_DIR!, 'sessions', '--repo--');
+    mkdirSync(sessions, { recursive: true });
+    // ~180 MB of turns, each carrying a large tool output as real ones do.
+    const pad = 'x'.repeat(6_000);
+    const turn = (file: number, index: number) => `${JSON.stringify({
+        type: 'message', id: `t${file}-${index}`, timestamp: new Date(Date.now() - 60_000).toISOString(),
+        message: { role: 'assistant', provider: 'anthropic', model: 'claude-sonnet-4', timestamp: Date.now() - 60_000, content: [{ type: 'text', text: pad }], usage: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0 } },
+    })}\n`;
+    for (let file = 0; file < 30; file += 1) writeFileSync(join(sessions, `s${file}.jsonl`), Array.from({ length: 1_000 }, (_, index) => turn(file, index)).join(''));
+    const { collectUsage } = await import('./collectUsage.js');
+    const count = async (machine: NodeJS.ProcessEnv) => {
+        const cpu = process.cpuUsage();
+        let report = await collectUsage({ provider: 'pi' }, machine);
+        while (report.activity?.state === 'counting') {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            report = await collectUsage({ provider: 'pi' }, machine);
+        }
+        const spent = process.cpuUsage(cpu);
+        return { report, cpuMs: (spent.user + spent.system) / 1_000 };
+    };
+    // What a collection costs the host with nothing to count.
+    const baseline = await count(host());
+    const { report, cpuMs } = await count(env);
+
+    expect(report.activity?.state).toBe('measured');
+    expect(report.activity?.days.reduce((sum, day) => sum + day.output, 0)).toBeGreaterThan(0);
+    // The count's reading and parsing are the child's: on the host's loop
+    // they cost ~250 ms here, off it nothing the store's size adds. CPU time,
+    // not a loop-wait clock, so a loaded machine cannot fail it.
+    expect(cpuMs - baseline.cpuMs).toBeLessThan(100);
+}, 60_000);

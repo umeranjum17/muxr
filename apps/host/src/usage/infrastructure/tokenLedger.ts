@@ -11,11 +11,15 @@
  *   claude   -- Claude Code JSONL (`message.usage`, deduped by message+request)
  *   codex    -- Codex rollouts (`token_count` events, model from `turn_context`)
  *   opencode -- the OpenCode SQLite store, read-only in a bounded child
+ *
+ * The host never counts on its own loop: `ledgerFor` hands it a ledger that
+ * lives in a child process at idle priority (see `LedgerProcess`).
  */
 import { createReadStream, readdirSync, statSync } from 'node:fs';
-import { spawn } from 'node:child_process';
-import { homedir } from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { homedir, setPriority } from 'node:os';
+import { createInterface } from 'node:readline';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isAbsolute, join } from 'node:path';
 import type { Harness, LedgerRow } from '../domain/activity.js';
 
@@ -214,6 +218,13 @@ function exists(path: string): boolean {
     try { statSync(path); return true; } catch { return false; }
 }
 
+function presentHarnesses(roots: LedgerRoots): Harness[] {
+    return (['pi', 'omp', 'claude', 'codex', 'opencode'] as const).filter((harness) => {
+        const root = roots[harness];
+        return Array.isArray(root) ? root.some(exists) : root !== undefined && exists(root);
+    });
+}
+
 export class TokenLedger {
     private files = new Map<string, FileState>();
     /** Record identities already counted, by local day. */
@@ -223,8 +234,9 @@ export class TokenLedger {
     private running: Promise<void> | undefined;
     /** At least one refresh has finished. */
     ready = false;
+    private readonly roots: LedgerRoots;
 
-    constructor(private readonly roots: LedgerRoots) {}
+    constructor(roots: LedgerRoots) { this.roots = roots; }
 
     /** Bring the ledger up to date; concurrent callers share one pass. */
     refresh(now = Date.now()): Promise<void> {
@@ -245,12 +257,7 @@ export class TokenLedger {
         };
         for (const state of this.files.values()) for (const row of state.buckets.values()) add(row);
         for (const row of this.opencode?.rows ?? []) add(row);
-        const roots = this.roots;
-        const present = (['pi', 'omp', 'claude', 'codex', 'opencode'] as const).filter((harness) => {
-            const root = roots[harness];
-            return Array.isArray(root) ? root.some(exists) : root !== undefined && exists(root);
-        });
-        return { rows: [...merged.values()], failures: { ...this.failures }, present };
+        return { rows: [...merged.values()], failures: { ...this.failures }, present: presentHarnesses(this.roots) };
     }
 
     private async pass(now: number): Promise<void> {
@@ -536,15 +543,128 @@ export function ledgerRoots(env: NodeJS.ProcessEnv = process.env): LedgerRoots {
     };
 }
 
-const ledgers = new Map<string, TokenLedger>();
+// ---- The ledger's own process ----
+
+const CHILD_FLAG = '--muxr-token-ledger';
+/** A count nobody has asked about for this long waits until someone does. */
+const UNWATCHED_MS = 30_000;
+const CHILD_FAILED = 'Local activity could not be measured · refresh to try again';
+
+/**
+ * A first count reads every transcript in the window -- gigabytes on a busy
+ * machine -- so it runs in a child at idle CPU and IO priority, never on the
+ * loop the phone's requests wait on. The child keeps its ledger between
+ * passes, so a later pass reads only what was appended. One pass at a time;
+ * once nobody has asked for a while it is paused, and the next ask resumes it.
+ */
+export class LedgerProcess {
+    /** At least one refresh has finished. */
+    ready = false;
+    private readonly roots: LedgerRoots;
+    private child: ChildProcess | undefined;
+    private answer: ((line: string | undefined) => void) | undefined;
+    private running: Promise<void> | undefined;
+    private last: Pick<LedgerSnapshot, 'rows' | 'failures'> = { rows: [], failures: {} };
+    private paused = false;
+    private unwatched: ReturnType<typeof setTimeout> | undefined;
+
+    constructor(roots: LedgerRoots) { this.roots = roots; }
+
+    /** Bring the ledger up to date; concurrent callers share one pass. */
+    refresh(now = Date.now()): Promise<void> {
+        this.watch();
+        this.running ??= this.pass(now).finally(() => {
+            this.running = undefined;
+            this.ready = true;
+            clearTimeout(this.unwatched);
+        });
+        return this.running;
+    }
+
+    /** Someone is looking: a paused count carries on, and keeps going a while. */
+    watch(): void {
+        if (this.running === undefined && this.child !== undefined && !this.paused) return;
+        this.signal(false);
+        clearTimeout(this.unwatched);
+        this.unwatched = setTimeout(() => { if (this.running !== undefined) this.signal(true); }, UNWATCHED_MS);
+        this.unwatched.unref();
+    }
+
+    /** The last finished pass. */
+    snapshot(): LedgerSnapshot {
+        return { rows: this.last.rows, failures: { ...this.last.failures }, present: presentHarnesses(this.roots) };
+    }
+
+    private async pass(now: number): Promise<void> {
+        const child = this.child ?? this.spawn();
+        // A pass holds the process open until it answers; an idle child never does.
+        holdOpen(child, true);
+        const line = await new Promise<string | undefined>((resolve) => {
+            this.answer = resolve;
+            child.stdin?.write(`${JSON.stringify({ now })}\n`);
+        });
+        holdOpen(child, false);
+        try {
+            if (line === undefined) throw new Error('ledger process ended');
+            this.last = JSON.parse(line) as LedgerSnapshot;
+        } catch {
+            this.last = { rows: this.last.rows, failures: Object.fromEntries(presentHarnesses(this.roots).map((harness) => [harness, CHILD_FAILED])) };
+        }
+    }
+
+    private spawn(): ChildProcess {
+        // Capped like the daily backend: a store too large to count fails, it never holds 1 GB.
+        const args = ['--no-warnings', '--max-old-space-size=512', fileURLToPath(import.meta.url), CHILD_FLAG, JSON.stringify(this.roots)];
+        const ionice = process.platform === 'linux' && exists('/usr/bin/ionice');
+        const child = spawn(ionice ? '/usr/bin/ionice' : process.execPath, ionice ? ['-c', '3', process.execPath, ...args] : args, { stdio: ['pipe', 'pipe', 'ignore'] });
+        try { if (child.pid !== undefined) setPriority(child.pid, 19); } catch { /* best effort */ }
+        const settle = (line: string | undefined) => { const answer = this.answer; this.answer = undefined; answer?.(line); };
+        createInterface({ input: child.stdout! }).on('line', settle);
+        const ended = () => {
+            if (this.child !== child) return;
+            this.child = undefined;
+            this.paused = false;
+            settle(undefined);
+        };
+        child.once('exit', ended);
+        child.once('error', ended);
+        child.stdin?.on('error', () => undefined);
+        this.child = child;
+        return child;
+    }
+
+    private signal(pause: boolean): void {
+        if (this.child === undefined || this.paused === pause) return;
+        try { this.child.kill(pause ? 'SIGSTOP' : 'SIGCONT'); this.paused = pause; } catch { /* not on this platform */ }
+    }
+}
+
+function holdOpen(child: ChildProcess, hold: boolean): void {
+    for (const handle of [child, child.stdin, child.stdout] as unknown as Array<{ ref?: () => void; unref?: () => void } | null>) {
+        if (hold) handle?.ref?.(); else handle?.unref?.();
+    }
+}
+
+const ledgers = new Map<string, LedgerProcess>();
 
 /** One ledger per set of roots, kept for the host's lifetime. */
-export function ledgerFor(roots: LedgerRoots): TokenLedger {
+export function ledgerFor(roots: LedgerRoots): LedgerProcess {
     const key = JSON.stringify(roots);
     let ledger = ledgers.get(key);
     if (ledger === undefined) {
-        ledger = new TokenLedger(roots);
+        ledger = new LedgerProcess(roots);
         ledgers.set(key, ledger);
     }
     return ledger;
+}
+
+// The child: one pass per line asked, one snapshot line answered.
+if (process.argv[2] === CHILD_FLAG && process.argv[1] === fileURLToPath(import.meta.url)) {
+    const ledger = new TokenLedger(JSON.parse(process.argv[3] ?? '{}') as LedgerRoots);
+    const lines = createInterface({ input: process.stdin });
+    lines.on('line', (line) => {
+        const { now } = JSON.parse(line) as { now: number };
+        void ledger.refresh(now).catch(() => undefined).then(() => { process.stdout.write(`${JSON.stringify(ledger.snapshot(now))}\n`); });
+    });
+    lines.on('close', () => process.exit(0));
 }

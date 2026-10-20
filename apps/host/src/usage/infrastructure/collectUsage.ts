@@ -88,7 +88,17 @@ function ccusageBinary(env: NodeJS.ProcessEnv): { binary?: string; failure?: str
     } catch { return { failure: 'Local activity backend is missing · reinstall muxr' }; }
 }
 
-function runJson<T = unknown>(command: string, args: string[], timeout = 8_000, env?: NodeJS.ProcessEnv): Promise<T | undefined> {
+/** What one count may hold resident. A larger one is killed, and says so,
+ *  rather than holding a gigabyte the agents it counts need. */
+const BACKEND_MEMORY_KB = 1024 * 1024;
+
+/** Resident memory of a running process, where the platform shows it. */
+function residentKb(pid: number | undefined): number {
+    // ponytail: Linux /proc only; macOS runs uncapped until a ps-based reading is worth it.
+    try { return Number(/VmRSS:\s+(\d+)/.exec(readFileSync(`/proc/${pid}/status`, 'utf8'))?.[1] ?? 0); } catch { return 0; }
+}
+
+function runJson<T = unknown>(command: string, args: string[], timeout = 8_000, env?: NodeJS.ProcessEnv, memoryKb = BACKEND_MEMORY_KB): Promise<{ json?: T; overMemory?: true }> {
     return new Promise((resolve) => {
         const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], ...(env === undefined ? {} : { env }) });
         // A background count must not compete with the agents it is counting.
@@ -96,27 +106,29 @@ function runJson<T = unknown>(command: string, args: string[], timeout = 8_000, 
         let buffer = '';
         let settled = false;
         let escalation: NodeJS.Timeout | undefined;
-        const finish = (value: T | undefined) => {
+        const finish = (value: { json?: T; overMemory?: true }) => {
             if (settled) return;
             settled = true;
             clearTimeout(timer);
+            clearInterval(watchdog);
             if (child.exitCode === null) {
                 child.kill('SIGTERM');
                 escalation = setTimeout(() => { if (child.exitCode === null) child.kill('SIGKILL'); }, 1_000);
             }
             resolve(value);
         };
-        const timer = setTimeout(() => finish(undefined), timeout);
-        child.once('error', () => finish(undefined));
+        const timer = setTimeout(() => finish({}), timeout);
+        const watchdog = setInterval(() => { if (residentKb(child.pid) > memoryKb) finish({ overMemory: true }); }, 1_000);
+        child.once('error', () => finish({}));
         child.stdout.setEncoding('utf8');
         child.stdout.on('data', (chunk: string) => {
             buffer += chunk;
-            if (buffer.length > 8 * 1024 * 1024) finish(undefined);
+            if (buffer.length > 8 * 1024 * 1024) finish({});
         });
         child.once('close', (code) => {
             if (escalation) clearTimeout(escalation);
-            if (code !== 0) { finish(undefined); return; }
-            try { finish(JSON.parse(buffer) as T); } catch { finish(undefined); }
+            if (code !== 0) { finish({}); return; }
+            try { finish({ json: JSON.parse(buffer) as T }); } catch { finish({}); }
         });
     });
 }
@@ -177,7 +189,8 @@ async function ccusageRange(env: NodeJS.ProcessEnv, since: string): Promise<{ ra
     const args = ['daily', '--by-agent', '--sections', 'daily,session', '--json', '--offline', '--since', since];
     // Idle IO class where the host has it: the count reads every log it knows.
     const ionice = process.platform === 'linux' ? onPath('ionice', env) : undefined;
-    const result = await runJson<CcusageRange>(ionice ?? binary, ionice === undefined ? args : ['-c', '3', binary, ...args], 120_000, childEnv);
+    const { json: result, overMemory } = await runJson<CcusageRange>(ionice ?? binary, ionice === undefined ? args : ['-c', '3', binary, ...args], 120_000, childEnv, Number(env.MUXR_CCUSAGE_MEMORY_KB) || undefined);
+    if (overMemory) return { failure: 'Local activity is too large to count within 1 GB' };
     if (!Array.isArray(result?.daily)) return { failure: 'Local activity unavailable · refresh to try again' };
     return { range: result };
 }
@@ -478,7 +491,11 @@ async function collection(input: CollectUsageInput, env: NodeJS.ProcessEnv): Pro
     const identity = `${cacheIdentity(env)}:${JSON.stringify(accounts)}`;
     const key = `${identity}\u0000${TODAY}`;
     // Before any reuse: the screen's ask is what starts the count it will read.
-    if (input.activity === true) startExtras(env, windowPeriods(NOW, LEDGER_DAYS)[0]!, input.refresh === true);
+    if (input.activity === true) {
+        startExtras(env, windowPeriods(NOW, LEDGER_DAYS)[0]!, input.refresh === true);
+        // The screen asking again, even for a reused answer, keeps its count going.
+        ledgerFor(ledgerRoots(env)).watch();
+    }
     let pending = inFlight.get(key);
     if (input.refresh !== true && pending === undefined) {
         const cached = completed.get(key);
@@ -563,7 +580,7 @@ async function collectFresh(NOW: Date, env: NodeJS.ProcessEnv): Promise<RawColle
     // vanishing from the card.
     let readingsFrom = NOW.getTime();
     if (extrasAnswer.settledAt !== undefined) readingsFrom = Math.min(readingsFrom, extrasAnswer.settledAt);
-    const snapshot = ledger.snapshot(NOW.getTime());
+    const snapshot = ledger.snapshot();
     const counting = !ledger.ready;
     const rows = [...snapshot.rows, ...extrasRows(extrasAnswer.range, new Set(DATES))];
     const latest = new Map<string, number>();
