@@ -18,6 +18,10 @@ Options:
   --check-host-stopped      Check that this machine's host is stopped
   --retire-machine-peers    Retire this machine's paired peers
 `);
+} else if (args[0] === '--muxr-token-ledger') {
+    // The usage ledger's child (LedgerProcess): the packaged host is this one
+    // bundle, so the child re-enters here and must count, not start a host.
+    await import('./usage/infrastructure/tokenLedger.js');
 } else {
     await import('./runHost.js');
 }

@@ -86,6 +86,9 @@ rules, with no H2 sections.
   direct socket guard proof without launching a stack; no baseline needed.
 - [Keep a source-build host off the real muxr home](./host-home-guard.md) —
   built host under a throwaway HOME, refused without MUXR_HOME, runs with one.
+- [Keep one host per machine key](./one-host-per-machine-key.md) —
+  Usage refreshes on the shipped bundle start no second host; a replaced host
+  stays up and takes the link back; `muxr up` exits 1 when its restart budget is spent.
 - [Follow a Herdr agent's status live](./herdr-live-status.md) —
   host session source on a guarded lab Herdr: tree follows new panes, status
   working/blocked/idle lands, socket count 1 → 2 → 1; no baseline needed.

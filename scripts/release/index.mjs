@@ -6,4 +6,5 @@ export { prepareChangelog, reportFiles, selectChangelogEntry } from './applicati
 export { sealRelease } from './application/sealRelease.mjs';
 export { verifyRelease } from './application/verifyRelease.mjs';
 export { channelEntry, checksumLineMismatch, emptyCatalog, mergeCatalog, parseCatalog, publicRecordMismatch, serializeCatalog } from './domain/channelCatalog.mjs';
+export { publishTags } from './domain/channel.mjs';
 export { publicDeadline, readPublicJson, requireRedirect } from './infrastructure/publicRecord.mjs';

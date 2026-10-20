@@ -590,6 +590,15 @@ async function main(): Promise<void> {
     // A dead host must never leave --takeover streams holding the desk's panes.
     let shuttingDown = false;
     let pairingServer: { close(): Promise<void> } | undefined;
+    // Another process proved this machine's key to the relay and took the link.
+    // Exiting handed the machine to it and, under `muxr up`, started a restart
+    // fight with it (0.2.8). Stay up and take the link back later, backing off
+    // so two real copies of this host do not trade it every few seconds.
+    const REPLACED_FIRST_MS = 30_000;
+    const REPLACED_MAX_MS = 10 * 60_000;
+    let replacedTimes = 0;
+    let onlineSince = 0;
+    let relink: ReturnType<typeof setTimeout> | undefined;
     // The link sits beside the relay transport on a self-host relay this
     // machine owns. The relay may still be starting, so keep trying.
     const ownerToken = mode === 'selfhost' ? selfhostAuth?.mintSecret : undefined;
@@ -652,8 +661,13 @@ async function main(): Promise<void> {
                         onStatus: (status) => {
                             linkOnline = status === 'online';
                             process.stdout.write(`link relay: ${status}\n`);
+                            if (status === 'online') onlineSince = Date.now();
                             if (status === 'replaced') {
-                                process.kill(process.pid, 'SIGTERM');
+                                if (Date.now() - onlineSince > REPLACED_MAX_MS) replacedTimes = 0;
+                                const delay = Math.min(REPLACED_MAX_MS, REPLACED_FIRST_MS * 2 ** replacedTimes++);
+                                process.stderr.write(`link relay: another host is using this machine's key; taking the link back in ${Math.round(delay / 1000)}s\n`);
+                                clearTimeout(relink);
+                                relink = setTimeout(() => { if (!shuttingDown) linkEndpoint?.reconnect(); }, delay);
                                 return;
                             }
                             if (linkOnline) {
@@ -691,6 +705,7 @@ async function main(): Promise<void> {
         if (shuttingDown) return;
         shuttingDown = true;
         linkOnline = false;
+        clearTimeout(relink);
         void pairingServer?.close();
         linkEndpoint?.close();
         terminals.closeAll();

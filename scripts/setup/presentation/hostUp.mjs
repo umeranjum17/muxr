@@ -41,6 +41,7 @@ function start(entry, env = process.env, args = []) {
         process.stderr.write(`muxr ${entry === hostPath ? 'host' : 'relay'} exited (${signal ?? code ?? 1})\n`);
         const relayAlive = children.some((sibling) => sibling !== child && sibling.exitCode === null);
         const crashed = signal !== undefined || (code ?? 1) !== 0;
+        let exhausted = false;
         if (entry === hostPath && relayAlive && crashed) {
             if (hostRestarts < HOST_RESTART_DELAYS_MS.length) {
                 // A host crash must not tear down a healthy relay: respawn the
@@ -56,11 +57,14 @@ function start(entry, env = process.env, args = []) {
                 return;
             }
             process.stderr.write('muxr host restart budget exhausted; exiting so systemd can restart the unit\n');
+            // Non-zero even after clean host exits: the unit restarts only on
+            // failure, so exiting 0 here left the computer hostless (0.2.8).
+            exhausted = true;
         }
         stopping = true;
         if (hostRetry !== undefined) clearTimeout(hostRetry);
         for (const sibling of children) if (sibling !== child && sibling.exitCode === null) sibling.kill('SIGTERM');
-        process.exitCode = code ?? 1;
+        process.exitCode = exhausted ? 1 : code ?? 1;
     });
     return child;
 }
