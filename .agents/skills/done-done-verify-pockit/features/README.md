@@ -219,7 +219,8 @@ rules, with no H2 sections.
 - [Start a cloud computer](./cloud-computer-onboarding.md) — native first-run
   entry → one checklist → Boat account link → size and price → create, install,
   tailnet and pair with no QR → Home; PWA explains setup is in the phone app.
-  Machine creation costs money: only with approved cost; no second Boat claim.
+  Machine creation costs money: only with approved cost; no second Boat claim
+  (account link runs against the `boatSignInLab.mjs` Boat stand-in).
 - [Read the whole install command on the native first run](./first-run-install-command.md) —
   unpaired release APK at 393/270 dp, font 1.0/2.0, both themes: the command
   wraps inside the screen (uiautomator bounds, no sideways scroller) and Copy
