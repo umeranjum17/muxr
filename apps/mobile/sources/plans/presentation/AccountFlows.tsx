@@ -126,9 +126,15 @@ export function AddAccountSheet() {
                 <View>
                     <SheetTitle>{addAccountLabel(provider)}</SheetTitle>
                     {!short && <SheetLede>Use a second {name} plan from this computer, e.g. your work plan next to your personal one.</SheetLede>}
-                    {step(1, `${name}'s own sign-in opens in a new tab`, `The real ${TOOL[provider]}, on a private folder just for this account.`)}
-                    {step(2, 'Sign in with the account you want to add', `Your password and keys stay with ${name}. muxr never sees them.`)}
-                    {step(3, "Give it a name you'll recognise", "We suggest one from the account's email.")}
+                    {provider === 'opencode' ? <>
+                        {step(1, 'A key prompt opens in a new tab', 'Your OpenCode Go key is typed there, hidden as you type.')}
+                        {step(2, 'Paste your OpenCode Go key', 'It is saved on this computer, not on this phone.')}
+                        {step(3, "Give it a name you'll recognise", 'Or keep the default name.')}
+                    </> : <>
+                        {step(1, `${name}'s own sign-in opens in a new tab`, `The real ${TOOL[provider]}, on a private folder just for this account.`)}
+                        {step(2, 'Sign in with the account you want to add', `Your password and keys stay with ${name}. muxr never sees them.`)}
+                        {step(3, "Give it a name you'll recognise", "We suggest one from the account's email.")}
+                    </>}
                     <Note icon="shield-checkmark-outline">
                         Your other accounts are not touched.{firstTerms ? " Each plan's own terms still apply: some providers don't allow a second account used only to get more usage." : ''}
                     </Note>

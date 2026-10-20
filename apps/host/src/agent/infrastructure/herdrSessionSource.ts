@@ -34,7 +34,7 @@ import type {
 import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@trymuxr/contract';
 import { hostDesktopForPanes } from '../../desktop/index.js';
 import { attachmentFolderId } from '../../attachments/attachments.js';
-import { allowOpencodeAttachments, defaultOpencodeGoModel, opencodeAttachmentEnv, opencodeLaunchArgs } from '../../plans/opencodeAccounts.js';
+import { opencodeConfigEnv, opencodeLaunchArgs } from '../../plans/opencodeAccounts.js';
 import { runInProcessGroup } from '../../platform/processGroup.js';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent, widened } from './agentClose.js';
@@ -1645,15 +1645,18 @@ export async function createHerdrSessionSource(
     }
 
     /** The env any pane-creating launch path gives its new pane: the base
-     *  pane env, plus the attachment pre-allow for an ambient OpenCode pane —
-     *  a plan account carries its own grant in `planEnv` instead. */
-    function paneLaunchEnv(kind: string | undefined, cwd: string, planEnv?: Record<string, string>): Record<string, string> {
-        return {
-            ...paneEnvironment(),
-            ...(kind === 'opencode' && planEnv === undefined
-                ? opencodeAttachmentEnv(process.env, join(options.dataDir, 'attachments'), cwd) : {}),
-            ...planEnv,
-        };
+     *  pane env, plus an OpenCode pane's config content (the attachment
+     *  pre-allow, and the Go default model on an account holding a Go key,
+     *  which the kit marks with OPENCODE_CONFIG). A plan account's own env
+     *  wins, and the config is read as that account's OpenCode would. */
+    function paneLaunchEnv(kind: string | undefined, cwd: string, planEnv?: Record<string, string>, planUnset: readonly string[] = []): Record<string, string> {
+        let config: Record<string, string> = {};
+        if (kind === 'opencode') {
+            const seen = { ...process.env, ...planEnv };
+            for (const name of planUnset) delete seen[name];
+            config = opencodeConfigEnv(seen, join(options.dataDir, 'attachments'), cwd, planEnv?.OPENCODE_CONFIG !== undefined);
+        }
+        return { ...paneEnvironment(), ...config, ...planEnv };
     }
 
     async function startManagedAgent(paneId: string, kind: string, launchName: string): Promise<void> {
@@ -2071,31 +2074,23 @@ export async function createHerdrSessionSource(
         }
 
         const launchName = `pp_${randomBytes(8).toString('hex')}`;
-        // An OpenCode agent on an account signed in to OpenCode Go opens on
-        // the Go default model; every other kind, provider, and a pane without
-        // a plan account keep today's launch. The account root also pre-allows
-        // reads of muxr's own attachment folder, so a prompt attachment never
-        // trips "Access external directory".
-        if (kind === 'opencode') {
-            try { defaultOpencodeGoModel(startOptions.planEnv ?? {}); }
-            catch { /* An unwritable config only costs the default model; the agent still starts. */ }
-            try { allowOpencodeAttachments(startOptions.planEnv ?? {}, join(options.dataDir, 'attachments')); }
-            catch { /* An unwritable config only costs the pre-allow; the agent still starts. */ }
-        }
-        const unset = startOptions.planUnset ?? [];
-        const plan = startOptions.planEnv !== undefined || unset.length > 0;
+        const planUnset = startOptions.planUnset ?? [];
+        const plan = startOptions.planEnv !== undefined || planUnset.length > 0;
+        const paneEnv = paneLaunchEnv(kind, cwd, startOptions.planEnv, planUnset);
+        // The kit sheds an inherited OPENCODE_CONFIG_CONTENT; the one muxr composes
+        // above (already read the account's way) is set instead, not shed.
+        const unset = planUnset.filter((name) => name !== 'OPENCODE_CONFIG_CONTENT' || paneEnv.OPENCODE_CONFIG_CONTENT === undefined);
         // A plan account is a verifying overlay: the kit lands it (and the unsets) on the
         // pane's inherited environment and proves it in the pane before agent.start, so a
         // shell rc cannot redirect the selected account. Without one, an OpenCode pane
-        // carries the attachment pre-allow as config content; every other kind, and a
-        // pane without either, keeps today's env.
+        // carries its config content; every other kind, and a pane without either,
+        // keeps today's env.
         const env = plan
             ? {
-                overlay: Object.fromEntries(Object.entries(paneLaunchEnv(kind, cwd, startOptions.planEnv))
-                    .filter(([name]) => !unset.includes(name))),
+                overlay: Object.fromEntries(Object.entries(paneEnv).filter(([name]) => !unset.includes(name))),
                 unset,
             }
-            : paneLaunchEnv(kind, cwd);
+            : paneEnv;
         const launchEnv = startOptions.planEnv?.PATH === undefined ? process.env : { ...process.env, PATH: startOptions.planEnv.PATH };
         const args = kind === 'opencode' ? opencodeLaunchArgs(launchEnv) : [];
         let paneId: string | undefined;

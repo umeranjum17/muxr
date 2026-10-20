@@ -11,6 +11,7 @@ import { WebSocket } from 'ws';
 import { DeviceLink, hostId, type DeviceGrant } from '@byokit/pair';
 import { generateKeyPair } from '@trymuxr/crypto';
 import { startRelay } from '@muxr/relay';
+import { planAccounts } from '../../plans/planAccounts.js';
 import { preparePlanSignIn } from '../../plans/planSignIn.js';
 import { listPlans, planLaunchEnv } from '../../plans/plansApi.js';
 import { createRequestDispatcher } from '../../requests/index.js';
@@ -1314,11 +1315,12 @@ describe('isolated pi agent home', () => {
 });
 
 describe('OpenCode account isolation', () => {
-    it('gives one account the same private root for its sign-in tab and its agents, keeps two accounts apart, and carries blocked variables out', async () => {
+    it('starts an OpenCode Go account on the kit key delivery, with the Go model and attachment grant in config content, and --standalone on 2.x', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-'));
         const bin = join(dir, 'bin');
         mkdirSync(bin);
-        writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
+        mkdirSync(join(dir, 'repo'));
+        writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "opencode v2.0.28"; fi\nexit 0\n');
         chmodSync(join(bin, 'opencode'), 0o755);
         const env: NodeJS.ProcessEnv = {
             ...process.env,
@@ -1326,10 +1328,16 @@ describe('OpenCode account isolation', () => {
             MUXR_HOME: join(dir, 'muxr'),
             PATH: `${bin}:${process.env.PATH ?? ''}`,
         };
-        // Two accounts, each with its own private root muxr created.
+        // The pane config is read as the account's OpenCode would read it: from the host's own env.
+        const saved = { HOME: process.env.HOME, PATH: process.env.PATH, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, OPENCODE_CONFIG: process.env.OPENCODE_CONFIG, OPENCODE_CONFIG_CONTENT: process.env.OPENCODE_CONFIG_CONTENT };
+        Object.assign(process.env, { HOME: env.HOME, PATH: env.PATH });
+        delete process.env.XDG_CONFIG_HOME;
+        delete process.env.OPENCODE_CONFIG;
+        delete process.env.OPENCODE_CONFIG_CONTENT;
+        // The kit lists the key's workspaces when it launches; the console refuses this one, so no workspace header.
+        vi.stubGlobal('fetch', async () => new Response('', { status: 401 }));
         const a = await preparePlanSignIn(env, 'opencode');
-        const b = await preparePlanSignIn(env, 'opencode');
-        expect(a.record.folder).not.toBe(b.record.folder);
+        await planAccounts(env).saveKey(a.record.id, 'INERT_GO_KEY');
         const herdr = fakeHerdr(dir, join(dir, 'repo'));
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
@@ -1337,37 +1345,44 @@ describe('OpenCode account isolation', () => {
             artifactsDir: join(dir, 'attachments'),
             hostHttpPort: 0,
         });
-        const blocked = ['OPENCODE_AUTH', 'OPENCODE_AUTH_CONTENT', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_TEST_HOME', 'OPENCODE_DB'];
         const tabEnvOf = (index: number) => (herdr.tabs[index] as { env?: Record<string, string> }).env ?? {};
+        const attDir = `${join(dir, 'data', 'attachments')}/**`;
         try {
-            // The sign-in tab and every agent start for account A land in A's root.
+            // The sign-in tab only carries its prompt script: no OpenCode, HOME or XDG redirect.
             const tab = await source.start({ cwd: join(dir, 'repo'), ...a.launch });
             expect('info' in tab).toBe(true);
-            const launchA = planLaunchEnv(env, a.record);
-            const agentA = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchA.set, planUnset: launchA.unset });
-            expect('info' in agentA).toBe(true);
-            for (const tabEnv of [tabEnvOf(0), tabEnvOf(1)]) {
-                expect(tabEnv.HOME).toBe(a.record.folder);
-                expect(tabEnv.XDG_CONFIG_HOME).toBe(join(a.record.folder, '.config'));
-                expect(tabEnv.XDG_DATA_HOME).toBe(join(a.record.folder, '.local', 'share'));
-                expect(tabEnv.XDG_STATE_HOME).toBe(join(a.record.folder, '.local', 'state'));
-                expect(tabEnv.XDG_CACHE_HOME).toBe(join(a.record.folder, '.cache'));
-                expect(tabEnv.TMPDIR).toBe(join(a.record.folder, '.tmp'));
-            }
             expect(tabEnvOf(0).MUXR_PLAN_SIGNIN).toBeDefined();
-            // A second account gets a different root for its own agent start.
-            const launchB = planLaunchEnv(env, b.record);
-            const agentB = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchB.set, planUnset: launchB.unset });
-            expect('info' in agentB).toBe(true);
-            expect(tabEnvOf(2).HOME).toBe(b.record.folder);
-            expect(tabEnvOf(2).HOME).not.toBe(a.record.folder);
-            // No blocked OpenCode variable reaches any pane, and the launch carried them out.
-            for (const index of [0, 1, 2]) {
-                for (const name of blocked) expect(tabEnvOf(index)).not.toHaveProperty(name);
-            }
-            const unsets = herdr.state.sentTexts.filter((text) => text.startsWith('unset '));
-            for (const name of blocked) expect(unsets.some((text) => text.includes(name))).toBe(true);
+            expect(tabEnvOf(0)).not.toHaveProperty('XDG_DATA_HOME');
+
+            const launch = await planLaunchEnv(env, a.record);
+            expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launch.set, planUnset: launch.unset })).toBe(true);
+            const agentEnv = tabEnvOf(1);
+            // The key reaches OpenCode through the kit's files, never the pane env.
+            expect(agentEnv.OPENCODE_CONFIG).toBe(join(a.record.folder, 'opencode.json'));
+            expect(agentEnv.XDG_DATA_HOME).toBe(join(a.record.folder, 'data'));
+            expect(readFileSync(join(a.record.folder, 'go.key'), 'utf8')).toBe('INERT_GO_KEY');
+            expect(JSON.stringify(agentEnv)).not.toContain('INERT_GO_KEY');
+            expect(JSON.parse(agentEnv.OPENCODE_CONFIG_CONTENT!)).toEqual({
+                model: 'opencode-go/muse-spark-1.3-contributor',
+                permission: { external_directory: { [attDir]: 'allow' } },
+            });
+            // 2.x gets its own background server per account.
+            expect(herdr.agents.map((agent) => (agent as { args?: string[] }).args)).toEqual([['--standalone']]);
+
+            // A model the user set stands; the grant still joins it.
+            const userConfig = join(env.HOME!, '.config', 'opencode', 'opencode.json');
+            mkdirSync(dirname(userConfig), { recursive: true });
+            writeFileSync(userConfig, '{"model": "opencode-go/glm-flash-5.3"}');
+            expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launch.set, planUnset: launch.unset })).toBe(true);
+            expect(JSON.parse(tabEnvOf(2).OPENCODE_CONFIG_CONTENT!)).toEqual({ permission: { external_directory: { [attDir]: 'allow' } } });
+            // No launch passes `--model`: OpenCode 2.x has no such flag and exits on it.
+            for (const agent of herdr.agents) expect(agent).not.toHaveProperty('model');
         } finally {
+            vi.unstubAllGlobals();
+            for (const [key, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[key];
+                else process.env[key] = value;
+            }
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });
@@ -1426,126 +1441,7 @@ describe('OpenCode account isolation', () => {
         }
     }, 20_000);
 
-    it('passes --standalone only for OpenCode 2.x so two accounts do not share the fixed background port', async () => {
-        const run = async (versionOutput: string) => {
-            const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-stand-'));
-            const bin = join(dir, 'bin');
-            mkdirSync(bin);
-            mkdirSync(join(dir, 'repo'));
-            writeFileSync(join(bin, 'opencode'), `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "${versionOutput}"; exit 0; fi\nexit 0\n`);
-            chmodSync(join(bin, 'opencode'), 0o755);
-            const env: NodeJS.ProcessEnv = {
-                ...process.env,
-                HOME: join(dir, 'home'),
-                MUXR_HOME: join(dir, 'muxr'),
-                PATH: `${bin}:${process.env.PATH ?? ''}`,
-            };
-            const a = await preparePlanSignIn(env, 'opencode');
-            const herdr = fakeHerdr(dir, join(dir, 'repo'));
-            const source = await createHerdrSessionSource({
-                socketPath: herdr.socketPath,
-                dataDir: join(dir, 'data'),
-                artifactsDir: join(dir, 'attachments'),
-                hostHttpPort: 0,
-            });
-            try {
-                const launch = planLaunchEnv(env, a.record);
-                expect('info' in await source.start({
-                    cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launch.set, planUnset: launch.unset,
-                })).toBe(true);
-                return herdr.agents.map((agent) => (agent as { args?: string[] }).args);
-            } finally {
-                await source.dispose();
-                herdr.close();
-                rmSync(dir, { recursive: true, force: true });
-            }
-        };
-        expect(await run('opencode v2.0.28')).toEqual([['--standalone']]);
-        expect(await run('1.19.0')).toEqual([undefined]);
-    }, 20_000);
-
-    it('starts OpenCode Go agents on Muse Spark 1.3 Contributor through the account config and leaves other launches alone', async () => {
-        const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-model-'));
-        const bin = join(dir, 'bin');
-        mkdirSync(bin);
-        mkdirSync(join(dir, 'repo'));
-        writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
-        chmodSync(join(bin, 'opencode'), 0o755);
-        const env: NodeJS.ProcessEnv = {
-            ...process.env,
-            HOME: join(dir, 'home'),
-            MUXR_HOME: join(dir, 'muxr'),
-            PATH: `${bin}:${process.env.PATH ?? ''}`,
-        };
-        // A bare (no-account) launch resolves its binary from the host's own
-        // env, so without this it probes whatever opencode is installed on the
-        // machine and leaves a stray temp dir. Keep it on the fake.
-        const savedProcessEnv = { HOME: process.env.HOME, PATH: process.env.PATH, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, OPENCODE_CONFIG: process.env.OPENCODE_CONFIG, OPENCODE_CONFIG_CONTENT: process.env.OPENCODE_CONFIG_CONTENT };
-        Object.assign(process.env, { HOME: env.HOME, PATH: env.PATH });
-        delete process.env.XDG_CONFIG_HOME;
-        delete process.env.OPENCODE_CONFIG;
-        delete process.env.OPENCODE_CONFIG_CONTENT;
-        const a = await preparePlanSignIn(env, 'opencode');
-        const herdr = fakeHerdr(dir, join(dir, 'repo'));
-        const source = await createHerdrSessionSource({
-            socketPath: herdr.socketPath,
-            dataDir: join(dir, 'data'),
-            artifactsDir: join(dir, 'attachments'),
-            hostHttpPort: 0,
-        });
-        try {
-            const authFile = (folder: string) => join(folder, '.local', 'share', 'opencode', 'auth.json');
-            mkdirSync(dirname(authFile(a.record.folder)), { recursive: true });
-            writeFileSync(authFile(a.record.folder), '{"opencode-go":{"type":"api","key":"test"}}');
-            // OpenCode seeds its own opencode.jsonc on first run; the model joins it.
-            const config = (folder: string, name = 'opencode.jsonc') => join(folder, '.config', 'opencode', name);
-            mkdirSync(dirname(config(a.record.folder)), { recursive: true });
-            writeFileSync(config(a.record.folder), '{"$schema": "https://opencode.ai/config.json"}');
-            const launchA = planLaunchEnv(env, a.record);
-            const go = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchA.set, planUnset: launchA.unset });
-            expect('info' in go).toBe(true);
-            const attDir = `${join(dir, 'data', 'attachments')}/**`;
-            expect(JSON.parse(readFileSync(config(a.record.folder), 'utf8'))).toEqual({
-                $schema: 'https://opencode.ai/config.json', model: 'opencode-go/muse-spark-1.3-contributor',
-                permission: { external_directory: { [attDir]: 'allow' } },
-            });
-            // A model the user set there stands; the pre-allow still joins it.
-            writeFileSync(config(a.record.folder), '{"model": "opencode-go/glm-flash-5.3"}');
-            expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchA.set, planUnset: launchA.unset })).toBe(true);
-            const kept = JSON.parse(readFileSync(config(a.record.folder), 'utf8')) as { model?: string; permission?: { external_directory?: Record<string, string> } };
-            expect(kept.model).toBe('opencode-go/glm-flash-5.3');
-            expect(kept.permission?.external_directory?.[attDir]).toBe('allow');
-            const bare = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode' });
-            expect('info' in bare).toBe(true);
-            const other = await source.start({ cwd: join(dir, 'repo'), kind: 'claude' });
-            expect('info' in other).toBe(true);
-            const b = await preparePlanSignIn(env, 'opencode');
-            mkdirSync(dirname(authFile(b.record.folder)), { recursive: true });
-            writeFileSync(authFile(b.record.folder), '{"openai":{"type":"api","key":"test"}}');
-            const launchB = planLaunchEnv(env, b.record);
-            const otherProvider = await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launchB.set, planUnset: launchB.unset });
-            expect('info' in otherProvider).toBe(true);
-            // No Go credential, so no model default — but the attachment
-            // pre-allow lands for every muxr-owned OpenCode account.
-            const bConfig = JSON.parse(readFileSync(config(b.record.folder, 'opencode.json'), 'utf8')) as { model?: string; permission?: { external_directory?: Record<string, string> } };
-            expect(bConfig.model).toBeUndefined();
-            expect(bConfig.permission?.external_directory?.[attDir]).toBe('allow');
-            expect(existsSync(config(b.record.folder))).toBe(false);
-            // No launch passes `--model`: OpenCode 2.x has no such flag and exits on it.
-            expect(herdr.agents).toHaveLength(5);
-            for (const agent of herdr.agents) expect(agent).not.toHaveProperty('args');
-        } finally {
-            for (const [key, value] of Object.entries(savedProcessEnv)) {
-                if (value === undefined) delete process.env[key];
-                else process.env[key] = value;
-            }
-            await source.dispose();
-            herdr.close();
-            rmSync(dir, { recursive: true, force: true });
-        }
-    }, 20_000);
-
-    it('starts a lone OpenCode account through session.start in its own root, and refuses once it is signed out', async () => {
+    it('starts a lone OpenCode account through session.start on its saved key, and refuses once it is signed out', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-oc-solo-'));
         const bin = join(dir, 'bin');
         mkdirSync(bin);
@@ -1560,6 +1456,7 @@ describe('OpenCode account isolation', () => {
         };
         const saved = { HOME: process.env.HOME, MUXR_HOME: process.env.MUXR_HOME, PATH: process.env.PATH };
         Object.assign(process.env, env);
+        vi.stubGlobal('fetch', async () => new Response('', { status: 401 }));
         const herdr = fakeHerdr(dir, join(dir, 'repo'));
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
@@ -1570,24 +1467,24 @@ describe('OpenCode account isolation', () => {
         const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
         try {
             const only = await preparePlanSignIn(env, 'opencode');
-            const authFile = join(only.record.folder, '.local', 'share', 'opencode', 'auth.json');
-            mkdirSync(dirname(authFile), { recursive: true });
-            writeFileSync(authFile, '{"openai":{}}');
+            const kit = planAccounts(env);
+            await kit.saveKey(only.record.id, 'INERT_GO_KEY');
             const started = await dispatch({ type: 'session.start', requestId: 'solo', params: { cwd: join(dir, 'repo'), kind: 'opencode' } } as never);
             expect(started).toMatchObject({ ok: true });
             expect((await listPlans(env)).providers.find((entry) => entry.provider === 'opencode')?.accounts).toHaveLength(1);
-            expect((herdr.tabs[0] as { env?: Record<string, string> }).env?.HOME).toBe(only.record.folder);
-            rmSync(authFile);
+            expect((herdr.tabs[0] as { env?: Record<string, string> }).env?.OPENCODE_CONFIG).toBe(join(only.record.folder, 'opencode.json'));
+            await kit.logout(only.record.id);
             const refused = await dispatch({ type: 'session.start', requestId: 'signed-out', params: { cwd: join(dir, 'repo'), kind: 'opencode' } } as never);
             expect(refused).toMatchObject({ ok: false, code: 'plan-account-unavailable' });
             expect(herdr.tabs).toHaveLength(1);
             const omitted = await dispatch({ type: 'session.start', requestId: 'omitted-out', params: { cwd: join(dir, 'repo'), planAccount: only.record.id } } as never);
             expect(omitted).toMatchObject({ ok: false });
-            writeFileSync(authFile, '{"openai":{}}');
+            await kit.saveKey(only.record.id, 'INERT_GO_KEY');
             const wrongKind = await dispatch({ type: 'session.start', requestId: 'omitted-in', params: { cwd: join(dir, 'repo'), planAccount: only.record.id } } as never);
             expect(wrongKind).toMatchObject({ ok: false, code: 'plan-kind-mismatch' });
             expect(herdr.tabs).toHaveLength(1);
         } finally {
+            vi.unstubAllGlobals();
             for (const [key, value] of Object.entries(saved)) {
                 if (value === undefined) delete process.env[key];
                 else process.env[key] = value;

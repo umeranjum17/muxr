@@ -12,6 +12,7 @@ import { deviceTableCanMutate, type HostedMachineKeys } from './machine/index.js
 import { createRequestDispatcher, viewOnlyRequestAllowed } from './requests/index.js';
 import { AndroidEmulatorWatcher, DesktopSessions, IosSimulatorWatcher, PreviewLeaseTracker, filePreviewLeaseSink, PREVIEW_LEASE_FILENAME, withPreview } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
+import { sweepStaleSignInKeys } from './plans/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
 
@@ -126,6 +127,7 @@ export function startHost(options: HostOptions): Host {
     });
     if (options.stateRoot !== undefined) iosWatcher.start();
     const devicePreviewFor = (paneId: string) => androidWatcher.previewFor(paneId) ?? iosWatcher.previewFor(paneId);
+    sweepStaleSignInKeys(process.env);
     const dispatcher = createRequestDispatcher({
         source,
         domain,

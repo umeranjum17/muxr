@@ -3,7 +3,7 @@
  * stub tools. No real account: one folder's credentials
  * are chmod 000 and the list still works.
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { preparePlanSignIn, planAccountStatus, finishPlanSignIn, cancelPlanSignIn } from './planSignIn.js';
@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
 import { loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
+import { planAccounts } from './planAccounts.js';
 import { opencodeLaunchArgs } from './opencodeAccounts.js';
 import { AgentCatalog } from '../requests/index.js';
 
@@ -173,9 +174,9 @@ it('renames, resolves launch env, and removes without touching found folders', a
     ]);
     const renamed = await renamePlanAccount(env, 'pa_work', 'Work');
     expect(renamed.account.name).toBe('Work');
-    expect(resolvePlanEnv(env, 'pa_work')).toEqual({ CLAUDE_CONFIG_DIR: added });
+    expect(await resolvePlanEnv(env, 'pa_work')).toEqual({ CLAUDE_CONFIG_DIR: added });
     await expect(renamePlanAccount(env, 'pa_work', '')).rejects.toMatchObject({ code: 'invalid-plan-name' });
-    expect(() => resolvePlanEnv(env, 'nope')).toThrowError(/Unknown account/);
+    await expect(resolvePlanEnv(env, 'nope')).rejects.toThrowError(/Unknown account/);
 
     expect(await removePlanAccount(env, 'pa_work')).toEqual({ deletedFolder: true });
     expect(existsSync(added)).toBe(false);
@@ -236,7 +237,7 @@ it('keeps selected Codex sign-ins separate through switches and failed reads', a
     // Each account is read through its own folder, so one account's quota can
     // never be reported against the other's sign-in.
     const { collectUsage } = await import('../usage/index.js');
-    const selected = { ...env, ...resolvePlanEnv(env, 'pa_x') };
+    const selected = { ...env, ...await resolvePlanEnv(env, 'pa_x') };
     const selectedWindows = (await collectUsage({ provider: 'codex', refresh: true }, selected)).limits.windows;
     const foundWindows = (await collectUsage({ provider: 'codex', refresh: true }, { ...env, CODEX_HOME: home })).limits.windows;
     expect(selectedWindows.length).toBeGreaterThan(0);
@@ -526,47 +527,37 @@ it('adopts a found default sign-in into its own managed folder', async () => {
     expect(JSON.stringify(prepared)).not.toContain('fixture-token-unlogged');
 });
 
-/** OpenCode accounts are muxr-owned private HOME+XDG roots (the tool keeps its
- *  sign-in in the XDG data root, not OPENCODE_CONFIG_DIR): two accounts sign in
- *  and stay apart, and the same root serves the sign-in tab and agent starts. */
-it('keeps two OpenCode sign-ins in their own private roots through sign-in, launch, rename and removal', async () => {
+/** OpenCode Go accounts sign in through the accounts kit's plan-key route: the key is
+ *  typed (hidden) in the account's own tab, the kit saves it, and each account keeps
+ *  its own key through launch, rename and removal. */
+it('signs two OpenCode accounts in with a typed Go key and keeps each key apart through launch, rename and removal', async () => {
     const bin = join(root, 'bin');
     mkdirSync(bin, { recursive: true });
-    writeFileSync(join(bin, 'opencode'), `#!/bin/bash
-if [[ "$1 $2" == "auth login" && -n "$OC_FIXTURE" ]]; then
-  mkdir -p "$XDG_DATA_HOME/opencode"
-  printf '{"%s":{"type":"api","key":"INERT_SYNTHETIC"}}' "$OC_FIXTURE" > "$XDG_DATA_HOME/opencode/auth.json"
-elif [[ "$1 $2" == "auth logout" ]]; then
-  printf '{}' > "$XDG_DATA_HOME/opencode/auth.json" 2>/dev/null
-fi
-exit 0
-`);
+    writeFileSync(join(bin, 'opencode'), '#!/bin/sh\nexit 0\n');
     chmodSync(join(bin, 'opencode'), 0o755);
-    env = { ...env, PATH: `${bin}:${env.PATH}`, OPENCODE_CONFIG_DIR: '/tmp/ambient-opencode', OPENCODE_AUTH_CONTENT: 'ambient-auth' };
     const computerOwn = join(root, 'share', 'opencode');
     mkdirSync(computerOwn, { recursive: true });
     writeFileSync(join(computerOwn, 'auth.json'), '{"ambient":{"type":"api","key":"NEVER_ADOPTED"}}');
+    env = { ...env, PATH: `${bin}:${env.PATH}`, XDG_DATA_HOME: join(root, 'share'), OPENCODE_AUTH_CONTENT: 'ambient-auth', OPENCODE_AUTH: '/ambient/auth.json', OPENCODE_TEST_HOME: '/ambient/home' };
+    // The kit lists the key's workspaces when it launches; the console refuses these keys, so no workspace header.
+    vi.stubGlobal('fetch', async () => new Response('', { status: 401 }));
+    const typeKey = (prepared: Awaited<ReturnType<typeof preparePlanSignIn>>, key: string) =>
+        execFileSync('/bin/sh', ['-c', prepared.launch.signIn], { env: { ...env, ...prepared.launch.planEnv }, input: `${key}\n` });
 
     const a = await preparePlanSignIn(env, 'opencode');
     const b = await preparePlanSignIn(env, 'opencode');
     expect(a.record.folder).not.toBe(b.record.folder);
-    expect(a.record.folder.startsWith(join(env.MUXR_HOME!, 'plans', 'opencode'))).toBe(true);
-    // A brand-new root is private, empty, and never seeded from the computer's own sign-in.
-    for (const record of [a.record, b.record]) {
-        expect((statSync(record.folder).mode & 0o777)).toBe(0o700);
-        expect(existsSync(join(record.folder, '.local', 'share', 'opencode', 'auth.json'))).toBe(false);
-    }
-    // One descriptor for the sign-in tab and agent starts: the private root, with ambient OpenCode redirects carried out.
-    for (const prepared of [a, b]) {
-        const launch = planLaunchEnv(env, prepared.record);
-        expect(launch.set.HOME).toBe(prepared.record.folder);
-        expect(launch.set.XDG_DATA_HOME).toBe(join(prepared.record.folder, '.local', 'share'));
-        expect(launch.set).not.toHaveProperty('OPENCODE_CONFIG_DIR');
-        for (const name of ['OPENCODE_AUTH_CONTENT', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_TEST_HOME', 'OPENCODE_DB']) {
-            expect(launch.unset).toContain(name);
-        }
-    }
-    expect((await listPlans(env)).providers.map((entry) => entry.provider)).toEqual(['opencode']);
+    // A brand-new account is the kit's own folder, private, empty, and never seeded from the computer's own sign-in.
+    expect(a.record.folder.startsWith(join(env.MUXR_HOME!, 'plans'))).toBe(true);
+    expect(b.record.folder.startsWith(join(env.MUXR_HOME!, 'plans'))).toBe(true);
+    expect(statSync(a.record.folder).mode & 0o777).toBe(0o700);
+    expect(statSync(b.record.folder).mode & 0o777).toBe(0o700);
+    expect(existsSync(join(a.record.folder, 'data', 'opencode', 'auth.json'))).toBe(false);
+    expect(existsSync(join(b.record.folder, 'data', 'opencode', 'auth.json'))).toBe(false);
+    expect(existsSync(join(a.record.folder, 'go.key'))).toBe(false);
+    expect(existsSync(join(b.record.folder, 'go.key'))).toBe(false);
+    expect((await planAccountStatus(env, a.record.id)).account.signedIn).toBe(false);
+    await expect(planLaunchEnv(env, a.record)).rejects.toMatchObject({ code: 'plan-account-unavailable' });
     await expect(resolvePlanLaunch(env, a.record.id, 'claude')).rejects.toMatchObject({ code: 'plan-kind-mismatch' });
 
     // New agent's catalog, cached before the sign-in, must not keep reading "not checked" after it.
@@ -575,48 +566,59 @@ exit 0
     }, env);
     expect((await catalog.read()).readiness?.opencode?.signedIn).toBe('unknown');
 
-    // Sign in to A inside its own tab: only A's root gains credentials; B and the computer's own stay as they were.
-    execFileSync('/bin/sh', ['-c', a.launch.signIn], { env: { ...env, ...a.launch.planEnv, OC_FIXTURE: 'oc-fixture-a' } });
-    expect((await catalog.read()).readiness?.opencode?.signedIn).toBe('yes');
+    // Typing A's key in its tab signs A in at the next status read, and the key file is gone by then.
+    typeKey(a, 'INERT_KEY_A');
+    expect(readdirSync(join(env.MUXR_HOME!, 'plans')).some((name) => name.endsWith('.key'))).toBe(true);
     const statusA = await planAccountStatus(env, a.record.id);
     expect(statusA.account.signedIn).toBe(true);
-    expect((await planAccountStatus(env, b.record.id)).account.signedIn).toBe(false);
-    expect((await planAccountStatus(env, b.record.id)).account.name).toBe('OpenCode 2');
-    const bAuth = join(b.record.folder, '.local', 'share', 'opencode', 'auth.json');
-    expect(existsSync(bAuth)).toBe(false);
+    expect(readdirSync(join(env.MUXR_HOME!, 'plans')).some((name) => name.endsWith('.key') || name.endsWith('.key.part'))).toBe(false);
+    expect(JSON.stringify(statusA)).not.toContain('INERT_KEY_A');
     expect(readFileSync(join(computerOwn, 'auth.json'), 'utf8')).toContain('NEVER_ADOPTED');
-    expect(JSON.stringify(statusA)).not.toContain('INERT_SYNTHETIC');
+    expect((await catalog.read()).readiness?.opencode?.signedIn).toBe('yes');
+    const statusB = await planAccountStatus(env, b.record.id);
+    expect(statusB.account).toMatchObject({ signedIn: false, name: 'OpenCode 2' });
 
-    // Both signed-in state and launch pick the same account, and the list shows the provider with its two roots.
-    expect((await resolvePlanLaunch(env, a.record.id, 'opencode'))?.id).toBe(a.record.id);
+    // An empty key is a sign-in that ended without signing in.
+    const emptyTab = (() => { try { typeKey(b, ''); return undefined; } catch (error) { return error; } })();
+    expect(emptyTab).toBeUndefined();
+    expect((await planAccountStatus(env, b.record.id)).failure).toMatch(/sign-in ended without signing in/);
+
+    // Launch and Auto pick the signed-in account; the key reaches OpenCode through the kit's files, not env.
+    const launch = await planLaunchEnv(env, a.record);
+    expect(launch.set.OPENCODE_CONFIG).toBe(join(a.record.folder, 'opencode.json'));
+    expect(readFileSync(join(a.record.folder, 'go.key'), 'utf8')).toBe('INERT_KEY_A');
+    expect(JSON.stringify(launch)).not.toContain('INERT_KEY_A');
+    // The account runs on its own data folder; the computer's own sign-in is never read, copied or exported to it.
+    expect(launch.set.XDG_DATA_HOME?.startsWith(a.record.folder)).toBe(true);
+    expect(launch.set.OPENCODE_AUTH_CONTENT).toBeUndefined();
+    for (const name of ['OPENCODE_AUTH_CONTENT', 'OPENCODE_AUTH', 'OPENCODE_TEST_HOME']) expect(launch.unset).toContain(name);
+    expect(existsSync(join(a.record.folder, 'data', 'opencode', 'auth.json'))).toBe(false);
+    expect(readFileSync(join(env.MUXR_HOME!, 'plans', 'secrets.json'), 'utf8')).not.toContain('INERT_KEY_A');
+    expect(statSync(join(a.record.folder, 'go.key')).mode & 0o777).toBe(0o600);
+    expect(statSync(join(env.MUXR_HOME!, 'plans', 'secrets.seal')).mode & 0o777).toBe(0o600);
+    expect((await resolvePlanLaunch(env, 'auto', 'opencode'))?.id).toBe(a.record.id);
     expect(await resolvePlanLaunch(env, b.record.id, 'opencode')).toBeUndefined();
-    const listed = await listPlans(env);
-    expect(listed.providers.map((entry) => entry.provider)).toContain('opencode');
-    const entry = listed.providers.find((candidate) => candidate.provider === 'opencode')!;
-    expect(entry.accounts.map((account) => account.signedIn)).toEqual([true, false]);
-    expect(entry.accounts.map((account) => account.name)).toEqual(['OpenCode', 'OpenCode 2']);
+    const entry = (await listPlans(env)).providers.find((candidate) => candidate.provider === 'opencode')!;
+    expect(entry.accounts.map((account) => [account.name, account.signedIn])).toEqual([['OpenCode', true], ['OpenCode 2', false]]);
 
-    // Sign out of A (the tool's own logout inside A's root): B's absence of state is untouched.
-    execFileSync('/bin/sh', ['-c', 'opencode auth logout'], { env: { ...env, ...planLaunchEnv(env, a.record).set } });
+    // Signing A out leaves B alone; a cancelled fresh account goes away; a named account renames and removes cleanly.
+    await planAccounts(env).logout(a.record.id);
     expect((await planAccountStatus(env, a.record.id)).account.signedIn).toBe(false);
-    expect(existsSync(bAuth)).toBe(false);
-
-    // A cancelled fresh account goes away with its root; a named account renames and removes cleanly.
+    expect(existsSync(join(a.record.folder, 'go.key'))).toBe(false);
     const fresh = await preparePlanSignIn(env, 'opencode');
     expect(await cancelPlanSignIn(env, fresh.record.id)).toEqual({ removed: true });
     expect(existsSync(fresh.record.folder)).toBe(false);
-    const renamed = await renamePlanAccount(env, a.record.id, 'Umer');
-    expect(renamed.account.name).toBe('Umer');
+    expect((await renamePlanAccount(env, a.record.id, 'Umer')).account.name).toBe('Umer');
     expect(await removePlanAccount(env, a.record.id)).toEqual({ deletedFolder: true });
     expect(existsSync(a.record.folder)).toBe(false);
     expect(existsSync(b.record.folder)).toBe(true);
     expect(readFileSync(join(computerOwn, 'auth.json'), 'utf8')).toContain('NEVER_ADOPTED');
 });
 
-/** The fixed-port invariant holds on the sign-in path too: a 2.x account's
- *  `opencode auth login` runs with its own private server, so a second
- *  account's sign-in tab does not collide on the shared background port. */
-it('signs an OpenCode 2.x account in with --standalone, while 1.x gets no flag', async () => {
+/** The fixed-port invariant holds on the sign-in path too: a 2.x OpenCode shares
+ *  one background server, so a Go sign-in tab must never start OpenCode at all,
+ *  and the launch alone carries `--standalone`. */
+it('signs an OpenCode Go account in without starting OpenCode, 2.x or 1.x', async () => {
     const bin = join(root, 'bin');
     mkdirSync(bin, { recursive: true });
     const argsFile = join(root, 'opencode-args');
@@ -629,15 +631,13 @@ printf '%s\\n' "$@" > "$OC_ARGS_FILE"
     };
     env = { ...env, PATH: `${bin}:${env.PATH}`, OC_ARGS_FILE: argsFile };
 
-    writeFake('opencode v2.0.28');
-    const two = await preparePlanSignIn(env, 'opencode');
-    execFileSync('/bin/sh', ['-c', two.launch.signIn], { env: { ...env, ...two.launch.planEnv } });
-    expect(readFileSync(argsFile, 'utf8').trim().split('\n')).toEqual(['auth', 'login', '--standalone']);
-
-    writeFake('1.19.0');
-    const one = await preparePlanSignIn(env, 'opencode');
-    execFileSync('/bin/sh', ['-c', one.launch.signIn], { env: { ...env, ...one.launch.planEnv } });
-    expect(readFileSync(argsFile, 'utf8').trim().split('\n')).toEqual(['auth', 'login']);
+    for (const [version, args] of [['opencode v2.0.28', ['--standalone']], ['1.19.0', []]] as const) {
+        writeFake(version);
+        const tab = await preparePlanSignIn(env, 'opencode');
+        execFileSync('/bin/sh', ['-c', tab.launch.signIn], { env: { ...env, ...tab.launch.planEnv }, input: 'INERT_KEY\n' });
+        expect(existsSync(argsFile)).toBe(false);
+        expect(opencodeLaunchArgs(env)).toEqual(args);
+    }
 });
 
 /** The version probe is cached, but an in-place upgrade must re-probe: the

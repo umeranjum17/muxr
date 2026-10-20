@@ -1,11 +1,9 @@
 /** muxr owns sign-in tabs and pane/account bookkeeping. Each sign-in attempt owns a kit instance. */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import type { HerdrTreePane, HerdrTreeWorkspace, PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
 import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRecord, type PlanPreparation } from './planAccounts.js';
-import { opencodeAccountRows } from './plansApi.js';
-import { addOpencodeAccount, opencodeLaunchArgs, opencodeLaunchEnv, opencodeSignedIn, removeOpencodeAccount } from './opencodeAccounts.js';
 import { loadPlanAccounts, PLAN_LABELS, plansDir, type PlanProvider } from './planStore.js';
 
 // A completed attempt releases its kit: a later re-sign-in must not inherit add's cancel ownership.
@@ -14,8 +12,6 @@ const signInTabs = new Map<string, string>();
 const signInOperations = new Map<string, Promise<unknown>>();
 /** Each attempt's private script; it records how the login ended, which the kit's own marker only says on success. */
 const signInScripts = new Map<string, string>();
-/** OpenCode accounts this process created and never signed in: cancelling one removes it with its empty root. */
-const freshOpencode = new Set<string>();
 
 const quote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
 
@@ -24,17 +20,46 @@ const quote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + 
  * sign-in: the script clears the screen, runs the kit's command (which sets
  * the account's folder itself), and records a login that failed.
  */
-function signInScript(env: NodeJS.ProcessEnv, accountId: string, shell: string): Record<string, string> {
+function signInScript(env: NodeJS.ProcessEnv, accountId: string, shell: string | ((script: string) => string)): Record<string, string> {
     forgetSignInScript(accountId);
     mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
     const script = join(plansDir(env), `signin-${randomBytes(12).toString('hex')}.sh`);
     writeFileSync(script, [
         "printf '\\033[H\\033[2J\\033[3J'",
-        `if ${shell}; then :; else (umask 077; printf failed > ${quote(`${script}.result`)}); fi`,
+        `if ${typeof shell === 'string' ? shell : shell(script)}; then :; else (umask 077; printf failed > ${quote(`${script}.result`)}); fi`,
         '',
     ].join('\n'), { mode: 0o700 });
     signInScripts.set(accountId, script);
     return { MUXR_PLAN_SIGNIN: script };
+}
+
+/**
+ * OpenCode Go has no login to run: its tab asks for the plan key with hidden
+ * typing and leaves it in the script's key file, which `takeTypedKey` hands to
+ * the kit. The key stays in the shell's own variable, never argv or env.
+ */
+function opencodeKeyEntry(script: string): string {
+    const key = quote(`${script}.key`);
+    return [
+        "{ printf 'Paste your OpenCode Go key.\nKey (hidden): '",
+        "trap 'stty echo 2>/dev/null' EXIT INT TERM",
+        'stty -echo 2>/dev/null',
+        'IFS= read -r key',
+        'stty echo 2>/dev/null',
+        "printf '\n'",
+        `[ -n "$key" ] && (umask 077; printf %s "$key" > ${quote(`${script}.key.part`)}) && mv ${quote(`${script}.key.part`)} ${key}; }`,
+    ].join('; ');
+}
+
+/** A key typed in an OpenCode sign-in tab waits in its key file; the kit saves it, so the key is never in a file after the next status read. */
+async function takeTypedKey(env: NodeJS.ProcessEnv, accountId: string): Promise<void> {
+    const script = signInScripts.get(accountId);
+    if (script === undefined) return;
+    let key: string;
+    try { key = readFileSync(`${script}.key`, 'utf8'); } catch { return; }
+    rmSync(`${script}.key`, { force: true });
+    try { await (attempts.get(accountId)?.kit ?? planAccounts(env)).saveKey(accountId, key.trim()); }
+    catch { writeFileSync(`${script}.result`, 'failed', { mode: 0o600 }); }
 }
 
 function forgetSignInScript(accountId: string): void {
@@ -42,7 +67,18 @@ function forgetSignInScript(accountId: string): void {
     if (script === undefined) return;
     rmSync(script, { force: true });
     rmSync(`${script}.result`, { force: true });
+    rmSync(`${script}.key`, { force: true });
+    rmSync(`${script}.key.part`, { force: true });
     signInScripts.delete(accountId);
+}
+
+/** A host that stopped before a status read leaves its typed key on disk, and no in-memory entry can reach it again. */
+export function sweepStaleSignInKeys(env: NodeJS.ProcessEnv): void {
+    const dir = plansDir(env);
+    if (!existsSync(dir)) return;
+    for (const name of readdirSync(dir)) {
+        if (/^signin-.*\.key(\.part)?$/.test(name)) rmSync(join(dir, name), { force: true });
+    }
 }
 
 function signInFailed(accountId: string): boolean {
@@ -55,32 +91,7 @@ function signInFailed(accountId: string): boolean {
 }
 
 export async function preparePlanSignIn(env: NodeJS.ProcessEnv, provider: string, accountId?: string, prepare?: PlanPreparation) {
-    if (provider === 'opencode') {
-        // muxr owns OpenCode accounts outright: one private HOME+XDG root per
-        // id, no kit, no integration hooks. The same descriptor that starts
-        // agents opens this tab, so the sign-in lands in that account's root.
-        let record = accountId === undefined ? undefined : resolvePlanRecord(env, accountId);
-        if (record !== undefined && record.provider !== 'opencode') {
-            throw Object.assign(new Error('That account belongs to another provider.'), { code: 'plan-kind-mismatch' });
-        }
-        if (record === undefined) {
-            record = addOpencodeAccount(env);
-            freshOpencode.add(record.id);
-        } else freshOpencode.delete(record.id);
-        const descriptor = opencodeLaunchEnv(env, record);
-        const signInArgs = opencodeLaunchArgs({ ...env, PATH: descriptor.set.PATH });
-        return {
-            record,
-            launch: {
-                kind: 'shell',
-                label: `Sign in · ${PLAN_LABELS.opencode}`,
-                signIn: ' sh "$MUXR_PLAN_SIGNIN"',
-                planEnv: { ...descriptor.set, ...signInScript(env, record.id, ['opencode auth login', ...signInArgs].join(' ')) },
-                planUnset: descriptor.unset,
-            },
-        };
-    }
-    if (provider !== 'claude' && provider !== 'codex') {
+    if (provider !== 'claude' && provider !== 'codex' && provider !== 'opencode') {
         throw Object.assign(new Error('Only Claude, ChatGPT and OpenCode accounts can be added.'), { code: 'plan-provider-unsupported' });
     }
     const prior = accountId === undefined ? undefined : attempts.get(accountId);
@@ -116,7 +127,7 @@ export async function preparePlanSignIn(env: NodeJS.ProcessEnv, provider: string
         return { record: resolvePlanRecord(env, id), launch: {
             // A leading space keeps it out of the shell's history.
             kind: 'shell', label: `Sign in · ${PLAN_LABELS[provider]}`, signIn: ' sh "$MUXR_PLAN_SIGNIN"',
-            planEnv: signInScript(env, id, signIn.shell),
+            planEnv: signInScript(env, id, provider === 'opencode' ? opencodeKeyEntry : signIn.shell),
         } };
     } catch (error) { return planError(error); }
 }
@@ -151,14 +162,6 @@ export function finishPlanSignIn(accountId: string): void {
 }
 
 export async function cancelPlanSignIn(env: NodeJS.ProcessEnv, accountId: string): Promise<{ removed: boolean }> {
-    if (freshOpencode.delete(accountId)) {
-        const record = loadPlanAccounts(env).find((entry) => entry.id === accountId);
-        if (record !== undefined && !opencodeSignedIn(record)) {
-            removeOpencodeAccount(env, accountId);
-            return { removed: true };
-        }
-    }
-    if (loadPlanAccounts(env).some((entry) => entry.id === accountId && entry.provider === 'opencode')) return { removed: false };
     try { return await (attempts.get(accountId)?.kit ?? planAccounts(env)).cancel(accountId); }
     catch (error) { return planError(error); }
     finally { attempts.delete(accountId); }
@@ -167,11 +170,7 @@ export async function cancelPlanSignIn(env: NodeJS.ProcessEnv, accountId: string
 /** The account as its tool reports it now. `failure` says why a tracked sign-in ended without signing in. */
 export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: string): Promise<{ account: PlanAccount; failure?: string }> {
     const record = resolvePlanRecord(env, accountId);
-    if (record.provider === 'opencode') {
-        const account = opencodeAccountRows(env).find((row) => row.id === record.id)!;
-        return { account, ...(!account.signedIn && signInFailed(accountId)
-            ? { failure: `${PLAN_LABELS.opencode} sign-in ended without signing in. Its tab shows why.` } : {}) };
-    }
+    if (record.provider === 'opencode') await takeTypedKey(env, accountId);
     let account: PlanAccount;
     if (record.found) account = await defaultAccount(record, env, {});
     else {

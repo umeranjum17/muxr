@@ -1,7 +1,7 @@
 import type { RequestResult } from '@trymuxr/contract';
 import { agentToolPath, type SessionSource } from '../../agent/index.js';
 import { delimiter } from 'node:path';
-import { claudeIdentity, codexIdentity, defaultPlanFolder, opencodeAccountRows } from '../../plans/index.js';
+import { claudeIdentity, codexIdentity, defaultPlanFolder, opencodeAccountStates } from '../../plans/index.js';
 
 type Catalog = RequestResult<'herdr.agentKinds'>;
 const CACHE_MS = 30_000;
@@ -100,13 +100,13 @@ export class AgentCatalog {
     }
 }
 
-/** OpenCode signs in through muxr's own accounts, so a signed-in account is
+/** OpenCode signs in through the accounts kit, so a signed-in account is
  * what Auto starts it on. Read on every call, outside the cache: a sign-in
  * that just finished shows at once, not after the cache runs out. */
-function withOpencodeAccounts(catalog: Catalog, env: NodeJS.ProcessEnv): Catalog {
+async function withOpencodeAccounts(catalog: Catalog, env: NodeJS.ProcessEnv): Promise<Catalog> {
     const state = catalog.readiness?.opencode;
     if (state === undefined || !catalog.installed?.includes('opencode')) return catalog;
-    if (!opencodeAccountRows(env).some((account) => account.signedIn)) return catalog;
+    if (!(await opencodeAccountStates(env)).some((account) => account.signedIn)) return catalog;
     return { ...catalog, readiness: { ...catalog.readiness, opencode: { ...state, signedIn: 'yes' } } };
 }
 
