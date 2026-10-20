@@ -28,7 +28,7 @@ Preconditions: use `../SKILL.md` isolation and its native Android + installed-PW
 
 ## Gotchas
 
-- The machine installs the `CLI_VERSION` pin in `deployBoatComputer.ts` from npm; the release bump moves it (see `docs/RELEASING.md`), nothing checks it automatically. A real run needs a published CLI that has `--loopback`, `--install-herdr` and `pair --handoff`; older releases (0.2.0) fail at "Setting up muxr".
+- The machine installs the `CLI_TARBALL_URL` and `CLI_TARBALL_SHA256` pins in `deployBoatComputer.ts` (the npm registry tarball, sha256-checked before install); a follow-up after each release moves it (see `docs/RELEASING.md`), nothing checks it automatically. A real run needs a published CLI that has `--loopback`, `--install-herdr` and `pair --handoff`; older releases (0.2.0) fail at "Setting up muxr".
 - Tailscale inside a Boat sandbox and a claimed key's create scope are unproven until a real run (BYOKit M6).
 - Boat bills per second while on; the price rows are dated in `deployBoatComputer.ts` and must be rechecked against https://docs.boat.dev/pricing when they age.
 - On a fresh AVD the first **Sign in to Boat** tap can leave the app showing for over 30 s while Chrome starts for the first time; tap again before calling it a failure.
