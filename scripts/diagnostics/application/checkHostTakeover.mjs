@@ -1,4 +1,4 @@
-/** A second link host under the same machine key retires the first. */
+/** A second link host under the same machine key takes the link; the first stays up and takes it back once it is free. */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -51,20 +51,33 @@ try {
     await until(() => first.output().includes('link relay: online'), 'first link host online');
     const second = start('second');
     await until(() => second.output().includes('link relay: online'), 'second link host online');
-    await until(() => first.exitCode !== null, 'retired link host exit');
-    if (first.exitCode !== 0) throw new Error(`retired host exited ${first.exitCode}: ${first.output()}`);
+    await until(() => first.output().includes('link relay: replaced'), 'first link host replaced');
+    // 0.2.8 exited here, and `muxr up` restarted it into a fight for the link.
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    if (first.exitCode !== null) throw new Error(`replaced host exited ${first.exitCode}: ${first.output()}`);
     if (second.exitCode !== null) throw new Error(`newer host exited ${second.exitCode}: ${second.output()}`);
     const hosts = await fetch(`http://127.0.0.1:${port}/relay/v1/hosts`, { headers: { authorization: `Bearer ${owner}` } }).then((response) => response.json());
     const id = hostId(Buffer.from(machine.crypto.boxPublicKey, 'base64'));
     if (hosts.hosts?.filter((host) => host.id === id && host.online).length !== 1) throw new Error('relay has no single online link host');
-    const socketPath = join(root, 'second', 'pair.sock');
-    await until(() => existsSync(socketPath), 'new host pairing socket');
-    const device = await linkLabClient(socketPath);
-    try {
-        const machines = await requestLab(device, 'machines.list');
-        if (!Array.isArray(machines) || machines.length !== 1) throw new Error('new link host did not serve the paired client');
-    } finally { device.stop(); }
-    process.stdout.write('PASS: second link host retires the first and serves a paired client\n');
+    const serves = async (name) => {
+        const socketPath = join(root, name, 'pair.sock');
+        await until(() => existsSync(socketPath), `${name} host pairing socket`);
+        const device = await linkLabClient(socketPath);
+        try {
+            const machines = await requestLab(device, 'machines.list');
+            if (!Array.isArray(machines) || machines.length !== 1) throw new Error(`${name} link host did not serve the paired client`);
+        } finally { device.stop(); }
+    };
+    await serves('second');
+    // The other copy goes away: the first takes the link back by itself.
+    const secondExit = new Promise((resolve) => second.once('exit', resolve));
+    second.kill('SIGTERM');
+    await secondExit;
+    const onlineBefore = first.output().split('link relay: online').length;
+    await until(() => first.output().split('link relay: online').length > onlineBefore, 'first host takes the link back', 60_000);
+    if (first.exitCode !== null) throw new Error(`replaced host exited ${first.exitCode}: ${first.output()}`);
+    await serves('first');
+    process.stdout.write('PASS: a replaced link host stays up, then takes the link back and serves a paired client\n');
 } finally {
     await Promise.all(children.map(async (child) => {
         if (child.exitCode !== null || child.signalCode !== null) return;

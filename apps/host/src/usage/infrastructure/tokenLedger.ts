@@ -545,6 +545,8 @@ export function ledgerRoots(env: NodeJS.ProcessEnv = process.env): LedgerRoots {
 
 // ---- The ledger's own process ----
 
+// The shipped bundle is one file, so the child runs the host entry: main.ts
+// routes this flag here before the host can load.
 const CHILD_FLAG = '--muxr-token-ledger';
 /** A count nobody has asked about for this long waits until someone does. */
 const UNWATCHED_MS = 30_000;
