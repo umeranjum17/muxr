@@ -1107,17 +1107,17 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
-"@byokit/accounts@0.24.1":
-  version "0.24.1"
-  resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.24.1.tgz#1b30377dcacae3644c79ba8416927814eb5b49a8"
-  integrity sha512-yOCnKWP5uol0m3PR9TMPuUv5Xn4935bnEe+mAmPaFHSoNW12YXrvt2Ijdw11xkXCTwSNkYAi6RCxSuUXQkKVCQ==
+"@byokit/accounts@0.28.2":
+  version "0.28.2"
+  resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.28.2.tgz#839d62c234669b46d26b445bcd58d13ba3bb3e9f"
+  integrity sha512-JkZSTTdZdN3OOYs2NBG2a94Zk4Iq+eew8YZYjogxGSiGrWiD2y0J0B6Mob/VorAx++ynd0KcSLcG6JaK4Wel3g==
   dependencies:
     "@anthropic-ai/sdk" "0.133.0"
-    "@byokit/secrets" "0.5.1"
-    "@byokit/usage" "0.9.0"
+    "@byokit/secrets" "0.5.2"
+    "@byokit/usage" "0.9.1"
     "@earendil-works/pi-ai" "1.2.0"
-    "@google/genai" "2.21.0"
-    "@modelcontextprotocol/sdk" "1.31.0"
+    "@google/genai" "2.29.0"
+    "@modelcontextprotocol/sdk" "1.32.1"
     openai "7.19.0"
     partial-json "0.1.7"
     undici-types "8.11.2"
@@ -1202,12 +1202,12 @@
     "@noble/curves" "2.4.0"
     "@noble/hashes" "2.4.0"
 
-"@byokit/secrets@0.5.1":
-  version "0.5.1"
-  resolved "https://registry.yarnpkg.com/@byokit/secrets/-/secrets-0.5.1.tgz#2fde3bb076bead860580aaf843f1708a515c6d01"
-  integrity sha512-/pfmcGRYShO4SxKTBXZJ9AiUh1s6NmGBWWklWUF2fzB/ZQ5GpOmhWN7V3N/f/LPX02B2v3a/gydXe4BR804V/Q==
+"@byokit/secrets@0.5.2":
+  version "0.5.2"
+  resolved "https://registry.yarnpkg.com/@byokit/secrets/-/secrets-0.5.2.tgz#c89a9ab245e4fed566dfb4af33c1675399caeec4"
+  integrity sha512-IO/wCZHMxnqJe0CdRjbdmlvyP1mu7URZS1W1CVGMjJwxfO1aQ8hGH4TBLBCTQ5l/uJFsNel7bkFFfqwjGn39eA==
   dependencies:
-    "@byokit/seal" "0.3.0"
+    "@byokit/seal" "0.3.1"
     "@homebridge/dbus-native" "0.7.9"
   optionalDependencies:
     "@napi-rs/keyring" "2.1.0"
@@ -1228,6 +1228,11 @@
   version "0.9.0"
   resolved "https://registry.yarnpkg.com/@byokit/usage/-/usage-0.9.0.tgz#b207ccb07159461bc6166d5ca10f0ae6903e21ef"
   integrity sha512-yu7id35ViSOCiu+4OVAaSepMQzaEYtF5UYM6p928djR5zm8HNjr+IuGbedOBQuxhZE2wiWPufFdgiQM0rKJ0tA==
+
+"@byokit/usage@0.9.1":
+  version "0.9.1"
+  resolved "https://registry.yarnpkg.com/@byokit/usage/-/usage-0.9.1.tgz#8630153a0a83fc1622c072d8f23a3db22d6381e1"
+  integrity sha512-e/aaH8FdlhfyYLyJ6e6WAXMkYap2VcrL71sfJBUlJ4szLAlihNYISe7KKZ/FE62qMaYdsgNpIfLQbEQYSOniIA==
 
 "@ccusage/ccusage-darwin-arm64@20.0.20":
   version "20.0.20"
@@ -2022,6 +2027,16 @@
     protobufjs "^7.5.4"
     ws "^8.18.0"
 
+"@google/genai@2.29.0":
+  version "2.29.0"
+  resolved "https://registry.yarnpkg.com/@google/genai/-/genai-2.29.0.tgz#aa71732d4c688ce84078771503a2b58baf7d0c68"
+  integrity sha512-jrgU07sEkMFX/K/gtEydDx+SH7NDbY5hdg8eLwDtfqHcJqPhsH68btd9QPrN7KqkrlURzSk49wVQYMKVJRy2Hw==
+  dependencies:
+    google-auth-library "^10.3.0"
+    p-retry "^4.6.2"
+    protobufjs "^7.5.4"
+    ws "^8.18.0"
+
 "@homebridge/dbus-native@0.7.9":
   version "0.7.9"
   resolved "https://registry.yarnpkg.com/@homebridge/dbus-native/-/dbus-native-0.7.9.tgz#eefa47d6738d5b8f72d27ba80c294ba1011c1671"
@@ -2226,10 +2241,10 @@
   dependencies:
     "@chevrotain/types" "~11.1.2"
 
-"@modelcontextprotocol/sdk@1.31.0":
-  version "1.31.0"
-  resolved "https://registry.yarnpkg.com/@modelcontextprotocol/sdk/-/sdk-1.31.0.tgz#86ce85651376ae54e5df2db29b18da0eef7054d4"
-  integrity sha512-UvTMgnNlnIBO/22ob2RcVGDlcvOslQs8T59+FTGdA0L27a39fdGF/EDETNtDVK4DZGpwomlsYpRdA8UXcVL/pw==
+"@modelcontextprotocol/sdk@1.32.1":
+  version "1.32.1"
+  resolved "https://registry.yarnpkg.com/@modelcontextprotocol/sdk/-/sdk-1.32.1.tgz#853286b3240b6d8143f5f8e6d58af85c77d475ab"
+  integrity sha512-2DdE+SJDtzLEEWzY1ZjY7Q+VcPhcV1KisD3zI4u0XZyktsjHum1mwbMI+JaulUBi2OZk+KJAi2uPXzxichPkdw==
   dependencies:
     "@hono/node-server" "^1.19.9 || ^2.0.5"
     ajv "^8.17.1"
