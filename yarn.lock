@@ -1127,10 +1127,10 @@
   resolved "https://registry.yarnpkg.com/@byokit/audio/-/audio-0.2.0.tgz#1b33bc0436cf3d06b37dd609bb59142444cd6cb2"
   integrity sha512-DJfUo6UVjxtvE4E8uVXLbwlEc/y/g+yyekxxGL+Hx7861A8j+eAeijiDKYf5lAfUjKir1DpR2yYpetOLq4dZ+A==
 
-"@byokit/cloud@0.2.1":
-  version "0.2.1"
-  resolved "https://registry.yarnpkg.com/@byokit/cloud/-/cloud-0.2.1.tgz#bbcdca94bdc08b618d26445fa87ff72a661cdb90"
-  integrity sha512-gJrKGhLEtbPpHoB47XCXYbOqsur7qjPyONDGk5EyrFyDKC1AI8xf0wcDShQQTAec3HsYOjHq4EZ/utjSCP+cdA==
+"@byokit/cloud@0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@byokit/cloud/-/cloud-0.3.0.tgz#a7ea387c584ccb8c7f06bc778ccb8aad30a566be"
+  integrity sha512-EtnZN2IpwYla4szjtt3u9AG2rejHz4jumuyUFkW11bPK0Im7hHUuFhQ3XUKZIKx1FWGyp/wukSWGZiNc4RNuQw==
 
 "@byokit/dictation@0.5.0":
   version "0.5.0"

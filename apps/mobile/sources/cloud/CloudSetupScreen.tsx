@@ -11,7 +11,7 @@ import { pairLinkOffer } from '@/pairing';
 import { getNativeSecret, setNativeSecret } from '@/pairing/secrets';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { Typography } from '@/constants/Typography';
-import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, PRICE, type BoatSize, type DeployStep } from './deployBoatComputer';
+import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, pendingBoatSize, PRICE, type BoatSize, type DeployStep } from './deployBoatComputer';
 
 const STEPS = ['Provider', 'Your Boat account', 'Size and price', 'Create', 'Put muxr on it', 'Join your tailnet', 'Pair with this phone'];
 const SIZES: { id: BoatSize; title: string }[] = [{ id: 'small', title: 'Small · 2 CPUs, 4 GB' }, { id: 'default', title: 'Standard · 4 CPUs, 8 GB' }];
@@ -32,6 +32,12 @@ const checkedLabel = (iso: string) => {
     const [year, month, day] = iso.split('-');
     return `${Number(day)} ${MONTHS[Number(month) - 1]} ${year}`;
 };
+
+function failureText(cause: unknown): string {
+    if (cause instanceof MachineError && cause.code === 'exists') return 'Your first size choice is kept. Try again with that size.';
+    if (cause instanceof MachineError) return errorWords(cause, { app: 'muxr', label: 'Boat' });
+    return cause instanceof Error ? cause.message : String(cause);
+}
 
 type ClaimFailure = Extract<Awaited<ReturnType<typeof claim> extends AsyncIterable<infer T> ? T : never>, { step: 'failed' }>['why'];
 
@@ -56,9 +62,18 @@ export function CloudSetupScreen() {
     const controller = React.useRef<AbortController | undefined>(undefined);
     const mounted = React.useRef(true);
     const [size, setSize] = React.useState<BoatSize>('small');
+    const [sizeLocked, setSizeLocked] = React.useState(false);
     const [deploy, setDeploy] = React.useState<DeployStep>();
     const auth = useAuth();
     const router = useRouter();
+
+    const keepPendingSize = React.useCallback(() => {
+        void pendingBoatSize().then((pending) => {
+            if (!mounted.current) return;
+            setSizeLocked(pending !== undefined);
+            if (pending !== undefined) setSize(pending);
+        }).catch(() => undefined);
+    }, []);
 
     const settle = React.useCallback(async (run: Promise<void>) => {
         try {
@@ -66,20 +81,22 @@ export function CloudSetupScreen() {
             if (mounted.current) router.replace('/');
         } catch (cause) {
             if (mounted.current) {
-                setError(cause instanceof MachineError ? errorWords(cause, { app: 'muxr', label: 'Boat' }) : cause instanceof Error ? cause.message : String(cause));
+                setError(failureText(cause));
                 setBusy(false);
+                keepPendingSize();
             }
         }
-    }, [router]);
+    }, [router, keepPendingSize]);
 
     React.useEffect(() => {
         mounted.current = true;
         if (deployRun) void settle(deployRun);
+        keepPendingSize();
         return () => {
             mounted.current = false;
             controller.current?.abort();
         };
-    }, [settle]);
+    }, [settle, keepPendingSize]);
     React.useEffect(() => { void getNativeSecret(BOAT_KEY).then((key) => { if (key) setConnected(true); }); }, []);
 
     const create = React.useCallback(() => {
@@ -161,7 +178,7 @@ export function CloudSetupScreen() {
                                 {active && index === 2 && (
                                     <View style={styles.form}>
                                         {SIZES.map((option) => (
-                                            <Pressable key={option.id} accessibilityRole="radio" accessibilityState={{ checked: size === option.id }} disabled={busy} onPress={() => setSize(option.id)} style={[styles.size, size === option.id && styles.sizeChosen]}>
+                                            <Pressable key={option.id} accessibilityRole="radio" accessibilityState={{ checked: size === option.id }} disabled={busy || sizeLocked} onPress={() => setSize(option.id)} style={[styles.size, size === option.id && styles.sizeChosen]}>
                                                 <Text style={styles.stepTitle}>{option.title}</Text>
                                                 <Text style={styles.detail}>{perHour(option.id)}</Text>
                                             </Pressable>
