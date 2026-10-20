@@ -27,6 +27,6 @@ Preconditions: use `../SKILL.md` isolation and its native Android + installed-PW
 
 ## Gotchas
 
-- The machine installs the `CLI_VERSION` pin in `deployBoatComputer.ts` from npm; `packages/checkArchitecture.mjs` keeps it equal to the root `package.json` version, so each release bump moves it. A real run needs a published CLI that has `--loopback`, `--install-herdr` and `pair --handoff`; older releases (0.2.0) fail at "Setting up muxr".
+- The machine installs the `CLI_VERSION` pin in `deployBoatComputer.ts` from npm; the release bump moves it (see `docs/RELEASING.md`), nothing checks it automatically. A real run needs a published CLI that has `--loopback`, `--install-herdr` and `pair --handoff`; older releases (0.2.0) fail at "Setting up muxr".
 - Tailscale inside a Boat sandbox and a claimed key's create scope are unproven until a real run (BYOKit M6).
 - Boat bills per second while on; the price rows are dated in `deployBoatComputer.ts` and must be rechecked against https://docs.boat.dev/pricing when they age.
