@@ -22,21 +22,22 @@ export type BoatSize = 'small' | 'default';
  * Pinned asset: v0.2.5-nightly.27.1, source commit d0cade001220b32bffa950abb3ca988601edbef6; the hash matches the release's npm-manifest.json.
  */
 type CliSource = { kind: 'npm'; version: string } | { kind: 'tarball'; url: string; sha256: string };
-const CLI_SOURCE = {
+const CLI_SOURCE: CliSource = {
     kind: 'tarball',
     url: 'https://github.com/umeranjum17/muxr/releases/download/v0.2.5-nightly.27.1/trymuxr-cli-0.2.5-nightly.27.1.tgz',
     sha256: 'e98ccbfd066d3993551c1bdfb93cc1350d1a308dee0ab8793b276749922edec8',
-} as CliSource;
+};
 const NPM_INSTALL = ['npm', 'install', '--global', '--prefix', `${WORK_DIR}/npm`, '--ignore-scripts'];
 /** Fetch with the kit's node (22 has fetch), refuse a hash mismatch, then install the file. */
 const FETCH_TARBALL = `const c=require('crypto'),f=require('fs');fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error('download '+r.status);return r.arrayBuffer()}).then(b=>{const h=c.createHash('sha256').update(Buffer.from(b)).digest('hex');if(h!==process.argv[2])throw new Error('sha256 mismatch '+h);f.writeFileSync(process.argv[3],Buffer.from(b))})`;
-const INSTALL: string[][] = CLI_SOURCE.kind === 'npm'
-    ? [[...NPM_INSTALL, `@trymuxr/cli@${CLI_SOURCE.version}`]]
+const installSteps = (source: CliSource): string[][] => source.kind === 'npm'
+    ? [[...NPM_INSTALL, `@trymuxr/cli@${source.version}`]]
     : [
         ['mkdir', '-p', WORK_DIR],
-        ['node', '-e', FETCH_TARBALL, CLI_SOURCE.url, CLI_SOURCE.sha256, `${WORK_DIR}/cli.tgz`],
+        ['node', '-e', FETCH_TARBALL, source.url, source.sha256, `${WORK_DIR}/cli.tgz`],
         [...NPM_INSTALL, `${WORK_DIR}/cli.tgz`],
     ];
+const INSTALL = installSteps(CLI_SOURCE);
 
 /** The muxr host as the kit installs it: the published CLI under the work dir, run by `muxr up` in self-host mode. */
 const RECIPE: HostRecipe = {
