@@ -10,7 +10,12 @@
                     "detail": "Messaging a pane you started works."
                 }
             ],
-            "fixes": [],
+            "fixes": [
+                {
+                    "title": "No timeout",
+                    "detail": "Fixes a send failure."
+                }
+            ],
             "verification": [
                 {
                     "title": "Checks",
@@ -18,7 +23,9 @@
                     "detail": "Not accepted on a device."
                 }
             ],
-            "knownLimits": []
+            "knownLimits": [
+                "Update phone and computer together."
+            ]
         },
         {
             "appVersion": "0.2.6",
