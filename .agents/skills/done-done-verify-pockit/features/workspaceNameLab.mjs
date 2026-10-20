@@ -7,6 +7,8 @@
 // Pairs the release APK on an owned emulator and captures Home and Panes beside Herdr's own lists. See workspace-names.md. Run from the
 // repo root with HERDR_LAB_HELPER set; <cliRepo> is the checkout whose `scripts/cli.mjs` runs:
 //   node .agents/skills/done-done-verify-pockit/features/workspaceNameLab.mjs <apk> <evidenceDir> <labRoot> <cliRepo> [taskTitlesPlugin]
+// With <apk> `pwa` it boots no emulator: it builds the same scene, prints `browser link: <link>` and
+// holds the lab until SIGTERM, for the installed-PWA capture in agent-naming.md.
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
@@ -14,6 +16,7 @@ import { join } from 'node:path';
 
 const [apk, evidence, root, cliRepo, taskTitles] = process.argv.slice(2);
 const repo = process.cwd();
+const pwa = apk === 'pwa';
 const helper = process.env.HERDR_LAB_HELPER;
 let session;
 const { bootOwnedEmulator } = await import(join(repo, 'perf/lib/androidEmulator.mjs'));
@@ -89,11 +92,11 @@ const saveHerdr = (name) => writeFileSync(join(evidence, `herdr-${name}.txt`),
     ['workspace list', 'tab list', 'agent list'].map((cmd) => `$ herdr ${cmd}\n${herdr(...cmd.split(' '))}`).join('\n'));
 
 let offering;
-const mintNativePairing = (path) => new Promise((resolve, reject) => {
+const mintPairing = (path, intent) => new Promise((resolve, reject) => {
     const socket = offering = createConnection(path);
     let pending = '';
     socket.on('error', reject);
-    socket.on('connect', () => socket.write('{"intent":{"kind":"native","authority":"control","personal":false}}\n'));
+    socket.on('connect', () => socket.write(`${JSON.stringify({ intent })}\n`));
     socket.on('data', (chunk) => {
         pending += String(chunk);
         for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
@@ -106,12 +109,12 @@ const mintNativePairing = (path) => new Promise((resolve, reject) => {
     });
 });
 
-const emu = await bootOwnedEmulator({
+const emu = pwa ? undefined : await bootOwnedEmulator({
     name: 'mxwl', avdHome: process.env.AVD_HOME ?? join(root, 'avd'),
     systemImage: 'system-images;android-35;google_apis;x86_64', launcher: ['nice', '-n', '10'],
 });
-const serial = emu.serial;
-log(`emulator ${serial}`);
+const serial = emu?.serial;
+if (emu) log(`emulator ${serial}`);
 const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: 120_000 });
 const sh = (cmd) => adb('shell', cmd);
 const dump = () => { sh('uiautomator dump /sdcard/d.xml >/dev/null'); return adb('exec-out', 'cat', '/sdcard/d.xml'); };
@@ -136,10 +139,6 @@ const tapText = async (re, seconds = 60) => {
 let lab;
 let defects = 0;
 try {
-    // Each buildPrApk run signs with its own throwaway key: a kept AVD may hold another build.
-    try { adb('uninstall', PKG); } catch { /* not installed */ }
-    execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 600_000 });
-    const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     mkdirSync(join(root, 'lab'), { recursive: true });
     lab = await linkHerdrLab(join(root, 'lab'), 'wl', undefined, (_herdr, labSession) => { session = labSession; buildScene(); });
     log(`lab host up on relay port ${lab.port}, herdr ${session}`);
@@ -160,10 +159,22 @@ try {
     const labels = JSON.parse(herdr('workspace', 'list')).result.workspaces.map((w) => w.label);
     log(`herdr workspace labels: ${labels.join(', ')}`);
 
+    if (pwa) {
+        console.log(`browser link: ${await mintPairing(join(root, 'lab', 'host', 'pair.sock'), { kind: 'browser', authority: 'observe', personal: false })}`);
+        await new Promise((resolve) => { process.once('SIGTERM', resolve); process.once('SIGINT', resolve); });
+        offering?.destroy();
+        await lab.stop();
+        log('pwa lab stopped');
+        process.exit(0);
+    }
+    // Each buildPrApk run signs with its own throwaway key: a kept AVD may hold another build.
+    try { adb('uninstall', PKG); } catch { /* not installed */ }
+    execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 600_000 });
+    const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     sh(`pm clear ${PKG}`);
     adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
     sh('wm size 1080x2376'); sh('wm density 440'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no');
-    const offer = await mintNativePairing(join(root, 'lab', 'host', 'pair.sock'));
+    const offer = await mintPairing(join(root, 'lab', 'host', 'pair.sock'), { kind: 'native', authority: 'control', personal: false });
     sh(`am start -W -n ${activity}`);
     await sleep(4000);
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr://pair#${offer}' -n ${activity}`);
@@ -180,7 +191,7 @@ try {
         await waitFor(/nosript/i, 60).catch(() => log(`${name}: names not seen`));
         await sleep(2500);
         const xml = dump();
-        for (const word of ['umer-desk', 'ssh-ed25519', 'Firstmate addons', 'Firstmate operational inbox', 'claude · firstmate-addons', 'Show the SSH key fingerprint', 'Fix the flaky pairing retry', 'pi · Working']) if (xml.includes(word)) shown.add(`${name}:${word}`);
+        for (const word of ['umer-desk', 'ssh-ed25519', 'Firstmate addons', 'Firstmate operational inbox', 'claude · firstmate-addons', 'Show the SSH key fingerprint', 'Fix the flaky pairing retry', 'pi · fix-flaky-pairing']) if (xml.includes(word)) shown.add(`${name}:${word}`);
         try {
             writeFileSync(join(evidence, `${name}.check.txt`), execFileSync('node',
                 [join(repo, '.agents/skills/done-done-verify-pockit/features/visualCheck.mjs'), serial, evidence, name], { encoding: 'utf8' }));
@@ -190,17 +201,17 @@ try {
         }
         log(`captured ${name}`);
     };
-    for (const [width, density, font, theme] of [['393', 440, '1.0', 'light'], ['270', 640, '2.0', 'dark']]) {
+    for (const [width, density, font, theme] of [['393', 440, '1.0', 'light'], ['270', 640, '2.0', 'light'], ['270', 640, '2.0', 'dark']]) {
         sh(`wm density ${density}`); sh(`settings put system font_scale ${font}`);
         sh(`cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
         for (const screen of ['home', 'panes']) await capture(`${screen}-${width}-${font}-${theme}`, screen);
     }
     log(`phone shows: ${[...shown].sort().join(', ') || 'none of the watched words'}`);
 } finally {
-    try { sh('wm size reset'); sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
+    if (emu) try { sh('wm size reset'); sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
     offering?.destroy();
     await lab?.stop();
-    try { execFileSync('adb', ['-s', serial, 'emu', 'kill'], { timeout: 30_000 }); } catch { /* already gone */ }
-    await emu.stop?.();
+    if (emu) try { execFileSync('adb', ['-s', serial, 'emu', 'kill'], { timeout: 30_000 }); } catch { /* already gone */ }
+    await emu?.stop?.();
     log(`done; cells with visual-check defects: ${defects}`);
 }
