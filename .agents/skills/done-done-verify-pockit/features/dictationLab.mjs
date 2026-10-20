@@ -1,7 +1,7 @@
 // File-fed dictation takes on a task-owned emulator against the perf fake stack, with
 // a watch that fails the run if realtime voice ever starts. See dictation-silence-gate.md.
 // Usage, from the repo root after `yarn build`:
-//   node .agents/skills/verify-pockit/features/dictationLab.mjs --apk <lab APK> --evidence <dir> \
+//   node .agents/skills/done-done-verify-pockit/features/dictationLab.mjs --apk <lab APK> --evidence <dir> \
 //     --avd-home <dir> [--launcher <cmd>]
 // Every tap is on a control found by its label in a dump taken just before it: a
 // stale coordinate or a guessed element lands on Send or Talk, and Talk starts

@@ -26,7 +26,7 @@ Preconditions:
   Herdr) instead of `../SKILL.md` Launch: the host's `--fake` source has no spaces.
 
 - **Seed and pair.** From the repo root, in its own shell:
-  `SERIAL=<serial> node --input-type=module -e "$(< .agents/skills/verify-pockit/features/spacesLab.mjs)"`.
+  `SERIAL=<serial> node --input-type=module -e "$(< .agents/skills/done-done-verify-pockit/features/spacesLab.mjs)"`.
   Keep stdin attached: the recipe reads computer numbers and stops at EOF.
   It adds `api-server`, `infra` and `mobile-app` with `pi` agents named
   `umer-*`, opens the app's `muxr://pair` link and prints `lab computer 1 ready`; tap

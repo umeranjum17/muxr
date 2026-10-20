@@ -22,7 +22,7 @@
 //
 // Drive it (from the repo root, in its own shell):
 // 1. mkdir -p "$EVIDENCE", then
-//    SERIAL=<serial> EVIDENCE=$EVIDENCE GO_KEY_FILE=<file> node --input-type=module -e "$(< .agents/skills/verify-pockit/features/terminalFloorLab.mjs)"
+//    SERIAL=<serial> EVIDENCE=$EVIDENCE GO_KEY_FILE=<file> node --input-type=module -e "$(< .agents/skills/done-done-verify-pockit/features/terminalFloorLab.mjs)"
 //    Keep stdin attached. It prints the folder OpenCode should work in.
 // 2. `signin`, then `pair` and tap `Pair` on the phone.
 // 3. On the phone: New agent -> OpenCode -> that folder -> Start. Wait for

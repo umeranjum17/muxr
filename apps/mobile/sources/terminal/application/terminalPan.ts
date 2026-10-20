@@ -18,7 +18,7 @@ import { decodeBase64 } from '@/encryption/base64';
  * surface or to Herdr, never a share of both. A fraction of overflow stays hidden at
  * the top limit instead of leaving a blank row above the grid.
  *
- * Proof (.agents/skills/verify-pockit/features/terminalFloorLab.mjs drives these on a 270 dp phone, font 20):
+ * Proof (.agents/skills/done-done-verify-pockit/features/terminalFloorLab.mjs drives these on a 270 dp phone, font 20):
  * - floor-pan with the keyboard closed, a downward drag shows the grid's top rows before the pane scrolls; an upward drag brings the status lines back. Typing to the pane follows the cursor again.
  * - floor-follow with the keyboard up, the box ends on the cursor's row (the prompt), so the reply above it shows; the status lines under the prompt are off the bottom.
  * - floor-whole-rows while the grid is taller than its box, the box's bottom row is never cut in half at its bottom edge. The hard case is a program whose cursor is near the top (`nvim -u NONE notes.txt` on a 100-line file), so the box shows the grid's top rows.

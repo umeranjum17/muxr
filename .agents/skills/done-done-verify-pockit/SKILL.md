@@ -1,16 +1,37 @@
 ---
-name: verify-pockit
-description: Verify muxr's self-hosted relay/host, public CLI and phone screens the way a user drives them, from this pockit checkout and without touching the owner's installed muxr. Use before claiming a host, relay, Shared Artifacts, naming, retention, CLI or phone/PWA/iOS Simulator UI change works (every UI change runs the Visual check), when a check fails and you need a live instance to reproduce against, or when asked to run the verify-pockit flow.
+name: done-done-verify-pockit
+description: Verify muxr's self-hosted relay/host, public CLI and phone screens the way a user drives them, from this pockit checkout and without touching the owner's installed muxr. Proof runs through done-done (sealed run, evidence, judge, receipt). Use before claiming a host, relay, Shared Artifacts, naming, retention, CLI or phone/PWA/iOS Simulator UI change works (every UI change runs the Visual check), when a check fails and you need a live instance to reproduce against, or when asked to run the done-done-verify-pockit flow.
 license: Apache-2.0
 ---
 
-# verify-pockit
+# done-done-verify-pockit
 
 Drives a private muxr stack (relay + host + naming loopback) plus the public
 `muxr` CLI against disposable state, then captures proof. Everything below was
 inspected from this repo's own launch code (`scripts/setup/presentation/up.mjs`,
 `scripts/diagnostics/application/checkHostTakeover.mjs`, `scripts/cli.mjs`) and
 uses only repo-shipped commands — no new harness.
+
+## Proof through done-done
+
+Every proof is a done-done run. `.done-done.yaml` owns the journeys:
+
+- `fast`: `yarn run check:fast` (the pull-request lane; the fast default).
+- `suite`: `yarn run check` (the full suite, 30 min timeout).
+
+Prerequisites per checkout: `yarn install --frozen-lockfile --non-interactive && yarn build`.
+
+```sh
+done-done run fast                      # seals a run, records its evidence folder
+done-done check --outcome "<what a user can now do>" <files it recorded>
+done-done verify fast --outcome "<claim>"   # drives the journey, judges captures, records a receipt
+done-done receipt --verify <head>       # read-only: verify the recorded receipt
+```
+
+- Run evidence lives under `~/.done-done/evidence/pockit/`, never in the repo.
+- A PR's `## Checks` block names this skill for `proof:` and the run's files for `evidence:`.
+- After a drive, `done-done maintain` reports drift between this skill and the source; fix the skill, not the run.
+- Headless smoke entry (done-done scaffold): `node perf/fake-herdr/stack.smoke.mjs` runs the relay and host over a fake Herdr with a scripted phone client; success is exit 0 and the final line `fake-herdr stack smoke ok`. It uses `MUXR_RELAY_PORT=0` and tears down what it starts. The per-feature entries in `features/` cite it.
 
 ## Isolation contract (read first)
 
@@ -127,10 +148,12 @@ synthesizing flags.
 
 ## Evidence
 
-Define the run's stable evidence directory up front; cleanup never touches it:
+Inside a `done-done run`, `$DONE_DONE_EVIDENCE_ROOT` is the stable evidence
+folder and the judge reads only what is saved there. Outside one, define the
+evidence directory up front; cleanup never touches it:
 
 ```sh
-EVIDENCE="/tmp/verify-pockit-evidence/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$EVIDENCE"
+EVIDENCE="$HOME/.done-done/evidence/pockit/manual-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$EVIDENCE"
 ```
 
 Capture, per proof, into `$EVIDENCE` (outside `RUN_ROOT`):
@@ -207,9 +230,9 @@ size, density, `settings put system font_scale <f>` and
 font change), drive to the screen, then:
 
 ```sh
-node .agents/skills/verify-pockit/features/visualCheck.mjs $SERIAL "$DIR" <name> [--ref $MAIN_DIR/<name>.xml]
+node .agents/skills/done-done-verify-pockit/features/visualCheck.mjs $SERIAL "$DIR" <name> [--ref $MAIN_DIR/<name>.xml]
 # when the dump has scrollable="true": swipe up until it stops moving, then
-node .agents/skills/verify-pockit/features/visualCheck.mjs $SERIAL "$DIR" <name>-scrolled --end [--ref $MAIN_DIR/<name>-scrolled.xml]
+node .agents/skills/done-done-verify-pockit/features/visualCheck.mjs $SERIAL "$DIR" <name>-scrolled --end [--ref $MAIN_DIR/<name>-scrolled.xml]
 ```
 
 It saves the PNG and the uiautomator dump and prints `DEFECT …` lines for
@@ -261,7 +284,7 @@ earlier is a blank page, not a pass), `emulate` again (a reload drops it),
 same page; it runs the DOM leads itself and exits 1 on any DEFECT:
 
 ```sh
-node .agents/skills/verify-pockit/features/visualCheck.mjs pwa-check "$DIR/<name>.png" <name>
+node .agents/skills/done-done-verify-pockit/features/visualCheck.mjs pwa-check "$DIR/<name>.png" <name>
 ```
 
 They report off-screen text and images (a part inside a horizontal overflow
@@ -290,8 +313,8 @@ whole-word wrapping. Native OCR is a lead, not a guarantee: a misread or missed
 fragment can hide a split. They need ImageMagick, Tesseract and `chromium`:
 
 ```sh
-node .agents/skills/verify-pockit/features/visualCheck.mjs selftest      # native: the pair-screen flow
-node .agents/skills/verify-pockit/features/visualCheck.mjs pwa-selftest  # PWA: the fixture page and the driver
+node .agents/skills/done-done-verify-pockit/features/visualCheck.mjs selftest      # native: the pair-screen flow
+node .agents/skills/done-done-verify-pockit/features/visualCheck.mjs pwa-selftest  # PWA: the fixture page and the driver
 ```
 
 Each prints `PASS`/`FAIL` per case and exits non-zero on any `FAIL`.
@@ -364,7 +387,7 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
 - **Run and slot.** The iOS path does not run Launch. Start its own scratch:
   `RUN_ROOT="$(mktemp -d /tmp/muxr-verify-XXXXXX)"`, and define `EVIDENCE` as in Evidence above.
   Set `RUN_ID` to this run's unique id. In the Mac shell set
-  `MAC_RUN="$HOME/fm-verify-pockit-ios1/$RUN_ID"`.
+  `MAC_RUN="$HOME/fm-done-done-verify-pockit-ios1/$RUN_ID"`.
   `SLOT=~/firstmate/data/fm-mac-slot1/fm-mac-slot.sh`. Run
   `if "$SLOT" claim; then if ! touch "$RUN_ROOT/slot-claimed"; then "$SLOT" release; exit 1; fi; else exit 1; fi`,
   then run `$SLOT boot ios <UDID>`. If recording the successful claim fails, release
@@ -423,8 +446,8 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
   ```sh
   OFFER="$(ls "$RUN_ROOT"/kit/.byokit/outbox/muxr-pair-*.json)"
   node -e 'const o = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write("muxr://pair#" + o.offer)' "$OFFER" \
-    | ssh <mac-user>@<mac-ip> "umask 077; mkdir -p ~/fm-verify-pockit-ios1/<RUN_ID>; cat > ~/fm-verify-pockit-ios1/<RUN_ID>/pair-link.txt"
-  ssh <mac-user>@<mac-ip> 'xcrun simctl openurl <UDID> "$(cat ~/fm-verify-pockit-ios1/<RUN_ID>/pair-link.txt)"; st=$?; rm -f -- ~/fm-verify-pockit-ios1/<RUN_ID>/pair-link.txt; exit $st' && echo "openurl sent"
+    | ssh <mac-user>@<mac-ip> "umask 077; mkdir -p ~/fm-done-done-verify-pockit-ios1/<RUN_ID>; cat > ~/fm-done-done-verify-pockit-ios1/<RUN_ID>/pair-link.txt"
+  ssh <mac-user>@<mac-ip> 'xcrun simctl openurl <UDID> "$(cat ~/fm-done-done-verify-pockit-ios1/<RUN_ID>/pair-link.txt)"; st=$?; rm -f -- ~/fm-done-done-verify-pockit-ios1/<RUN_ID>/pair-link.txt; exit $st' && echo "openurl sent"
   ```
   Offers expire in about two minutes, so send it at once. Tap Pair with
   `axe tap -x <pt> -y <pt>` on the Mac; points are the screenshot pixels divided
@@ -446,8 +469,8 @@ at a time through the Mac slot, and it has about 10 GiB free for a Release build
     [ -z "$pid" ] || { kill "$pid" 2>/dev/null || cleanup_failed=1; wait "$pid" 2>/dev/null || cleanup_failed=1; }
   done
   fm-herdr-lab.sh teardown <session> || cleanup_failed=1
-  if [ -e "$RUN_ROOT/slot-claimed" ]; then scp <mac-user>@<mac-ip>:~/fm-verify-pockit-ios1/<RUN_ID>/build.log "$EVIDENCE/ios-build.log" || cleanup_failed=1; fi
-  if [ -e "$RUN_ROOT/slot-claimed" ]; then ssh <mac-user>@<mac-ip> 'if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then xcrun simctl shutdown <UDID> || exit; fi; if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then echo "<UDID> remains booted" >&2; exit 1; fi; rm -rf -- ~/fm-verify-pockit-ios1/<RUN_ID>' || cleanup_failed=1; fi
+  if [ -e "$RUN_ROOT/slot-claimed" ]; then scp <mac-user>@<mac-ip>:~/fm-done-done-verify-pockit-ios1/<RUN_ID>/build.log "$EVIDENCE/ios-build.log" || cleanup_failed=1; fi
+  if [ -e "$RUN_ROOT/slot-claimed" ]; then ssh <mac-user>@<mac-ip> 'if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then xcrun simctl shutdown <UDID> || exit; fi; if xcrun simctl list devices booted | grep -Fq "(<UDID>)"; then echo "<UDID> remains booted" >&2; exit 1; fi; rm -rf -- ~/fm-done-done-verify-pockit-ios1/<RUN_ID>' || cleanup_failed=1; fi
   if [ -e "$RUN_ROOT/slot-claimed" ]; then "$SLOT" release || cleanup_failed=1; fi
   if ! "$SLOT" status >"$EVIDENCE/ios-slot-final-status.log"; then echo "slot status failed"; cleanup_failed=1; fi
   if ! grep -q '^lock: free$' "$EVIDENCE/ios-slot-final-status.log"; then echo "slot lock is not free"; cleanup_failed=1; fi

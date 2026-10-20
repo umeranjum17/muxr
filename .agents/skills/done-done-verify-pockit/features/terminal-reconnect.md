@@ -28,7 +28,7 @@ Preconditions:
   fake Herdr with real per-pane shells) instead of `../SKILL.md` Launch.
 
 1. `mkdir -p "$EVIDENCE"`, then from the repo root, in its own shell:
-   `SERIAL=<serial> EVIDENCE=$EVIDENCE node --input-type=module -e "$(< .agents/skills/verify-pockit/features/terminalReconnectLab.mjs)"`.
+   `SERIAL=<serial> EVIDENCE=$EVIDENCE node --input-type=module -e "$(< .agents/skills/done-done-verify-pockit/features/terminalReconnectLab.mjs)"`.
    Keep stdin attached. Tap `Pair` on the phone, then `Don't allow` on the notification prompt.
 2. Enter `open`: the fake's shell pane opens. Type something recognisable into it
    (`echo Umer reconnect check`) so the last frame is easy to see.

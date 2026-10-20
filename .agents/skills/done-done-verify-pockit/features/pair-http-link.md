@@ -13,7 +13,7 @@ mid-base64 is still "cut off".
 
 ## How to prove it
 
-1. Start the verify-pockit stack (relay on `MUXR_RELAY_PORT=0`, selfhost.json
+1. Start the done-done-verify-pockit stack (relay on `MUXR_RELAY_PORT=0`, selfhost.json
    with `relayUrl: ws://127.0.0.1:<port>` and no `webOrigin`, host `--fake`).
 2. Open a browser-intent offer through the real pairing client (what
    `muxr pair --browser` drives): the offer text must be

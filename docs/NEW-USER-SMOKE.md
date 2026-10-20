@@ -33,7 +33,7 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Confirm realtime voice works from product Settings.
 7. **Resilience and authority**
    - Restart host and relay; verify reconnect and cumulative state recovery.
-   - Interrupt an open terminal; verify it re-attaches by itself, keeps its last frame, and reports only plain words. Use `terminal-reconnect.md` in verify-pockit for the driven recipe.
+   - Interrupt an open terminal; verify it re-attaches by itself, keeps its last frame, and reports only plain words. Use `terminal-reconnect.md` in done-done-verify-pockit for the driven recipe.
    - Interrupt a realtime synthetic stream; verify bounded reconnect.
    - Intentionally end the realtime stream; verify it does not reconnect.
    - Revoke the emulator device and prove existing/new sockets fail while another authorized device remains valid.

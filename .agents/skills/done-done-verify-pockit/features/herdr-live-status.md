@@ -37,7 +37,7 @@ Preconditions: a built host (`yarn build`) and the guarded lab helper
 
 1. Install one EXIT trap that tears the lab down, then `provision` a named lab
    session and read its `socket_path` from `run <session> session list --json`.
-2. `node .agents/skills/verify-pockit/features/herdrStatusLab.mjs <socket> <scratch>`
+2. `node .agents/skills/done-done-verify-pockit/features/herdrStatusLab.mjs <socket> <scratch>`
    in the background; keep its PID and log.
 3. `run <session> workspace create --label kit-lab`, then
    `run <session> pane report-agent --source lab --agent pi --state working --seq 1 w1:p1`,
@@ -46,16 +46,16 @@ Preconditions: a built host (`yarn build`) and the guarded lab helper
    Expect 1, 2 with the agent, 1 after close. The log shows
    `kit-lab/w1:p1:pi:working` → `blocked` → `idle` → gone.
 5. Layout: `mkdir <scratch>/cwd`, then
-   `node .agents/skills/verify-pockit/features/herdrLayoutLab.mjs <socket> <scratch>/layout <scratch>/cwd`.
+   `node .agents/skills/done-done-verify-pockit/features/herdrLayoutLab.mjs <socket> <scratch>/layout <scratch>/cwd`.
    It applies a split whose first pane records `pi` and must print
    `PASS layoutApply started pi via the kit` (a real pi; the lab helper gives it a
    disposable home).
-6. Close ladder: `node .agents/skills/verify-pockit/features/herdrCloseLab.mjs <socket> <scratch>/close`
+6. Close ladder: `node .agents/skills/done-done-verify-pockit/features/herdrCloseLab.mjs <socket> <scratch>/close`
    (shells only; it makes its own git repo and linked worktree). It must print a
    `PASS` line for the split pane, the tab ask and close, the workspace ask ("Closing workspace will close
    this workspace.": the folder name, not its path) and close, and the group ask ("Closing repo will close 2 workspaces in this
    worktree group.") and close, then `PASS herdrCloseLab`.
-7. Starts: `node .agents/skills/verify-pockit/features/herdrStartLab.mjs <socket> <scratch>/start`
+7. Starts: `node .agents/skills/done-done-verify-pockit/features/herdrStartLab.mjs <socket> <scratch>/start`
    (a real `pi`, no sign-in). It must print a `PASS` line for the one labelled
    tab, the overlay in the agent process (read from `/proc/<pid>/environ`), the
    reused workspace, the labelled shell, the shell abort and the failed start

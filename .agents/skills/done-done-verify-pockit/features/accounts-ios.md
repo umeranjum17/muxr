@@ -47,7 +47,7 @@ Preconditions:
   `../SKILL.md` Launch.
 
 - **Lab.** From the repo root, in its own shell:
-  `node --input-type=module < .agents/skills/verify-pockit/features/accountsLab.mjs`.
+  `node --input-type=module < .agents/skills/done-done-verify-pockit/features/accountsLab.mjs`.
   It prints `lab ready: relay 127.0.0.1:<port>` and a `muxr://pair#…` link.
   A simulator shares the Mac's loopback, so a stack on Linux reaches it with
   `ssh -N -o ExitOnForwardFailure=yes -R 127.0.0.1:<port>:127.0.0.1:<port> <mac>`.
