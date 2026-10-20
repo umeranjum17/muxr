@@ -1,8 +1,8 @@
 # Ask for notifications after pairing and say when they are off
 
 Pairing a computer is the moment muxr asks for the notification permission:
-the first connected Home after a pairing raises the system prompt once, and
-only if muxr never asked before. Turning Settings > Notifications > An agent
+the first connected Home after a pairing raises the system prompt once, unless
+the system can no longer ask or Not now was chosen. Turning Settings > Notifications > An agent
 needs you on asks again unless the system says it can no longer ask. While
 notifications are off, Settings > Notifications says alerts cannot reach you,
 and Home says so whenever an agent needs you, with a button that asks or opens
@@ -58,7 +58,8 @@ Preconditions:
    Notifications. Toggle An agent needs you off and on: the prompt comes back;
    `Don't allow` again. Capture Home (Open settings) and Settings (footer ends
    "in Android settings"); tap Allow notifications and check
-   `dumpsys activity activities` shows `AppNotificationSettings` resumed; back.
+   `dumpsys package com.trymuxr.app` reads `USER_FIXED` and the settings app
+   opens muxr's notification page (see Gotchas); back.
 4. `home-missed-alert`: tap Not now on Home, then type `blocked` into the lab:
    the card returns as "Notifications are off". Capture it; type `idle` and it
    goes.
@@ -70,8 +71,19 @@ Preconditions:
 
 ## Gotchas
 
-- Expo reports "never asked" (`undetermined`) only for asks expo made itself;
-  an app data clear resets it, so `pm clear` before every fresh run.
+- Android 13+ reads a never-asked app as `denied` with `canAskAgain` true, the
+  same as one Don't allow, so muxr cannot tell them apart; both are askable.
+- Two APKs signed with different test keys do not `install -r` over each
+  other: `adb uninstall com.trymuxr.app` first, then check the installed
+  `base.apk` sha256 against the APK's provenance JSON.
+- Open settings must land on muxr's App notifications page
+  (`Settings$AppNotificationSettingsActivity` or the settings app's page with
+  the "Show notifications" switch), not App info (`InstalledAppDetails`):
+  `Linking.sendIntent` cannot open it on Android 11+ (package visibility), so
+  it goes through the voice-overlay module's `openNotificationSettings`.
+- Answer each prompt only after `dumpsys activity activities` shows
+  `GrantPermissionsActivity` resumed; a tap while it is still opening is lost
+  and the permission is not `USER_FIXED` after "two" denials.
 - A cold relaunch never asks: only a pairing completed in this app run arms
   the ask. To see the prompt again, `pm clear` and pair again.
 - On Android the first Don't allow can still be asked again; only the second
