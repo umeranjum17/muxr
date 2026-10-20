@@ -15,7 +15,7 @@ import {
     publicRelayUrl,
     stateDir,
 } from '../infrastructure/runtime.mjs';
-import { daemonState, runDaemon, startMuxrDaemon } from '../infrastructure/daemon.mjs';
+import { daemonIsRunning, runDaemon, startMuxrDaemon } from '../infrastructure/daemon.mjs';
 import {
     cleanupManagedIngress,
     readSelfhostState,
@@ -108,7 +108,7 @@ export async function connectEnrollment(args = []) {
             writeFileSync(join(stateDir(), 'selfhost.previous.json'), `${JSON.stringify(existing, null, 2)}\n`, { mode: 0o600 });
             try {
                 if (existing.relayLocation !== 'remote') await cleanupManagedIngress(existing);
-                if (daemonState() !== 'stopped' && (await runDaemon(['stop'])) !== 0) throw new Error('could not stop the existing muxr service');
+                if (daemonIsRunning() && (await runDaemon(['stop'])) !== 0) throw new Error('could not stop the existing muxr service');
                 await stopOwnedSelfhostRelay();
             } catch (cause) {
                 writeSelfhostState(state);

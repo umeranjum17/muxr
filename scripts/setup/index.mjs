@@ -97,8 +97,8 @@ export {
 
 export {
     daemonDefinition,
+    daemonIsRunning,
     daemonMode,
-    daemonState,
     runDaemon,
     serviceCommand,
     startMuxrDaemon,

@@ -22,7 +22,6 @@ import {
     print,
     publicRelayUrl,
     run,
-    serviceManagerRun,
     stateDir,
     validMachineCrypto,
 } from '../infrastructure/runtime.mjs';
@@ -42,10 +41,9 @@ import {
     versionIsCompatible,
 } from '../infrastructure/herdr.mjs';
 import {
+    daemonIsRunning,
     daemonMode,
     runDaemon,
-    daemonState,
-    scopedHomeRefusal,
     serviceCommand,
 } from '../infrastructure/daemon.mjs';
 import {
@@ -391,30 +389,21 @@ export async function inspectSetup() {
     }
     // Installed-but-disabled: works now, silently gone at the next boot.
     if (platform() === 'linux' && existsSync(muxrServicePath) && env('MUXR_NO_SERVICE_COMMANDS') !== '1') {
-        const scopeRefusal = scopedHomeRefusal();
-        const enabled = scopeRefusal === undefined ? serviceManagerRun('systemctl', ['--user', 'is-enabled', 'muxr.service']) : { refused: true, stderr: scopeRefusal };
-        if (enabled.refused) {
-            add('warn', 'service enabled', `not checked — ${enabled.stderr}`);
-        } else {
-            const isEnabled = enabled.stdout === 'enabled' || enabled.stdout === 'enabled-runtime';
-            add(isEnabled ? 'ok' : 'fail', 'service enabled', isEnabled
-                ? 'muxr.service starts at login'
-                : `muxr.service is ${enabled.stdout || 'not enabled'} — it will not survive a reboot; enable it with \`muxr daemon start\``,
-                isEnabled ? undefined : { label: 'enable and start the muxr service', run: () => runDaemon(['start']) });
-        }
+        const enabled = run('systemctl', ['--user', 'is-enabled', 'muxr.service']);
+        const isEnabled = enabled.stdout === 'enabled' || enabled.stdout === 'enabled-runtime';
+        add(isEnabled ? 'ok' : 'fail', 'service enabled', isEnabled
+            ? 'muxr.service starts at login'
+            : `muxr.service is ${enabled.stdout || 'not enabled'} — it will not survive a reboot; enable it with \`muxr daemon start\``,
+            isEnabled ? undefined : { label: 'enable and start the muxr service', run: () => runDaemon(['start']) });
     }
     if (platform() === 'darwin' && existsSync(muxrServicePath) && env('MUXR_NO_SERVICE_COMMANDS') !== '1') {
+        const definition = readFileSync(muxrServicePath, 'utf8');
         const loaded = serviceCommand('status');
-        if (loaded.refused) {
-            add('warn', 'service loaded', `not checked — ${loaded.stderr}`);
-        } else {
-            const definition = readFileSync(muxrServicePath, 'utf8');
-            const startsAtLogin = /<key>RunAtLoad<\/key><true\/>/.test(definition);
-            add(loaded.ok && startsAtLogin ? 'ok' : 'fail', 'service loaded', loaded.ok && startsAtLogin
-                ? 'com.muxr.host is loaded and starts at login'
-                : `${loaded.ok ? 'service is loaded but RunAtLoad is off' : 'com.muxr.host is not loaded'} — run \`muxr daemon start\``,
-                loaded.ok && startsAtLogin ? undefined : { label: 'load the muxr service for login', run: () => runDaemon(['start']) });
-        }
+        const startsAtLogin = /<key>RunAtLoad<\/key><true\/>/.test(definition);
+        add(loaded.ok && startsAtLogin ? 'ok' : 'fail', 'service loaded', loaded.ok && startsAtLogin
+            ? 'com.muxr.host is loaded and starts at login'
+            : `${loaded.ok ? 'service is loaded but RunAtLoad is off' : 'com.muxr.host is not loaded'} — run \`muxr daemon start\``,
+            loaded.ok && startsAtLogin ? undefined : { label: 'load the muxr service for login', run: () => runDaemon(['start']) });
     }
     let selfhost = readSelfhostState();
     if (selfhostStateUnreadable()) {
@@ -469,19 +458,14 @@ export async function inspectSetup() {
             connectionDetail = `advertised relay ${publicRelayUrl(selfhost.relayUrl) ?? `on local port ${selfhost.relayPort}`} is not reachable — restart with \`muxr daemon restart\` or reconfigure with \`muxr\``;
         }
         add(connectionLevel, 'connection', connectionDetail);
-        const hostState = daemonState();
-        const hostRunning = hostState === 'running';
+        const hostRunning = daemonIsRunning();
         const hostAuthenticated = selfhost.relayLocation !== 'remote' || await remoteHostOnline(selfhost);
         const serviceName = managedMode === 'relay' ? 'relay service' : 'host service';
         let hostDetail = 'running but not authenticated with the shared relay — restart it with `muxr daemon restart`';
-        if (hostState === 'stopped') hostDetail = 'not running — start it with `muxr daemon start`';
-        else if (hostState === 'unknown') hostDetail = 'not checked — service commands are refused in this scope';
+        if (!hostRunning) hostDetail = 'not running — start it with `muxr daemon start`';
         else if (hostAuthenticated) hostDetail = 'running and authenticated';
-        let hostLevel = 'fail';
-        if (hostState === 'unknown') hostLevel = 'warn';
-        else if (hostRunning && hostAuthenticated) hostLevel = 'ok';
-        add(hostLevel, serviceName, hostDetail,
-            hostState === 'stopped' ? { label: 'start and enable the muxr service', run: () => runDaemon(['start']) } : undefined);
+        add(hostRunning && hostAuthenticated ? 'ok' : 'fail', serviceName, hostDetail,
+            !hostRunning ? { label: 'start and enable the muxr service', run: () => runDaemon(['start']) } : undefined);
         const devices = selfhost.machine?.crypto?.devices;
         if (Array.isArray(devices)) {
             add('ok', 'paired devices', devices.length === 0

@@ -197,7 +197,6 @@ function cliEnv(targetHome = home, extra = {}) {
         FAKE_HERDR_SERVER_STATE: fakeServerState,
         FAKE_HERDR_LOG: fakeLog,
         MUXR_NO_SERVICE_COMMANDS: '1',
-        MUXR_TEST_FAKE_SERVICE_MANAGERS: '1',
         MUXR_SKIP_HOSTED_AUTH: '1',
         npm_config_cache: join(scratch, 'npm-cache'),
         ...extra,

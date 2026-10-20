@@ -28,7 +28,6 @@ import {
     realpathOrUndefined,
     removeManaged,
     run,
-    serviceManagerRun,
     saveManifest,
     stateDir,
     xml,
@@ -386,7 +385,7 @@ export function repairHerdrServiceUnits(binary, dryRun) {
         atomicWrite(unitPath, updated, statSync(unitPath).mode & 0o777);
         print(`  repaired ${unitPath}: was \`${execLine}\`, now runs ${binary} (backup: ${backupPath})`);
         repaired.push(unitPath);
-        if (env('MUXR_NO_SERVICE_COMMANDS') !== '1' && platform() === 'linux') serviceManagerRun('systemctl', ['--user', 'daemon-reload']);
+        if (env('MUXR_NO_SERVICE_COMMANDS') !== '1' && platform() === 'linux') run('systemctl', ['--user', 'daemon-reload']);
     }
     return repaired;
 }
@@ -402,17 +401,17 @@ export function startHerdrServiceUnits(unitPaths) {
         if (platform() === 'darwin') {
             const domain = `gui/${process.getuid()}`;
             const service = `${domain}/${launchdLabel(unitPath)}`;
-            const loaded = serviceManagerRun('launchctl', ['print', service]);
+            const loaded = run('launchctl', ['print', service]);
             if (loaded.ok) {
-                const unloaded = serviceManagerRun('launchctl', ['bootout', service]);
+                const unloaded = run('launchctl', ['bootout', service]);
                 if (!unloaded.ok) throw new Error(unloaded.stderr || unloaded.stdout || `could not unload ${service}`);
             }
-            const bootstrapped = serviceManagerRun('launchctl', ['bootstrap', domain, unitPath]);
+            const bootstrapped = run('launchctl', ['bootstrap', domain, unitPath]);
             if (!bootstrapped.ok) throw new Error(bootstrapped.stderr || bootstrapped.stdout || `could not load ${service}`);
-            const started = serviceManagerRun('launchctl', ['kickstart', '-k', service]);
+            const started = run('launchctl', ['kickstart', '-k', service]);
             if (!started.ok) throw new Error(started.stderr || started.stdout || `could not start ${service}`);
         } else {
-            const started = serviceManagerRun('systemctl', ['--user', 'start', basename(unitPath)]);
+            const started = run('systemctl', ['--user', 'start', basename(unitPath)]);
             if (!started.ok) throw new Error(started.stderr || started.stdout || `could not start ${basename(unitPath)}`);
         }
     }

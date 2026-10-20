@@ -12,8 +12,8 @@ import {
     browserHostingReady,
     connectEnrollment,
     connectRemoteRelay,
+    daemonIsRunning,
     daemonMode,
-    daemonState,
     enableBrowserHosting,
     githubPluginSource,
     hasPendingRemoteConnect,
@@ -283,14 +283,11 @@ async function printState() {
     if (state.relayRole === 'shared') {
         status('host', 'none — this machine is a shared relay server', 'off');
     } else {
-        const hostService = daemonState();
-        const running = hostService === 'running';
+        const running = daemonIsRunning();
         const devices = Array.isArray(state.machine?.crypto?.devices) ? state.machine.crypto.devices.length : 0;
         status('host', running
             ? `running · ${devices} paired device${devices === 1 ? '' : 's'}`
-            : hostService === 'unknown'
-                ? 'not checked · service commands are refused in this scope'
-                : 'stopped · start it from Repair or change setup', running ? 'ok' : 'warn');
+            : 'stopped · start it from Repair or change setup', running ? 'ok' : 'warn');
     }
     process.stdout.write('\n');
     return state;
@@ -623,7 +620,7 @@ if (input[0] === undefined && process.stdin.isTTY && process.stdout.isTTY) {
     for (;;) {
         const state = await printState();
         const sharedRelay = state?.relayRole === 'shared';
-        const serviceStopped = state !== undefined && daemonState() === 'stopped';
+        const serviceStopped = state !== undefined && !daemonIsRunning();
         const selected = await select('What would you like to do?', state === undefined ? [
             ...(hasPendingRemoteConnect() ? [{ value: 'resume', title: 'Resume interrupted setup', description: 'finish the saved remote-relay enrollment' }] : []),
             { value: 'setup', title: 'Set up this computer', description: 'install prerequisites, choose a connection, and pair your phone' },
