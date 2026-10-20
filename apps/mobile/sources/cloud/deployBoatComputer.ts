@@ -1,4 +1,4 @@
-import { boat, machine, MachineError, setup, words, type HostRecipe, type MachineRecord, type MachineRef, type Price, type Provider, type TailnetStep } from '@byokit/cloud';
+import { boat, machine, MachineError, setup, words, type HostRecipe, type MachineRef, type MachineStore, type Price, type Provider, type TailnetStep } from '@byokit/cloud';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/pairing/secrets';
 
 export const BOAT_API = 'https://boat.dev/api/v1';
@@ -6,7 +6,6 @@ export const BOAT_KEY = 'muxr.cloud.boat-key.v1';
 const MACHINE_KEY = 'muxr.cloud.boat-machine.v1';
 // The Boat computers that existed before a create started: what a retry compares against when that create's answer was lost.
 const BEFORE_CREATE_KEY = 'muxr.cloud.boat-before-create.v1';
-const BEFORE_CREATE_TTL_MS = 15 * 60_000;
 const PORT = 8792;
 const WORK_DIR = '/home/user/muxr';
 
@@ -40,10 +39,9 @@ const MUXR = 'n=$(ls -d "$HOME"/.local/share/byokit/node/*/bin 2>/dev/null | tai
 const NEWEST_OFFER = 'f=$(ls -t "$0"/.byokit/outbox/muxr-pair-*.json 2>/dev/null | head -n1); [ -z "$f" ] || cat "$f"';
 
 // One store per deploy: the kit caches the record it loaded under the store object, so a shared one would keep a cleared machine.
-type StoredMachine = MachineRecord & { adopted?: true };
-const newStore = () => ({
-    load: async (): Promise<StoredMachine | null> => JSON.parse((await getNativeSecret(MACHINE_KEY)) ?? 'null'),
-    save: (record: StoredMachine) => setNativeSecret(MACHINE_KEY, JSON.stringify(record)),
+const newStore = (): MachineStore => ({
+    load: async () => JSON.parse((await getNativeSecret(MACHINE_KEY)) ?? 'null'),
+    save: (record) => setNativeSecret(MACHINE_KEY, JSON.stringify(record)),
 });
 
 export type DeployStep =
@@ -63,17 +61,15 @@ function parseOffer(text: string): Offer | undefined {
     }
 }
 
-const isBoatRefusal = (cause: unknown) => cause instanceof MachineError && (cause.code === 'unauthorized' || (cause.code === 'provider' && /^the provider answered 4\d\d:/.test(cause.message)));
-
 /**
  * A create whose answer never reached the phone still leaves a billed machine on the account with
  * no stored ref. Its id is the one the account lists now and did not list before that create.
  * ponytail: Boat names no sandbox, so a computer made elsewhere in the same window is also "new"; more than one is refused, exactly one is taken.
  */
 async function findLostCreate(listed: MachineRef[]): Promise<MachineRef | null> {
-    const before: { at: number; ids: string[] } | null = JSON.parse((await getNativeSecret(BEFORE_CREATE_KEY)) ?? 'null');
-    if (before === null || Date.now() - before.at > BEFORE_CREATE_TTL_MS) return null;
-    const fresh = listed.filter((r) => !before.ids.includes(r.id));
+    const before: string[] | null = JSON.parse((await getNativeSecret(BEFORE_CREATE_KEY)) ?? 'null');
+    if (before === null) return null;
+    const fresh = listed.filter((r) => !before.includes(r.id));
     if (fresh.length > 1) throw new Error('Boat shows more than one new computer from earlier tries. Remove the extra ones in your Boat account, then try again.');
     return fresh[0] ? { ...fresh[0], name: RECIPE.name } : null;
 }
@@ -98,26 +94,17 @@ export async function deployBoatComputer(o: {
     const store = newStore();
     const m = machine({ provider, store });
     // A retry after a later step failed reuses the machine this phone already created.
-    const stored = await store.load();
-    let ref: MachineRef | null = stored?.ref ?? null;
-    let adopted = stored?.adopted === true;
+    let ref: MachineRef | null = (await store.load())?.ref ?? null;
     if (ref === null) {
         // A retry after a create whose answer was lost takes that machine instead of billing a second one.
         const listed = await provider.list?.() ?? [];
-        const lost = await findLostCreate(listed);
-        if (lost !== null) {
-            ref = lost;
-            adopted = true;
-            await store.save({ ref, providerKey: '', adopted: true });
+        ref = await findLostCreate(listed);
+        if (ref !== null) {
+            await store.save({ ref, providerKey: '' });
         } else {
             o.onStep({ step: 'creating' });
-            await setNativeSecret(BEFORE_CREATE_KEY, JSON.stringify({ at: Date.now(), ids: listed.map((r) => r.id) }));
-            try {
-                ref = await m.create({ name: RECIPE.name, size: o.size, keepCopies: false });
-            } catch (cause) {
-                if (isBoatRefusal(cause)) await deleteNativeSecret(BEFORE_CREATE_KEY);
-                throw cause;
-            }
+            await setNativeSecret(BEFORE_CREATE_KEY, JSON.stringify(listed.map((r) => r.id)));
+            ref = await m.create({ name: RECIPE.name, size: o.size, keepCopies: false });
         }
         await deleteNativeSecret(BEFORE_CREATE_KEY);
     }
@@ -130,9 +117,9 @@ export async function deployBoatComputer(o: {
             throw new Error('Your Boat computer is gone. Try again.');
         }
         if (state === 'failed') {
-            if (!adopted) await m.remove(created.id);
+            await m.remove(created.id);
             await deleteNativeSecret(MACHINE_KEY);
-            throw new Error(adopted ? 'Your Boat computer failed. Try again.' : 'Your Boat computer failed, so muxr removed it. Try again.');
+            throw new Error('Your Boat computer failed, so muxr removed it. Try again.');
         }
         if (Date.now() > startDeadline) throw new Error('Boat is still starting your computer. Try again in a few minutes.');
         if (state === 'asleep') await m.wake();
