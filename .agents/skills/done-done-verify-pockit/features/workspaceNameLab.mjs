@@ -116,7 +116,15 @@ const emu = pwa ? undefined : await bootOwnedEmulator({
 const serial = emu?.serial;
 if (emu) log(`emulator ${serial}`);
 const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: 120_000 });
-const sh = (cmd) => adb('shell', cmd);
+// Under load the package service can drop a call (`Broken pipe`) for a while after boot or install.
+const sh = (cmd) => {
+    for (let attempt = 1; ; attempt += 1) {
+        try { return adb('shell', cmd); } catch (cause) {
+            if (attempt >= 6 || !/Broken pipe|Can't find service/.test(`${cause.stdout}${cause.stderr}`)) throw cause;
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15_000);
+        }
+    }
+};
 const dump = () => { sh('uiautomator dump /sdcard/d.xml >/dev/null'); return adb('exec-out', 'cat', '/sdcard/d.xml'); };
 const waitFor = async (re, seconds = 60) => {
     for (let i = 0; i < seconds; i += 2) { const xml = dump(); if (re.test(xml)) return xml; await sleep(2000); }
