@@ -24,7 +24,6 @@ On a release APK installed on the task-owned emulator, drive Pane actions → Co
 
 - Stand-in agents report lifecycle with `herdr pane report-agent --seq <n>`; seqs must rise, so use `date +%s%N` for both the stand-in and any control command or a late lower seq is ignored.
 - In the PWA lab, pair with `window.__MUXR_LAB_PAIR__(link)` (web export built with `EXPO_PUBLIC_MUXR_LAB_PAIR=1`); a reload mid-confirm aborts the flow, so do not reload during a run. At 270 dp tap the Live card, not the Spaces row, to open the agent.
-
 - Keep each lab host in the foreground with its own private `MUXR_HOME`; learn ports from the process that started each relay. Do not touch the owner's service, relay, Herdr session, or pairing data.
 - The preview may be long, so its sheet body must scroll to the Start and Cancel controls on the short viewport.
 - A target that starts but does not accept the prompt remains visible on that computer; report the cause and leave the source open. Do not retry into a duplicate target agent.
