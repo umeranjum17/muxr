@@ -3,9 +3,10 @@
  * call this, so a row, the terminal header and a notification say the same thing.
  *
  * Sources, first meaningful one wins:
- * 1. the pane label: a rename, or the agent's own `muxr name --pane`;
- * 2. the Herdr tab label, verbatim as Herdr's sidebar shows it, even when it is
- *    the agent's own name (a launcher names both alike);
+ * 1. the Herdr tab label, verbatim as Herdr's sidebar shows it, even when it is
+ *    the agent's own name (a launcher names both alike); Herdr's default bare
+ *    number names nothing;
+ * 2. the pane label: the agent's own `muxr name --pane`;
  * 3. the harness's own window title (Claude keeps its session topic there);
  * 4. Herdr title metadata, from a naming plugin;
  * 5. the task workspace's label, when that workspace holds only this agent.
@@ -159,8 +160,8 @@ export function agentTask(sources: AgentTaskSources): string | undefined {
     const noise = new Set([...PROGRAM_NAMES, ...[folder, sources.agentName, sources.agentKind].flatMap((value) => value ? [squash(value)] : [])]);
     // A bare number is Herdr's default tab label: it names no work.
     const tabLabel = sources.tabLabel?.trim();
-    return meaningful(sources.label, noise)
-        ?? (tabLabel && !/^\d+$/.test(tabLabel) ? tabLabel : undefined)
+    return (tabLabel && !/^\d+$/.test(tabLabel) ? tabLabel : undefined)
+        ?? meaningful(sources.label, noise)
         ?? meaningful(sources.terminalTitle, noise)
         ?? meaningful(sources.title, noise)
         ?? meaningful(sources.workspaceLabel, noise);

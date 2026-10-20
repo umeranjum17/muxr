@@ -25,7 +25,8 @@ function fakeHerdr(dir: string) {
         agent_status: 'idle',
         tokens: {},
     });
-    const panes = [pane('1', 'w2:t1'), pane('2', 'w2:t2'), pane('3', 'w2:t3')];
+    // A pane's own self-name gives way to its tab label.
+    const panes = [pane('1', 'w2:t1'), { ...pane('2', 'w2:t2'), label: 'Review the crewhouse office' }, pane('3', 'w2:t3')];
     const workspace = { workspace_id: 'w2', label: 'ssh-ed25519' };
     const tabs = [
         { tab_id: 'w2:t1', workspace_id: 'w2', label: 'fd-prompt-nosript' },

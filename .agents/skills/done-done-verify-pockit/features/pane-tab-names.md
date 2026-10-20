@@ -2,10 +2,10 @@
 
 After a restart Claude titles every pane with its first chat topic, so a desk
 of lead agents all read `Firstmate operational inbox message`. A pane is named
-by its own label first, then by its Herdr tab's label exactly as Herdr's
-sidebar shows it (even when the launcher gave the agent the same name), and by
-its terminal title only when the tab has no label (or Herdr's default bare
-number). The line under it says the agent and its state (`claude · Working`). A workspace whose label is
+by its Herdr tab's label first, exactly as Herdr's sidebar shows it (even when
+the launcher gave the agent the same name), then by its own pane label, and by
+its terminal title only when neither names it (a tab labelled with Herdr's
+default bare number names nothing). The line under it says the agent and its state (`claude · Working`). A workspace whose label is
 an SSH key's type word (`ssh-ed25519`, `ecdsa-…`, `sk-…`) goes by its panes'
 folder instead. The rule is `agentTask()` in
 `packages/contract/src/herd/domain/agentTask.ts`; the host drops the key-like
@@ -13,7 +13,7 @@ workspace label in `syncFromKit` (`herdrSessionSource.ts`).
 
 ## Sub-features
 
-- `pane-tab-name` an agent pane with no pane label leads with its tab label,
+- `pane-tab-name` an agent pane leads with its tab label,
   verbatim, on Home and the Panes screen, and its agent name (the same word)
   is not repeated under it.
 - `pane-title-fallback` a pane in a tab labelled with a bare number keeps its
