@@ -152,6 +152,8 @@ try {
     emulator = await bootOwnedEmulator({ name: 'mxts', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: ['nice', '-n', '10'] });
     serial = emulator.serial;
     say(`emulator ${serial} booted`);
+    // A reused AVD keeps the last run's display and text size; pair at the defaults.
+    await sh('wm size reset; wm density reset; settings put system font_scale 1.0; cmd uimode night no');
     stack = await startFakeStack({ panes: 9, agents: 6, titleChurnHz: 0 });
     say(`fake stack relay port ${stack.relayPort}`);
     const socketPath = join(stack.root, 'herdr', 'herdr.sock');
@@ -172,7 +174,9 @@ try {
         await sh(`wm size 1080x2376; wm density ${DENSITY[width]}; settings put system font_scale ${font}; cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
         await sh(`am force-stop ${PKG}`);
         await sh(`monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
-        await waitFor('connected Home', atHome, 120);
+        // A relaunch can restore the agent screen it left; back out to Home from there.
+        await waitFor('the app', (found) => has('connected')(found) || has('Back')(found), 120);
+        await toHome();
         await sleep(2000);
 
         await tapOn('Home card', (v) => /\. (Idle|Working|Done|Needs you)\b/.test(v));
