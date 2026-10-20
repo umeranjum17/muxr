@@ -377,7 +377,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
             setHomeRecoveryFeedback('Connection restored.');
         } catch {
             setSplitRetryFailed(true);
-            setHomeRecoveryFeedback(unavailableFeedback());
+            setHomeRecoveryFeedback(await unavailableFeedback());
         } finally {
             setRetryingHome(false);
         }

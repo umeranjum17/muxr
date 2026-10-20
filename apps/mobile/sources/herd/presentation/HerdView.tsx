@@ -198,7 +198,7 @@ export const HerdView = React.memo(({
             setRecoveryFeedback('Connection restored.');
         } catch {
             setRetryFailed(true);
-            setRecoveryFeedback(unavailableFeedback());
+            setRecoveryFeedback(await unavailableFeedback());
         } finally {
             setRetrying(false);
         }
