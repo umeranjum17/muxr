@@ -8,6 +8,8 @@ import { pairMachine } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
+import { sessionStopAfterHandoff } from '@/catalog/ops';
+import { Modal } from '@/modal';
 import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
 import { openPairedMachine } from '@/collaboration';
 import { SheetIcon } from '@/components/SheetIcon';
@@ -26,6 +28,31 @@ function mapHomePath(path: string | undefined, sourceHome: string | undefined, t
     const separator = targetHome.includes('\\') && !targetHome.includes('/') ? '\\' : '/';
     const target = targetHome.replace(/[/\\]+$/, '');
     return { cwd: `${target}${separator}${relative.replace(/[/\\]+/g, separator)}`, folder: `~/${relative.replace(/\\/g, '/')}` };
+}
+
+/** Close the source only while it is at rest (strict: isSessionIdle also counts blocked/failed). Returns a notice when it stays open. */
+async function retireSource(sessionId: string, sourceName: string): Promise<string | undefined> {
+    const kept = (why: string) => `${why} It is still open on ${sourceName}. Close it when you are done.`;
+    let refusal = 'You chose to keep it open.';
+    const atRest = async (): Promise<boolean> => {
+        const { agentStatus } = await sync.request('session.status', { sessionId });
+        if (agentStatus === 'idle' || agentStatus === 'done') return true;
+        refusal = agentStatus === undefined || agentStatus === 'unknown'
+            ? 'The agent there could not be checked, so it was not closed.'
+            : 'The agent there is not idle, so it was not closed.';
+        return false;
+    };
+    try {
+        if (!await atRest()) return kept(refusal);
+        const result = await sessionStopAfterHandoff(sessionId, {
+            confirmClose: async (prompt) => (await Modal.confirm(`${prompt.confirmText}?`, prompt.message, { cancelText: 'Cancel', confirmText: prompt.confirmText, destructive: true })) && atRest(),
+            confirmRetry: async (reason) => (await Modal.confirm('Could not close the agent', reason, { cancelText: 'Cancel', confirmText: 'Retry' })) && atRest(),
+        });
+        return result.status === 'closed' ? undefined : kept(refusal);
+    } catch (cause) {
+        if (typeof cause === 'object' && cause !== null && 'code' in cause && cause.code === 'agent-unavailable') return undefined;
+        return kept(`It could not be closed: ${message(cause)}`);
+    }
 }
 
 function message(cause: unknown): string {
@@ -137,6 +164,7 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
             setPicked({ grant: row.grant, name: row.name, note, cwd, folder });
             setPhase('preview');
         } catch (cause) {
+            if (generation.current !== current) return;
             setFailure(message(cause));
             setPhase('pick');
         }
@@ -148,6 +176,8 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
         setFailure(undefined);
         setCanRetry(true);
         let stage: 'connect' | 'start' | 'list' | 'prompt' | 'switch' = 'connect';
+        let notice: string | undefined;
+        const sourceName = sourceMachine?.metadata?.displayName ?? 'the previous computer';
         let client;
         try {
             client = await openPairedMachine(picked.grant);
@@ -171,24 +201,27 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
                 if (created === undefined) await new Promise((resolve) => setTimeout(resolve, 300));
             }
             if (!created) throw new Error('The new agent did not appear on the other computer.');
-            const header = `Continuing work from ${sourceMachine?.metadata?.displayName ?? 'the previous computer'}, folder ${folder}${folder === '~' ? ' (the other computer’s home folder)' : ''}. This computer may not have the same files; check first.\n\n`;
+            const header = `Continuing work from ${sourceName}, folder ${folder}${folder === '~' ? ' (the other computer’s home folder)' : ''}. This computer may not have the same files; check first.\n\n`;
             stage = 'prompt';
             await client.request('session.prompt', { sessionId: created.id, text: `${header}${picked.note}` }, PROMPT_TIMEOUT_MS);
+            // The target holds the note now; retire the source over the still-active source link, before the switch.
+            notice = await retireSource(sessionId, sourceName);
             stage = 'switch';
             const activated = await pairMachine({ grant: picked.grant });
             if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer.');
             await auth.login(activated.credential, activated.secretKey);
             onClose();
             navigateToSession(router, created.id);
+            if (notice !== undefined) Modal.alert(`Continued on ${picked.name}`, notice);
         } catch (cause) {
             const detail = message(cause);
             setFailure(stage === 'prompt'
-                ? `Started on ${picked.name}, but the note was not delivered: ${detail} The work is still on ${sourceMachine?.metadata?.displayName ?? 'this computer'}.`
+                ? `Started on ${picked.name}, but the note was not delivered: ${detail} The work is still on ${sourceName}.`
                 : stage === 'list'
                     ? `Started on ${picked.name}, but it did not appear in the computer's session list: ${detail} It may still be open there.`
                     : stage === 'switch'
-                    ? `The note was delivered on ${picked.name}, but the app could not switch computers: ${detail}`
-                    : `Couldn't start on ${picked.name}: ${detail} The work is still on ${sourceMachine?.metadata?.displayName ?? 'this computer'}.`);
+                    ? `The note was delivered on ${picked.name}, but the app could not switch computers: ${detail} ${notice ?? `It was closed on ${sourceName}.`}`
+                    : `Couldn't start on ${picked.name}: ${detail} The work is still on ${sourceName}.`);
             if (stage === 'list' || stage === 'prompt' || stage === 'switch') setCanRetry(false);
             setPhase('preview');
         } finally {
@@ -206,6 +239,7 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
             <Text style={{ color: '#fff', fontSize: 18, fontWeight: '600' }}>{phase === 'writing' ? 'Writing a handoff note…' : phase === 'starting' ? `Starting on ${picked?.name}…` : `Continue on ${picked?.name}`}</Text>
             {phase === 'preview' && <Text selectable style={{ color: '#ddd', fontSize: 15, lineHeight: 22 }}>{picked?.note}</Text>}
             {failure !== undefined && <Text accessibilityRole="alert" style={{ color: '#ff6961' }}>{failure}</Text>}
+            {phase === 'writing' && <Pressable onPress={onClose} accessibilityRole="button" style={{ minHeight: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#fff' }}>Cancel</Text></Pressable>}
             {phase === 'preview' && <View style={{ flexDirection: 'row', gap: 12 }}>
                 {canRetry
                     ? <Pressable onPress={() => void start()} accessibilityRole="button" style={{ flex: 1, minHeight: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#4b86f5' }}><Text style={{ color: '#fff', fontWeight: '600' }}>{`Start on ${picked?.name}`}</Text></Pressable>
