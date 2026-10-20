@@ -3,7 +3,7 @@
         {
             "appVersion": "0.2.6",
             "title": "Continue agents on another computer and set up a cloud computer",
-            "summary": "Since 0.2.5: continue an agent on another computer, set up a cloud computer from the phone, and see whether each computer is healthy or busy. Update the phone app and computer together.",
+            "summary": "Since 0.2.5: continue an agent on another computer, set up a cloud computer from the phone, and see whether each computer is healthy or busy.",
             "features": [
                 {
                     "title": "Continue an agent elsewhere",
@@ -16,20 +16,12 @@
                 {
                     "title": "Healthy or Busy on Home",
                     "detail": "Home says whether each computer is healthy or busy."
-                },
-                {
-                    "title": "Linux computer app download",
-                    "detail": "The Linux computer app is a download on the website."
                 }
             ],
             "fixes": [
                 {
                     "title": "Stalled computers recover",
                     "detail": "The phone reconnects on its own after a stall."
-                },
-                {
-                    "title": "Honest pairing codes",
-                    "detail": "An expired pairing code says it expired."
                 },
                 {
                     "title": "Home knows when you are offline",
@@ -44,8 +36,7 @@
                 }
             ],
             "knownLimits": [
-                "Update the phone app and computer together; mixed versions were not tested.",
-                "This is a candidate for acceptance. A successful build does not prove phone, microphone or desktop behaviour."
+                "Update the phone app and computer together; mixed versions were not tested."
             ]
         },
         {
