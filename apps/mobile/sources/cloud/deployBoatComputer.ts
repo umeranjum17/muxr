@@ -18,18 +18,10 @@ export type BoatSize = 'small' | 'default';
  * The published @trymuxr/cli every new Boat computer installs, as the registry tarball checked against its sha256 before install.
  * Bumped with the root package.json version once that version is on npm: the hash needs the published file (`npm view @trymuxr/cli@<v> dist.tarball`, then sha256sum it).
  */
-type CliSource = { url: string; sha256: string };
-const CLI_SOURCE: CliSource = {
-    url: 'https://registry.npmjs.org/@trymuxr/cli/-/cli-0.2.7.tgz',
-    sha256: 'ffa4b47f8028ff9c842e58b31b161624b223e7117e4e81f214b56c2cadcfe786',
-};
+const CLI_TARBALL_URL = 'https://registry.npmjs.org/@trymuxr/cli/-/cli-0.2.7.tgz';
+const CLI_TARBALL_SHA256 = 'ffa4b47f8028ff9c842e58b31b161624b223e7117e4e81f214b56c2cadcfe786';
 /** Fetch with the kit's node (22 has fetch), refuse a hash mismatch, then install the file. */
 const FETCH_TARBALL = `const c=require('crypto'),f=require('fs');fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error('download '+r.status);return r.arrayBuffer()}).then(b=>{const h=c.createHash('sha256').update(Buffer.from(b)).digest('hex');if(h!==process.argv[2])throw new Error('sha256 mismatch '+h);f.writeFileSync(process.argv[3],Buffer.from(b))})`;
-const installSteps = (source: CliSource): string[][] => [
-    ['mkdir', '-p', WORK_DIR],
-    ['node', '-e', FETCH_TARBALL, source.url, source.sha256, `${WORK_DIR}/cli.tgz`],
-    ['npm', 'install', '--global', '--prefix', `${WORK_DIR}/npm`, '--ignore-scripts', `${WORK_DIR}/cli.tgz`],
-];
 
 /** The muxr host as the kit installs it: the published CLI under the work dir, run by `muxr up` in self-host mode. */
 const RECIPE: HostRecipe = {
@@ -41,7 +33,11 @@ const RECIPE: HostRecipe = {
             'linux-arm64': 'a44aeb94849a299b22df10b9e622ec2f605c2183501bc40590705131de7c740f',
         },
     },
-    install: installSteps(CLI_SOURCE),
+    install: [
+        ['mkdir', '-p', WORK_DIR],
+        ['node', '-e', FETCH_TARBALL, CLI_TARBALL_URL, CLI_TARBALL_SHA256, `${WORK_DIR}/cli.tgz`],
+        ['npm', 'install', '--global', '--prefix', `${WORK_DIR}/npm`, '--ignore-scripts', `${WORK_DIR}/cli.tgz`],
+    ],
     run: { argv: ['node', `${WORK_DIR}/npm/bin/muxr`, 'up'], env: { MUXR_MODE: 'selfhost' } },
     workDir: WORK_DIR,
 };
