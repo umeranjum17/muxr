@@ -50,6 +50,7 @@ async function retireSource(sessionId: string, sourceName: string): Promise<stri
         });
         return result.status === 'closed' ? undefined : kept(refusal);
     } catch (cause) {
+        if (typeof cause === 'object' && cause !== null && 'code' in cause && cause.code === 'agent-unavailable') return undefined;
         return kept(`It could not be closed: ${message(cause)}`);
     }
 }
@@ -176,7 +177,7 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
         setCanRetry(true);
         let stage: 'connect' | 'start' | 'list' | 'prompt' | 'switch' = 'connect';
         let notice: string | undefined;
-        const sourceName = sourceMachine?.metadata?.displayName ?? 'this computer';
+        const sourceName = sourceMachine?.metadata?.displayName ?? 'the previous computer';
         let client;
         try {
             client = await openPairedMachine(picked.grant);
@@ -200,7 +201,7 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
                 if (created === undefined) await new Promise((resolve) => setTimeout(resolve, 300));
             }
             if (!created) throw new Error('The new agent did not appear on the other computer.');
-            const header = `Continuing work from ${sourceMachine?.metadata?.displayName ?? 'the previous computer'}, folder ${folder}${folder === '~' ? ' (the other computer’s home folder)' : ''}. This computer may not have the same files; check first.\n\n`;
+            const header = `Continuing work from ${sourceName}, folder ${folder}${folder === '~' ? ' (the other computer’s home folder)' : ''}. This computer may not have the same files; check first.\n\n`;
             stage = 'prompt';
             await client.request('session.prompt', { sessionId: created.id, text: `${header}${picked.note}` }, PROMPT_TIMEOUT_MS);
             // The target holds the note now; retire the source over the still-active source link, before the switch.
@@ -215,12 +216,12 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
         } catch (cause) {
             const detail = message(cause);
             setFailure(stage === 'prompt'
-                ? `Started on ${picked.name}, but the note was not delivered: ${detail} The work is still on ${sourceMachine?.metadata?.displayName ?? 'this computer'}.`
+                ? `Started on ${picked.name}, but the note was not delivered: ${detail} The work is still on ${sourceName}.`
                 : stage === 'list'
                     ? `Started on ${picked.name}, but it did not appear in the computer's session list: ${detail} It may still be open there.`
                     : stage === 'switch'
                     ? `The note was delivered on ${picked.name}, but the app could not switch computers: ${detail} ${notice ?? `It was closed on ${sourceName}.`}`
-                    : `Couldn't start on ${picked.name}: ${detail} The work is still on ${sourceMachine?.metadata?.displayName ?? 'this computer'}.`);
+                    : `Couldn't start on ${picked.name}: ${detail} The work is still on ${sourceName}.`);
             if (stage === 'list' || stage === 'prompt' || stage === 'switch') setCanRetry(false);
             setPhase('preview');
         } finally {
