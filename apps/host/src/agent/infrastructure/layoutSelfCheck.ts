@@ -175,8 +175,8 @@ async function demo(): Promise<void> {
         'kind mismatch does not adopt a published session onto the launch route');
     assert(herdrAgentIsPromptable({}, 'idle') === true
         && herdrAgentIsPromptable({ launch_pending: true }, 'idle') === false
-        && herdrAgentIsPromptable({ interactive_ready: false }, 'idle') === false,
-        'a kind that never reports interactive_ready is still promptable once idle');
+        && herdrAgentIsPromptable({ interactive_ready: false } as { launch_pending?: boolean }, 'idle') === true,
+        'a hand-started pane Herdr reports interactive_ready=false is still promptable once idle');
 
     const removed = routeStore.reconcile([sessionB]);
     const pelican = {
@@ -244,8 +244,8 @@ async function demo(): Promise<void> {
         && !herdrAgentIsPromptable({}, 'starting')
         && !herdrAgentIsPromptable({}, 'failed')
         && !herdrAgentIsPromptable({}, 'unknown')
-        && !herdrAgentIsPromptable({ interactive_ready: false, launch_pending: true }, 'idle'),
-        'omitted interactive_ready is promptable when idle/working/blocked/done, not when starting or explicitly unready',
+        && !herdrAgentIsPromptable({ launch_pending: true }, 'idle'),
+        'promptable when idle/working/blocked/done, not when starting or launch-pending',
     );
     pelican.interactive_ready = true;
     pelican.launch_pending = false;
