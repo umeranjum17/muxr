@@ -20,7 +20,7 @@
                 },
                 {
                     "title": "Usage report memory",
-                    "detail": "The computer reads usage only while the Usage screen is open, one run at a time, at low priority, and no longer rereads the Claude, Codex, OpenCode and Pi logs it already counts."
+                    "detail": "The computer counts usage only while the Usage screen is open, one run at a time, at low priority and off the main loop, with a 1 GB memory cap. Other screens no longer say the computer is busy after you open Usage, and the Pi tab finishes counting."
                 }
             ],
             "verification": [
