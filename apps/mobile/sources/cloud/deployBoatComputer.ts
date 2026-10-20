@@ -40,6 +40,12 @@ export type DeployStep =
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const loadRecord = async () => JSON.parse((await getNativeSecret(MACHINE_KEY)) ?? 'null');
+
+export async function pendingBoatSize(): Promise<BoatSize | undefined> {
+    return (await loadRecord())?.pending?.size;
+}
+
 type Offer = { offer: string; wordsFile: string };
 
 function parseOffer(text: string): Offer | undefined {
@@ -70,7 +76,7 @@ export async function deployBoatComputer(o: {
     });
     // One store per deploy: the kit caches the record it loaded under the store object, so a shared one would keep a cleared machine.
     const store: MachineStore = {
-        load: async () => JSON.parse((await getNativeSecret(MACHINE_KEY)) ?? 'null'),
+        load: loadRecord,
         save: (record) => setNativeSecret(MACHINE_KEY, JSON.stringify(record)),
     };
     const m = machine({ provider, store });
