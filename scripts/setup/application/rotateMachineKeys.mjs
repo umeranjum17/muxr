@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { hostId } from '@byokit/pair';
 import { error, flagValue, machineIdentity, print, run } from '../infrastructure/runtime.mjs';
 import { readSelfhostState, selfhostControlBase, selfhostCredential, selfhostRelayHealthy, writeSelfhostState } from '../infrastructure/selfhost.mjs';
-import { daemonIsRunning, runDaemon } from '../infrastructure/daemon.mjs';
+import { daemonState, runDaemon, scopedHomeRefusal } from '../infrastructure/daemon.mjs';
 import { hostEntry } from '../infrastructure/paths.mjs';
 import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
 
@@ -24,7 +24,7 @@ export async function rotateMachineKeys(args = []) {
             if (old.pendingRotation !== undefined) throw new Error('an old device-key rotation is unfinished; run `muxr doctor` first');
             if (state.relayLocation === 'remote') throw new Error('a remote relay pins this machine by its signing key; ask its owner for a fresh enrollment instead');
             const oldHost = hostId(Buffer.from(old.boxPublicKey, 'base64'));
-            const wasRunning = daemonIsRunning();
+            const wasRunning = scopedHomeRefusal() === undefined && daemonState() !== 'stopped';
             if (wasRunning && await runDaemon(['stop']) !== 0) throw new Error('could not stop the muxr service; machine keys were not rotated');
             const dataDir = flagValue(args, '--data-dir');
             const hostArgs = [hostEntry()];
