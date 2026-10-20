@@ -4,13 +4,13 @@
             "appVersion": "0.2.7",
             "title": "Prompts reach your own panes",
             "summary": "Since 0.2.6: the phone can message a Claude pane you started by hand.",
-            "features": [],
-            "fixes": [
+            "features": [
                 {
-                    "title": "No more timeout",
-                    "detail": "Sending to your own pane works."
+                    "title": "Send to your own panes",
+                    "detail": "Messaging a pane you started works."
                 }
             ],
+            "fixes": [],
             "verification": [
                 {
                     "title": "Checks",
