@@ -221,14 +221,15 @@ const openAgentAgain = async (what) => {
 };
 
 try {
-    // The journey installs the exact release build, on a fresh app data dir:
-    // an install over an existing app would keep a pairing to another computer.
-    if (apk === undefined) throw new Error('PHONE_APK must point at the release build to install');
-    try { adb('uninstall', PKG); } catch { /* the app was not installed yet */ }
-    adb('install', apk);
+    // With PHONE_APK the journey installs that release build on a fresh app data dir; without it the app already on the
+    // phone is driven as it is (an install over an existing app would keep a pairing to another computer, so it never runs).
+    if (apk !== undefined) {
+        try { adb('uninstall', PKG); } catch { /* the app was not installed yet */ }
+        adb('install', apk);
+    }
     const versionText = sh(`dumpsys package ${PKG} | grep versionName`).trim();
     installed = /versionName=([\d.]+)/.exec(versionText)?.[1] ?? 'unknown';
-    log(`installed ${versionText} from ${apk}`);
+    log(`${apk === undefined ? 'driving the installed app' : `installed from ${apk}`}: ${versionText}`);
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     mkdirSync(join(root, 'lab'), { recursive: true });
     lab = await linkHerdrLab(join(root, 'lab'), 'attach', undefined, (herdr) => {
