@@ -4,15 +4,28 @@
             "appVersion": "0.2.10",
             "title": "Panes open again after Herdr closes one",
             "summary": "Panes open again after Herdr closes one.",
-            "features": [],
-            "fixes": [
+            "features": [
                 {
-                    "title": "Panes always open",
+                    "title": "Herdr link recovery",
                     "detail": "The host restarts a stuck Herdr link by itself."
                 }
             ],
-            "verification": [],
-            "knownLimits": []
+            "fixes": [
+                {
+                    "title": "Panes always open",
+                    "detail": "A closed pane no longer blocks new ones."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Phone upgrade",
+                    "status": "passed",
+                    "detail": "0.2.9 to 0.2.10 kept pairing and settings."
+                }
+            ],
+            "knownLimits": [
+                "Update phone and computer together."
+            ]
         },
         {
             "appVersion": "0.2.9",
