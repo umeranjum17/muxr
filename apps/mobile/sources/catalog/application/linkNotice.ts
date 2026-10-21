@@ -8,7 +8,11 @@ import { storage } from './storage';
  * link through the same seal check. Only 'all' asked for general notices; the
  * host cannot see this device's level.
  */
-export async function receiveLinkNotice(payload: unknown): Promise<void> {
+export function receiveLinkNotice(payload: unknown): void {
+    void present(payload).catch(() => undefined);
+}
+
+async function present(payload: unknown): Promise<void> {
     if (storage.getState().localSettings.lifecycleNotificationLevel !== 'all' || !isSealedLifecyclePush(payload)) return;
     const notice = openLifecycleNotice(payload, await listPairedGrants());
     if (notice.data.kind !== 'notify') return;

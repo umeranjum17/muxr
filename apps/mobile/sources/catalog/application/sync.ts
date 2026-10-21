@@ -43,7 +43,6 @@ import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '
 // Its own entry, like wakeAndReport: it pulls in expo-notifications, which the barrel keeps out.
 import { alertAgent, dismissAgentAlert } from '@/watch/lifecycleAlert';
 import { promptAgent } from './promptAgent';
-import { receiveLinkNotice } from './linkNotice';
 import type { Settings } from './settings';
 import { lifecycleNotificationCopy } from '@/herd';
 
@@ -241,7 +240,8 @@ class MuxrSync {
         });
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
         client.onMachinesChanged?.(() => { void this.refreshCatalog().catch(() => undefined); });
-        client.onNotice?.((notice) => { void receiveLinkNotice(notice).catch(() => undefined); });
+        // Native only: the host sends link notices to apps with no push address, and web never loads this module.
+        if (Platform.OS !== 'web') client.onNotice = (notice) => (require('./linkNotice') as typeof import('./linkNotice')).receiveLinkNotice(notice);
         client.onStateChange((state) => {
             recordSocketState(state, client.isLive());
             storage.getState().setSocketStatus(socketStatusFromClient(state));
