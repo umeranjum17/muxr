@@ -12,6 +12,12 @@ one. Claude Code's and pi's own hints need Ctrl+End, which the key row cannot
 send, so they get the pill beside the hint. OpenCode's pill sends its own End
 key and Claude Code's its own Ctrl+End instead of muxr turning their wheel.
 
+On Android a Claude Code pane also keeps a phone-side copy of the output the
+phone has seen since it attached: a drag or fling back through it scrolls that
+copy natively, with no round trip, and Latest, typing or reaching its bottom
+shows the live pane again. Only older output than that copy holds goes to the
+program's wheel.
+
 ## Sub-features
 
 - `latest-drag` a slow drag back moves the text about as far as the finger, not two or three times further, and stops when the finger does: no crawl after it lifts.
@@ -19,6 +25,7 @@ key and Claude Code's its own Ctrl+End instead of muxr turning their wheel.
 - `latest-pill` once scrolled back, the pill reads `Latest` (accessibility label `Jump to latest output`); none in Codex, whose `Back to bottom` is esc on the key row.
 - `latest-reach` tapping it lands on the newest line, and the pill goes away.
 - `latest-streaming` the same while the agent is still printing: the pane lands on the live edge and keeps following new lines; the pill does not stay on `Still catching up`.
+- `latest-local` (Android, Claude Code) a drag back through output the phone already showed moves with the finger at the display rate; a fling covers hundreds of rows and stops at the oldest row the phone holds.
 - `latest-split` all of the above with the app in half of a split screen (iPad Split View, Android split screen).
 
 ## How to get to it (user POV)
@@ -80,6 +87,12 @@ a `stream` a few seconds before the drag covers it while Claude prints.
   the time the finger lifted, then crawled on for seconds; while Claude printed
   it did not leave the live edge until the finger had stopped. Latest turned
   the wheel and stopped 17-23 rows short of the newest line.
+- The phone-side copy holds only what reached the phone: output that streams
+  past faster than the host sends screens (`STUB_LPS=100`) leaves holes, and
+  the copy joins the pieces with no break. Count rows across the whole screen
+  (`MARK-977..984` then `MARK-1154`), not from the top row alone.
+- An emulator presents 2-4 frames a second for any app here: compare fps and
+  settle against a reference app on the same emulator, never against 60 fps.
 - On iOS, a `muxr://` link opened by the system goes to whichever muxr app
   claims the scheme; launch the payload against the exact bundle id instead.
 - The lab never prints the pairing offer to its logs; keep it that way.
