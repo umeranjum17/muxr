@@ -203,11 +203,14 @@ try {
         throw new Error('window and package services never answered');
     };
     await servicesUp();
+    // The google_apis image runs Play's verifier on every adb install, which stalls a large APK.
+    sh('settings put global verifier_verify_adb_installs 0; settings put global package_verifier_enable 0');
     // Each buildPrApk run signs with its own throwaway key: a kept AVD may hold another build.
     try { adb('uninstall', PKG); } catch { /* not installed */ }
     for (let attempt = 1; ; attempt += 1) {
         try {
-            execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 300_000 });
+            log(`install: ${execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 300_000 }).trim().split('\n').pop()}`);
+            if (!/package:/.test(sh(`pm path ${PKG}`))) throw new Error(`${PKG} not installed after install returned`);
             break;
         } catch (cause) {
             if (attempt >= 2) throw cause;
@@ -255,6 +258,7 @@ try {
     log(`phone shows: ${[...shown].sort().join(', ') || 'none of the watched words'}`);
     finished = true;
 } finally {
+    if (emu && !finished) try { writeFileSync(join(evidence, 'logcat.txt'), adb('logcat', '-d', '-v', 'time', '-t', '4000')); } catch { /* emulator gone */ }
     if (emu) try { sh('wm size reset'); sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
     offering?.destroy();
     await lab?.stop();
