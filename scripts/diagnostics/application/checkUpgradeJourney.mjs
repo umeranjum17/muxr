@@ -23,6 +23,7 @@ const toApk = process.env.UPGRADE_TO_APK;
 if (!fromApk || !toApk) throw new Error('UPGRADE_FROM_APK and UPGRADE_TO_APK must name the two release APKs');
 if (!existsSync(fromApk) || !existsSync(toApk)) throw new Error('both APKs must exist on disk');
 
+process.env.MUXR_LAB_MACHINE_NAME ??= 'Umer lab computer';
 const { linkHerdrLab } = await import(join(repo, 'scripts/diagnostics/application/linkHerdrLab.mjs'));
 const PKG = 'com.trymuxr.app';
 const LAB_AGENT = 'umer-lab';
