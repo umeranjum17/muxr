@@ -38,7 +38,7 @@ behaviour it claims to cover and watch it go red.
 ## Naming
 
 - A manual rename goes to Herdr through the host's `herdr.rename` (`apps/mobile/sources/herd/application/renameInHerdr.ts`), never a name kept on the phone: Herdr owns every name, so all clients and the naming plugin agree. An agent's name is Herdr's handle (a–z, 0–9, `-`, `_`, 32 max).
-- Every surface leads with what an agent is working on and says who under it (`pi · zulu-2 · Working`), except a lifecycle alert's title, which leads with the name (`agentAlertTitle()`) because the shade cuts it from the end: `agentLabels()` in `apps/mobile/sources/herd/domain/agentPresentation.ts`, with `agentWhoLine()` / `agentBesideName()` for the name. The task comes from `agentTask()` in `packages/contract/src/herd/domain/agentTask.ts`, which the host uses too (the Herdr tab label verbatim, then the pane label, then the harness's window title, then Herdr title metadata, then a sole-agent task workspace label, else the name). It drops sources other than the tab label that only name the folder, repo, program or agent; extend that filter rather than demoting the task again, which is how every agent once read as its name.
+- Every surface leads with what an agent is working on and says who under it (`pi · zulu-2 · Working`), except a lifecycle alert's title, which leads with the name (`agentAlertTitle()`) because the shade cuts it from the end: `agentLabels()` in `apps/mobile/sources/herd/domain/agentPresentation.ts`, with `agentWhoLine()` / `agentBesideName()` for the name. The task comes from `agentTask()` in `packages/contract/src/herd/domain/agentTask.ts`, which the host uses too (Herdr title metadata, which the task-titles plugin owns, then the Herdr tab label in words via `labelWords()`, then the pane label, then the harness's window title, then a sole-agent task workspace label, else the name in words). It drops sources other than the tab label that only name the folder, repo, program or agent, or Claude's title from a Firstmate doorbell; extend that filter rather than demoting the task again, which is how every agent once read as its name.
 
 ## Terminal
 
@@ -82,6 +82,8 @@ muxr name --workspace 'short-task-slug' \
 - `HERDR_PANE_ID` binds the request to the current pane; `muxr name` calls the
   Herdr CLI directly and resolves workspace membership from Herdr, so it needs
   no running muxr host.
+- A workspace that holds other tabs is shared and keeps its name; only a
+  workspace the agent has to itself is renamed.
 - Names are used verbatim within bounded limits. Provider/model attribution is
   read from Herdr pane metadata; there is no competing JSON state file.
 - See `scripts/naming/`.

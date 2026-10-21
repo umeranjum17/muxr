@@ -1502,9 +1502,7 @@ export async function createHerdrSessionSource(
         for (const ws of snap.workspaces) {
             const workspace: WorkspaceRecord = {
                 workspace_id: ws.id,
-                // An SSH public key's type word (`ssh-ed25519`) has landed here as a
-                // label. It names nothing, so clients fall back to the panes' folder.
-                ...(/^(ssh-|ecdsa-|sk-)/.test(ws.label ?? '') ? {} : { label: ws.label }),
+                label: ws.label,
                 focused: ws.focused,
                 number: ws.number,
             };
