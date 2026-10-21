@@ -52,6 +52,7 @@ export type SessionClient = {
     onEvent(listener: (sessionId: string, event: SessionEvent) => void): () => void;
     onPluginsInvalidated(listener: (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void): () => void;
     onMachinesChanged(listener: () => void): () => void;
+    onNotice(listener: (notice: unknown) => void): () => void;
     registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
     unregisterPush(): Promise<boolean>;
     terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
@@ -140,6 +141,7 @@ export class LinkFirstClient implements SessionClient {
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
     private readonly pluginListeners = new Set<(frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void>();
     private readonly machinesListeners = new Set<() => void>();
+    private readonly noticeListeners = new Set<(notice: unknown) => void>();
     private desktopTransport: DesktopLinkTransport | undefined;
     private desktopOpening: Promise<DesktopLinkTransport | undefined> | undefined;
 
@@ -449,6 +451,11 @@ export class LinkFirstClient implements SessionClient {
         return () => { this.machinesListeners.delete(listener); };
     }
 
+    onNotice(listener: (notice: unknown) => void): () => void {
+        this.noticeListeners.add(listener);
+        return () => { this.noticeListeners.delete(listener); };
+    }
+
     async registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean> {
         this.lastPush = { token, level };
         if (this.link === undefined || !this.online) return false;
@@ -608,6 +615,9 @@ export class LinkFirstClient implements SessionClient {
         }
         if (frame.type === 'machines.changed') {
             for (const listener of this.machinesListeners) listener();
+        }
+        if (frame.type === 'notice') {
+            for (const listener of this.noticeListeners) listener(frame.notice);
         }
     }
 

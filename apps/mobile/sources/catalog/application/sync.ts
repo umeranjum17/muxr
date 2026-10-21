@@ -27,7 +27,7 @@ import {
     loadConnectionSettingsAsync,
     sshTunnelAvailable,
 } from '@/connection';
-import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
+import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant, listPairedGrants } from '@/pairing/e2ee';
 import { storage } from './storage';
 import { saveHomeSnapshot, hasLegacySpacePins, migrateSpacePins } from './persistence';
 import { spawnerOf, workspaceNames } from '@/herd/tree';
@@ -41,7 +41,7 @@ import { agentAlertTitle, type HerdrTreePane, type SessionInfo } from '@trymuxr/
 import { agentLabels } from '@/herd/labels';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 // Its own entry, like wakeAndReport: it pulls in expo-notifications, which the barrel keeps out.
-import { alertAgent, dismissAgentAlert } from '@/watch/lifecycleAlert';
+import { alertAgent, alertLinkNotice, dismissAgentAlert } from '@/watch/lifecycleAlert';
 import { promptAgent } from './promptAgent';
 import type { Settings } from './settings';
 import { lifecycleNotificationCopy } from '@/herd';
@@ -240,6 +240,11 @@ class MuxrSync {
         });
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
         client.onMachinesChanged?.(() => { void this.refreshCatalog().catch(() => undefined); });
+        // Only 'all' asked for general notices; the host cannot see this device's level.
+        client.onNotice?.((notice) => {
+            if (storage.getState().localSettings.lifecycleNotificationLevel !== 'all') return;
+            void listPairedGrants().then((grants) => alertLinkNotice(notice, grants)).catch(() => undefined);
+        });
         client.onStateChange((state) => {
             recordSocketState(state, client.isLive());
             storage.getState().setSocketStatus(socketStatusFromClient(state));

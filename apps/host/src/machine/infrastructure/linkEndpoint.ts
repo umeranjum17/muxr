@@ -478,27 +478,38 @@ export class LinkEndpoint {
      * Fan one general notification out to the trusted link devices whose owner
      * asked for every notification, on the same relay push path as lifecycle
      * notices. The relay and push provider see only generic text and
-     * ciphertext; title, body and link stay inside the seal. Returns the
-     * number of devices fanned out to.
+     * ciphertext; title, body and link stay inside the seal. A connected
+     * native app with no push address (Android has no remote push) gets the
+     * same sealed notice over its link instead and raises it itself when its
+     * owner asked for every notification. Returns the number of devices
+     * fanned out to.
      */
     notifyGeneral(input: GeneralNoticeInput): number {
         if (this.client === undefined) return 0;
         const crypto = this.currentCrypto();
-        const recipients = this.host.devices().filter((grant) => {
-            if (!trusted(grant, crypto)) return false;
+        const recipients = this.host.devices().flatMap((grant) => {
+            if (!trusted(grant, crypto)) return [];
+            const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
             // A general notice is nobody's attention: only 'all' wants it, and
             // only a subscribed device has a relay address at all.
-            const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
-            return device?.pushLevel === 'all';
+            if (device?.pushLevel === 'all') return [{ grant, live: false }];
+            // ponytail: live-only delivery reaches a phone only while its link is up; Android FCM would lift that.
+            if (device !== undefined && device.pushLevel === undefined && device.kind === undefined && grant.online) return [{ grant, live: true }];
+            return [];
         });
         if (recipients.length === 0) return 0;
         const notice = (url: string | undefined) => generalNoticeEnvelope(
             url === undefined ? { title: input.title, body: input.body, id: input.id, machineId: input.machineId } : { ...input, url });
-        for (const grant of recipients) {
+        for (const { grant, live } of recipients) {
             const key = Buffer.from(grant.key, 'base64url');
             let sealed = sealNotice(notice(input.url), key);
             // The relay refuses push data over 2 KB; a long link gives way.
             if (JSON.stringify(sealed).length > SEALED_NOTICE_MAX) sealed = sealNotice(notice(undefined), key);
+            if (live) {
+                this.host.broadcast({ type: 'notice', notice: { title: 'muxr', body: 'You have a new notification.', data: sealed } } satisfies HostFrame,
+                    (to) => to.id === grant.id);
+                continue;
+            }
             void this.client.notify({
                 id: createHash('sha256').update(JSON.stringify([input.id, grant.id])).digest('hex'),
                 title: 'muxr',

@@ -12,7 +12,7 @@ import { startHost } from './host.js';
 import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
 import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, fileRelayClientStore, hostPlatformLabel, LinkEndpoint, writeSelfhostCrypto } from './machine/index.js';
-import { HostDiagnosticsJournal } from './diagnostics/index.js';
+import { HostDiagnosticsJournal, type DiagnosticRelayState } from './diagnostics/index.js';
 import { liveDefaultStartFolder, muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
 import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
 
@@ -242,6 +242,8 @@ function readAuthStates() {
 // The default comes from the passwd entry (os.userInfo ignores $HOME), so a
 // lab that already redirected $HOME may still name $HOME/.muxr.
 const fake = process.argv.includes('--fake');
+/** Link relay status in the diagnostics journal's words; anything else is closed. */
+const RELAY_DIAGNOSTIC_STATE: Partial<Record<string, DiagnosticRelayState>> = { online: 'open', replaced: 'replaced', connecting: 'connecting' };
 if (fake || process.env.MUXR_PACKAGED !== '1') {
     const muxrHome = env('MUXR_HOME');
     let ownerDefault: string | undefined;
@@ -661,6 +663,7 @@ async function main(): Promise<void> {
                         onStatus: (status) => {
                             linkOnline = status === 'online';
                             process.stdout.write(`link relay: ${status}\n`);
+                            diagnostics?.relay(RELAY_DIAGNOSTIC_STATE[status] ?? 'closed');
                             if (status === 'online') onlineSince = Date.now();
                             if (status === 'replaced') {
                                 if (Date.now() - onlineSince > REPLACED_MAX_MS) replacedTimes = 0;

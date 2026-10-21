@@ -17,6 +17,9 @@ one, and the answer counts devices fanned out to, not confirmed deliveries.
   a non-JSON body answers 400 with a one-line reason.
 - `notify-level` a device registered at level `all` is counted; `important`,
   `off`, and a device that unsubscribed are not.
+- `notify-android-link` an Android app (no push address) that is connected is
+  counted and sent the sealed notice as a `notice` link frame; it raises a local
+  alert only when its level is all, and a disconnected one is not counted.
 - `notify-loopback` the route is answered on 127.0.0.1 only, and rides the
   artifact download listener rather than opening a second server.
 - `notify-web-tap` a web/PWA tap on a delivered notice opens the link the sealed
@@ -75,6 +78,8 @@ and the tap lands on `/`. The tap must be the browser notification's activation
 
 - `delivered_to` is fan-out, not delivery: it counts the devices the host sealed
   for, so a `202` with `0` is the normal answer when nobody is set to **all**.
+  A connected Android app is counted whatever its level (the host cannot see
+  it); the app drops the notice unless it is set to all.
 - The relay treats a push id as an at-most-once key, and the host derives it from
   your `id`, so the same `id` twice notifies a device once.
 - A sealed notice wider than the relay's 2 KB push data budget drops the link
