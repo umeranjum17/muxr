@@ -19,3 +19,9 @@ journeys:
   suite:
     command: yarn run check > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}.log 2>&1
     timeout: 30m
+  # Real lab Herdr and the host's Herdr client: an agent pane that closes
+  # mid-watch must not wedge the tree read every terminal attach waits on.
+  # Needs HERDR_LAB_HELPER and a built apps/host/dist.
+  herdr-wedge:
+    command: node scripts/diagnostics/application/checkHerdrVanishedWatch.mjs > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}.log 2>&1
+    timeout: 5m
