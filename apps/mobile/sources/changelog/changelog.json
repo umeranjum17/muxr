@@ -1,6 +1,20 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.10",
+            "title": "Panes open again after Herdr closes one",
+            "summary": "Panes open again after Herdr closes one.",
+            "features": [],
+            "fixes": [
+                {
+                    "title": "Panes always open",
+                    "detail": "The host restarts a stuck Herdr link by itself."
+                }
+            ],
+            "verification": [],
+            "knownLimits": []
+        },
+        {
             "appVersion": "0.2.9",
             "title": "A second host no longer replaces the first",
             "summary": "Since 0.2.8: opening Usage can no longer start a second host that replaces the one you are using, and muxr up fails loudly when it runs out of restarts.",
