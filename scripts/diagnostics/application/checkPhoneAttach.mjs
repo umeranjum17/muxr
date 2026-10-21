@@ -177,6 +177,7 @@ const mintNativePairing = (socketPath) => new Promise((resolve, reject) => {
 
 let lab;
 let verdict = 'not reached';
+let installed = 'unknown';
 // The host logs one line per terminal stream it really attached.
 const attaches = () => (lab?.hostOutput().match(/link: terminal stream attached/g) ?? []).length;
 
@@ -225,7 +226,9 @@ try {
     if (apk === undefined) throw new Error('PHONE_APK must point at the release build to install');
     try { adb('uninstall', PKG); } catch { /* the app was not installed yet */ }
     adb('install', apk);
-    log(`installed ${sh(`dumpsys package ${PKG} | grep versionName`).trim()} from ${apk}`);
+    const versionText = sh(`dumpsys package ${PKG} | grep versionName`).trim();
+    installed = /versionName=([\d.]+)/.exec(versionText)?.[1] ?? 'unknown';
+    log(`installed ${versionText} from ${apk}`);
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     mkdirSync(join(root, 'lab'), { recursive: true });
     lab = await linkHerdrLab(join(root, 'lab'), 'attach', undefined, (herdr) => {
@@ -339,6 +342,13 @@ try {
     await recordOff('journey over');
     record();
     log(`verdict: ${verdict}`);
+    // done-done's step record: what a user did and what they saw, from the verdict this run reached.
+    writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
+        target: { version: installed },
+        start: 'the release app freshly installed on the phone, not yet paired, with a lab computer running two agent panes',
+        steps: ['pair the phone to the lab computer', 'open an agent', 'close agent panes and attach again through pane churn', 'type a command at the agent'],
+        result: verdict.startsWith('pass') ? 'the phone attached after every round of pane churn and the typed command printed its output on a clean screen' : verdict,
+    }, null, 2)}\n`);
     if (lab) writeFileSync(join(evidence, 'host.log'), lab.hostOutput()
         .replace(/pairing string[^\n]*/g, '<pairing>').replace(/muxr:\/\/pair#\S*/g, '<offer>'));
     offering?.destroy();
