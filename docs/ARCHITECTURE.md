@@ -272,7 +272,10 @@ event kind and machine/session scope stay inside the sealed notice; the relay an
 alert text and ciphertext. A general notification from the host's
 `POST /v1/notify` is sealed the same way, with its title, body and link inside
 the envelope; [Self-hosting](SELF-HOSTING.md#sending-a-notification-to-your-devices)
-owns how a tool on the computer sends one. Clients open notices with stored
+owns how a tool on the computer sends one. A native app with no push address
+(Android has no remote push) is sent the same sealed notice as a `notice` frame
+over its live link and raises it locally; it gets nothing while disconnected.
+Clients open notices with stored
 paired grants and fall back to generic text when opening fails. The browser service worker reads
 paired grants through `pairing/infrastructure/webSecureStore.ts` to open notices;
 approval still runs in the app over the authenticated link. Native pre-display

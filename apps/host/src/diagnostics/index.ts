@@ -4,4 +4,5 @@ export {
     type DiagnosticClientRejectOutcome,
     type DiagnosticOutcome,
     type DiagnosticPeerIngressOutcome,
+    type DiagnosticRelayState,
 } from './infrastructure/journal.js';
