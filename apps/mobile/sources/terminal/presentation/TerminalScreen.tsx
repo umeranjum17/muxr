@@ -790,7 +790,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const chatShown = paneView === 'chat';
     const choosePaneView = React.useCallback((view: 'chat' | 'terminal') => setPaneViews(rememberPaneView(paneViews, props.id, view)), [paneViews, props.id, setPaneViews]);
     const chat = useChat(props.id, chatShown && isFocused);
-    const lightApp = !useUnistyles().theme.dark;
     const latestShown = showJump || (hostHasScrollback === false && scrolledAway && !DRAWS_OWN_LATEST.has(paneKind ?? ''));
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (next) => setAppActive(next === 'active'));
@@ -1371,7 +1370,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const linkUnproven = returnStale || shownStatus !== 'live';
     const headerLifecycleLabel = linkUnproven || headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
     return (
-        <ScopedTheme name={chatShown && lightApp ? 'light' : 'dark'}><DarkSurface>{(theme) => {
+        <ScopedTheme name="dark"><DarkSurface>{(theme) => {
             if (sessionError !== undefined) return <TerminalFailure message={sessionError} onHome={() => router.replace('/')} />;
             const headerStatus = agentStatusColor(headerLifecycle, theme);
             const tabPanes = currentTab?.panes ?? [];
@@ -1381,7 +1380,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const showConnectingStatus = gestureHint === null && (shownStatus === 'connecting' || shownStatus === 'reconnecting');
             const showRetryStatus = shownStatus !== 'live' && gestureHint === null && !showConnectingStatus && shownStatus !== 'unconfirmed';
             const showUnconfirmedStatus = shownStatus === 'unconfirmed' && gestureHint === null;
-            // The chat reads as the app's own screen, in the app's own theme; the terminal keeps its near-black.
+            // The chat sits in the screen's own dark scope. Switching the scope under a screen that is already mounted
+            // leaves its parts on the old theme (unistyles keeps each hook's first scope), so a light chat came out half black.
             const railInk = chatShown ? theme.colors.header.background : theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'];
             // Settings can put away the pane tabs at one pane and the key row
             // altogether; the rail's top air stays with whatever row is first.

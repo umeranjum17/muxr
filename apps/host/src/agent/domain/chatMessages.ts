@@ -8,7 +8,7 @@ export const CHAT_TEXT_MAX = 20_000;
 export const CHAT_MESSAGES_MAX = 120;
 
 /** Claude Code writes its own bookkeeping into the user turn; none of it is something the person said. */
-const NOT_SPOKEN = /^\s*<(command-name|command-message|command-args|local-command-stdout|local-command-caveat|system-reminder|bash-input|bash-stdout|bash-stderr)\b/;
+const NOT_SPOKEN = /^\s*(?:<(?:command-name|command-message|command-args|local-command-stdout|local-command-caveat|system-reminder|bash-input|bash-stdout|bash-stderr)\b|\[Request interrupted by user)/;
 
 interface Block { type?: unknown; text?: unknown }
 
@@ -35,6 +35,9 @@ function parseLine(harness: ChatHarness, line: string): (ChatMessage & { group: 
     const message = entry.message as { id?: unknown; role?: unknown; content?: unknown; timestamp?: unknown } | undefined;
     if (typeof message !== 'object' || message === null) return undefined;
     if (harness === 'claude' && (entry.isSidechain === true || entry.isMeta === true)) return undefined;
+    // A turn Claude Code raises itself (a finished background task) names its origin; a person's own says `human`.
+    const origin = entry.origin as { kind?: unknown } | undefined;
+    if (harness === 'claude' && typeof origin?.kind === 'string' && origin.kind !== 'human') return undefined;
     if (harness === 'pi' && entry.type !== 'message') return undefined;
     const role = message.role;
     if (role !== 'user' && role !== 'assistant') return undefined;

@@ -90,7 +90,7 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
             <ScrollView
                 ref={list}
                 style={{ flex: 1 }}
-                contentContainerStyle={{ flexGrow: 1, justifyContent: messages.length === 0 ? 'center' : 'flex-end', gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 8 }}
+                contentContainerStyle={{ flexGrow: 1, width: '100%', maxWidth: 640, alignSelf: 'center', justifyContent: messages.length === 0 ? 'center' : 'flex-end', gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 8 }}
                 keyboardShouldPersistTaps="handled"
                 onScroll={(event) => {
                     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
