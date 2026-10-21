@@ -122,13 +122,15 @@ const quietHost = async () => {
         await sleep(30_000);
     }
 };
-if (!pwa) await quietHost();
-const emu = pwa ? undefined : await bootOwnedEmulator({
+// MUXR_LAB_SERIAL names a held test phone instead: its own display settings stay as they are.
+const phone = process.env.MUXR_LAB_SERIAL;
+if (!pwa && !phone) await quietHost();
+const emu = pwa || phone ? undefined : await bootOwnedEmulator({
     name: 'mxwl', avdHome: process.env.AVD_HOME ?? join(root, 'avd'), memoryMb: 4096, extraArgs: ['-no-snapshot-load'],
     systemImage: 'system-images;android-35;google_apis;x86_64', launcher: ['nice', '-n', '10'],
 });
-const serial = emu?.serial;
-if (emu) log(`emulator ${serial}`);
+const serial = phone ?? emu?.serial;
+if (serial) log(`${phone ? 'phone' : 'emulator'} ${serial}`);
 // Every adb step gets 5 min; a step that stalls that long fails the run instead of retrying.
 const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: 300_000 });
 // Under load the system server can drop (`Broken pipe`) or stall a call for a while after boot or install.
@@ -205,7 +207,7 @@ try {
     };
     await servicesUp();
     // The google_apis image runs Play's verifier on every adb install, which stalls a large APK.
-    sh('settings put global verifier_verify_adb_installs 0; settings put global package_verifier_enable 0');
+    if (emu) sh('settings put global verifier_verify_adb_installs 0; settings put global package_verifier_enable 0');
     // Each buildPrApk run signs with its own throwaway key: a kept AVD may hold another build.
     try { adb('uninstall', PKG); } catch { /* not installed */ }
     for (let attempt = 1; ; attempt += 1) {
@@ -221,10 +223,12 @@ try {
     }
     await servicesUp();
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
-    sh(`pm clear ${PKG}`);
+    // The uninstall above already cleared it; the OnePlus test phone refuses `pm clear` to shell.
+    if (emu) sh(`pm clear ${PKG}`);
     adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
+    if (phone) sh('input keyevent KEYCODE_WAKEUP');
     // The emulator keeps its default window size: `wm size` stalled the system server for 29 min.
-    sh('wm density 440'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no');
+    if (emu) { sh('wm density 440'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); }
     const offer = await mintPairing(join(root, 'lab', 'host', 'pair.sock'), { kind: 'native', authority: 'control', personal: false });
     sh(`am start -W -n ${activity}`);
     await sleep(4000);
@@ -252,7 +256,8 @@ try {
         }
         log(`captured ${name}`);
     };
-    for (const [width, density, font, theme] of [['393', 440, '1.0', 'light'], ['270', 640, '2.0', 'light'], ['270', 640, '2.0', 'dark']]) {
+    if (phone) for (const screen of ['home', 'panes']) await capture(`${screen}-phone`, screen);
+    for (const [width, density, font, theme] of emu ? [['393', 440, '1.0', 'light'], ['270', 640, '2.0', 'light'], ['270', 640, '2.0', 'dark']] : []) {
         sh(`wm density ${density}`); sh(`settings put system font_scale ${font}`);
         sh(`cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
         for (const screen of ['home', 'panes']) await capture(`${screen}-${width}-${font}-${theme}`, screen);
@@ -260,8 +265,9 @@ try {
     log(`phone shows: ${[...shown].sort().join(', ') || 'none of the watched words'}`);
     finished = true;
 } finally {
-    if (emu && !finished) try { writeFileSync(join(evidence, 'logcat.txt'), adb('logcat', '-d', '-v', 'time', '-t', '4000')); } catch { /* emulator gone */ }
+    if (serial && !finished) try { writeFileSync(join(evidence, 'logcat.txt'), adb('logcat', '-d', '-v', 'time', '-t', '4000')); } catch { /* emulator gone */ }
     if (emu) try { sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
+    if (phone) try { adb('reverse', '--remove', `tcp:${lab.port}`); sh(`am force-stop ${PKG}`); } catch { /* unplugged */ }
     offering?.destroy();
     await lab?.stop();
     if (emu) try { execFileSync('adb', ['-s', serial, 'emu', 'kill'], { timeout: 30_000 }); } catch { /* already gone */ }
