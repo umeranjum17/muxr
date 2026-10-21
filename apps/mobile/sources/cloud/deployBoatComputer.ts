@@ -19,8 +19,8 @@ export type BoatSize = 'small' | 'default';
  * The published @trymuxr/cli every new Boat computer installs, as the registry tarball checked against its sha256 before install.
  * Bumped with the root package.json version once that version is on npm: the hash needs the published file (`npm view @trymuxr/cli@<v> dist.tarball`, then sha256sum it).
  */
-const CLI_TARBALL_URL = 'https://registry.npmjs.org/@trymuxr/cli/-/cli-0.2.7.tgz';
-const CLI_TARBALL_SHA256 = 'ffa4b47f8028ff9c842e58b31b161624b223e7117e4e81f214b56c2cadcfe786';
+const CLI_TARBALL_URL = 'https://registry.npmjs.org/@trymuxr/cli/-/cli-0.2.9.tgz';
+const CLI_TARBALL_SHA256 = 'aeeb5d01bb223e21c67f45ba8fdafc433bd5f051d2d0a7628f4b1545421c32f4';
 /** Fetch with the kit's node (22 has fetch), refuse a hash mismatch, then install the file. */
 const FETCH_TARBALL = `const c=require('crypto'),f=require('fs');fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error('download '+r.status);return r.arrayBuffer()}).then(b=>{const h=c.createHash('sha256').update(Buffer.from(b)).digest('hex');if(h!==process.argv[2])throw new Error('sha256 mismatch '+h);f.writeFileSync(process.argv[3],Buffer.from(b))})`;
 
