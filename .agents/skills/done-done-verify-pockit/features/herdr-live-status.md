@@ -8,6 +8,7 @@ the host opening sockets of its own.
 ## Sub-features
 
 - A new workspace or pane appears in the host's tree without a restart.
+- A status push reuses the tree the kit supplies with its notification; the host does not synchronously clone that whole tree again while indexing the push.
 - An agent's status changes (working, blocked, idle) land within a second.
 - The host holds one Herdr socket with no agents, plus exactly one per agent
   (the kit's status watch), and drops it when the pane closes.
@@ -62,6 +63,7 @@ Preconditions: a built host (`yarn build`) and the guarded lab helper
    that leaves no workspace, then `PASS herdrStartLab`.
 8. SIGTERM the status probe (it disposes the source), then teardown; teardown
    must exit 0.
+9. Run `npx vitest run apps/host/src/agent/infrastructure/herdrSessionSource.dupEmit.test.ts` for the real-kit/socket-fixture feed flow: animated title ticks stay quiet, a real metadata change publishes once, and a status push reaches the source without a redundant in-notification tree snapshot. Revert `syncFromKit(snapshot)` to the no-argument call to see that last assertion fail.
 
 ## Gotchas
 

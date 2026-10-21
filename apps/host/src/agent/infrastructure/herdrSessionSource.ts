@@ -1493,8 +1493,7 @@ export async function createHerdrSessionSource(
     // may reuse it, and never across a revision change or reconnect.
     let lastKitRevision = -1;
 
-    function syncFromKit(): void {
-        const snap = client.kit.snapshot();
+    function syncFromKit(snap = client.kit.snapshot()): void {
         const previousPanes = new Set(panesById.keys());
         agentsByPane.clear();
         panesById.clear();
@@ -1612,9 +1611,9 @@ export async function createHerdrSessionSource(
         }, 500);
     }
     // A status move emits its own sessions at once; only the tree re-sync waits for the debounce.
-    const stopKitTree = client.kit.onChange((_snapshot, changed) => {
+    const stopKitTree = client.kit.onChange((snapshot, changed) => {
         if (changed.length > 0 && !disposed && client.connected) {
-            syncFromKit();
+            syncFromKit(snapshot);
             for (const paneId of changed) {
                 const session = currentSessionByPane(paneId);
                 if (session !== undefined) emitState(session.sessionId);
