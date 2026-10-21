@@ -222,8 +222,6 @@ try {
         }
     }
     await servicesUp();
-    // Since #1002 the first Home after pairing raises the notification prompt over the app.
-    sh(`pm grant ${PKG} android.permission.POST_NOTIFICATIONS`);
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     // The uninstall above already cleared it; the OnePlus test phone refuses `pm clear` to shell.
     if (emu) sh(`pm clear ${PKG}`);
@@ -239,6 +237,9 @@ try {
     await sleep(4000);
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr://pair#${offer}' -n ${activity}`);
     await tapText(/^Pair$/);
+    // Since #1002 the first Home after pairing raises the notification prompt over the app. Dismiss
+    // it: the test phone takes no permission grants.
+    await tapText(/^(Not now|Don.t allow)$/i, 30).then(() => log('notification prompt dismissed'), () => log('no notification prompt'));
     await waitFor(/nosript/i, 90);
     offering?.destroy();
 
@@ -273,7 +274,7 @@ try {
     if (serial && !finished) try { writeFileSync(join(evidence, 'failed-screen.png'), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 60_000 })); } catch { /* device gone */ }
     if (serial && !finished) try { writeFileSync(join(evidence, 'logcat.txt'), adb('logcat', '-d', '-v', 'time', '-t', '4000')); } catch { /* emulator gone */ }
     if (emu) try { sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
-    if (phone) try { adb('reverse', '--remove', `tcp:${lab.port}`); sh(`am force-stop ${PKG}`); } catch { /* unplugged */ }
+    if (phone) try { adb('reverse', '--remove', `tcp:${lab.port}`); sh(`am force-stop ${PKG}`); sh(`pm revoke ${PKG} android.permission.POST_NOTIFICATIONS`); } catch { /* unplugged */ }
     offering?.destroy();
     await lab?.stop();
     if (emu) try { execFileSync('adb', ['-s', serial, 'emu', 'kill'], { timeout: 30_000 }); } catch { /* already gone */ }
