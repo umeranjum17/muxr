@@ -1577,7 +1577,7 @@ export async function createHerdrSessionSource(
 
     async function refreshSnapshot(): Promise<void> {
         if (disposed) throw new Error('herdr: source disposed');
-        await client.kit.refresh();
+        await client.refresh();
         if (disposed) throw new Error('herdr: source disposed');
         await reindexKitTree();
     }
