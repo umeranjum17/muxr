@@ -867,6 +867,7 @@ try {
         assert.ok(ledgerLine !== undefined, `packaged usage ledger child gave no answer: ${ledgerErr.slice(0, 400)}`);
         assert.deepEqual(JSON.parse(ledgerLine).rows.map(({ harness, model, input, cacheRead, output }) => ({ harness, model, input, cacheRead, output })),
             [{ harness: 'codex', model: 'gpt-5-codex', input: 400, cacheRead: 800, output: 300 }]);
+        process.stdout.write(`packaged usage ledger counted: ${ledgerLine.slice(0, 200)}\n`);
         const resolveScript = `const {createRequire}=require('node:module');process.stdout.write(createRequire(${JSON.stringify(hostBundle)}).resolve('@ccusage/ccusage-${process.platform}-${process.arch}/bin/ccusage'))`;
         const resolvedCcusage = run(process.execPath, ['-e', resolveScript], { cwd: installDir }).stdout;
         assert.equal(resolvedCcusage, ccusageTarget, 'packaged host bundle did not resolve its installed native ccusage package');
