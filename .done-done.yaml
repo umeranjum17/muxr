@@ -27,6 +27,14 @@ journeys:
   phone-attach:
     command: node scripts/diagnostics/application/checkPhoneAttach.mjs
     timeout: 30m
+  # The app upgrade on the real phone: the previous release installed and
+  # paired, Theme and Text size set, the candidate installed over it with
+  # `install -r`, the settings read back, an agent's terminal opened, then a
+  # clean install paired again. Runs by hand under the phone's keeper lock with
+  # UPGRADE_FROM_APK and UPGRADE_TO_APK set (see the upgrade-keeps-state feature).
+  upgrade:
+    command: node scripts/diagnostics/application/checkUpgradeJourney.mjs
+    timeout: 30m
   # The published package: packs the release tree, installs it, and starts the
   # packed host.js as the usage ledger child on a lab Codex store. The 0.2.8
   # bundle re-ran the host there instead, so every Usage tab read

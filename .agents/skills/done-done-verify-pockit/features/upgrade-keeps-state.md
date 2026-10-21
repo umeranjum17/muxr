@@ -40,7 +40,8 @@ Preconditions:
   candidate (no `pm clear`); Home is connected, Appearance still reads Dark and
   14 pt, the card stays dismissed. Then `pm clear`, pair again and reach Home.
 
-The same journey on a real phone, one command:
+The same journey on a real phone, one command (or `done-done run upgrade`,
+which keeps the shots and the video tied to the commit):
 
 ```
 UPGRADE_FROM_APK=<old release apk> UPGRADE_TO_APK=<candidate apk> \
