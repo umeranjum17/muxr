@@ -54,7 +54,7 @@ export {
 } from './domain/sessionState.js';
 
 export type { AgentTaskSources } from './domain/agentTask.js';
-export { agentAlertTitle, agentTask } from './domain/agentTask.js';
+export { agentAlertTitle, agentTask, labelWords } from './domain/agentTask.js';
 
 export type { AgentNameSources } from './domain/agentName.js';
 export { agentFolderName, agentKindLabel, derivedAgentName } from './domain/agentName.js';

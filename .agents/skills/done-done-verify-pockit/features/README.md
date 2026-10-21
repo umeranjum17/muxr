@@ -89,6 +89,9 @@ rules, with no H2 sections.
 - [Keep one host per machine key](./one-host-per-machine-key.md) —
   Usage refreshes on the shipped bundle start no second host; a replaced host
   stays up and takes the link back; `muxr up` exits 1 when its restart budget is spent.
+- [Release host bookkeeping when panes close](./closed-pane-bookkeeping.md) —
+  real named Herdr lab, host and paired link: 30 retired pane generations leave
+  timestamp and event-sequence owner counts at their live baseline.
 - [Follow a Herdr agent's status live](./herdr-live-status.md) —
   host session source on a guarded lab Herdr: tree follows new panes, status
   working/blocked/idle lands, socket count 1 → 2 → 1; no baseline needed.
@@ -235,11 +238,11 @@ rules, with no H2 sections.
   real `machine.shell` over a fake-Herdr stack: prompt reply, backgrounded child
   reaped, and the host unit's memory and process count flat across the run.
 - [Name the current workspace and pane](./agent-naming.md) — `muxr name`
-  inside a Herdr pane, with provider/model attribution.
+  inside a Herdr pane, with provider/model attribution; a shared workspace
+  keeps its name on the phone (`workspaceNameLab.mjs`).
 - [Name panes by their Herdr tab label](./pane-tab-names.md) — release APK
   on a lab Herdr, across a restart and a live relabel: Herdr tab labels name Home and Panes rows
-  verbatim instead of a shared Claude title, and an `ssh-ed25519` space shows
-  its folder.
+  in words instead of a shared Claude doorbell title.
 - [Inspect and prune Shared Artifacts history](./artifact-retention.md) —
   `muxr artifacts status` / `prune`.
 - [Ask whether the phone is driving this pane](./preview-status.md) —

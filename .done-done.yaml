@@ -34,3 +34,15 @@ journeys:
   package-smoke:
     command: node scripts/diagnostics/application/checkPackageSmoke.mjs > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}.log 2>&1
     timeout: 10m
+  # Workspace and pane names on the phone: a lab Herdr where every lane
+  # self-names in one shared workspace (the last as ssh-ed25519), the real
+  # herdr.task-titles hook titling a Pi stand-in, and the release app paired to
+  # a private lab host. Home and Panes must read the workspace's own name and
+  # each pane's task. Runs by hand: the caller provisions the Herdr lab session
+  # (HERDR_LAB_HELPER, HERDR_LAB_SESSION, HERDR_LAB_PREPROVISIONED=1) and sets
+  # MUXR_LAB_APK, MUXR_LAB_ROOT and MUXR_TASK_TITLES_PLUGIN; with
+  # MUXR_LAB_SERIAL it drives that phone under its keeper lock. See
+  # .agents/skills/done-done-verify-pockit/features/agent-naming.md.
+  workspace-name:
+    command: node .agents/skills/done-done-verify-pockit/features/workspaceNameLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$MUXR_LAB_ROOT" "$PWD" "$MUXR_TASK_TITLES_PLUGIN"
+    timeout: 30m

@@ -31,6 +31,9 @@ if [ -f '${failFile}' ] && grep -Fxq workspace '${failFile}' && printf '%s' "$*"
 fi
 case "$*" in
   "pane get w2:p5") printf '%s\\n' '{"result":{"pane":{"pane_id":"w2:p5","workspace_id":"w2"}}}' ;;
+  "workspace get w2") printf '%s\\n' '{"result":{"workspace":{"workspace_id":"w2","label":"auth","tab_count":1}}}' ;;
+  "pane get w3:p1") printf '%s\\n' '{"result":{"pane":{"pane_id":"w3:p1","workspace_id":"w3"}}}' ;;
+  "workspace get w3") printf '%s\\n' '{"result":{"workspace":{"workspace_id":"w3","label":"muxr","tab_count":3}}}' ;;
   *) printf '%s\\n' '{"result":{}}' ;;
 esac
 `);
@@ -107,7 +110,13 @@ try {
     check('workspace uses Herdr membership, not pane-id splitting', namedCalls.includes('workspace rename w2 auth rework / -carefully'));
     check('provider/model use canonical Herdr metadata tokens', namedCalls.includes('pane report-metadata w2:p5 --source muxr.naming --token provider=provider with spaces --token model=model/v1:fast'));
 
-    const callCount = namedCalls.length;
+    // Lanes share a project workspace as tabs. A lane naming itself after its
+    // task (`ssh-ed25519`) must not rename the workspace every other tab sits in.
+    const shared = name(['--workspace', 'ssh-ed25519', '--pane', 'SSH key lane'], 'w3:p1');
+    check('a shared workspace keeps its name and the pane is still named', shared.status === 0 && shared.output.includes('kept: shared with other tabs'), shared.output);
+    check('no rename reaches a shared workspace', !(await calls()).some((line) => line.startsWith('workspace rename w3')) && (await calls()).includes('pane rename w3:p1 SSH key lane'));
+
+    const callCount = (await calls()).length;
     const flagLike = name(['--pane', '-leading-dash']);
     check('flag-like rename is rejected rather than reinterpreted', flagLike.status === 1 && flagLike.output.includes('must not start'), flagLike.output);
     const controlChars = name(['--workspace', 'line\nbreak']);
