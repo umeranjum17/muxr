@@ -109,8 +109,22 @@ const mintPairing = (path, intent) => new Promise((resolve, reject) => {
     });
 });
 
+// A 2 GB emulator restarts its system server mid-install of the 176 MB release APK, and a Gradle
+// build beside it starves it the same way: boot only on a quiet host, with 4 GB.
+const quietHost = async () => {
+    for (let waited = 0; ; waited += 30) {
+        const load = Number(readFileSync('/proc/loadavg', 'utf8').split(' ')[0]);
+        let gradle = false;
+        try { execFileSync('pgrep', ['-f', 'GradleWrapperMain'], { stdio: 'ignore' }); gradle = true; } catch { /* none */ }
+        if (load < 15 && !gradle) return;
+        if (waited >= 1200) throw new Error(`host never quiet: load ${load}, gradle build ${gradle ? 'running' : 'none'}`);
+        if (waited === 0) log(`waiting for a quiet host: load ${load}, gradle build ${gradle ? 'running' : 'none'}`);
+        await sleep(30_000);
+    }
+};
+if (!pwa) await quietHost();
 const emu = pwa ? undefined : await bootOwnedEmulator({
-    name: 'mxwl', avdHome: process.env.AVD_HOME ?? join(root, 'avd'),
+    name: 'mxwl', avdHome: process.env.AVD_HOME ?? join(root, 'avd'), memoryMb: 4096,
     systemImage: 'system-images;android-35;google_apis;x86_64', launcher: ['nice', '-n', '10'],
 });
 const serial = emu?.serial;
@@ -176,20 +190,32 @@ try {
         log('pwa lab stopped');
         process.exit(0);
     }
+    // Boot completes before the window and package services answer, and an install can restart the
+    // system server: wait for both on each side of the install.
+    const servicesUp = async () => {
+        for (let i = 0; i < 60; i += 1) {
+            try {
+                const found = sh('service check package; service check window');
+                if (!/not found/.test(found) && (found.match(/: found/g) ?? []).length === 2) { sh('pm path android'); return; }
+            } catch { /* system server restarting */ }
+            await sleep(5000);
+        }
+        throw new Error('window and package services never answered');
+    };
+    await servicesUp();
     // Each buildPrApk run signs with its own throwaway key: a kept AVD may hold another build.
     try { adb('uninstall', PKG); } catch { /* not installed */ }
-    // A loaded host can report boot before the package service answers: an install then dies with a broken pipe.
     for (let attempt = 1; ; attempt += 1) {
         try {
-            sh('pm path android');
-            execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 600_000 });
+            execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 300_000 });
             break;
         } catch (cause) {
-            if (attempt >= 3) throw cause;
-            log(`install attempt ${attempt} failed; retrying`);
-            await sleep(20_000);
+            if (attempt >= 2) throw cause;
+            log(`install failed (${String(cause.stderr ?? cause.code ?? cause.message).trim()}); one retry`);
+            await servicesUp();
         }
     }
+    await servicesUp();
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     sh(`pm clear ${PKG}`);
     adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);

@@ -87,7 +87,7 @@ export async function bootOwnedEmulator(options) {
     const {
         name, avdHome, systemImage = DEFAULT_IMAGE, device = 'pixel_6',
         bootTimeoutMs = 480_000, maxEmulators = Number(process.env.MUXR_EMULATOR_MAX ?? 3),
-        extraArgs = [], launcher = [], onSpawn,
+        extraArgs = [], launcher = [], onSpawn, memoryMb = 2048,
     } = options;
     // With a launcher the launcher owns capacity and may wait for a slot; on its
     // own, refuse rather than push the fleet past its cap.
@@ -97,7 +97,7 @@ export async function bootOwnedEmulator(options) {
     }
     await ensureAvd({ name, avdHome, systemImage, device });
     const known = new Set(await adbDevices());
-    const args = ['-avd', name, '-no-window', '-gpu', 'swiftshader_indirect', '-memory', '2048', '-cores', '2',
+    const args = ['-avd', name, '-no-window', '-gpu', 'swiftshader_indirect', '-memory', String(memoryMb), '-cores', '2',
         '-no-audio', '-no-boot-anim', '-no-snapshot-save', ...extraArgs];
     const [bin, ...prefix] = launcher.length === 0 ? [emulatorBin()] : launcher;
     const child = spawn(bin, [...prefix, emulatorBin(), ...args], {
