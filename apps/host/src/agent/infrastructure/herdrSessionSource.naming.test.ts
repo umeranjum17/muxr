@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { agentTask } from '@trymuxr/contract';
 import { createHerdrSessionSource } from './herdrSessionSource.js';
 import { createLifecycleStore } from './lifecycleStore.js';
@@ -114,12 +114,15 @@ describe('pane and workspace names', () => {
             }));
             expect(shown).toEqual(['Fd prompt nosript', 'Show the SSH key fingerprint', undefined]);
 
-            // A relabel in Herdr renames the pane and the workspace on the next read: no first-seen name sticks.
+            // A relabel without a push still reaches later lists through the
+            // coalesced background discovery: no first-seen name sticks.
             herdr.tabs[0]!.label = 'fd-renamed';
             herdr.workspace.label = 'muxr';
-            const relisted = await source.list();
-            expect(relisted.map((info) => info.taskTitle ?? '(none)').sort()).toEqual(['(none)', 'Fd renamed', 'Show the SSH key fingerprint']);
-            expect(relisted.every((info) => info.workspaceLabel === 'muxr')).toBe(true);
+            await vi.waitFor(async () => {
+                const relisted = await source.list();
+                expect(relisted.map((info) => info.taskTitle ?? '(none)').sort()).toEqual(['(none)', 'Fd renamed', 'Show the SSH key fingerprint']);
+                expect(relisted.every((info) => info.workspaceLabel === 'muxr')).toBe(true);
+            }, { timeout: 10_000 });
         } finally {
             await source.dispose();
             herdr.close();

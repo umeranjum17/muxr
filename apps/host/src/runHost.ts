@@ -523,7 +523,7 @@ async function main(): Promise<void> {
     // The peer broker names a sender by asking the host who the calling
     // session is; without this it can only report the machine.
     peerRuntime?.setLocalAgentResolver(async (caller) => {
-        const listed = await source.list({});
+        const listed = await source.list({ fresh: true });
         // The session comes from the capability this host issued, so it is
         // trustworthy; the pane is a hint the caller supplied. Prefer the former.
         const bySession = caller.sessionId === undefined

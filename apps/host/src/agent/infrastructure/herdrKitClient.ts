@@ -61,6 +61,8 @@ export class KitHerdrClient implements HerdrCaller {
     /** Timestamp for the active kit-reported stall, used for the recovery journal line. */
     private stalledSince: number | undefined;
     private restarting: Promise<void> | undefined;
+    private observedReadiness: Promise<void> | undefined;
+    private readonly stopBootstrapWatch: () => void;
 
     constructor(
         resolveBin: () => string,
@@ -95,6 +97,7 @@ export class KitHerdrClient implements HerdrCaller {
                     this.stalledSince = undefined;
                 }
                 this.connected = ready;
+                if (ready) this.observeBootstrap();
                 if (!ready && wasReady) this.outage = true;
                 if (ready && !wasReady) this.recover();
             },
@@ -106,6 +109,11 @@ export class KitHerdrClient implements HerdrCaller {
                 return (...args: unknown[]) => value.apply(target, args);
             },
         });
+        // onEvent precedes the kit's event-triggered bootstrap. Inspect its
+        // public readiness promise after that synchronous dispatch, without a
+        // second onChange subscriber (which would clone every whole tree).
+        const observeBootstrap = () => this.observeBootstrap();
+        this.stopBootstrapWatch = kit.onEvent(() => queueMicrotask(observeBootstrap));
     }
 
     /** Only a down server is worth retrying: a version mismatch or a rejected
@@ -149,8 +157,19 @@ export class KitHerdrClient implements HerdrCaller {
         ) as T;
     }
 
+    /** Guard automatic bootstraps too: passive consumers no longer refresh. */
+    private observeBootstrap(): void {
+        if (this.closed) return;
+        const ready = this.kit.statusWatchReady();
+        if (ready === this.observedReadiness) return;
+        this.observedReadiness = ready;
+        void this.guardRefresh(ready).catch((cause: unknown) => {
+            if (!this.closed) process.stderr.write(`herdr: bootstrap recovery failed: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+        });
+    }
+
     /**
-     * The tree read every terminal attach waits on. @byokit/herdr 0.16 never
+     * The full tree read mutations still wait on. @byokit/herdr 0.16 never
      * settles a status watch Herdr refuses for a pane that closed as the watch
      * opened (the refusal carries `<id>:sub:0:probe`), so that refresh, and every
      * one queued behind it, waited for good: lists and Usage still answered while
@@ -159,9 +178,13 @@ export class KitHerdrClient implements HerdrCaller {
      * the tree fresh.
      */
     async refresh(): Promise<void> {
+        await this.guardRefresh(this.kit.refresh());
+    }
+
+    private async guardRefresh(read: Promise<void>): Promise<void> {
         let timer: NodeJS.Timeout | undefined;
         const overrun = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), REFRESH_WEDGED_MS); });
-        const landed = await Promise.race([this.kit.refresh().then(() => true), overrun]).finally(() => clearTimeout(timer));
+        const landed = await Promise.race([read.then(() => true), overrun]).finally(() => clearTimeout(timer));
         if (landed) return;
         this.restarting ??= this.restartKit().finally(() => { this.restarting = undefined; });
         await this.restarting;
@@ -182,6 +205,7 @@ export class KitHerdrClient implements HerdrCaller {
         this.closed = true;
         this.connected = false;
         if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
+        this.stopBootstrapWatch();
         await this.kit.stop().catch(() => {});
     }
 
