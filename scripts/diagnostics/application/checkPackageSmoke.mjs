@@ -840,6 +840,34 @@ try {
         // is what resolves the pinned backend, so resolution must work from it.
         const hostBundle = join(installedPackage, 'host.js');
         assert.ok(existsSync(hostBundle), 'packaged host bundle missing');
+        // The Usage ledger counts in a child the host starts from its own bundle
+        // (LedgerProcess): that child must answer with counts, never boot a host.
+        const ledgerHome = join(scratch, 'ledger-home');
+        const at = new Date().toISOString();
+        const rollout = join(ledgerHome, '.codex', 'sessions', 'smoke', 'rollout.jsonl');
+        mkdirSync(dirname(rollout), { recursive: true });
+        writeFileSync(rollout, [
+            { timestamp: at, type: 'session_meta', payload: { model_provider: 'openai' } },
+            { timestamp: at, type: 'turn_context', payload: { model: 'gpt-5-codex' } },
+            { timestamp: at, type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { total_tokens: 1500 }, last_token_usage: { input_tokens: 1200, cached_input_tokens: 800, output_tokens: 300 } } } },
+        ].map((line) => `${JSON.stringify(line)}\n`).join(''));
+        const ledger = spawn(process.execPath, [hostBundle, '--muxr-token-ledger', JSON.stringify({ codex: join(ledgerHome, '.codex', 'sessions') })], {
+            cwd: installDir, env: { ...cliEnv(ledgerHome), MUXR_HOME: join(ledgerHome, '.muxr') }, stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        let ledgerOut = '';
+        let ledgerErr = '';
+        ledger.stderr.on('data', (chunk) => { ledgerErr += chunk; });
+        const ledgerLine = await new Promise((resolve) => {
+            const timer = setTimeout(() => resolve(undefined), 30_000);
+            ledger.stdout.on('data', (chunk) => { ledgerOut += chunk; if (ledgerOut.includes('\n')) { clearTimeout(timer); resolve(ledgerOut.split('\n')[0]); } });
+            ledger.once('exit', () => { clearTimeout(timer); resolve(undefined); });
+            ledger.stdin.write(`${JSON.stringify({ now: Date.now() })}\n`);
+        });
+        ledger.kill('SIGKILL');
+        assert.ok(ledgerLine !== undefined, `packaged usage ledger child gave no answer: ${ledgerErr.slice(0, 400)}`);
+        assert.deepEqual(JSON.parse(ledgerLine).rows.map(({ harness, model, input, cacheRead, output }) => ({ harness, model, input, cacheRead, output })),
+            [{ harness: 'codex', model: 'gpt-5-codex', input: 400, cacheRead: 800, output: 300 }]);
+        process.stdout.write(`packaged usage ledger counted: ${ledgerLine.slice(0, 200)}\n`);
         const resolveScript = `const {createRequire}=require('node:module');process.stdout.write(createRequire(${JSON.stringify(hostBundle)}).resolve('@ccusage/ccusage-${process.platform}-${process.arch}/bin/ccusage'))`;
         const resolvedCcusage = run(process.execPath, ['-e', resolveScript], { cwd: installDir }).stdout;
         assert.equal(resolvedCcusage, ccusageTarget, 'packaged host bundle did not resolve its installed native ccusage package');
