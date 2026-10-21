@@ -2,19 +2,24 @@
   "schema": 1,
   "channels": {
     "stable": {
-      "version": "0.2.0",
-      "appVersion": "0.2.0",
-      "tag": "v0.2.0",
-      "releaseUrl": "https://github.com/umeranjum17/muxr/releases/tag/v0.2.0",
+      "version": "0.2.9",
+      "appVersion": "0.2.9",
+      "tag": "v0.2.9",
+      "releaseUrl": "https://github.com/umeranjum17/muxr/releases/tag/v0.2.9",
       "npmDistTag": "latest",
-      "publishedAt": "2026-09-24T17:36:06.000Z",
-      "manifestUrl": "https://github.com/umeranjum17/muxr/releases/download/v0.2.0/release-manifest.json",
+      "publishedAt": "2026-10-21T01:12:15.000Z",
+      "manifestUrl": "https://github.com/umeranjum17/muxr/releases/download/v0.2.9/release-manifest.json",
       "android": {
-        "url": "https://github.com/umeranjum17/muxr/releases/download/v0.2.0/muxr-0.2.0-377.apk",
-        "sha256": "9f645eebd4784df4f03065543c204cd9bb7f0481e257f610d2174d003c913c74",
-        "bytes": 171194002,
-        "versionCode": 377,
+        "url": "https://github.com/umeranjum17/muxr/releases/download/v0.2.9/muxr-0.2.9-392.apk",
+        "sha256": "87ee5956b36e5d6408a258b39190e13d2ff2d5cfb1b4adcb963ada922332a788",
+        "bytes": 172921097,
+        "versionCode": 392,
         "applicationId": "com.trymuxr.app"
+      },
+      "linux": {
+        "url": "https://github.com/umeranjum17/muxr/releases/download/v0.2.9/muxr-0.2.9.AppImage",
+        "sha256": "0da0c4108835292cf311a64e7f423f311e1bd57358eda1ca16d828fd575abff8",
+        "bytes": 160038265
       }
     },
     "nightly": {
