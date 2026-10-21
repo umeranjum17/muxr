@@ -50,8 +50,8 @@ const seed = () => {
 const startAgents = async () => {
     const panes = JSON.parse(herdr('pane', 'list')).result.panes;
     const at = (tab) => panes.find((entry) => entry.tab_id === tab).pane_id;
-    herdr('pane', 'send-text', at('w1:t1'), `CLAUDE_CONFIG_DIR=${workFolder} ${join(bin, 'claude')}\n`);
-    herdr('pane', 'send-text', at('w1:t2'), `${join(bin, 'claude')}\n`);
+    herdr('pane', 'send-text', at('w1:t1'), `clear; CLAUDE_CONFIG_DIR=${workFolder} ${join(bin, 'claude')}\n`);
+    herdr('pane', 'send-text', at('w1:t2'), `clear; ${join(bin, 'claude')}\n`);
     await sleep(3000);
 };
 
@@ -156,9 +156,9 @@ try {
             defects += 1;
             log(`${name}: visual check failed: ${String(cause.stdout ?? cause.message).split('\n').pop()}`);
         }
-        // The full screen shows the lab host's name and the phone's status icons: keep only the header band.
-        const top = density === 440 ? 130 : 190;
-        execFileSync('magick', [join(dir, `${name}.png`), '-crop', `1080x70+0+${top}`, '+repage', join(dir, `${name}.header.png`)]);
+        // Keep the screen below the status bar (its notification icons are the phone owner's), cleared pane text only.
+        const top = density === 440 ? 120 : 160;
+        execFileSync('magick', [join(dir, `${name}.png`), '-crop', `1080x${2376 - top}+0+${top}`, '+repage', join(dir, `${name}.screen.png`)]);
         for (const extra of ['.png', '.xml', '.compressed.xml', '.check.txt']) rmSync(join(dir, `${name}${extra}`), { force: true });
         const header = /content-desc="([^"]*Open panes)"/.exec(dump())?.[1] ?? '';
         const ok = new RegExp(`On ${expected}\\b`).test(header);
@@ -175,7 +175,7 @@ try {
         target: { version: `muxr ${version} release APK on ${phone ? 'the test phone' : 'an emulator'}` },
         start: 'a fresh install of muxr and a private lab Herdr with two Claude panes: work-pane runs under the Work account folder, own-pane under the computer\'s own folder',
         steps: ['Install muxr and open it', 'Pair it with the lab computer from a pairing link', 'Open work-pane and read its header', 'Open own-pane and read its header', 'Repeat at 270 dp'],
-        result: 'a Claude pane started under its own plans folder shows the account signed in at that folder in its header chip, not the default computer account, in two parts labelled exactly "work" and "own". Part "work": work-pane-393-1.0-light.header.png and work-pane-270-1.0-light.header.png each show the header chip reading Work. Part "own": own-pane-393-1.0-light.header.png and own-pane-270-1.0-light.header.png each show the header chip reading Umer. Each file is a crop of only the header row of one phone screen',
+        result: 'a Claude pane started under its own plans folder shows the account signed in at that folder in its header chip, not the default computer account, in two parts labelled exactly "work" and "own". Part "work": work-pane-393-1.0-light.screen.png and work-pane-270-1.0-light.screen.png each show the header chip reading Work. Part "own": own-pane-393-1.0-light.screen.png and own-pane-270-1.0-light.screen.png each show the header chip reading Umer. Each file is a phone screen below its status bar',
     }, null, 2)}\n`);
     finished = true;
 } finally {

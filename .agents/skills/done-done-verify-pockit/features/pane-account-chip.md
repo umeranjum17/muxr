@@ -27,9 +27,9 @@ metadata); the phone drive covers the first two.
 `paneAccountChipLab.mjs <apk> <evidenceDir> <labRoot>` (owned emulator, or
 `PHONE_SERIAL=a4b93ea2` inside the phone's keeper lock): two Claude panes in a
 private Herdr lab, one under the `Work` folder, one on the host's own folder;
-the headers must read `On Work` and `On Umer`. The full screen shows the lab
-host's name and the phone's status icons, so the lab keeps only a cropped
-`*.header.png` band per cell; the log holds the header text.
+the headers must read `On Work` and `On Umer`. The status bar shows the phone owner's notification icons, so the lab keeps
+each screen only below it (`*.screen.png`), with the panes cleared first; the
+log holds the header text.
 
 ## How to get to it (user POV)
 
