@@ -151,18 +151,16 @@ try {
         const dir = join(evidence, 'candidate');
         mkdirSync(dir, { recursive: true });
         try {
-            writeFileSync(join(dir, `${name}.check.txt`), execFileSync('node',
-                [join(repo, '.agents/skills/done-done-verify-pockit/features/visualCheck.mjs'), serial, dir, name], { encoding: 'utf8' }));
+            log(`${name}: ${execFileSync('node', [join(repo, '.agents/skills/done-done-verify-pockit/features/visualCheck.mjs'), serial, dir, name], { encoding: 'utf8' }).trim().split('\n').pop()}`);
         } catch (cause) {
             defects += 1;
-            writeFileSync(join(dir, `${name}.check.txt`), `${cause.stdout ?? ''}${cause.stderr ?? ''}`);
+            log(`${name}: visual check failed: ${String(cause.stdout ?? cause.message).split('\n').pop()}`);
         }
         // The full screen shows the lab host's name and the phone's status icons: keep only the header band.
         const top = density === 440 ? 130 : 190;
         execFileSync('magick', [join(dir, `${name}.png`), '-crop', `1080x70+0+${top}`, '+repage', join(dir, `${name}.header.png`)]);
-        for (const extra of ['.png', '.xml', '.compressed.xml']) rmSync(join(dir, `${name}${extra}`), { force: true });
+        for (const extra of ['.png', '.xml', '.compressed.xml', '.check.txt']) rmSync(join(dir, `${name}${extra}`), { force: true });
         const header = /content-desc="([^"]*Open panes)"/.exec(dump())?.[1] ?? '';
-        writeFileSync(join(dir, `${name}.header.txt`), `${name} (${density} dpi): ${header}\n`);
         const ok = new RegExp(`On ${expected}\\b`).test(header);
         log(`${name}: header "${header}" ${ok ? 'OK' : 'WRONG ACCOUNT'}`);
         if (!ok) defects += 1;

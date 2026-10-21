@@ -29,7 +29,7 @@ metadata); the phone drive covers the first two.
 private Herdr lab, one under the `Work` folder, one on the host's own folder;
 the headers must read `On Work` and `On Umer`. The full screen shows the lab
 host's name and the phone's status icons, so the lab keeps only a cropped
-`*.header.png` band plus `*.header.txt`.
+`*.header.png` band per cell; the log holds the header text.
 
 ## How to get to it (user POV)
 
