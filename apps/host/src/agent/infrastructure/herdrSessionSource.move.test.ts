@@ -95,11 +95,11 @@ function fakeHerdr(dir: string, cwd: string) {
                         if (pane !== undefined) {
                             const text = String(p.text);
                             (pane.output as string[]).push(text);
-                            // A shell pane runs what is typed with the env it was opened with;
+                            // A shell pane runs what is typed (read from its stdin, never a command-line string) with the env it was opened with;
                             // text typed at a live agent reaches the agent as chat, never the shell.
                             if (!live) {
                                 const env = { PATH: '/usr/bin:/bin', ...(pane.env as Record<string, string>) };
-                                (pane.output as string[]).push(spawnSync('/bin/sh', ['-c', text], { env, encoding: 'utf8' }).stdout);
+                                (pane.output as string[]).push(spawnSync('/bin/sh', [], { input: text, env, encoding: 'utf8' }).stdout);
                             }
                         }
                         reply = { id, result: {} };
