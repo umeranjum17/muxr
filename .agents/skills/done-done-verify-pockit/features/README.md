@@ -288,6 +288,10 @@ rules, with no H2 sections.
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.
+- [A pane's account chip names only its own agent's account](./pane-account-chip.md) —
+  release APK on an emulator over a fake-Herdr stack with two Claude
+  accounts: a Pi pane muxr did not start wears no chip, a Claude pane keeps
+  its own, at 270 and 393 wide and font 1.0/2.0, both themes, before/after.
 - [OpenCode agents start on Muse Spark 1.3 Contributor](./opencode-go-default-model.md) —
   release APK on an emulator over a real lab host with an OpenCode Go
   sign-in: new agents open on the Go default model before/after one build,

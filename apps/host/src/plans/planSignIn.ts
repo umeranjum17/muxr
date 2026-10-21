@@ -208,6 +208,10 @@ export function rememberPlanPane(env: NodeJS.ProcessEnv, paneId: string, account
  * host last listed: only for a provider with a choice of account (the list
  * holds no other), and never on a sign-in tab. Reading names from that list
  * keeps the tree's own cadence free of any provider tool call.
+ *
+ * Pi signs in to its own providers, so the computer's Claude sign-in says
+ * nothing about it: a Pi pane is named only for the Claude account muxr put
+ * it on, and not once it reports a model from another provider.
  */
 export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>(env: NodeJS.ProcessEnv, tree: T, listed: readonly PlanProviderAccounts[] | undefined): T {
     if (listed === undefined || listed.length === 0) return tree;
@@ -222,6 +226,7 @@ export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>
         const entry = listed.find((candidate) => candidate.provider === provider);
         if (entry === undefined || signingIn.has(pane.paneId)) return undefined;
         const id = recorded.get(pane.paneId);
+        if (kind === 'pi' && (id === undefined || (pane.provider !== undefined && !/anthropic|claude/i.test(pane.provider)))) return undefined;
         return (id === undefined ? entry.accounts.find((account) => account.foundOnComputer) : entry.accounts.find((account) => account.id === id))?.name;
     };
     return {

@@ -47,7 +47,7 @@ export function useEmptyRoom(sessionId: string, agentKind: string | undefined): 
     }, [listed, sessionId, connection]);
     return React.useMemo(() => {
         if (entry === undefined || recorded?.sessionId !== sessionId) return null;
-        const account = runningOn(entry, recorded.id);
+        const account = runningOn(entry, recorded.id, agentKind);
         return account !== undefined && isEmpty(account) ? { entry, account } : null;
-    }, [entry, recorded, sessionId]);
+    }, [entry, recorded, sessionId, agentKind]);
 }
