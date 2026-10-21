@@ -1,9 +1,8 @@
 import * as React from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { ChatMessage } from '@trymuxr/contract';
-import { MarkdownView } from '@/components/code/lazyCodeSurfaces';
 import { withAlpha } from '@/components/ui';
 import type { ChatState } from '../application/useChat';
 
@@ -23,6 +22,15 @@ export interface ChatPaneProps {
 }
 
 const NEAR_BOTTOM = 80;
+
+/**
+ * The shared lazy code-surfaces chunk (it keeps Markdown out of the eager entry). It resolves after the
+ * screen's dark scope has closed, so it opens that scope again itself: left alone its text came out
+ * in the app's light theme, dark on the dark bubble.
+ */
+const ChatMarkdown = React.lazy(() => import('@/components/code/codeSurfaces').then(({ MarkdownView }) => ({
+    default: (props: { markdown: string }) => <ScopedTheme name="dark"><MarkdownView {...props} /></ScopedTheme>,
+})));
 
 function clock(at: number): string {
     return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -46,7 +54,7 @@ function Bubble({ message, onAccent, accent }: { message: ChatMessage; onAccent:
         >
             {mine
                 ? <Text selectable style={{ color: onAccent, fontSize: 15, lineHeight: 21 }}>{message.text}</Text>
-                : <MarkdownView markdown={message.text} />}
+                : <React.Suspense fallback={null}><ChatMarkdown markdown={message.text} /></React.Suspense>}
             <Text style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginTop: 3, fontSize: 11, color: mine ? withAlpha(onAccent, 0.6) : theme.colors.textSecondary }}>{clock(message.at)}</Text>
         </View>
     );
