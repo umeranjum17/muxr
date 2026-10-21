@@ -80,7 +80,11 @@ const shot = (name) => {
     const xml = dump();
     if (!xml.includes('Terminal surface')) { log(`skipped ${name}: not a terminal screen`); return; }
     if (namesComputer(xml) || LEAK.test(xml)) { log(`skipped ${name}: the screen shows the computer's own name`); return; }
-    writeFileSync(join(evidence, `${name}.png`), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 120_000 }));
+    // The status bar is cropped off: it shows the phone's own notification icons, which are not part of this journey.
+    const raw = join(root, `${name}.raw.png`);
+    writeFileSync(raw, execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 120_000 }));
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', raw, '-vf', 'crop=iw:ih-120:0:120', join(evidence, `${name}.png`)]);
+    rmSync(raw);
     log(`captured ${name}`);
 };
 const tapNode = async (pattern, seconds = 90, className, optional = false) => {
@@ -140,7 +144,7 @@ const record = () => {
     const shots = readdirSync(frames).filter((name) => name.endsWith('.png')).sort();
     if (shots.length < 4) return;
     execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', '4', '-pattern_type', 'glob', '-i', `${frames}/*.png`,
-        '-vf', 'crop=iw:ih-96:0:0,scale=540:-2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(evidence, 'phone-attach.mp4')], { stdio: 'ignore' });
+        '-vf', 'crop=iw:ih-216:0:120,scale=540:-2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(evidence, 'phone-attach.mp4')], { stdio: 'ignore' });
     log(`video: phone-attach.mp4 from ${shots.length} frames (${dropped} dropped as the computer's own screen)`);
 };
 
@@ -257,6 +261,8 @@ try {
     const offer = await mintNativePairing(join(root, 'lab', 'host', 'pair.sock'));
     sh('input keyevent KEYCODE_WAKEUP');
     sh('wm dismiss-keyguard');
+    // A stopped app opens on Home; a running one resumes wherever it was left, and Back from the agent would land there.
+    sh(`am force-stop ${PKG}`);
     sh(`am start -n ${activity}`);
     await sleep(6000);
     for (let attempt = 1; ; attempt += 1) {
