@@ -19,3 +19,11 @@ journeys:
   suite:
     command: yarn run check > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}.log 2>&1
     timeout: 30m
+  # Board alerts on Android: the release app on an owned emulator, paired to a
+  # private lab host, gets a POST /v1/notify alert over the live link and shows
+  # it in the shade once its level is all (notify.md, notify-android-link).
+  # Runs by hand under the shared emulator lock; MUXR_LAB_APK is a release
+  # build of this commit, MUXR_LAB_AVD_HOME a task-owned emulator home.
+  board-alert:
+    command: node .agents/skills/done-done-verify-pockit/features/boardAlertLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m

@@ -63,6 +63,14 @@ push at a level.
    answer `400`; a `GET` answers `405`. `ss -ltn` shows the port bound to
    `127.0.0.1` only.
 
+### Android link alert
+
+The `board-alert` journey in `.done-done.yaml` drives `notify-android-link` end
+to end: `boardAlertLab.mjs` pairs a release APK on an owned emulator to a fake
+stack through the `muxr://pair` link, posts at the default level (counted, not
+shown), turns on Settings > Notifications > "An agent finishes", leaves the app
+and posts again; the shade and `dumpsys notification` show the second alert.
+
 ### Web/PWA tap
 
 Pair the lab PWA as `lab-browser-pairing.md` describes, turn Settings >
