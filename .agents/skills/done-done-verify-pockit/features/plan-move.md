@@ -35,6 +35,14 @@ and the host records the new account for it. The kit owns the move
   `Resumed this conversation:` and the earlier turns under it;
   `move-a-b-a.mp4` shows both moves.
 
+- Browser (PWA) route, no emulator: build the export with the lab flag
+  (`EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn build && EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export`),
+  run `MUXR_LAB_MACHINE_NAME="Lab computer" node .../planMoveLab.mjs web <evidence> <labRoot>`
+  (it writes `<labRoot>/browser-link.txt` and stays up until `<labRoot>/stop` exists),
+  serve the export (`lab-browser-pairing.md`), pair with `window.__MUXR_LAB_PAIR__`,
+  open the agent at 390 px: the header chip reads `Account A`; Pane actions › Move to
+  another account › Move to Account B; the chip then reads `Account B`.
+
 ## Gotchas
 
 - Real Herdr never reports a pane's env in `pane.get`; a fixture that does hid

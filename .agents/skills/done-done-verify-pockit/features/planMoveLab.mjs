@@ -5,8 +5,10 @@
 // HERDR_LAB_HELPER set:
 //   node .agents/skills/done-done-verify-pockit/features/planMoveLab.mjs <apk> <evidenceDir> <labRoot>
 // With `-` for <apk> it moves through plans.move from the lab link instead, with no phone.
+// With `web` for <apk> it leaves the lab up for a browser: it writes a browser pairing link to
+// <labRoot>/browser-link.txt and runs until <labRoot>/stop exists (drive the PWA meanwhile).
 import { execFileSync, spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { dirname, join } from 'node:path';
 
@@ -67,11 +69,11 @@ const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? join(pro
 process.env.PATH = [bin, dirname(process.execPath), join(sdk, 'platform-tools'), join(sdk, 'emulator'), '/usr/bin', '/bin'].join(':');
 
 let offering;
-const mintNativePairing = (path) => new Promise((resolve, reject) => {
+const mintPairing = (path, kind = 'native') => new Promise((resolve, reject) => {
     const socket = offering = createConnection(path);
     let pending = '';
     socket.on('error', reject);
-    socket.on('connect', () => socket.write('{"intent":{"kind":"native","authority":"control","personal":false}}\n'));
+    socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind, authority: 'control', personal: false } })}\n`));
     socket.on('data', (chunk) => {
         pending += String(chunk);
         for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
@@ -135,6 +137,15 @@ try {
     herdr('pane', 'send-text', await paneOf(sessionId), 'Plan the release notes\n');
     await settled(sessionId);
     writeFileSync(join(evidence, 'herdr-on-a.txt'), screen(await paneOf(sessionId)));
+    if (apk === 'web') {
+        const link = await mintPairing(join(root, 'lab', 'host', 'pair.sock'), 'browser');
+        writeFileSync(join(root, 'browser-link.txt'), link);
+        log('browser link ready; the lab stays up until the stop file appears');
+        while (!existsSync(join(root, 'stop'))) await sleep(1000);
+        offering?.destroy();
+        log('PASS: web lab held for the browser');
+        throw Object.assign(new Error('web lab finished'), { done: true });
+    }
     if (apk === '-') {
         for (const [to, id, letter] of [['Account B', b, 'b'], ['Account A', a, 'a']]) {
             await ask('plans.move', { sessionId, accountId: id });
@@ -198,7 +209,7 @@ try {
     sh(`pm clear ${PKG}`);
     adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
     sh('wm size 1080x2376'); sh('wm density 440'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no');
-    const offer = await mintNativePairing(join(root, 'lab', 'host', 'pair.sock'));
+    const offer = await mintPairing(join(root, 'lab', 'host', 'pair.sock'));
     sh(`am start -W -n ${activity}`);
     await sleep(4000);
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr://pair#${offer}' -n ${activity}`);
