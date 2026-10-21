@@ -73,11 +73,14 @@ const mintNativePairing = (path) => new Promise((resolve, reject) => {
     });
 });
 
-const emu = await bootOwnedEmulator({
+// PHONE_SERIAL=a4b93ea2 (inside its keeper lock) runs on the test phone instead of an owned emulator.
+const phone = process.env.PHONE_SERIAL;
+if (phone !== undefined && phone !== 'a4b93ea2') throw new Error('only the test phone a4b93ea2, under its keeper lock');
+const emu = phone ? undefined : await bootOwnedEmulator({
     name: 'mxchip', avdHome: process.env.AVD_HOME ?? join(root, 'avd'),
     systemImage: 'system-images;android-35;google_apis;x86_64', launcher: ['nice', '-n', '10'],
 });
-const serial = emu.serial;
+const serial = phone ?? emu.serial;
 log(`emulator ${serial}`);
 const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: 120_000 });
 const sh = (cmd) => adb('shell', cmd);
@@ -103,10 +106,14 @@ const tapText = async (re, seconds = 60) => {
 // system_server can restart under a loaded host; wait until it answers again.
 const ready = async () => { for (let i = 0; i < 60 && !/package:/.test(spawnSync('adb', ['-s', serial, 'shell', 'pm path android'], { encoding: 'utf8' }).stdout); i += 1) await sleep(5000); };
 let lab;
+let startDensity = 'reset'; // the phone keeps its own display override; put it back
 let defects = 0;
 let finished = false;
 try {
     await ready();
+    startDensity = /Override density: (\d+)/.exec(sh('wm density'))?.[1] ?? 'reset';
+    // A fresh app data dir: the phone refuses pm clear, and an install over the app would keep its old pairing.
+    if (phone) { try { adb('uninstall', PKG); } catch { /* not installed yet */ } }
     execFileSync('adb', ['-s', serial, 'install', '-r', apk], { timeout: 290_000 }); // a loaded host installs slowly
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     mkdirSync(labDir, { recursive: true });
@@ -117,9 +124,11 @@ try {
     writeFileSync(join(evidence, 'herdr-agents.txt'), `$ herdr agent list\n${herdr('agent', 'list')}`);
 
     await ready();
-    sh(`pm clear ${PKG}`);
+    if (!phone) sh(`pm clear ${PKG}`);
     adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
-    sh('wm size 1080x2376'); sh('wm density 440'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no');
+    if (!phone) sh('wm size 1080x2376');
+    if (phone) { sh('input keyevent KEYCODE_WAKEUP'); sh('wm dismiss-keyguard'); } else { sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); }
+    sh('wm density 440');
     const offer = await mintNativePairing(join(labDir, 'host', 'pair.sock'));
     sh(`am start -W -n ${activity}`);
     await sleep(4000);
@@ -161,10 +170,12 @@ try {
     }
     finished = true;
 } finally {
-    try { sh('wm size reset'); sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
+    try { if (!phone) sh('wm size reset'); sh(`wm density ${startDensity}`); if (!phone) { sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } } catch { /* emulator gone */ }
     offering?.destroy();
     await lab?.stop();
-    try { execFileSync('adb', ['-s', serial, 'emu', 'kill'], { timeout: 30_000 }); } catch { /* already gone */ }
-    await emu.stop?.();
+    if (phone) { try { adb('reverse', '--remove', `tcp:${lab.port}`); } catch { /* never set */ } } else {
+        try { execFileSync('adb', ['-s', serial, 'emu', 'kill'], { timeout: 30_000 }); } catch { /* already gone */ }
+        await emu.stop?.();
+    }
     log(finished ? `done; defects: ${defects}` : 'FAILED before all captures; nothing proven');
 }
