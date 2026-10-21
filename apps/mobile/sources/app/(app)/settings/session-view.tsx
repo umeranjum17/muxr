@@ -5,7 +5,7 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { useLocalSettingMutable } from '@/catalog/store';
-import { SESSION_VIEW_CHOICES } from '@/chat/domain/sessionView';
+import { SESSION_VIEW_CHOICES } from '@/chat';
 
 /** Which view an agent opens in. A choice made in an agent's own header outranks it for that agent. */
 export default function SessionViewSettingsScreen() {
