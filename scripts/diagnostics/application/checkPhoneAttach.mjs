@@ -352,7 +352,7 @@ try {
     // done-done's step record: what a user did and what they saw, from the verdict this run reached.
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
         target: { version: installed },
-        start: 'the release app freshly installed on the phone, not yet paired, with a lab computer running two agent panes',
+        start: `${apk === undefined ? 'the release app already installed on the phone, restarted' : 'the release app freshly installed on the phone'}, with a lab computer running two agent panes that the phone is not yet paired to`,
         steps: ['pair the phone to the lab computer', 'open an agent', 'close agent panes and attach again through pane churn', 'type a command at the agent'],
         result: verdict.startsWith('pass') ? 'the phone attached after every round of pane churn and the typed command printed its output on a clean screen' : verdict,
     }, null, 2)}\n`);
