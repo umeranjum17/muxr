@@ -13,7 +13,7 @@ any change to on-device storage, above all a major bump of
 - `upgrade-keeps-settings` MMKV-backed settings set on the old build read back
   on the new build.
 - `upgrade-fresh-pair` the new build still pairs from a cleared install.
-- `upgrade-journey` `scripts/diagnostics/application/upgradeJourney.mjs` drives
+- `upgrade-journey` `scripts/diagnostics/application/checkUpgradeJourney.mjs` drives
   the whole thing on a real phone: the old release installed and paired, theme
   and text size set, the candidate installed over it, the settings read back,
   the agent's terminal opened, and a cleared install paired again.
@@ -45,7 +45,7 @@ The same journey on a real phone, one command:
 ```
 UPGRADE_FROM_APK=<old release apk> UPGRADE_TO_APK=<candidate apk> \
   PHONE_SERIAL=<the test phone> \
-  node scripts/diagnostics/application/upgradeJourney.mjs <evidence dir> <scratch dir>
+  node scripts/diagnostics/application/checkUpgradeJourney.mjs <evidence dir> <scratch dir>
 ```
 
 It installs the old release from scratch, pairs it with the lab host, sets

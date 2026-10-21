@@ -5,7 +5,7 @@
 // terminal text size. The new build must still open an agent's terminal, and
 // it must still pair from a cleared install.
 //
-// usage: node scripts/diagnostics/application/upgradeJourney.mjs <evidenceDir> <labRoot>
+// usage: node scripts/diagnostics/application/checkUpgradeJourney.mjs <evidenceDir> <labRoot>
 // env: PHONE_SERIAL (the test phone), UPGRADE_FROM_APK, UPGRADE_TO_APK
 import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -67,6 +67,7 @@ const tapNode = async (re, seconds = 30, { cls } = {}) => {
     }
     const xml = dump();
     log(`screen words: ${['Pair', 'Paired', 'Approve', 'Computers', 'Home', 'Settings', 'Appearance', 'Theme', 'Text size', 'Dark'].map((w) => `${w}=${xml.includes(w)}`).join(' ')}`);
+    shot(`stuck-${Date.now()}`);
     throw new Error(`never saw ${re}`);
 };
 
@@ -108,6 +109,17 @@ const wake = async () => {
         await sleep(1500);
         log(`unlocked with a swipe; focus now ${sh('dumpsys window | grep -E "mCurrentFocus"').trim()}`);
     }
+};
+
+// The Home header gear, the only way into the app's settings.
+const atHome = () => dump().includes('content-desc="Settings"');
+const backToHome = async () => {
+    for (let i = 0; i < 3; i += 1) {
+        if (atHome()) return;
+        sh('input keyevent KEYCODE_BACK');
+        await sleep(1500);
+    }
+    if (!atHome()) throw new Error('never came back to Home');
 };
 
 const attached = async (since, what) => {
@@ -155,8 +167,9 @@ const steps = [];
 const step = (name, ok, detail) => { steps.push({ name, ok, detail }); log(`${ok ? 'pass' : 'FAIL'} ${name}: ${detail}`); };
 try {
     // 1. A clean install of the old release, so the pairing is only ever the lab's.
+    // An uninstall takes the app's stored state with it; `pm clear` is refused
+    // on this phone (its shell holds no CLEAR_APP_USER_DATA).
     sh(`pm uninstall ${PKG}`).trim();
-    sh(`pm clear ${PKG}`).trim();
     log(`installing the old release ${fromApk}`);
     adb('install', '-r', fromApk);
     const fromVersion = version();
@@ -197,6 +210,7 @@ try {
     await sleep(6000);
 
     // 4. The settings the user changed on the old build.
+    await backToHome();
     await tapNode(/^Settings$/, 60);
     await sleep(2000);
     await tapNode(/^Appearance$/, 60);
@@ -236,10 +250,7 @@ try {
     await sleep(2000);
 
     // 7. The settings and the pairing survived the upgrade.
-    sh(`input keyevent KEYCODE_BACK`);
-    await sleep(1500);
-    sh(`input keyevent KEYCODE_BACK`);
-    await sleep(1500);
+    await backToHome();
     await tapNode(/^Settings$/, 60);
     await sleep(2000);
     await tapNode(/^Appearance$/, 60);
@@ -250,11 +261,13 @@ try {
     shot('04-new-release-appearance');
     step('settings survived the upgrade', newTheme === oldTheme && newSize === oldSize, `theme=${newTheme} size=${newSize}`);
 
-    // 8. A cleared install still pairs: the new build is not only an upgrade.
-    sh(`pm clear ${PKG}`).trim();
+    // 8. A clean install still pairs: the new build is not only an upgrade.
+    sh(`pm uninstall ${PKG}`).trim();
+    adb('install', '-r', toApk);
     await sleep(2000);
     sh(`am start -n ${activity}`);
     await sleep(4000);
+    paired = false;
     const offer2 = await mintNativePairing(join(root, 'lab', 'host', 'pair.sock'));
     sh(`am start -a android.intent.action.VIEW -d 'muxr://pair#${offer2}' -n ${activity}`);
     await sleep(1500);
@@ -263,6 +276,12 @@ try {
     step('new release pairs from a cleared install', paired, paired ? 'approved' : 'no approval');
     offering?.destroy();
     await sleep(6000);
+    // 0.2.10 asks for notifications after a pairing; the system dialog covers Home until answered.
+    if (/permissioncontroller/.test(dump())) {
+        shot('05a-notification-prompt');
+        await tapNode(/^Don.t allow$/i, 10);
+        await sleep(2000);
+    }
     const tapped2 = Date.now();
     await tapNode(new RegExp(LAB_AGENT), 90);
     const attach2 = await attached(tapped2, 'the new release, fresh pair');
