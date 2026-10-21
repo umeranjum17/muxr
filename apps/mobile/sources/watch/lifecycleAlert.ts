@@ -1,6 +1,5 @@
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
-import { isSealedLifecyclePush, openLifecycleNotice } from '@/utils/openLifecycleNotice';
 
 /** The Agent whose terminal is on screen, if any. */
 let onScreen: string | null = null;
@@ -133,23 +132,6 @@ export async function settleAnsweredAlert(response: Notifications.NotificationRe
     await Notifications.scheduleNotificationAsync({
         identifier,
         content: { title: content.title ?? 'muxr', body: failure, data: content.data ?? {} },
-        trigger: null,
-    });
-}
-
-/**
- * A general notification the host sent over the link because this device has
- * no push address (Android). Raised like a delivered push, so a tap opens its
- * link through the same seal check.
- */
-export async function alertLinkNotice(payload: unknown, grants: Iterable<{ machineId: string; deviceKey: { secretKey: string } }>): Promise<void> {
-    if (Platform.OS === 'web' || !isSealedLifecyclePush(payload)) return;
-    const notice = openLifecycleNotice(payload, grants);
-    if (notice.data.kind !== 'notify') return;
-    await Notifications.scheduleNotificationAsync({
-        // One row per id: a repeat replaces it, as the relay drops a repeated push.
-        identifier: `notify:${String(notice.data.eventId)}`,
-        content: { title: notice.title, body: notice.body, data: { ...notice.data, data: (payload as { data: unknown }).data, presented: true } },
         trigger: null,
     });
 }
