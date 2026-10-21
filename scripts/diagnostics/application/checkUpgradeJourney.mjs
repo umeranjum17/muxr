@@ -35,9 +35,11 @@ const sh = (cmd) => adb('shell', cmd);
 const dump = () => { sh('uiautomator dump /sdcard/d.xml >/dev/null'); const xml = adb('exec-out', 'cat', '/sdcard/d.xml'); sh('rm -f /sdcard/d.xml'); return xml; };
 const shot = (name) => { writeFileSync(join(evidence, `${name}.png`), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 180_000 })); log(`captured ${name}`); };
 // The terminal's first rows hold the computer's own shell prompt: black them out.
-const maskPrompt = (name) => {
+// Home's header names the computer: black that band out of every shot kept and the video.
+const HOME_NAME_BAND = 'drawbox=x=0:y=140:w=720:h=130:color=black:t=fill';
+const maskPrompt = (name, filter = 'drawbox=x=0:y=190:w=iw:h=170:color=black:t=fill') => {
     const file = join(evidence, `${name}.png`);
-    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', file, '-vf', 'drawbox=x=0:y=190:w=iw:h=170:color=black:t=fill', `${file}.tmp.png`]);
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', file, '-vf', filter, `${file}.tmp.png`]);
     renameSync(`${file}.tmp.png`, file);
 };
 // Frame windows (ms) in which an agent's terminal is on screen; the video leaves them out.
@@ -114,7 +116,7 @@ const recOff = async (why) => {
     const kept = readdirSync(frames).filter((name) => name.endsWith('.png')).sort();
     if (kept.length < 4) return;
     execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', '2', '-pattern_type', 'glob', '-i', `${frames}/*.png`,
-        '-vf', 'crop=iw:ih-96:0:0,scale=540:-2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(evidence, 'upgrade.mp4')], { stdio: 'ignore' });
+        '-vf', `${HOME_NAME_BAND},crop=iw:ih-96:0:0,scale=540:-2`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(evidence, 'upgrade.mp4')], { stdio: 'ignore' });
     log(`video: upgrade.mp4 from ${kept.length} frames (${dropped} dropped while a terminal was on screen)`);
 };
 
@@ -302,6 +304,7 @@ try {
     // 0.2.10 asks for notifications after a pairing; the system dialog covers Home until answered.
     if (/permissioncontroller/.test(dump())) {
         shot('05a-notification-prompt');
+        maskPrompt('05a-notification-prompt', HOME_NAME_BAND);
         await tapNode(/^Don.t allow$/i, 10);
         await sleep(2000);
     }
