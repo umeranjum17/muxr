@@ -9,7 +9,7 @@
 // (`done-done run upgrade` sets DONE_DONE_EVIDENCE_ROOT and UPGRADE_ROOT instead)
 // env: PHONE_SERIAL (the test phone), UPGRADE_FROM_APK, UPGRADE_TO_APK
 import { execFileSync, spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join } from 'node:path';
 
@@ -35,13 +35,6 @@ const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding
 const sh = (cmd) => adb('shell', cmd);
 const dump = () => { sh('uiautomator dump /sdcard/d.xml >/dev/null'); const xml = adb('exec-out', 'cat', '/sdcard/d.xml'); sh('rm -f /sdcard/d.xml'); return xml; };
 const shot = (name) => { writeFileSync(join(evidence, `${name}.png`), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 180_000 })); log(`captured ${name}`); };
-// Home's header names the computer: black that band out of every shot kept and the video.
-const HOME_NAME_BAND = 'drawbox=x=0:y=140:w=720:h=130:color=black:t=fill';
-const maskPrompt = (name, filter = 'drawbox=x=0:y=190:w=iw:h=170:color=black:t=fill') => {
-    const file = join(evidence, `${name}.png`);
-    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', file, '-vf', filter, `${file}.tmp.png`]);
-    renameSync(`${file}.tmp.png`, file);
-};
 // Frame windows (ms) in which an agent's terminal is on screen; the video leaves them out.
 const terminalWindows = [];
 const size = () => { const line = sh('wm size').split('\n').filter(Boolean).pop(); const m = /(\d+)x(\d+)/.exec(line); return { width: Number(m[1]), height: Number(m[2]) }; };
@@ -116,7 +109,7 @@ const recOff = async (why) => {
     const kept = readdirSync(frames).filter((name) => name.endsWith('.png')).sort();
     if (kept.length < 4) return;
     execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', '2', '-pattern_type', 'glob', '-i', `${frames}/*.png`,
-        '-vf', `${HOME_NAME_BAND},crop=iw:ih-96:0:0,scale=540:-2`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(evidence, 'upgrade.mp4')], { stdio: 'ignore' });
+        '-vf', 'crop=iw:ih-96:0:0,scale=540:-2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(evidence, 'upgrade.mp4')], { stdio: 'ignore' });
     log(`video: upgrade.mp4 from ${kept.length} frames (${dropped} dropped while a terminal was on screen)`);
 };
 
@@ -325,16 +318,17 @@ try {
     // 0.2.10 asks for notifications after a pairing; the system dialog covers Home until answered.
     if (/permissioncontroller/.test(dump())) {
         shot('05a-notification-prompt');
-        maskPrompt('05a-notification-prompt', HOME_NAME_BAND);
         await tapNode(/^Don.t allow$/i, 10);
         await sleep(2000);
     }
+    await backToHome();
+    shot('05-new-release-fresh-pair-home');
     const tapped2 = Date.now();
     terminalWindows.push([tapped2, Number.MAX_SAFE_INTEGER]);
     await tapNode(new RegExp(LAB_AGENT), 90);
     const attach2 = await attached(tapped2, 'the new release, fresh pair');
     step('new release opens the agent terminal after a fresh pair', attach2.startsWith('attached'), attach2);
-    shot('05-new-release-fresh-pair');
+    shot('06-new-release-fresh-pair-terminal');
 
     const failed = steps.filter((s) => !s.ok);
     verdict = failed.length === 0
