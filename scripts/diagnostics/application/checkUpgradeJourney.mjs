@@ -35,7 +35,6 @@ const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding
 const sh = (cmd) => adb('shell', cmd);
 const dump = () => { sh('uiautomator dump /sdcard/d.xml >/dev/null'); const xml = adb('exec-out', 'cat', '/sdcard/d.xml'); sh('rm -f /sdcard/d.xml'); return xml; };
 const shot = (name) => { writeFileSync(join(evidence, `${name}.png`), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 180_000 })); log(`captured ${name}`); };
-// The terminal's first rows hold the computer's own shell prompt: black them out.
 // Home's header names the computer: black that band out of every shot kept and the video.
 const HOME_NAME_BAND = 'drawbox=x=0:y=140:w=720:h=130:color=black:t=fill';
 const maskPrompt = (name, filter = 'drawbox=x=0:y=190:w=iw:h=170:color=black:t=fill') => {
@@ -293,7 +292,6 @@ try {
     const attach = await attached(tapped, 'the new release');
     step('new release opens the agent terminal', attach.startsWith('attached'), attach);
     shot('03-new-release-terminal');
-    maskPrompt('03-new-release-terminal');
     await sleep(2000);
 
     // 7. The settings and the pairing survived the upgrade.
@@ -337,7 +335,6 @@ try {
     const attach2 = await attached(tapped2, 'the new release, fresh pair');
     step('new release opens the agent terminal after a fresh pair', attach2.startsWith('attached'), attach2);
     shot('05-new-release-fresh-pair');
-    maskPrompt('05-new-release-fresh-pair');
 
     const failed = steps.filter((s) => !s.ok);
     verdict = failed.length === 0
