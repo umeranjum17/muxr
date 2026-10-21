@@ -137,8 +137,13 @@ const wake = async () => {
 // The Home header gear, the only way into the app's settings.
 const atHome = () => dump().includes('content-desc="Settings"');
 const backToHome = async () => {
-    for (let i = 0; i < 3; i += 1) {
-        if (atHome()) return;
+    for (let i = 0; i < 4; i += 1) {
+        for (let wait = 0; wait < 5; wait += 1) {
+            if (atHome()) return;
+            await sleep(2000);
+        }
+        // Press back only inside this app: from its Home a back leaves it for the phone's own launcher.
+        if (!dump().includes(`package="${PKG}"`)) throw new Error('the app is not on screen');
         sh('input keyevent KEYCODE_BACK');
         await sleep(1500);
     }
