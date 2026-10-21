@@ -387,6 +387,7 @@ rules, with no H2 sections.
 - [Keep pairing and settings across an app upgrade](./upgrade-keeps-state.md) —
   main release APK paired with settings changed, `install -r` of the
   candidate, then pairing, theme and text size read back; fresh pair after.
+  `checkUpgradeJourney.mjs` drives that whole journey on a real phone.
 - [Keep every New agent field clear of the sticky Start button](./new-agent-footer-clearance.md) —
   native release APK: at 270 dp largest font the scroll ends above the sticky
   Start footer, so the Folder field and every field stay fully visible above
