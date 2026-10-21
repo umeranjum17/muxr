@@ -192,6 +192,21 @@ writeFileSync(join(bin, 'claude'), `#!/bin/sh\nprintf '\\033]2;%s\\007' 'Fix the
 let lab;
 let verdict = 'not reached';
 const steps = [];
+// Two files: upgrade-steps.json keeps every check with its detail; steps.json is done-done's step record
+// (target version, start state, the steps a user takes, what they see), written from what really ran.
+const writeRecords = () => {
+    writeFileSync(join(evidence, 'upgrade-steps.json'), `${JSON.stringify({ steps, verdict }, null, 2)}\n`);
+    const ok = steps.length > 0 && steps.every((s) => s.ok) && verdict.startsWith('pass');
+    writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
+        target: { version: /versionName=([\d.]+)/.exec(toVersionText)?.[1] ?? 'unknown' },
+        start: 'the previous release installed on the phone, paired to a lab computer, with Theme Dark and a 20 pt terminal text size set',
+        steps: steps.map((s) => `${s.name}: ${s.detail}`),
+        result: ok
+            ? 'the candidate release installed over the previous one keeps its pairing and settings, opens the agent terminal, and a clean install of the candidate pairs again and opens the terminal'
+            : verdict,
+    }, null, 2)}\n`);
+};
+let toVersionText = '';
 const step = (name, ok, detail) => { steps.push({ name, ok, detail }); log(`${ok ? 'pass' : 'FAIL'} ${name}: ${detail}`); };
 try {
     // 1. A clean install of the old release, so the pairing is only ever the lab's.
@@ -264,6 +279,7 @@ try {
     adb('install', '-r', toApk);
     const toVersion = version();
     log(`new release installed: ${toVersion}`);
+    toVersionText = toVersion;
     step('new release installed in place', /versionCode=393|versionCode":393/.test(toVersion), toVersion);
     await sleep(2000);
     await wake();
@@ -327,10 +343,10 @@ try {
     verdict = failed.length === 0
         ? `pass: upgrade kept the pairing and the settings, and the new build pairs and opens a terminal`
         : `fail: ${failed.map((f) => `${f.name} (${f.detail})`).join('; ')}`;
-    writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({ steps, verdict }, null, 2)}\n`);
+    writeRecords();
 } catch (error) {
     verdict = `fail: ${error.message}`;
-    writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({ steps, verdict }, null, 2)}\n`);
+    writeRecords();
     throw error;
 } finally {
     await recOff('journey over');

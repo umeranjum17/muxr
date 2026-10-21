@@ -53,7 +53,7 @@ It installs the old release from scratch, pairs it with the lab host, sets
 Theme to Dark and the terminal text size to 20 pt, installs the candidate over
 it with `adb install -r`, opens the agent's terminal on the new build, reads
 Theme and Text size back on Settings > Appearance, then clears the app and
-pairs again. It writes the steps it passed to `steps.json`, the frames it took
+pairs again. It writes done-done's step record to `steps.json`, the checks it passed to `upgrade-steps.json`, the frames it took
 to the scratch folder and a `journey.log` to the evidence dir.
 
 ## Gotchas

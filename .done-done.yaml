@@ -34,6 +34,7 @@ journeys:
   # UPGRADE_FROM_APK and UPGRADE_TO_APK set (see the upgrade-keeps-state feature).
   upgrade:
     command: node scripts/diagnostics/application/checkUpgradeJourney.mjs
+    upgrade: true
     timeout: 30m
   # The published package: packs the release tree, installs it, and starts the
   # packed host.js as the usage ledger child on a lab Codex store. The 0.2.8
