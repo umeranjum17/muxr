@@ -13,6 +13,7 @@ import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from '
 import type { MachineCryptoState } from './machine/index.js';
 import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, fileRelayClientStore, hostPlatformLabel, LinkEndpoint, writeSelfhostCrypto } from './machine/index.js';
 import { HostDiagnosticsJournal, type DiagnosticRelayState } from './diagnostics/index.js';
+import { startLocalAccountsServer } from './plans/localAccounts.js';
 import { liveDefaultStartFolder, muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
 import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
 
@@ -571,6 +572,9 @@ async function main(): Promise<void> {
         ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
         defaultStartFolder: currentDefaultStartFolder,
     });
+    // `muxr accounts` talks to the running host over this owner-only socket.
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    const accountsServer = await startLocalAccountsServer(join(dataDir, 'accounts.sock'), host.answer);
 
     // The saved folder reaches a phone already paired as a notice to refetch
     // machines.list: pairing stays non-blocking, so the folder can be answered
@@ -710,6 +714,7 @@ async function main(): Promise<void> {
         linkOnline = false;
         clearTimeout(relink);
         void pairingServer?.close();
+        void accountsServer.close();
         linkEndpoint?.close();
         terminals.closeAll();
         peerRuntime?.close();

@@ -75,12 +75,15 @@ async function providerRooms(provider: PlanProvider, env: NodeJS.ProcessEnv, dep
         if (!record.found && cli === undefined) return undefined;
         const account = record.found ? await defaultAccount(record, env, deps) : fromCliAccount(cli!, record, env);
         let room: Room = { left: 'unknown' };
+        let windowReadings: PlanAccount['windows'];
         // OpenCode Go's usage is not read per account: its room stays unknown.
         if (account.signedIn && provider !== 'opencode') {
             const scoped = await accountEnvironment(env, record);
             if (deps.room !== undefined) room = await deps.room(record, scoped);
             else {
                 const windows = await planAccountWindows(provider, scoped, { refresh: true });
+                windowReadings = windows.map((window) => ({ kind: window.windowKind, leftPercent: Math.round(100 - window.percentUsed),
+                    ...(window.resetEpochSec === undefined ? {} : { resetsAtEpochSec: window.resetEpochSec }) }));
                 room = roomOf(windows.map((window) => ({
                     usedPercent: window.percentUsed, kind: window.windowKind,
                     ...(window.resetEpochSec === undefined ? {} : { resetsAt: window.resetEpochSec }),
@@ -89,7 +92,7 @@ async function providerRooms(provider: PlanProvider, env: NodeJS.ProcessEnv, dep
         }
         return { account: { ...account, provider, ...(room.left === 'unknown' ? {} : {
             roomLeftPercent: Math.round(room.left), roomLabel: roomWords(room),
-        }) }, room };
+        }), ...(windowReadings === undefined || windowReadings.length === 0 ? {} : { windows: windowReadings }) }, room };
     }));
     return reads.filter((read): read is NonNullable<typeof read> => read !== undefined);
 }

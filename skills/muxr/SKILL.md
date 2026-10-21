@@ -69,7 +69,31 @@ work.
 | Watch desktop pages through Computer, watch a device preview, or hand a login, 2FA, or CAPTCHA to the phone | `muxr skill agent-browser-preview` · [source](references/agent-browser-preview.md) |
 | Publish an HTML page with images, or a new version of it | `muxr skill artifact-pages` · [source](references/artifact-pages.md) |
 | Name the current Herdr workspace/pane | `muxr name --workspace LABEL --pane TITLE --provider PROVIDER --model MODEL` |
+| See Claude accounts and their quota, or start or move an agent onto one | `muxr accounts` (below) |
 | Troubleshoot, recover, or report a bug | run interactive `muxr doctor` for checked safe repairs, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |
+
+## Claude accounts (by hand)
+
+With two or more Claude sign-ins on this computer, you choose which one an
+agent runs on. muxr never picks or switches an account for you, so run these
+only when the user asks. They need the muxr host running.
+
+```sh
+muxr accounts                      # each account: name, email, plan, 5-hour and 7-day % left with reset times
+muxr accounts panes                # each running agent and the account (name + email) it uses
+muxr accounts start work --cwd ~/repo   # new Claude agent on the account named "work" (or its email)
+muxr accounts move zulu-2 work     # carry agent zulu-2's conversation onto "work", in a new pane
+```
+
+- `<account>` is a name or email exactly as `muxr accounts` prints it; `<agent>`
+  is a name or pane id from `muxr accounts panes`. Add `--json` to list or panes
+  for scripts.
+- Check `muxr accounts` first and say which account you are using and why: an
+  account at 0% left in a window cannot work until that window resets.
+- A move closes the original pane and resumes the same conversation in a new
+  one, so do not move your own pane mid-task unless the user asked.
+- Fewer than two signed-in Claude accounts: the command says so; signing in is
+  done in the muxr app, never by an agent.
 
 ## Self-naming
 
