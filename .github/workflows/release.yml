@@ -87,7 +87,7 @@ jobs:
 
   publish:
     needs: build
-    if: needs.build.outputs.needed == 'true' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -110,15 +110,18 @@ jobs:
           node-version: 24
       # Trusted publishing needs npm 11.5.1 or later.
       - run: npm install --global npm@11.6.2
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - if: needs.build.outputs.needed == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: npm-release
           path: ${{ runner.temp }}/package
       - name: Publish with provenance
+        if: needs.build.outputs.needed == 'true'
         run: node scripts/release/presentation/publishNpm.mjs
       # CI publishes stable under `next`. `latest` moves by hand once the
       # version passed its proof (npm dist-tag add @trymuxr/cli@<version> latest);
-      # re-run this job after that to promote the release and point the catalog.
+      # re-run this job after that to promote the release and point the catalog
+      # (a version already on npm skips the download and the publish, not these).
       - id: live
         name: Check whether npm latest serves this version
         run: |
