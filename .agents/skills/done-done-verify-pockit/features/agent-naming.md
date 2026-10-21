@@ -68,7 +68,9 @@ Preconditions:
   `home-phone` and `panes-phone` at the phone's own display settings and
   never runs `pm clear`, which the OnePlus refuses to shell. It dismisses the
   post-pairing notification prompt (`Not now` / `Don't allow`) and grants no
-  permission on the phone. The swiftshader
+  permission on the phone. A finished run writes done-done's `steps.json`
+  (the app version it drove, its start, steps and the watched words the
+  captures held). The swiftshader
   emulator can lose its system server to the watchdog on app launch
   (`android.ui` blocked 60 s), so prefer the phone when it is free.
 - **Attribution.** `node scripts/cli.mjs name --provider pi --model glm-5.3`

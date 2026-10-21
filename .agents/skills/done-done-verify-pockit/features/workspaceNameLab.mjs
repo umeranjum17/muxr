@@ -269,6 +269,15 @@ try {
         for (const screen of ['home', 'panes']) await capture(`${screen}-${width}-${font}-${theme}`, screen);
     }
     log(`phone shows: ${[...shown].sort().join(', ') || 'none of the watched words'}`);
+    // done-done's step record: what this run drove and what the captured screens held.
+    const version = sh(`dumpsys package ${PKG} | grep -m1 versionName`).trim().replace(/^versionName=/, '');
+    const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
+    writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
+        target: { version: `muxr ${version} release APK built from ${commit}` },
+        start: `a fresh install of muxr on ${phone ? 'the test phone' : 'an emulator'}, and a lab Herdr whose shared workspace ${labels[0]} holds lanes that each self-named their workspace, the last one ssh-ed25519`,
+        steps: ['Install muxr and open it', 'Pair it with the lab computer from a pairing link', 'Dismiss the notification prompt', 'Open Home', 'Open Panes'],
+        result: `the captured screens show: ${[...shown].sort().join(', ') || 'none of the watched words'}`,
+    }, null, 2)}\n`);
     finished = true;
 } finally {
     if (serial && !finished) try { writeFileSync(join(evidence, 'failed-screen.png'), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 60_000 })); } catch { /* device gone */ }
