@@ -258,15 +258,14 @@ try {
     sh('wm dismiss-keyguard');
     sh(`am start -n ${activity}`);
     await sleep(6000);
-    // A cold-started app drops a link it gets before its first screen is up, so the link is sent again until the consent screen shows.
     for (let attempt = 1; ; attempt += 1) {
-        try { sh(`am start -a android.intent.action.VIEW -d 'muxr://pair#${offer}' -n ${activity}`); } catch (error) { if (attempt === 6) throw error; log(`pair intent attempt ${attempt} failed; retrying`); }
-        if (await tapNode(/^Pair$/, 30, undefined, true)) break;
-        if (attempt === 6) throw new Error('the consent screen never showed after 6 pair links');
-        log(`pair link ${attempt} did not open the consent screen; sending it again`);
+        try { sh(`am start -a android.intent.action.VIEW -d 'muxr://pair#${offer}' -n ${activity}`); break; }
+        catch (error) { if (attempt === 3) throw error; log(`pair intent attempt ${attempt} failed; retrying`); await sleep(3000); }
     }
+    await sleep(1500);
     // No recording here: the consent screen names the computer, and the journey's
     // captures are lab-only. The pairing itself is in journey.log and host.log.
+    await tapNode(/^Pair$/, 120);
     for (let second = 0; second < 30 && !paired; second += 1) await sleep(1000);
     offering?.destroy();
     if (!paired) throw new Error('the host never saw the pairing approval');
