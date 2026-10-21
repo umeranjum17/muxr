@@ -175,7 +175,7 @@ try {
         target: { version: `muxr ${version} release APK on ${phone ? 'the test phone' : 'an emulator'}` },
         start: 'a fresh install of muxr and a private lab Herdr with two Claude panes: work-pane runs under the Work account folder, own-pane under the computer\'s own folder',
         steps: ['Install muxr and open it', 'Pair it with the lab computer from a pairing link', 'Open work-pane and read its header', 'Open own-pane and read its header', 'Repeat at 270 dp'],
-        result: 'work-pane header chip reads Work and own-pane header chip reads Umer, at 393 dp and 270 dp',
+        result: 'a Claude pane started under its own plans folder shows the account signed in at that folder in its header chip, not the default computer account, in two parts labelled exactly "work" and "own". Part "work": work-pane-393-1.0-light.header.png and work-pane-270-1.0-light.header.png each show the header chip reading Work. Part "own": own-pane-393-1.0-light.header.png and own-pane-270-1.0-light.header.png each show the header chip reading Umer. Each file is a crop of only the header row of one phone screen',
     }, null, 2)}\n`);
     finished = true;
 } finally {
