@@ -26,6 +26,8 @@ export interface PlanAccount {
     roomLeftPercent?: number;
     /** That window in plain words ("72% left this week"). */
     roomLabel?: string;
+    /** Each limit window the host read ("five_hour", "seven_day"), for `muxr accounts`. */
+    windows?: Array<{ kind: string; leftPercent: number; resetsAtEpochSec?: number }>;
 }
 
 /** Every known sign-in for one provider. Omitted from `plans.list` below two accounts. */

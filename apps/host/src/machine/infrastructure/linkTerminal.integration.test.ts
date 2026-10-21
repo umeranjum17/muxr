@@ -500,8 +500,13 @@ process.stdin.on('data', (chunk) => {
             await new Promise((resolve) => setTimeout(resolve, 100));
         }
         await waitForDrag(back, 57, 8_000);
+        // The host sizes each burst by what the last one moved, so a stalled
+        // runner that lets the program's spin carry over (a row a report
+        // becomes three) overshoots by one burst, never more: at most
+        // eight reports (the host's WHEEL_MAX_BURST), two rows over their
+        // learned row each.
         expect(back()).toBeGreaterThanOrEqual(57);
-        expect(back()).toBeLessThanOrEqual(63);
+        expect(back()).toBeLessThanOrEqual(60 + 2 * 8);
     });
 
     it('drops every input a view-only device sends', { timeout: 30_000 }, async () => {

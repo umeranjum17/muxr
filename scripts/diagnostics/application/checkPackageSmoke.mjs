@@ -479,6 +479,7 @@ try {
     assert.ok(listing.includes('package/setup/application/promptPeerAgent.mjs'), 'peer CLI client missing from npm artifact');
     assert.ok(listing.includes('package/diagnostics/application/dumpDiagnostics.mjs'), 'host diagnostics CLI missing from npm artifact');
     assert.ok(listing.includes('package/preview/client.mjs'), 'preview status client missing from npm artifact');
+    assert.ok(listing.includes('package/accounts/client.mjs'), 'accounts client missing from npm artifact');
     assert.ok(listing.includes('package/resources/control/run.mjs'), 'management pane pack missing from npm artifact');
     // Code and Attachments left the bundle for their own public repositories;
     // the npm artifact must not still ship them. Panes became product code.
