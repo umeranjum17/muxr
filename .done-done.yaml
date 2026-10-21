@@ -27,6 +27,7 @@ journeys:
   phone-attach:
     command: node scripts/diagnostics/application/checkPhoneAttach.mjs
     timeout: 30m
+    core: true
   # A Claude pane under a plans folder wears that folder's account chip, on
   # the real phone, in a private Herdr lab. Runs by hand under the phone's
   # keeper lock with PHONE_SERIAL, PHONE_APK and the Herdr lab helper set.

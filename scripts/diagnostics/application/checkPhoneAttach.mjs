@@ -39,7 +39,7 @@ const [evidence, root] = [process.env.DONE_DONE_EVIDENCE_ROOT, process.env.PHONE
 if (!evidence || !root) throw new Error('phone-attach needs DONE_DONE_EVIDENCE_ROOT (evidence) and PHONE_ATTACH_ROOT (scratch)');
 const repo = process.cwd();
 const serial = process.env.PHONE_SERIAL;
-if (serial !== 'a4b93ea2') throw new Error('phone-attach runs on the test phone a4b93ea2 only, under its keeper lock');
+if (serial !== 'a4b93ea2' && !/^emulator-\d+$/.test(serial ?? '')) throw new Error('phone-attach runs on the test phone a4b93ea2 under its keeper lock, or on an emulator this run owns');
 const apk = process.env.PHONE_APK || undefined;
 const rounds = Number(process.env.PHONE_ATTACH_ROUNDS ?? 18);
 const { linkHerdrLab } = await import(join(repo, 'scripts/diagnostics/application/linkHerdrLab.mjs'));
@@ -80,7 +80,11 @@ const shot = (name) => {
     const xml = dump();
     if (!xml.includes('Terminal surface')) { log(`skipped ${name}: not a terminal screen`); return; }
     if (namesComputer(xml) || LEAK.test(xml)) { log(`skipped ${name}: the screen shows the computer's own name`); return; }
-    writeFileSync(join(evidence, `${name}.png`), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 120_000 }));
+    // The status bar is cropped off: it shows the phone's own notification icons, which are not part of this journey.
+    const raw = join(root, `${name}.raw.png`);
+    writeFileSync(raw, execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 120_000 }));
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', raw, '-vf', 'crop=iw:ih-120:0:120', join(evidence, `${name}.png`)]);
+    rmSync(raw);
     log(`captured ${name}`);
 };
 const tapNode = async (pattern, seconds = 90, className, optional = false) => {
@@ -140,7 +144,7 @@ const record = () => {
     const shots = readdirSync(frames).filter((name) => name.endsWith('.png')).sort();
     if (shots.length < 4) return;
     execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', '4', '-pattern_type', 'glob', '-i', `${frames}/*.png`,
-        '-vf', 'crop=iw:ih-96:0:0,scale=540:-2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(evidence, 'phone-attach.mp4')], { stdio: 'ignore' });
+        '-vf', 'crop=iw:ih-216:0:120,scale=540:-2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(evidence, 'phone-attach.mp4')], { stdio: 'ignore' });
     log(`video: phone-attach.mp4 from ${shots.length} frames (${dropped} dropped as the computer's own screen)`);
 };
 
@@ -177,6 +181,7 @@ const mintNativePairing = (socketPath) => new Promise((resolve, reject) => {
 
 let lab;
 let verdict = 'not reached';
+let installed = 'unknown';
 // The host logs one line per terminal stream it really attached.
 const attaches = () => (lab?.hostOutput().match(/link: terminal stream attached/g) ?? []).length;
 
@@ -222,10 +227,15 @@ const openAgentAgain = async (what) => {
 try {
     // The journey installs the exact release build, on a fresh app data dir:
     // an install over an existing app would keep a pairing to another computer.
-    if (apk === undefined) throw new Error('PHONE_APK must point at the release build to install');
-    try { adb('uninstall', PKG); } catch { /* the app was not installed yet */ }
-    adb('install', apk);
-    log(`installed ${sh(`dumpsys package ${PKG} | grep versionName`).trim()} from ${apk}`);
+    // PHONE_USE_INSTALLED=1 drives the app already on the phone as it is instead, and installs nothing.
+    if (apk === undefined && process.env.PHONE_USE_INSTALLED !== '1') throw new Error('PHONE_APK must point at the release build to install (or PHONE_USE_INSTALLED=1 to drive the installed app)');
+    if (apk !== undefined) {
+        try { adb('uninstall', PKG); } catch { /* the app was not installed yet */ }
+        adb('install', apk);
+    }
+    const versionText = sh(`dumpsys package ${PKG} | grep versionName`).trim();
+    installed = /versionName=([\d.]+)/.exec(versionText)?.[1] ?? 'unknown';
+    log(`${apk === undefined ? 'driving the installed app' : `installed from ${apk}`}: ${versionText}`);
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     mkdirSync(join(root, 'lab'), { recursive: true });
     lab = await linkHerdrLab(join(root, 'lab'), 'attach', undefined, (herdr) => {
@@ -253,6 +263,8 @@ try {
     const offer = await mintNativePairing(join(root, 'lab', 'host', 'pair.sock'));
     sh('input keyevent KEYCODE_WAKEUP');
     sh('wm dismiss-keyguard');
+    // A stopped app opens on Home; a running one resumes wherever it was left, and Back from the agent would land there.
+    sh(`am force-stop ${PKG}`);
     sh(`am start -n ${activity}`);
     await sleep(6000);
     for (let attempt = 1; ; attempt += 1) {
@@ -339,6 +351,13 @@ try {
     await recordOff('journey over');
     record();
     log(`verdict: ${verdict}`);
+    // done-done's step record: what a user did and what they saw, from the verdict this run reached.
+    writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
+        target: { version: installed },
+        start: `${apk === undefined ? 'the release app already installed on the phone, restarted' : 'the release app freshly installed on the phone'}, with a lab computer running two agent panes that the phone is not yet paired to`,
+        steps: ['pair the phone to the lab computer', 'open an agent', 'close agent panes and attach again through pane churn', 'type a command at the agent'],
+        result: verdict.startsWith('pass') ? 'the phone attached after every round of pane churn and the typed command printed its output on a clean screen' : verdict,
+    }, null, 2)}\n`);
     if (lab) writeFileSync(join(evidence, 'host.log'), lab.hostOutput()
         .replace(/pairing string[^\n]*/g, '<pairing>').replace(/muxr:\/\/pair#\S*/g, '<offer>'));
     offering?.destroy();
