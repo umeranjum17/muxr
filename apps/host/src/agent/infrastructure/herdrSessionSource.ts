@@ -1581,7 +1581,18 @@ export async function createHerdrSessionSource(
     }
 
     function emitAllStates(): void {
+        if (disposed) return;
         for (const session of currentSessions()) emitState(session.sessionId);
+    }
+
+    // Herdr omits some rename/readiness pushes. Keep discovery, but share one
+    // background pass instead of making every passive list wait on all watches.
+    let discoveryRefresh: Promise<void> | undefined;
+    function refreshDiscovery(): Promise<void> {
+        return discoveryRefresh ??= refreshSnapshot().then(emitAllStates).catch((cause: unknown) => {
+            if (!disposed && client.connected) process.stderr.write(`herdr: background discovery failed (${rosterFailureCode(cause)}); retaining last-known sessions\n`);
+            throw cause;
+        }).finally(() => { discoveryRefresh = undefined; });
     }
 
     // Resolved at each use, so a Herdr installed after the host started is
@@ -1873,8 +1884,8 @@ export async function createHerdrSessionSource(
         return `${session.paneId}\u0000${reference === undefined ? 'shell' : herdrAgentSessionKey(reference)}`;
     }
 
-    async function resolvePane(sessionId: string, reusePromptSnapshot = false): Promise<CurrentSession> {
-        const recentPromptSnapshot = reusePromptSnapshot && client.connected
+    async function resolvePane(sessionId: string, reuse?: 'prompt' | 'target'): Promise<CurrentSession> {
+        const recentPromptSnapshot = reuse === 'prompt' && client.connected
             && client.kit.snapshot().revision === lastKitRevision;
         if (recentPromptSnapshot) {
             const cached = currentSession(sessionId);
@@ -1883,8 +1894,37 @@ export async function createHerdrSessionSource(
         }
         // An unreadable snapshot says nothing about the route. Fail closed as a
         // temporary outage: only a snapshot that actually came back may claim
-        // the agent is gone. Other operations always revalidate with Herdr.
+        // the agent is gone. Mutations needing topology/CWD still read the tree;
+        // observations and pane-only focus validate the live target, not all watches.
         try {
+            if (reuse === 'target' && !disposed && client.connected) {
+                await reindexKitTree();
+                const cached = currentSession(sessionId);
+                if (cached !== undefined) {
+                    try {
+                        const live = (await client.kit.call('pane.get', { pane_id: cached.paneId })).pane;
+                        if (live?.pane_id !== cached.paneId) throw new Error('herdr: target read returned no matching pane');
+                        const observed: CurrentSession = {
+                            sessionId: cached.sessionId, paneId: cached.paneId, pane: cached.pane,
+                            ...(typeof live.agent !== 'string' || live.agent === '' ? {} : { agent: {
+                                ...cached.agent, ...live,
+                                agent_session: parseHerdrAgentSession(live.agent_session) ?? null,
+                            } }),
+                        };
+                        if (sessionGenerationKey(observed) === sessionGenerationKey(cached)) {
+                            // Lifecycle/status stays with the kit's epoch-ordered
+                            // pushes, not this RPC, which may predate a live push.
+                            await reindexKitTree();
+                            const current = currentSession(sessionId);
+                            if (current !== undefined && sessionGenerationKey(current) === sessionGenerationKey(observed)) return current;
+                        }
+                    } catch (cause) {
+                        const code = (cause as { code?: unknown } | undefined)?.code;
+                        if (code !== 'agent_not_found' && code !== 'pane_not_found') throw cause;
+                    }
+                    // The route may have moved: only a full discovery may rebind it.
+                }
+            }
             await refreshSnapshot();
         } catch (cause) {
             process.stderr.write(`herdr snapshot failed while resolving ${sessionId}: ${cause instanceof Error ? cause.message : String(cause)}\n`);
@@ -2238,7 +2278,7 @@ export async function createHerdrSessionSource(
     }
 
     async function statusRealtimeAgent(sessionId: string): Promise<string> {
-        const session = await resolvePane(sessionId);
+        const session = await resolvePane(sessionId, 'target');
         return statusFor(session.sessionId).agentStatus ?? 'unknown';
     }
 
@@ -2298,7 +2338,7 @@ export async function createHerdrSessionSource(
     async function promptSession(sessionId: string, text: string, firstPrompt = false): Promise<void> {
         let session: CurrentSession;
         try {
-            session = await resolvePane(sessionId, true);
+            session = await resolvePane(sessionId, 'prompt');
             if (!agentPromptable(session)) {
                 // Cheap event-driven wait first, then a short poll for the route
                 // rebind that adoption performs a beat later.
@@ -2371,7 +2411,7 @@ export async function createHerdrSessionSource(
     }
 
     async function readSessionOutput(sessionId: string, readOptions?: { lines: number }): Promise<{ text: string; truncated: boolean }> {
-        const record = await resolvePane(sessionId);
+        const record = await resolvePane(sessionId, 'target');
         const generation = sessionGenerationKey(record);
         const settled = ['idle', 'done'].includes(lifecycleOf(record));
         const source: RealtimePaneReadSource = settled ? 'recent_unwrapped' : 'visible';
@@ -2384,7 +2424,7 @@ export async function createHerdrSessionSource(
             const visible = await readPaneForRecord(record, 'visible', readOptions?.lines ?? 80);
             if (visible.text.trim() !== '') result = visible;
         }
-        const current = await resolvePane(sessionId);
+        const current = await resolvePane(sessionId, 'target');
         if (sessionGenerationKey(current) !== generation) throw agentUnavailable();
         return result;
     }
@@ -2407,7 +2447,7 @@ export async function createHerdrSessionSource(
     }
 
     async function focusSession(sessionId: string, assertActive?: () => void): Promise<void> {
-        const record = await resolvePane(sessionId);
+        const record = await resolvePane(sessionId, 'target');
         assertActive?.();
         await client.kit.focus({ pane: record.paneId });
     }
@@ -2585,9 +2625,10 @@ export async function createHerdrSessionSource(
         },
 
         async list(listOptions?: SessionListOptions): Promise<SessionInfo[]> {
-            // A one-shot snapshot failure keeps the cached tree visible without
-            // falsifying the event socket's connected state.
-            await refreshSnapshot().catch(() => undefined);
+            // Return the known tree without waiting for a whole-tree refresh.
+            // A failed background pass retains it; explicit operations still fail.
+            void refreshDiscovery().catch(() => undefined);
+            await reindexKitTree().catch(() => undefined);
             let sessions = currentSessions();
             if (listOptions?.cwd !== undefined) {
                 sessions = sessions.filter((session) => cwdForSession(session.sessionId) === listOptions.cwd);
@@ -2601,7 +2642,7 @@ export async function createHerdrSessionSource(
 
         start: startSession,
         async open(openOptions: SessionOpenOptions): Promise<SessionSnapshot> {
-            const record = await resolvePane(openOptions.sessionId);
+            const record = await resolvePane(openOptions.sessionId, 'target');
             // herdr clears `done` when the tab is focused; focusing from a phone
             // would yank the desk's focus, so opening the session is the "seen"
             // signal here instead.
@@ -2891,7 +2932,7 @@ export async function createHerdrSessionSource(
             source?: 'visible' | 'recent' | 'recent_unwrapped';
             ansi?: boolean;
         }): Promise<{ text: string; truncated: boolean }> {
-            const record = await resolvePane(readOptions.sessionId);
+            const record = await resolvePane(readOptions.sessionId, 'target');
             const generation = sessionGenerationKey(record);
             const result = await readPaneForRecord(
                 record,
@@ -2901,7 +2942,7 @@ export async function createHerdrSessionSource(
             );
             // A route may be rebound while Herdr is serving the read. Never
             // return text from the old pane/generation to the new route.
-            const current = await resolvePane(readOptions.sessionId);
+            const current = await resolvePane(readOptions.sessionId, 'target');
             if (sessionGenerationKey(current) !== generation) throw agentUnavailable();
             return result;
         },
@@ -3280,7 +3321,7 @@ export async function createHerdrSessionSource(
         },
 
         async status(sessionId: string): Promise<SessionStatus> {
-            await resolvePane(sessionId);
+            await resolvePane(sessionId, 'target');
             return statusFor(sessionId);
         },
 
@@ -3433,6 +3474,11 @@ export async function createHerdrSessionSource(
             deliver: (sessionId: string, event: SessionEventBody) => void,
             deliverMachine: (frame: PluginsInvalidatedFrame) => void,
         ): Promise<void> {
+            // Alert replay is not a passive listing: confirm closed/recovered
+            // launches first. An unreadable tree cannot retire a known failure.
+            if (launchFailureByPane.size > 0 || pendingLaunchByPane.size > 0) {
+                await refreshDiscovery().catch(() => undefined);
+            }
             reconcileLaunchFailures();
             for (const failure of launchFailureByPane.values()) {
                 deliver(failure.sessionId, { type: 'session.error', message: failure.message });
@@ -3487,6 +3533,8 @@ export async function createHerdrSessionSource(
                 voiceStreamAborts.clear();
             });
             await settle(() => client.close());
+            // close cancels any background read; drain it before the final save.
+            await discoveryRefresh?.catch(() => undefined);
             await settle(() => routes.flush());
             if (firstError !== undefined) throw firstError;
         },

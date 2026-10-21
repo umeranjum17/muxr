@@ -4,8 +4,8 @@
  * every terminal attach waited forever, until the host was restarted).
  * Herdr answers a watch on a gone pane with an error whose id is the
  * subscription's own (`<id>:sub:0:probe`); a kit that never settles that watch
- * keeps its tree refresh running for good, and every attach, which refreshes
- * the tree to resolve its pane, queues behind it.
+ * keeps its tree refresh running for good. Passive reads must not need that
+ * refresh; the client's bootstrap guard must recover without a polling reader.
  * Real lab Herdr and the host's Herdr client, built (`apps/host/dist`). A
  * socket proxy in front of the lab Herdr only holds one subscribe line back, so
  * the pane closes before Herdr reads it. (A whole lab host refuses any socket
@@ -90,25 +90,36 @@ try {
     // the agent pane's watch is held while that pane closes.
     holding = true;
     const seen = watches;
-    herdr('workspace', 'create', '--cwd', workdir, '--label', 'trigger', '--no-focus');
+    const trigger = herdr('workspace', 'create', '--cwd', workdir, '--label', 'trigger', '--no-focus').result.workspace.workspace_id;
     await until(() => watches > seen, 'the re-opened watch to be held', 15_000);
     herdr('pane', 'close', doomed);
     await sleep(500);
     release();
 
-    // What a terminal attach waits on before it resolves its pane.
-    // A wedged read costs one restart of the kit, not the host.
+    // No refresh/list/attach may incidentally arm the guard here. An automatic
+    // bootstrap must recover on its own, retaining the new live workspace.
     const asked = Date.now();
-    const answered = await Promise.race([client.refresh().then(() => true), sleep(45_000).then(() => false)]);
+    await until(() => {
+        const snapshot = client.kit.snapshot();
+        return client.connected && snapshot.workspaces.some((workspace) => workspace.id === trigger)
+            && !snapshot.workspaces.some((workspace) => workspace.tabs.some((tab) => tab.panes.some((pane) => pane.id === doomed)));
+    }, 'automatic bootstrap recovery without a refreshing consumer', 45_000);
     const waited = `${((Date.now() - asked) / 1000).toFixed(1)}s`;
-    if (!answered) throw new Error(`the Herdr tree refresh never answered after a watched agent pane closed (gave up after ${waited})`);
-    process.stdout.write(`ok: the tree refresh answers ${waited} after a watched agent pane closed\n`);
+    process.stdout.write(`ok: automatic bootstrap recovers ${waited} after a watched agent pane closed, without a refreshing consumer\n`);
+    await client.refresh();
+    process.stdout.write('ok: an explicit fresh tree read still answers after recovery\n');
     process.stdout.write('PASS e2e: a vanished agent pane never wedges the Herdr tree\n');
 } finally {
-    release();
-    await client?.close();
-    proxy.close();
-    execFileSync(helper, ['teardown', session]);
+    const failures = [];
+    for (const cleanup of [
+        release,
+        () => client?.close(),
+        () => proxy.listening && new Promise((resolve, reject) => proxy.close((error) => error ? reject(error) : resolve())),
+        () => execFileSync(helper, ['teardown', session]),
+    ]) {
+        try { await cleanup(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length > 0) throw new AggregateError(failures, 'Herdr watch lab cleanup failed; scratch retained');
     rmSync(root, { recursive: true, force: true });
 }
 process.exit(0);

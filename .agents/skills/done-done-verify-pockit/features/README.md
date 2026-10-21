@@ -94,8 +94,9 @@ rules, with no H2 sections.
   timestamp and event-sequence owner counts at their live baseline.
 - [Follow a Herdr agent's status live](./herdr-live-status.md) —
   host session source on a guarded lab Herdr: tree follows new panes, status
-  working/blocked/idle lands without a redundant host-side tree clone, socket
-  count 1 → 2 → 1; no baseline needed.
+  working/blocked/idle lands without a redundant host-side tree clone, passive
+  pane views validate one live target and lists share nonblocking discovery;
+  automatic bootstrap recovery needs no polling reader; socket count 1 → 2 → 1.
 - [Show a stalled computer as busy and recovering](./herdr-stall-recovery.md) —
   named Herdr lab freeze: tree goes unavailable within 20s, returns healthy and
   attaches within 10s; iPad Home records busy copy and agents recovering alone.
