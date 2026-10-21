@@ -222,6 +222,8 @@ try {
         }
     }
     await servicesUp();
+    // Since #1002 the first Home after pairing raises the notification prompt over the app.
+    sh(`pm grant ${PKG} android.permission.POST_NOTIFICATIONS`);
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     // The uninstall above already cleared it; the OnePlus test phone refuses `pm clear` to shell.
     if (emu) sh(`pm clear ${PKG}`);
@@ -268,6 +270,7 @@ try {
     log(`phone shows: ${[...shown].sort().join(', ') || 'none of the watched words'}`);
     finished = true;
 } finally {
+    if (serial && !finished) try { writeFileSync(join(evidence, 'failed-screen.png'), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 60_000 })); } catch { /* device gone */ }
     if (serial && !finished) try { writeFileSync(join(evidence, 'logcat.txt'), adb('logcat', '-d', '-v', 'time', '-t', '4000')); } catch { /* emulator gone */ }
     if (emu) try { sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
     if (phone) try { adb('reverse', '--remove', `tcp:${lab.port}`); sh(`am force-stop ${PKG}`); } catch { /* unplugged */ }
