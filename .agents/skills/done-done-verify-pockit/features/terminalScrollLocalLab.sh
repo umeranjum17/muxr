@@ -51,7 +51,7 @@ log "fling back"; a shell input swipe 300 600 300 1600 90; log "finger up"; slee
 R=$(find_node 'Jump to latest'); log "latest pill: ${R:+shown}"; [ -n "$R" ] && a shell input tap $R; sleep 3
 # The newest output looks exactly like the live edge: keep the terminal area only, so the file is its own capture.
 a exec-out screencap -p > "$D/latest.png"
-ffmpeg -v error -y -i "$D/latest.png" -vf 'crop=1080:1500:0:150' "$E/after-latest-terminal.png"
+ffmpeg -v error -y -i "$D/latest.png" -vf 'crop=1080:1650:0:150' "$E/after-latest-terminal.png"
 log "after-latest-terminal $(marks "$E/after-latest-terminal.png" | sed -n '1p;$p' | tr '\n' ' ')"
 log "pill after latest: $(find_node 'Jump to latest' | grep -c .)"
 quit; log "lab $(tail -1 "$D/lab.log")"
