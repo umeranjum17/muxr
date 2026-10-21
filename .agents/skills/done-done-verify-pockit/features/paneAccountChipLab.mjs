@@ -171,6 +171,14 @@ try {
         await capture('work-pane', 'Work', density);
         await capture('own-pane', 'Umer', density);
     }
+    // done-done's step record: what this run drove and what the captured headers held.
+    const version = sh(`dumpsys package ${PKG} | grep -m1 versionName`).trim().replace(/^versionName=/, '');
+    writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
+        target: { version: `muxr ${version} release APK on ${phone ? 'the test phone' : 'an emulator'}` },
+        start: 'a fresh install of muxr and a private lab Herdr with two Claude panes: work-pane runs under the Work account folder, own-pane under the computer\'s own folder',
+        steps: ['Install muxr and open it', 'Pair it with the lab computer from a pairing link', 'Open work-pane and read its header', 'Open own-pane and read its header', 'Repeat at 270 dp'],
+        result: 'work-pane header chip reads Work and own-pane header chip reads Umer, at 393 dp and 270 dp',
+    }, null, 2)}\n`);
     finished = true;
 } finally {
     try { if (!phone) sh('wm size reset'); sh(`wm density ${startDensity}`); if (!phone) { sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } } catch { /* emulator gone */ }
