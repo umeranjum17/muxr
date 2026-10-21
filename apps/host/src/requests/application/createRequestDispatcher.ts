@@ -50,6 +50,8 @@ import {
     acknowledgeAutoTerms,
     listPlans,
     withPlanAccounts,
+    observePaneAccount,
+    observePlanPanes,
     planAccountStatus,
     planLaunchEnv,
     opencodeAccountStates,
@@ -337,7 +339,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return started;
         },
         'session.open': async (params) => useCaseData(await openAgent(source, params)),
-        'herdr.tree': async () => withPlanAccounts(process.env, await source.herdrTree(), lastPlans),
+        'herdr.tree': async () => {
+            const tree = await source.herdrTree();
+            return withPlanAccounts(process.env, tree, lastPlans, await observePlanPanes(process.env, tree, (paneId) => source.paneForegroundPids(paneId)));
+        },
         'applications.list': async () => source.applicationsList(),
         'applications.launch': async (params) => source.applicationsLaunch(params),
         'herdr.agentKinds': async (params) => agentCatalog.read(params.refresh),
@@ -677,10 +682,17 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             if (tab === undefined) return { removed: false };
             return cancelPlanSignIn(process.env, params.accountId);
         }),
-        'plans.agent': async (params) => ({
-            ...planPaneAccount(process.env, await planPaneOf(params.sessionId)),
-            ...(source.canMovePlanAccount === undefined ? {} : { movable: await source.canMovePlanAccount(params.sessionId) }),
-        }),
+        'plans.agent': async (params) => {
+            const session = (await source.list()).find((candidate) => candidate.id === params.sessionId);
+            const paneId = session?.paneId ?? params.sessionId;
+            const recorded = planPaneAccount(process.env, paneId);
+            const accountId = recorded.accountId
+                ?? (session?.agentKind === 'claude' ? await observePaneAccount(process.env, paneId, (id) => source.paneForegroundPids(id)) : undefined);
+            return {
+                ...(accountId === undefined ? {} : { accountId }),
+                ...(source.canMovePlanAccount === undefined ? {} : { movable: await source.canMovePlanAccount(params.sessionId) }),
+            };
+        },
         'voice.status': () => voiceStatus(),
         'voice.provider.list': () => voiceProviderList(),
         'voice.provider.set': (params) => voiceProviderSet(params.providerId),

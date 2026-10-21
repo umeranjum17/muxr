@@ -1,7 +1,7 @@
 /** muxr owns sign-in tabs and pane/account bookkeeping. Each sign-in attempt owns a kit instance. */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { HerdrTreePane, HerdrTreeWorkspace, PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
 import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRecord, type PlanPreparation } from './planAccounts.js';
 import { loadPlanAccounts, PLAN_LABELS, plansDir, type PlanProvider } from './planStore.js';
@@ -213,7 +213,7 @@ export function rememberPlanPane(env: NodeJS.ProcessEnv, paneId: string, account
  * nothing about it: a Pi pane is named only for the Claude account muxr put
  * it on, and not once it reports a model from another provider.
  */
-export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>(env: NodeJS.ProcessEnv, tree: T, listed: readonly PlanProviderAccounts[] | undefined): T {
+export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>(env: NodeJS.ProcessEnv, tree: T, listed: readonly PlanProviderAccounts[] | undefined, observed: ReadonlyMap<string, string> = new Map()): T {
     if (listed === undefined || listed.length === 0) return tree;
     const recorded = new Map(loadPanes(env));
     const signingIn = new Set(signInTabs.values());
@@ -225,7 +225,7 @@ export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>
         else if (kind === 'opencode') provider = 'opencode';
         const entry = listed.find((candidate) => candidate.provider === provider);
         if (entry === undefined || signingIn.has(pane.paneId)) return undefined;
-        const id = recorded.get(pane.paneId);
+        const id = recorded.get(pane.paneId) ?? observed.get(pane.paneId);
         if (kind === 'pi' && (id === undefined || (pane.provider !== undefined && !/anthropic|claude/i.test(pane.provider)))) return undefined;
         return (id === undefined ? entry.accounts.find((account) => account.foundOnComputer) : entry.accounts.find((account) => account.id === id))?.name;
     };
@@ -242,6 +242,56 @@ export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>
             })),
         })),
     };
+}
+
+const FOLDER_KEY = 'CLAUDE_CONFIG_DIR=';
+const observedFolders = new Map<string, { at: number; accountId: string | undefined }>();
+const OBSERVED_TTL_MS = 30_000;
+
+/** The `CLAUDE_CONFIG_DIR` a process runs with. Only that one variable leaves
+ *  the process's environment. Linux only (`/proc`): elsewhere nothing is
+ *  observed and the pane reads as before. */
+function folderOfProcess(pid: number): string | undefined {
+    try {
+        const entry = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').find((line) => line.startsWith(FOLDER_KEY));
+        return entry === undefined || entry.length === FOLDER_KEY.length ? undefined : entry.slice(FOLDER_KEY.length);
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * The roster account whose sign-in folder an agent's own process runs with,
+ * for a pane muxr did not start (so `agent-panes-v1.json` is silent). A pane
+ * with no folder of its own runs on the computer's sign-in, which is the
+ * fallback, so nothing is returned for it. Read at most every 30 s per pane.
+ */
+export async function observePaneAccount(env: NodeJS.ProcessEnv, paneId: string, foregroundPids: (paneId: string) => Promise<number[]>): Promise<string | undefined> {
+    const cached = observedFolders.get(paneId);
+    if (cached !== undefined && Date.now() - cached.at < OBSERVED_TTL_MS) return cached.accountId;
+    let accountId: string | undefined;
+    try {
+        for (const pid of await foregroundPids(paneId)) {
+            const folder = folderOfProcess(pid);
+            if (folder === undefined) continue;
+            accountId = loadPlanAccounts(env).find((record) => record.provider === 'claude' && resolve(record.folder) === resolve(folder))?.id;
+            break;
+        }
+    } catch {
+        // An unreadable pane keeps the last answer's absence: no chip beats a wrong one only when it is recorded.
+    }
+    if (observedFolders.size > 512) observedFolders.clear();
+    observedFolders.set(paneId, { at: Date.now(), accountId });
+    return accountId;
+}
+
+/** The observed account of every Claude pane in the tree that muxr has no record for. */
+export async function observePlanPanes(env: NodeJS.ProcessEnv, tree: { workspaces: HerdrTreeWorkspace[] }, foregroundPids: (paneId: string) => Promise<number[]>): Promise<Map<string, string>> {
+    const recorded = new Set(loadPanes(env).map(([id]) => id));
+    const panes = tree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes))
+        .filter((pane) => pane.agentKind === 'claude' && !recorded.has(pane.paneId));
+    const found = await Promise.all(panes.map(async (pane) => [pane.paneId, await observePaneAccount(env, pane.paneId, foregroundPids)] as const));
+    return new Map(found.filter((entry): entry is [string, string] => entry[1] !== undefined));
 }
 
 /** The account an agent's pane runs on, when muxr started or moved it onto

@@ -5,8 +5,8 @@
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
-import { preparePlanSignIn, planAccountStatus, finishPlanSignIn, cancelPlanSignIn, rememberPlanPane, withPlanAccounts } from './planSignIn.js';
+import { execFileSync, spawn } from 'node:child_process';
+import { preparePlanSignIn, planAccountStatus, finishPlanSignIn, cancelPlanSignIn, rememberPlanPane, withPlanAccounts, observePlanPanes } from './planSignIn.js';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
@@ -147,6 +147,24 @@ it('names a pane by its own agent account and leaves an unknown Pi pane without 
     expect(Object.fromEntries(tree.workspaces[0]!.tabs[0]!.panes.map((entry) => [entry.paneId, entry.planAccount ?? null]))).toEqual({
         'claude-own': own, 'pi-gpt': null, 'pi-bare': null, 'pi-work': 'Work', 'pi-moved': null,
     });
+});
+
+/** A pane muxr did not start (no record) still runs on the folder its own
+ *  process was launched with, not on the computer's sign-in. */
+it.skipIf(process.platform !== 'linux')('names an unrecorded Claude pane by the folder its own process runs with', async () => {
+    env.CLAUDE_CONFIG_DIR = foundClaude('umer');
+    savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder: addedClaude('work'), found: false }]);
+    const listed = (await listPlans(env)).providers;
+    const child = spawn('sleep', ['30'], { env: { ...process.env, CLAUDE_CONFIG_DIR: loadPlanAccounts(env).find((record) => record.id === 'pa_work')!.folder }, stdio: 'ignore' });
+    try {
+        const pane = (paneId: string): HerdrTreePane => ({ paneId, tabId: 't1', focused: false, agentKind: 'claude', agentStatus: 'idle' as const, promptable: true });
+        const tree = { workspaces: [{ workspaceId: 'w1', focused: true, agentStatus: 'idle' as const, tabs: [{ tabId: 't1', focused: true, agentStatus: 'idle' as const, panes: [pane('p-work'), pane('p-own')] }] }] };
+        const pids = async (paneId: string): Promise<number[]> => [paneId === 'p-work' ? child.pid! : process.pid];
+        const named = withPlanAccounts(env, tree, listed, await observePlanPanes(env, tree, pids));
+        expect(named.workspaces[0]!.tabs[0]!.panes.map((entry) => entry.planAccount)).toEqual(['Work', listed[0]!.accounts.find((account) => account.foundOnComputer)!.name]);
+    } finally {
+        child.kill();
+    }
 });
 
 /** A second account added beside the first one: each name comes from its own
