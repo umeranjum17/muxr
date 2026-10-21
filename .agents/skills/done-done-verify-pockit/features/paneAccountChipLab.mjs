@@ -35,7 +35,7 @@ const seed = () => {
     for (const dir of [bin, hostBin, workFolder, ownFolder]) mkdirSync(dir, { recursive: true });
     writeFileSync(join(hostBin, 'claude'), STATUS, { mode: 0o755 });
     // The pane's agent: a process named claude that just waits.
-    writeFileSync(join(bin, 'claude'), '#!/bin/sh\nprintf "\\033]2;Account chip lab\\007"\nprintf "\\n  Claude Code (lab stand-in)\\n\\n  Welcome back!\\n  Ask anything about this project.\\n\\n  > Try: fix the failing test\\n"\nwhile :; do sleep 3600; done\n', { mode: 0o755 });
+    writeFileSync(join(bin, 'claude'), '#!/bin/sh\nprintf "\\033]2;Account chip lab\\007"\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do printf "\\033[48;5;24m  Claude Code (lab stand-in) %s                     \\033[0m\\n" "$i"; done\nwhile :; do sleep 3600; done\n', { mode: 0o755 });
     const account = (email) => `{"loggedIn":true,"authMethod":"claude.ai","email":"${email}","subscriptionType":"max"}\n`;
     writeFileSync(join(ownFolder, 'lab-account.json'), account('umer@example.com'));
     writeFileSync(join(workFolder, 'lab-account.json'), account('work@example.com'));
