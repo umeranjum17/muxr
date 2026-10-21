@@ -2,32 +2,36 @@
 
 After a restart Claude titles every pane with its first chat topic, so a desk
 of lead agents all read `Firstmate operational inbox message`. A pane is named
-by its Herdr tab's label first, exactly as Herdr's sidebar shows it (even when
-the launcher gave the agent the same name), then by its own pane label, and by
+by the task-titles plugin's Herdr title metadata when it has one, then by its
+Herdr tab's label, in words (even when the launcher gave the
+agent the same name), then by its own pane label, and by
 its terminal title only when neither names it (a tab labelled with Herdr's
-default bare number names nothing). The line under it says the agent and its state (`claude · Working`). A workspace whose label is
-an SSH key's type word (`ssh-ed25519`, `ecdsa-…`, `sk-…`) goes by its panes'
-folder instead. The rule is `agentTask()` in
-`packages/contract/src/herd/domain/agentTask.ts`; the host drops the key-like
-workspace label in `syncFromKit` (`herdrSessionSource.ts`).
+default bare number names nothing). The line under it says the agent and its state (`claude · Working`). The workspace
+shows Herdr's label verbatim (see `agent-naming.md` for why a shared one keeps
+it). The rule is `agentTask()` in
+`packages/contract/src/herd/domain/agentTask.ts`.
 
 ## Sub-features
 
 - `pane-tab-name` an agent pane leads with its tab label,
-  verbatim, on Home and the Panes screen, and its agent name (the same word)
+  in words (`fm-crewhouse` reads `Crewhouse`), on Home and the Panes screen,
+  and its agent name (the same word)
   is not repeated under it.
 - `pane-title-fallback` a pane in a tab labelled with a bare number keeps its
   terminal title (the host naming test drives it).
-- `workspace-key-label` a workspace labelled `ssh-ed25519` shows its panes'
-  folder name, never the key type.
-
+- `pane-doorbell-title` a lead whose terminal title is Claude's Firstmate
+  doorbell topic (`Firstmate operational inbox input`) never shows it: the tab
+  label, else the agent's name, in words (`firstmate-addons` reads
+  `Firstmate addons`), with `claude · Working` under it.
+- `pane-plugin-title` the task-titles plugin's Herdr title metadata leads over
+  the tab label.
 - `pane-name-live` after a Herdr restart, and after a tab relabel with no
   restart, the rows read Herdr's current labels; nothing first-seen sticks.
 
 ## How to get to it (user POV)
 
-- Pair a computer whose Herdr has agent tabs labelled `fm-<name>` and a
-  workspace labelled `ssh-ed25519`, open Home, then the Panes screen.
+- Pair a computer whose Herdr has agent tabs labelled `fm-<name>`, open Home,
+  then the Panes screen.
 
 ## Driving it on a lab Herdr
 
@@ -36,7 +40,7 @@ workspace label in `syncFromKit` (`herdrSessionSource.ts`).
   emulator lock as in `../SKILL.md`.
 - `node .agents/skills/done-done-verify-pockit/features/paneTabNamesLab.mjs <apk> <evidence> <labRoot>`
   (a short `<labRoot>`: the lab sockets live under it). It builds a workspace
-  labelled `ssh-ed25519` with tabs `fd-prompt-nosript`, `fm-crewhouse` (claude
+  with tabs `fd-prompt-nosript`, `fm-crewhouse` (claude
   stand-ins) and `fm-muxr` (a codex stand-in), every terminal titled
   `Firstmate operational inbox message`, pairs the APK to a lab host, captures,
   restarts the lab Herdr through the helper, captures Home and Panes at 393 and
@@ -44,8 +48,7 @@ workspace label in `syncFromKit` (`herdrSessionSource.ts`).
   `fm-office` and captures Panes again. `herdr-*.txt` keeps Herdr's own
   workspace, tab and agent lists beside each step.
 - Pass: rows read the tab labels in Herdr's tab order with `claude · Idle` /
-  `codex · Idle` under them, the space reads `muxr`, `ssh-ed25519` and the
-  Claude title show nowhere, and the relabelled row reads `fm-office`.
+  `codex · Idle` under them, the Claude title shows nowhere, and the relabelled row reads `Office`.
 
 ## Gotchas
 

@@ -20,7 +20,7 @@ const nativeDependencies = patchedDependencies();
 run('yarn', ['build']);
 const keystore = resolve(out, 'test.keystore');
 if (!existsSync(keystore)) run('keytool', ['-genkeypair', '-keystore', keystore, '-storepass', 'android', '-keypass', 'android', '-alias', 'androiddebugkey', '-dname', 'CN=Emulator PR Gate', '-keyalg', 'RSA', '-validity', '3650']);
-run('./gradlew', ['app:assembleRelease', '--no-daemon', '--max-workers=4', '-PreactNativeArchitectures=x86_64',
+run('./gradlew', ['app:assembleRelease', '--no-daemon', '--max-workers=4', `-PreactNativeArchitectures=${process.env.MUXR_PR_APK_ABI ?? 'x86_64'}`,
     `-PappVersion=${version}`, `-PandroidVersionCode=${versionCode}`,
     `-PreleaseStoreFile=${keystore}`,
     '-PreleaseStorePassword=android', '-PreleaseKeyAlias=androiddebugkey', '-PreleaseKeyPassword=android'],

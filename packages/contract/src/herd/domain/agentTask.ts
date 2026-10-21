@@ -3,17 +3,18 @@
  * call this, so a row, the terminal header and a notification say the same thing.
  *
  * Sources, first meaningful one wins:
- * 1. the Herdr tab label, verbatim as Herdr's sidebar shows it, even when it is
- *    the agent's own name (a launcher names both alike); Herdr's default bare
- *    number names nothing;
- * 2. the pane label: the agent's own `muxr name --pane`;
- * 3. the harness's own window title (Claude keeps its session topic there);
- * 4. Herdr title metadata, from a naming plugin;
+ * 1. Herdr title metadata: the task-titles plugin owns pane titles;
+ * 2. the Herdr tab label, as Herdr's sidebar shows it but in words
+ *    (`labelWords`), even when it is the agent's own name (a launcher names
+ *    both alike); Herdr's default bare number names nothing;
+ * 3. the pane label: the agent's own `muxr name --pane`;
+ * 4. the harness's own window title (Claude keeps its session topic there);
  * 5. the task workspace's label, when that workspace holds only this agent.
  *
  * A source says nothing about the work when all it leaves is the folder or repo
  * name (`π - pockit`, a plugin's `Pockit` fallback), the program's or agent's
- * own name, a state word (`Ready`), or a shell prompt or path. Leading with those made every agent in
+ * own name, a state word (`Ready`), a shell prompt or path, or the title Claude
+ * makes of a Firstmate doorbell. Leading with those made every agent in
  * one repo read the same, so they never count. The tab label is the exception:
  * the phone names a pane exactly as Herdr's sidebar does.
  */
@@ -77,11 +78,19 @@ function stripNoisySuffix(part: string, noise: ReadonlySet<string>): string {
     return noise.has(squash(inner)) ? part.slice(0, open).trimEnd() : part;
 }
 
+// Claude titles a pane from its first prompt, so a Firstmate doorbell
+// (`Firstmate operational input waiting: …`) titles every lead
+// `Firstmate operational inbox message`: the doorbell, not the work.
+function isDoorbellTitle(value: string): boolean {
+    const key = squash(value);
+    return key.startsWith('firstmate') && (key.includes('inbox') || key.includes('operational') || key.includes('instruction'));
+}
+
 function meaningful(value: string | null | undefined, noise: ReadonlySet<string>): string | undefined {
     const trimmed = value?.trim();
     if (!trimmed) return undefined;
     // A shell prompt or a path: where the program sits, not what it does.
-    if (isPromptOrPath(trimmed)) return undefined;
+    if (isPromptOrPath(trimmed) || isDoorbellTitle(trimmed)) return undefined;
     const unmarked = stripLeadingMarks(trimmed);
     const parts = splitParts(unmarked);
     const kept = parts
@@ -155,15 +164,27 @@ function folderName(cwd: string | null | undefined): string | undefined {
     return undefined;
 }
 
+/**
+ * A Herdr handle in words for a title: `firstmate-addons` reads `Firstmate
+ * addons`, and a Firstmate lane's `fm-` prefix goes (`fm-crewhouse` reads
+ * `Crewhouse`). Anything that is not a lowercase handle stays as written.
+ */
+export function labelWords(label: string): string {
+    const parts = label.split(/[-_]/);
+    if (!parts.every((part) => /^[a-z0-9]+$/.test(part))) return label;
+    const words = (parts.length > 1 && parts[0] === 'fm' ? parts.slice(1) : parts).join(' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export function agentTask(sources: AgentTaskSources): string | undefined {
     const folder = folderName(sources.cwd);
     const noise = new Set([...PROGRAM_NAMES, ...[folder, sources.agentName, sources.agentKind].flatMap((value) => value ? [squash(value)] : [])]);
     // A bare number is Herdr's default tab label: it names no work.
     const tabLabel = sources.tabLabel?.trim();
-    return (tabLabel && !/^\d+$/.test(tabLabel) ? tabLabel : undefined)
+    return meaningful(sources.title, noise)
+        ?? (tabLabel && !/^\d+$/.test(tabLabel) ? labelWords(tabLabel) : undefined)
         ?? meaningful(sources.label, noise)
         ?? meaningful(sources.terminalTitle, noise)
-        ?? meaningful(sources.title, noise)
         ?? meaningful(sources.workspaceLabel, noise);
 }
 
