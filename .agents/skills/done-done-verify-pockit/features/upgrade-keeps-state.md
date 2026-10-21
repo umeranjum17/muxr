@@ -13,6 +13,10 @@ any change to on-device storage, above all a major bump of
 - `upgrade-keeps-settings` MMKV-backed settings set on the old build read back
   on the new build.
 - `upgrade-fresh-pair` the new build still pairs from a cleared install.
+- `upgrade-journey` `scripts/diagnostics/application/checkUpgradeJourney.mjs` drives
+  the whole thing on a real phone: the old release installed and paired, theme
+  and text size set, the candidate installed over it, the settings read back,
+  the agent's terminal opened, and a cleared install paired again.
 
 ## How to get to it (user POV)
 
@@ -36,9 +40,30 @@ Preconditions:
   candidate (no `pm clear`); Home is connected, Appearance still reads Dark and
   14 pt, the card stays dismissed. Then `pm clear`, pair again and reach Home.
 
+The same journey on a real phone, one command (or `done-done run upgrade`,
+which keeps the shots and the video tied to the commit):
+
+```
+UPGRADE_FROM_APK=<old release apk> UPGRADE_TO_APK=<candidate apk> \
+  PHONE_SERIAL=<the test phone> \
+  node scripts/diagnostics/application/checkUpgradeJourney.mjs <evidence dir> <scratch dir>
+```
+
+It installs the old release from scratch, pairs it with the lab host, sets
+Theme to Dark and the terminal text size to 20 pt, installs the candidate over
+it with `adb install -r`, opens the agent's terminal on the new build, reads
+Theme and Text size back on Settings > Appearance, then clears the app and
+pairs again. It writes done-done's step record to `steps.json`, the checks it passed to `upgrade-steps.json`, the frames it took
+to the scratch folder and a `journey.log` to the evidence dir.
+
 ## Gotchas
 
 - A release app's `/proc/<pid>/maps` is unreadable; prove which native store
   loaded from `logcat` (`NitroMmkvOnLoad` for mmkv 4) and from `unzip -l` of
   each APK's `lib/x86_64/`.
 - `pm clear` drops the pairing too, so the fresh-pair step goes last.
+- The shipped release APK carries a signing key the repository does not hold.
+  Re-sign it with the lab key (`apksigner sign --ks <key>`) before it can be
+  the "old" build, or `install -r` of the candidate fails on the signature.
+- `screenrecord` is refused on the test phone: take the journey's frames with
+  `adb exec-out screencap` and stitch them with ffmpeg.
