@@ -271,7 +271,8 @@ try {
     log(`phone shows: ${[...shown].sort().join(', ') || 'none of the watched words'}`);
     // done-done's step record: what this run drove and what the captured screens held.
     const version = sh(`dumpsys package ${PKG} | grep -m1 versionName`).trim().replace(/^versionName=/, '');
-    const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
+    // buildPrApk records the commit it built beside the APK.
+    const commit = JSON.parse(readFileSync(`${apk}.json`, 'utf8')).revision.slice(0, 11);
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
         target: { version: `muxr ${version} release APK built from ${commit}` },
         start: `a fresh install of muxr on ${phone ? 'the test phone' : 'an emulator'}, and a lab Herdr whose shared workspace ${labels[0]} holds lanes that each self-named their workspace, the last one ssh-ed25519`,
