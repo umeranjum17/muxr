@@ -39,7 +39,7 @@ const [evidence, root] = [process.env.DONE_DONE_EVIDENCE_ROOT, process.env.PHONE
 if (!evidence || !root) throw new Error('phone-attach needs DONE_DONE_EVIDENCE_ROOT (evidence) and PHONE_ATTACH_ROOT (scratch)');
 const repo = process.cwd();
 const serial = process.env.PHONE_SERIAL;
-if (serial !== 'a4b93ea2') throw new Error('phone-attach runs on the test phone a4b93ea2 only, under its keeper lock');
+if (serial !== 'a4b93ea2' && !/^emulator-\d+$/.test(serial ?? '')) throw new Error('phone-attach runs on the test phone a4b93ea2 under its keeper lock, or on an emulator this run owns');
 const apk = process.env.PHONE_APK || undefined;
 const rounds = Number(process.env.PHONE_ATTACH_ROUNDS ?? 18);
 const { linkHerdrLab } = await import(join(repo, 'scripts/diagnostics/application/linkHerdrLab.mjs'));
