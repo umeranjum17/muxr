@@ -121,7 +121,6 @@ try {
         { PATH: `${hostBin}:${process.env.PATH}`, CLAUDE_CONFIG_DIR: ownFolder });
     log(`lab host up on relay port ${lab.port}, herdr ${session}`);
     await startAgents();
-    writeFileSync(join(evidence, 'herdr-agents.txt'), `$ herdr agent list\n${herdr('agent', 'list')}`);
 
     await ready();
     if (!phone) sh(`pm clear ${PKG}`);
@@ -163,7 +162,7 @@ try {
         execFileSync('magick', [join(dir, `${name}.png`), '-crop', `1080x70+0+${top}`, '+repage', join(dir, `${name}.header.png`)]);
         for (const extra of ['.png', '.xml', '.compressed.xml']) rmSync(join(dir, `${name}${extra}`), { force: true });
         const header = /content-desc="([^"]*Open panes)"/.exec(dump())?.[1] ?? '';
-        writeFileSync(join(dir, `${name}.header.txt`), `${header}\n`);
+        writeFileSync(join(dir, `${name}.header.txt`), `${name} (${density} dpi): ${header}\n`);
         const ok = new RegExp(`On ${expected}\\b`).test(header);
         log(`${name}: header "${header}" ${ok ? 'OK' : 'WRONG ACCOUNT'}`);
         if (!ok) defects += 1;
