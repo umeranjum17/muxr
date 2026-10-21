@@ -225,8 +225,10 @@ const openAgentAgain = async (what) => {
 };
 
 try {
-    // With PHONE_APK the journey installs that release build on a fresh app data dir; without it the app already on the
-    // phone is driven as it is (an install over an existing app would keep a pairing to another computer, so it never runs).
+    // The journey installs the exact release build, on a fresh app data dir:
+    // an install over an existing app would keep a pairing to another computer.
+    // PHONE_USE_INSTALLED=1 drives the app already on the phone as it is instead, and installs nothing.
+    if (apk === undefined && process.env.PHONE_USE_INSTALLED !== '1') throw new Error('PHONE_APK must point at the release build to install (or PHONE_USE_INSTALLED=1 to drive the installed app)');
     if (apk !== undefined) {
         try { adb('uninstall', PKG); } catch { /* the app was not installed yet */ }
         adb('install', apk);
