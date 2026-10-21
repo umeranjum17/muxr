@@ -226,7 +226,10 @@ try {
     // The uninstall above already cleared it; the OnePlus test phone refuses `pm clear` to shell.
     if (emu) sh(`pm clear ${PKG}`);
     adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
-    if (phone) sh('input keyevent KEYCODE_WAKEUP');
+    if (phone) {
+        sh('input keyevent KEYCODE_WAKEUP');
+        if (/keyguardShowing=true|mShowingLockscreen=true/.test(sh('dumpsys activity activities | grep -i keyguard; dumpsys window | grep -i lockscreen'))) throw new Error(`phone ${serial} is locked; unlock it and rerun`);
+    }
     // The emulator keeps its default window size: `wm size` stalled the system server for 29 min.
     if (emu) { sh('wm density 440'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); }
     const offer = await mintPairing(join(root, 'lab', 'host', 'pair.sock'), { kind: 'native', authority: 'control', personal: false });

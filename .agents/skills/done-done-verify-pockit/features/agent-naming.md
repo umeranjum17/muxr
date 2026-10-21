@@ -62,6 +62,13 @@ Preconditions:
   emulator boots: the run prints `browser link: <link>` and holds the lab until
   SIGTERM, for the installed-PWA capture (lab-flag export, then
   `lab-browser-pairing.md` steps 2-4 and the Visual check PWA cells).
+  With `MUXR_LAB_SERIAL=a4b93ea2` it runs on the held test phone instead: an
+  arm64 APK (`MUXR_PR_APK_ABI=arm64-v8a node perf/buildPrApk.mjs`), the
+  adb guard on `PATH`, the journey under `fm-device-lock.sh`. It captures
+  `home-phone` and `panes-phone` at the phone's own display settings and
+  never runs `pm clear`, which the OnePlus refuses to shell. The swiftshader
+  emulator can lose its system server to the watchdog on app launch
+  (`android.ui` blocked 60 s), so prefer the phone when it is free.
 - **Attribution.** `node scripts/cli.mjs name --provider pi --model glm-5.3`
   exits `0`; `herdr --session <yours> pane get "$HERDR_PANE_ID"` (or
   `pane report-metadata` output consumed by display surfaces) carries the
