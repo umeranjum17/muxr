@@ -1,0 +1,137 @@
+import * as React from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { useUnistyles } from 'react-native-unistyles';
+import { Ionicons } from '@expo/vector-icons';
+import type { ChatMessage } from '@trymuxr/contract';
+import { MarkdownView } from '@/components/markdown/MarkdownView';
+import { withAlpha } from '@/components/ui';
+import type { ChatState } from '../application/useChat';
+
+export interface ChatPaneProps {
+    state: ChatState;
+    /** "Claude", "Pi": who is answering. */
+    agentLabel: string;
+    working: boolean;
+    needsYou: boolean;
+    /** What the agent is working on, from the same task title the header leads with. */
+    task: string | undefined;
+    statusColor: string;
+    /** The model the agent reports; absent when it has not said. */
+    model: string | undefined;
+    ink: string;
+    onOpenTerminal: () => void;
+}
+
+const NEAR_BOTTOM = 80;
+
+function clock(at: number): string {
+    return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function Bubble({ message, onAccent, accent }: { message: ChatMessage; onAccent: string; accent: string }): React.JSX.Element {
+    const { theme } = useUnistyles();
+    const mine = message.role === 'user';
+    return (
+        <View
+            accessible
+            accessibilityLabel={`${mine ? 'You' : 'Agent'}, ${clock(message.at)}. ${message.text}`}
+            style={{
+                alignSelf: mine ? 'flex-end' : 'flex-start',
+                maxWidth: '86%',
+                paddingHorizontal: 13,
+                paddingVertical: 9,
+                borderRadius: 18,
+                ...(mine ? { borderBottomRightRadius: 6, backgroundColor: accent } : { borderBottomLeftRadius: 6, backgroundColor: theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider }),
+            }}
+        >
+            {mine
+                ? <Text selectable style={{ color: onAccent, fontSize: 15, lineHeight: 21 }}>{message.text}</Text>
+                : <MarkdownView markdown={message.text} />}
+            <Text style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginTop: 3, fontSize: 11, color: mine ? withAlpha(onAccent, 0.6) : theme.colors.textSecondary }}>{clock(message.at)}</Text>
+        </View>
+    );
+}
+
+function Notice({ title, body, action }: { title: string; body: string; action?: { label: string; onPress: () => void } }): React.JSX.Element {
+    const { theme } = useUnistyles();
+    return (
+        <View style={{ alignItems: 'center', gap: 6, padding: 24 }}>
+            <Text style={{ color: theme.colors.text, fontSize: 17, fontWeight: '600', textAlign: 'center' }}>{title}</Text>
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 14, textAlign: 'center' }}>{body}</Text>
+            {action !== undefined && <Pressable onPress={action.onPress} accessibilityRole="button" style={{ marginTop: 8, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: withAlpha(theme.colors.text, 0.08) }}>
+                <Text style={{ color: theme.colors.text, fontWeight: '600' }}>{action.label}</Text>
+            </Pressable>}
+        </View>
+    );
+}
+
+/**
+ * An agent's conversation, drawn over its terminal. The terminal stays
+ * mounted underneath so its grid never changes; this only covers it.
+ */
+export function ChatPane(props: ChatPaneProps): React.JSX.Element {
+    const { theme } = useUnistyles();
+    const accent = theme.colors.accent;
+    const onAccent = theme.dark ? '#111111' : '#ffffff';
+    const list = React.useRef<ScrollView>(null);
+    const stuck = React.useRef(true);
+    const { state } = props;
+    const messages = state.status === 'ready' ? state.messages : [];
+
+    let body: React.ReactNode;
+    if (state.status === 'loading') body = <View style={{ padding: 24 }}><ActivityIndicator color={theme.colors.textSecondary} /></View>;
+    else if (state.status === 'unavailable') body = <Notice title="No messages yet" body={`${props.agentLabel} has not started a conversation here. It shows up as soon as it does.`} />;
+    else if (state.status === 'failed') body = <Notice title="Chat is not available" body={state.outdatedHost ? 'This computer runs an older muxr. Update it to read chats here.' : state.message} action={{ label: 'Open terminal', onPress: props.onOpenTerminal }} />;
+    else if (messages.length === 0) body = <Notice title="No messages yet" body={`Ask ${props.agentLabel} about this workspace. Replies show up here as whole messages.`} />;
+    else body = messages.map((message) => <Bubble key={message.id} message={message} onAccent={onAccent} accent={accent} />);
+
+    return (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: props.ink }}>
+            <ScrollView
+                ref={list}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ flexGrow: 1, justifyContent: messages.length === 0 ? 'center' : 'flex-end', gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 8 }}
+                keyboardShouldPersistTaps="handled"
+                onScroll={(event) => {
+                    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+                    stuck.current = contentSize.height - contentOffset.y - layoutMeasurement.height < NEAR_BOTTOM;
+                }}
+                scrollEventThrottle={64}
+                onContentSizeChange={() => { if (stuck.current) list.current?.scrollToEnd({ animated: false }); }}
+            >
+                {body}
+            </ScrollView>
+
+            {props.needsYou
+                ? (
+                    <View accessibilityRole="alert" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 14, marginBottom: 6, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: withAlpha(props.statusColor, 0.5), backgroundColor: withAlpha(props.statusColor, 0.12) }}>
+                        <Ionicons name="warning-outline" size={22} color={props.statusColor} />
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>{props.agentLabel} needs you</Text>
+                            <Text numberOfLines={2} style={{ color: theme.colors.textSecondary, fontSize: 13 }}>It is waiting for an answer in the terminal</Text>
+                        </View>
+                        <Pressable onPress={props.onOpenTerminal} accessibilityRole="button" accessibilityLabel="Open terminal" style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: accent, opacity: pressed ? 0.7 : 1 })}>
+                            <Text style={{ color: onAccent, fontSize: 13.5, fontWeight: '600' }}>Open terminal</Text>
+                            <Ionicons name="chevron-forward" size={14} color={onAccent} />
+                        </Pressable>
+                    </View>
+                )
+                : props.working && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 18, minHeight: 28 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: props.statusColor }} />
+                        <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 13 }}>
+                            <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Working</Text>{props.task === undefined ? '' : ` · ${props.task}`}
+                        </Text>
+                    </View>
+                )}
+
+            {props.model !== undefined && (
+                <View style={{ flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 6 }}>
+                    <View accessible accessibilityLabel={`Model ${props.model}`} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface }}>
+                        <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13 }}>{props.model}</Text>
+                    </View>
+                </View>
+            )}
+        </View>
+    );
+}

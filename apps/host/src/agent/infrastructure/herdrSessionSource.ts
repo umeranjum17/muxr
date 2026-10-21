@@ -2852,6 +2852,13 @@ export async function createHerdrSessionSource(
             }
         },
 
+        async conversation(sessionId: string) {
+            const record = await resolvePane(sessionId);
+            const ref = conversationToMove(record.agent);
+            if (ref === undefined) return undefined;
+            return { agent: record.agent?.agent ?? undefined, cwd: cwdForSession(sessionId) ?? '', ref: { kind: ref.kind, value: ref.value } };
+        },
+
         async canMovePlanAccount(sessionId: string): Promise<boolean> {
             const agent = (await resolvePane(sessionId)).agent;
             return conversationToMove(agent) !== undefined && agent?.agent !== 'opencode';
