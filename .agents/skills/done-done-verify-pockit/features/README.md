@@ -94,7 +94,8 @@ rules, with no H2 sections.
   timestamp and event-sequence owner counts at their live baseline.
 - [Follow a Herdr agent's status live](./herdr-live-status.md) —
   host session source on a guarded lab Herdr: tree follows new panes, status
-  working/blocked/idle lands, socket count 1 → 2 → 1; no baseline needed.
+  working/blocked/idle lands without a redundant host-side tree clone, socket
+  count 1 → 2 → 1; no baseline needed.
 - [Show a stalled computer as busy and recovering](./herdr-stall-recovery.md) —
   named Herdr lab freeze: tree goes unavailable within 20s, returns healthy and
   attaches within 10s; iPad Home records busy copy and agents recovering alone.
@@ -386,6 +387,7 @@ rules, with no H2 sections.
 - [Keep pairing and settings across an app upgrade](./upgrade-keeps-state.md) —
   main release APK paired with settings changed, `install -r` of the
   candidate, then pairing, theme and text size read back; fresh pair after.
+  `checkUpgradeJourney.mjs` drives that whole journey on a real phone.
 - [Keep every New agent field clear of the sticky Start button](./new-agent-footer-clearance.md) —
   native release APK: at 270 dp largest font the scroll ends above the sticky
   Start footer, so the Folder field and every field stay fully visible above

@@ -66,7 +66,8 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
         const deadline = Date.now() + waitMs;
         const relay = start(['apps/relay/dist/main.js'], { MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: relayDir, MUXR_RELAY_MDNS: '0' });
         const port = await waitForRelay(relay, deadline - Date.now());
-        const machine = machineIdentity(undefined);
+        // A journey that photographs the phone names the lab's computer for it, so the real hostname stays off every capture.
+        const machine = { ...machineIdentity(undefined), ...(process.env.MUXR_LAB_MACHINE_NAME ? { name: process.env.MUXR_LAB_MACHINE_NAME } : {}) };
         const owner = JSON.parse(readFileSync(join(relayDir, 'mint-secret'), 'utf8'));
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, machine, relayPort: port,
             relayUrl: `ws://${process.env.MUXR_RELAY_HOST ?? '127.0.0.1'}:${port}`, relayLocation: 'local', relayRole: 'single-machine',
