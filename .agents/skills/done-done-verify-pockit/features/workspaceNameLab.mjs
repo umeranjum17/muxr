@@ -124,17 +124,18 @@ const quietHost = async () => {
 };
 if (!pwa) await quietHost();
 const emu = pwa ? undefined : await bootOwnedEmulator({
-    name: 'mxwl', avdHome: process.env.AVD_HOME ?? join(root, 'avd'), memoryMb: 4096,
+    name: 'mxwl', avdHome: process.env.AVD_HOME ?? join(root, 'avd'), memoryMb: 4096, extraArgs: ['-no-snapshot-load'],
     systemImage: 'system-images;android-35;google_apis;x86_64', launcher: ['nice', '-n', '10'],
 });
 const serial = emu?.serial;
 if (emu) log(`emulator ${serial}`);
-const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: 120_000 });
+// Every adb step gets 5 min; a step that stalls that long fails the run instead of retrying.
+const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: 300_000 });
 // Under load the system server can drop (`Broken pipe`) or stall a call for a while after boot or install.
 const sh = (cmd) => {
     for (let attempt = 1; ; attempt += 1) {
         try { return adb('shell', cmd); } catch (cause) {
-            if (attempt >= 6 || !(cause.code === 'ETIMEDOUT' || /Broken pipe|Can't find service/.test(`${cause.stdout}${cause.stderr}`))) throw cause;
+            if (attempt >= 6 || !/Broken pipe|Can't find service/.test(`${cause.stdout}${cause.stderr}`)) throw cause;
             Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15_000);
         }
     }
@@ -222,7 +223,8 @@ try {
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     sh(`pm clear ${PKG}`);
     adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
-    sh('wm size 1080x2376'); sh('wm density 440'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no');
+    // The emulator keeps its default window size: `wm size` stalled the system server for 29 min.
+    sh('wm density 440'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no');
     const offer = await mintPairing(join(root, 'lab', 'host', 'pair.sock'), { kind: 'native', authority: 'control', personal: false });
     sh(`am start -W -n ${activity}`);
     await sleep(4000);
@@ -259,7 +261,7 @@ try {
     finished = true;
 } finally {
     if (emu && !finished) try { writeFileSync(join(evidence, 'logcat.txt'), adb('logcat', '-d', '-v', 'time', '-t', '4000')); } catch { /* emulator gone */ }
-    if (emu) try { sh('wm size reset'); sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
+    if (emu) try { sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
     offering?.destroy();
     await lab?.stop();
     if (emu) try { execFileSync('adb', ['-s', serial, 'emu', 'kill'], { timeout: 30_000 }); } catch { /* already gone */ }
