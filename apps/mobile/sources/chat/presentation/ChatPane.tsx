@@ -98,15 +98,17 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
                 }}
                 scrollEventThrottle={64}
                 onContentSizeChange={() => { if (stuck.current) list.current?.scrollToEnd({ animated: false }); }}
+                // The working line and the needs-you card shrink the list: keep the newest message in view.
+                onLayout={() => { if (stuck.current) list.current?.scrollToEnd({ animated: false }); }}
             >
                 {body}
             </ScrollView>
 
             {props.needsYou
                 ? (
-                    <View accessibilityRole="alert" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 14, marginBottom: 6, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: withAlpha(props.statusColor, 0.5), backgroundColor: withAlpha(props.statusColor, 0.12) }}>
+                    <View accessibilityRole="alert" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginHorizontal: 14, marginBottom: 6, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: withAlpha(props.statusColor, 0.5), backgroundColor: withAlpha(props.statusColor, 0.12) }}>
                         <Ionicons name="warning-outline" size={22} color={props.statusColor} />
-                        <View style={{ flex: 1, minWidth: 0 }}>
+                        <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 120 }}>
                             <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>{props.agentLabel} needs you</Text>
                             <Text numberOfLines={2} style={{ color: theme.colors.textSecondary, fontSize: 13 }}>It is waiting for an answer in the terminal</Text>
                         </View>
