@@ -89,6 +89,9 @@ rules, with no H2 sections.
 - [Keep one host per machine key](./one-host-per-machine-key.md) —
   Usage refreshes on the shipped bundle start no second host; a replaced host
   stays up and takes the link back; `muxr up` exits 1 when its restart budget is spent.
+- [Release host bookkeeping when panes close](./closed-pane-bookkeeping.md) —
+  real named Herdr lab, host and paired link: 30 retired pane generations leave
+  timestamp and event-sequence owner counts at their live baseline.
 - [Follow a Herdr agent's status live](./herdr-live-status.md) —
   host session source on a guarded lab Herdr: tree follows new panes, status
   working/blocked/idle lands, socket count 1 → 2 → 1; no baseline needed.
