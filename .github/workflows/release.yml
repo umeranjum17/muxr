@@ -105,6 +105,9 @@ jobs:
       BUILD_RUN_ID: ${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The receipt gate walks history from the proved commit to this one.
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -141,6 +144,12 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "The public channel catalog and GitHub release were not updated: no $GITHUB_RELEASE_TAG GitHub release exists, and only the candidate flow creates one." >> "$GITHUB_STEP_SUMMARY"
           fi
+      # No model and no key: git objects only. A stable release reaches
+      # GitHub Latest and the public channel only when a committed receipt
+      # proves the phone-attach journey on the code it ships.
+      - name: Require the phone-attach receipt for this stable commit
+        if: steps.live.outputs.ready == 'true' && steps.github-release.outputs.exists == 'true' && needs.build.outputs.channel == 'stable'
+        run: node scripts/release/presentation/checkJourneyReceipt.mjs --journey phone-attach --commit "$RELEASE_COMMIT"
       - name: Promote the accepted stable release to GitHub Latest
         if: steps.live.outputs.ready == 'true' && steps.github-release.outputs.exists == 'true' && needs.build.outputs.channel == 'stable'
         run: node scripts/release/presentation/promoteReleaseVisibility.mjs --tag "$GITHUB_RELEASE_TAG"
