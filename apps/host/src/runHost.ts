@@ -572,9 +572,9 @@ async function main(): Promise<void> {
         ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
         defaultStartFolder: currentDefaultStartFolder,
     });
-    // `muxr accounts` talks to the running host over this owner-only socket.
+    // `muxr accounts` talks to the running host over this owner-only socket. A fake host has no Herdr to act on.
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-    const accountsServer = await startLocalAccountsServer(join(dataDir, 'accounts.sock'), host.answer);
+    const accountsServer = useFake ? undefined : await startLocalAccountsServer(join(dataDir, 'accounts.sock'), host.answer);
 
     // The saved folder reaches a phone already paired as a notice to refetch
     // machines.list: pairing stays non-blocking, so the folder can be answered
@@ -714,7 +714,7 @@ async function main(): Promise<void> {
         linkOnline = false;
         clearTimeout(relink);
         void pairingServer?.close();
-        void accountsServer.close();
+        void accountsServer?.close();
         linkEndpoint?.close();
         terminals.closeAll();
         peerRuntime?.close();
