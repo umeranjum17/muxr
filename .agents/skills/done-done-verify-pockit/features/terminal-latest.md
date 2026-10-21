@@ -70,6 +70,10 @@ view has moved, every ~170 ms. A drag of 60 must end near `back` 60 and stop
 changing within a few hundred ms of `finger up`; `STUB_LPS=100 LINES=1200` and
 a `stream` a few seconds before the drag covers it while Claude prints.
 
+`latest-local` has its own journey: `done-done run terminal-scroll-local` (see
+`.done-done.yaml` for its env) drives `terminalScrollLocalLab.sh` on an owned
+emulator and writes each screen's visible `MARK-n` range to `proof.log`.
+
 ## Gotchas
 
 - Before the fix, OpenCode moved three rows for every row dragged, showed no
