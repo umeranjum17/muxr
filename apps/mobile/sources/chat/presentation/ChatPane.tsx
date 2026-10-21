@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { ChatMessage } from '@trymuxr/contract';
-import { MarkdownView } from '@/components/markdown/MarkdownView';
+import { MarkdownView } from '@/components/code/lazyCodeSurfaces';
 import { withAlpha } from '@/components/ui';
 import type { ChatState } from '../application/useChat';
 

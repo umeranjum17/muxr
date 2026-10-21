@@ -6,7 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
-import { SESSION_VIEW_CHOICES } from '@/chat';
+import { SESSION_VIEW_CHOICES } from '@/chat/domain/sessionView';
 import { getCachedConnectionSettings } from '@/connection';
 import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/pairing/e2ee';
 import { forgetMachine as forgetPairedMachine, isMachineOnline, pairMachine } from '@/pairing';
