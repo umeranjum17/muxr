@@ -10,7 +10,7 @@ import { normalizeRequestFailure, requestRequiresE2ee } from '@trymuxr/contract'
 import { buildSpaceRows, moveSpace, workspaceName, workspaceNames } from '@/herd/model';
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 import { herdPanes } from '../../herd/domain/herd';
-import { agentLabels } from '../../herd/domain/agentPresentation';
+import { agentLabels, agentWhoStateLine } from '../../herd/domain/agentPresentation';
 import { terminalPaneCanSend } from '../../terminal/domain/promptAvailability';
 import { terminalPaneStatus } from '../../terminal/domain/terminalAgentStatus';
 import { unseenActivityRows } from '../../herd/domain/recentActivity';
@@ -817,6 +817,14 @@ describe('session sync flow', () => {
         expect({ primary: labels.title, secondary: labels.agentName, kind: labels.agentKind }).toEqual({
             primary: 'Stabilizing realtime voice', secondary: 'Maria', kind: 'pi',
         });
+        // Claude titles a lead from a Firstmate doorbell. That title is never the
+        // row's name: the tab label, else the agent's name, in words, with no repeat under it.
+        const { taskTitle: _task, ...untitled } = pane;
+        const lead = { ...untitled, agentKind: 'claude', agentName: 'firstmate-addons', terminalTitle: '✳ Firstmate operational inbox input' };
+        for (const tabLabel of ['4', 'firstmate-addons']) {
+            const row = agentLabels({ ...lead, tabLabel });
+            expect({ title: row.title, under: agentWhoStateLine(row, 'Working') }).toEqual({ title: 'Firstmate addons', under: 'claude · Working' });
+        }
         expect(working[0]).toMatchObject({ agentName: 'Maria', taskTitle: 'Stabilizing realtime voice' });
         expect(selectLiveTerminalCards([session], working)[0].taskTitle).toBe('Stabilizing realtime voice');
         expect(HERD_STATUS_LABELS[working[0].agentStatus]).toBe('Working');
