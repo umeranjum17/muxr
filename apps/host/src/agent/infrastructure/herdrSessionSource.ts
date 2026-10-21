@@ -984,7 +984,8 @@ export async function createHerdrSessionSource(
     const modifiedBySession = new Map<string, string>();
 
     function publish(sessionId: string, event: SessionEventBody): void {
-        modifiedBySession.set(sessionId, new Date().toISOString());
+        if (event.type === 'session.removed') modifiedBySession.delete(sessionId);
+        else modifiedBySession.set(sessionId, new Date().toISOString());
         for (const listener of listeners) listener(sessionId, event);
     }
 
