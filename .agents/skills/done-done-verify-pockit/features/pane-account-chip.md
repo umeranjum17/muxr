@@ -14,12 +14,22 @@ agent with no known account shows no chip.
 - `chip-pi-launched` a Pi pane muxr started or moved onto a Claude account
   names that account, until the pane reports another provider (`provider`
   pane metadata such as `openai`): then no chip.
+- `chip-claude-folder` a Claude pane whose own process runs with a plans
+  folder in `CLAUDE_CONFIG_DIR` (not recorded by muxr) names the account signed
+  in at that folder, never the computer's default one.
 
-The host decides all three (`withPlanAccounts` in
+The host decides all four (`withPlanAccounts` in
 `apps/host/src/plans/planSignIn.ts`); the phone only paints `planAccount`.
 `chip-pi-launched` and the provider switch are covered by the flow test in
 `apps/host/src/plans/plansApi.test.ts` (fake Herdr cannot report provider
 metadata); the phone drive covers the first two.
+`chip-claude-folder` is covered by the flow test and by
+`paneAccountChipLab.mjs <apk> <evidenceDir> <labRoot>` (owned emulator, or
+`PHONE_SERIAL=a4b93ea2` inside the phone's keeper lock): two Claude panes in a
+private Herdr lab, one under the `Work` folder, one on the host's own folder;
+the headers must read `On Work` and `On Umer`. The status bar shows the phone owner's notification icons, so the lab keeps
+each screen only below it (`*.screen.png`), with the panes cleared first; the
+log holds the header text.
 
 ## How to get to it (user POV)
 
