@@ -82,8 +82,9 @@ try {
     doomed = herdr('workspace', 'create', '--cwd', workdir, '--label', 'doomed', '--no-focus').result.root_pane.pane_id;
     execFileSync(wrapper, ['pane', 'send-text', doomed, `${standIn}\n`]);
     await until(() => watches > 0, 'the host to watch the agent pane', 15_000);
+    const healthy = Date.now();
     await client.refresh();
-    process.stdout.write('ok: the host watches the agent pane\n');
+    process.stdout.write(`ok: the host watches the agent pane; a healthy tree read took ${((Date.now() - healthy) / 1000).toFixed(1)}s\n`);
 
     // A structural change re-reads the tree and re-opens every status watch;
     // the agent pane's watch is held while that pane closes.
@@ -97,9 +98,11 @@ try {
 
     // What a terminal attach waits on before it resolves its pane.
     // A wedged read costs one restart of the kit, not the host.
+    const asked = Date.now();
     const answered = await Promise.race([client.refresh().then(() => true), sleep(45_000).then(() => false)]);
-    if (!answered) throw new Error('the Herdr tree refresh never answered after a watched agent pane closed');
-    process.stdout.write('ok: the tree refresh answers after a watched agent pane closed\n');
+    const waited = `${((Date.now() - asked) / 1000).toFixed(1)}s`;
+    if (!answered) throw new Error(`the Herdr tree refresh never answered after a watched agent pane closed (gave up after ${waited})`);
+    process.stdout.write(`ok: the tree refresh answers ${waited} after a watched agent pane closed\n`);
     process.stdout.write('PASS e2e: a vanished agent pane never wedges the Herdr tree\n');
 } finally {
     release();
