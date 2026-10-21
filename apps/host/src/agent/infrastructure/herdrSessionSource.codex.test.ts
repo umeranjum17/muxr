@@ -1,10 +1,12 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createHerdrSessionSource } from './herdrSessionSource.js';
-import { createLifecycleStore } from './lifecycleStore.js';
+import { createRequestDispatcher } from '../../requests/index.js';
+import { createAgentWatchStores } from '../application/watchStores.js';
 
 /**
  * Codex 0.159 runs under Herdr with no agent_session and no interactive_ready.
@@ -25,6 +27,7 @@ function fakeHerdr(dir: string) {
         agent_session: { source: 'herdr:claude', agent: 'claude', kind: 'id', value: 'claude-1' },
     };
     const calls: Array<{ method: string; target: string | undefined }> = [];
+    let currentCwd = dir;
     let replaceDuringPrompt = false;
     let replaceDuringRead = false;
     let holdSnapshots = false;
@@ -50,15 +53,15 @@ function fakeHerdr(dir: string) {
                         snapshot: {
                             workspaces: [{ workspace_id: 'w1', label: 'byk' }],
                             tabs: [{ tab_id: 'w1:t1', workspace_id: 'w1', label: '1' }],
-                            panes: ['w1:p1', 'w1:p2', 'w1:p3'].map((pane_id) => ({ pane_id, tab_id: 'w1:t1', workspace_id: 'w1', cwd: dir })),
+                            panes: ['w1:p1', 'w1:p2', 'w1:p3'].map((pane_id) => ({ pane_id, tab_id: 'w1:t1', workspace_id: 'w1', cwd: currentCwd })),
                             agents: [alpha, codex],
                         },
                     };
                 }
                 if (method === 'agent.get') result = { agent: {
-                    ...(params?.target === 'w1:p2' ? codex : alpha), tab_id: 'w1:t1', workspace_id: 'w1', cwd: dir,
+                    ...(params?.target === 'w1:p2' ? codex : alpha), tab_id: 'w1:t1', workspace_id: 'w1', cwd: currentCwd,
                 } };
-                if (method === 'pane.get') result = { pane: { ...codex, tab_id: 'w1:t1', workspace_id: 'w1', cwd: dir } };
+                if (method === 'pane.get') result = { pane: { ...codex, tab_id: 'w1:t1', workspace_id: 'w1', cwd: currentCwd } };
                 if (method === 'pane.read') {
                     result = { read: { text: 'Umer passive read proof', truncated: false } };
                     if (replaceDuringRead) {
@@ -86,6 +89,7 @@ function fakeHerdr(dir: string) {
     server.listen(socketPath);
     return {
         socketPath, codex, calls,
+        setCwd: (cwd: string) => { currentCwd = cwd; },
         replaceDuringPrompt: () => { replaceDuringPrompt = true; },
         replaceDuringRead: () => { replaceDuringRead = true; },
         holdSnapshots: () => { holdSnapshots = true; },
@@ -98,14 +102,17 @@ function fakeHerdr(dir: string) {
 describe('Codex without a Herdr agent_session', () => {
     it('shows as an openable Codex agent and keeps its route once Herdr publishes the session', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-codex-'));
+        execFileSync('git', ['init', '--quiet', dir]);
         const herdr = fakeHerdr(dir);
+        const domain = createAgentWatchStores({ dataDir: join(dir, 'host') });
         const source = await createHerdrSessionSource({
-            lifecycle: createLifecycleStore(join(dir, 'lifecycle')),
+            lifecycle: domain.lifecycle,
             socketPath: herdr.socketPath,
             dataDir: join(dir, 'data'),
             artifactsDir: join(dir, 'attachments'),
             hostHttpPort: 0,
         });
+        const dispatcher = createRequestDispatcher({ source, domain, machineId: 'cwd-proof', hostVersion: '0.0.0' });
         const pane = async (paneId: string) => (await source.herdrTree()).workspaces[0]!.tabs[0]!.panes.find((p) => p.paneId === paneId)!;
         try {
             const codex = await pane('w1:p2');
@@ -125,6 +132,11 @@ describe('Codex without a Herdr agent_session', () => {
             herdr.holdSnapshots();
             const refreshing = source.refreshHerdr();
             void refreshing.catch(() => {});
+            const movedCwd = join(dir, 'moved');
+            mkdirSync(movedCwd);
+            execFileSync('git', ['init', '--quiet', movedCwd]);
+            writeFileSync(join(movedCwd, 'CURRENT.md'), 'task-private CWD proof\n');
+            let freshFiles: ReturnType<typeof dispatcher.dispatch> | undefined;
             try {
                 await vi.waitFor(() => expect(herdr.waitingSnapshots()).toBeGreaterThan(0));
                 const reads = Promise.all([
@@ -142,11 +154,20 @@ describe('Codex without a Herdr agent_session', () => {
                 expect(text.text).toBe('Umer passive read proof');
                 expect(status.agentStatus).toBe('working');
                 await vi.waitFor(() => expect(herdr.waitingSnapshots()).toBeGreaterThan(0));
+                // Operation context must read after its call, not reuse the
+                // earlier held snapshot or the UI's last-known directory.
+                herdr.setCwd(movedCwd);
+                freshFiles = dispatcher.dispatch({
+                    type: 'files.list', requestId: 'fresh-operation', params: { sessionId: codex.sessionId! },
+                });
+                void freshFiles.catch(() => {});
             } finally {
                 herdr.releaseSnapshots();
             }
             await refreshing;
-            await source.refreshHerdr();
+            expect(await freshFiles).toMatchObject({ ok: true, data: {
+                root: movedCwd, tree: expect.arrayContaining([expect.objectContaining({ name: 'CURRENT.md' })]),
+            } });
 
             // Opening the live roster has already resolved the named agent, and
             // Herdr's receipt names the conversation it reached: no further read.
@@ -180,7 +201,9 @@ describe('Codex without a Herdr agent_session', () => {
             herdr.replaceDuringRead();
             await expect(source.paneRead({ sessionId: replacement.sessionId! })).rejects.toMatchObject({ code: 'agent-unavailable' });
         } finally {
+            await dispatcher.close();
             await source.close();
+            await domain.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });
         }

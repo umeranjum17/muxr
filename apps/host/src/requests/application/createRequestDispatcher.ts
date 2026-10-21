@@ -201,7 +201,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
 
     /** The session cwd is host-injected: a caller can never choose it. */
     const changesInput = async (sessionId: string, root?: string): Promise<{ sessionId: string; cwd: string; root?: string }> => {
-        const sessions = await source.list();
+        const sessions = await source.list({ fresh: true });
         const cwd = sessions.find((session) => session.id === sessionId)?.cwd ?? '';
         if (cwd === '') throw new Error('No session directory for this session');
         return { sessionId, cwd, ...(root === undefined ? {} : { root }) };
@@ -212,7 +212,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
 
     /** Every repository open in some session; repository roots must be one of these, while a user-named folder passes selectedRoot's own checks. */
     const openRepoRoots = async (): Promise<string[]> => {
-        const sessions = await source.list();
+        const sessions = await source.list({ fresh: true });
         return filesRepos(sessionCwds(sessions)).repos.map((repo) => repo.root);
     };
 
@@ -222,7 +222,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
      * the root or an empty state instead of throwing.
      */
     const filesInput = async (sessionId: string, root?: string): Promise<{ sessionId: string; cwd: string; root?: string }> => {
-        const sessions = await source.list();
+        const sessions = await source.list({ fresh: true });
         const record = sessions.find((session) => session.id === sessionId);
         if (record === undefined) throw new Error('Unknown session');
         return { sessionId, cwd: record.cwd ?? '', ...(root === undefined ? {} : { root }) };
@@ -233,10 +233,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
 
     /** An agent's route can change once it settles; its pane is what a plan account rides on. */
     const planPaneOf = async (sessionId: string): Promise<string> =>
-        (await source.list()).find((session) => session.id === sessionId)?.paneId ?? sessionId;
+        (await source.list({ fresh: true })).find((session) => session.id === sessionId)?.paneId ?? sessionId;
 
     const rememberPane = async (paneId: string, accountId: string): Promise<void> => {
-        const livePaneIds = (await source.list()).map((session) => session.paneId ?? session.id);
+        const livePaneIds = (await source.list({ fresh: true })).map((session) => session.paneId ?? session.id);
         rememberPlanPane(process.env, paneId, accountId, livePaneIds);
     };
 
@@ -244,7 +244,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     const closeSignInTab = async (accountId: string): Promise<string | undefined> => {
         const tab = signInTab(accountId);
         if (tab === undefined) return undefined;
-        const session = (await source.list()).find((candidate) => candidate.paneId === tab || candidate.id === tab);
+        const session = (await source.list({ fresh: true })).find((candidate) => candidate.paneId === tab || candidate.id === tab);
         if (session !== undefined) {
             let result = await source.stop(session.id, {});
             if (result.status === 'confirmationRequired' && result.scope === 'tab') {
@@ -283,7 +283,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         // Files tree, previews, and git history are product code: the host
         // runs git, clients render. Same trust boundary as changes.* above.
         'files.repos': async () => {
-            const sessions = await source.list();
+            const sessions = await source.list({ fresh: true });
             return filesRepos(sessionCwds(sessions));
         },
         'files.list': async (params) => filesList({
@@ -674,7 +674,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             }
             const tab = signInTab(params.accountId);
             if (status.account.signedIn || status.failure !== undefined || tab === undefined) return status;
-            const open = (await source.list()).some((session) => session.paneId === tab || session.id === tab);
+            const open = (await source.list({ fresh: true })).some((session) => session.paneId === tab || session.id === tab);
             return open ? status : { ...status, failure: 'The sign-in tab was closed before you signed in.' };
         }),
         'plans.cancel': (params) => withPlanSignIn(params.accountId, async () => {
@@ -683,7 +683,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return cancelPlanSignIn(process.env, params.accountId);
         }),
         'plans.agent': async (params) => {
-            const session = (await source.list()).find((candidate) => candidate.id === params.sessionId);
+            const session = (await source.list({ fresh: true })).find((candidate) => candidate.id === params.sessionId);
             const paneId = session?.paneId ?? params.sessionId;
             const recorded = planPaneAccount(process.env, paneId);
             const accountId = recorded.accountId

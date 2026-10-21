@@ -36,6 +36,8 @@ export interface VoiceStreamTransport {
 export interface SessionListOptions {
     cwd?: string;
     includeSubsessions?: boolean;
+    /** Internal operation context: require a tree read begun after this call, not a passive UI listing. */
+    fresh?: true;
 }
 
 export interface SessionStartOptions {

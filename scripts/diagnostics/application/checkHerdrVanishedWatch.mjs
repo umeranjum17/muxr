@@ -104,10 +104,13 @@ try {
         return client.connected && snapshot.workspaces.some((workspace) => workspace.id === trigger)
             && !snapshot.workspaces.some((workspace) => workspace.tabs.some((tab) => tab.panes.some((pane) => pane.id === doomed)));
     }, 'automatic bootstrap recovery without a refreshing consumer', 45_000);
-    const waited = `${((Date.now() - asked) / 1000).toFixed(1)}s`;
-    process.stdout.write(`ok: automatic bootstrap recovers ${waited} after a watched agent pane closed, without a refreshing consumer\n`);
-    await client.refresh();
-    process.stdout.write('ok: an explicit fresh tree read still answers after recovery\n');
+    const recoveryWaited = `${((Date.now() - asked) / 1000).toFixed(1)}s`;
+    process.stdout.write(`ok: automatic bootstrap recovers ${recoveryWaited} after a watched agent pane closed, without a refreshing consumer\n`);
+    const freshAsked = Date.now();
+    const answered = await Promise.race([client.refresh().then(() => true), sleep(45_000).then(() => false)]);
+    const waited = `${((Date.now() - freshAsked) / 1000).toFixed(1)}s`;
+    if (!answered) throw new Error(`the Herdr tree refresh never answered after a watched agent pane closed (gave up after ${waited})`);
+    process.stdout.write(`ok: an explicit fresh tree read still answers ${waited} after recovery\n`);
     process.stdout.write('PASS e2e: a vanished agent pane never wedges the Herdr tree\n');
 } finally {
     const failures = [];

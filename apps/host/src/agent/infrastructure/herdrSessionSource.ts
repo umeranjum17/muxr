@@ -2625,10 +2625,15 @@ export async function createHerdrSessionSource(
         },
 
         async list(listOptions?: SessionListOptions): Promise<SessionInfo[]> {
-            // Return the known tree without waiting for a whole-tree refresh.
-            // A failed background pass retains it; explicit operations still fail.
-            void refreshDiscovery().catch(() => undefined);
-            await reindexKitTree().catch(() => undefined);
+            if (listOptions?.fresh === true) {
+                // Directory, account and sender resolution must not reuse a
+                // discovery pass begun before their operation asked for context.
+                await refreshSnapshot();
+            } else {
+                // A passive view returns the known tree even if discovery fails.
+                void refreshDiscovery().catch(() => undefined);
+                await reindexKitTree().catch(() => undefined);
+            }
             let sessions = currentSessions();
             if (listOptions?.cwd !== undefined) {
                 sessions = sessions.filter((session) => cwdForSession(session.sessionId) === listOptions.cwd);
@@ -3477,7 +3482,7 @@ export async function createHerdrSessionSource(
             // Alert replay is not a passive listing: confirm closed/recovered
             // launches first. An unreadable tree cannot retire a known failure.
             if (launchFailureByPane.size > 0 || pendingLaunchByPane.size > 0) {
-                await refreshDiscovery().catch(() => undefined);
+                await refreshSnapshot().then(emitAllStates).catch(() => undefined);
             }
             reconcileLaunchFailures();
             for (const failure of launchFailureByPane.values()) {
