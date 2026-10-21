@@ -214,7 +214,8 @@ try {
     log(`lab host up on relay port ${lab.port}`);
     const panes = JSON.parse(lab.herdr(['pane', 'list'])).result.panes;
     const pane = panes[0];
-    lab.herdr(['pane', 'send-text', pane.pane_id, `${join(bin, 'claude')}\n`]);
+    // The shell's own prompt names the computer: clear it away before the stand-in agent prints.
+    lab.herdr(['pane', 'send-text', pane.pane_id, `PS1='$ '; clear; ${join(bin, 'claude')}\n`]);
     await sleep(1500);
     lab.herdr(['agent', 'rename', pane.pane_id, LAB_AGENT]);
     adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
