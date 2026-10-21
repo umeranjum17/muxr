@@ -208,6 +208,7 @@ export function startHost(options: HostOptions): Host {
             ? { ...body, session: withPreview([body.session], devicePreviewFor)[0] ?? body.session }
             : body;
         const event: SessionEvent = { ...carried, seq: nextSeq(sessionId) };
+        if (body.type === 'session.removed') seqBySession.delete(sessionId);
         broadcast({ type: 'session.event', sessionId, event }, deviceId);
     }
 

@@ -16,7 +16,11 @@ Herdr runs, with or without a muxr host. It uses the current Herdr pane identity
 named session needs no extra flag. It reads the pane's current workspace from
 Herdr before mutating anything.
 
-- `workspace` → `herdr workspace rename` on Herdr's current workspace membership.
+- `workspace` → `herdr workspace rename` on Herdr's current workspace membership,
+  only when that workspace has one tab. A workspace holding other tabs is shared
+  by several lanes, so it keeps its name and the result reads
+  `"workspace":"kept: shared with other tabs"`; otherwise every lane renamed it
+  after its own task and it read like whichever ran last (`ssh-ed25519`).
 - `pane` → `herdr pane rename`: the task line muxr shows under the agent's
   name (a plain shell leads with it).
 - `provider`/`model` → Herdr pane metadata tokens (`--source muxr.naming`).

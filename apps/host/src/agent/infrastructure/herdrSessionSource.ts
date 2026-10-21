@@ -984,7 +984,8 @@ export async function createHerdrSessionSource(
     const modifiedBySession = new Map<string, string>();
 
     function publish(sessionId: string, event: SessionEventBody): void {
-        modifiedBySession.set(sessionId, new Date().toISOString());
+        if (event.type === 'session.removed') modifiedBySession.delete(sessionId);
+        else modifiedBySession.set(sessionId, new Date().toISOString());
         for (const listener of listeners) listener(sessionId, event);
     }
 
@@ -1492,8 +1493,7 @@ export async function createHerdrSessionSource(
     // may reuse it, and never across a revision change or reconnect.
     let lastKitRevision = -1;
 
-    function syncFromKit(): void {
-        const snap = client.kit.snapshot();
+    function syncFromKit(snap = client.kit.snapshot()): void {
         const previousPanes = new Set(panesById.keys());
         agentsByPane.clear();
         panesById.clear();
@@ -1502,9 +1502,7 @@ export async function createHerdrSessionSource(
         for (const ws of snap.workspaces) {
             const workspace: WorkspaceRecord = {
                 workspace_id: ws.id,
-                // An SSH public key's type word (`ssh-ed25519`) has landed here as a
-                // label. It names nothing, so clients fall back to the panes' folder.
-                ...(/^(ssh-|ecdsa-|sk-)/.test(ws.label ?? '') ? {} : { label: ws.label }),
+                label: ws.label,
                 focused: ws.focused,
                 number: ws.number,
             };
@@ -1577,7 +1575,7 @@ export async function createHerdrSessionSource(
 
     async function refreshSnapshot(): Promise<void> {
         if (disposed) throw new Error('herdr: source disposed');
-        await client.kit.refresh();
+        await client.refresh();
         if (disposed) throw new Error('herdr: source disposed');
         await reindexKitTree();
     }
@@ -1613,9 +1611,9 @@ export async function createHerdrSessionSource(
         }, 500);
     }
     // A status move emits its own sessions at once; only the tree re-sync waits for the debounce.
-    const stopKitTree = client.kit.onChange((_snapshot, changed) => {
+    const stopKitTree = client.kit.onChange((snapshot, changed) => {
         if (changed.length > 0 && !disposed && client.connected) {
-            syncFromKit();
+            syncFromKit(snapshot);
             for (const paneId of changed) {
                 const session = currentSessionByPane(paneId);
                 if (session !== undefined) emitState(session.sessionId);

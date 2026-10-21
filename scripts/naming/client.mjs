@@ -97,7 +97,20 @@ export async function nameAgent(args) {
         if (!result.ok) errors[key] = result.error;
     };
     if (body.pane !== undefined) await apply('pane', 'pane', 'rename', paneId, body.pane);
-    if (body.workspace !== undefined) await apply('workspace', 'workspace', 'rename', workspaceId, body.workspace);
+    if (body.workspace !== undefined) {
+        // A workspace that holds other tabs is shared by several lanes; each
+        // renaming it to its own task left it named after whichever ran last
+        // (`ssh-ed25519`). Only a workspace the agent has to itself is its to name.
+        const workspace = await herdr('workspace', 'get', workspaceId);
+        if (!workspace.ok) {
+            results.workspace = false;
+            errors.workspace = workspace.error;
+        } else if ((workspace.data?.workspace?.tab_count ?? 1) > 1) {
+            results.workspace = 'kept: shared with other tabs';
+        } else {
+            await apply('workspace', 'workspace', 'rename', workspaceId, body.workspace);
+        }
+    }
     if (body.provider !== undefined || body.model !== undefined) {
         const tokenArgs = [];
         if (body.provider !== undefined) tokenArgs.push('--token', `provider=${body.provider}`);
@@ -105,7 +118,7 @@ export async function nameAgent(args) {
         await apply('metadata', 'pane', 'report-metadata', paneId, '--source', 'muxr.naming', ...tokenArgs);
     }
 
-    const failed = Object.keys(results).filter((key) => !results[key]);
+    const failed = Object.keys(results).filter((key) => results[key] === false);
     const status = failed.length === 0 ? 'ok' : failed.length === Object.keys(results).length ? 'failed' : 'partial';
     if (status !== 'ok') {
         throw new Error(`${status} — ${failed.map((key) => `${key}: ${errors[key]}`).join('; ')}`);

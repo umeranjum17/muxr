@@ -89,9 +89,13 @@ rules, with no H2 sections.
 - [Keep one host per machine key](./one-host-per-machine-key.md) —
   Usage refreshes on the shipped bundle start no second host; a replaced host
   stays up and takes the link back; `muxr up` exits 1 when its restart budget is spent.
+- [Release host bookkeeping when panes close](./closed-pane-bookkeeping.md) —
+  real named Herdr lab, host and paired link: 30 retired pane generations leave
+  timestamp and event-sequence owner counts at their live baseline.
 - [Follow a Herdr agent's status live](./herdr-live-status.md) —
   host session source on a guarded lab Herdr: tree follows new panes, status
-  working/blocked/idle lands, socket count 1 → 2 → 1; no baseline needed.
+  working/blocked/idle lands without a redundant host-side tree clone, socket
+  count 1 → 2 → 1; no baseline needed.
 - [Show a stalled computer as busy and recovering](./herdr-stall-recovery.md) —
   named Herdr lab freeze: tree goes unavailable within 20s, returns healthy and
   attaches within 10s; iPad Home records busy copy and agents recovering alone.
@@ -235,11 +239,11 @@ rules, with no H2 sections.
   real `machine.shell` over a fake-Herdr stack: prompt reply, backgrounded child
   reaped, and the host unit's memory and process count flat across the run.
 - [Name the current workspace and pane](./agent-naming.md) — `muxr name`
-  inside a Herdr pane, with provider/model attribution.
+  inside a Herdr pane, with provider/model attribution; a shared workspace
+  keeps its name on the phone (`workspaceNameLab.mjs`).
 - [Name panes by their Herdr tab label](./pane-tab-names.md) — release APK
   on a lab Herdr, across a restart and a live relabel: Herdr tab labels name Home and Panes rows
-  verbatim instead of a shared Claude title, and an `ssh-ed25519` space shows
-  its folder.
+  in words instead of a shared Claude doorbell title.
 - [Inspect and prune Shared Artifacts history](./artifact-retention.md) —
   `muxr artifacts status` / `prune`.
 - [Ask whether the phone is driving this pane](./preview-status.md) —
@@ -288,6 +292,10 @@ rules, with no H2 sections.
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.
+- [A pane's account chip names only its own agent's account](./pane-account-chip.md) —
+  release APK on an emulator over a fake-Herdr stack with two Claude
+  accounts: a Pi pane muxr did not start wears no chip, a Claude pane keeps
+  its own, at 270 and 393 wide and font 1.0/2.0, both themes, before/after.
 - [OpenCode agents start on Muse Spark 1.3 Contributor](./opencode-go-default-model.md) —
   release APK on an emulator over a real lab host with an OpenCode Go
   sign-in: new agents open on the Go default model before/after one build,
@@ -379,6 +387,7 @@ rules, with no H2 sections.
 - [Keep pairing and settings across an app upgrade](./upgrade-keeps-state.md) —
   main release APK paired with settings changed, `install -r` of the
   candidate, then pairing, theme and text size read back; fresh pair after.
+  `checkUpgradeJourney.mjs` drives that whole journey on a real phone.
 - [Keep every New agent field clear of the sticky Start button](./new-agent-footer-clearance.md) —
   native release APK: at 270 dp largest font the scroll ends above the sticky
   Start footer, so the Folder field and every field stay fully visible above

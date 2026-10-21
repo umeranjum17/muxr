@@ -77,7 +77,9 @@ At task start, name the current Herdr workspace and pane with muxr's
 provider-neutral command. `HERDR_PANE_ID` is the existing Herdr pane
 identity; `muxr name` resolves workspace membership from Herdr and renames
 through the Herdr CLI, so no muxr host needs to be running. Names stay
-verbatim within bounded input limits.
+verbatim within bounded input limits. A workspace that holds other tabs is
+shared, so it keeps its name (`"workspace":"kept: shared with other tabs"`);
+only the pane is renamed.
 
 ```sh
 muxr name --workspace 'short-task-slug' \

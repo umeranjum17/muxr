@@ -23,6 +23,7 @@ nobody has asked about for 30 s is paused (SIGSTOP) and resumed on the next ask.
 - `failure-backoff` a failed run is not repeated on every ask; a refresh re-runs it.
 - `memory-cap` a run over 1 GB resident (`MUXR_CCUSAGE_MEMORY_KB` lowers it in tests) is killed and reported as too large. Not `ulimit -v`: Node cannot start under a 1 GB address-space limit.
 - `ledger-off-loop` a large Pi store is counted in the child: the host's own CPU barely moves, and the Pi tab shows the numbers.
+- `ledger-packaged` the published `host.js` started as the ledger child answers with counts and never boots a host (0.2.8 regression: every tab read "Local activity could not be measured"). The package smoke (`node scripts/diagnostics/application/checkPackageSmoke.mjs`) asserts it on the installed tarball; dev builds (`apps/host/dist`) cannot show it.
 
 ## How to get to it (user POV)
 
@@ -53,6 +54,8 @@ Preconditions:
   after; the Usage screen still shows the ccusage-only agent's tokens.
 
 ## Gotchas
+
+- Prove ledger changes on the packed `host.js` (`node scripts/release/application/pack.mjs`, run from `dist-npm/` so its externals resolve), not only `apps/host/dist`: the child re-enters the host's entry, and only the bundle shares one entry with the host.
 
 - An empty `CLAUDE_CONFIG_DIR` without a `projects/` folder makes the backend
   exit 1 ("No valid Claude data directories found"), which reads as a failed count.

@@ -46,6 +46,9 @@ export async function labHerdrSocket(bin: string, socketPath: string | undefined
     return named.socket_path;
 }
 
+/** Longer than a healthy read of a few hundred panes on a loaded machine. */
+const REFRESH_WEDGED_MS = 20_000;
+
 export class KitHerdrClient implements HerdrCaller {
     /** Live event-socket state, surfaced on `herdr.tree` so the phone can tell a dead herdr from a quiet one. */
     connected = false;
@@ -57,6 +60,7 @@ export class KitHerdrClient implements HerdrCaller {
     private outage = false;
     /** Timestamp for the active kit-reported stall, used for the recovery journal line. */
     private stalledSince: number | undefined;
+    private restarting: Promise<void> | undefined;
 
     constructor(
         resolveBin: () => string,
@@ -143,6 +147,35 @@ export class KitHerdrClient implements HerdrCaller {
             params as never,
             timeoutMs === undefined ? undefined : { timeoutMs },
         ) as T;
+    }
+
+    /**
+     * The tree read every terminal attach waits on. @byokit/herdr 0.16 never
+     * settles a status watch Herdr refuses for a pane that closed as the watch
+     * opened (the refusal carries `<id>:sub:0:probe`), so that refresh, and every
+     * one queued behind it, waited for good: lists and Usage still answered while
+     * no pane would open until the host restarted. A read that overruns restarts
+     * the kit the way an outage does: stop rejects the stuck readers, start reads
+     * the tree fresh.
+     */
+    async refresh(): Promise<void> {
+        let timer: NodeJS.Timeout | undefined;
+        const overrun = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), REFRESH_WEDGED_MS); });
+        const landed = await Promise.race([this.kit.refresh().then(() => true), overrun]).finally(() => clearTimeout(timer));
+        if (landed) return;
+        this.restarting ??= this.restartKit().finally(() => { this.restarting = undefined; });
+        await this.restarting;
+        await this.kit.refresh();
+    }
+
+    private async restartKit(): Promise<void> {
+        process.stderr.write(`herdr: tree read still waiting after ${REFRESH_WEDGED_MS / 1000}s; restarting the herdr kit\n`);
+        this.connected = false;
+        this.outage = true;
+        await this.kit.stop();
+        if (this.closed) return;
+        await this.start();
+        this.recover();
     }
 
     async close(): Promise<void> {

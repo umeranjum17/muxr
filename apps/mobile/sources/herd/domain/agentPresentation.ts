@@ -1,4 +1,4 @@
-import { agentFolderName, agentKindLabel, agentTask, derivedAgentName, parseAgentName, type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@trymuxr/contract';
+import { agentFolderName, agentKindLabel, agentTask, derivedAgentName, labelWords, parseAgentName, type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@trymuxr/contract';
 import { compactAge } from '../../utils/compactAge';
 import { lifecycleStateSince } from './recentActivity';
 
@@ -103,7 +103,7 @@ function publicSource(value: string | null | undefined): string | undefined {
  *
  * An agent leads with what it is working on (`agentTask`: its pane label, its
  * own window title, Herdr title metadata, or the host's task-workspace
- * fallback already folded into `taskTitle`), else its Herdr name, else its
+ * fallback already folded into `taskTitle`), else its Herdr name in words, else its
  * kind's label (a started agent has a published kind long before any name).
  * Who runs it goes on the line under that. A shell has no agent name and no
  * kind; it is flagged `shell` and leads with its pane label, else its window
@@ -140,7 +140,7 @@ export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'labe
     const shellTitle = label?.trim() || terminalTitle?.trim() || taskTitle?.trim()
         || agentFolderName(pane?.cwd) || 'Shell';
     return {
-        title: hasAgent ? task ?? (named || agentName) : shellTitle,
+        title: hasAgent ? task ?? (named ? labelWords(named) : agentName) : shellTitle,
         ...(task === undefined ? {} : { task }),
         agentName,
         ...(shell ? { shell: true } : {}),
@@ -174,7 +174,7 @@ function nameRepeatsKind(labels: AgentLabels): boolean {
 /** The agent's name beside a title that leads with its task; nothing when the title already is the name or the name only repeats the kind. */
 export function agentBesideName(labels: AgentLabels): string | undefined {
     if (isShellLabels(labels) || labels.task === undefined || nameRepeatsKind(labels)) return undefined;
-    return sameLabel(labels.agentName, labels.title) ? undefined : labels.agentName;
+    return sameLabel(labels.agentName, labels.title) || sameLabel(labelWords(labels.agentName), labels.title) ? undefined : labels.agentName;
 }
 
 /**
