@@ -3,7 +3,7 @@
 // Pairs the APK on an owned emulator and captures each pane's header. See pane-account-chip.md.
 //   node .agents/skills/done-done-verify-pockit/features/paneAccountChipLab.mjs <apk> <evidenceDir> <labRoot>
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join } from 'node:path';
 
@@ -158,6 +158,10 @@ try {
             defects += 1;
             writeFileSync(join(dir, `${name}.check.txt`), `${cause.stdout ?? ''}${cause.stderr ?? ''}`);
         }
+        // The full screen shows the lab host's name and the phone's status icons: keep only the header band.
+        const top = density === 440 ? 130 : 190;
+        execFileSync('magick', [join(dir, `${name}.png`), '-crop', `1080x70+0+${top}`, '+repage', join(dir, `${name}.header.png`)]);
+        for (const extra of ['.png', '.xml', '.compressed.xml']) rmSync(join(dir, `${name}${extra}`), { force: true });
         const header = /content-desc="([^"]*Open panes)"/.exec(dump())?.[1] ?? '';
         writeFileSync(join(dir, `${name}.header.txt`), `${header}\n`);
         const ok = new RegExp(`On ${expected}\\b`).test(header);
