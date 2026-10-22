@@ -184,7 +184,7 @@ try {
     sh(`am start -W -n ${activity}`);
     await sleep(4000);
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr://pair#${offer}' -n ${activity}`);
-    await tapText(/^Pair$/);
+    await tapText(/^Pair$/, 180);
     log('pairing');
     // The Accounts screen lists Claude only once the paired host answers.
     await sleep(5000);
