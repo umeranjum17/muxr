@@ -231,7 +231,7 @@ export default {
             [
                 "expo-camera",
                 {
-                    cameraPermission: "Allow $(PRODUCT_NAME) to access your camera to scan pairing QR codes.",
+                    cameraPermission: "Allow $(PRODUCT_NAME) to access your camera to scan pairing QR codes and take photos to attach.",
                     recordAudioAndroid: false
                 }
             ],

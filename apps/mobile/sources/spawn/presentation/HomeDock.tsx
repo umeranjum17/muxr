@@ -516,7 +516,7 @@ export const HomeDock = React.memo(({
     const dictationActive = dictation.active;
     const dictationControl = { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' } as const;
     const dictateControl = { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' } as const;
-    const { attachments: selectedAttachments, pickImages, pickFiles, removeAttachment, clearAttachments } = useAttachmentPicker();
+    const { attachments: selectedAttachments, removeAttachment, clearAttachments, ...attachmentPicker } = useAttachmentPicker();
     const agentType = useNewSessionDraft((state) => state.agentType);
     const selectedMachineId = useNewSessionDraft((state) => state.selectedMachineId);
     const selectedPath = useNewSessionDraft((state) => state.selectedPath);
@@ -1005,7 +1005,7 @@ export const HomeDock = React.memo(({
                         {/* The field above already shows the words as they land. */}
                         {dictationActive ? <DictationStrip dictation={dictation} control={dictationControl} showLive={false} /> : <>
                         <BubblePressable
-                            onPress={() => chooseAttachmentSource(pickImages, pickFiles)}
+                            onPress={() => chooseAttachmentSource(attachmentPicker)}
                             style={styles.sideButton}
                             accessibilityRole="button"
                             accessibilityLabel="Add attachment"

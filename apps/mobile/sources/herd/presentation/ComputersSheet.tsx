@@ -1,9 +1,10 @@
 /**
- * The Computers sheet, opened over an agent. It offers cloud setup and lists
- * every computer this phone has paired, marking the one the
- * agent runs on, and lets the person point the agent at another online
- * computer. One list, built on the pairing grants the app already keeps —
- * there is no second registry of computers.
+ * The Computers sheet, opened over an agent: the one place for computers. It
+ * opens the connected computer's screen, lists every computer this phone has
+ * paired, marking the one the agent runs on, lets the person point the agent
+ * at another online computer, and adds a computer of their own or a cloud one.
+ * One list, built on the pairing grants the app already keeps — there is no
+ * second registry of computers.
  *
  * The app holds one live connection, so a computer that is not the connected
  * one is checked with the same fresh paired-machine link collaboration opens;
@@ -26,7 +27,7 @@ import { useAuth } from '@/account/ui';
 import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
 import { realtimeMachineSwitchGuard } from '@/conversation/session';
 import { Modal } from '@/modal';
-import { WebAlertModal } from '@/modal/components/WebAlertModal';
+import { ActionSheet } from '@/modal/components/ActionSheet';
 
 /** Plain states a row can show. "Not paired" is a computer the app is
  * connected to that this phone keeps no pairing for. */
@@ -128,7 +129,9 @@ export function ComputerRows({ rows, onPick, loadingId }: { rows: ComputerRow[];
     );
 }
 
-export function ComputersSheet({ visible, sessionId, onClose }: { visible: boolean; sessionId: string; onClose: () => void }): React.JSX.Element {
+/** `onViewScreen` is given only where the connected computer's screen can be
+ * opened (the desktop view is available and this phone controls the pane). */
+export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { visible: boolean; sessionId: string; onClose: () => void; onViewScreen?: () => void }): React.JSX.Element {
     const { theme } = useUnistyles();
     const router = useRouter();
     const auth = useAuth();
@@ -241,19 +244,48 @@ export function ComputersSheet({ visible, sessionId, onClose }: { visible: boole
 
     const body = (
         <View>
-            <ItemGroup title="Cloud computer" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
+            {onViewScreen !== undefined && (
+                <ItemGroup>
+                    <Item
+                        title="View screen"
+                        titleStyle={{ color: theme.colors.text }}
+                        subtitle={rows.find((row) => row.id === effectiveActiveId)?.name}
+                        titleLines={0}
+                        subtitleLines={0}
+                        subtitleStyle={{ color: theme.colors.textSecondary }}
+                        showChevron
+                        onPress={onViewScreen}
+                        icon={<Ionicons name="tv-outline" size={29} color={theme.colors.textSecondary} />}
+                    />
+                </ItemGroup>
+            )}
+
+            <ComputerRows rows={rows} onPick={requestSwitch} loadingId={switching ?? undefined} />
+
+            <ItemGroup title="Add a computer" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
+                <Item
+                    title="Pair a computer"
+                    titleStyle={{ color: theme.colors.text }}
+                    subtitle="Install muxr on it, then pair"
+                    titleLines={0}
+                    subtitleLines={0}
+                    subtitleStyle={{ color: theme.colors.textSecondary }}
+                    showChevron
+                    onPress={() => { onClose(); router.push('/add-computer'); }}
+                    icon={<Ionicons name="add-circle-outline" size={29} color={theme.colors.textSecondary} />}
+                />
                 <Item
                     title="Add a cloud computer"
                     titleStyle={{ color: theme.colors.text }}
                     subtitle={Platform.OS === 'web' ? 'Set up from the muxr phone app' : 'Boat · from $0.036 an hour'}
+                    titleLines={0}
+                    subtitleLines={0}
                     subtitleStyle={{ color: theme.colors.textSecondary }}
                     showChevron
                     onPress={() => { onClose(); router.push('/cloud-computer'); }}
                     icon={<Ionicons name="cloud-outline" size={29} color={theme.colors.textSecondary} />}
                 />
             </ItemGroup>
-
-            <ComputerRows rows={rows} onPick={requestSwitch} loadingId={switching ?? undefined} />
         </View>
     );
 
@@ -273,9 +305,7 @@ export function ComputersSheet({ visible, sessionId, onClose }: { visible: boole
                 body={body}
             />
             {confirm !== null && (
-                <WebAlertModal
-                    surface="dark"
-                    opaque
+                <ActionSheet
                     config={{
                         id: 'computer-switch-confirm',
                         type: 'confirm',

@@ -1,4 +1,3 @@
-import { Platform } from 'react-native';
 import { HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, type HerdrRenameTarget, type HerdrTreePane } from '@trymuxr/contract';
 import type { AlertButton } from '@/modal';
 import { Modal } from '@/modal';
@@ -43,11 +42,10 @@ export function renamePane(pane: HerdrTreePane): Promise<void> {
  * what the item is under its name.
  */
 export function showNameActions(title: string, kind: string, rename: () => void, close?: { label: string; onPress: () => void }): void {
-    const actions: AlertButton[] = [{ text: 'Rename', onPress: rename }];
-    if (close !== undefined) actions.push({ text: close.label, style: 'destructive', onPress: close.onPress });
+    const actions: AlertButton[] = [{ text: 'Rename', icon: 'pencil-outline', onPress: rename }];
+    if (close !== undefined) actions.push({ text: close.label, style: 'destructive', icon: 'close-circle-outline', onPress: close.onPress });
     const cancel: AlertButton = { text: 'Cancel', style: 'cancel' };
-    // Android lays buttons out left to right and keeps the last for the main action.
-    Modal.alert(title, kind, Platform.OS === 'android' ? [cancel, ...actions.reverse()] : [...actions, cancel]);
+    Modal.alert(title, kind, [...actions, cancel]);
 }
 
 /** A pane's long-press: its agent or shell, renamed, or closed when `close` is given. */

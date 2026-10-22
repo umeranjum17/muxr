@@ -89,3 +89,12 @@ journeys:
   terminal-scroll-local:
     command: bash .agents/skills/done-done-verify-pockit/features/terminalScrollLocalLab.sh "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT"
     timeout: 20m
+  # Every alert and choice popup on Android is the shared app action sheet:
+  # Add attachment, an agent card's and a tab's actions, per width, text size
+  # and theme, plus tap-outside, swipe-down and Files reaching the system
+  # picker (action-sheet.md). Runs by hand under the shared emulator lock;
+  # MUXR_LAB_APK is a release build of this commit, MUXR_LAB_AVD_HOME a
+  # task-owned emulator home.
+  action-sheet:
+    command: node .agents/skills/done-done-verify-pockit/features/actionSheetLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --interact > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
