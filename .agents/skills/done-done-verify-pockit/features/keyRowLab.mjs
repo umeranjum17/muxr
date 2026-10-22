@@ -211,9 +211,15 @@ try {
     say(`defects: ${defects.length === 0 ? 'none' : `\n${defects.join('\n')}`}`);
     writeFileSync(join(EVIDENCE, 'steps.json'), `${JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
-        start: 'release APK freshly installed and paired to a private stack whose workspace has three tabs',
-        steps: ['open an agent from Home', 'read every key row target and the quick-actions control from the accessibility dump', 'lock Control and open the quick-actions ring at 390 dp dark', 'repeat at 390 and 270 dp wide, light and dark, and at 2x text'],
-        result: 'every key and the quick-actions control is a 48 dp target, and the control sits clear of the tabs',
+        start: 'the release app freshly installed on an Android phone (emulator) and paired to a private stack whose workspace has three tabs',
+        steps: [
+            "open an agent's terminal screen from Home",
+            'measure every key in the key row (ctrl, shift, esc, tab and the rest) as a touch target, and the space between keys',
+            'measure the quick-actions button beside the tabs as a touch target, and how far it sits clear of the nearest tab',
+            'lock ctrl, then tap the quick-actions button and see its ring open, at 390 dp dark',
+            'repeat at 390 and 270 dp wide, light and dark, and at 2x text',
+        ],
+        result: 'every key is a 48 dp touch target with space between keys, so ctrl and shift are no longer hit for each other; the quick-actions button beside the tabs has its own 48 dp touch target at least 8 dp clear of the tabs, and still opens its ring',
     }, null, 2)}\n`);
     say(defects.length === 0 ? 'RESULT done' : 'RESULT FAIL: defects above');
     if (defects.length > 0) process.exitCode = 1;
