@@ -331,6 +331,10 @@ rules, with no H2 sections.
 - [Move a conversation to another account](./plan-move.md) — release APK on
   an emulator over a real lab Herdr and host with two stand-in Claude accounts:
   the same conversation moves A to B and back, recorded.
+- [Add a Claude account from the phone](./add-account.md) — release APK on
+  an emulator over a real lab Herdr and host with a stand-in Claude sign-in:
+  the code is sent once from the sign-in tab, the tab closes and the add ends
+  on Name this account and the Added notice, recorded.
 - [OpenCode agents start on Muse Spark 1.3 Contributor](./opencode-go-default-model.md) —
   release APK on an emulator over a real lab host with an OpenCode Go
   sign-in: new agents open on the Go default model before/after one build,

@@ -246,10 +246,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         if (tab === undefined) return undefined;
         const session = (await source.list({ fresh: true })).find((candidate) => candidate.paneId === tab || candidate.id === tab);
         if (session !== undefined) {
-            let result = await source.stop(session.id, {});
-            if (result.status === 'confirmationRequired' && result.scope === 'tab') {
-                result = await source.stop(session.id, { confirmedScope: 'tab' });
-            }
+            // The tab is muxr's own, and Herdr opens it as the only tab of a new
+            // workspace when none holds the home folder: closing it takes that
+            // workspace along, and the ladder widens no further than it must.
+            const result = await source.stop(session.id, { confirmedScope: 'workspace' });
             if (result.status !== 'closed') {
                 throw new Error("Couldn't close the sign-in tab. Try again.");
             }
