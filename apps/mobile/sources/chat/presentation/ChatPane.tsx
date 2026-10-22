@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { ChatMessage, ChatTool } from '@trymuxr/contract';
 import { withAlpha } from '@/components/ui';
 import { OptionSheet } from '@/components/OptionSheet';
+import { Typography } from '@/constants/Typography';
 import type { ChatState } from '../application/useChat';
 import { ChatSteps, DiffLines } from './ChatSteps';
 
@@ -148,8 +149,9 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
                 </View>
             )}
 
-            <OptionSheet visible={tool !== null} title={tool?.detail ?? tool?.verb ?? ''} options={[]} onSelect={() => {}} onClose={() => setTool(null)}
+            <OptionSheet visible={tool !== null} title={tool?.detail?.split('/').pop() ?? tool?.verb ?? ''} options={[]} onSelect={() => {}} onClose={() => setTool(null)}
                 body={tool !== null && <View style={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8 }}>
+                    {tool.detail !== undefined && <Text selectable style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono() }}>{tool.detail}</Text>}
                     <View style={{ backgroundColor: theme.colors.code.surface, borderWidth: 1, borderColor: theme.colors.code.hairline, borderRadius: 10, overflow: 'hidden' }}>
                         <DiffLines lines={tool.diff ?? []} />
                     </View>

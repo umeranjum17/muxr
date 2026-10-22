@@ -55,25 +55,36 @@ function Glyph({ kind }: { kind: ChatToolKind | undefined }): React.JSX.Element 
     );
 }
 
+/** IBM Plex Mono advances every glyph by 0.6 em, so a mono line's room is a character count. */
+const MONO_ADVANCE = 0.6;
+const TARGET_SIZE = 13.5;
+
 /**
- * Mono text cut in the middle so its end stays in view: a file shows its name
- * (the peek's caption has the whole path) down to its extension, a command
- * its last words. Two texts, because only the tail mode of `ellipsizeMode`
- * works on the web.
+ * Cut in the middle so the end stays: a file keeps its name down to its
+ * extensions (`shipping….test.ts`), a command its last word when short.
+ */
+function cutMiddle(text: string, room: number, path: boolean): string {
+    if (text.length <= room) return text;
+    const space = text.lastIndexOf(' ');
+    const dot = text.split('').findIndex((char, index) => char === '.' && index > 0 && text.length - index <= 12);
+    const preferred = path && dot > 0 ? text.slice(dot) : !path && space > 0 && text.length - space <= 18 ? text.slice(space) : text.slice(-10);
+    // At least three characters of the head show before the ellipsis.
+    const tail = preferred.length <= room - 4 ? preferred : text.slice(-(Math.max(1, room - 4)));
+    return `${text.slice(0, Math.max(0, room - tail.length - 1))}…${tail}`;
+}
+
+/**
+ * Mono text cut in the middle, from the room it measures: `ellipsizeMode`
+ * cuts only the tail on the web, and two texts sharing a row did not give way
+ * in order there. A file shows its name (the peek's caption has the whole path).
  */
 function MiddleText({ text, path, color }: { text: string; path: boolean; color: string }): React.JSX.Element {
-    const style = { color, fontSize: 13.5, ...Typography.mono() };
+    const [width, setWidth] = React.useState(0);
     const shown = path ? text.slice(text.lastIndexOf('/') + 1) : text;
-    // A file keeps its extensions (`.test.ts`), a command its last word when short; a short target never splits.
-    const space = shown.lastIndexOf(' ');
-    const dot = shown.split('').findIndex((char, index) => char === '.' && index > 0 && shown.length - index <= 12);
-    const split = shown.length <= 16 ? 0 : path && dot > 0 ? dot : !path && space > 0 && shown.length - space <= 18 ? space : shown.length - 10;
-    if (split === 0) return <Text numberOfLines={1} style={[style, { flexShrink: 1, minWidth: 0 }]}>{shown}</Text>;
+    const room = width === 0 ? shown.length : Math.max(4, Math.floor(width / (TARGET_SIZE * MONO_ADVANCE)) - 1);
     return (
-        <View style={{ flexDirection: 'row', flexShrink: 1, minWidth: 0 }}>
-            {/* The head gives way first but keeps a couple of letters and its ellipsis; then the tail. */}
-            <Text numberOfLines={1} style={[style, { flexShrink: 1, minWidth: 28 }]}>{shown.slice(0, split)}</Text>
-            <Text numberOfLines={1} style={[style, { flexShrink: 0.001, minWidth: 0 }]}>{shown.slice(split)}</Text>
+        <View style={{ flex: 1, minWidth: 0 }} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+            <Text numberOfLines={1} style={{ color, fontSize: TARGET_SIZE, ...Typography.mono() }}>{cutMiddle(shown, room, path)}</Text>
         </View>
     );
 }
