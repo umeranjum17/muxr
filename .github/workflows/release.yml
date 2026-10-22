@@ -7,9 +7,10 @@ name: release
 # the sealed tarball through npm trusted publishing (OIDC). No npm token exists
 # anywhere. Trusted publishing cannot move a dist-tag, so a stable version is
 # published straight under `latest`, and only once its release journey passed
-# on the exact tarball this run sealed. Until then the run publishes nothing
-# and says why; the push that commits the receipt runs it again, and a manual
-# run from the release tag (v<version>) publishes once main has moved on.
+# on the exact tarball this run sealed and the captain, after his own phone
+# test, started the run by hand with captain_tested and that version. A push
+# never publishes a stable version; it builds, seals and reports the gate. Run
+# it from main, or from the release tag (v<version>) once main has moved on.
 # When the version is already on npm, the build job only confirms it.
 #
 # Gaps, not published by this workflow:
@@ -19,6 +20,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      captain_tested:
+        description: The captain's own phone test passed on this stable build; publish it as npm latest
+        type: boolean
+        default: false
+      version:
+        description: The stable version the captain tested, such as 0.2.11
+        type: string
+        default: ''
 
 concurrency:
   # Two publications never race for one version.
@@ -136,7 +146,9 @@ jobs:
       - id: accepted
         name: Require the release journey on this exact build before npm latest
         if: needs.build.outputs.needed == 'true' && needs.build.outputs.channel == 'stable' && steps.github-release.outputs.exists == 'true'
-        run: node scripts/release/presentation/acceptStable.mjs --version "$RELEASE_VERSION" --package "$RUNNER_TEMP"/package/*.tgz
+        env:
+          CAPTAIN_TESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.captain_tested && inputs.version || '' }}
+        run: node scripts/release/presentation/acceptStable.mjs --version "$RELEASE_VERSION" --package "$RUNNER_TEMP"/package/*.tgz --captain-tested "$CAPTAIN_TESTED"
       - name: Publish with provenance
         if: needs.build.outputs.needed == 'true' && (needs.build.outputs.channel != 'stable' || steps.accepted.outputs.accepted == 'true')
         run: node scripts/release/presentation/publishNpm.mjs
