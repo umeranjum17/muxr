@@ -89,6 +89,10 @@ rules, with no H2 sections.
 - [Keep one host per machine key](./one-host-per-machine-key.md) —
   Usage refreshes on the shipped bundle start no second host; a replaced host
   stays up and takes the link back; `muxr up` exits 1 when its restart budget is spent.
+- [A stable release passes the real-app journey on its exact build](./release-journey.md) —
+  release APK on an owned emulator, host from the release tarball, real Herdr
+  lab: pair, attach, send, fast scroll, Usage and back, one host; attach and
+  scroll times against budgets; `promoteLatest.mjs` refuses any other build.
 - [Release host bookkeeping when panes close](./closed-pane-bookkeeping.md) —
   real named Herdr lab, host and paired link: 30 retired pane generations leave
   timestamp and event-sequence owner counts at their live baseline.

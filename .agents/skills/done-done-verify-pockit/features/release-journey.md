@@ -1,0 +1,46 @@
+# A stable release passes the real-app journey on its exact build
+
+npm `latest` and the stable APK (GitHub Latest and the public channel) move
+only after the `phone-attach` journey passed on the release's own APK and npm
+tarball. The journey pairs, attaches through pane churn, sends text from the
+box, scrolls the agent's history back and forward fast, opens Usage and comes
+back, and counts exactly one host alive. It times the first attach and the
+scroll against the budgets in `scripts/release/domain/releaseJourney.mjs`.
+
+## Sub-features
+
+- `exact-build` the journey records the sha256 of the APK it installed and the tarball its host ran from in `release-build.json`; the gate compares them with the release's sealed manifest and refuses any other build of the same version.
+- `promote-latest` `node scripts/release/presentation/promoteLatest.mjs --version <v>` is the only path that moves npm `latest`; `--check-only` stops before the move.
+- `stable-apk` `release.yml`'s stable promote runs `checkJourneyReceipt.mjs --tag v<v>` before GitHub Latest and the catalog.
+- `one-host` after Usage, the processes in the lab host's own tree that hold a link to the lab relay number exactly one (0.2.8 booted a second host from the Usage ledger child).
+- `budgets` attach and scroll times over budget fail the gate, not the journey: the journey records what it measured.
+
+## How to get to it (user POV)
+
+A maintainer promoting a stable version: run the journey on the candidate's
+assets, commit the receipt and result, then run `promoteLatest.mjs`.
+
+## Driving it with the private stack
+
+Preconditions: an authorized Herdr lab (`HERDR_LAB_HELPER`, a 2-char label
+such as `rj` with `FM_HERDR_LAB_STATE_DIR=/tmp/rj`, provisioned before the run
+with `HERDR_LAB_PREPROVISIONED=1`), a task-owned emulator under the shared
+emulator lock, and the release's assets:
+`gh release download v<v> --pattern '*.apk' --pattern '*.tgz' --pattern release-manifest.json`.
+
+1. Boot the AVD (`bootOwnedEmulator` in `perf/lib/androidEmulator.mjs`, launcher `nice -n 10`).
+2. `PHONE_SERIAL=<emulator> PHONE_APK=<apk> PHONE_PACKAGE=<tgz> PHONE_ATTACH_ROOT=$(mktemp -d ~/.cache/fms/rj.XXXX) MUXR_LAB_MACHINE_NAME='Umer lab' done-done run phone-attach`.
+   The tarball is installed with `npm install --prefix <root>/pkg --ignore-scripts`; the lab runs its `relay.js` and `host.js` (`MUXR_LAB_PACKAGE_DIR`).
+3. Read `release-build.json` in the run's evidence folder: `result: pass`, every step `pass`, `hosts: 1`, `timings.attachMs` and `timings.scrollMs`.
+4. `done-done receipt --outcome "<claim>" <captures> <evidence>/release-build.json`, then commit the receipt at `.done-done-receipts/<head>.json` and the result at `.done-done-receipts/builds/<v>.json`.
+5. `node scripts/release/presentation/promoteLatest.mjs --version <v> --check-only` prints `may become npm latest`; without a result, or with a result for another build, it prints `npm latest stays where it is:` and the reason, and exits 1.
+
+Flow test: `scripts/release/checkJourneyReceipt.spec.mjs` (no result, another APK, a rebuilt tarball, matching build).
+
+## Gotchas
+
+- npm 12 answers `npm view <pkg>@<v> <field> --json` with a one-element array; the registry readers unwrap it. Before that fix every local promotion read "published from different bytes".
+- Usage opens from the terminal's `Pane actions` menu; a dump with no `Terminal surface` and a `Usage` node is the Usage screen.
+- The scroll uses 60 ms swipes (flings); a slow swipe is a long-press selection, not a scroll.
+- Captures skip any screen with the computer's own name; `MUXR_LAB_MACHINE_NAME` keeps the real hostname off the phone.
+- Release path only: no visual surface changes; visual check: n/a (no UI change).
