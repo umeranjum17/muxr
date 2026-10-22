@@ -250,6 +250,8 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
                         title="View screen"
                         titleStyle={{ color: theme.colors.text }}
                         subtitle={rows.find((row) => row.id === effectiveActiveId)?.name}
+                        titleLines={0}
+                        subtitleLines={0}
                         subtitleStyle={{ color: theme.colors.textSecondary }}
                         showChevron
                         onPress={onViewScreen}
@@ -265,6 +267,8 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
                     title="Pair a computer"
                     titleStyle={{ color: theme.colors.text }}
                     subtitle="Install muxr on it, then pair"
+                    titleLines={0}
+                    subtitleLines={0}
                     subtitleStyle={{ color: theme.colors.textSecondary }}
                     showChevron
                     onPress={() => { onClose(); router.push('/add-computer'); }}
@@ -274,6 +278,8 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
                     title="Add a cloud computer"
                     titleStyle={{ color: theme.colors.text }}
                     subtitle={Platform.OS === 'web' ? 'Set up from the muxr phone app' : 'Boat · from $0.036 an hour'}
+                    titleLines={0}
+                    subtitleLines={0}
                     subtitleStyle={{ color: theme.colors.textSecondary }}
                     showChevron
                     onPress={() => { onClose(); router.push('/cloud-computer'); }}
