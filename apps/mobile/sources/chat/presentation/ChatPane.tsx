@@ -4,10 +4,8 @@ import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { ChatMessage, ChatTool } from '@trymuxr/contract';
 import { withAlpha } from '@/components/ui';
-import { OptionSheet } from '@/components/OptionSheet';
-import { Typography } from '@/constants/Typography';
 import type { ChatState } from '../application/useChat';
-import { ChatSteps, DiffLines } from './ChatSteps';
+import { ChatSteps, DiffSheet } from './ChatSteps';
 
 export interface ChatPaneProps {
     state: ChatState;
@@ -25,11 +23,6 @@ export interface ChatPaneProps {
 }
 
 const NEAR_BOTTOM = 80;
-
-/** The changed lines the host sent; a long edit is capped there. */
-function shownChanges(tool: ChatTool): number {
-    return (tool.diff ?? []).filter((line) => line.startsWith('+') || line.startsWith('-')).length;
-}
 
 /**
  * The shared lazy code-surfaces chunk (it keeps Markdown out of the eager entry). It resolves after the
@@ -149,17 +142,7 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
                 </View>
             )}
 
-            {/* The sheet renders after the screen's scope has closed: it takes the chat's theme, not the app's. */}
-            <ScopedTheme name={theme.dark ? 'dark' : 'light'}><OptionSheet visible={tool !== null} title={tool?.detail?.split('/').pop() ?? tool?.verb ?? ''} options={[]} onSelect={() => {}} onClose={() => setTool(null)}
-                body={tool !== null && <View style={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8 }}>
-                    {tool.detail !== undefined && <Text selectable style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono() }}>{tool.detail}</Text>}
-                    <View style={{ backgroundColor: theme.colors.code.surface, borderWidth: 1, borderColor: theme.colors.code.hairline, borderRadius: 10, overflow: 'hidden' }}>
-                        <DiffLines lines={tool.diff ?? []} />
-                    </View>
-                    {shownChanges(tool) < (tool.added ?? 0) + (tool.removed ?? 0) && <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>
-                        {`Showing ${shownChanges(tool)} of ${(tool.added ?? 0) + (tool.removed ?? 0)} changed lines. The rest is in the terminal.`}
-                    </Text>}
-                </View>} /></ScopedTheme>
+            <DiffSheet tool={tool} theme={theme} onClose={() => setTool(null)} />
         </View>
     );
 }

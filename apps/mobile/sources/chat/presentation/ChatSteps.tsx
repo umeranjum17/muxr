@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import type { ChatTool, ChatToolKind } from '@trymuxr/contract';
@@ -133,7 +134,7 @@ const MARKS: Record<string, { sign: string; background: (code: CodeColors) => st
 };
 
 /** Diff lines in the code panel's colours, numbered from the hunk headers Claude's own patch carries. */
-export function DiffLines({ lines }: { lines: string[] }): React.JSX.Element {
+function DiffLines({ lines }: { lines: string[] }): React.JSX.Element {
     const theme = useChatTheme();
     const code = theme.colors.code;
     let oldLine = 0;
@@ -355,5 +356,47 @@ function Steps({ tools, live, ink, onFullDiff, onOpenTerminal }: { tools: ChatTo
                 </View>
             )}
         </View>
+    );
+}
+
+/** The changed lines the host sent; a long edit is capped there. */
+function shownChanges(tool: ChatTool): number {
+    return (tool.diff ?? []).filter((line) => line.startsWith('+') || line.startsWith('-')).length;
+}
+
+/**
+ * An edit's whole diff, as far as the host sent it, in a sheet over the chat.
+ * The app's OptionSheet resolves its styles against the app theme on native,
+ * so it came out white over the dark chat in the light app theme; this one
+ * takes the theme the chat mounted with, the same look otherwise.
+ */
+export function DiffSheet({ tool, theme, onClose }: { tool: ChatTool | null; theme: ReturnType<typeof useUnistyles>['theme']; onClose: () => void }): React.JSX.Element {
+    const insets = useSafeAreaInsets();
+    const changed = tool === null ? 0 : (tool.added ?? 0) + (tool.removed ?? 0);
+    return (
+        <Modal visible={tool !== null} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+            <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.45)' }} />
+                {tool !== null && (
+                    <MountTheme.Provider value={theme}>
+                        <View style={{ width: '100%', maxWidth: 560, maxHeight: '80%', alignSelf: 'center', backgroundColor: theme.colors.groupped.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden', paddingBottom: Math.max(12, insets.bottom) }}>
+                            <View style={{ alignItems: 'center', paddingTop: 8 }}>
+                                <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.colors.textSecondary, opacity: 0.5 }} />
+                            </View>
+                            <Text style={{ fontSize: 24, color: theme.colors.text, marginHorizontal: 20, paddingVertical: 12, ...Typography.default('semiBold') }}>{tool.detail?.split('/').pop() ?? tool.verb}</Text>
+                            <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8 }}>
+                                {tool.detail !== undefined && <Text selectable style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono() }}>{tool.detail}</Text>}
+                                <View style={{ backgroundColor: theme.colors.code.surface, borderWidth: 1, borderColor: theme.colors.code.hairline, borderRadius: 10, overflow: 'hidden' }}>
+                                    <DiffLines lines={tool.diff ?? []} />
+                                </View>
+                                {shownChanges(tool) < changed && <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>
+                                    {`Showing ${shownChanges(tool)} of ${changed} changed lines. The rest is in the terminal.`}
+                                </Text>}
+                            </ScrollView>
+                        </View>
+                    </MountTheme.Provider>
+                )}
+            </View>
+        </Modal>
     );
 }
