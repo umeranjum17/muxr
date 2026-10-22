@@ -10,7 +10,9 @@ if (!version) throw new Error('usage: promoteLatest.mjs --version <stable versio
 const checkOnly = process.argv.includes('--check-only');
 try {
     const result = await promoteLatest({ version, receiptsRef: option('receipts') ?? 'origin/main', checkOnly });
-    const state = result.moved ? 'is now' : checkOnly ? 'may become' : 'already was';
+    let state = 'already was';
+    if (result.moved) state = 'is now';
+    else if (checkOnly) state = 'may become';
     process.stdout.write(`${version} ${state} npm latest; its release journey receipt is ${result.proof}\n`);
 } catch (error) {
     process.stderr.write(`npm latest stays where it is: ${error instanceof Error ? error.message : String(error)}\n`);
