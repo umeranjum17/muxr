@@ -20,6 +20,7 @@ let approved = false;
 if (process.env.BOAT_LAB_TAILSCALE === '1') {
     const login = 'https://login.tailscale.com/a/umer-lab';
     let joinAt;
+    let said = false;
     const run = fake.machine.run.bind(fake.machine);
     fake.machine.run = (argv, o) => {
         const ok = (stdout = '') => ({ code: 0, stdout, stderr: '', timedOut: false });
@@ -32,6 +33,8 @@ if (process.env.BOAT_LAB_TAILSCALE === '1') {
         }
         if (argv[0] === 'tailscale' && argv[1] === 'status') {
             const joined = joinAt !== undefined && Date.now() >= joinAt;
+            if (joined && !said) console.log('tailscale status: joined');
+            said ||= joined;
             return ok(JSON.stringify({ BackendState: joined ? 'Running' : 'NeedsLogin', AuthURL: joined ? '' : login, Self: { DNSName: 'muxr-cloud.umer.ts.net.' } }));
         }
         if (argv[0] === 'tailscale' && argv[1] === 'serve') return ok(argv[2] === 'status' ? JSON.stringify({ TCP: { 8792: { TCPForward: '127.0.0.1:8792' } } }) : '');
