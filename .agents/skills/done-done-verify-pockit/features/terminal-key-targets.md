@@ -53,12 +53,17 @@ measures every whole key, the control and the nearest tab-row element in dp
 into `metrics.json`. At 390 dp dark it also locks Control
 (`terminal-ctrl-locked-…`) and opens the ring (`terminal-ring-…`). A key or the
 control under 48 dp, overlapping keys, or less than 8 dp between the control
-and the tabs is a DEFECT in `journey.log`; on main those DEFECT lines are the
-before.
+and the tabs is a DEFECT in `journey.log` and fails the run; on main those
+DEFECT lines are the before. The Visual check's own leads are listed apart
+(`visual check leads:`), to judge by eye and against main's run.
 
 ## Gotchas
 
 - A key the screen edge cuts reports only its visible part in the dump, so the
   lab measures only keys whose right edge is clear of the screen's.
+- The control's target reaches up over the terminal's last line, so the
+  Visual check reports it as `"Terminal quick actions" … "Terminal surface"
+  (a control is covered)`. That is the design: the old 24 dp disc's 10 dp hit
+  slop already took most of those taps, the dump just never showed it.
 - `New tab` and `Latest` keep their own 8 dp hit slop, which the dump does not
   show; the 8 dp clearance is between their drawn boxes and the control's.

@@ -100,13 +100,17 @@ async function toHome() {
 }
 
 const defects = [];
+// The Visual check's own leads, judged by eye and against main's run (`--ref`), never
+// this journey's verdict. The quick-actions target reaching over the terminal's last line
+// shows up here as "a control is covered" by design (terminal-key-targets.md).
+const leads = [];
 async function capture(dir, name) {
     await sleep(3000);
     const args = [CHECK, serial, dir, name];
     if (opts.ref) args.push('--ref', join(resolve(opts.ref), dir.slice(EVIDENCE.length + 1), `${name}.xml`));
     const run = await exec(process.execPath, args, { timeout: 180_000, maxBuffer: 16 << 20 }).then((r) => ({ out: r.stdout }), (e) => ({ out: `${e.stdout ?? ''}${e.stderr ?? ''}` }));
     const lines = run.out.split('\n').filter((line) => line.startsWith('DEFECT'));
-    for (const line of lines) defects.push(`${name}: ${line}`);
+    for (const line of lines) leads.push(`${name}: ${line}`);
     say(`shot ${name}: ${lines.length === 0 ? 'clean' : lines.join(' | ')}`);
 }
 
@@ -203,6 +207,7 @@ try {
         await toHome();
     }
     writeFileSync(join(EVIDENCE, 'metrics.json'), `${JSON.stringify(metrics, null, 2)}\n`);
+    say(`visual check leads: ${leads.length === 0 ? 'none' : `\n${leads.join('\n')}`}`);
     say(`defects: ${defects.length === 0 ? 'none' : `\n${defects.join('\n')}`}`);
     writeFileSync(join(EVIDENCE, 'steps.json'), `${JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
