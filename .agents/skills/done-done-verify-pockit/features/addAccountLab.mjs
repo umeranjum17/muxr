@@ -108,6 +108,10 @@ try {
         const state = process.env.FM_HERDR_LAB_STATE_DIR ?? join(process.env.TMPDIR ?? '/tmp', `fm-herdr-lab-${process.getuid()}`);
         mkdirSync(join(readFileSync(join(state, `${session}.xdg-root`), 'utf8').trim(), 'home', '.claude'), { recursive: true });
         run(['workspace', 'create', '--cwd', work, '--label', 'lab', '--no-focus']);
+        // The computer's own Claude sign-in, which the new account is added next to: Accounts lists a
+        // provider's accounts only once it has more than one.
+        mkdirSync(join(root, 'lab', 'home', '.claude'), { recursive: true });
+        writeFileSync(join(root, 'lab', 'home', '.claude', 'lab-account.json'), '{"loggedIn":true,"authMethod":"claude.ai","email":"umer@example.com","subscriptionType":"max"}\n');
     });
     log(`lab host up on relay port ${lab.port}`);
 
@@ -130,6 +134,9 @@ try {
             if (Date.now() > deadline) throw new Error('the account never signed in');
         }
         checkHost(signInPane);
+        const row = await added();
+        if (row === undefined) throw new Error('the host has no signed-in umer.work@example.com account');
+        log(`host lists ${row.name} <${row.email}> signed in`);
         log('PASS: account added (host only)');
         throw Object.assign(new Error('host-only run finished'), { done: true });
     }
