@@ -1,5 +1,5 @@
 import type { SessionSnapshot } from '@desklink/react-native';
-import { DESKTOP_NO_PICTURE, desktopPortalRestartCommand } from '@trymuxr/contract';
+import { DESKTOP_NO_PICTURE, DESKTOP_PORTAL_RESTART, DESKTOP_PORTAL_WITHOUT_DESKTOP, desktopPortalRestartCommand } from '@trymuxr/contract';
 
 import { desktopCopy, previewCopy, unknownPreviewCopy, type PreviewKindCopy } from './desktopCopy';
 
@@ -43,6 +43,7 @@ export function describeDesktopFailureDetail(failure: { code: string; message: s
     // reason is a contract value, so it is matched whole, never by substring.
     if (failure?.message === DESKTOP_NO_PICTURE) return desktopCopy.noPictureBody;
     if (failure && desktopPortalRestartCommand(failure.message) !== undefined) return desktopCopy.portalBusyNoticeBody;
+    if (failure?.message === DESKTOP_PORTAL_WITHOUT_DESKTOP) return desktopCopy.portalWithoutDesktopNoticeBody;
     return desktopCopy.failedBody;
 }
 
@@ -74,6 +75,9 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
     const restart = snapshot.status === 'failed' && snapshot.failure ? desktopPortalRestartCommand(snapshot.failure.message) : undefined;
     if (restart !== undefined) {
         return { title: desktopCopy.portalBusyTitle, detail: desktopCopy.portalBusyBody, command: restart, spinner: false, canRetry: true };
+    }
+    if (snapshot.status === 'failed' && snapshot.failure?.message === DESKTOP_PORTAL_WITHOUT_DESKTOP) {
+        return { title: desktopCopy.portalWithoutDesktopTitle, detail: desktopCopy.portalWithoutDesktopBody, command: DESKTOP_PORTAL_RESTART, spinner: false, canRetry: true };
     }
     if (snapshot.status === 'failed' && snapshot.failure?.code === 'no-screen') {
         return { title: desktopCopy.noScreenTitle, detail: desktopCopy.noScreenBody, command: desktopCopy.noScreenCommand, spinner: false, canRetry: true };

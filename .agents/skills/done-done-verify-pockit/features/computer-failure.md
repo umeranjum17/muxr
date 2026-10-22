@@ -9,6 +9,7 @@ When a computer cannot share its screen, its Computer view explains the failure 
 - The opening error notice uses the same product copy as the overlay.
 - A short 270dp viewport at font scale 1.3 keeps the full message and retry visible.
 - A share the portal granted that never sends a picture (a restored window that has closed) recovers through the portal's picker, or ends in the plain no-picture reason; Try again opens anew, and no grant from a share without a first frame is saved or replayed.
+- A screen-sharing portal running without ScreenCast (`xdg-desktop-portal` started before the session exported `XDG_CURRENT_DESKTOP`, so it never bound the desktop's backend) reads "Screen sharing needs a restart" with `systemctl --user restart xdg-desktop-portal` and Copy, not the generic copy. The host log line `desktop open failed after <n> ms: source (…)` keeps the engine's reason.
 
 ## How to get to it (user POV)
 
@@ -18,7 +19,7 @@ Pair with the lab computer named Umer. Open a shell pane from Home or Panes, the
 
 Preconditions: follow ../SKILL.md isolation. For this native journey use a guarded, non-default Herdr lab instead of the fake host. Start real relay and host directly in lab shell panes, with private MUXR_HOME and HERDR_SOCKET_PATH set to the lab socket. Do not use up/dev/service commands or launch an agent CLI. Use a release APK built from the candidate with the emulator's ABI and a task-owned signer; record its source and hash.
 
-1. On the Linux lab host, `busctl --user introspect org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop` must lack the ScreenCast interface. Do not disable or change the owner's portal to manufacture this failure.
+1. Give the lab host a portal of its own (see "Portal without ScreenCast" below); `busctl --address=<lab bus> introspect org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop` must lack the ScreenCast interface. Do not disable or change the owner's portal to manufacture this failure.
 2. After the relay/host are ready, acquire the assigned emulator lock. Use a task-owned AVD and explicit `adb -s "$SERIAL"` on every call. Deliver a fresh `muxr://pair#<offer>` from the lab's public `node scripts/cli.mjs pair` using `adb shell am start`; compare the words and approve inside the lab terminal.
 3. Drive the real app through Panes -> shell pane -> Pane actions -> Computer. Await the failure message. Confirm plain cause, next step and Try again. Raw portal identifiers must not appear.
 4. Capture and inspect before/after screenshots in both system themes. Computer over a terminal intentionally uses a dark ScopedTheme, so identical colors across themes are expected. Label the system mode, not a fabricated light surface.
@@ -36,6 +37,18 @@ The real portal may not be driven by a lab, so a stdio proxy stands in for it in
 3. Switch the proxy to "every open fails", leave and re-enter Computer: the phone says the computer could not share that window and to pick one again (not the generic "allow screen sharing" copy), and no grant is saved (the dead one was spent on the open).
 4. Try again must send a new `session.open` (proxy log) without the failed share's token. Clear the mode, and Try again shows the picture.
 5. Before/after: on a build without the fix, the dead token is replayed on every Try again and saved again.
+
+## Portal without ScreenCast
+
+The real engine against the real `xdg-desktop-portal`, on a private session bus the lab owns; nothing reaches the owner's bus, portal or compositor.
+
+`computerPortalLab.mjs` drives all of it natively (steps 1–5 on a task-owned emulator, four cells: 390 dp light and dark, 270 dp at font 1.3 dark and light): `flock -o -w 1800 /tmp/fm-muxr-emulator.lock node .agents/skills/done-done-verify-pockit/features/computerPortalLab.mjs --apk <apk> --evidence <dir> --avd-home <dir>`. Pass `--expect "Couldn't open this computer"` for a build without the fix. The PWA runs the same steps by hand with `browserPairLab.mjs` started under the env of step 3.
+
+1. Private bus with no activatable services, so nothing the owner installed starts on it: a `dbus-daemon --config-file=<lab>/bus.conf --fork --print-pid` whose config has `<type>session</type>`, `<listen>unix:path=<lab>/bus</listen>`, one empty `<servicedir>` of the lab's own, and an allow-all default policy. Keep the socket under `~/.cache/fms/<short>/`.
+2. Start the frontend the way the broken desktop had it, without a desktop name: `env -i HOME=<lab> PATH=/usr/bin XDG_RUNTIME_DIR=<lab>/run DBUS_SESSION_BUS_ADDRESS=unix:path=<lab>/bus /usr/lib/xdg-desktop-portal`. Introspection lists no `org.freedesktop.portal.ScreenCast`.
+3. Start the lab stack (browser lab or fakeStack) with that bus and a Wayland name that exists nowhere, so the host picks the portal and the engine never meets the owner's compositor: `env -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u XDG_CURRENT_DESKTOP DBUS_SESSION_BUS_ADDRESS=unix:path=<lab>/bus WAYLAND_DISPLAY=wayland-lab …`.
+4. Computer: within a second, "Screen sharing needs a restart", the body, the `systemctl --user restart xdg-desktop-portal` command with Copy, and Try again. The lab host log reads ``desktop open failed after <n> ms: source (compositor has no ScreenCast portal: A portal frontend implementing `org.freedesktop.portal.ScreenCast` was not found)``. Before the fix: "Couldn't open this computer" with the generic body, and a log line with the code alone.
+5. Restart only the lab frontend (its exact PID) with `XDG_CURRENT_DESKTOP=Hyprland`; Try again now reaches the backend. Without a real backend on the lab bus the open then fails with other words, which is expected.
 
 ## Gotchas
 
