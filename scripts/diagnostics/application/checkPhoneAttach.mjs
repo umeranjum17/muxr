@@ -408,7 +408,8 @@ try {
     // Scroll the agent's history back and forward fast, the way a thumb does.
     // Each direction is timed from the first fling until the phone shows it
     // arrived: Latest offered once back in history, gone once at the newest output.
-    if (/mInputShown=true/.test(sh('dumpsys input_method'))) { sh('input keyevent KEYCODE_BACK'); await sleep(1000); }
+    // The whole input_method dump runs past a megabyte on some phones: only the one flag leaves the device.
+    if (sh('dumpsys input_method | grep -q mInputShown=true && echo shown || echo hidden').trim() === 'shown') { sh('input keyevent KEYCODE_BACK'); await sleep(1000); }
     lab.herdr(['pane', 'send-text', keep.pane_id, 'rows\n']);
     await sleep(5000);
     const [width, height] = /(\d+)x(\d+)/.exec(sh('wm size').split('\n').filter(Boolean).pop()).slice(1).map(Number);
