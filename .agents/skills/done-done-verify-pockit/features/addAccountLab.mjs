@@ -65,6 +65,8 @@ let offering;
 const mintPairing = (path) => new Promise((resolve, reject) => {
     const socket = offering = createConnection(path);
     let pending = '';
+    // A host that never answers fails the run here instead of holding the emulator until the lock times out.
+    setTimeout(() => reject(new Error('the lab host never offered a pairing')), 60_000).unref();
     socket.on('error', reject);
     socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind: 'native', authority: 'control', personal: false } })}\n`));
     socket.on('data', (chunk) => {
