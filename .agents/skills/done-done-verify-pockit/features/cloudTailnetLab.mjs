@@ -17,7 +17,6 @@ const { values: opts } = parseArgs({ options: {
 } });
 if (!opts.apk || !opts.evidence || !opts['avd-home'] || !opts.port) throw new Error('--apk, --evidence, --avd-home and --port are required');
 const PKG = 'com.trymuxr.app';
-const LOGIN = 'https://login.tailscale.com/a/umer-lab';
 const EVIDENCE = resolve(opts.evidence);
 mkdirSync(EVIDENCE, { recursive: true });
 const exec = promisify(execFile);
@@ -115,10 +114,11 @@ try {
     }
     if (!opened) throw new Error('the browser never opened on its own after Create cloud computer');
     say(`browser opened by itself ${Math.round((Date.now() - created) / 1000)} s after Create: ${opened}`);
-    await sleep(3000);
-    const intent = (await sh('dumpsys activity activities')).split('\n').find((line) => line.includes('login.tailscale.com')) ?? '';
-    say(`browser task: ${intent.trim()}`);
-    if (!intent.includes(LOGIN)) throw new Error(`the browser did not open ${LOGIN}`);
+    // The Boat tab may still be up (the journey came back with am start, as a person switching apps does): the
+    // sign-in page then loads in that tab, so wait for its address bar to name Tailscale.
+    const page = find(await waitFor('the Tailscale page in the browser', (found) => find(found, (v) => /tailscale\.com/.test(v)) !== undefined, 45), (v) => /tailscale\.com/.test(v));
+    say(`browser address bar: ${page.text || page.desc}`);
+    await sleep(2000);
     await shot('03-tailscale-page-opened-by-itself');
 
     // The person approves on Tailscale's page (the lab joins 20 s after the link) and comes back.
