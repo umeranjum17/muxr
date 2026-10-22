@@ -6,7 +6,7 @@
 # writes each screen's visible MARK range to proof.log. Run from the repo root:
 # bash <this> <apk> <evidence-dir>, with MUXR_LAB_SERIAL and a provisioned Herdr
 # lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION, HERDR_LAB_PREPROVISIONED=1).
-# Needs adb, tesseract and ffmpeg.
+# Needs adb and tesseract.
 set -u
 APK=$1; E=$2; SER=${MUXR_LAB_SERIAL:?}; REPO=$PWD
 D=$(mktemp -d); trap 'rm -rf -- "$D"' EXIT; mkfifo "$D/in"
@@ -49,10 +49,7 @@ a shell 'input motionevent DOWN 300 700; y=700; while [ $y -lt 1100 ]; do y=$((y
 log "finger up"; sleep 2; shot after-drag
 log "fling back"; a shell input swipe 300 600 300 1600 90; log "finger up"; sleep 3; shot after-fling
 R=$(find_node 'Jump to latest'); log "latest pill: ${R:+shown}"; [ -n "$R" ] && a shell input tap $R; sleep 3
-# The newest output looks exactly like the live edge: keep the terminal area only, so the file is its own capture.
-a exec-out screencap -p > "$D/latest.png"
-ffmpeg -v error -y -i "$D/latest.png" -vf 'crop=1080:1650:0:150' "$E/after-latest-terminal.png"
-log "after-latest-terminal $(marks "$E/after-latest-terminal.png" | sed -n '1p;$p' | tr '\n' ' ')"
+shot after-latest
 log "pill after latest: $(find_node 'Jump to latest' | grep -c .)"
 quit; log "lab $(tail -1 "$D/lab.log")"
 cat > "$E/steps.json" <<JSON
