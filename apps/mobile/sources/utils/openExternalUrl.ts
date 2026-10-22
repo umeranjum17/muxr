@@ -7,7 +7,12 @@ import { isTauri } from '@/utils/isTauri';
  * (createTask) still uses Chrome's download manager for APKs; Linking.openURL
  * alone can land in an in-app WebView that hangs on a 170MB download.
  */
-export async function openExternalUrl(url: string): Promise<void> {
+/**
+ * `freshPage` skips Custom Tabs on Android: every tab opens in one browser task, and a second
+ * open while an earlier tab is still up only brings that tab back, so a page that follows
+ * another (one sign-in after another) would never load.
+ */
+export async function openExternalUrl(url: string, o: { freshPage?: boolean } = {}): Promise<void> {
     if (Platform.OS === 'web') {
         if (isTauri()) {
             const { openUrl } = await import('@tauri-apps/plugin-opener');
@@ -18,7 +23,7 @@ export async function openExternalUrl(url: string): Promise<void> {
         return;
     }
 
-    if (/^https?:/i.test(url)) {
+    if (/^https?:/i.test(url) && !o.freshPage) {
         try {
             await WebBrowser.openBrowserAsync(url, { createTask: true, showInRecents: true });
             return;

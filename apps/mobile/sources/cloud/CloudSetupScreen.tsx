@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { claim, errorWords, MachineError, words } from '@byokit/cloud';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -26,6 +26,10 @@ const STEP_WORDS: Record<DeployStep['step'], string> = {
     pairing: words('setup.pairing', { app: 'muxr' }),
 };
 let deployRun: Promise<void> | undefined;
+/** The deploy's latest step outlives the screen, so coming back to it shows where setup is. */
+let deployStep: DeployStep | undefined;
+/** Waits for muxr to come back in front with a sign-in page still to open; a deploy that ends drops it. */
+let signInWait: { remove(): void } | undefined;
 /** Longer than Boat's sign-in code lives, so a person who is still typing it is never cut off; a lost connection still ends. */
 const SIGN_IN_TIMEOUT_MS = 10 * 60_000;
 const SIGN_IN_TIMEOUT = 'Boat did not finish signing in within 10 minutes. Try again.';
@@ -35,6 +39,28 @@ const checkedLabel = (iso: string) => {
     const [year, month, day] = iso.split('-');
     return `${Number(day)} ${MONTHS[Number(month) - 1]} ${year}`;
 };
+
+/**
+ * The phone opens Tailscale's sign-in page itself the moment the kit hands it over, so the person never has to
+ * find a button inside the link's five minutes. Android starts no browser for an app in the background, so then
+ * it opens when muxr is in front again. Every page here opens fresh: the Boat sign-in tab may still be up.
+ */
+function openSignInPage(url: string, onError: (message: string) => void) {
+    signInWait?.remove();
+    signInWait = undefined;
+    const open = () => {
+        if (AppState.currentState !== 'active') return false;
+        void openExternalUrl(url, { freshPage: true }).catch((cause) => onError(cause instanceof Error ? cause.message : String(cause)));
+        return true;
+    };
+    if (open()) return;
+    const wait = AppState.addEventListener('change', () => {
+        if (!open()) return;
+        wait.remove();
+        if (signInWait === wait) signInWait = undefined;
+    });
+    signInWait = wait;
+}
 
 function failureText(cause: unknown): string {
     if (cause instanceof MachineError && cause.code === 'exists') return 'Your first size choice is kept. Try again with that size.';
@@ -66,7 +92,7 @@ export function CloudSetupScreen() {
     const mounted = React.useRef(true);
     const [size, setSize] = React.useState<BoatSize>('small');
     const [sizeLocked, setSizeLocked] = React.useState(false);
-    const [deploy, setDeploy] = React.useState<DeployStep>();
+    const [deploy, setDeploy] = React.useState<DeployStep | undefined>(deployStep);
     const auth = useAuth();
     const router = useRouter();
 
@@ -108,11 +134,20 @@ export function CloudSetupScreen() {
         setError(undefined);
         const run = deployBoatComputer({
             size,
-            onStep: (s) => { if (mounted.current) setDeploy(s); },
+            onStep: (s) => {
+                deployStep = s;
+                if (mounted.current) setDeploy(s);
+                if (s.step === 'sign-in') openSignInPage(s.url, (message) => { if (mounted.current) setError(message); });
+            },
             pair: async (offer, deliverWords) => {
                 if (!(await pairLinkOffer(offer, auth, { confirm: async () => true, onWords: deliverWords }))) throw new Error('Pairing with your cloud computer failed. Try again.');
             },
-        }).finally(() => { deployRun = undefined; });
+        }).finally(() => {
+            deployRun = undefined;
+            deployStep = undefined;
+            signInWait?.remove();
+            signInWait = undefined;
+        });
         deployRun = run;
         void settle(run);
     }, [size, auth, settle]);
@@ -202,7 +237,7 @@ export function CloudSetupScreen() {
                                 {active && deploy && (
                                     <View style={styles.form}>
                                         <View style={styles.waiting}>{busy && <ActivityIndicator />}<Text style={[styles.detail, styles.stepContent]}>{STEP_WORDS[deploy.step]}</Text></View>
-                                        {deploy.step === 'sign-in' && <ActionButton title="Sign in to Tailscale" icon="link-outline" onPress={() => { void openExternalUrl(deploy.url).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />}
+                                        {deploy.step === 'sign-in' && <ActionButton title="Sign in to Tailscale" icon="link-outline" onPress={() => { void openExternalUrl(deploy.url, { freshPage: true }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />}
                                         {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
                                         {!busy && error && <ActionButton title="Try again" variant="secondary" onPress={() => { void create(); }} />}
                                     </View>
@@ -224,13 +259,13 @@ export function CloudSetupScreen() {
                                         {!url ? (
                                             <ActionButton title="Connect Boat account" icon="link-outline" disabled={busy} onPress={() => { void connect(); }} wrap />
                                         ) : (
-                                            <ActionButton title="Sign in to Boat" icon="link-outline" onPress={() => { void openExternalUrl(url).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />
+                                            <ActionButton title="Sign in to Boat" icon="link-outline" onPress={() => { void openExternalUrl(url, { freshPage: true }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />
                                         )}
                                         {url && code && <Text selectable style={styles.code}>Code · {code}</Text>}
                                         {busy && <View style={styles.waiting}><ActivityIndicator /><Text style={styles.detail}>Waiting for Boat…</Text></View>}
                                         {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
                                         {!busy && error && <ActionButton title="Try again" variant="secondary" onPress={() => { void connect(); }} />}
-                                        <Pressable accessibilityRole="link" onPress={() => { void openExternalUrl('https://boat.dev').catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }}>
+                                        <Pressable accessibilityRole="link" onPress={() => { void openExternalUrl('https://boat.dev', { freshPage: true }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }}>
                                             <Text style={styles.createAccount}>No Boat account? Create one</Text>
                                         </Pressable>
                                     </View>

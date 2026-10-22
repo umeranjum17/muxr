@@ -112,6 +112,15 @@ journeys:
   plan-move:
     command: node .agents/skills/done-done-verify-pockit/features/planMoveLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$(mktemp -d "$HOME/.cache/fms/mxmv.XXXX")" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # A new Boat cloud computer's Tailscale sign-in page opens by itself: the
+  # release app on an owned emulator, the Boat lab with its Tailscale stand-in,
+  # Create cloud computer and no other tap in muxr (cloud-computer-onboarding,
+  # tailnet-sign-in). Runs by hand under the emulator lock; MUXR_LAB_APK is a
+  # release build of this commit with EXPO_PUBLIC_MUXR_BOAT_API pointing at
+  # 127.0.0.1:$BOAT_LAB_PORT, MUXR_LAB_AVD_HOME a task-owned emulator home.
+  cloud-tailnet:
+    command: node .agents/skills/done-done-verify-pockit/features/cloudTailnetLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # A Claude account is added from the phone end to end: Accounts, Open Claude
   # sign-in, the code sent from the sign-in tab's composer, Name this account
   # (see the add-account feature). Runs by hand under the emulator lock with
