@@ -993,8 +993,25 @@ export interface ChatMessage {
 /** One tool call: what it did ("Read a file") and on what (a path, a command). */
 export interface ChatTool {
     verb: string;
+    /** A file relative to the agent's folder, a command, a pattern or a URL. */
     detail?: string;
+    /** What kind of step it was; absent from an older host. */
+    kind?: ChatToolKind;
+    /** What the result came to in words: "3 matches", "64 lines", "2 of 3 done". */
+    note?: string;
+    /** An edit's changed lines, each led by `+`, `-` or a space; capped, see `added`/`removed` for the whole. */
+    diff?: string[];
+    added?: number;
+    removed?: number;
+    /** The result: a command's last lines, anything else's first. */
+    output?: string[];
+    /** Absent while the call runs, or when the log never answered it. */
+    outcome?: 'ok' | 'failed';
+    /** A command's exit code, when the harness said. */
+    exit?: number;
 }
+
+export type ChatToolKind = 'edit' | 'write' | 'read' | 'list' | 'search' | 'run' | 'fetch' | 'web' | 'helper' | 'plan' | 'ask' | 'tool';
 
 export type ChatRead =
     | { state: 'ok'; revision: string; messages: ChatMessage[]; truncated: boolean }

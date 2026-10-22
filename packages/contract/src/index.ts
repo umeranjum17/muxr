@@ -87,6 +87,7 @@ export type {
     ChangesBadge,
     ChatMessage,
     ChatTool,
+    ChatToolKind,
     ChatRead,
     ChangesBrowse,
     ChangesFile,

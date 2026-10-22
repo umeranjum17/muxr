@@ -89,7 +89,7 @@ export class ChatTranscripts {
             const lines = bytes.toString('utf8').split('\n');
             // A tail begins mid-line: its first line is a fragment.
             if (start > 0) lines.shift();
-            const all = chatMessagesFrom(harness, lines);
+            const all = chatMessagesFrom(harness, lines, conversation.cwd);
             return { state: 'ok', revision: next, messages: all.slice(-CHAT_MESSAGES_MAX), truncated: start > 0 || all.length > CHAT_MESSAGES_MAX };
         } finally {
             await handle.close();
