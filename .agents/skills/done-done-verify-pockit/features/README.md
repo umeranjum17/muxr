@@ -92,7 +92,7 @@ rules, with no H2 sections.
 - [A stable release passes the real-app journey on its exact build](./release-journey.md) —
   release APK on an owned emulator, host from the release tarball, real Herdr
   lab: pair, attach, send, fast scroll, Usage and back, one host; attach and
-  scroll times against budgets; `promoteLatest.mjs` refuses any other build.
+  scroll times against budgets; `acceptStable.mjs` keeps any other build off npm `latest`.
 - [Release host bookkeeping when panes close](./closed-pane-bookkeeping.md) —
   real named Herdr lab, host and paired link: 30 retired pane generations leave
   timestamp and event-sequence owner counts at their live baseline.
@@ -169,7 +169,7 @@ rules, with no H2 sections.
 - [Read a Claude or Pi agent as a chat, and switch it with the terminal](./chat-view.md) —
   real Claude and Pi panes in a Herdr lab session, paired PWA at 390 px: bubbles, the running
   line with Stop, the needs-you card into the terminal, and the Settings default; or, without
-  Herdr, `chatFakeLab.mjs` (fake stack, seeded Claude log) for the look and the tool chips on
+  Herdr, `chatFakeLab.mjs` (fake stack, seeded Claude log) for the look and the tool steps on
   the PWA and a lab-id APK on an emulator.
 - [Show one needs-you count on the app, the favicon and the PWA icon](./needs-you-count.md) —
   private fake stack with a lab-only `lab.set_agent_status`: blocked, failed and

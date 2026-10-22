@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { verifyRelease } from './verifyRelease.mjs';
-import { compareVersions, publishTags, releaseVersion } from '../domain/channel.mjs';
+import { channelTags, compareVersions, releaseVersion } from '../domain/channel.mjs';
 import { desktopHostOfTarball, requireDesktopEngine } from './requireDesktopEngine.mjs';
 import { requireLinkProtocol } from './requireLinkProtocol.mjs';
 
@@ -48,7 +48,10 @@ const tagAtLeast = (version, distTag) => settle(['view', '@trymuxr/cli', `dist-t
 /** A version already on npm was published by an earlier run: confirm it, never rebuild or republish it. */
 export async function confirmPublished(version) {
     await integrityOf(version);
-    await tagAtLeast(version, publishTags[releaseVersion(version).channel]);
+    // Stable versions published before stable went straight to `latest` sit
+    // under `next`, and no tag can move them now: only their bytes are confirmed.
+    const { channel } = releaseVersion(version);
+    if (channel !== 'stable') await tagAtLeast(version, channelTags[channel]);
 }
 
 export async function publishNpm() {
@@ -65,13 +68,15 @@ export async function publishNpm() {
     requireDesktopEngine(desktopHostOfTarball(path));
     const existing = npm(['view', spec(RELEASE_VERSION), 'dist.integrity', '--json'], true);
     if (existing !== undefined && JSON.parse(existing) !== integrity) throw new Error('An existing npm version has different bytes');
-    const publishTag = publishTags[manifest.release.channel];
+    const publishTag = channelTags[manifest.release.channel];
     const tags = JSON.parse(npm(['view', '@trymuxr/cli', 'dist-tags', '--json']));
     const current = tags[publishTag];
     if (current && compareVersions(current, RELEASE_VERSION) === undefined) throw new Error('Invalid registry channel version');
     if (current && compareVersions(current, RELEASE_VERSION) > 0) throw new Error('Refusing to move the channel backwards');
+    // Trusted publishing can publish a version but not move a tag: the tag is
+    // set by this publication or not at all.
     if (existing === undefined) npm(['publish', path, '--tag', publishTag, '--access', 'public', '--provenance']);
-    else if (current !== RELEASE_VERSION) npm(['dist-tag', 'add', spec(RELEASE_VERSION), publishTag]);
+    else if (current !== RELEASE_VERSION) throw new Error(`${spec(RELEASE_VERSION)} is already on npm without the ${publishTag} tag, and trusted publishing cannot move a tag; publish a new version`);
     // Different bytes under the same version is never a propagation delay.
     if (await integrityOf(RELEASE_VERSION) !== integrity) throw new Error('Published npm integrity mismatch');
     await tagAtLeast(RELEASE_VERSION, publishTag);
