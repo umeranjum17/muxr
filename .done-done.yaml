@@ -37,6 +37,16 @@ journeys:
   pane-account-chip:
     command: node .agents/skills/done-done-verify-pockit/features/paneAccountChipLab.mjs "$PHONE_APK" "$DONE_DONE_EVIDENCE_ROOT" "$PHONE_ATTACH_ROOT"
     timeout: 30m
+  # The npm latest gate on a real stable release: release.yml's own gate step
+  # command, the release's sealed manifest and npm tarball from GitHub, and a
+  # scratch clone carrying a stand-in journey receipt for that exact build. A
+  # push, an unchecked or mismatched captain_tested input, or a missing receipt
+  # leaves the publish step skipped; only the hand run naming the tested
+  # version with the receipt reaches `npm publish --tag latest`. Publishes
+  # nothing. Needs gh read access to the public releases.
+  release-latest-gate:
+    command: node .agents/skills/done-done-verify-pockit/features/releaseLatestGateLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 10m
   # The app upgrade on the real phone: the previous release installed and
   # paired, Theme and Text size set, the candidate installed over it with
   # `install -r`, the settings read back, an agent's terminal opened, then a
