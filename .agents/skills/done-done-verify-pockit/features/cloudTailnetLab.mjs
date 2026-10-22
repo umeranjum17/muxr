@@ -114,8 +114,8 @@ try {
     }
     if (!opened) throw new Error('the browser never opened on its own after Create cloud computer');
     say(`browser opened by itself ${Math.round((Date.now() - created) / 1000)} s after Create: ${opened}`);
-    // The Boat tab may still be up (the journey came back with am start, as a person switching apps does): the
-    // sign-in page then loads in that tab, so wait for its address bar to name Tailscale.
+    // The Boat tab is still up (the journey came back with am start, as a person switching apps does), so this
+    // fails if muxr only brought that tab back: the address bar must name Tailscale.
     const page = find(await waitFor('the Tailscale page in the browser', (found) => find(found, (v) => /tailscale\.com/.test(v)) !== undefined, 45), (v) => /tailscale\.com/.test(v));
     say(`browser address bar: ${page.text || page.desc}`);
     await sleep(2000);

@@ -43,14 +43,14 @@ const checkedLabel = (iso: string) => {
 /**
  * The phone opens Tailscale's sign-in page itself the moment the kit hands it over, so the person never has to
  * find a button inside the link's five minutes. Android starts no browser for an app in the background, so then
- * it opens when muxr is in front again.
+ * it opens when muxr is in front again. Every page here opens fresh: the Boat sign-in tab may still be up.
  */
 function openSignInPage(url: string, onError: (message: string) => void) {
     signInWait?.remove();
     signInWait = undefined;
     const open = () => {
         if (AppState.currentState !== 'active') return false;
-        void openExternalUrl(url).catch((cause) => onError(cause instanceof Error ? cause.message : String(cause)));
+        void openExternalUrl(url, { freshPage: true }).catch((cause) => onError(cause instanceof Error ? cause.message : String(cause)));
         return true;
     };
     if (open()) return;
@@ -237,7 +237,7 @@ export function CloudSetupScreen() {
                                 {active && deploy && (
                                     <View style={styles.form}>
                                         <View style={styles.waiting}>{busy && <ActivityIndicator />}<Text style={[styles.detail, styles.stepContent]}>{STEP_WORDS[deploy.step]}</Text></View>
-                                        {deploy.step === 'sign-in' && <ActionButton title="Sign in to Tailscale" icon="link-outline" onPress={() => { void openExternalUrl(deploy.url).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />}
+                                        {deploy.step === 'sign-in' && <ActionButton title="Sign in to Tailscale" icon="link-outline" onPress={() => { void openExternalUrl(deploy.url, { freshPage: true }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />}
                                         {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
                                         {!busy && error && <ActionButton title="Try again" variant="secondary" onPress={() => { void create(); }} />}
                                     </View>
@@ -259,13 +259,13 @@ export function CloudSetupScreen() {
                                         {!url ? (
                                             <ActionButton title="Connect Boat account" icon="link-outline" disabled={busy} onPress={() => { void connect(); }} wrap />
                                         ) : (
-                                            <ActionButton title="Sign in to Boat" icon="link-outline" onPress={() => { void openExternalUrl(url).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />
+                                            <ActionButton title="Sign in to Boat" icon="link-outline" onPress={() => { void openExternalUrl(url, { freshPage: true }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />
                                         )}
                                         {url && code && <Text selectable style={styles.code}>Code · {code}</Text>}
                                         {busy && <View style={styles.waiting}><ActivityIndicator /><Text style={styles.detail}>Waiting for Boat…</Text></View>}
                                         {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
                                         {!busy && error && <ActionButton title="Try again" variant="secondary" onPress={() => { void connect(); }} />}
-                                        <Pressable accessibilityRole="link" onPress={() => { void openExternalUrl('https://boat.dev').catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }}>
+                                        <Pressable accessibilityRole="link" onPress={() => { void openExternalUrl('https://boat.dev', { freshPage: true }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }}>
                                             <Text style={styles.createAccount}>No Boat account? Create one</Text>
                                         </Pressable>
                                     </View>
