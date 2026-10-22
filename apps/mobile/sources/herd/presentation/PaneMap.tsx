@@ -8,7 +8,7 @@
 
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
-import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { HerdrTreePane, HerdrTreeTab } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
@@ -131,9 +131,6 @@ export function PaneMap(props: {
     onClose: (pane: HerdrTreePane) => void;
     /** Long-press; without it a long-press closes. */
     onLongPress?: (pane: HerdrTreePane) => void;
-    /** Inside a dark sheet. The tiles first draw on this map's own measure,
-     *  outside the sheet's render, so the dark scope is repeated here. */
-    dark?: boolean;
 }): React.JSX.Element {
     const [width, setWidth] = React.useState(0);
     const layout = useTabLayout(props.tab);
@@ -142,7 +139,7 @@ export function PaneMap(props: {
     const tiles = map?.tiles ?? panes.map((pane, index) => ({ paneId: pane.paneId, left: 0, top: index * STACKED_TILE, width, height: STACKED_TILE }));
     const height = map?.height ?? panes.length * STACKED_TILE;
     const byId = new Map(panes.map((pane) => [pane.paneId, pane]));
-    const tiled = (
+    return (
         <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{ height: width === 0 ? 0 : height }}>
             {width > 0 && tiles.map((tile) => {
                 const pane = byId.get(tile.paneId)!;
@@ -165,5 +162,4 @@ export function PaneMap(props: {
             })}
         </View>
     );
-    return props.dark === true ? <ScopedTheme name="dark">{tiled}</ScopedTheme> : tiled;
 }

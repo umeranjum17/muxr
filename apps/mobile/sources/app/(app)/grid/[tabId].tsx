@@ -1,6 +1,5 @@
 /**
- * One herdr tab's split as a mini-map, for existing links: the same renderer
- * the session header's pane overview uses, on its own route.
+ * One herdr tab's split as a mini-map, for existing links, on its own route.
  */
 
 import * as React from 'react';

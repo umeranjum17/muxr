@@ -1,19 +1,22 @@
 /**
- * The pane overview: one deliberate sheet over the session, opened from the
- * header's title or its pane counter. It draws the tab as the desk lays it
- * out -- a mini-map of the real split -- with the pane open here outlined. Tap
- * a tile to switch; long-press or its × closes; the split actions act on the
- * outlined pane. The tab row above shows the workspace's other tabs' layouts;
- * Spaces hands over to the whole workspace tree.
- * Refreshes the shared tree on open and after each mutation; no poller.
+ * The pane switcher: one full-height sheet over the session, opened from the
+ * header's title or its pane counter. The workspace's name heads it, with
+ * Spaces and Done beside it; its tabs scroll in their own lane below; the
+ * viewed tab's panes are cards with a live preview of each screen, the pane
+ * open here outlined. Tap a card to switch; long-press renames or closes, its
+ * × closes. The last card adds a pane to the right of or below the outlined
+ * one. Refreshes the shared tree on open and after each mutation; previews
+ * poll on their own.
  */
 
 import * as React from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { HerdrTreePane } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
+import { AgentGlyph } from '@/components/AgentGlyph';
+import { StatusDot } from '@/components/StatusDot';
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
@@ -21,15 +24,92 @@ import { sync } from '@/catalog/sync';
 import { useHerdrTree, useLiveAgentIds } from '@/catalog/store';
 import { useDeviceAuthority } from '@/pairing';
 import { getCachedConnectionSettings } from '@/connection';
-import { agentLabels, herdrTabForSession, tabLabel } from '../domain/agentPresentation';
-import { displayedAgentStatus } from '../domain/recentActivity';
+import { TerminalPreview } from '@/terminal/ui';
+import { HERD_STATUS_LABELS, agentLabels, herdrTabForSession, isShellLabels, tabLabel } from '../domain/agentPresentation';
+import { workspaceName } from '../domain/herdTree';
+import { agentNeedsYou, displayedAgentStatus } from '../domain/recentActivity';
 import { agentStatusColor } from '../application/sessionUtils';
 import { rememberPaneSelection, useNavigateToSession } from '../application/useNavigateToSession';
 import { showPaneActions, showTabActions } from '../application/renameInHerdr';
 import { AgentPickerSheet } from './AgentPickerSheet';
-import { PaneMap } from './PaneMap';
+import { paneTaskLine } from './PaneMap';
 
 const VIEW_ONLY = 'View-only devices cannot create or close panes';
+const SIDE = 16;
+const GAP = 10;
+/** Below this a card is too narrow for two across; one full-width column instead. */
+const TWO_COLUMNS_FROM = 300;
+
+const PaneCard = React.memo(function PaneCard(props: {
+    pane: HerdrTreePane;
+    width: number;
+    previewHeight: number;
+    current: boolean;
+    pending: boolean;
+    pendingRequest: boolean;
+    canClose: boolean;
+    onOpen: (pane: HerdrTreePane) => void;
+    onClose: (pane: HerdrTreePane) => void;
+    onLongPress: (pane: HerdrTreePane) => void;
+}): React.JSX.Element {
+    const { theme } = useUnistyles();
+    const { pane } = props;
+    const labels = agentLabels(pane);
+    const shell = isShellLabels(labels);
+    const displayed = displayedAgentStatus(pane.agentStatus, props.pendingRequest);
+    const tone = agentStatusColor(displayed, theme);
+    const needsYou = agentNeedsYou(pane.agentStatus, props.pendingRequest);
+    const task = paneTaskLine(pane);
+    const state = shell ? 'Shell' : HERD_STATUS_LABELS[displayed];
+    const openable = pane.sessionId !== undefined && !props.pending;
+    const closable = props.canClose && openable;
+    // Open and close are siblings, never one button inside another.
+    return (
+        <View style={{ width: props.width, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.surfaceHigh, borderWidth: props.current ? 2 : needsYou ? 1.5 : StyleSheet.hairlineWidth, borderColor: props.current ? theme.colors.accent : needsYou ? theme.colors.status.error : theme.colors.divider, opacity: props.pending ? 0.5 : 1 }}>
+            <Pressable
+                onPress={() => props.onOpen(pane)}
+                onLongPress={closable ? () => props.onLongPress(pane) : undefined}
+                disabled={!openable}
+                accessibilityRole="button"
+                accessibilityState={{ selected: props.current, disabled: !openable }}
+                accessibilityLabel={[props.current ? 'Current pane' : 'Open pane', labels.title, state, task].filter(Boolean).join(', ')}
+                accessibilityHint={closable ? 'Long-press to rename or close' : undefined}
+                style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+            >
+                <View style={{ height: props.previewHeight, backgroundColor: '#0c0c0b' }}>
+                    {pane.sessionId !== undefined && <TerminalPreview sessionId={pane.sessionId} emptyState />}
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, paddingLeft: 10, paddingRight: closable ? 40 : 10, paddingVertical: 6 }}>
+                    <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
+                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                        <Text numberOfLines={1} style={{ ...Typography.default('semiBold'), fontSize: 13, lineHeight: 16, color: theme.colors.text }}>{labels.title}</Text>
+                        {task !== undefined && (
+                            <Text numberOfLines={1} style={{ ...Typography.default(), fontSize: 11, lineHeight: 14, color: needsYou ? theme.colors.status.error : theme.colors.textSecondary }}>
+                                {needsYou ? `${HERD_STATUS_LABELS[displayed]} · ${task}` : task}
+                            </Text>
+                        )}
+                    </View>
+                </View>
+            </Pressable>
+            {closable && (
+                <Pressable
+                    onPress={() => props.onClose(pane)}
+                    hitSlop={4}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Close ${labels.title}`}
+                    style={({ pressed }) => ({ position: 'absolute', right: 0, bottom: 0, width: 40, height: 48, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.5 : 1 })}
+                >
+                    <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+                </Pressable>
+            )}
+            {!shell && (
+                <View pointerEvents="none" style={{ position: 'absolute', top: 8, right: 8 }}>
+                    <StatusDot color={tone.color} isPulsing={tone.pulsing} size={8} />
+                </View>
+            )}
+        </View>
+    );
+});
 
 function errorMessage(cause: unknown): string {
     return cause instanceof Error ? cause.message : String(cause);
@@ -53,6 +133,9 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
         ?? openable[0];
     const [pending, setPending] = React.useState<ReadonlySet<string>>(() => new Set());
     const [splitDirection, setSplitDirection] = React.useState<'right' | 'down' | null>(null);
+    const [gridWidth, setGridWidth] = React.useState(0);
+    // At a large text size Spaces keeps only its icon, so the workspace name is never cut to an ellipsis.
+    const spacesWord = useWindowDimensions().fontScale < 1.3;
 
     // Fresh tree on open, back on this pane's own tab.
     React.useEffect(() => {
@@ -133,71 +216,115 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
             });
     }, [splitDirection, target, navigate, close, refresh]);
 
-    // "New pane" once, then where: the words stay whole on a narrow phone.
-    const splitButton = (direction: 'right' | 'down', label: string, icon: 'arrow-forward' | 'arrow-down') => {
-        const disabled = !canMutate || target === undefined;
-        return (
-            <Pressable
-                onPress={() => setSplitDirection(direction)}
-                disabled={disabled}
-                accessibilityRole="button"
-                accessibilityLabel={`${direction === 'right' ? 'New pane to the right' : 'New pane below'}${canMutate ? '' : `, unavailable: ${VIEW_ONLY}`}`}
-                accessibilityState={{ disabled }}
-                style={({ pressed }) => ({ flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, borderRadius: 12, backgroundColor: theme.colors.surfaceHigh, opacity: disabled ? 0.45 : pressed ? 0.6 : 1 })}
-            >
-                <Ionicons name={icon} size={15} color={theme.colors.textSecondary} />
-                <Text numberOfLines={1} style={{ ...Typography.default('semiBold'), flexShrink: 1, fontSize: 14, color: theme.colors.text }}>{label}</Text>
-            </Pressable>
-        );
-    };
+    const splitDisabled = !canMutate || target === undefined;
+    const splitButton = (direction: 'right' | 'down', label: string, icon: 'arrow-forward' | 'arrow-down') => (
+        <Pressable
+            onPress={() => setSplitDirection(direction)}
+            disabled={splitDisabled}
+            accessibilityRole="button"
+            accessibilityLabel={`${direction === 'right' ? 'New pane to the right' : 'New pane below'}${canMutate ? '' : `, unavailable: ${VIEW_ONLY}`}`}
+            accessibilityState={{ disabled: splitDisabled }}
+            style={({ pressed }) => ({ minHeight: 44, alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, borderRadius: 10, backgroundColor: theme.colors.surfaceHigh, opacity: splitDisabled ? 0.45 : pressed ? 0.6 : 1 })}
+        >
+            <Ionicons name={icon} size={15} color={theme.colors.textSecondary} />
+            <Text numberOfLines={1} style={{ ...Typography.default('semiBold'), flexShrink: 1, fontSize: 14, color: theme.colors.text }}>{label}</Text>
+        </Pressable>
+    );
 
-    const tabRow = (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 10 }}>
-            {tabs.length > 1 ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" style={{ flex: 1 }} contentContainerStyle={{ gap: 6, alignItems: 'center' }}>
-                    {tabs.map((entry, index) => {
-                        const active = entry.tabId === tab?.tabId;
-                        const here = entry.tabId === located?.tab.tabId;
-                        const status = displayedAgentStatus(entry.agentStatus, entry.panes.some((pane) => pane.sessionId !== undefined && pendingIds.has(pane.sessionId)));
-                        const tone = agentStatusColor(status, theme);
-                        const label = tabLabel(entry, index);
-                        const count = entry.panes.length === 1 ? '1 pane' : `${entry.panes.length} panes`;
-                        return (
-                            <Pressable
-                                key={entry.tabId}
-                                onPress={() => setViewedTabId(entry.tabId)}
-                                onLongPress={canMutate ? () => showTabActions(entry.tabId, label) : undefined}
-                                accessibilityRole="button"
-                                accessibilityState={{ selected: active }}
-                                accessibilityLabel={`${label}, ${count}${here ? ', this tab' : ''}`}
-                                style={({ pressed }) => ({ minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, borderRadius: 18, backgroundColor: active ? theme.colors.surfaceSelected : 'transparent', borderWidth: 1, borderColor: active ? theme.colors.surfaceSelected : theme.colors.divider, opacity: pressed ? 0.6 : 1 })}
-                            >
-                                {(status === 'blocked' || status === 'working') &&<View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: tone.color }} />}
-                                <Text numberOfLines={1} style={{ ...Typography.default(active ? 'semiBold' : 'regular'), maxWidth: 160, fontSize: 13, color: active ? theme.colors.text : theme.colors.textSecondary }}>{label}</Text>
-                                <Text style={{ ...Typography.default(), fontSize: 12, color: theme.colors.textSecondary }}>{entry.panes.length}</Text>
-                            </Pressable>
-                        );
-                    })}
-                </ScrollView>
-            ) : (
-                <Text numberOfLines={1} style={{ ...Typography.default('semiBold'), flex: 1, minWidth: 0, fontSize: 15, color: theme.colors.text }}>
-                    {tab === undefined ? 'Panes' : tabLabel(tab, tabs.indexOf(tab))}
-                </Text>
-            )}
+    const header = (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingLeft: SIDE, paddingRight: SIDE - 8 }}>
+            <Text numberOfLines={1} style={{ ...Typography.default('semiBold'), flex: 1, minWidth: 0, fontSize: 20, color: theme.colors.text }}>
+                {located === undefined ? 'Panes' : workspaceName(located.workspace)}
+            </Text>
             <Pressable
                 onPress={() => { close(); props.onOpenSpaces(); }}
                 accessibilityRole="button"
                 accessibilityLabel="Spaces, every workspace"
-                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 4, opacity: pressed ? 0.6 : 1 })}
+                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, opacity: pressed ? 0.6 : 1 })}
             >
-                <Ionicons name="albums-outline" size={16} color={theme.colors.textLink} />
-                <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Spaces</Text>
+                <Ionicons name="albums-outline" size={spacesWord ? 16 : 20} color={theme.colors.textLink} />
+                {spacesWord && <Text style={{ ...Typography.default('semiBold'), fontSize: 15, color: theme.colors.textLink }}>Spaces</Text>}
             </Pressable>
             <Pressable onPress={close} accessibilityRole="button" accessibilityLabel="Done" style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 8, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
-                <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Done</Text>
+                <Text style={{ ...Typography.default('semiBold'), fontSize: 15, color: theme.colors.textLink }}>Done</Text>
             </Pressable>
         </View>
     );
+
+    // The tabs own a full-width lane: the actions above never share it.
+    const tabLane = (
+        <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="always"
+            style={{ flexGrow: 0 }}
+            contentContainerStyle={{ gap: 8, paddingHorizontal: SIDE, paddingTop: 8, paddingBottom: 12 }}
+        >
+            {tabs.map((entry, index) => {
+                const active = entry.tabId === tab?.tabId;
+                const here = entry.tabId === located?.tab.tabId;
+                const status = displayedAgentStatus(entry.agentStatus, entry.panes.some((pane) => pane.sessionId !== undefined && pendingIds.has(pane.sessionId)));
+                const tone = agentStatusColor(status, theme);
+                const label = tabLabel(entry, index);
+                const count = entry.panes.length === 1 ? '1 pane' : `${entry.panes.length} panes`;
+                return (
+                    <Pressable
+                        key={entry.tabId}
+                        onPress={() => setViewedTabId(entry.tabId)}
+                        onLongPress={canMutate ? () => showTabActions(entry.tabId, label) : undefined}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        accessibilityLabel={`${label}, ${count}${here ? ', this tab' : ''}`}
+                        style={({ pressed }) => ({ minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, borderRadius: 18, backgroundColor: active ? theme.colors.surfaceSelected : theme.colors.surfaceHigh, opacity: pressed ? 0.6 : 1 })}
+                    >
+                        {(status === 'blocked' || status === 'working') && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: tone.color }} />}
+                        <Text numberOfLines={1} style={{ ...Typography.default(active ? 'semiBold' : 'regular'), maxWidth: 160, fontSize: 14, color: active ? theme.colors.text : theme.colors.textSecondary }}>{label}</Text>
+                        <Text style={{ ...Typography.default(), fontSize: 12, color: theme.colors.textSecondary }}>{entry.panes.length}</Text>
+                    </Pressable>
+                );
+            })}
+        </ScrollView>
+    );
+
+    // Two cards across a phone, one on the narrowest; the preview is a little
+    // taller than wide, like the phone's own terminal.
+    const columns = gridWidth >= TWO_COLUMNS_FROM ? 2 : 1;
+    const cardWidth = Math.floor((gridWidth - GAP * (columns - 1)) / columns);
+    const previewHeight = columns === 2 ? Math.round(cardWidth * 1.1) : 140;
+    const panes = tab?.panes ?? [];
+    const grid = panes.length === 0
+        ? <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center', paddingVertical: 32 }}>{loaded ? 'No panes in this tab' : 'Loading panes…'}</Text>
+        : (
+            <View onLayout={(event) => setGridWidth(event.nativeEvent.layout.width)} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: GAP }}>
+                {gridWidth > 0 && panes.map((pane) => (
+                    <PaneCard
+                        key={pane.paneId}
+                        pane={pane}
+                        width={cardWidth}
+                        previewHeight={previewHeight}
+                        current={pane.paneId === target?.paneId}
+                        pending={pending.has(pane.paneId)}
+                        pendingRequest={pane.sessionId !== undefined && pendingIds.has(pane.sessionId)}
+                        canClose={canMutate}
+                        onOpen={openPane}
+                        onClose={closePane}
+                        onLongPress={paneActions}
+                    />
+                ))}
+                {gridWidth > 0 && (
+                    // The add card sits among the panes it adds to, sized like them.
+                    <View style={{ width: cardWidth, minHeight: columns === 2 ? previewHeight + 48 : undefined, borderRadius: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.colors.divider, padding: 10, gap: 8, justifyContent: 'center' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 2 }}>
+                            <Ionicons name="add" size={18} color={theme.colors.textSecondary} />
+                            <Text numberOfLines={1} style={{ ...Typography.default('semiBold'), flexShrink: 1, fontSize: 14, color: theme.colors.text }}>New pane</Text>
+                        </View>
+                        {splitButton('right', 'Right', 'arrow-forward')}
+                        {splitButton('down', 'Below', 'arrow-down')}
+                        {!canMutate && <Text style={{ ...Typography.default(), fontSize: 11, color: theme.colors.textSecondary }}>{VIEW_ONLY}</Text>}
+                    </View>
+                )}
+            </View>
+        );
 
     // A sheet over the session paints from the dark surface whatever the app
     // is set to; the scope sits here, in this sheet's own render, so what it
@@ -223,30 +350,14 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
             onSelect={() => undefined}
             onClose={close}
             maxWidth={640}
+            fill
             body={(
-                <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                    {tabRow}
-                    {tab === undefined || tab.panes.length === 0
-                        ? <Text style={{ ...Typography.default(), color: theme.colors.textSecondary, textAlign: 'center', paddingVertical: 32 }}>{loaded ? 'No panes in this tab' : 'Loading panes…'}</Text>
-                        : (
-                            <PaneMap
-                                tab={tab}
-                                currentPaneId={target?.paneId}
-                                pendingPaneIds={pending}
-                                pendingRequestIds={pendingIds}
-                                canClose={canMutate}
-                                onOpen={openPane}
-                                onClose={closePane}
-                                onLongPress={paneActions}
-                                dark
-                            />
-                        )}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 12 }}>
-                        <Text numberOfLines={1} style={{ ...Typography.default(), fontSize: 13, color: theme.colors.textSecondary }}>New pane</Text>
-                        {splitButton('right', 'Right', 'arrow-forward')}
-                        {splitButton('down', 'Below', 'arrow-down')}
-                    </View>
-                    {!canMutate && <Text style={{ ...Typography.default(), fontSize: 11, color: theme.colors.textSecondary, paddingTop: 6 }}>{VIEW_ONLY}</Text>}
+                <View style={{ flex: 1 }}>
+                    {header}
+                    {tabLane}
+                    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SIDE, paddingBottom: 16 }}>
+                        {grid}
+                    </ScrollView>
                 </View>
             )}
         />

@@ -205,6 +205,10 @@ rules, with no H2 sections.
   the Computers sheet lists the cloud row and each paired computer with its
   Online/Asleep/Offline state and the one in use; tapping another online computer
   switches it after a confirmation and the next prompt runs there, dark and light at 393/270 px.
+- [Switch panes from the pane switcher](./pane-switcher.md) — release APK over
+  the fake stack, three tabs: the full-height sheet with the workspace name,
+  Spaces and Done on their own row, the tabs in their own lane, a card with a
+  live preview per pane and the New pane card, at 390 dp light and dark and 270 dp.
 - [Continue an agent on another computer](./continue-on-computer.md) —
   source-written note, read-only preview, same-kind start and prompt on a paired
   target, home-relative folder mapping, source retired only after a strict idle/done read (busy-again, declined confirm or close error keep both), native and installed-PWA proof.
