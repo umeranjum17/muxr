@@ -172,19 +172,28 @@ try {
     };
     const shot = (name) => { writeFileSync(join(evidence, `${name}.png`), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'])); log(`captured ${name}`); };
 
+    // A loaded emulator can boot with Android's own services still coming up, or restart them
+    // later; every step below needs the package and window services, so wait for both.
+    const systemReady = async () => {
+        for (const deadline = Date.now() + 300_000; ; await sleep(5000)) {
+            let up = false;
+            try { up = /package:/.test(adb('shell', 'pm', 'path', 'android')) && /found/.test(sh('service check window')) && !/not found/.test(sh('service check window')); } catch { /* still booting */ }
+            if (up) return;
+            if (Date.now() > deadline) throw new Error("the emulator's package and window services never came up");
+        }
+    };
     // Under load the package service answers well after boot completes, and a release APK
     // outlasts the usual adb bound.
     for (let attempt = 1; ; attempt++) {
         try {
-            for (const deadline = Date.now() + 300_000; !/package:/.test(adb('shell', 'pm', 'path', 'android')); await sleep(5000)) {
-                if (Date.now() > deadline) throw new Error('package service never answered');
-            }
-            execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 180_000 });
+            await systemReady();
+            execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 300_000 });
             break;
         }
         catch (error) { if (attempt === 4) throw error; log(`install retry ${attempt}`); await sleep(30_000); }
     }
     log('installed');
+    await systemReady();
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     sh(`pm clear ${PKG}`);
     adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
