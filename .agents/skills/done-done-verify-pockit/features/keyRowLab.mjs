@@ -207,6 +207,11 @@ try {
         await toHome();
     }
     writeFileSync(join(EVIDENCE, 'metrics.json'), `${JSON.stringify(metrics, null, 2)}\n`);
+    // The measurements alone, for a reader that should not wade through the leads.
+    writeFileSync(join(EVIDENCE, 'targets.log'), `${[
+        ...Object.entries(metrics).map(([cell, m]) => `${cell}: keys ${m.keys.map((k) => `${k.label} ${k.width}x${k.height}dp`).join(', ')}; key gaps ${[...new Set(m.keyGaps)].join('/')}dp; quick-actions button ${m.control === null ? 'missing' : `${m.control.width}x${m.control.height}dp`}; ${m.controlClearance === null ? 'no tab beside it' : `${m.controlClearance}dp clear of ${m.nearestTab.label}`}`),
+        `target ${TARGET_DP}dp, clearance ${CLEAR_DP}dp: ${defects.length === 0 ? 'every key and the quick-actions button meet both' : `${defects.length} misses:\n${defects.join('\n')}`}`,
+    ].join('\n')}\n`);
     say(`visual check leads: ${leads.length === 0 ? 'none' : `\n${leads.join('\n')}`}`);
     say(`defects: ${defects.length === 0 ? 'none' : `\n${defects.join('\n')}`}`);
     writeFileSync(join(EVIDENCE, 'steps.json'), `${JSON.stringify({

@@ -50,7 +50,7 @@ The lab pairs to the fake stack (three tabs) and, per cell (`390-1.0-light`,
 `390-1.0-dark`, `270-1.0-light`, `270-1.0-dark`, `270-2.0-dark`), opens an
 agent, captures `terminal-<cell>.png` with its `visualCheck.mjs` dump, and
 measures every whole key, the control and the nearest tab-row element in dp
-into `metrics.json`. At 390 dp dark it also locks Control
+into `metrics.json` and, as plain lines, `targets.log`. At 390 dp dark it also locks Control
 (`terminal-ctrl-locked-…`) and opens the ring (`terminal-ring-…`). A key or the
 control under 48 dp, overlapping keys, or less than 8 dp between the control
 and the tabs is a DEFECT in `journey.log` and fails the run; on main those
