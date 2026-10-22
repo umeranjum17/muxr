@@ -220,7 +220,9 @@ try {
 
     recorder = spawn('adb', ['-s', serial, 'shell', 'screenrecord', '--time-limit', '170', '/sdcard/move.mp4'], { stdio: 'ignore' });
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr:///session/${encodeURIComponent(sessionId)}' -n ${activity}`);
-    await waitFor(/umer\.a@example\.com/, 60);
+    // The terminal draws natively, so its text never reaches the UI dump: the header's account
+    // chip shows the phone's side, and the pane's own screen is read through Herdr below.
+    await waitFor(/text="Account A"/, 60);
     await sleep(1500);
     shot('1-on-account-a');
     let current = sessionId;
@@ -233,7 +235,7 @@ try {
         await tapText(new RegExp(`^Move to ${to}$`));
         await waitFor(new RegExp(`Moved to ${to}`), 120);
         shot(`${step}b-moved-notice-${letter}`);
-        await waitFor(new RegExp(`umer\\.${letter}@example\\.com`), 60);
+        await waitFor(new RegExp(`text="${to}"`), 60);
         await sleep(1500);
         shot(`${step}c-on-account-${letter}`);
         const agent = await ask('plans.agent', { sessionId: current });
