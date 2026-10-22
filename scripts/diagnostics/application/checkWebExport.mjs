@@ -196,10 +196,10 @@ if (!existsSync(distIndex)) {
     // only a sliver of shared shell code.
     const commonRef = refs.find((ref) => ref.includes('__common'));
     const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
-    // Ratchet, not target: this head's export measured here is 3,591 B (the
+    // Ratchet, not target: this head's export measured here is 3,657 B (the
     // desktop copy shared by the Computer view and the preview chip, which
-    // gained the portal-busy wording), pinned at that figure x1.005 (3,609 B).
-    check('dist __common chunk ratchet', commonGzip <= 3609, `${commonGzip} bytes`);
+    // gained the portal-without-desktop wording), pinned at that figure x1.005 (3,675 B).
+    check('dist __common chunk ratchet', commonGzip <= 3675, `${commonGzip} bytes`);
     const refTexts = refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
