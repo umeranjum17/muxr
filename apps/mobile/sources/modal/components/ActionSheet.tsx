@@ -65,6 +65,7 @@ export function ActionSheet({ config, onClose, onConfirm }: ActionSheetProps) {
             options={[]}
             onSelect={() => undefined}
             onClose={dismiss}
+            avoidKeyboard={false}
             body={
                 <View style={styles.body}>
                     {!!config.message && <Text style={styles.message}>{config.message}</Text>}
