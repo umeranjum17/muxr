@@ -5,9 +5,13 @@ name: release
 # @trymuxr/cli, checks the installed package and seals it. Only the publish job
 # holds id-token: write, and it installs no project dependencies: it publishes
 # the sealed tarball through npm trusted publishing (OIDC). No npm token exists
-# anywhere. The publish step fails until npm links this repository and this
-# workflow as the package's trusted publisher; that is expected for the first
-# release. When the version is already on npm, the build job only confirms it.
+# anywhere. Trusted publishing cannot move a dist-tag, so a stable version is
+# published straight under `latest`, and only once its release journey passed
+# on the exact tarball this run sealed and the captain, after his own phone
+# test, started the run by hand with captain_tested and that version. A push
+# never publishes a stable version; it builds, seals and reports the gate. Run
+# it from main, or from the release tag (v<version>) once main has moved on.
+# When the version is already on npm, the build job only confirms it.
 #
 # Gaps, not published by this workflow:
 # - @desklink/host and its platform packages: published from the desklink repository.
@@ -16,6 +20,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      captain_tested:
+        description: The captain's own phone test passed on this stable build; publish it as npm latest
+        type: boolean
+        default: false
+      version:
+        description: The stable version the captain tested, such as 0.2.11
+        type: string
+        default: ''
 
 concurrency:
   # Two publications never race for one version.
@@ -87,7 +100,8 @@ jobs:
 
   publish:
     needs: build
-    if: github.ref == 'refs/heads/main'
+    # A release tag is a manual run's source once main has moved past it.
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -118,32 +132,38 @@ jobs:
         with:
           name: npm-release
           path: ${{ runner.temp }}/package
-      - name: Publish with provenance
-        if: needs.build.outputs.needed == 'true'
-        run: node scripts/release/presentation/publishNpm.mjs
-      # CI publishes stable under `next`. `latest` moves only through
-      # scripts/release/presentation/promoteLatest.mjs, once the release journey
-      # passed on the exact build; re-run this job after that to promote the
-      # release and point the catalog (a version already on npm skips the
-      # download and the publish, not these).
-      - id: live
-        name: Check whether npm latest serves this version
-        run: |
-          if [ "$RELEASE_CHANNEL" != stable ] || [ "$(npm view @trymuxr/cli dist-tags.latest)" = "$RELEASE_VERSION" ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "$RELEASE_VERSION is on npm as next. The release and catalog stay unchanged until its release journey passes on the exact build and npm latest moves through it: node scripts/release/presentation/promoteLatest.mjs --version $RELEASE_VERSION, then re-run this job." >> "$GITHUB_STEP_SUMMARY"
-          fi
       - id: github-release
         name: Check for the candidate's GitHub release
-        if: steps.live.outputs.ready == 'true'
         run: |
           if gh release view "$GITHUB_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "The public channel catalog and GitHub release were not updated: no $GITHUB_RELEASE_TAG GitHub release exists, and only the candidate flow creates one." >> "$GITHUB_STEP_SUMMARY"
+            echo "No $GITHUB_RELEASE_TAG GitHub release exists, and only the candidate flow creates one: a stable version is not published without it, and the public channel catalog and GitHub release were not updated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      # No model and no key: git objects, the release manifest and the sealed
+      # tarball. It never publishes, so it also answers a dry run.
+      - id: accepted
+        name: Require the release journey on this exact build before npm latest
+        if: needs.build.outputs.needed == 'true' && needs.build.outputs.channel == 'stable' && steps.github-release.outputs.exists == 'true'
+        env:
+          CAPTAIN_TESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.captain_tested && inputs.version || '' }}
+        run: node scripts/release/presentation/acceptStable.mjs --version "$RELEASE_VERSION" --package "$RUNNER_TEMP"/package/*.tgz --captain-tested "$CAPTAIN_TESTED"
+      - name: Publish with provenance
+        if: needs.build.outputs.needed == 'true' && (needs.build.outputs.channel != 'stable' || steps.accepted.outputs.accepted == 'true')
+        run: node scripts/release/presentation/publishNpm.mjs
+      - id: live
+        name: Check whether npm latest serves this version
+        env:
+          NEEDED: ${{ needs.build.outputs.needed }}
+        run: |
+          if [ "$RELEASE_CHANNEL" != stable ] || [ "$(npm view @trymuxr/cli dist-tags.latest)" = "$RELEASE_VERSION" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            if [ "$NEEDED" != true ]; then
+              echo "$RELEASE_VERSION was published under next before stable went straight to latest, and trusted publishing cannot move a tag: the next stable version becomes latest once its release journey passes." >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
       # No model and no key: git objects and the release manifest only. A
       # stable release reaches GitHub Latest and the public channel only when a
