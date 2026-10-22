@@ -29,11 +29,23 @@ describe('the chat read of an agent conversation', () => {
             line({ type: 'user', uuid: 'u5', timestamp: at(1), origin: { kind: 'task-notification' }, message: { role: 'user', content: '<task-notification>done</task-notification>' } }),
             // One reply written once per content block, with a tool call in the middle.
             line({ type: 'assistant', uuid: 'a1', timestamp: at(2), message: { id: 'msg_1', role: 'assistant', content: [{ type: 'thinking', thinking: 'hmm' }, { type: 'text', text: 'Reading the cart code.' }] } }),
-            line({ type: 'assistant', uuid: 'a2', timestamp: at(2), message: { id: 'msg_1', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: 'src/cart.ts' } }] } }),
-            line({ type: 'user', uuid: 'u4', timestamp: at(3), message: { role: 'user', content: [{ type: 'tool_result', content: 'file text' }] } }),
+            line({ type: 'assistant', uuid: 'a2', timestamp: at(2), message: { id: 'msg_1', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: `${cwd}/src/cart.ts` } }] } }),
+            line({ type: 'user', uuid: 'u4', timestamp: at(3), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '     1→export const FREE_FROM = 50;\n     2→export const FLAT = 5;' }] } }),
             line({ type: 'assistant', uuid: 'a3', timestamp: at(4), isSidechain: true, message: { id: 'msg_s', role: 'assistant', content: [{ type: 'text', text: 'a subagent talking to itself' }] } }),
             // A reply that only ran tools still shows, as its chips; an MCP tool reads by its own name.
-            line({ type: 'assistant', uuid: 'a5', timestamp: at(4), message: { id: 'msg_t', role: 'assistant', content: [{ type: 'tool_use', name: 'Bash', input: { command: 'yarn test cart', description: 'Run the cart tests' } }, { type: 'tool_use', name: 'mcp__shop__list_orders', input: {} }] } }),
+            // Its edit carries the changed lines from its own arguments; the command its result's tail and exit code.
+            line({ type: 'assistant', uuid: 'a5', timestamp: at(4), message: { id: 'msg_t', role: 'assistant', content: [
+                { type: 'tool_use', id: 'toolu_2', name: 'Edit', input: { file_path: `${cwd}/src/cart.ts`, old_string: 'export function ship(t) {\n  if (t > FREE_FROM) return 0;\n  return FLAT;', new_string: 'export function ship(t) {\n  if (t >= FREE_FROM) return 0;\n  return FLAT;' } },
+                { type: 'tool_use', id: 'toolu_3', name: 'Bash', input: { command: 'yarn test cart', description: 'Run the cart tests' } },
+                { type: 'tool_use', name: 'mcp__shop__list_orders', input: {} },
+            ] } }),
+            // Claude Code's own patch beside an edit's result gives its real line numbers.
+            line({ type: 'user', uuid: 'u7', timestamp: at(4), toolUseResult: { structuredPatch: [{ oldStart: 11, oldLines: 3, newStart: 11, newLines: 3, lines: [' export function ship(t) {', '-  if (t > FREE_FROM) return 0;', '+  if (t >= FREE_FROM) return 0;', '   return FLAT;'] }] }, message: { role: 'user', content: [
+                { type: 'tool_result', tool_use_id: 'toolu_2', content: 'The file has been updated.' },
+            ] } }),
+            line({ type: 'user', uuid: 'u8', timestamp: at(4), message: { role: 'user', content: [
+                { type: 'tool_result', tool_use_id: 'toolu_3', is_error: true, content: 'Exit code 1\nFAIL cart.test.ts\n  ✕ $50 ships free' },
+            ] } }),
             line({ type: 'assistant', uuid: 'a4', timestamp: at(5), message: { id: 'msg_2', role: 'assistant', content: [{ type: 'text', text: 'Done. **4 tests** pass.' }] } }),
         ].join(''));
         writeFileSync(join(pi, '--home-you-little-shop--', 'run', '2026-10-21T10-00-00Z_pi-77.jsonl'), [
@@ -41,6 +53,7 @@ describe('the chat read of an agent conversation', () => {
             line({ type: 'message', id: 'p1', timestamp: at(1), message: { role: 'user', timestamp: Date.parse(at(1)), content: [{ type: 'text', text: 'Check the empty cart.' }] } }),
             line({ type: 'message', id: 'p2', timestamp: at(2), message: { role: 'toolResult', content: [{ type: 'text', text: 'ls output' }] } }),
             line({ type: 'message', id: 'p3', timestamp: at(3), message: { role: 'assistant', timestamp: Date.parse(at(3)), content: [{ type: 'text', text: 'An empty cart ships free.' }, { type: 'toolCall', id: 'call_9', name: 'read', arguments: { path: 'cart.ts' } }] } }),
+            line({ type: 'message', id: 'p4', timestamp: at(4), message: { role: 'toolResult', toolCallId: 'call_9', content: [{ type: 'text', text: 'export const FREE_FROM = 50;' }] } }),
         ].join(''));
 
         const chats = new ChatTranscripts(() => ({ claude: [claude], pi }));
@@ -48,15 +61,19 @@ describe('the chat read of an agent conversation', () => {
         const first = await chats.read({ agent: 'claude', cwd, ref: { kind: 'id', value: 'abc-123' } });
         expect(first.state === 'ok' && first.messages.map((m) => [m.role, m.text, m.tools])).toEqual([
             ['user', 'Keep free shipping from $50.', undefined],
-            ['assistant', 'Reading the cart code.', [{ verb: 'Read a file', detail: 'src/cart.ts' }]],
-            ['assistant', '', [{ verb: 'Ran a command', detail: 'yarn test cart' }, { verb: 'Used list orders' }]],
+            ['assistant', 'Reading the cart code.', [{ verb: 'Read a file', kind: 'read', detail: 'src/cart.ts', outcome: 'ok', note: '2 lines', output: ['export const FREE_FROM = 50;', 'export const FLAT = 5;'] }]],
+            ['assistant', '', [
+                { verb: 'Edited a file', kind: 'edit', detail: 'src/cart.ts', diff: ['@@ -11 +11 @@', ' export function ship(t) {', '-  if (t > FREE_FROM) return 0;', '+  if (t >= FREE_FROM) return 0;', '   return FLAT;'], added: 1, removed: 1, outcome: 'ok' },
+                { verb: 'Ran a command', kind: 'run', detail: 'yarn test cart', outcome: 'failed', exit: 1, output: ['FAIL cart.test.ts', '  ✕ $50 ships free'] },
+                { verb: 'Used list orders', kind: 'tool' },
+            ]],
             ['assistant', 'Done. **4 tests** pass.', undefined],
         ]);
 
         const piRead = await chats.read({ agent: 'pi', cwd, ref: { kind: 'id', value: 'pi-77' } });
         expect(piRead.state === 'ok' && piRead.messages.map((m) => [m.role, m.text, m.tools])).toEqual([
             ['user', 'Check the empty cart.', undefined],
-            ['assistant', 'An empty cart ships free.', [{ verb: 'Read a file', detail: 'cart.ts' }]],
+            ['assistant', 'An empty cart ships free.', [{ verb: 'Read a file', kind: 'read', detail: 'cart.ts', outcome: 'ok', note: '1 line', output: ['export const FREE_FROM = 50;'] }]],
         ]);
 
         // Nothing moved: the phone's next poll costs one small answer.
