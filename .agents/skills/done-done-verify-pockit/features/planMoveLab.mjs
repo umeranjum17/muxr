@@ -258,6 +258,14 @@ try {
         current = (await ask('session.open', { sessionId: current })).info.id;
         log(`moved to ${to}; host and pane agree`);
     }
+    // done-done's step record: what this run drove and what the captures show.
+    const version = sh(`dumpsys package ${PKG} | grep -m1 versionName`).trim().replace(/^versionName=/, '');
+    writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
+        target: { version: `muxr ${version} release APK on an emulator` },
+        start: 'a fresh install of muxr paired to a lab computer on a private Herdr, with a stand-in Claude conversation running on Account A and Account B also signed in',
+        steps: ['Open the agent', 'Pane actions, Move to another account, Move to Account B', 'Type a turn on Account B', 'Pane actions, Move to another account, Move to Account A', 'Type a turn on Account A'],
+        result: 'the same conversation moves to the other account and back from the phone, in two parts labelled exactly "there" and "back". Part "there": 2d-turn-on-b.png shows the header chip reading Account B and the pane signed in as umer.b@example.com with "Resumed this conversation:" and the turn from Account A above the new turn. Part "back": 3d-turn-on-a.png shows the header chip reading Account A and the pane signed in as umer.a@example.com with both earlier turns above the new one. 1-on-account-a.png is the start on Account A',
+    }, null, 2)}\n`);
     log('PASS: conversation moved A -> B -> A');
 } catch (error) {
     failed = error?.done !== true;
