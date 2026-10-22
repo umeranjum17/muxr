@@ -39,6 +39,9 @@ flock -o -w 3600 /tmp/fm-muxr-emulator.lock timeout 1800 fm-mem-gate.sh \
   ... --apk <candidate apk> --evidence <ev>/candidate --ref <ev>/main --interact
 ```
 
+The candidate side is also the `action-sheet` journey in `.done-done.yaml`
+(`MUXR_LAB_APK`, `MUXR_LAB_AVD_HOME` set; `done-done run action-sheet`).
+
 Each cell directory holds `<popup>-<width>-<font>-<theme>.png` and its dump from
 `visualCheck.mjs`; `journey.log` lists every DEFECT and the PASS/FAIL of the
 dismissal and Files checks.

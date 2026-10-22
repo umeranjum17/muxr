@@ -7,7 +7,7 @@
 //   node .agents/skills/done-done-verify-pockit/features/actionSheetLab.mjs --apk <apk> --evidence <dir> \
 //     --avd-home <dir> [--ref <main evidence dir>] [--interact]
 import { execFile } from 'node:child_process';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
@@ -221,6 +221,17 @@ try {
         await back();
         if (!(outside && swiped && picker)) process.exitCode = 1;
     }
+    writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
+        target: { version: `muxr release APK ${JSON.parse(readFileSync(`${opts.apk}.json`, 'utf8')).revision}` },
+        start: 'fresh app data on an Android emulator paired to a private lab host (relay + host over fake Herdr, two agents)',
+        steps: [
+            'per width (270, 393 dp), text size and theme: on Home open the composer and tap Add attachment',
+            'long-press an agent card on Home',
+            'open the agent and long-press its tab chip',
+            ...(opts.interact ? ['tap outside the Add attachment sheet', 'swipe the sheet down by its title', 'tap Files'] : []),
+        ],
+        result: 'each popup is the app bottom sheet (icons, app colours, rounded); tap outside and swipe down close it; Files opens the system picker',
+    }, null, 2));
     say(`defects: ${defects.length === 0 ? 'none' : `\n${defects.join('\n')}`}`);
     say('RESULT done');
 } catch (error) {
