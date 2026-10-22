@@ -42,6 +42,8 @@ The real portal may not be driven by a lab, so a stdio proxy stands in for it in
 
 The real engine against the real `xdg-desktop-portal`, on a private session bus the lab owns; nothing reaches the owner's bus, portal or compositor.
 
+`computerPortalLab.mjs` drives all of it natively (steps 1–5 on a task-owned emulator, four cells: 390 dp light and dark, 270 dp at font 1.3 dark and light): `flock -o -w 1800 /tmp/fm-muxr-emulator.lock node .agents/skills/done-done-verify-pockit/features/computerPortalLab.mjs --apk <apk> --evidence <dir> --avd-home <dir>`. Pass `--expect "Couldn't open this computer"` for a build without the fix. The PWA runs the same steps by hand with `browserPairLab.mjs` started under the env of step 3.
+
 1. Private bus with no activatable services, so nothing the owner installed starts on it: a `dbus-daemon --config-file=<lab>/bus.conf --fork --print-pid` whose config has `<type>session</type>`, `<listen>unix:path=<lab>/bus</listen>`, one empty `<servicedir>` of the lab's own, and an allow-all default policy. Keep the socket under `~/.cache/fms/<short>/`.
 2. Start the frontend the way the broken desktop had it, without a desktop name: `env -i HOME=<lab> PATH=/usr/bin XDG_RUNTIME_DIR=<lab>/run DBUS_SESSION_BUS_ADDRESS=unix:path=<lab>/bus /usr/lib/xdg-desktop-portal`. Introspection lists no `org.freedesktop.portal.ScreenCast`.
 3. Start the lab stack (browser lab or fakeStack) with that bus and a Wayland name that exists nowhere, so the host picks the portal and the engine never meets the owner's compositor: `env -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u XDG_CURRENT_DESKTOP DBUS_SESSION_BUS_ADDRESS=unix:path=<lab>/bus WAYLAND_DISPLAY=wayland-lab …`.
