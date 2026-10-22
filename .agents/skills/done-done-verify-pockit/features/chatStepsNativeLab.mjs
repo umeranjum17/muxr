@@ -2,7 +2,7 @@
 // chatFakeLab.mjs over adb, pairs a lab-id release APK and captures the chat with
 // its steps folded, a group opened with an edit's peek, a command's peek and the
 // full diff, at 390 and 270 dp, light and dark, through visualCheck.mjs; then
-// records open, peek and fold. See chat-view.md. Run from the repo root, inside
+// records open, peek and fold as a frame per step. See chat-view.md. Run from the repo root, inside
 // the emulator lock: node .agents/skills/done-done-verify-pockit/features/chatStepsNativeLab.mjs <apk> <evidenceDir> <avdHome>
 import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -136,19 +136,21 @@ try {
     }
 
     // One recording at 390 dp dark: open the group, peek an edit, peek the command, fold it all.
+    // A frame after each step (screenrecord starts late and drops the first taps).
     sh('wm density 443'); sh('cmd uimode night yes');
     await openChat();
     await toEnd();
-    const recorder = spawn('adb', ['-s', serial, 'shell', 'screenrecord', '--time-limit', '40', '/sdcard/steps.mp4'], { stdio: 'ignore' });
-    await sleep(1500);
-    await tap(/^5 steps\./); await toEnd(); await sleep(800);
-    await tap(/^Edited src\/checkout\/shipping\.ts/); await toEnd(); await sleep(1200);
-    await tap(/^Edited src\/checkout\/shipping\.ts/); await tap(/^Ran yarn test checkout/); await toEnd(); await sleep(1200);
-    await tap(/^Ran yarn test checkout/); await tap(/^5 steps\./); await sleep(1500);
-    sh('pkill -INT screenrecord');
-    await new Promise((resolve) => { recorder.once('exit', resolve); setTimeout(resolve, 8000); });
-    await sleep(1500);
-    adb('pull', '/sdcard/steps.mp4', join(evidence, 'native-390-dark-open-peek-fold.mp4'));
+    const frames = join(evidence, 'native-frames');
+    mkdirSync(frames, { recursive: true });
+    let frame = 0;
+    const still = (repeat) => { for (let i = 0; i < repeat; i += 1) writeFileSync(join(frames, `f${String(++frame).padStart(3, '0')}.png`), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { maxBuffer: 64 << 20 })); };
+    still(3);
+    await tap(/^5 steps\./); await toEnd(); still(3);
+    await tap(/^Edited src\/checkout\/shipping\.ts/); await toEnd(); still(4);
+    await tap(/^Edited src\/checkout\/shipping\.ts/); await tap(/^Ran yarn test checkout/); await toEnd(); still(4);
+    await tap(/^Ran yarn test checkout/); await toEnd(); still(2);
+    await tap(/^5 steps\./); await toEnd(); still(3);
+    execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', '2', '-i', join(frames, 'f%03d.png'), '-vf', 'scale=540:-2,format=yuv420p', '-c:v', 'libx264', join(evidence, 'native-390-dark-open-peek-fold.mp4')]);
     log('recorded');
 } finally {
     try { sh('wm size reset'); sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
