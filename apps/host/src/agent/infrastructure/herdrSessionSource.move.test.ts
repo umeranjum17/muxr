@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { createServer } from 'node:net';
+import { createServer, type Socket } from 'node:net';
 import { join, relative } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createHerdrSessionSource } from './herdrSessionSource.js';
@@ -24,10 +24,12 @@ function fakeHerdr(dir: string, cwd: string) {
             agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
         },
     ];
-    const state = { nextWait: undefined as (() => Promise<void>) | undefined, failNextStart: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), loseCloseAckFor: new Set<string>() };
+    const state = { nextWait: undefined as (() => Promise<void>) | undefined, failNextStart: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), loseCloseAckFor: new Set<string>(), raceNextSwap: false, readRacesClose: false };
+    const heldReads: Array<() => void> = [];
     const calls: Array<{ method: string; detail: string }> = [];
     const splits: Array<{ target: unknown; env: unknown }> = [];
     const sendTexts: Array<{ pane_id: unknown; text: unknown; live: boolean }> = [];
+    const watches: Array<{ paneId: string | undefined; socket: Socket }> = [];
     let next = 2;
     let nextTab = 2;
     const server = createServer((socket) => {
@@ -40,7 +42,15 @@ function fakeHerdr(dir: string, cwd: string) {
                 if (line.trim() === '') continue;
                 const { id, method, params } = JSON.parse(line) as { id: string; method: string; params?: Record<string, unknown> };
                 if (method === 'events.subscribe') {
-                    socket.write(`${JSON.stringify({ id, result: {} })}\n`);
+                    // As Herdr 0.9.1: a pane's watch drops when the pane closes, and reopening it is refused under a probe id.
+                    const subscriptions = (params?.subscriptions ?? []) as Array<{ pane_id?: string }>;
+                    const paneId = subscriptions.find((sub) => sub.pane_id !== undefined)?.pane_id;
+                    if (paneId !== undefined && !panes.some((pane) => pane.pane_id === paneId)) {
+                        socket.end(`${JSON.stringify({ id: `${id}:sub:0:probe`, error: { code: 'pane_not_found', message: `pane ${paneId} not found` } })}\n`);
+                        continue;
+                    }
+                    watches.push({ paneId, socket });
+                    socket.write(`${JSON.stringify({ id, result: { type: 'subscription_started' } })}\n`);
                     continue;
                 }
                 const p = params ?? {};
@@ -49,9 +59,16 @@ function fakeHerdr(dir: string, cwd: string) {
                     case 'ping':
                         reply = { id, result: { protocol: 22 } };
                         break;
-                    case 'session.snapshot':
-                        reply = { id, result: { snapshot: structuredClone({ workspaces, tabs, panes, agents }) } };
-                        break;
+                    case 'session.snapshot': {
+                        const read = `${JSON.stringify({ id, result: { snapshot: structuredClone({ workspaces, tabs, panes, agents }) } })}\n`;
+                        // A tree read taken just before a pane closes lands after the close.
+                        if (state.readRacesClose) {
+                            heldReads.push(() => socket.end(read));
+                            continue;
+                        }
+                        socket.end(read);
+                        continue;
+                    }
                     case 'plugin.list':
                         reply = { id, result: { plugins: [] } };
                         break;
@@ -118,6 +135,9 @@ function fakeHerdr(dir: string, cwd: string) {
                         }
                         const at = panes.findIndex((row) => row.pane_id === p.pane_id);
                         if (at >= 0) panes.splice(at, 1);
+                        for (const watch of watches) if (watch.paneId === p.pane_id) watch.socket.destroy();
+                        state.readRacesClose = false;
+                        for (const release of heldReads.splice(0)) release();
                         for (let i = agents.length - 1; i >= 0; i -= 1) {
                             if (agents[i]!.pane_id === p.pane_id) agents.splice(i, 1);
                         }
@@ -136,6 +156,8 @@ function fakeHerdr(dir: string, cwd: string) {
                     }
                     case 'agent.start': {
                         calls.push({ method, detail: String(p.pane_id) });
+                        state.readRacesClose = state.raceNextSwap;
+                        state.raceNextSwap = false;
                         if (state.failNextStart) {
                             state.failNextStart = false;
                             reply = { id, error: { code: 'start_failed', message: 'agent.start failed' } };
@@ -155,6 +177,9 @@ function fakeHerdr(dir: string, cwd: string) {
                             agent_session: { source: 'herdr', agent: p.kind, kind, value },
                         };
                         agents.push(agent);
+                        for (const watch of watches) {
+                            if (watch.paneId === undefined) watch.socket.write(`${JSON.stringify({ event: 'pane_agent_detected', data: { type: 'pane_agent_detected', pane_id: p.pane_id, agent: p.kind } })}\n`);
+                        }
                         reply = { id, result: { agent } };
                         break;
                     }
@@ -257,6 +282,7 @@ describe('a plan-account move', () => {
             expect(herdr.calls.some((call) => call.method === 'pane.close' && call.detail === 'p1')).toBe(false);
             expect((await source.open({ sessionId })).info.id).toBe(sessionId);
 
+            herdr.state.raceNextSwap = true;
             const moved = await moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude' });
             expect(moved.sessionId).toBe(sessionId);
             const paneEnv = herdr.panes.find((pane) => pane.pane_id === 'p3')?.env as Record<string, string> | undefined;

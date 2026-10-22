@@ -1,8 +1,9 @@
 # Move a conversation to another account
 
 A running Claude conversation moves to the person's other Claude account from
-its Pane actions › Move to another account: the phone says `Moved to <account>`,
-the same conversation carries on in the same tab on the new account's sign-in,
+its Pane actions › Move to another account: the sheet closes and the header
+chip names the new account (the `Moved to <account>` notice shows only on the
+Accounts screen), the same conversation carries on in the same tab on the new account's sign-in,
 and the host records the new account for it. The kit owns the move
 (`@byokit/herdr` `move`, called from `movePlanAccount` in
 `apps/host/src/agent/infrastructure/herdrSessionSource.ts`); the sheet is
@@ -10,7 +11,7 @@ and the host records the new account for it. The kit owns the move
 
 ## Sub-features
 
-- `plan-move-there` A to B: the notice names B, the pane runs on B's sign-in
+- `plan-move-there` A to B: the chip names B, the pane runs on B's sign-in
   and shows the conversation so far.
 - `plan-move-back` B to A: the same, back again.
 
@@ -25,7 +26,9 @@ and the host records the new account for it. The kit owns the move
   Herdr lab helper in `HERDR_LAB_HELPER` (see `linkHerdrLab.mjs`); take the
   emulator lock as in `../SKILL.md`.
 - `node .agents/skills/done-done-verify-pockit/features/planMoveLab.mjs <apk> <evidence> <labRoot>`
-  (a short `<labRoot>`: the lab sockets live under it). It adds two stand-in
+  (a fresh, short `<labRoot>` per run, e.g. `mktemp -d ~/.cache/fms/mxmv.XXXX`:
+  the lab sockets live under it, and a reused root keeps every earlier run's
+  accounts, so the sheet lists Account A and B many times over). It adds two stand-in
   Claude accounts through the accounts kit (`Account A`, `Account B`), starts a
   stand-in Claude on A, pairs the APK, records the screen and moves A to B and
   B to A from the phone. Pass `-` for `<apk>` to move through `plans.move`
@@ -45,6 +48,12 @@ and the host records the new account for it. The kit owns the move
 
 ## Gotchas
 
+- The terminal draws natively, so its text is never in a UI dump: the phone
+  side waits on the header's account chip (`text="Account A"`), and the pane's
+  own screen is read through Herdr.
+- Provision the lab Herdr only through the lab script: it puts the stand-in
+  `claude` first on `PATH` before provisioning, and a session provisioned from
+  an ordinary shell starts the installed Claude in its panes instead.
 - Real Herdr never reports a pane's env in `pane.get`; a fixture that does hid
   the env check failing on every move (`@byokit/herdr` 0.16.1). The host move
   test's fake Herdr answers like Herdr 0.9.1.
