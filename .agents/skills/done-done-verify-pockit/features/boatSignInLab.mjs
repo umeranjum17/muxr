@@ -2,7 +2,7 @@
 // so a lab APK built with EXPO_PUBLIC_MUXR_BOAT_API=http://127.0.0.1:<port>/api/v1 can link an
 // account with no real Boat claim. Token polls answer `authorization_pending` until the phone
 // opens the sign-in page (the person approving); BOAT_LAB_APPROVE=never keeps them pending.
-// Accepts the email umer@example.com, code 123456, and the stored key test-key.
+// Accepts the email umer@example.com and code 123456.
 // BOAT_LAB_TAILSCALE=1 also stands in for Tailscale on the machine: it waits for a login with a sign-in link, joins
 // 20 s after the link is first read (the person approving on the page the phone opened), and stops the run at
 // muxr's own set-up. Usage: node boatSignInLab.mjs <port>
@@ -12,7 +12,8 @@ import { startFakeSandboxServer } from '@byokit/cloud/testing';
 
 const port = Number(process.argv[2]);
 if (!Number.isInteger(port) || port <= 0) throw new Error('usage: node boatSignInLab.mjs <port>');
-const fake = await startFakeSandboxServer({ claimInterval: 2 });
+// The machine API takes the key the sign-in hands out, so a linked lab account can create a computer.
+const fake = await startFakeSandboxServer({ claimInterval: 2, key: 'boat-claimed-key' });
 const fakeOrigin = new URL(fake.url).origin;
 const ownOrigin = `http://127.0.0.1:${port}`;
 let approved = false;

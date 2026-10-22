@@ -107,6 +107,10 @@ try {
         if (frame % 3 === 0 || !focus.includes(PKG)) await shot(`02-after-create-${String(frame).padStart(2, '0')}`);
         frame += 1;
         if (!focus.includes(PKG) && /chrome|browser/i.test(focus)) { opened = focus; break; }
+        if (focus.includes(PKG) && frame % 3 === 1) {
+            const stuck = find(await screen(), (v) => v === 'Try again');
+            if (stuck) { await shot('02-setup-failed'); throw new Error('setup failed before the Tailscale sign-in'); }
+        }
         await sleep(2000);
     }
     if (!opened) throw new Error('the browser never opened on its own after Create cloud computer');
