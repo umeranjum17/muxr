@@ -379,6 +379,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [headerRowBottom, setHeaderRowBottom] = React.useState(0);
     // View commands keep a permanent route in Pane actions.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
+    const viewControlsRef = React.useRef(viewControls);
+    viewControlsRef.current = viewControls;
     // `raise` is the settled keyboard raise this measure was taken at.
     const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number; raise: number }>();
     // The terminal measures a grid at one size; the answer band must end on a
@@ -507,6 +509,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
      * until the user types or answers again.
      */
     const [scrolledAway, setScrolledAway] = React.useState(() => SCROLLED_AWAY.has(props.id));
+    /** Rows the terminal's local history is scrolled back; the pane itself has not moved. */
+    const [localBack, setLocalBack] = React.useState(0);
     const paneRoute = React.useRef(props.id);
     paneRoute.current = props.id;
     const markScrolledAway = React.useCallback((route: string, away: boolean) => {
@@ -547,11 +551,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 scroll(lines, at);
             };
             channel.sendText = (text) => {
-                if (!TERMINAL_REPLY.test(text)) { markScrolledAway(route, false); pan.follow(); }
+                if (!TERMINAL_REPLY.test(text)) { markScrolledAway(route, false); pan.follow(); viewControlsRef.current.toLive?.(); }
                 sendText(text);
             };
             channel.sendBytes = (base64) => {
-                if (!TERMINAL_REPLY.test(String.fromCharCode(...decodeBase64(base64.slice(0, 64))))) { markScrolledAway(route, false); pan.follow(); }
+                if (!TERMINAL_REPLY.test(String.fromCharCode(...decodeBase64(base64.slice(0, 64))))) { markScrolledAway(route, false); pan.follow(); viewControlsRef.current.toLive?.(); }
                 sendBytes(base64);
             };
             stopWatchingChannel.current = () => {
@@ -567,10 +571,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         const channel = channelRef.current;
         if (channel === undefined) return;
         pan.follow();
+        viewControlsRef.current.toLive?.();
+        // Only the local history was back: the pane never moved.
+        if (!showJump && !scrolledAway) return;
         const key = hostHasScrollback === true ? undefined : LATEST_KEY[kind ?? ''];
         if (key !== undefined) channel.sendText(key);
         else channel.bottom();
-    }, [hostHasScrollback, pan]);
+    }, [hostHasScrollback, pan, scrolledAway, showJump]);
     // A host frame is first-hand proof the pane is live: it clears a return's
     // provisional stale mark, so a link that never dropped shakes it off the
     // moment its answer lands. A link that did drop sends no frame, and the
@@ -790,7 +797,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const chatShown = paneView === 'chat';
     const choosePaneView = React.useCallback((view: 'chat' | 'terminal') => setPaneViews(rememberPaneView(paneViews, props.id, view)), [paneViews, props.id, setPaneViews]);
     const chat = useChat(props.id, chatShown && isFocused);
-    const latestShown = showJump || (hostHasScrollback === false && scrolledAway && !DRAWS_OWN_LATEST.has(paneKind ?? ''));
+    const latestShown = localBack > 0 || showJump || (hostHasScrollback === false && scrolledAway && !DRAWS_OWN_LATEST.has(paneKind ?? ''));
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (next) => setAppActive(next === 'active'));
         return () => subscription.remove();
@@ -1733,7 +1740,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             status={status}
                             onNothingThere={nothingToSwipeTo}
                             onSwitch={switchAgent}
-                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} panBy={panBy} onFrame={handleFrame} />}
+                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} panBy={panBy} onFrame={handleFrame} scrollsLocally={pannedHeight - shownHeight < terminalRowHeight} onLocalHistory={setLocalBack} />}
                         >
                         {linkMenu !== null && terminalBox !== undefined && terminalLinkCardFits(terminalBox.height, linkActions.length) && (
                             <TerminalLinkMenu

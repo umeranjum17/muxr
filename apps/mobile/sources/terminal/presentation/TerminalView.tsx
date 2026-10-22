@@ -6,12 +6,15 @@
  * keystrokes come out. No ANSI parsing on the RN side.
  *
  * herdr owns the history, so a drag has to move herdr's viewport and be
- * repainted back. Ghostty's buffer holds only repaint diffs.
+ * repainted back. Ghostty's buffer holds only repaint diffs. On Android the
+ * view also keeps a local mirror of the rows that scrolled off the screen
+ * while it watched, and a drag back through those runs natively with no
+ * round trip (`scrollsLocally`).
  */
 
 import * as React from 'react';
 import type { TerminalCommand } from './FloatingTerminalControls';
-import { AppState, View } from 'react-native';
+import { AppState, Platform, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { TerminalView as GhosttyView, type TerminalViewRef } from 'expo-libghostty';
@@ -65,6 +68,13 @@ export interface TerminalViewProps {
     panBy: (lines: number) => number;
     /** Each frame of pane output, as it reaches the renderer. */
     onFrame: (base64: string) => void;
+    /**
+     * The grid fits its box, so no pan takes drag travel first: a drag back
+     * reads the local history before it scrolls the pane (Android).
+     */
+    scrollsLocally?: boolean;
+    /** Rows the local history is scrolled back; 0 once the live screen shows again. */
+    onLocalHistory?: (rowsBack: number) => void;
 }
 
 export type TerminalViewControls = {
@@ -72,6 +82,9 @@ export type TerminalViewControls = {
     /** Take the IME down on the terminal's window. It does not drop the
      *  composer's focus, so callers dismiss that keyboard as well. */
     dismissKeyboard: () => void;
+    /** Show the live screen again: leave the local history, and after a
+     *  scroll of the pane itself, record what it prints from now on. Native only. */
+    toLive?: () => void;
 };
 
 
@@ -374,8 +387,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         if (termRef.current === null) return;
         void termRef.current.hideKeyboard().catch(() => {});
     }, []);
+    const toLive = React.useCallback(() => { void termRef.current?.toLive().catch(() => {}); }, []);
+    // A remounted view starts live; never leave the pane believing otherwise.
+    const onLocalHistoryRef = React.useRef(props.onLocalHistory);
+    onLocalHistoryRef.current = props.onLocalHistory;
+    React.useEffect(() => () => onLocalHistoryRef.current?.(0), []);
     const viewControls = React.useMemo<TerminalViewControls>(() => ({
         dismissKeyboard,
+        toLive,
         commands: [
             { label: 'Open terminal keyboard', icon: 'keyboard' as const,
                 run: () => { void termRef.current?.showKeyboard().catch(() => latest.current.onStatus?.('Could not open keyboard')); } },
@@ -383,7 +402,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             { label: 'Zoom in', icon: 'plus' as const, run: () => latest.current.zoom(1), disabled: atMaxZoom },
             { label: 'Reset zoom', icon: 'reset' as const, run: () => latest.current.resetZoom(), disabled: atDefaultZoom },
         ],
-    }), [atDefaultZoom, atMaxZoom, atMinZoom, dismissKeyboard]);
+    }), [atDefaultZoom, atMaxZoom, atMinZoom, dismissKeyboard, toLive]);
     React.useEffect(() => { onViewControls?.(viewControls); }, [onViewControls, viewControls]);
     React.useEffect(() => () => onViewControls?.({ commands: [], dismissKeyboard: () => {} }), [onViewControls]);
 
@@ -421,11 +440,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // can end on a row line instead of clipping the row above.
                     if (nativeEvent.rowHeight > 0) props.onRowHeight?.(nativeEvent.rowHeight);
                 }}
-                // herdr owns the history, so a drag has to move herdr's
-                // viewport and be repainted back to us. Ghostty's own buffer
-                // holds nothing but repaint diffs; scrolling it shows garbage.
-                // Ghostty counts rows the way the finger moved, herdr counts
-                // them the way the text does, hence the negation.
+                localHistory={Platform.OS === 'android' && props.scrollsLocally === true}
+                onHistory={({ nativeEvent }) => props.onLocalHistory?.(nativeEvent.back)}
+                // What the local history cannot show moves herdr's viewport and
+                // is repainted back to us. Ghostty counts rows the way the
+                // finger moved, herdr counts them the way the text does, hence
+                // the negation.
                 onScroll={({ nativeEvent }) => {
                     if (scrollStoppedRef.current) return;
                     const lines = props.panBy(-nativeEvent.rows);
