@@ -561,9 +561,11 @@ const pwaSelfTest = () => {
 };
 
 const native = (serial, dir, name, flags) => {
-    const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { maxBuffer: 64 << 20 });
+    const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { maxBuffer: 64 << 20, timeout: 120_000 });
     const png = join(dir, `${name}.png`);
-    writeFileSync(png, adb('exec-out', 'screencap', '-p'));
+    // Through a file: a streamed `exec-out screencap` can hang on a loaded emulator while `shell` still answers.
+    adb('shell', 'screencap', '-p', '/sdcard/visual-check.png');
+    adb('pull', '/sdcard/visual-check.png', png);
     adb('shell', 'uiautomator', 'dump', '/sdcard/visual-check.xml');
     const xml = adb('exec-out', 'cat', '/sdcard/visual-check.xml').toString();
     writeFileSync(join(dir, `${name}.xml`), xml);
