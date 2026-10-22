@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
+import { acceptStable } from './application/acceptStable.mjs';
 import { checkJourneyReceipt } from './application/checkJourneyReceipt.mjs';
 
 const git = (repo, args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim();
@@ -41,7 +42,7 @@ const journeyResult = (build) => `${JSON.stringify({
     hosts: 1, timings: { attachMs: 3100, scrollMs: 2400 },
 }, null, 2)}\n`;
 
-it('covers a release only while the receipt proves the code and the exact build the release ships', () => {
+it('covers a release, and publishes it as npm latest, only while the receipt proves the code and the exact build the release ships', () => {
     const repo = mkdtempSync(join(tmpdir(), 'muxr-release-receipt-'));
     try {
         git(repo, ['init', '-q', '-b', 'main']);
@@ -57,6 +58,10 @@ it('covers a release only while the receipt proves the code and the exact build 
         const cited = { path: 'evidence/phone-attach.mp4', sha256: createHash('sha256').update(capture).digest('hex') };
 
         const build = { version: '0.2.11', apk: sha('the release apk'), package: sha('the release tarball') };
+        // What the v0.2.11 GitHub release sealed, and the gate before it is published as npm latest.
+        const manifest = (source) => ({ release: { channel: 'stable', version: '0.2.11' }, source: { commit: source },
+            artifacts: [{ name: 'muxr-0.2.11-60.apk', sha256: build.apk }, { name: 'trymuxr-cli-0.2.11.tgz', sha256: build.package }] });
+        const publishable = (source, tarballSha256) => acceptStable({ version: '0.2.11', manifest: manifest(source), taggedCommit: source, tarballSha256, repo, receiptsRef: 'HEAD' });
         const land = (journey, result, message) => {
             mkdirSync(join(repo, '.done-done-receipts', 'builds'), { recursive: true });
             writeFileSync(join(repo, '.done-done-receipts', `${head}.json`), `${JSON.stringify(receipt(head, tree, cited, journey, result), null, 2)}\n`);
@@ -72,6 +77,7 @@ it('covers a release only while the receipt proves the code and the exact build 
         const unbuilt = checkJourneyReceipt({ repo, commit: bare, receiptsRef: 'HEAD', build });
         expect(unbuilt.ok).toBe(false);
         expect(unbuilt.reason).toContain('no journey result is committed at .done-done-receipts/builds/0.2.11.json');
+        expect(publishable(bare, build.package).ok).toBe(false);
 
         // A journey that ran another APK proves nothing about this one.
         const otherApk = land('phone-attach', journeyResult({ ...build, apk: sha('a local debug apk') }), 'a result for another apk');
@@ -84,6 +90,9 @@ it('covers a release only while the receipt proves the code and the exact build 
         const covered = checkJourneyReceipt({ repo, commit: release, receiptsRef: 'HEAD', build });
         expect(covered.reason).toBeUndefined();
         expect(covered.path).toBe(`.done-done-receipts/${head}.json`);
+        expect(publishable(release, build.package)).toEqual({ ok: true, proof: `.done-done-receipts/${head}.json` });
+        // A tarball packed again after the tag is not the build the journey ran: it is not published.
+        expect(publishable(release, sha('a tarball packed after the tag')).reason).toContain('is not the v0.2.11 tarball the journey tests');
 
         // The same receipt does not cover a rebuilt tarball under the same version.
         const rebuilt = checkJourneyReceipt({ repo, commit: release, receiptsRef: 'HEAD', build: { ...build, package: sha('a rebuilt tarball') } });
