@@ -31,6 +31,10 @@ Preconditions: a release APK per side (`perf/buildPrApk.mjs` through
 `fm-mem-gate.sh` with `FM_MEM_JOB_GB=16`), the shared emulator lock, `yarn build`.
 
 ```sh
+# the done-done journey, tied to this commit:
+MUXR_LAB_APK=<apk> MUXR_LAB_AVD_HOME=<scratch>/avd \
+  flock -o -w 3600 /tmp/fm-muxr-emulator.lock timeout 1800 fm-mem-gate.sh done-done run pane-switcher
+# or by hand, e.g. for a main build to compare against:
 flock -o -w 3600 /tmp/fm-muxr-emulator.lock timeout 1800 fm-mem-gate.sh \
   node .agents/skills/done-done-verify-pockit/features/paneSwitcherLab.mjs \
   --apk <apk> --evidence <ev>/<side> --avd-home <scratch>/avd

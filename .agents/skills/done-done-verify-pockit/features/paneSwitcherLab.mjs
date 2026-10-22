@@ -6,7 +6,7 @@
 //   node .agents/skills/done-done-verify-pockit/features/paneSwitcherLab.mjs --apk <apk> --evidence <dir> \
 //     --avd-home <dir> [--ref <main evidence dir>]
 import { execFile } from 'node:child_process';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
@@ -189,6 +189,12 @@ try {
         await toHome();
     }
     say(`defects: ${defects.length === 0 ? 'none' : `\n${defects.join('\n')}`}`);
+    writeFileSync(join(EVIDENCE, 'steps.json'), `${JSON.stringify({
+        target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
+        start: 'release APK freshly installed and paired to a private stack whose workspace has three tabs (4, 4 and 1 panes)',
+        steps: ['open an agent from Home', 'tap the pane counter in its header', 'tap the one-pane tab in the switcher'],
+        result: `the pane switcher at ${CELLS.map((cell) => cell.join('/')).join(', ')} (width dp/font/theme), captured in each cell folder`,
+    }, null, 2)}\n`);
     say('RESULT done');
 } catch (error) {
     say(`RESULT FAIL: ${error instanceof Error ? error.message : String(error)}`);
