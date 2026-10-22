@@ -1623,7 +1623,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             {identityKnown && !narrowChrome && !chatShown && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
                             {/* The chat leads with the agent's status dot, the way a conversation shows who is there. */}
                             {identityKnown && chatShown && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: headerStatus.color }} />}
-                            {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: chatShown ? 15 : 13, fontWeight: '600' }}>{contextTitle}</Text>}
+                            {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: backWord ? 15 : 13, fontWeight: '600' }}>{contextTitle}</Text>}
                             {/* Whose task it is, after the task: the same order as the
                                 Spaces row that opened this. A name is short, so the task
                                 gives way first. */}
