@@ -63,7 +63,7 @@ import { agentSwipeNeighbours, herdPanes, holdLiveTerminalOrder, selectLiveTermi
 /** Menu rows the pane opens; labels name themselves, hints say what they do. */
 type SessionMenuItem = { label: string; hint?: string; destructive?: boolean; onPress: () => void };
 type SessionMenu = { title: string; note?: string; items: SessionMenuItem[] };
-import { CONTROL_EDGE, CONTROL_SIZE, FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingHandle, type RingSlot } from './FloatingTerminalControls';
+import { CONTROL_CLEARANCE, FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingHandle, type RingSlot } from './FloatingTerminalControls';
 import { assembleRing } from './ringSlots';
 import { TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
@@ -1948,7 +1948,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         )}
                         {/* The quick-actions control draws itself over this
                             place, from the ring's overlay. */}
-                        <View style={{ width: hasTools ? CONTROL_SIZE + CONTROL_EDGE + 4 : 8 }} />
+                        <View style={{ width: hasTools ? CONTROL_CLEARANCE : 8 }} />
                     </View>
 
                     {canControl && <View aria-hidden={desktopVisible}>
