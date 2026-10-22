@@ -129,6 +129,8 @@ export {
     DESKTOP_CONSENT_WAIT_MS,
     DESKTOP_LOOPBACK_TCP,
     DESKTOP_NO_PICTURE,
+    DESKTOP_PORTAL_RESTART,
+    DESKTOP_PORTAL_WITHOUT_DESKTOP,
     desktopPortalBusy,
     desktopPortalRestartCommand,
     HERDR_AGENT_NAME_MAX,

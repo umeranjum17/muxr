@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DESKTOP_NO_PICTURE, desktopPortalBusy } from '@trymuxr/contract';
+import { DESKTOP_NO_PICTURE, DESKTOP_PORTAL_RESTART, DESKTOP_PORTAL_WITHOUT_DESKTOP, desktopPortalBusy } from '@trymuxr/contract';
 
 import { DesktopSessions, hostDesktopForPanes, type DesktopEngineOptions } from '../infrastructure/desktopSessions.js';
 
@@ -460,6 +460,42 @@ describe('desktop sessions, host side', () => {
             await answered;
         } finally {
             vi.useRealTimers();
+            await desktop.closeAll();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    }, 20_000);
+
+    it('names the restart when the screen-sharing service runs without screen sharing, and opens once it is restarted', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-no-screencast-'));
+        const script = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        const restarted = join(directory, 'restarted');
+        writeFileSync(log, '');
+        // The real engine's refusal, measured against an xdg-desktop-portal
+        // started without XDG_CURRENT_DESKTOP: 2 ms, and no call reaches the
+        // backend. Restarting the frontend is what lets the open through.
+        writeFileSync(script, STUB.replace("    case 'session.open':", `
+    case 'session.open':
+      if (!require('node:fs').existsSync(process.argv[3])) {
+        return out({ id: request.id, error: { code: 'source', message: 'compositor has no ScreenCast portal: A portal frontend implementing \\x60org.freedesktop.portal.ScreenCast\\x60 was not found' } });
+      }
+    case 'unused':`));
+        const diagnostics: string[] = [];
+        const desktop = hostDesktop({ enginePath: process.execPath, engineArguments: [script, log, restarted], onDiagnostic: (line) => diagnostics.push(line) }, PORTAL_HOST);
+        try {
+            // The phone hears the one command that clears it, and the host log
+            // keeps the engine's own reason rather than a bare code.
+            await expect(desktop.open({ permissions: ['view'], awaitConsent: true })).rejects.toMatchObject({
+                code: 'portal-busy',
+                message: DESKTOP_PORTAL_WITHOUT_DESKTOP,
+            });
+            expect(DESKTOP_PORTAL_WITHOUT_DESKTOP.endsWith(`run: ${DESKTOP_PORTAL_RESTART}`)).toBe(true);
+            expect(diagnostics.find((line) => line.startsWith('desktop open failed'))).toContain('A portal frontend implementing `org.freedesktop.portal.ScreenCast` was not found');
+
+            writeFileSync(restarted, '');
+            const opened = await desktop.open({ permissions: ['view'], awaitConsent: true });
+            expect(opened.source.kind).toBe('monitor');
+        } finally {
             await desktop.closeAll();
             rmSync(directory, { recursive: true, force: true });
         }
