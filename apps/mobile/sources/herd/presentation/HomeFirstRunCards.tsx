@@ -2,6 +2,7 @@ import * as React from 'react';
 import { AppState, Platform, Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/StyledText';
 import { ActionButton } from '@/components/ActionButton';
@@ -137,8 +138,11 @@ export function FirstAgentCard() {
 }
 
 /**
- * Notifications on Home. Right after a pairing the first connected Home asks
- * the system once, unless it can no longer ask or Not now was chosen; otherwise the system
+ * Notifications on Home. Once the computer has an agent to be notified about,
+ * the first return to Home after a pairing asks the system once, unless it can
+ * no longer ask or Not now was chosen. Until then nothing is asked or shown:
+ * the first-agent card must stay the one thing a newcomer sees, and an alert
+ * has nothing to say before an agent exists. Otherwise the system
  * prompt only follows the person's own turn-on tap. While notifications are
  * off this card says so until "Not now", and comes back whenever an agent
  * needs you, because that alert could not reach you. A permanent denial
@@ -149,6 +153,9 @@ export function HomeNotificationPrimerCard() {
     const { status } = useSocketStatus();
     const { isAuthenticated } = useAuth();
     const herd = useHerdNotificationState();
+    const hasAgents = useSessions().length > 0;
+    // Home stays mounted under the agent screen.
+    const homeFocused = useIsFocused();
     const [answered, setAnswered] = useLocalSettingMutable('notificationPrimerAnswered');
     const [level] = useLocalSettingMutable('lifecycleNotificationLevel');
     const [permission, setPermission] = React.useState<NotificationPermission | null>(null);
@@ -170,13 +177,20 @@ export function HomeNotificationPrimerCard() {
         if (next === 'granted') setAnswered(true);
         setPermission(next);
     }, [setAnswered]);
+    // Android 13+ reads a never-asked app as denied, so "can still ask" is the test.
+    const canAsk = connected && hasAgents && !answered && (permission === 'not-asked' || permission === 'denied');
+    const canAskRef = React.useRef(canAsk);
+    canAskRef.current = canAsk;
+    const wasFocused = React.useRef(homeFocused);
     React.useEffect(() => {
-        // Android 13+ reads a never-asked app as denied, so "can still ask" is the test.
-        if (!connected || answered || (permission !== 'not-asked' && permission !== 'denied') || !takeNotificationAskAfterPairing()) return;
-        void turnOn();
-    }, [answered, connected, permission, turnOn]);
+        // Only on coming back to Home: the first agent appears while Home is still focused,
+        // and a system prompt then lands over the agent the person just started.
+        const returned = homeFocused && !wasFocused.current;
+        wasFocused.current = homeFocused;
+        if (returned && canAskRef.current && takeNotificationAskAfterPairing()) void turnOn();
+    }, [homeFocused, turnOn]);
     const missedAlert = herd.mode === 'attention' && level !== 'off';
-    if (!primerPlatform || !isAuthenticated || !connected || permission === null || permission === 'granted' || (answered && !missedAlert)) return null;
+    if (!primerPlatform || !isAuthenticated || !connected || !hasAgents || permission === null || permission === 'granted' || (answered && !missedAlert)) return null;
     const blocked = permission === 'blocked';
     return (
         <View style={[styles.card, cardStyle(theme)]}>

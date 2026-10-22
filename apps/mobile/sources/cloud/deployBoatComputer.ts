@@ -112,7 +112,8 @@ export async function deployBoatComputer(o: {
         }
         if (Date.now() > startDeadline) throw new Error('Boat is still starting your computer. Try again in a few minutes.');
         if (state === 'asleep') await m.wake();
-        await sleep(3_000);
+        // Boat reports a new machine on within a few seconds, so a longer poll is mostly dead time.
+        await sleep(1_000);
     }
 
     const id = created.id;
@@ -134,15 +135,16 @@ export async function deployBoatComputer(o: {
                 const configured = await m.run(RECIPE, [...MUXR, 'self-host', '--configure-only', '--loopback', '--install-herdr', '--advertise', urls[0], '--port', String(PORT)], { timeoutMs: 600_000 });
                 if (configured.code !== 0) throw new Error(`muxr could not set itself up there: ${configured.stderr.trim().slice(-300)}`);
                 o.onStep({ step: 'pairing' });
-                // The unit restarts into the configured host within seconds; handoff fails until it is up.
+                // The unit restarts into the configured host within seconds; handoff fails until it is up, so retry
+                // quickly (40 x 1.5 s keeps the one-minute budget).
                 // ponytail: one long exec holds the handoff open; a provider that caps exec time needs a detached start.
-                for (let attempt = 0; attempt < 12; attempt += 1) {
+                for (let attempt = 0; attempt < 40; attempt += 1) {
                     let handoff: Awaited<ReturnType<typeof m.handoff>>;
                     try {
                         handoff = await m.handoff(RECIPE, [...MUXR, 'pair', '--handoff'], { prefix: 'muxr-pair-', timeoutMs: 180_000 });
                     } catch (cause) {
                         detail = cause instanceof Error ? cause.message : String(cause);
-                        await sleep(5_000);
+                        await sleep(1_500);
                         continue;
                     }
                     const done = handoff.done.catch((cause) => ({ code: 1, stdout: '', stderr: String(cause), timedOut: false }));
@@ -157,7 +159,7 @@ export async function deployBoatComputer(o: {
                     }
                     if (offer === undefined) {
                         detail = (await done).stderr.trim().slice(-300) || detail;
-                        await sleep(5_000);
+                        await sleep(1_500);
                         continue;
                     }
                     const { wordsFile } = offer;
