@@ -291,6 +291,16 @@ export function desktopPortalBusy(restartCommand: string): string {
     return `${PORTAL_BUSY_PREFIX}${restartCommand}`;
 }
 
+/**
+ * The `desktop.open` refusal for a computer whose screen-sharing service runs
+ * without screen sharing: it started before the desktop session named itself,
+ * so it never took on the desktop's own backend, and restarting that backend
+ * does not help. Restarting the service itself does. The phone matches it
+ * exactly to show that command with Copy.
+ */
+export const DESKTOP_PORTAL_RESTART = 'systemctl --user restart xdg-desktop-portal';
+export const DESKTOP_PORTAL_WITHOUT_DESKTOP = `Screen sharing on the computer started before the desktop was ready, so it has no screen to share. To clear it, run: ${DESKTOP_PORTAL_RESTART}`;
+
 /** The restart command in a `desktopPortalBusy` refusal, or undefined for any other message. */
 export function desktopPortalRestartCommand(message: string): string | undefined {
     if (!message.startsWith(PORTAL_BUSY_PREFIX)) return undefined;

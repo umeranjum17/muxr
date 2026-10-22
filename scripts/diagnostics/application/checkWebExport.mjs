@@ -188,7 +188,8 @@ if (!existsSync(distIndex)) {
     // dependency tree (cytoscape, @mermaid-js/parser, d3, lodash) can be hoisted
     // into an eager chunk (guarded below).
     // The Session view setting (screen, saved choices, chat request schema) adds about 740 B to the eager entry in CI's measure (1,777,483 B).
-    const USABLE_GZIP_CEILING = 1778500;
+    // The Computer view's portal-without-desktop wording measures 1,778,596 B in CI.
+    const USABLE_GZIP_CEILING = 1779600;
     check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,
@@ -196,10 +197,10 @@ if (!existsSync(distIndex)) {
     // only a sliver of shared shell code.
     const commonRef = refs.find((ref) => ref.includes('__common'));
     const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
-    // Ratchet, not target: this head's export measured here is 3,591 B (the
+    // Ratchet, not target: this head's export measured here is 3,657 B (the
     // desktop copy shared by the Computer view and the preview chip, which
-    // gained the portal-busy wording), pinned at that figure x1.005 (3,609 B).
-    check('dist __common chunk ratchet', commonGzip <= 3609, `${commonGzip} bytes`);
+    // gained the portal-without-desktop wording), pinned at that figure x1.005 (3,675 B).
+    check('dist __common chunk ratchet', commonGzip <= 3675, `${commonGzip} bytes`);
     const refTexts = refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';
