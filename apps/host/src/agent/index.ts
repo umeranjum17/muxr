@@ -49,3 +49,5 @@ export { labHerdrSocket } from './infrastructure/herdrKitClient.js';
 export { assertFakeSourceCoversContract, createFakeSessionSource } from './infrastructure/fakeSessionSource.js';
 export { TerminalManager, type TerminalManagerOptions, type TerminalOpenOptions } from './infrastructure/terminalManager.js';
 export { VoiceStreamManager } from './infrastructure/voiceStreamManager.js';
+export { ChatTranscripts, type ChatConversation } from './infrastructure/chatTranscript.js';
+export { chatMessagesFrom } from './domain/chatMessages.js';

@@ -15,7 +15,7 @@ import type {
 } from '@trymuxr/contract';
 import { machineHello, sanitizeRequestErrorMessage } from '@trymuxr/contract';
 import type { AgentWatchStores, SessionSource, TerminalManager } from '../../agent/index.js';
-import { changesBrowse, changesList, changesPatch, changesWorktrees } from '../../agent/index.js';
+import { ChatTranscripts, changesBrowse, changesList, changesPatch, changesWorktrees } from '../../agent/index.js';
 import { filesList, filesRead, filesRepos } from '../../files/index.js';
 import { historyLog, historyShow } from '../../files/index.js';
 import { presentAttachmentItems } from '../../attachments/index.js';
@@ -114,7 +114,7 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     // The pre-rename spellings are the same read-only calls.
     'attachment.list', 'attachment.fetch', 'attachment.read',
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'machine.hello',
-    'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
+    'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch', 'chat.read',
     'files.repos', 'files.list', 'files.read', 'history.log', 'history.show',
     'promptAttachments.list',
     'usage.report', 'usage.now',
@@ -258,6 +258,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         return tab;
     };
 
+    const chat = new ChatTranscripts();
+
     const handlers: { [K in NonPeerRequestType]: Handler<K> } = {
         'session.list': async (params) => {
             const listed = await listAgents(source, params.cwd === undefined ? {} : { cwd: params.cwd });
@@ -265,6 +267,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             if (options.devicePreviewForPane !== undefined) return withPreview(listed.data, options.devicePreviewForPane);
             return useCaseData(listed);
         },
+        'chat.read': async (params) => chat.read(await source.conversation?.(params.sessionId), params.revision),
         'changes.list': async (params) => changesList(await changesInput(params.sessionId, params.root)),
         'changes.browse': async (params) => changesBrowse({
             ...(await changesInput(params.sessionId, params.root)),

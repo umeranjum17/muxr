@@ -167,6 +167,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/session-view"
+                options={{
+                    headerTitle: 'Session view',
+                }}
+            />
+            <Stack.Screen
                 name="settings/voice"
                 options={{
                     headerTitle: 'Voice & dictation',

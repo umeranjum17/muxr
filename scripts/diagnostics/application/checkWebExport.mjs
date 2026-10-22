@@ -187,7 +187,8 @@ if (!existsSync(distIndex)) {
     // export's own /mermaid.min.js when a diagram renders, so none of its
     // dependency tree (cytoscape, @mermaid-js/parser, d3, lodash) can be hoisted
     // into an eager chunk (guarded below).
-    const USABLE_GZIP_CEILING = 1776745;
+    // The Session view setting (screen, saved choices, chat request schema) adds about 740 B to the eager entry in CI's measure (1,777,483 B).
+    const USABLE_GZIP_CEILING = 1778500;
     check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,

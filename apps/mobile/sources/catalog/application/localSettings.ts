@@ -49,6 +49,9 @@ export const LocalSettingsSchema = z.object({
     // default rather than taking every other device setting down with it.
     terminalSwipeFingers: z.enum(['one', 'two', 'off']).catch('one').describe('How many fingers a sideways swipe on a terminal uses to switch agents, or off'),
     terminalSwipeScope: z.enum(['working', 'all']).catch('working').describe('Which agents a terminal swipe stops at'),
+    sessionView: z.enum(['terminal', 'chat', 'phone']).catch('terminal').describe('Which view an agent opens in: terminal, chat, or chat on a phone and terminal on a larger screen'),
+    // A choice made with the chat/terminal toggle in an agent's header, by agent route; it outranks sessionView for that agent.
+    paneViews: z.record(z.string(), z.enum(['chat', 'terminal'])).catch({}).describe('Per-agent chat or terminal choice, by agent route'),
     terminalPinchZoom: z.boolean().catch(true).describe('Whether pinching a terminal changes its text size'),
     // Only the colour slots this device changed; the terminal reads them
     // through cleanTerminalColorOverrides, which drops anything malformed.
@@ -105,6 +108,8 @@ export const localSettingsDefaults: LocalSettings = {
     terminalSwipeFingers: 'one',
     terminalSwipeScope: 'working',
     terminalPinchZoom: true,
+    sessionView: 'terminal',
+    paneViews: {},
     terminalColors: {},
     darkSurfaces: 'seamless',
     desktopOpenedBefore: false,
