@@ -22,14 +22,22 @@ assets, commit the receipt and result, then run `promoteLatest.mjs`.
 
 ## Driving it with the private stack
 
+The stable APK carries only `arm64-v8a` libraries: on an x86_64 emulator it
+installs and then crashes at launch (`couldn't find DSO to load:
+libreactnative.so`). Drive a stable APK on an arm64 device (the test phone
+a4b93ea2 under its keeper lock, with `PHONE_USE_INSTALLED=1` when it already
+runs that exact APK: the journey hashes the APK on the device and records that
+digest), and keep the emulator for builds that include x86_64. The gate keys on
+the APK digest, not on the device.
+
 Preconditions: an authorized Herdr lab (`HERDR_LAB_HELPER`, a 2-char label
 such as `rj` with `FM_HERDR_LAB_STATE_DIR=/tmp/rj`, provisioned before the run
 with `HERDR_LAB_PREPROVISIONED=1`), a task-owned emulator under the shared
 emulator lock, and the release's assets:
 `gh release download v<v> --pattern '*.apk' --pattern '*.tgz' --pattern release-manifest.json`.
 
-1. Boot the AVD (`bootOwnedEmulator` in `perf/lib/androidEmulator.mjs`, launcher `nice -n 10`).
-2. `PHONE_SERIAL=<emulator> PHONE_APK=<apk> PHONE_PACKAGE=<tgz> PHONE_ATTACH_ROOT=$(mktemp -d ~/.cache/fms/rj.XXXX) MUXR_LAB_MACHINE_NAME='Umer lab' done-done run phone-attach`.
+1. Boot an AVD for an x86_64 build (`bootOwnedEmulator` in `perf/lib/androidEmulator.mjs`, launcher `nice -n 10`), or take the phone's keeper lock (`fm-device-lock.sh a4b93ea2 <one command for the whole run>`).
+2. `PHONE_SERIAL=<serial> PHONE_APK=<apk> (or PHONE_USE_INSTALLED=1) PHONE_PACKAGE=<tgz> PHONE_ATTACH_ROOT=$(mktemp -d ~/.cache/fms/rj.XXXX) MUXR_LAB_MACHINE_NAME='Umer lab' done-done run phone-attach`.
    The tarball is installed with `npm install --prefix <root>/pkg --ignore-scripts`; the lab runs its `relay.js` and `host.js` (`MUXR_LAB_PACKAGE_DIR`).
 3. Read `release-build.json` in the run's evidence folder: `result: pass`, every step `pass`, `hosts: 1`, `timings.attachMs` and `timings.scrollMs`.
 4. `done-done receipt --outcome "<claim>" <captures> <evidence>/release-build.json`, then commit the receipt at `.done-done-receipts/<head>.json` and the result at `.done-done-receipts/builds/<v>.json`.
@@ -40,6 +48,8 @@ Flow test: `scripts/release/checkJourneyReceipt.spec.mjs` (no result, another AP
 ## Gotchas
 
 - npm 12 answers `npm view <pkg>@<v> <field> --json` with a one-element array; the registry readers unwrap it. Before that fix every local promotion read "published from different bytes".
+- `dumpsys input_method` runs past a megabyte on the test phone: read only `mInputShown` on the device.
+- Baseline (0.2.10, test phone, 22 Oct): first attach 9.7-11.5 s, scroll 2.3 s back and 3.7 s forward, one host after Usage.
 - Usage opens from the terminal's `Pane actions` menu; a dump with no `Terminal surface` and a `Usage` node is the Usage screen.
 - The scroll uses 60 ms swipes (flings); a slow swipe is a long-press selection, not a scroll.
 - Captures skip any screen with the computer's own name; `MUXR_LAB_MACHINE_NAME` keeps the real hostname off the phone.

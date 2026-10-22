@@ -22,16 +22,17 @@ export const RELEASE_JOURNEY = 'phone-attach';
 export const RELEASE_STEPS = ['pair', 'attach', 'send', 'scroll', 'usage', 'one-host'];
 
 /**
- * Time budgets, in milliseconds, measured on a task-owned emulator
- * (swiftshader, 2 cores, 2 GB) driving the 0.2.10 release build and set at
- * about twice that baseline so emulator jitter passes and a wedge does not:
+ * Time budgets, in milliseconds, set at about twice the slowest baseline the
+ * journey measured on the 0.2.10 stable build (the exact APK, sha256
+ * fbdd5ae7…, on the arm64 test phone, host from the 0.2.10 tarball, 22 Oct),
+ * so device jitter passes and a wedge does not:
  * - `attachMs`: tapping the agent on Home until the terminal shows and the
- *   host logged a new terminal stream (baseline 3.1 s).
+ *   host logged a new terminal stream (baseline 9.7 s and 11.5 s).
  * - `scrollMs`: the slower of a fast fling back into history until the phone
  *   offers Latest, and a fast fling forward until it is back at the newest
- *   output (baseline 2.4 s).
+ *   output (baseline 2.3 s back, 3.7 s forward).
  */
-export const RELEASE_BUDGETS = Object.freeze({ attachMs: 8_000, scrollMs: 6_000 });
+export const RELEASE_BUDGETS = Object.freeze({ attachMs: 23_000, scrollMs: 7_500 });
 
 /** Where a release commits the journey result for one version. */
 export const buildResultPath = (version) => `${RECEIPT_DIR}/builds/${version}.json`;
