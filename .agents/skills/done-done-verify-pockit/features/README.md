@@ -401,8 +401,11 @@ rules, with no H2 sections.
   normal font scale is unchanged.
 - [Keep the terminal key row and prompt field inside their rows at large font](./terminal-keyrow-font-scale.md) —
   native app over a private stack: every key stays reachable and the prompt
-  placeholder stays in the rail at Android font scale 2.0; at normal scale the
-  row fits the screen width.
+  placeholder stays in the rail at Android font scale 2.0.
+- [Terminal keys and the quick-actions control are 48 dp targets](./terminal-key-targets.md) —
+  release APK over the fake stack (`keyRowLab.mjs`): every key and the
+  quick-actions control measure 48 dp in the dump, with the control clear of
+  the tabs, at 390 and 270 dp, light and dark, and 2x text.
 - [Answer an agent's folder-trust question in one tap](./agent-trust-answers.md) —
   release APK and PWA over a guarded real-Herdr lab with a real, untrusted
   Claude Code: unnumbered choices as chips, timed trust step before/after, and

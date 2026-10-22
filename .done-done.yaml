@@ -80,6 +80,15 @@ journeys:
   pane-switcher:
     command: node .agents/skills/done-done-verify-pockit/features/paneSwitcherLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # Terminal key and quick-actions targets on Android: the release app on an
+  # owned emulator, paired to the fake stack (three tabs), measures every key
+  # and the quick-actions control at 48 dp and the control clear of the tabs,
+  # at 390 and 270 dp, light and dark, and 2x text (terminal-key-targets.md).
+  # Runs by hand under the shared emulator lock; MUXR_LAB_APK is a release
+  # build of this commit, MUXR_LAB_AVD_HOME a task-owned emulator home.
+  key-targets:
+    command: node .agents/skills/done-done-verify-pockit/features/keyRowLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # Phone-side history in a fullscreen Claude Code pane on Android: the release
   # app fresh-paired to the Latest lab, then a slow drag back, a fling back and
   # Latest, each screen's visible MARK range in proof.log (terminal-latest.md,
