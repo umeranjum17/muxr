@@ -169,7 +169,7 @@ rules, with no H2 sections.
 - [Read a Claude or Pi agent as a chat, and switch it with the terminal](./chat-view.md) —
   real Claude and Pi panes in a Herdr lab session, paired PWA at 390 px: bubbles, the running
   line with Stop, the needs-you card into the terminal, and the Settings default; or, without
-  Herdr, `chatFakeLab.mjs` (fake stack, seeded Claude log) for the look and the tool chips on
+  Herdr, `chatFakeLab.mjs` (fake stack, seeded Claude log) for the look and the tool steps on
   the PWA and a lab-id APK on an emulator.
 - [Show one needs-you count on the app, the favicon and the PWA icon](./needs-you-count.md) —
   private fake stack with a lab-only `lab.set_agent_status`: blocked, failed and

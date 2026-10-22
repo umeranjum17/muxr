@@ -18,6 +18,19 @@ const VERB: Record<ChatToolKind, string> = {
     edit: 'Edited', write: 'Created', read: 'Read', list: 'Listed', search: 'Searched', run: 'Ran',
     fetch: 'Opened', web: 'Searched the web', helper: 'Helper', plan: 'Plan', ask: 'Asked you', tool: 'Used',
 };
+/**
+ * The theme a reply mounted in. A row or peek opened later mounts after the
+ * screen's `ScopedTheme` has closed, so its own `useUnistyles` would read the
+ * app's theme: dark text on the dark chat in the light app theme.
+ */
+const MountTheme = React.createContext<ReturnType<typeof useUnistyles>['theme'] | null>(null);
+
+function useChatTheme(): ReturnType<typeof useUnistyles>['theme'] {
+    const mounted = React.useContext(MountTheme);
+    const { theme } = useUnistyles();
+    return mounted ?? theme;
+}
+
 const PATH_KINDS = new Set<ChatToolKind | undefined>(['edit', 'write', 'read', 'list']);
 const MONO_KINDS = new Set<ChatToolKind | undefined>(['edit', 'write', 'read', 'list', 'search', 'run']);
 
@@ -33,34 +46,41 @@ function verbOf(tool: ChatTool): string {
 }
 
 function Glyph({ kind }: { kind: ChatToolKind | undefined }): React.JSX.Element {
-    const { theme } = useUnistyles();
+    const theme = useChatTheme();
     return (
-        <View style={{ width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider }}>
+        // Decorative: the row's label already says what the step was.
+        <View aria-hidden style={{ width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider }}>
             <Octicons name={kind === undefined ? 'gear' : GLYPH[kind]} size={14} color={theme.colors.textSecondary} />
         </View>
     );
 }
 
 /**
- * Mono text cut in the middle: the head gives way first, so a file's name
- * and a command's last words stay in view. Two texts, because only the tail
- * mode of `ellipsizeMode` works on the web.
+ * Mono text cut in the middle so its end stays in view: a file shows its name
+ * (the peek's caption has the whole path) down to its extension, a command
+ * its last words. Two texts, because only the tail mode of `ellipsizeMode`
+ * works on the web.
  */
 function MiddleText({ text, path, color }: { text: string; path: boolean; color: string }): React.JSX.Element {
-    const split = path ? text.lastIndexOf('/') + 1 : Math.max(0, text.length - 12);
     const style = { color, fontSize: 13.5, ...Typography.mono() };
-    if (split === 0) return <Text numberOfLines={1} style={[style, { flexShrink: 1, minWidth: 0 }]}>{text}</Text>;
+    const shown = path ? text.slice(text.lastIndexOf('/') + 1) : text;
+    // A file keeps its extensions (`.test.ts`), a command its last word when short; a short target never splits.
+    const space = shown.lastIndexOf(' ');
+    const dot = shown.split('').findIndex((char, index) => char === '.' && index > 0 && shown.length - index <= 12);
+    const split = shown.length <= 16 ? 0 : path && dot > 0 ? dot : !path && space > 0 && shown.length - space <= 18 ? space : shown.length - 10;
+    if (split === 0) return <Text numberOfLines={1} style={[style, { flexShrink: 1, minWidth: 0 }]}>{shown}</Text>;
     return (
         <View style={{ flexDirection: 'row', flexShrink: 1, minWidth: 0 }}>
-            <Text numberOfLines={1} style={[style, { flexShrink: 1000, minWidth: 0 }]}>{text.slice(0, split)}</Text>
-            <Text numberOfLines={1} style={[style, { flexShrink: 1, minWidth: 0 }]}>{text.slice(split)}</Text>
+            {/* The head gives way first but keeps a couple of letters and its ellipsis; then the tail. */}
+            <Text numberOfLines={1} style={[style, { flexShrink: 1, minWidth: 28 }]}>{shown.slice(0, split)}</Text>
+            <Text numberOfLines={1} style={[style, { flexShrink: 0.001, minWidth: 0 }]}>{shown.slice(split)}</Text>
         </View>
     );
 }
 
 /** Colour only where it means something: lines added and removed, a failure, a step still running. */
 function Meta({ tool, running }: { tool: ChatTool; running: boolean }): React.JSX.Element | null {
-    const { theme } = useUnistyles();
+    const theme = useChatTheme();
     const small = { fontSize: 12.5 };
     if (running) return <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.75 }] }} />;
     if (tool.outcome === 'failed') return <Text style={[small, { color: theme.colors.diff.error }]}>failed</Text>;
@@ -71,7 +91,7 @@ function Meta({ tool, running }: { tool: ChatTool; running: boolean }): React.JS
 }
 
 function Stat({ added, removed }: { added: number; removed: number }): React.JSX.Element {
-    const { theme } = useUnistyles();
+    const theme = useChatTheme();
     return (
         <View style={{ flexDirection: 'row', gap: 5 }}>
             <Text style={{ fontSize: 12.5, color: theme.colors.diff.success }}>+{added}</Text>
@@ -82,7 +102,7 @@ function Stat({ added, removed }: { added: number; removed: number }): React.JSX
 
 /** A tappable row: 44 dp tall, its chevron turning as it opens. */
 function Row({ open, onPress, label, children }: { open: boolean; onPress: () => void; label: string; children: React.ReactNode }): React.JSX.Element {
-    const { theme } = useUnistyles();
+    const theme = useChatTheme();
     return (
         <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ expanded: open }}
             style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 2, borderRadius: 10, backgroundColor: pressed ? theme.colors.surfaceHigh : 'transparent' })}>
@@ -94,7 +114,7 @@ function Row({ open, onPress, label, children }: { open: boolean; onPress: () =>
 
 /** Diff lines in the code panel's colours, numbered from the hunk headers Claude's own patch carries. */
 export function DiffLines({ lines }: { lines: string[] }): React.JSX.Element {
-    const { theme } = useUnistyles();
+    const theme = useChatTheme();
     const code = theme.colors.code;
     let oldLine = 0;
     let newLine = 0;
@@ -126,7 +146,7 @@ export function DiffLines({ lines }: { lines: string[] }): React.JSX.Element {
 }
 
 function Panel({ caption, footer, children }: { caption?: React.ReactNode; footer?: React.ReactNode; children: React.ReactNode }): React.JSX.Element {
-    const { theme } = useUnistyles();
+    const theme = useChatTheme();
     const code = theme.colors.code;
     return (
         <View style={{ backgroundColor: code.surface, borderWidth: 1, borderColor: code.hairline, borderRadius: 10, overflow: 'hidden' }}>
@@ -138,7 +158,7 @@ function Panel({ caption, footer, children }: { caption?: React.ReactNode; foote
 }
 
 function FooterLink({ label, onPress }: { label: string; onPress: () => void }): React.JSX.Element {
-    const { theme } = useUnistyles();
+    const theme = useChatTheme();
     return (
         <Pressable onPress={onPress} accessibilityRole="button" hitSlop={4} style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, opacity: pressed ? 0.6 : 1 })}>
             <Text style={{ color: theme.colors.code.number, fontSize: 13 }}>{label} ›</Text>
@@ -148,7 +168,7 @@ function FooterLink({ label, onPress }: { label: string; onPress: () => void }):
 
 /** What a step opens to, in place: its diff, its output, its checklist, or its whole target. */
 function Peek({ tool, onFullDiff, onOpenTerminal }: { tool: ChatTool; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
-    const { theme } = useUnistyles();
+    const theme = useChatTheme();
     const code = theme.colors.code;
     const dim = { color: code.dim, fontSize: 12.5 };
     if (tool.diff !== undefined && tool.diff.length > 0) {
@@ -192,7 +212,7 @@ function Peek({ tool, onFullDiff, onOpenTerminal }: { tool: ChatTool; onFullDiff
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     <View style={{ padding: 10, paddingVertical: 8 }}>
                         {tool.kind === 'run' && <Text style={[text, { color: code.text }]}>$ {tool.detail}</Text>}
-                        {tool.output.map((line, index) => <Text key={index} style={[text, { color: tool.outcome === 'failed' ? code.removedMark : code.dim }]}>{line}</Text>)}
+                        {tool.output.map((line, index) => <Text key={index} style={[text, { color: code.dim }]}>{line}</Text>)}
                     </View>
                 </ScrollView>
             </Panel>
@@ -202,7 +222,7 @@ function Peek({ tool, onFullDiff, onOpenTerminal }: { tool: ChatTool; onFullDiff
 }
 
 function Step({ tool, running, onFullDiff, onOpenTerminal }: { tool: ChatTool; running: boolean; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
-    const { theme } = useUnistyles();
+    const theme = useChatTheme();
     const narrow = useWindowDimensions().width < NARROW;
     const [open, setOpen] = React.useState(false);
     const target = targetOf(tool);
@@ -212,7 +232,8 @@ function Step({ tool, running, onFullDiff, onOpenTerminal }: { tool: ChatTool; r
             <Row open={open} onPress={() => setOpen(!open)} label={`${verbOf(tool)} ${target}${running ? ', running' : tool.outcome === 'failed' ? ', failed' : ''}`}>
                 <Glyph kind={tool.kind} />
                 <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-                    <Text numberOfLines={1} style={{ flexShrink: 0, color: theme.colors.textSecondary, fontSize: 14.5 }}>{verbOf(tool)}</Text>
+                    {/* Narrow, a file or command needs the room: its icon already says the kind. */}
+                    {!(narrow && mono) && <Text numberOfLines={1} style={{ flexShrink: 0, color: theme.colors.textSecondary, fontSize: 14.5 }}>{verbOf(tool)}</Text>}
                     {mono
                         ? <MiddleText text={target} path={PATH_KINDS.has(tool.kind)} color={theme.colors.text} />
                         : <Text numberOfLines={1} style={{ flexShrink: 1, minWidth: 0, color: theme.colors.text, fontSize: 14.5 }}>{target}</Text>}
@@ -240,7 +261,7 @@ function summaryOf(tools: ChatTool[]): string {
     if (count(['helper']) > 0) parts.push('used a helper');
     const rest = tools.length - count(['edit', 'write', 'read', 'list', 'search', 'web', 'run', 'fetch', 'helper']);
     if (rest > 0) parts.push(plural(rest, 'other step'));
-    const shown = parts.slice(0, 3).join(', ') + (parts.length > 3 ? ` +${parts.length - 3}` : '');
+    const shown = parts.slice(0, 3).join(', ') + (parts.length > 3 ? `, ${parts.length - 3} more` : '');
     return shown.charAt(0).toUpperCase() + shown.slice(1);
 }
 
@@ -249,8 +270,14 @@ function summaryOf(tools: ChatTool[]): string {
  * that opens in place. `live` is the newest reply of an agent still working:
  * its unanswered calls are the ones running.
  */
-export function ChatSteps({ tools, live, ink, onFullDiff, onOpenTerminal }: { tools: ChatTool[]; live: boolean; ink: string; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
+export function ChatSteps(props: { tools: ChatTool[]; live: boolean; ink: string; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
+    // Read here, where the reply mounts inside the screen's dark scope.
     const { theme } = useUnistyles();
+    return <MountTheme.Provider value={theme}><Steps {...props} /></MountTheme.Provider>;
+}
+
+function Steps({ tools, live, ink, onFullDiff, onOpenTerminal }: { tools: ChatTool[]; live: boolean; ink: string; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
+    const theme = useChatTheme();
     const narrow = useWindowDimensions().width < NARROW;
     const [open, setOpen] = React.useState(false);
     const running = (tool: ChatTool) => live && tool.outcome === undefined;
@@ -265,13 +292,13 @@ export function ChatSteps({ tools, live, ink, onFullDiff, onOpenTerminal }: { to
     return (
         <View>
             <Row open={open} onPress={() => setOpen(!open)} label={`${tools.length} steps. ${summary}`}>
-                <View style={{ flexDirection: 'row' }}>
+                <View aria-hidden style={{ flexDirection: 'row' }}>
                     {kinds.map((kind, index) => (
                     // The chat's own ink rings each icon so the overlap reads as a stack.
                     <View key={index} style={{ marginLeft: index === 0 ? -2 : -11, zIndex: kinds.length - index, padding: 2, borderRadius: 10, backgroundColor: ink }}><Glyph kind={kind} /></View>
                 ))}
                 </View>
-                <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: theme.colors.text, fontSize: 14.5 }}>{summary}</Text>
+                <Text numberOfLines={3} style={{ flex: 1, minWidth: 0, color: theme.colors.text, fontSize: 14.5, lineHeight: 20 }}>{summary}</Text>
                 {current !== undefined
                     ? <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.75 }] }} />
                     : failed

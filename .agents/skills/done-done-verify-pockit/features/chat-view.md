@@ -2,8 +2,9 @@
 
 A paired phone can open a Claude or Pi agent as a chat: your messages in grey
 bubbles on the right, the agent's replies as plain text across the column
-(Markdown drawn), the tools each reply used as chips ("Read a file ›") that open
-what the call was about, a running line with the agent's current task, the
+(Markdown drawn), the tools each reply used as step rows (an icon per kind and
+the real target: `Edited src/checkout/shipping.ts +1 −1`, `Ran yarn test`) that
+open in place to a peek, several in one reply folded into one row, a running line with the agent's current task, the
 model it runs, and the normal composer ("Reply to Claude", attach, mic, a blue
 send, and a stop button while it works). The header reads "‹ Agents", the
 agent's status dot and its task; below 340 dp of text width the back is a bare
@@ -24,9 +25,20 @@ are not part of it.
   replies; thinking, tool results, sidechains, slash-command bookkeeping,
   background-task notices and `[Request interrupted by user…]` never do.
 - `chat-tools` each reply's tool calls (Claude `tool_use`, Pi `toolCall`) ride
-  on it as chips in words (`chatMessages.ts` `TOOL_VERBS`; an MCP tool reads
-  `Used <its name>`); a tap opens a sheet with the path, command or pattern. A
-  reply that only ran tools shows its chips alone. Each chip is a 44 dp target.
+  on it as steps (`chatMessages.ts` `TOOL_KINDS`, drawn by `ChatSteps.tsx`): one
+  grey Octicon per kind, the verb, the target in mono cut in the middle so a
+  file's name stays (a path inside the agent's folder reads from there), and
+  colour only for meaning (`+N` green, `−N` red, `failed`, a check for a command
+  that passed, a spinner for an unanswered call in the newest reply of a working
+  agent). One call is its own row; two or more fold into one row ("Edited 1
+  file, ran 1 command  +1 −1") that opens in place. A tap on a step peeks in
+  place: an edit's first 8 diff lines (numbered from Claude's own
+  `toolUseResult.structuredPatch`, from the edit's arguments for Pi) then `Full
+  diff ›` (a sheet with every line the host sent, at most 40); a command's last 6
+  output lines with `Exit N` and `Open terminal ›`; a search's matches; a read's
+  first lines; a plan's checklist. Results are matched to calls by id (Claude
+  `tool_result`, Pi `toolResult`). An older host's steps (no `kind`) draw a gear
+  and their old words. Every row is a 44 dp target.
 - `chat-toggle` the header's chat/terminal pair switches per agent and is
   remembered; an agent without a chat (Codex, OpenCode, a shell) keeps the
   terminal and its chat button dimmed.
@@ -86,7 +98,7 @@ muxr.naming --token provider=claude --token "model=Sonnet 5.5"` through the help
 
 When the task may not drive Herdr, `chatFakeLab.mjs` runs the fake-Herdr stack
 (real relay, host and E2EE) with a Claude conversation seeded where the host
-reads Claude logs, so `chat.read`, the bubbles and the tool chips are the real
+reads Claude logs, so `chat.read`, the bubbles and the tool steps are the real
 code paths; only the agents are fake (Pi and Claude, both idle). It drops
 `CLAUDE_CONFIG_DIR`, the other harness dirs and `XDG_*_HOME` from its env so the
 host never finds the person's own logs. Run it from the repo root after
@@ -96,8 +108,10 @@ host never finds the person's own logs. Run it from the repo root after
 port onto that emulator. Native: install a lab-id release APK (perf/README),
 `pm clear` it, open `muxr-dev://pair#<native link>` with an explicit component
 and tap Pair; dismiss Home's notification card and scroll before tapping the
-Claude row (the Home composer covers the bottom). Open it, tap Chat view, tap a
-chip for the sheet, type in the composer for the blue send. Capture at 390 dp
+Claude row (the Home composer covers the bottom). Open it, tap Chat view; the seeded replies show a read/search group, an
+edit+test group and a five-step group whose last command failed. Tap a group to
+open it, a step to peek, `Full diff ›` for the sheet, the group again to fold it;
+type in the composer for the blue send. Capture at 390 dp
 (1080 px at density 443) and 270 dp (density 640), dark and light.
 
 ## Gotchas
