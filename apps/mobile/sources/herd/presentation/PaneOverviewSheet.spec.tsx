@@ -9,6 +9,7 @@ vi.mock('react-native', () => ({
     ScrollView: 'ScrollView',
     Platform: { OS: 'ios', select: (options: Record<string, unknown>) => options.ios },
     StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 1 },
+    useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1 }),
 }));
 vi.mock('react-native-unistyles', () => ({
     useUnistyles: () => ({ theme: {

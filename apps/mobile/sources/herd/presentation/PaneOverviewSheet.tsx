@@ -10,7 +10,7 @@
  */
 
 import * as React from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { HerdrTreePane } from '@trymuxr/contract';
@@ -134,6 +134,8 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
     const [pending, setPending] = React.useState<ReadonlySet<string>>(() => new Set());
     const [splitDirection, setSplitDirection] = React.useState<'right' | 'down' | null>(null);
     const [gridWidth, setGridWidth] = React.useState(0);
+    // At a large text size Spaces keeps only its icon, so the workspace name is never cut to an ellipsis.
+    const spacesWord = useWindowDimensions().fontScale < 1.3;
 
     // Fresh tree on open, back on this pane's own tab.
     React.useEffect(() => {
@@ -240,8 +242,8 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                 accessibilityLabel="Spaces, every workspace"
                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, opacity: pressed ? 0.6 : 1 })}
             >
-                <Ionicons name="albums-outline" size={16} color={theme.colors.textLink} />
-                <Text style={{ ...Typography.default('semiBold'), fontSize: 15, color: theme.colors.textLink }}>Spaces</Text>
+                <Ionicons name="albums-outline" size={spacesWord ? 16 : 20} color={theme.colors.textLink} />
+                {spacesWord && <Text style={{ ...Typography.default('semiBold'), fontSize: 15, color: theme.colors.textLink }}>Spaces</Text>}
             </Pressable>
             <Pressable onPress={close} accessibilityRole="button" accessibilityLabel="Done" style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 8, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                 <Text style={{ ...Typography.default('semiBold'), fontSize: 15, color: theme.colors.textLink }}>Done</Text>
