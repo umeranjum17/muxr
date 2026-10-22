@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
 import type { EngineCapabilities, EngineEvent, SourceRequest } from '@desklink/host';
-import { DESKTOP_CONSENT_WAIT_MS, DESKTOP_LOOPBACK_TCP, DESKTOP_NO_PICTURE, desktopPortalBusy } from '@trymuxr/contract';
+import { DESKTOP_CONSENT_WAIT_MS, DESKTOP_LOOPBACK_TCP, DESKTOP_NO_PICTURE, DESKTOP_PORTAL_WITHOUT_DESKTOP, desktopPortalBusy } from '@trymuxr/contract';
 import type { DesktopCapabilities, DesktopEvent, DesktopIceServer, DesktopPermission, DesktopSurfaceGeometry } from '@trymuxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
@@ -378,11 +378,13 @@ export class DesktopSessions {
                 existing.events.push({ kind: 'revoked', reason: 'another device opened this computer' });
             }
         }).catch(async (error: unknown) => {
-            this.options.onDiagnostic?.(`desktop open failed after ${Date.now() - started} ms: ${(error as { code?: unknown }).code ?? 'error'}`);
+            // The engine's own reason: the code alone left a refusal that never
+            // reached the portal backend undiagnosable from the host log.
+            this.options.onDiagnostic?.(`desktop open failed after ${Date.now() - started} ms: ${(error as { code?: unknown }).code ?? 'error'}${error instanceof Error ? ` (${error.message})` : ''}`);
             this.earnedGrant = undefined;
             this.opening -= 1;
             await this.stopIfIdle();
-            throw error;
+            throw portalWithoutScreenCast(error) ? new EngineRefused('portal-busy', DESKTOP_PORTAL_WITHOUT_DESKTOP) : error;
         });
         this.options.onDiagnostic?.(`desktop open: engine opened in ${Date.now() - started} ms`);
         this.saveGrant(opened.sessionId);
@@ -701,6 +703,19 @@ function engineSessionIdOf(event: EngineEvent): string | undefined {
  */
 function captureNeverStarted(error: unknown): boolean {
     return error instanceof EngineRefused && error.code === 'source' && error.message.startsWith('capture ');
+}
+
+/**
+ * A running portal frontend that offers no ScreenCast at all. Measured: one
+ * started without `XDG_CURRENT_DESKTOP` (activated before the session exported
+ * it) never binds the desktop's backend, so the engine is refused in a few
+ * milliseconds and the backend sees no call; restarting the backend changes
+ * nothing, restarting the frontend fixes it. No frontend at all fails later,
+ * at CreateSession, with other words.
+ */
+function portalWithoutScreenCast(error: unknown): boolean {
+    return error instanceof EngineRefused && error.code === 'source'
+        && error.message.includes('A portal frontend implementing `org.freedesktop.portal.ScreenCast` was not found');
 }
 
 function toDesktopEvent(event: { event: string; params: Record<string, unknown> }): DesktopEvent | null {
