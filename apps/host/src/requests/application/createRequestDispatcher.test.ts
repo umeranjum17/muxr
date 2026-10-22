@@ -7,6 +7,8 @@ import { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure } from '@trymuxr/cont
 import { createRequestDispatcher } from './createRequestDispatcher.js';
 import { runInProcessGroup } from '../../platform/processGroup.js';
 import { agentToolPath, createFakeSessionSource, type SessionSource } from '../../agent/index.js';
+import type { SessionStopOptions } from '../../agent/application/sessionSource.js';
+import { closeAgent } from '../../agent/infrastructure/agentClose.js';
 import { hostPlatformLabel } from '../../machine/index.js';
 import { HerdrKit, agentInstallState } from '@byokit/herdr';
 import { AgentCatalog } from './agentCatalog.js';
@@ -729,12 +731,20 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
                     return { info };
                 },
                 async list() { return sessions.map((session) => ({ ...session })); },
-                async stop(id: string) {
+                // Herdr opens each sign-in tab as the only tab of its own workspace, so its
+                // close goes through the real ladder up to that workspace.
+                async stop(id: string, options: SessionStopOptions) {
                     if (closeUnavailable) return { status: 'retryable', message: 'Try again.' };
-                    stopped.push(id);
-                    const at = sessions.findIndex((session) => session.id === id);
-                    if (at >= 0) sessions.splice(at, 1);
-                    return { status: 'closed' };
+                    const widen = (code: string, wider: string) => Object.assign(new Error(code), { code, id: wider, label: 'Sign in' });
+                    return closeAgent({ paneId: id, ...options, call: async () => ({ panes: [], tabs: [], workspaces: [] }), kit: {
+                        async closePane() { throw widen('pane-close-would-widen', `tab-of-${id}`); },
+                        async closeTab() { throw widen('tab-close-would-widen', `workspace-of-${id}`); },
+                        async closeWorkspace() {
+                            stopped.push(id);
+                            const at = sessions.findIndex((session) => session.id === id);
+                            if (at >= 0) sessions.splice(at, 1);
+                        },
+                    } });
                 },
             } as unknown as SessionSource;
             const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
@@ -778,6 +788,13 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             expect(closedTab).toMatchObject({ ok: true, data: { failure: 'The sign-in tab was closed before you signed in.' } });
             await dispatch({ type: 'plans.cancel', requestId: 'c2', params: { accountId: 'pa_s' } });
             expect(stopped).toEqual(['tab-1', 'tab-2']);
+
+            // A finished sign-in closes its tab, so the add moves on to the signed-in account.
+            expect(await dispatch({ type: 'plans.add', requestId: 'a5', params: { provider: 'claude', accountId: 'pa_s' } })).toMatchObject({ ok: true });
+            execFileSync('sh', [lastStart.planEnv!.MUXR_PLAN_SIGNIN!]);
+            expect(await dispatch({ type: 'plans.status', requestId: 's3', params: { accountId: 'pa_s' } }))
+                .toMatchObject({ ok: true, data: { account: { signedIn: true } } });
+            expect(stopped).toEqual(['tab-1', 'tab-2', 'tab-4']);
 
             // A launch that fails after creating the record leaves no phantom behind.
             let failedStarts = 0;
