@@ -47,6 +47,7 @@ export { openTerminal, closeTerminal } from './application/openTerminal.js';
 export { agentToolPath, createHerdrSessionSource, type CreateHerdrSessionSourceOptions } from './infrastructure/herdrSessionSource.js';
 export { labHerdrSocket } from './infrastructure/herdrKitClient.js';
 export { assertFakeSourceCoversContract, createFakeSessionSource } from './infrastructure/fakeSessionSource.js';
+export { closeAgent } from './infrastructure/agentClose.js';
 export { TerminalManager, type TerminalManagerOptions, type TerminalOpenOptions } from './infrastructure/terminalManager.js';
 export { VoiceStreamManager } from './infrastructure/voiceStreamManager.js';
 export { ChatTranscripts, type ChatConversation } from './infrastructure/chatTranscript.js';

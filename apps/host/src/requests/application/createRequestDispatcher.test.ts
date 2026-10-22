@@ -6,9 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure } from '@trymuxr/contract';
 import { createRequestDispatcher } from './createRequestDispatcher.js';
 import { runInProcessGroup } from '../../platform/processGroup.js';
-import { agentToolPath, createFakeSessionSource, type SessionSource } from '../../agent/index.js';
-import type { SessionStopOptions } from '../../agent/application/sessionSource.js';
-import { closeAgent } from '../../agent/infrastructure/agentClose.js';
+import { agentToolPath, closeAgent, createFakeSessionSource, type SessionSource } from '../../agent/index.js';
 import { hostPlatformLabel } from '../../machine/index.js';
 import { HerdrKit, agentInstallState } from '@byokit/herdr';
 import { AgentCatalog } from './agentCatalog.js';
@@ -733,7 +731,7 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
                 async list() { return sessions.map((session) => ({ ...session })); },
                 // Herdr opens each sign-in tab as the only tab of its own workspace, so its
                 // close goes through the real ladder up to that workspace.
-                async stop(id: string, options: SessionStopOptions) {
+                async stop(id: string, options: Parameters<SessionSource['stop']>[1]) {
                     if (closeUnavailable) return { status: 'retryable', message: 'Try again.' };
                     const widen = (code: string, wider: string) => Object.assign(new Error(code), { code, id: wider, label: 'Sign in' });
                     return closeAgent({ paneId: id, ...options, call: async () => ({ panes: [], tabs: [], workspaces: [] }), kit: {
