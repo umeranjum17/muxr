@@ -1,8 +1,12 @@
 # Ask for notifications after pairing and say when they are off
 
-Pairing a computer is the moment muxr asks for the notification permission:
-the first connected Home after a pairing raises the system prompt once, unless
-the system can no longer ask or Not now was chosen. Turning Settings > Notifications > An agent
+muxr asks for the notification permission once a computer has an agent to
+tell you about: the first return to Home after a pairing, with an agent
+running, raises the system prompt once, unless the system can no longer ask or
+Not now was chosen. A newcomer with no agent yet sees neither the prompt nor
+the Home card, so Start your first agent is the only thing in the way (an
+alert has nothing to say before an agent exists, and the first agent opens
+with no modal over it). Turning Settings > Notifications > An agent
 needs you on asks again unless the system says it can no longer ask. While
 notifications are off, Settings > Notifications says alerts cannot reach you,
 and Home says so whenever an agent needs you, with a button that asks or opens
@@ -12,10 +16,14 @@ show none of this.
 
 ## Sub-features
 
-- `ask-after-pairing` a fresh install (`POST_NOTIFICATIONS: granted=false`,
-  never asked) shows the system "Allow muxr to send you notifications?" prompt
-  over Home within seconds of tapping Pair; a cold relaunch of an already paired
-  app does not ask.
+- `ask-after-first-agent` a fresh install (`POST_NOTIFICATIONS: granted=false`,
+  never asked) paired to a computer with no agents shows no prompt after Pair;
+  Home reads Start your first agent. Starting an agent opens it with no modal;
+  Back to Home then raises the system "Allow muxr to send you notifications?"
+  prompt with the "Know when an agent needs you" card behind it. A computer that
+  already has agents asks on the first return to Home; a cold relaunch of an
+  already paired app does not ask. `perf/onboardingTiming.mjs` captures this
+  (`6-back-on-home`).
 - `home-off-card` after Don't allow, Home shows "Know when an agent needs you"
   with Turn on (asks again) and Not now; after a second Don't allow it shows
   Open settings, which opens muxr's App notifications page.

@@ -115,6 +115,10 @@ rules, with no H2 sections.
   `webSecureStore`; the one supported path around the HTTPS-only pair screen,
   absent from production exports, used by the PWA features below.
 
+- [Time install to first agent](./onboarding-timing.md) — release APK(s) on a
+  task-owned emulator over the no-agent fake stack: `node perf/onboardingTiming.mjs`
+  times first screen, link, Pair, Start and the agent composer, base against
+  candidate, with a screenshot per step.
 - [Start the first agent from Home in one tap](./home-first-agent.md) —
   fresh release app paired to the fake-Herdr stack with no agents and a lab
   `claude` stand-in: `Start Claude Code` opens the agent with no picker; signed
@@ -266,9 +270,9 @@ rules, with no H2 sections.
   native release app over a real-Herdr lab with no panes: fresh install,
   Home's Start an agent opens Claude Code and neither notifications modal
   appears in 30 s of 0.5 s screenshots; the Home card still asks.
-- [Ask for notifications after pairing and say when they are off](./notification-permission.md) —
-  native release app over a one-agent fake stack: the prompt right after
-  Pair, Home's off card and its missed-alert form when an agent needs you,
+- [Ask for notifications once an agent exists and say when they are off](./notification-permission.md) —
+  native release app over a one-agent fake stack: the prompt on the first
+  return to Home with an agent (none after Pair), Home's off card and its missed-alert form when an agent needs you,
   the Settings > Notifications hint, no prompt after a permanent denial.
 - [Read the computer name in the Home header](./home-header-name.md) —
   native app over a named fake-Herdr stack: one line with an ellipsis, at

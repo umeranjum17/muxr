@@ -2,7 +2,7 @@
 
 A newcomer who starts their first agent lands straight in it. No "Allow muxr
 notifications?" or "Show live agent updates?" modal covers the new agent: the
-notification permission is asked right after pairing and from the Home card
+notification permission is asked on the first return to Home with an agent running and from the Home card
 "Know when an agent needs you" (see `notification-permission.md`), and
 Settings > Notifications keeps the permission and Android's Live agent updates
 rows for anyone who said Not now.

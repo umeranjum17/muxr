@@ -24,7 +24,7 @@ import { t } from '@/text';
 const carriesPairingOffer = (raw: string) => looksLikeLinkOffer(raw) || /byokit-link:/i.test(raw) || raw.includes('pair=');
 
 // The success state is real, not a flash: it holds long enough to read before Home replaces it.
-const PAIR_SUCCESS_HOLD_MS = 1200;
+const PAIR_SUCCESS_HOLD_MS = 500;
 
 type PairState =
     | { phase: 'confirm'; url: string; machineName: string; linkOffer?: boolean }
