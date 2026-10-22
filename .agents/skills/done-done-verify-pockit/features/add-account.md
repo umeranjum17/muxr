@@ -3,7 +3,7 @@
 Accounts › Add a Claude account › Open Claude sign-in opens Claude's own
 sign-in in a new tab; the person pastes the code into that tab's composer and
 taps Send, and once Claude says it is signed in the host closes the tab and the
-phone moves on to "Name this account", then the Added notice. The host owns the
+phone moves on to "Name this account" and the account joins the list. The host owns the
 tab (`plans.add` / `plans.status` / `closeSignInTab` in
 `apps/host/src/requests/application/createRequestDispatcher.ts`, the script in
 `apps/host/src/plans/planSignIn.ts`); the phone's steps are `AddAccountSheet`,
