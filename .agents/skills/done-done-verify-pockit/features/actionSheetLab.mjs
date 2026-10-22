@@ -235,7 +235,7 @@ try {
         target: { version: `muxr release APK ${JSON.parse(readFileSync(`${opts.apk}.json`, 'utf8')).revision}` },
         start: 'fresh app data on an Android emulator paired to a private lab host (relay + host over fake Herdr, two agents)',
         steps: [
-            'per width (270, 393 dp), text size and theme: on Home open the composer and tap Add attachment',
+            'per width (270, 390 dp), text size and theme: on Home open the composer and tap Add attachment',
             'long-press an agent card on Home',
             'open the agent and long-press its tab chip',
             ...(opts.interact ? ['tap outside the Add attachment sheet', 'swipe the sheet down by its title', 'tap Files'] : []),
