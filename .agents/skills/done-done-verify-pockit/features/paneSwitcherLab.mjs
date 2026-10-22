@@ -192,8 +192,8 @@ try {
     writeFileSync(join(EVIDENCE, 'steps.json'), `${JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: 'release APK freshly installed and paired to a private stack whose workspace has three tabs (4, 4 and 1 panes)',
-        steps: ['open an agent from Home', 'tap the pane counter in its header', 'tap the one-pane tab in the switcher'],
-        result: `the pane switcher at ${CELLS.map((cell) => cell.join('/')).join(', ')} (width dp/font/theme), captured in each cell folder`,
+        steps: ['open an agent from Home', 'tap the pane counter in its header', 'tap the one-pane tab in the switcher', 'repeat at 390 and 270 dp wide, light and dark, and at 2x text'],
+        result: 'the pane switcher as one full-height sheet: the workspace name with Spaces and Done on one row, the tabs scrolling in their own lane below, pane cards each holding a live terminal preview, and a New pane card holding Right and Below',
     }, null, 2)}\n`);
     say('RESULT done');
 } catch (error) {
