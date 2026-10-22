@@ -162,6 +162,9 @@ rules, with no H2 sections.
   Home Screen guide, hidden once installed or with no install path, at 393 and
   270 px, light and dark.
 
+- [Read a Claude or Pi agent as a chat, and switch it with the terminal](./chat-view.md) —
+  real Claude and Pi panes in a Herdr lab session, paired PWA at 390 px: bubbles, the running
+  line with Stop, the needs-you card into the terminal, and the Settings default.
 - [Show one needs-you count on the app, the favicon and the PWA icon](./needs-you-count.md) —
   private fake stack with a lab-only `lab.set_agent_status`: blocked, failed and
   uncovered-request herds drive the Needs you list, the Spaces header, the

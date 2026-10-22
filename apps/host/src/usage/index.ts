@@ -3,3 +3,5 @@ export { collectUsage, planAccountWindows, type CollectUsageInput } from './infr
 export type { UsageWindowVM } from './domain/usageWindows.js';
 export { usageNow } from './infrastructure/usageNow.js';
 export { vitalsFigures } from './infrastructure/vitals.js';
+/** Where each harness keeps its session logs, and a walk of one root: the chat view reads the same logs the ledger counts. */
+export { jsonlFiles as transcriptFiles, ledgerRoots as transcriptRoots, type LedgerRoots as TranscriptRoots } from './infrastructure/tokenLedger.js';

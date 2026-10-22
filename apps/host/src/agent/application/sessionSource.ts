@@ -242,6 +242,8 @@ export interface SessionSource {
     movePlanAccount?(options: PlanMoveOptions): Promise<{ sessionId: string }>;
     /** False while the agent has no conversation for `movePlanAccount` to carry yet. */
     canMovePlanAccount?(sessionId: string): Promise<boolean>;
+    /** The harness conversation Herdr published for this agent, which the chat view reads; absent until the agent has one. */
+    conversation?(sessionId: string): Promise<{ agent: string | undefined; cwd: string; ref: { kind: 'id' | 'path'; value: string } } | undefined>;
     abort(sessionId: string): Promise<void>;
     reload(sessionId: string): Promise<void>;
     prompt(options: SessionPromptOptions): Promise<void>;

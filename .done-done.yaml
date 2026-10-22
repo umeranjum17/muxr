@@ -69,3 +69,12 @@ journeys:
   board-alert:
     command: node .agents/skills/done-done-verify-pockit/features/boardAlertLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # Phone-side history in a fullscreen Claude Code pane on Android: the release
+  # app fresh-paired to the Latest lab, then a slow drag back, a fling back and
+  # Latest, each screen's visible MARK range in proof.log (terminal-latest.md,
+  # latest-local). Runs by hand under the shared emulator lock with
+  # MUXR_LAB_APK a release build of this commit, MUXR_LAB_SERIAL an owned
+  # emulator and a provisioned Herdr lab (HERDR_LAB_PREPROVISIONED=1).
+  terminal-scroll-local:
+    command: bash .agents/skills/done-done-verify-pockit/features/terminalScrollLocalLab.sh "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT"
+    timeout: 20m

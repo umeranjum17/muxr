@@ -26,7 +26,9 @@ import { HeaderChangesPill, PaneActionsChangesRow } from './ChangesEntries';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
 import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionError, useSessionGitStatus, useSessions, useSocketStatus } from '@/catalog/store';
-import { sessionStop } from '@/catalog/ops';
+import { sessionAbort, sessionStop } from '@/catalog/ops';
+import { agentHasChat, rememberPaneView, resolvePaneView, useChat } from '@/chat';
+import { ChatPane, ChatViewToggle } from '@/chat/ui';
 import { registerArtifactUpdateHandler, sync } from '@/catalog/sync';
 import { resolveMessageModeMeta, type DraftAttachment } from '@/catalog';
 import { recordAgentGate, recordTrackedRpc } from '@/catalog/diagnostics';
@@ -194,7 +196,7 @@ function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnis
 }
 
 export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean; preview?: boolean }) => {
-    const { width: windowWidth, fontScale } = useWindowDimensions();
+    const { width: windowWidth, height: windowHeight, fontScale } = useWindowDimensions();
     // The installed PWA takes the system text size as page zoom, so at the
     // largest text a 270 dp phone is 135 CSS px wide and every fixed-size
     // control doubles against it. Native never gets this narrow (its controls
@@ -377,6 +379,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [headerRowBottom, setHeaderRowBottom] = React.useState(0);
     // View commands keep a permanent route in Pane actions.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
+    const viewControlsRef = React.useRef(viewControls);
+    viewControlsRef.current = viewControls;
     // `raise` is the settled keyboard raise this measure was taken at.
     const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number; raise: number }>();
     // The terminal measures a grid at one size; the answer band must end on a
@@ -505,6 +509,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
      * until the user types or answers again.
      */
     const [scrolledAway, setScrolledAway] = React.useState(() => SCROLLED_AWAY.has(props.id));
+    /** Rows the terminal's local history is scrolled back; the pane itself has not moved. */
+    const [localBack, setLocalBack] = React.useState(0);
     const paneRoute = React.useRef(props.id);
     paneRoute.current = props.id;
     const markScrolledAway = React.useCallback((route: string, away: boolean) => {
@@ -545,11 +551,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 scroll(lines, at);
             };
             channel.sendText = (text) => {
-                if (!TERMINAL_REPLY.test(text)) { markScrolledAway(route, false); pan.follow(); }
+                if (!TERMINAL_REPLY.test(text)) { markScrolledAway(route, false); pan.follow(); viewControlsRef.current.toLive?.(); }
                 sendText(text);
             };
             channel.sendBytes = (base64) => {
-                if (!TERMINAL_REPLY.test(String.fromCharCode(...decodeBase64(base64.slice(0, 64))))) { markScrolledAway(route, false); pan.follow(); }
+                if (!TERMINAL_REPLY.test(String.fromCharCode(...decodeBase64(base64.slice(0, 64))))) { markScrolledAway(route, false); pan.follow(); viewControlsRef.current.toLive?.(); }
                 sendBytes(base64);
             };
             stopWatchingChannel.current = () => {
@@ -565,10 +571,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         const channel = channelRef.current;
         if (channel === undefined) return;
         pan.follow();
+        viewControlsRef.current.toLive?.();
+        // Only the local history was back: the pane never moved.
+        if (!showJump && !scrolledAway) return;
         const key = hostHasScrollback === true ? undefined : LATEST_KEY[kind ?? ''];
         if (key !== undefined) channel.sendText(key);
         else channel.bottom();
-    }, [hostHasScrollback, pan]);
+    }, [hostHasScrollback, pan, scrolledAway, showJump]);
     // A host frame is first-hand proof the pane is live: it clears a return's
     // provisional stale mark, so a link that never dropped shakes it off the
     // moment its answer lands. A link that did drop sends no frame, and the
@@ -780,7 +789,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const panePromptable = currentPane?.promptable === true;
     const paneKind = currentPane?.agentKind;
     const paneLifecycle = currentPane?.agentStatus;
-    const latestShown = showJump || (hostHasScrollback === false && scrolledAway && !DRAWS_OWN_LATEST.has(paneKind ?? ''));
+    // Chat is a cover over the live terminal, never a replacement: the terminal stays
+    // attached at its grid underneath, so switching back never re-attaches the pane.
+    const [sessionViewSetting] = useLocalSettingMutable('sessionView');
+    const [paneViews, setPaneViews] = useLocalSettingMutable('paneViews');
+    const paneView = resolvePaneView({ agentKind: paneKind, own: paneViews[props.id], setting: sessionViewSetting, shortSide: Math.min(windowWidth, windowHeight) });
+    const chatShown = paneView === 'chat';
+    const choosePaneView = React.useCallback((view: 'chat' | 'terminal') => setPaneViews(rememberPaneView(paneViews, props.id, view)), [paneViews, props.id, setPaneViews]);
+    const chat = useChat(props.id, chatShown && isFocused);
+    const latestShown = localBack > 0 || showJump || (hostHasScrollback === false && scrolledAway && !DRAWS_OWN_LATEST.has(paneKind ?? ''));
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (next) => setAppActive(next === 'active'));
         return () => subscription.remove();
@@ -1370,7 +1387,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const showConnectingStatus = gestureHint === null && (shownStatus === 'connecting' || shownStatus === 'reconnecting');
             const showRetryStatus = shownStatus !== 'live' && gestureHint === null && !showConnectingStatus && shownStatus !== 'unconfirmed';
             const showUnconfirmedStatus = shownStatus === 'unconfirmed' && gestureHint === null;
-            const railInk = theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'];
+            // The chat sits in the screen's own dark scope. Switching the scope under a screen that is already mounted
+            // leaves its parts on the old theme (unistyles keeps each hook's first scope), so a light chat came out half black.
+            const railInk = chatShown ? theme.colors.header.background : theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'];
             // Settings can put away the pane tabs at one pane and the key row
             // altogether; the rail's top air stays with whatever row is first.
             const showPaneTabs = treeLoaded && located !== undefined && (paneTabsSetting === 'always' || workspaceTabs.length > 1);
@@ -1496,7 +1515,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // the empty state silently fell through to a disabled send. Third
             // party contributions keep their own row in the pane menu.
             const readyToSend = draft.trim() !== '' || attachedPaths.length > 0 || pendingAttachments.length > 0;
-            const trailingAction = !readyToSend && canControl
+            // A working agent in the chat view: the same circle stops it, the way the chat's own composer does.
+            const stopAction = railEnd(<Pressable onPress={() => { void sessionAbort(props.id).catch((error: unknown) => Modal.alert("Couldn't stop it", humanError(error).message)); }} accessibilityRole="button" accessibilityLabel="Stop"
+                style={({ pressed }) => ({ ...endCircle(pressed, theme.colors.accent), opacity: pressed ? 0.8 : 1 })}>
+                <Ionicons name="stop" size={16} color={theme.dark ? '#111111' : '#ffffff'} />
+            </Pressable>);
+            const trailingAction = !readyToSend && canControl && chatShown && paneLifecycle === 'working'
+                ? stopAction
+                : !readyToSend && canControl
                 ? railEnd(<View style={endCircle(false)}>
                     {/* The trailing circle is the rail's primary action, so its
                         mark is drawn in the text colour; the microphone inside
@@ -1576,7 +1602,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             paddingLeft: narrowChrome ? 4 : 10,
                             paddingRight: narrowChrome ? 4 : 11,
                             paddingTop: 0,
-                            backgroundColor: theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'],
+                            backgroundColor: railInk,
                         }, ringRecede]}
                     >
                         <Pressable onPress={props.desktop ? closeDesktop : () => router.back()} accessibilityRole="button" accessibilityLabel="Back" hitSlop={12}
@@ -1610,6 +1636,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 {!narrowChrome && !(preview.shown !== undefined && windowWidth < 340) && !(changesCount !== null && changesCount > 0 && windowWidth / fontScale < 240) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
                             </View>}
                         </Pressable>
+                        {identityKnown && !paneMissing && paneKind !== undefined && <ChatViewToggle view={paneView} chatAvailable={agentHasChat(paneKind)} onChange={choosePaneView} />}
                         <PreviewChip preview={preview.shown} live={preview.live} openable={preview.openable} labelled={preview.openable && preview.tooltip.open} onPress={watchPreview} onLayout={setPreviewChipBox} />
                         {/* Position in the tab and the way into the pane overview:
                             borderless and tiny; loading shows as such, never as 0/0.
@@ -1655,7 +1682,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             accessibilityLabel="Review changes"
                             disabled={branch === null}
                             onPress={() => { if (branch !== null) router.push(`/session/${encodeURIComponent(props.id)}/changes`); }}
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 4, backgroundColor: theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'] }}>
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 4, backgroundColor: railInk }}>
                             {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
                             <SessionMetaLine
                                 style={{ flex: 1 }}
@@ -1713,7 +1740,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             status={status}
                             onNothingThere={nothingToSwipeTo}
                             onSwitch={switchAgent}
-                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} panBy={panBy} onFrame={handleFrame} />}
+                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} panBy={panBy} onFrame={handleFrame} scrollsLocally={pannedHeight - shownHeight < terminalRowHeight} onLocalHistory={setLocalBack} />}
                         >
                         {linkMenu !== null && terminalBox !== undefined && terminalLinkCardFits(terminalBox.height, linkActions.length) && (
                             <TerminalLinkMenu
@@ -1739,6 +1766,19 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </AgentPager>
                         </Animated.View>
                         </View>
+                        {chatShown && (
+                            <ChatPane
+                                state={chat}
+                                agentLabel={agentKindLabel(labels.agentKind) ?? 'The agent'}
+                                working={paneLifecycle === 'working'}
+                                needsYou={paneLifecycle === 'blocked'}
+                                task={contextTitle}
+                                statusColor={headerStatus.color}
+                                model={labels.model}
+                                ink={railInk}
+                                onOpenTerminal={() => choosePaneView('terminal')}
+                            />
+                        )}
                     </View>
 
                     {/* Everything below the terminal is one surface in the
@@ -1904,7 +1944,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     {canControl && <View aria-hidden={desktopVisible}>
                         {/* The key strip stands down while dictation owns the footer
                             with the keyboard up; the composer capsule stays. */}
-                        {showKeyRow && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction} />}
+                        {showKeyRow && !chatShown && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction} />}
 
                     <ComposerAttachments
                         images={composerAttachments}
@@ -1963,7 +2003,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         rails. Its overlay extends through the rails, never
                         under the keyboard, so the ring can borrow room below a
                         short terminal. */}
-                    {hasTools && !choicesVisible && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
+                    {hasTools && !chatShown && !choicesVisible && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
                         <Animated.View
                             aria-hidden={desktopVisible}
                             accessibilityElementsHidden={desktopVisible}

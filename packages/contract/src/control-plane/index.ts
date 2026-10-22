@@ -8,6 +8,8 @@ export type {
     DesktopSurfaceGeometry,
     ClientRequest,
     ChangesBadge,
+    ChatMessage,
+    ChatRead,
     ChangesBrowse,
     ChangesFile,
     ChangesScope,
