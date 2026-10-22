@@ -116,7 +116,12 @@ try {
     say(`browser opened by itself ${Math.round((Date.now() - created) / 1000)} s after Create: ${opened}`);
     // The Boat tab is still up (the journey came back with am start, as a person switching apps does), so this
     // fails if muxr only brought that tab back: the address bar must name Tailscale.
-    const page = find(await waitFor('the Tailscale page in the browser', (found) => find(found, (v) => /tailscale\.com/.test(v)) !== undefined, 45), (v) => /tailscale\.com/.test(v));
+    // Chrome's own notification prompt can cover the page on a fresh emulator; it is Chrome's, not muxr's, so answer it.
+    const page = find(await waitFor('the Tailscale page in the browser', (found) => {
+        const prompt = find(found, (v) => v === 'No thanks');
+        if (prompt) void sh(`input tap ${Math.round((prompt.box[0] + prompt.box[2]) / 2)} ${Math.round((prompt.box[1] + prompt.box[3]) / 2)}`);
+        return !prompt && find(found, (v) => /tailscale\.com/.test(v)) !== undefined;
+    }, 45), (v) => /tailscale\.com/.test(v));
     say(`browser address bar: ${page.text || page.desc}`);
     await sleep(2000);
     await shot('03-tailscale-page-opened-by-itself');
