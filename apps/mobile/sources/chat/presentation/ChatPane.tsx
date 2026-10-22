@@ -2,8 +2,10 @@ import * as React from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
-import type { ChatMessage } from '@trymuxr/contract';
+import type { ChatMessage, ChatTool } from '@trymuxr/contract';
 import { withAlpha } from '@/components/ui';
+import { OptionSheet } from '@/components/OptionSheet';
+import { Typography } from '@/constants/Typography';
 import type { ChatState } from '../application/useChat';
 
 export interface ChatPaneProps {
@@ -36,26 +38,40 @@ function clock(at: number): string {
     return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-function Bubble({ message, onAccent, accent }: { message: ChatMessage; onAccent: string; accent: string }): React.JSX.Element {
+/** A tool call the reply made: a quiet pill with a 44 dp target that opens what it was about. */
+function ToolChip({ tool, onOpen }: { tool: ChatTool; onOpen: (tool: ChatTool) => void }): React.JSX.Element {
+    const { theme } = useUnistyles();
+    return (
+        <Pressable onPress={() => onOpen(tool)} accessibilityRole="button" accessibilityLabel={tool.detail === undefined ? tool.verb : `${tool.verb}, ${tool.detail}`} style={{ minHeight: 44, justifyContent: 'center' }}>
+            {({ pressed }) => (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 12, paddingRight: 9, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfaceHighest : theme.colors.surfaceHigh, transform: [{ scale: pressed ? 0.97 : 1 }] }}>
+                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 13.5, fontWeight: '500' }}>{tool.verb}</Text>
+                    <Ionicons name="chevron-forward" size={13} color={theme.colors.textSecondary} />
+                </View>
+            )}
+        </Pressable>
+    );
+}
+
+/** The person's words sit in a grey bubble on the right; the agent's are plain text across the column. */
+function Message({ message, onTool }: { message: ChatMessage; onTool: (tool: ChatTool) => void }): React.JSX.Element {
     const { theme } = useUnistyles();
     const mine = message.role === 'user';
+    if (mine) {
+        return (
+            <View accessible accessibilityLabel={`You, ${clock(message.at)}. ${message.text}`} style={{ alignSelf: 'flex-end', maxWidth: '84%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, backgroundColor: theme.colors.surfaceHighest }}>
+                <Text selectable style={{ color: theme.colors.text, fontSize: 15.5, lineHeight: 22 }}>{message.text}</Text>
+            </View>
+        );
+    }
     return (
-        <View
-            accessible
-            accessibilityLabel={`${mine ? 'You' : 'Agent'}, ${clock(message.at)}. ${message.text}`}
-            style={{
-                alignSelf: mine ? 'flex-end' : 'flex-start',
-                maxWidth: '86%',
-                paddingHorizontal: 13,
-                paddingVertical: 9,
-                borderRadius: 18,
-                ...(mine ? { borderBottomRightRadius: 6, backgroundColor: accent } : { borderBottomLeftRadius: 6, backgroundColor: theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider }),
-            }}
-        >
-            {mine
-                ? <Text selectable style={{ color: onAccent, fontSize: 15, lineHeight: 21 }}>{message.text}</Text>
-                : <React.Suspense fallback={null}><ChatMarkdown markdown={message.text} /></React.Suspense>}
-            <Text style={{ alignSelf: mine ? 'flex-end' : 'flex-start', marginTop: 3, fontSize: 11, color: mine ? withAlpha(onAccent, 0.6) : theme.colors.textSecondary }}>{clock(message.at)}</Text>
+        <View style={{ gap: 2 }}>
+            {message.text !== '' && <View accessible accessibilityLabel={`Agent, ${clock(message.at)}. ${message.text}`}>
+                <React.Suspense fallback={null}><ChatMarkdown markdown={message.text} /></React.Suspense>
+            </View>}
+            {message.tools !== undefined && <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 6 }}>
+                {message.tools.map((tool, index) => <ToolChip key={index} tool={tool} onOpen={onTool} />)}
+            </View>}
         </View>
     );
 }
@@ -82,6 +98,7 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
     const accent = theme.colors.accent;
     const onAccent = theme.dark ? '#111111' : '#ffffff';
     const list = React.useRef<ScrollView>(null);
+    const [tool, setTool] = React.useState<ChatTool | null>(null);
     const stuck = React.useRef(true);
     const { state } = props;
     const messages = state.status === 'ready' ? state.messages : [];
@@ -91,14 +108,14 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
     else if (state.status === 'unavailable') body = <Notice title="No messages yet" body={`${props.agentLabel} has not started a conversation here. It shows up as soon as it does.`} />;
     else if (state.status === 'failed') body = <Notice title="Chat is not available" body={state.outdatedHost ? 'This computer runs an older muxr. Update it to read chats here.' : state.message} action={{ label: 'Open terminal', onPress: props.onOpenTerminal }} />;
     else if (messages.length === 0) body = <Notice title="No messages yet" body={`Ask ${props.agentLabel} about this workspace. Replies show up here as whole messages.`} />;
-    else body = messages.map((message) => <Bubble key={message.id} message={message} onAccent={onAccent} accent={accent} />);
+    else body = messages.map((message) => <Message key={message.id} message={message} onTool={setTool} />);
 
     return (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: props.ink }}>
             <ScrollView
                 ref={list}
                 style={{ flex: 1 }}
-                contentContainerStyle={{ flexGrow: 1, width: '100%', maxWidth: 640, alignSelf: 'center', justifyContent: messages.length === 0 ? 'center' : 'flex-end', gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 8 }}
+                contentContainerStyle={{ flexGrow: 1, width: '100%', maxWidth: 640, alignSelf: 'center', justifyContent: messages.length === 0 ? 'center' : 'flex-end', gap: 12, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8 }}
                 keyboardShouldPersistTaps="handled"
                 onScroll={(event) => {
                     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -142,6 +159,11 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
                     </View>
                 </View>
             )}
+
+            <OptionSheet visible={tool !== null} title={tool?.verb ?? ''} options={[]} onSelect={() => {}} onClose={() => setTool(null)}
+                body={<View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+                    <Text selectable style={{ color: theme.colors.text, fontSize: 13, lineHeight: 20, ...Typography.mono() }}>{tool?.detail ?? 'No details for this step.'}</Text>
+                </View>} />
         </View>
     );
 }

@@ -184,6 +184,7 @@ const DRAWS_OWN_LATEST = new Set(['codex']);
  * reads. Only where the program holds the scroll: output in Herdr's own
  * scrollback (a Claude kept on the main screen, a shell) is moved by muxr.
  */
+const CHAT_SEND = '#0a84ff';
 const LATEST_KEY: Partial<Record<string, string>> = { opencode: BUILTIN_KEY_CATALOG.end?.send, claude: '\u001b[1;5F' };
 /** What the terminal answers for the program unasked: focus, cursor, mode, colour and mouse reports. */
 /** The menu row that opens a pane's device preview, per kind. */
@@ -795,6 +796,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [paneViews, setPaneViews] = useLocalSettingMutable('paneViews');
     const paneView = resolvePaneView({ agentKind: paneKind, own: paneViews[props.id], setting: sessionViewSetting, shortSide: Math.min(windowWidth, windowHeight) });
     const chatShown = paneView === 'chat';
+    // Back names Home only where the title keeps its room beside it.
+    const backWord = chatShown && windowWidth / fontScale >= 340;
     const choosePaneView = React.useCallback((view: 'chat' | 'terminal') => setPaneViews(rememberPaneView(paneViews, props.id, view)), [paneViews, props.id, setPaneViews]);
     const chat = useChat(props.id, chatShown && isFocused);
     const latestShown = localBack > 0 || showJump || (hostHasScrollback === false && scrolledAway && !DRAWS_OWN_LATEST.has(paneKind ?? ''));
@@ -1454,7 +1457,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 // sizes to content already, and there `numberOfLines` would cap
                 // the growth instead of seeding it.
                 {...(Platform.OS === 'web' ? { rows: 1 } as object : {})}
-                placeholder={windowWidth < 340 ? 'Prompt…' : 'Type a prompt…'}
+                placeholder={chatShown ? (windowWidth < 340 ? 'Reply…' : `Reply to ${agentKindLabel(labels.agentKind) ?? 'the agent'}`) : windowWidth < 340 ? 'Prompt…' : 'Type a prompt…'}
                 placeholderTextColor={theme.colors.textSecondary}
                 // The rail keeps one height; at Android font scale 2.0 the field
                 // and its placeholder grew past it. Capped like the pane-tabs
@@ -1496,10 +1499,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // colour: blue while the agent works, green when it is done, the
             // plain accent when it is idle. A flat brand green here belonged to
             // no state at all.
-            const sendColor = headerLifecycle === 'idle' || headerLifecycle === 'unknown' ? theme.colors.accent : headerStatus.color;
+            // The chat's send is the messaging blue, as in the chat design.
+            const sendColor = chatShown ? CHAT_SEND : headerLifecycle === 'idle' || headerLifecycle === 'unknown' ? theme.colors.accent : headerStatus.color;
             const sendAction = railEnd(<Pressable onPress={sendPrompt} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }}
                 style={({ pressed }) => ({ ...endCircle(pressed, canSend ? sendColor : withAlpha(theme.colors.text, 0.08)), opacity: canSend ? (pressed ? 0.8 : 1) : 0.55, transform: [{ scale: pressed && canSend ? 0.94 : 1 }] })}>
-                <Ionicons name="send" size={16} color={canSend ? theme.colors.terminalChrome.canvas : theme.colors.textSecondary} style={{ marginLeft: 1 }} />
+                {chatShown
+                    ? <Ionicons name="arrow-up" size={19} color={canSend ? '#ffffff' : theme.colors.textSecondary} />
+                    : <Ionicons name="send" size={16} color={canSend ? theme.colors.terminalChrome.canvas : theme.colors.textSecondary} style={{ marginLeft: 1 }} />}
             </Pressable>);
             // 31669's trailing control: one circle at the rail's end. With
             // nothing to send it is the realtime agent, beside the microphone
@@ -1606,18 +1612,22 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         }, ringRecede]}
                     >
                         <Pressable onPress={props.desktop ? closeDesktop : () => router.back()} accessibilityRole="button" accessibilityLabel="Back" hitSlop={12}
-                            style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
-                            <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
+                            style={({ pressed }) => ({ minWidth: 30, minHeight: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingRight: backWord ? 6 : 0, opacity: pressed ? 0.6 : 1 })}>
+                            {/* The chat reads like a messaging app: back says where it goes. */}
+                            {chatShown ? <Ionicons name="chevron-back" size={20} color={theme.colors.text} /> : <Ionicons name="arrow-back" size={18} color={theme.colors.text} />}
+                            {backWord && <Text style={{ color: theme.colors.text, fontSize: 15 }}>Agents</Text>}
                         </Pressable>
                         <Pressable onPress={() => { setActionsOpen(false); setOverviewOpen(true); }} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentWhoLine(labels)}${currentPane?.planAccount !== undefined ? `. On ${currentPane.planAccount}` : unknownAccount === undefined ? '' : '. Account unknown'}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. Open panes` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
                             {/* A narrow header keeps the task and the status dot; the
                                 glyph, the name and the status word stay in the label. */}
-                            {identityKnown && !narrowChrome && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
-                            {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{contextTitle}</Text>}
+                            {identityKnown && !narrowChrome && !chatShown && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
+                            {/* The chat leads with the agent's status dot, the way a conversation shows who is there. */}
+                            {identityKnown && chatShown && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: headerStatus.color }} />}
+                            {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: chatShown ? 15 : 13, fontWeight: '600' }}>{contextTitle}</Text>}
                             {/* Whose task it is, after the task: the same order as the
                                 Spaces row that opened this. A name is short, so the task
                                 gives way first. */}
-                            {identityKnown && contextName !== undefined && !narrowChrome && <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: '40%', color: theme.colors.textSecondary, fontSize: 13 }}>{contextName}</Text>}
+                            {identityKnown && contextName !== undefined && !narrowChrome && !(chatShown && !backWord) && <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: '40%', color: theme.colors.textSecondary, fontSize: 13 }}>{contextName}</Text>}
                             {/* The plan account it runs on, only when there is a choice of
                                 account, or "Account unknown" when its check failed (the
                                 reason opens on tap). In this row, not a new one: chrome that
@@ -1629,7 +1639,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 is gone; the dot carries the same colour (scout §4.1).
                                 Shell panes and unknown lifecycles stay quiet — a live
                                 shell is not "Offline". */}
-                            {headerLifecycleLabel !== undefined && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                            {headerLifecycleLabel !== undefined && !chatShown && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                 <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: headerStatus.color }} />
                                 {/* A narrow header gives the chip (or, at the largest text, the
                                     changes pill) the word's room; the dot and the label keep it. */}
