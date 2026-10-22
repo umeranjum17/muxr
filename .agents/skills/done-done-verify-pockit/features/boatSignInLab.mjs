@@ -19,7 +19,8 @@ const ownOrigin = `http://127.0.0.1:${port}`;
 let approved = false;
 
 if (process.env.BOAT_LAB_TAILSCALE === '1') {
-    const login = 'https://login.tailscale.com/a/umer-lab';
+    // Tailscale's own sign-in page: what a person sees, and a form the kit's link check accepts.
+    const login = 'https://login.tailscale.com/login';
     let joinAt;
     let said = false;
     const run = fake.machine.run.bind(fake.machine);
