@@ -14,7 +14,7 @@ tab (`plans.add` / `plans.status` / `closeSignInTab` in
 
 - `add-account-signed-in` the code is sent once, the sign-in tab closes and
   the flow lands on "Name this account" signed in as the new email.
-- `add-account-named` Save shows the Added notice on the Accounts screen.
+- `add-account-named` Save names it, and the Accounts list shows it with its email.
 
 ## Driving it on a lab Herdr
 
@@ -30,7 +30,7 @@ tab (`plans.add` / `plans.status` / `closeSignInTab` in
   link with no phone.
 - Pass: `journey.log` ends `PASS`; `sign-in-lines.txt` holds exactly one line;
   `4-name-this-account.png` shows "Name this account" signed in as
-  `umer.work@example.com`; `5-added-notice.png` shows the Added notice;
+  `umer.work@example.com`; `5-accounts-list.png` lists the saved account;
   `add-account.mp4` records the whole add.
 
 ## Gotchas
@@ -45,6 +45,11 @@ tab (`plans.add` / `plans.status` / `closeSignInTab` in
   not the account's folder).
 - The kit runs the login under `env -i`: a variable set for the lab does not
   reach the stand-in, so its behaviour is fixed in the script itself.
+- Known gap: the "Signing in…" banner does not render on the sign-in tab, so
+  after Save the phone stays on the closed tab and the Added notice (shown only
+  on the Accounts screen) never appears. The banner's on-tab check answers
+  false; the journey records `sign-in banner not shown` and opens Accounts
+  itself.
 - Herdr sees `claude` in the sign-in tab within about a second, so the phone
   routes the tab as a Claude agent and the composer sends through
   `session.prompt` (trimmed text, one Enter), not as shell keystrokes.

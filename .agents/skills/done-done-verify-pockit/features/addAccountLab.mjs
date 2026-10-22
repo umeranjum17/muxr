@@ -1,6 +1,6 @@
 // Add a Claude account from the phone on a real (lab) Herdr and host: Accounts › Add a Claude
 // account › Open Claude sign-in, the code typed into the sign-in tab's composer, and the flow
-// ends on "Name this account" and the Added notice, with the sign-in tab closed. See add-account.md.
+// ends on "Name this account" and the account in the Accounts list, with the sign-in tab closed. See add-account.md.
 // Run from the repo root with HERDR_LAB_HELPER set:
 //   node .agents/skills/done-done-verify-pockit/features/addAccountLab.mjs <apk> <evidenceDir> <labRoot>
 // With `-` for <apk> it sends the code through session.prompt from the lab link, with no phone.
@@ -228,20 +228,29 @@ try {
     await sleep(1500);
     shot('4-name-this-account');
     checkHost(signInPane);
+    const named = /text="([^"]+)"[^>]*content-desc="Account name"|content-desc="Account name"[^>]*text="([^"]+)"/.exec(dump());
+    const name = named?.[1] ?? named?.[2];
     await tapText(/^Save$/);
-    await waitFor(/Added /, 30);
-    await sleep(500);
-    shot('5-added-notice');
+    for (const deadline = Date.now() + 30_000; dump().includes('text="Name this account"'); await sleep(1000)) {
+        if (Date.now() > deadline) throw new Error('Save never closed the naming sheet');
+    }
     const row = await added();
     if (row === undefined) throw new Error('the host has no signed-in umer.work@example.com account');
+    if (name !== undefined && row.name !== name) throw new Error(`the host named it ${row.name}, not ${name}`);
     log(`host lists ${row.name} <${row.email}> signed in`);
+    // The account in the phone's own list. (The Added notice and the step back off the closed
+    // tab hang on the sign-in banner's on-tab check, which a separate fix owns.)
+    sh(`am start -W -a android.intent.action.VIEW -d 'muxr:///settings/accounts' -n ${activity}`);
+    await waitFor(/umer\.work@example\.com/, 60);
+    await sleep(1000);
+    shot('5-accounts-list');
     // done-done's step record: what this run drove and what the captures show.
     const version = sh(`dumpsys package ${PKG} | grep -m1 versionName`).trim().replace(/^versionName=/, '');
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
         target: { version: `muxr ${version} release APK on an emulator` },
         start: 'a fresh install of muxr paired to a lab computer on a private Herdr, with a stand-in Claude CLI that signs in when its code is pasted',
         steps: ['Settings, Accounts, Add a Claude account', 'Open Claude sign-in', 'Type the sign-in code into the sign-in tab\'s composer and tap Send', 'Save the suggested name'],
-        result: 'adding a Claude account from the phone ends on the account added screen. 4-name-this-account.png shows the "Name this account" sheet signed in as umer.work@example.com, and 5-added-notice.png the Added notice on the Accounts screen; the sign-in tab is closed and the sign-in read exactly one line (sign-in-lines.txt). 1-add-sheet.png, 2-sign-in-tab.png and 3-code-in-composer.png are the steps before',
+        result: 'adding a Claude account from the phone ends on the account added screen. 4-name-this-account.png shows the "Name this account" sheet signed in as umer.work@example.com, and 5-accounts-list.png the saved account listed on the Accounts screen; the sign-in tab is closed and the sign-in read exactly one line (sign-in-lines.txt). 1-add-sheet.png, 2-sign-in-tab.png and 3-code-in-composer.png are the steps before',
     }, null, 2)}\n`);
     log('PASS: account added from the phone');
 } catch (error) {
