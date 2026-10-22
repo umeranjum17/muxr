@@ -27,7 +27,7 @@ import { useAuth } from '@/account/ui';
 import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
 import { realtimeMachineSwitchGuard } from '@/conversation/session';
 import { Modal } from '@/modal';
-import { WebAlertModal } from '@/modal/components/WebAlertModal';
+import { ActionSheet } from '@/modal/components/ActionSheet';
 
 /** Plain states a row can show. "Not paired" is a computer the app is
  * connected to that this phone keeps no pairing for. */
@@ -305,9 +305,7 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
                 body={body}
             />
             {confirm !== null && (
-                <WebAlertModal
-                    surface="dark"
-                    opaque
+                <ActionSheet
                     config={{
                         id: 'computer-switch-confirm',
                         type: 'confirm',

@@ -1,4 +1,5 @@
 import { ReactNode, ComponentType } from 'react';
+import type { Ionicons } from '@expo/vector-icons';
 
 export type ModalType = 'alert' | 'confirm' | 'prompt' | 'custom';
 
@@ -6,6 +7,7 @@ export interface AlertButton {
     text: string;
     onPress?: () => void;
     style?: 'default' | 'cancel' | 'destructive';
+    icon?: keyof typeof Ionicons.glyphMap;
 }
 
 export interface BaseModalConfig {

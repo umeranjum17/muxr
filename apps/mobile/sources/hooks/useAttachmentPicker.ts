@@ -1,6 +1,6 @@
 /**
  * Prompt-attachment picker hook for the composer: images from the photo
- * library and any other file from the system document picker.
+ * library or the camera, and any other file from the system document picker.
  *
  * Images keep their own path — permission, resize to the model's edge, JPEG
  * re-encode, thumbhash preview. Files are taken as-is with their original
@@ -30,6 +30,7 @@ export type { AttachmentPreview };
 type UseAttachmentPickerResult = {
     attachments: AttachmentPreview[];
     pickImages: () => Promise<void>;
+    takePhoto: () => Promise<void>;
     pickFiles: () => Promise<void>;
     removeAttachment: (id: string) => void;
     clearAttachments: () => void;
@@ -110,10 +111,11 @@ function rejectLimit(): void {
  * One attach control on each composer offers both sources, so the rail keeps
  * its geometry at 270 dp. Plain words, matching the button's own label.
  */
-export function chooseAttachmentSource(pickImages: () => Promise<void>, pickFiles: () => Promise<void>): void {
+export function chooseAttachmentSource({ pickImages, takePhoto, pickFiles }: Pick<UseAttachmentPickerResult, 'pickImages' | 'takePhoto' | 'pickFiles'>): void {
     Modal.alert('Add attachment', undefined, [
-        { text: 'Photo Library', onPress: () => void pickImages() },
-        { text: 'Files', onPress: () => void pickFiles() },
+        { text: 'Photo library', icon: 'images-outline', onPress: () => void pickImages() },
+        { text: 'Camera', icon: 'camera-outline', onPress: () => void takePhoto() },
+        { text: 'Files', icon: 'document-outline', onPress: () => void pickFiles() },
         { text: t('common.cancel'), style: 'cancel' },
     ]);
 }
@@ -126,23 +128,22 @@ export function useAttachmentPicker(): UseAttachmentPickerResult {
         selectedCountRef.current = attachments.length;
     }, [attachments]);
 
-    const requestPermission = useCallback(async (): Promise<boolean> => {
+    const requestPermission = useCallback(async (camera: boolean): Promise<boolean> => {
         if (Platform.OS === 'web') return true;
 
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        const { status } = camera
+            ? await ImagePicker.requestCameraPermissionsAsync()
+            : await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
-            Modal.alert(
-                t('imageUpload.permissionTitle'),
-                t('imageUpload.permissionMessage'),
-                [{ text: t('common.ok') }],
-            );
+            if (camera) Modal.alert('Camera is off', 'Turn on Camera for muxr in Settings to take a photo.');
+            else Modal.alert(t('imageUpload.permissionTitle'), t('imageUpload.permissionMessage'), [{ text: t('common.ok') }]);
             return false;
         }
         return true;
     }, []);
 
-    const pickImages = useCallback(async () => {
-        const hasPermission = await requestPermission();
+    const addImages = useCallback(async (camera: boolean) => {
+        const hasPermission = await requestPermission(camera);
         if (!hasPermission) return;
 
         const remaining = MAX_ATTACHMENTS_PER_MESSAGE - selectedCountRef.current;
@@ -151,13 +152,15 @@ export function useAttachmentPicker(): UseAttachmentPickerResult {
             return;
         }
 
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ['images'], // expo-image-picker ~55: MediaTypeOptions deprecated
-            allowsMultipleSelection: true,
-            selectionLimit: remaining,
-            quality: 1, // request full-resolution source; iOS upload is normalized below
-            exif: false,
-        });
+        const result = camera
+            ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, exif: false })
+            : await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'], // expo-image-picker ~55: MediaTypeOptions deprecated
+                allowsMultipleSelection: true,
+                selectionLimit: remaining,
+                quality: 1, // request full-resolution source; iOS upload is normalized below
+                exif: false,
+            });
 
         if (result.canceled || !result.assets.length) return;
 
@@ -196,6 +199,8 @@ export function useAttachmentPicker(): UseAttachmentPickerResult {
             setAttachments(prev => [...prev, ...previews].slice(0, MAX_ATTACHMENTS_PER_MESSAGE));
         }
     }, [requestPermission]);
+    const pickImages = useCallback(() => addImages(false), [addImages]);
+    const takePhoto = useCallback(() => addImages(true), [addImages]);
 
     const pickFiles = useCallback(async () => {
         const remaining = MAX_ATTACHMENTS_PER_MESSAGE - selectedCountRef.current;
@@ -250,5 +255,5 @@ export function useAttachmentPicker(): UseAttachmentPickerResult {
         setAttachments(prev => [...prev, ...previews].slice(0, MAX_ATTACHMENTS_PER_MESSAGE));
     }, []);
 
-    return { attachments, pickImages, pickFiles, removeAttachment, clearAttachments, addAttachments };
+    return { attachments, pickImages, takePhoto, pickFiles, removeAttachment, clearAttachments, addAttachments };
 }

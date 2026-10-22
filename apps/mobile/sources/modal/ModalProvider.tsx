@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { ModalState, ModalConfig, ModalContextValue } from '@/modal/types';
 import { Modal } from '@/modal/ModalManager';
-import { WebAlertModal } from '@/modal/components/WebAlertModal';
+import { ActionSheet, dismissAlert } from '@/modal/components/ActionSheet';
 import { WebPromptModal } from '@/modal/components/WebPromptModal';
 import { CustomModal } from '@/modal/components/CustomModal';
 
@@ -46,7 +46,9 @@ export function ModalProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const dismissModal = useCallback((modal: ModalConfig) => {
-        if (modal.type === 'confirm') {
+        if (modal.type === 'alert') {
+            dismissAlert(modal);
+        } else if (modal.type === 'confirm') {
             Modal.resolveConfirm(modal.id, false);
         } else if (modal.type === 'prompt') {
             Modal.resolvePrompt(modal.id, null);
@@ -84,13 +86,13 @@ export function ModalProvider({ children }: { children: React.ReactNode }) {
             {currentModal && (
                 <>
                     {currentModal.type === 'alert' && (
-                        <WebAlertModal
+                        <ActionSheet
                             config={currentModal}
                             onClose={() => hideModal(currentModal.id)}
                         />
                     )}
                     {currentModal.type === 'confirm' && (
-                        <WebAlertModal
+                        <ActionSheet
                             config={currentModal}
                             onClose={() => hideModal(currentModal.id)}
                             onConfirm={(value) => {
