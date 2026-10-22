@@ -246,7 +246,16 @@ const steps = Object.fromEntries(RELEASE_STEPS.map((step) => [step, 'not reached
 const timings = {};
 let hosts;
 let packageDir;
+let apkDigest = null;
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
+// The digest of the APK the device actually runs, read on the device: with
+// PHONE_USE_INSTALLED it is the only record of which build was driven. A split
+// install has no single release APK to compare, so it records none.
+const installedApkDigest = () => {
+    const paths = sh(`pm path ${PKG}`).trim().split('\n').map((line) => line.trim().replace(/^package:/, '')).filter(Boolean);
+    if (paths.length !== 1) return null;
+    return /^([0-9a-f]{64})\s/.exec(sh(`sha256sum '${paths[0]}'`))?.[1] ?? null;
+};
 
 // Hosts alive: processes in the lab host's own process tree that hold a link to
 // the lab relay. 0.2.8's Usage ledger child booted a second host from the
@@ -282,6 +291,9 @@ try {
     }
     const versionText = sh(`dumpsys package ${PKG} | grep versionName`).trim();
     installed = /versionName=([\d.]+)/.exec(versionText)?.[1] ?? 'unknown';
+    apkDigest = installedApkDigest();
+    if (apk !== undefined && apkDigest !== sha256(apk)) throw new Error(`the device runs APK ${apkDigest} after installing ${apk}`);
+    log(`the device runs APK ${apkDigest}`);
     log(`${apk === undefined ? 'driving the installed app' : `installed from ${apk}`}: ${versionText}`);
     const activity = sh(`cmd package resolve-activity --brief ${PKG}`).trim().split('\n').pop();
     mkdirSync(join(root, 'lab'), { recursive: true });
@@ -465,7 +477,7 @@ try {
     }
     writeFileSync(join(evidence, 'release-build.json'), `${JSON.stringify({
         schema: 1, journey: RELEASE_JOURNEY, version,
-        build: { apk: apk === undefined ? null : sha256(apk), package: tarball === undefined ? null : sha256(tarball) },
+        build: { apk: apkDigest, package: tarball === undefined ? null : sha256(tarball) },
         result: verdict.startsWith('pass') && version === installed ? 'pass' : 'fail', steps, hosts: hosts ?? null, timings,
     }, null, 2)}\n`);
     // done-done's step record: what a user did and what they saw, from the verdict this run reached.
