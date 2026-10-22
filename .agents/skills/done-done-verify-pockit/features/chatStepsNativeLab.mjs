@@ -152,6 +152,15 @@ try {
     await tap(/^5 steps\./); await toEnd(); still(3);
     execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', '2', '-i', join(frames, 'f%03d.png'), '-vf', 'scale=540:-2,format=yuv420p', '-c:v', 'libx264', join(evidence, 'native-390-dark-open-peek-fold.mp4')]);
     log('recorded');
+    // The step record done-done's judge reads beside the captures.
+    const steps = `${JSON.stringify({
+        target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
+        start: 'lab-id release APK freshly installed and paired to the chat fake lab, whose Claude log has a read/search reply, an edit+test reply and a five-step reply with two edits, a plan and a failed command',
+        steps: ['open the Claude agent in Chat view and scroll to the end', 'tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'repeat at 390 and 270 dp wide, light and dark'],
+        result: 'tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; a Full diff sheet titled with the file name',
+    }, null, 2)}\n`;
+    writeFileSync(join(evidence, 'steps.json'), steps);
+    writeFileSync(join(evidence, 'native', 'steps.json'), steps);
 } finally {
     try { sh('wm size reset'); sh('wm density reset'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no'); } catch { /* emulator gone */ }
     if (lab !== undefined && lab.exitCode === null) {
