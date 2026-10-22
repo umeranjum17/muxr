@@ -68,24 +68,31 @@ try {
     await find(/Claude 1/, 90);
     log('paired');
 
+    // A relaunch reopens the last agent; from Home the composer covers the bottom rows.
+    const inChat = async () => {
+        const here = nodes();
+        if (here.some((node) => matches(node, /Reply to Claude|Reply…/))) return true;
+        if (here.some((node) => matches(node, /^Chat view$/))) { await tap(/^Chat view$/); return true; }
+        if (here.some((node) => matches(node, /^New pane$/))) { await tap(/^Done$/); return inChat(); }
+        return false;
+    };
     const openChat = async () => {
         for (let attempt = 0; attempt < 3; attempt += 1) {
             sh(`am force-stop ${pkg}`);
             sh(`am start -W -n ${activity}`);
-            await sleep(3000);
+            await sleep(4000);
+            if (await inChat()) { await sleep(1500); return; }
             await find(/claude · Claude 1/, 60);
-            // The Home composer covers the bottom rows: bring the agent up before tapping it.
             sh('input swipe 540 1400 540 900 150');
             await sleep(1000);
             const cards = nodes().filter((node) => matches(node, /claude · Claude 1/) && boundsOf(node)[3] < 1700);
             const card = cards[attempt % Math.max(1, cards.length)];
-            if (card === undefined) continue;
-            const [x1, y1, x2, y2] = boundsOf(card);
-            sh(`input tap ${(x1 + x2) >> 1} ${(y1 + y2) >> 1}`);
-            await sleep(3000);
-            const here = nodes();
-            if (here.some((node) => matches(node, /Reply to Claude|Reply…/))) { await sleep(1500); return; }
-            if (here.some((node) => matches(node, /^Chat view$/))) { await tap(/^Chat view$/); await sleep(1500); return; }
+            if (card !== undefined) {
+                const [x1, y1, x2, y2] = boundsOf(card);
+                sh(`input tap ${(x1 + x2) >> 1} ${(y1 + y2) >> 1}`);
+                await sleep(3000);
+                if (await inChat()) { await sleep(1500); return; }
+            }
             writeFileSync(join(evidence, `open-miss-${attempt}.png`), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p']));
             log(`open attempt ${attempt} missed the chat`);
         }
