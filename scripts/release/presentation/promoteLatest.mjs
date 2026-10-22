@@ -7,6 +7,12 @@ const option = (key) => {
 };
 const version = option('version');
 if (!version) throw new Error('usage: promoteLatest.mjs --version <stable version> [--receipts <ref>] [--check-only]');
-const result = await promoteLatest({ version, receiptsRef: option('receipts') ?? 'origin/main', checkOnly: process.argv.includes('--check-only') });
-const state = result.moved ? 'is now' : process.argv.includes('--check-only') ? 'may become' : 'already was';
-process.stdout.write(`${version} ${state} npm latest; its release journey receipt is ${result.proof}\n`);
+const checkOnly = process.argv.includes('--check-only');
+try {
+    const result = await promoteLatest({ version, receiptsRef: option('receipts') ?? 'origin/main', checkOnly });
+    const state = result.moved ? 'is now' : checkOnly ? 'may become' : 'already was';
+    process.stdout.write(`${version} ${state} npm latest; its release journey receipt is ${result.proof}\n`);
+} catch (error) {
+    process.stderr.write(`npm latest stays where it is: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+}

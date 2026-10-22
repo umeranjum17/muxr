@@ -104,6 +104,14 @@ export async function requireRedirect(url, expectedLocation, { deadline = public
     return served;
 }
 
+/** One value from `npm view --json`: npm 12 prints a single field as a one-element array, npm 11 as the value. */
+function registryValue(text) {
+    const value = JSON.parse(text);
+    if (!Array.isArray(value)) return value;
+    if (value.length !== 1) throw new Error(`npm answered ${value.length} values where one was asked`);
+    return value[0];
+}
+
 /** The registry is the channel's source of truth; reads are retried, never assumed. */
 export async function readRegistryDistTag({ package: name, tag, attempts = REGISTRY_ATTEMPTS, delayMs = REGISTRY_DELAY_MS }) {
     const { spawnSync } = await import('node:child_process');
@@ -111,7 +119,7 @@ export async function readRegistryDistTag({ package: name, tag, attempts = REGIS
     for (let attempt = 0; attempt < attempts; attempt += 1) {
         if (attempt > 0) await sleep(delayMs);
         const result = spawnSync('npm', ['view', name, `dist-tags.${tag}`, '--json'], { encoding: 'utf8', timeout: REGISTRY_READ_TIMEOUT_MS });
-        if (result.status === 0 && result.stdout.trim() !== '') return JSON.parse(result.stdout.trim());
+        if (result.status === 0 && result.stdout.trim() !== '') return registryValue(result.stdout.trim());
         detail = (result.stderr || result.error?.message || 'empty registry response').trim().slice(-300);
     }
     throw new Error(`npm dist-tag ${tag} for ${name} could not be read (${detail})`);
@@ -123,7 +131,7 @@ export async function readRegistryIntegrity({ package: name, version, attempts =
     for (let attempt = 0; attempt < attempts; attempt += 1) {
         if (attempt > 0) await sleep(delayMs);
         const result = spawnSync('npm', ['view', `${name}@${version}`, 'dist.integrity', '--json'], { encoding: 'utf8', timeout: REGISTRY_READ_TIMEOUT_MS });
-        if (result.status === 0 && result.stdout.trim() !== '') return JSON.parse(result.stdout.trim());
+        if (result.status === 0 && result.stdout.trim() !== '') return registryValue(result.stdout.trim());
         detail = (result.stderr || result.error?.message || 'empty registry response').trim().slice(-300);
     }
     throw new Error(`npm integrity for ${name}@${version} could not be read (${detail})`);
