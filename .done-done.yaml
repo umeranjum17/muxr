@@ -95,6 +95,13 @@ journeys:
   # picker (action-sheet.md). Runs by hand under the shared emulator lock;
   # MUXR_LAB_APK is a release build of this commit, MUXR_LAB_AVD_HOME a
   # task-owned emulator home.
+  # A live Claude conversation moves A to B and back from Pane actions on an
+  # owned emulator, over a lab host on a private Herdr with two stand-in
+  # accounts (see the plan-move feature). Runs by hand under the emulator lock
+  # with MUXR_LAB_APK and the Herdr lab helper set; each run takes a fresh lab root.
+  plan-move:
+    command: node .agents/skills/done-done-verify-pockit/features/planMoveLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$(mktemp -d "$HOME/.cache/fms/mxmv.XXXX")" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   action-sheet:
     command: node .agents/skills/done-done-verify-pockit/features/actionSheetLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --interact > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m

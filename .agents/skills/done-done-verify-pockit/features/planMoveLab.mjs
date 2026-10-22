@@ -220,7 +220,9 @@ try {
 
     recorder = spawn('adb', ['-s', serial, 'shell', 'screenrecord', '--time-limit', '170', '/sdcard/move.mp4'], { stdio: 'ignore' });
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr:///session/${encodeURIComponent(sessionId)}' -n ${activity}`);
-    await waitFor(/umer\.a@example\.com/, 60);
+    // The terminal draws natively, so its text never reaches the UI dump: the header's account
+    // chip shows the phone's side, and the pane's own screen is read through Herdr below.
+    await waitFor(/text="Account A"/, 60);
     await sleep(1500);
     shot('1-on-account-a');
     let current = sessionId;
@@ -231,9 +233,14 @@ try {
         await sleep(1500);
         shot(`${step}a-move-sheet-to-${letter}`);
         await tapText(new RegExp(`^Move to ${to}$`));
-        await waitFor(new RegExp(`Moved to ${to}`), 120);
-        shot(`${step}b-moved-notice-${letter}`);
-        await waitFor(new RegExp(`umer\\.${letter}@example\\.com`), 60);
+        // The "Moved to" notice shows only on the Accounts screen; here the sheet closes and the
+        // header chip names the new account. A failed move opens "Couldn't move" instead.
+        for (const deadline = Date.now() + 120_000; ; await sleep(2000)) {
+            const xml = dump();
+            if (/Couldn't move/.test(xml)) { shot(`${step}b-move-failed-${letter}`); throw new Error(`the phone says the move to ${to} failed`); }
+            if (xml.includes(`text="${to}"`) && !xml.includes('text="Move to another account"')) break;
+            if (Date.now() > deadline) throw new Error(`the header never named ${to}`);
+        }
         await sleep(1500);
         shot(`${step}c-on-account-${letter}`);
         const agent = await ask('plans.agent', { sessionId: current });
@@ -251,6 +258,14 @@ try {
         current = (await ask('session.open', { sessionId: current })).info.id;
         log(`moved to ${to}; host and pane agree`);
     }
+    // done-done's step record: what this run drove and what the captures show.
+    const version = sh(`dumpsys package ${PKG} | grep -m1 versionName`).trim().replace(/^versionName=/, '');
+    writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
+        target: { version: `muxr ${version} release APK on an emulator` },
+        start: 'a fresh install of muxr paired to a lab computer on a private Herdr, with a stand-in Claude conversation running on Account A and Account B also signed in',
+        steps: ['Open the agent', 'Pane actions, Move to another account, Move to Account B', 'Type a turn on Account B', 'Pane actions, Move to another account, Move to Account A', 'Type a turn on Account A'],
+        result: 'the same conversation moves to the other account and back from the phone, in two parts labelled exactly "there" and "back". Part "there": 2d-turn-on-b.png shows the header chip reading Account B and the pane signed in as umer.b@example.com with "Resumed this conversation:" and the turn from Account A above the new turn. Part "back": 3d-turn-on-a.png shows the header chip reading Account A and the pane signed in as umer.a@example.com with both earlier turns above the new one. 1-on-account-a.png is the start on Account A',
+    }, null, 2)}\n`);
     log('PASS: conversation moved A -> B -> A');
 } catch (error) {
     failed = error?.done !== true;
