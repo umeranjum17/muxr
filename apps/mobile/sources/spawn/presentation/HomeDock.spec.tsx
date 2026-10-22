@@ -69,7 +69,7 @@ vi.mock('@/catalog/store', () => ({
 vi.mock('@/pairing', () => ({ isMachineOnline: () => false }));
 vi.mock('@/utils/pathUtils', () => ({ resolveAbsolutePath: () => null }));
 vi.mock('@/hooks/useAttachmentPicker', () => ({ useAttachmentPicker: () => ({
-    attachments: [], pickImages: vi.fn(), pickFiles: vi.fn(), removeAttachment: vi.fn(), clearAttachments: vi.fn(),
+    attachments: [], pickImages: vi.fn(), takePhoto: vi.fn(), pickFiles: vi.fn(), removeAttachment: vi.fn(), clearAttachments: vi.fn(),
 }), chooseAttachmentSource: vi.fn() }));
 vi.mock('@/catalog/sync', () => ({ sync: { request: vi.fn(() => Promise.resolve(catalogResult)) } }));
 vi.mock('@/catalog', async () => ({

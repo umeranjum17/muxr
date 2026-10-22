@@ -11,6 +11,8 @@ import {
     Platform,
     TouchableWithoutFeedback,
     useWindowDimensions,
+    Animated,
+    PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -59,6 +61,8 @@ export function OptionSheet({
     searchPlaceholder,
     maxWidth,
     fill = false,
+    avoidKeyboard = true,
+    raised = false,
 }: {
     visible: boolean;
     title: string;
@@ -81,6 +85,14 @@ export function OptionSheet({
     maxWidth?: number;
     /** Stand at full height under the status bar, so nothing behind the sheet shows above it; the body owns its scrolling. */
     fill?: boolean;
+    /**
+     * Off for a sheet with no text field. Opened while a composer's keyboard is going
+     * away, the avoider can keep that keyboard's padding and float the sheet above an
+     * undimmed band at the bottom.
+     */
+    avoidKeyboard?: boolean;
+    /** A raised surface, so a sheet over a dimmed dark screen still shows its edge. */
+    raised?: boolean;
 }) {
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
@@ -116,6 +128,23 @@ export function OptionSheet({
             viewport.removeEventListener('scroll', update);
         };
     }, [visible]);
+
+    // A drag down on the handle and title follows the finger; far enough closes the sheet.
+    const dragY = React.useRef(new Animated.Value(0)).current;
+    const onCloseRef = React.useRef(onClose);
+    onCloseRef.current = onClose;
+    const swipe = React.useMemo(() => PanResponder.create({
+        // The handle and title do nothing on a tap, so they take the touch at once;
+        // waiting for a move to claim it lost fast swipes on Android.
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_event, state) => state.dy > 6 && Math.abs(state.dy) > Math.abs(state.dx),
+        onPanResponderMove: (_event, state) => dragY.setValue(Math.max(0, state.dy)),
+        onPanResponderRelease: (_event, state) => {
+            if (state.dy > 72 || state.vy > 0.8) onCloseRef.current();
+            Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start();
+        },
+        onPanResponderTerminate: () => Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start(),
+    }), [dragY]);
 
     const providers = React.useMemo(() => groupByProvider(models), [models]);
     const visibleModels = React.useMemo(
@@ -195,14 +224,17 @@ export function OptionSheet({
             {/* A modal is its own window; edge-to-edge Android no longer resizes it for the keyboard. */}
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'web' ? undefined : 'padding'}
+                enabled={avoidKeyboard}
                 style={[styles.overlay, Platform.OS === 'web' && { paddingBottom: webKeyboardInset }]}
             >
                 <View style={styles.overlay} onLayout={({ nativeEvent }) => setAvailableHeight(nativeEvent.layout.height)}>
                     <TouchableWithoutFeedback onPress={onClose}>
                         <View style={styles.backdrop} />
                     </TouchableWithoutFeedback>
-                    <View style={[
+                    <Animated.View style={[
                         styles.sheet,
+                        raised && { backgroundColor: theme.dark ? theme.colors.surfaceHighest : theme.colors.surface },
+                        { transform: [{ translateY: dragY }] },
                         maxWidth === undefined ? null : { maxWidth },
                         // A body sheet has no rows to measure, so it grows with its content
                         // and the inner ScrollView takes the cap instead.
@@ -218,10 +250,12 @@ export function OptionSheet({
                             },
                         { paddingBottom: Math.max(12, safeArea.bottom) },
                     ]}>
-                        <View style={styles.handleRow}>
-                            <View style={styles.handle} />
+                        <View {...swipe.panHandlers}>
+                            <View style={styles.handleRow}>
+                                <View style={styles.handle} />
+                            </View>
+                            {title !== '' && <Text style={styles.title}>{title}</Text>}
                         </View>
-                        {title !== '' && <Text style={styles.title}>{title}</Text>}
 
                         {body ? (
                             fill
@@ -296,7 +330,7 @@ export function OptionSheet({
                             </View>
                         </View>
                         )}
-                    </View>
+                    </Animated.View>
                 </View>
             </KeyboardAvoidingView>
         </RNModal>
@@ -335,7 +369,7 @@ const styles = StyleSheet.create((theme) => ({
     title: {
         fontSize: 24,
         color: theme.colors.text,
-        paddingHorizontal: 20,
+        marginHorizontal: 20,
         paddingTop: 12,
         paddingBottom: 12,
         ...Typography.default('semiBold'),
