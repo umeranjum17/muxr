@@ -12,7 +12,8 @@ import { startHost } from './host.js';
 import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
 import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, fileRelayClientStore, hostPlatformLabel, LinkEndpoint, writeSelfhostCrypto } from './machine/index.js';
-import { HostDiagnosticsJournal } from './diagnostics/index.js';
+import { HostDiagnosticsJournal, type DiagnosticRelayState } from './diagnostics/index.js';
+import { startLocalAccountsServer } from './plans/localAccounts.js';
 import { liveDefaultStartFolder, muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
 import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
 
@@ -242,6 +243,8 @@ function readAuthStates() {
 // The default comes from the passwd entry (os.userInfo ignores $HOME), so a
 // lab that already redirected $HOME may still name $HOME/.muxr.
 const fake = process.argv.includes('--fake');
+/** Link relay status in the diagnostics journal's words; anything else is closed. */
+const RELAY_DIAGNOSTIC_STATE: Partial<Record<string, DiagnosticRelayState>> = { online: 'open', replaced: 'replaced', connecting: 'connecting' };
 if (fake || process.env.MUXR_PACKAGED !== '1') {
     const muxrHome = env('MUXR_HOME');
     let ownerDefault: string | undefined;
@@ -521,7 +524,7 @@ async function main(): Promise<void> {
     // The peer broker names a sender by asking the host who the calling
     // session is; without this it can only report the machine.
     peerRuntime?.setLocalAgentResolver(async (caller) => {
-        const listed = await source.list({});
+        const listed = await source.list({ fresh: true });
         // The session comes from the capability this host issued, so it is
         // trustworthy; the pane is a hint the caller supplied. Prefer the former.
         const bySession = caller.sessionId === undefined
@@ -569,6 +572,9 @@ async function main(): Promise<void> {
         ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
         defaultStartFolder: currentDefaultStartFolder,
     });
+    // `muxr accounts` talks to the running host over this owner-only socket. A fake host has no Herdr to act on.
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    const accountsServer = useFake ? undefined : await startLocalAccountsServer(join(dataDir, 'accounts.sock'), host.answer);
 
     // The saved folder reaches a phone already paired as a notice to refetch
     // machines.list: pairing stays non-blocking, so the folder can be answered
@@ -661,6 +667,7 @@ async function main(): Promise<void> {
                         onStatus: (status) => {
                             linkOnline = status === 'online';
                             process.stdout.write(`link relay: ${status}\n`);
+                            diagnostics?.relay(RELAY_DIAGNOSTIC_STATE[status] ?? 'closed');
                             if (status === 'online') onlineSince = Date.now();
                             if (status === 'replaced') {
                                 if (Date.now() - onlineSince > REPLACED_MAX_MS) replacedTimes = 0;
@@ -707,6 +714,7 @@ async function main(): Promise<void> {
         linkOnline = false;
         clearTimeout(relink);
         void pairingServer?.close();
+        void accountsServer?.close();
         linkEndpoint?.close();
         terminals.closeAll();
         peerRuntime?.close();

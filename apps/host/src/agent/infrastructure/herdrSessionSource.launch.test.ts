@@ -203,10 +203,13 @@ function fakeHerdr(dir: string, cwd: string) {
             // A real shell prints each bare marker line the file carries: the
             // overlay's confirmation and, since kit 0.12.0, the agent hint's
             // function-plus-marker script. Without the print the kit waits out
-            // its whole hint budget on every start.
+            // its whole hint budget on every start. Every step holds here, so the
+            // refusal marker after a `||` (kit 0.16.2) is never printed.
+            let orElse = false;
             for (const line of content.split('\n').map((entry) => entry.trim())) {
-                const marker = /^printf '%s\\n' '(.+)'$/.exec(line);
-                if (marker !== null) state.paneText += `${marker[1]}\n`;
+                const marker = /^printf '%s\\n' '(.+)'( \|\|)?$/.exec(line);
+                if (marker !== null && !orElse) state.paneText += `${marker[1]}\n`;
+                orElse = line.endsWith('||');
             }
             return {};
         }

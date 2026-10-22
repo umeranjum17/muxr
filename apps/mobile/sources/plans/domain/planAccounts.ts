@@ -180,10 +180,11 @@ export function launchQuestion(entry: PlanProviderAccounts, stored: string | und
 }
 
 /** Which account a running agent is on: the one muxr put it on, else the
- *  computer's own sign-in, which is where any other launch runs. */
-export function runningOn(entry: PlanProviderAccounts, recorded: string | undefined): PlanAccount | undefined {
+ *  computer's own sign-in, which is where any other launch runs. Pi signs in
+ *  to its own providers, so only the account muxr put it on is known. */
+export function runningOn(entry: PlanProviderAccounts, recorded: string | undefined, agentKind: string | undefined): PlanAccount | undefined {
     return entry.accounts.find((account) => account.id === recorded)
-        ?? (recorded === undefined ? entry.accounts.find((account) => account.foundOnComputer) : undefined);
+        ?? (recorded === undefined && agentKind !== 'pi' ? entry.accounts.find((account) => account.foundOnComputer) : undefined);
 }
 
 /** Suggest familiar account names instead of numbering provider sign-ins. The

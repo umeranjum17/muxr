@@ -2,16 +2,16 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { agentTask } from '@trymuxr/contract';
 import { createHerdrSessionSource } from './herdrSessionSource.js';
 import { createLifecycleStore } from './lifecycleStore.js';
 
 /**
  * After a restart Claude titles every lead pane with its first chat topic
- * (`Firstmate operational inbox message`). The Herdr tab label names the pane
- * as Herdr's sidebar does, even when the launcher gave the agent the same
- * name, and a workspace labelled with an SSH key's type word is unnamed.
+ * from a Firstmate doorbell (`Firstmate operational inbox message`). That
+ * title names nothing. The Herdr tab label names the pane, in words, even when
+ * the launcher gave the agent the same name.
  */
 function fakeHerdr(dir: string) {
     const pane = (n: string, tab: string) => ({
@@ -26,12 +26,17 @@ function fakeHerdr(dir: string) {
         tokens: {},
     });
     // A pane's own self-name gives way to its tab label.
-    const panes = [pane('1', 'w2:t1'), { ...pane('2', 'w2:t2'), label: 'Review the crewhouse office' }, pane('3', 'w2:t3')];
-    const workspace = { workspace_id: 'w2', label: 'ssh-ed25519' };
+    const panes = [
+        pane('1', 'w2:t1'),
+        { ...pane('2', 'w2:t2'), label: 'Review the crewhouse office' },
+        // The reported row: an unlabelled tab, Claude's doorbell title, agent `firstmate-addons`.
+        { ...pane('3', 'w2:t3'), terminal_title: '✳ Firstmate operational inbox input', terminal_title_stripped: 'Firstmate operational inbox input' },
+    ];
+    const workspace = { workspace_id: 'w2', label: 'firstmate' };
     const tabs = [
         { tab_id: 'w2:t1', workspace_id: 'w2', label: 'fd-prompt-nosript' },
         { tab_id: 'w2:t2', workspace_id: 'w2', label: 'fm-crewhouse' },
-        // Herdr's default numbered tab names nothing: the title stands.
+        // Herdr's default numbered tab names nothing.
         { tab_id: 'w2:t3', workspace_id: 'w2', label: '12' },
     ];
     const server = createServer((socket: Socket) => {
@@ -58,7 +63,9 @@ function fakeHerdr(dir: string) {
                             agents: panes.map((entry, index) => ({
                                 ...entry,
                                 // A launcher names the agent after its tab.
-                                name: ['fd-prompt-nosript', 'fm-crewhouse', 'lead-3'][index],
+                                name: ['fd-prompt-nosript', 'fm-crewhouse', 'firstmate-addons'][index],
+                                // The task-titles plugin's title leads over the tab label.
+                                ...(index === 1 ? { title: 'Show the SSH key fingerprint' } : {}),
                                 // Every agent kind names the same way.
                                 agent: index === 1 ? 'codex' : 'claude',
                                 interactive_ready: true,
@@ -78,7 +85,7 @@ function fakeHerdr(dir: string) {
 }
 
 describe('pane and workspace names', () => {
-    it('names lead panes by their tab label after a restart, and never shows a key type as a workspace', async () => {
+    it('names lead panes by their tab label after a restart, and the workspace by its Herdr label', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-pane-names-'));
         const herdr = fakeHerdr(dir);
         const source = await createHerdrSessionSource({
@@ -90,11 +97,11 @@ describe('pane and workspace names', () => {
         });
         try {
             const listed = await source.list();
-            expect(listed.map((info) => info.taskTitle).sort()).toEqual(['Firstmate operational inbox message', 'fd-prompt-nosript', 'fm-crewhouse']);
-            expect(listed.every((info) => info.workspaceLabel === undefined)).toBe(true);
+            // No doorbell title is a task: the unlabelled pane has none, so the phone names it by its agent.
+            expect(listed.map((info) => info.taskTitle ?? '(none)').sort()).toEqual(['(none)', 'Fd prompt nosript', 'Show the SSH key fingerprint']);
+            expect(listed.every((info) => info.workspaceLabel === 'firstmate')).toBe(true);
 
             const { workspaces } = await source.herdrTree();
-            expect(workspaces[0]).not.toHaveProperty('label');
             // The phone re-derives the name from the tree pane by the same rule.
             const shown = workspaces[0]!.tabs.flatMap((tab) => tab.panes).map((pane) => agentTask({
                 label: pane.label,
@@ -105,14 +112,17 @@ describe('pane and workspace names', () => {
                 agentKind: pane.agentKind,
                 cwd: pane.cwd,
             }));
-            expect(shown).toEqual(['fd-prompt-nosript', 'fm-crewhouse', 'Firstmate operational inbox message']);
+            expect(shown).toEqual(['Fd prompt nosript', 'Show the SSH key fingerprint', undefined]);
 
-            // A relabel in Herdr renames the pane and the workspace on the next read: no first-seen name sticks.
+            // A relabel without a push still reaches later lists through the
+            // coalesced background discovery: no first-seen name sticks.
             herdr.tabs[0]!.label = 'fd-renamed';
             herdr.workspace.label = 'muxr';
-            const relisted = await source.list();
-            expect(relisted.map((info) => info.taskTitle).sort()).toEqual(['Firstmate operational inbox message', 'fd-renamed', 'fm-crewhouse']);
-            expect(relisted.every((info) => info.workspaceLabel === 'muxr')).toBe(true);
+            await vi.waitFor(async () => {
+                const relisted = await source.list();
+                expect(relisted.map((info) => info.taskTitle ?? '(none)').sort()).toEqual(['(none)', 'Fd renamed', 'Show the SSH key fingerprint']);
+                expect(relisted.every((info) => info.workspaceLabel === 'muxr')).toBe(true);
+            }, { timeout: 10_000 });
         } finally {
             await source.dispose();
             herdr.close();

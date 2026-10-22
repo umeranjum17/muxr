@@ -1,6 +1,6 @@
 {
     "name": "@muxr/desktop",
-    "version": "0.2.9",
+    "version": "0.2.10",
     "private": true,
     "license": "Apache-2.0",
     "type": "module",
@@ -13,7 +13,7 @@
     },
     "dependencies": {
         "@byokit/accounts": "0.28.2",
-        "@byokit/herdr": "0.16.1",
+        "@byokit/herdr": "0.16.2",
         "@byokit/pair": "0.10.3",
         "@byokit/reach": "0.6.0",
         "@byokit/realtime": "0.3.1",

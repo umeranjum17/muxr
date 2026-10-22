@@ -220,7 +220,38 @@ describe('push rides the byokit link relay', () => {
             expect(await tapNotice(sealedNotify('http://192.168.1.2/a'))).toBe('/');
             expect(await tapNotice(sealedNotify('http://localhost:3000/a'))).toBe('http://localhost:3000/a');
 
-
+            // An Android phone has no push address: while its link is up it is sent
+            // the same sealed general notice over the link, and counted; the
+            // important-only push device is not, and nothing goes through Expo.
+            const androidSecret = randomBytes(32);
+            const androidKeys = keyPairFrom(androidSecret);
+            const withAndroid = { ...readState(), devices: [...readState().devices, {
+                deviceId: 'dev_android',
+                devicePublicKey: Buffer.from(androidKeys.publicKey).toString('base64'),
+                authority: 'control',
+                expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            }] };
+            writeFileSync(statePath, JSON.stringify(withAndroid));
+            await endpoint.sync(withAndroid as never);
+            const androidEvents: unknown[] = [];
+            const androidStatuses: string[] = [];
+            const androidLink = new DeviceLink({ ...grant, secretKey: b64url(androidSecret), device: { id: '', name: 'Android', role: 'control' } },
+                { onStatus: (status) => androidStatuses.push(status), onEvent: (event) => androidEvents.push(event) });
+            await until(() => (androidStatuses.includes('online') ? true : undefined), 'android link online');
+            const expoBefore = expoSends.length;
+            expect(endpoint.notifyGeneral({ title: 'Decision needed', body: 'Pick a layout', url: 'https://example.com/a', id: 'k-2', machineId: 'machine-push-test' })).toBe(1);
+            const linkNotice = await until(() => androidEvents.find((event) => (event as { type?: string }).type === 'notice') as { notice: { title: string; data: unknown } } | undefined, 'notice over the link');
+            expect(linkNotice.notice.title).toBe('muxr');
+            const androidPaired = [{ machineId: 'machine-push-test', deviceKey: { secretKey: androidSecret.toString('base64') } }];
+            expect(openLifecycleNotice(linkNotice.notice, androidPaired)).toMatchObject({
+                title: 'Decision needed', body: 'Pick a layout', data: { kind: 'notify', eventId: 'k-2', url: 'https://example.com/a' },
+            });
+            expect(expoSends.length).toBe(expoBefore);
+            // Once the phone is gone nobody is counted: the limit of link-only delivery.
+            androidLink.stop();
+            await until(() => (endpoint.notifyGeneral({ title: 'Later', body: '', id: 'k-3', machineId: 'machine-push-test' }) === 0 ? true : undefined), 'offline phone not counted');
+            writeFileSync(statePath, JSON.stringify({ ...withAndroid, devices: withAndroid.devices.filter((entry) => entry.deviceId !== 'dev_android') }));
+            await endpoint.sync(readState() as never);
 
             // An important-only device is never woken for done noise.
             endpoint.notifyAttention({

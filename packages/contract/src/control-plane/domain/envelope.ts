@@ -21,6 +21,8 @@ export type HostFrame =
     | { type: 'machine.list'; machines: MachineInfo[] }
     /** The machine's own config changed: refetch `machines.list`. */
     | { type: 'machines.changed' }
+    /** A general notification for a device with no push address: the sealed push payload, over the link. */
+    | { type: 'notice'; notice: { title: string; body: string; data: unknown } }
     | PluginsInvalidatedFrame
     | RequestResponse;
 

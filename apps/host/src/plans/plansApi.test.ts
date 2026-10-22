@@ -5,8 +5,8 @@
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
-import { preparePlanSignIn, planAccountStatus, finishPlanSignIn, cancelPlanSignIn } from './planSignIn.js';
+import { execFileSync, spawn } from 'node:child_process';
+import { preparePlanSignIn, planAccountStatus, finishPlanSignIn, cancelPlanSignIn, rememberPlanPane, withPlanAccounts, observePlanPanes } from './planSignIn.js';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
@@ -14,6 +14,7 @@ import { loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
 import { planAccounts } from './planAccounts.js';
 import { opencodeLaunchArgs } from './opencodeAccounts.js';
 import { AgentCatalog } from '../requests/index.js';
+import type { HerdrTreePane } from '@trymuxr/contract';
 
 const mockState = vi.hoisted(() => ({ failRename: false, failRefreshAllocation: false, failRefreshCleanup: false }));
 vi.mock('node:fs', async (importOriginal) => {
@@ -127,6 +128,43 @@ it('hides the feature with one account and lists two with names and emails', asy
     expect(accounts.map((account) => account.email)).toEqual(['.claude@example.com', 'work@example.com']);
     expect(accounts[0]).toMatchObject({ foundOnComputer: true });
     expect(accounts[1]).toMatchObject({ name: 'Work' });
+});
+
+/** The header chip names only the account a pane's own agent runs on: a Pi
+ *  pane (its own provider sign-ins) never inherits the computer's Claude one. */
+it('names a pane by its own agent account and leaves an unknown Pi pane without one', async () => {
+    env.CLAUDE_CONFIG_DIR = foundClaude('umer');
+    savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder: addedClaude('work'), found: false }]);
+    const listed = (await listPlans(env)).providers;
+    const own = listed[0]!.accounts.find((account) => account.foundOnComputer)!.name;
+    const pane = (paneId: string, agentKind: string, provider?: string): HerdrTreePane => ({
+        paneId, tabId: 't1', focused: false, agentKind, agentStatus: 'idle' as const, promptable: true, ...(provider === undefined ? {} : { provider }),
+    });
+    const panes = [pane('claude-own', 'claude'), pane('pi-gpt', 'pi', 'openai'), pane('pi-bare', 'pi'), pane('pi-work', 'pi', 'anthropic'), pane('pi-moved', 'pi', 'openai')];
+    rememberPlanPane(env, 'pi-work', 'pa_work', panes.map((entry) => entry.paneId));
+    rememberPlanPane(env, 'pi-moved', 'pa_work', panes.map((entry) => entry.paneId));
+    const tree = withPlanAccounts(env, { workspaces: [{ workspaceId: 'w1', focused: true, agentStatus: 'idle', tabs: [{ tabId: 't1', focused: true, agentStatus: 'idle', panes }] }] }, listed);
+    expect(Object.fromEntries(tree.workspaces[0]!.tabs[0]!.panes.map((entry) => [entry.paneId, entry.planAccount ?? null]))).toEqual({
+        'claude-own': own, 'pi-gpt': null, 'pi-bare': null, 'pi-work': 'Work', 'pi-moved': null,
+    });
+});
+
+/** A pane muxr did not start (no record) still runs on the folder its own
+ *  process was launched with, not on the computer's sign-in. */
+it.skipIf(process.platform !== 'linux')('names an unrecorded Claude pane by the folder its own process runs with', async () => {
+    env.CLAUDE_CONFIG_DIR = foundClaude('umer');
+    savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder: addedClaude('work'), found: false }]);
+    const listed = (await listPlans(env)).providers;
+    const child = spawn('sleep', ['30'], { env: { ...process.env, CLAUDE_CONFIG_DIR: loadPlanAccounts(env).find((record) => record.id === 'pa_work')!.folder }, stdio: 'ignore' });
+    try {
+        const pane = (paneId: string): HerdrTreePane => ({ paneId, tabId: 't1', focused: false, agentKind: 'claude', agentStatus: 'idle' as const, promptable: true });
+        const tree = { workspaces: [{ workspaceId: 'w1', focused: true, agentStatus: 'idle' as const, tabs: [{ tabId: 't1', focused: true, agentStatus: 'idle' as const, panes: [pane('p-work'), pane('p-own')] }] }] };
+        const pids = async (paneId: string): Promise<number[]> => [paneId === 'p-work' ? child.pid! : process.pid];
+        const named = withPlanAccounts(env, tree, listed, await observePlanPanes(env, tree, pids));
+        expect(named.workspaces[0]!.tabs[0]!.panes.map((entry) => entry.planAccount)).toEqual(['Work', listed[0]!.accounts.find((account) => account.foundOnComputer)!.name]);
+    } finally {
+        child.kill();
+    }
 });
 
 /** A second account added beside the first one: each name comes from its own

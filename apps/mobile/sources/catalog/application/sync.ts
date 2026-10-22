@@ -240,6 +240,8 @@ class MuxrSync {
         });
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
         client.onMachinesChanged?.(() => { void this.refreshCatalog().catch(() => undefined); });
+        // Native only: the host sends link notices to apps with no push address, and web never loads this module.
+        if (Platform.OS !== 'web') client.onNotice = (notice) => (require('./linkNotice') as typeof import('./linkNotice')).receiveLinkNotice(notice);
         client.onStateChange((state) => {
             recordSocketState(state, client.isLive());
             storage.getState().setSocketStatus(socketStatusFromClient(state));

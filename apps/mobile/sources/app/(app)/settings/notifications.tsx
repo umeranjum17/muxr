@@ -1,8 +1,6 @@
 import * as React from 'react';
 import { status, type StatusState } from '@byokit/statusbar';
-import { AppState, Linking, Platform } from 'react-native';
-import * as Application from 'expo-application';
-import * as Notifications from 'expo-notifications';
+import { AppState, Platform } from 'react-native';
 import type { LifecycleNotificationLevel } from '@trymuxr/contract';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -14,7 +12,12 @@ import { browserNotificationSummary } from '@/settings';
 import { openWebInstallGuide } from '@/settings/WebInstallSupport';
 import { t } from '@/text';
 import { getWebInstallState } from '@/utils/webInstall';
-import { requestNotificationPermission } from '@/utils/microphonePermissions';
+import {
+    notificationPermissionStatus,
+    openSystemNotificationSettings,
+    requestNotificationPermission,
+    type NotificationPermission,
+} from '@/utils/microphonePermissions';
 import { registerNativePushNotifications, updateNativePushNotificationLevel } from '@/utils/nativePushNotifications';
 import {
     refreshPushState,
@@ -33,18 +36,6 @@ import {
 
 const SYSTEM = Platform.OS === 'ios' ? 'iOS Settings' : 'Android settings';
 
-/** Sound, vibration and banners belong to the system; this opens muxr's page there. */
-function openSystemNotificationSettings(): void {
-    const packageName = Application.applicationId;
-    if (Platform.OS === 'android' && packageName !== null) {
-        Linking.sendIntent('android.settings.APP_NOTIFICATION_SETTINGS', [
-            { key: 'android.provider.extra.APP_PACKAGE', value: packageName },
-        ]).catch(() => Linking.openSettings());
-        return;
-    }
-    void Linking.openSettings();
-}
-
 /** Each platform names its own surface; neither promises the other's. */
 function liveUpdatesSummary(enabled: boolean): string {
     if (Platform.OS === 'ios') {
@@ -60,7 +51,7 @@ export default function NotificationSettingsScreen() {
     const [browserBusy, setBrowserBusy] = React.useState(false);
     const [levelBusy, setLevelBusy] = React.useState(false);
     const [error, setError] = React.useState<'browser' | 'level' | null>(null);
-    const [allowed, setAllowed] = React.useState(true);
+    const [permission, setPermission] = React.useState<NotificationPermission>('granted');
     const [chipState, setChipState] = React.useState<StatusState>('unsupported');
     const liveSupported = Platform.OS === 'ios' ? supportsLiveActivities() : chipState !== 'unsupported';
     const [liveOn, setLiveOn] = React.useState(() => canPostLiveActivities());
@@ -87,7 +78,7 @@ export default function NotificationSettingsScreen() {
                 });
                 return;
             }
-            void Notifications.getPermissionsAsync().then((permission) => { if (live) setAllowed(permission.granted); }, () => {});
+            void notificationPermissionStatus().then((next) => { if (live) setPermission(next); }, () => {});
             if (Platform.OS === 'ios') setLiveOn(canPostLiveActivities());
             else void status.state().then((state) => {
                 if (!live) return;
@@ -114,6 +105,8 @@ export default function NotificationSettingsScreen() {
                 return;
             }
             setLevel(next);
+            // Turning alerts on is the moment to ask, never after a permanent denial.
+            if (!web && previous === 'off') await ask();
             const pushState = web ? await refreshPushState() : null;
             if (pushState) setBrowser(pushState);
             const synced = web
@@ -149,18 +142,20 @@ export default function NotificationSettingsScreen() {
         }
     };
 
+    const ask = async (): Promise<boolean> => {
+        await requestNotificationPermission();
+        const next = await notificationPermissionStatus();
+        setPermission(next);
+        if (next === 'granted' && Platform.OS === 'ios') void registerNativePushNotifications();
+        return next === 'granted';
+    };
+
     const allow = async () => {
-        if (allowed) {
+        if (permission === 'granted' || permission === 'blocked') {
             openSystemNotificationSettings();
             return;
         }
-        await requestNotificationPermission();
-        const granted = (await Notifications.getPermissionsAsync()).granted;
-        setAllowed(granted);
-        if (granted) {
-            if (Platform.OS === 'ios') void registerNativePushNotifications();
-            return;
-        }
+        if (await ask()) return;
         if (await Modal.confirm('Allow notifications?', `Turn on notifications for muxr in ${SYSTEM}.`, { confirmText: 'Open settings' })) {
             openSystemNotificationSettings();
         }
@@ -192,8 +187,10 @@ export default function NotificationSettingsScreen() {
                     )}
                 </ItemGroup>
             ) : (
-                <ItemGroup footer={`Sound, vibration and banners are set in ${SYSTEM}.`}>
-                    <Item title="Allow notifications" subtitle={allowed ? 'On' : 'Off'} onPress={() => void allow()} />
+                <ItemGroup footer={permission !== 'granted' && level !== 'off'
+                    ? `Notifications are off for muxr, so these alerts can't reach you. Tap Allow notifications to turn them on${permission === 'blocked' ? ` in ${SYSTEM}` : ''}.`
+                    : `Sound, vibration and banners are set in ${SYSTEM}.`}>
+                    <Item title="Allow notifications" subtitle={permission === 'granted' ? 'On' : 'Off'} onPress={() => void allow()} />
                     <Item
                         title={Platform.OS === 'ios' ? 'Sounds and banners' : 'Sound and vibration'}
                         subtitle={`Set in ${SYSTEM}`}

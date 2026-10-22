@@ -1,0 +1,100 @@
+# Ask for notifications after pairing and say when they are off
+
+muxr asks for the notification permission once a computer has an agent to
+tell you about: the first return to Home after a pairing, with an agent
+running, raises the system prompt once, unless the system can no longer ask or
+Not now was chosen. A newcomer with no agent yet sees neither the prompt nor
+the Home card, so Start your first agent is the only thing in the way (an
+alert has nothing to say before an agent exists, and the first agent opens
+with no modal over it). Turning Settings > Notifications > An agent
+needs you on asks again unless the system says it can no longer ask. While
+notifications are off, Settings > Notifications says alerts cannot reach you,
+and Home says so whenever an agent needs you, with a button that asks or opens
+muxr's page in the system notification settings. Both go away once
+notifications are on. Web and Android before 13 have no such permission and
+show none of this.
+
+## Sub-features
+
+- `ask-after-first-agent` a fresh install (`POST_NOTIFICATIONS: granted=false`,
+  never asked) paired to a computer with no agents shows no prompt after Pair;
+  Home reads Start your first agent. Starting an agent opens it with no modal;
+  Back to Home then raises the system "Allow muxr to send you notifications?"
+  prompt with the "Know when an agent needs you" card behind it. A computer that
+  already has agents asks on the first return to Home; a cold relaunch of an
+  already paired app does not ask. `perf/onboardingTiming.mjs` captures this
+  (`6-back-on-home`).
+- `home-off-card` after Don't allow, Home shows "Know when an agent needs you"
+  with Turn on (asks again) and Not now; after a second Don't allow it shows
+  Open settings, which opens muxr's App notifications page.
+- `home-missed-alert` after Not now, Home shows nothing until an agent needs
+  you, then "Notifications are off" with "An agent needs you, but muxr cannot
+  alert you while notifications are off." and the same button, no Not now.
+- `settings-off-hint` Settings > Notifications reads Allow notifications Off and
+  the footer "Notifications are off for muxr, so these alerts can't reach you.
+  Tap Allow notifications to turn them on" (ending "in Android settings" once
+  the system can no longer ask); Allow notifications then opens the system page
+  with no prompt.
+- `alerts-on-asks` turning An agent needs you off and on raises the prompt
+  while the system can still ask, and never after the second Don't allow.
+- `granted-clears` allowing notifications (prompt or system page) removes the
+  Home card and the Settings hint and reads Allow notifications On.
+
+## How to get to it (user POV)
+
+- Install muxr, pair a computer, answer the prompt. Open Settings >
+  Notifications. Leave an agent waiting on you and look at Home.
+
+## Driving it with the private stack
+
+Preconditions:
+
+- `yarn build` and a release APK from `node perf/buildPrApk.mjs <out>` on an
+  owned API 33+ emulator `SERIAL`, installed fresh (`adb install`, then
+  `pm clear com.trymuxr.app`), and `dumpsys package com.trymuxr.app` reads
+  `POST_NOTIFICATIONS: granted=false` with no `USER_SET` flag.
+
+1. From the repo root, in its own shell with stdin attached:
+   `SERIAL=$SERIAL node --input-type=module -e "$(< .agents/skills/done-done-verify-pockit/features/notificationLab.mjs)"`.
+   It starts a fake stack with one idle agent (`umer-api`) and opens the
+   pairing link on the phone. `adb -s $SERIAL reverse tcp:<relayPort> tcp:<relayPort>`
+   is done by the fake stack. Tap `Pair`.
+2. `ask-after-pairing`: dump the screen until
+   `com.android.permissioncontroller` shows `Allow muxr to send you notifications?`;
+   capture it. Tap `Don't allow`.
+3. `home-off-card` and `settings-off-hint`: capture Home and Settings >
+   Notifications. Toggle An agent needs you off and on: the prompt comes back;
+   `Don't allow` again. Capture Home (Open settings) and Settings (footer ends
+   "in Android settings"); tap Allow notifications and check
+   `dumpsys package com.trymuxr.app` reads `USER_FIXED` and the settings app
+   opens muxr's notification page (see Gotchas); back.
+4. `home-missed-alert`: tap Not now on Home, then type `blocked` into the lab:
+   the card returns as "Notifications are off". Capture it; type `idle` and it
+   goes.
+5. `granted-clears`: `pm grant com.trymuxr.app android.permission.POST_NOTIFICATIONS`
+   (stands in for the system page's switch), bring muxr back to the front:
+   Home has no card and Settings reads On with the plain footer.
+6. Run the Visual check (`../SKILL.md`) on Home with the missed-alert card and
+   on Settings > Notifications with the hint. Ctrl-C stops the lab.
+
+## Gotchas
+
+- Android 13+ reads a never-asked app as `denied` with `canAskAgain` true, the
+  same as one Don't allow, so muxr cannot tell them apart; both are askable.
+- Two APKs signed with different test keys do not `install -r` over each
+  other: `adb uninstall com.trymuxr.app` first, then check the installed
+  `base.apk` sha256 against the APK's provenance JSON.
+- Open settings must land on muxr's App notifications page
+  (`Settings$AppNotificationSettingsActivity` or the settings app's page with
+  the "Show notifications" switch), not App info (`InstalledAppDetails`):
+  `Linking.sendIntent` cannot open it on Android 11+ (package visibility), so
+  it goes through the voice-overlay module's `openNotificationSettings`.
+- Answer each prompt only after `dumpsys activity activities` shows
+  `GrantPermissionsActivity` resumed; a tap while it is still opening is lost
+  and the permission is not `USER_FIXED` after "two" denials.
+- A cold relaunch never asks: only a pairing completed in this app run arms
+  the ask. To see the prompt again, `pm clear` and pair again.
+- On Android the first Don't allow can still be asked again; only the second
+  makes it permanent (`canAskAgain` false), which is when Turn on becomes Open
+  settings and the Settings footer names Android settings.
+- `pm revoke` after a grant can kill the app; relaunch before capturing.

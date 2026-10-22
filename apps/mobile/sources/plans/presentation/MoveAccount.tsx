@@ -60,7 +60,7 @@ export function MoveAccountRow({ sessionId, agentKind, working, onOpen }: {
     }, [known, sessionId, connection]);
     if (agentKind === undefined || entry === undefined) return null;
     const mine = recorded?.connection === connection && recorded.sessionId === sessionId ? recorded : undefined;
-    const current = mine === undefined ? undefined : runningOn(entry, mine.id);
+    const current = mine === undefined ? undefined : runningOn(entry, mine.id, agentKind);
     // Nothing to carry over before the first reply, so the move would only fail.
     const early = mine?.movable === false;
     const disabled = current === undefined || early;
@@ -99,7 +99,7 @@ export function MoveSheet() {
     const { entry } = useProviderChoice(moving?.agentKind ?? '');
     const flows = useAccountFlows();
     const accounts: PlanAccount[] = entry?.accounts ?? [];
-    const current = moving === null || entry === undefined ? undefined : runningOn(entry, moving.currentId);
+    const current = moving === null || entry === undefined ? undefined : runningOn(entry, moving.currentId, moving.agentKind);
     const best = bestMoveTarget(accounts, current?.id);
     // Said only when true of every account, the one it runs on included.
     const roomiest = best?.roomLeftPercent !== undefined

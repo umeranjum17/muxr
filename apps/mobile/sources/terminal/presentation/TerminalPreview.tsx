@@ -154,7 +154,9 @@ export const TerminalPreview = React.memo((props: {
     // native then drops the lines past it: the newest ones.
     return (
         <View style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }} pointerEvents="none">
+            {/* A picture of the pane's screen: it keeps the screen's own size at any system text size. */}
             <Text
+                allowFontScaling={false}
                 style={{
                     position: 'absolute',
                     // A terminal's own margin, so text never meets the tile's rounded edge.

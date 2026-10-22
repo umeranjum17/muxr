@@ -52,6 +52,8 @@ export type SessionClient = {
     onEvent(listener: (sessionId: string, event: SessionEvent) => void): () => void;
     onPluginsInvalidated(listener: (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void): () => void;
     onMachinesChanged(listener: () => void): () => void;
+    /** A general notification the host sent over the link (devices with no push address). */
+    onNotice?: (notice: unknown) => void;
     registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
     unregisterPush(): Promise<boolean>;
     terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
@@ -140,6 +142,7 @@ export class LinkFirstClient implements SessionClient {
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
     private readonly pluginListeners = new Set<(frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void>();
     private readonly machinesListeners = new Set<() => void>();
+    onNotice?: (notice: unknown) => void;
     private desktopTransport: DesktopLinkTransport | undefined;
     private desktopOpening: Promise<DesktopLinkTransport | undefined> | undefined;
 
@@ -609,6 +612,7 @@ export class LinkFirstClient implements SessionClient {
         if (frame.type === 'machines.changed') {
             for (const listener of this.machinesListeners) listener();
         }
+        if (frame.type === 'notice') this.onNotice?.(frame.notice);
     }
 
     private unwrap<T extends RequestType>(type: T, value: unknown): RequestResult<T> {

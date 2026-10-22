@@ -309,7 +309,10 @@ device itself, so send `https` or a tailnet host there. A general notice goes
 only to paired devices whose notification settings leave both **An agent
 needs you** and **An agent finishes** on, and `delivered_to` counts those
 devices rather than confirmed deliveries; a device with notifications off, or
-with only **An agent needs you** on, is never sent one. The bearer token lives
+with only **An agent needs you** on, is never sent one. An Android phone has no
+remote push yet, so it is sent the notice over its link only while muxr is
+connected, counted then, and shows it when both settings are on; while it is
+disconnected it gets nothing and is not counted. The bearer token lives
 in
 `$MUXR_HOME/notify-token` (mode 600), created when the host starts. The call
 answers 202 on success, 400 for a bad body and 401 for a bad or missing token,

@@ -9,6 +9,7 @@ vi.mock('react-native', () => ({
     ScrollView: 'ScrollView',
     Platform: { OS: 'ios', select: (options: Record<string, unknown>) => options.ios },
     StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 1 },
+    useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1 }),
 }));
 vi.mock('react-native-unistyles', () => ({
     useUnistyles: () => ({ theme: {
@@ -30,6 +31,7 @@ vi.mock('@/components/OptionSheet', () => ({
 }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
 vi.mock('./AgentPickerSheet', () => ({ AgentPickerSheet: () => null }));
+vi.mock('@/terminal/ui', () => ({ TerminalPreview: () => null }));
 vi.mock('../application/renameInHerdr', () => ({ showPaneActions: () => undefined, showTabActions: () => undefined }));
 const request = vi.hoisted(() => vi.fn());
 const refreshHerdTree = vi.hoisted(() => vi.fn());
@@ -91,7 +93,7 @@ async function renderSheet() {
         );
         await Promise.resolve();
     });
-    // The map measures its own width before it draws any tile.
+    // The grid measures its own width before it draws any card.
     const measurer = (renderer.root as any).find((node: { type: unknown; props?: any }) => typeof node.props?.onLayout === 'function');
     await TestRenderer.act(async () => {
         measurer.props.onLayout({ nativeEvent: { layout: { width: 300 } } });
@@ -101,19 +103,19 @@ async function renderSheet() {
 }
 
 /*
- * The sheet is the intent's selector: it draws the tab's real split, tapping
+ * The sheet is the intent's selector: it draws the tab's panes as cards, tapping
  * another pane's tile navigates to that session and closes the sheet, and
  * Spaces hands over to the whole workspace tree.
  */
 it('selects the tapped pane and hands Spaces over to the workspace tree', async () => {
     const { renderer, closed, spaces } = await renderSheet();
-    const tiles = (renderer.root as any).findAll(
+    const cards = (renderer.root as any).findAll(
         (node: { type: unknown; props?: any }) => node.type === 'Pressable'
             && typeof node.props?.accessibilityLabel === 'string'
             && /^(Current|Open) pane/.test(node.props.accessibilityLabel),
     );
-    expect(tiles).toHaveLength(2);
-    const other = tiles.find((tile: { props: any }) => /^Open pane, right/.test(tile.props.accessibilityLabel))!;
+    expect(cards).toHaveLength(2);
+    const other = cards.find((card: { props: any }) => /^Open pane, right/.test(card.props.accessibilityLabel))!;
     await TestRenderer.act(async () => {
         other.props.onPress();
     });

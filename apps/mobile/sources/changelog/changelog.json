@@ -1,6 +1,33 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.10",
+            "title": "Panes open again after Herdr closes one",
+            "summary": "Panes open again after Herdr closes one.",
+            "features": [
+                {
+                    "title": "Herdr link recovery",
+                    "detail": "The host restarts a stuck Herdr link by itself."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Panes always open",
+                    "detail": "A closed pane no longer blocks new ones."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Phone upgrade",
+                    "status": "passed",
+                    "detail": "0.2.9 to 0.2.10 kept pairing and settings."
+                }
+            ],
+            "knownLimits": [
+                "Update phone and computer together."
+            ]
+        },
+        {
             "appVersion": "0.2.9",
             "title": "A second host no longer replaces the first",
             "summary": "Since 0.2.8: opening Usage can no longer start a second host that replaces the one you are using, and muxr up fails loudly when it runs out of restarts.",

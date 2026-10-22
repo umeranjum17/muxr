@@ -89,9 +89,14 @@ rules, with no H2 sections.
 - [Keep one host per machine key](./one-host-per-machine-key.md) —
   Usage refreshes on the shipped bundle start no second host; a replaced host
   stays up and takes the link back; `muxr up` exits 1 when its restart budget is spent.
+- [Release host bookkeeping when panes close](./closed-pane-bookkeeping.md) —
+  real named Herdr lab, host and paired link: 30 retired pane generations leave
+  timestamp and event-sequence owner counts at their live baseline.
 - [Follow a Herdr agent's status live](./herdr-live-status.md) —
   host session source on a guarded lab Herdr: tree follows new panes, status
-  working/blocked/idle lands, socket count 1 → 2 → 1; no baseline needed.
+  working/blocked/idle lands without a redundant host-side tree clone, passive
+  pane views validate one live target and lists share nonblocking discovery;
+  automatic bootstrap recovery needs no polling reader; socket count 1 → 2 → 1.
 - [Show a stalled computer as busy and recovering](./herdr-stall-recovery.md) —
   named Herdr lab freeze: tree goes unavailable within 20s, returns healthy and
   attaches within 10s; iPad Home records busy copy and agents recovering alone.
@@ -110,6 +115,10 @@ rules, with no H2 sections.
   `webSecureStore`; the one supported path around the HTTPS-only pair screen,
   absent from production exports, used by the PWA features below.
 
+- [Time install to first agent](./onboarding-timing.md) — release APK(s) on a
+  task-owned emulator over the no-agent fake stack: `node perf/onboardingTiming.mjs`
+  times first screen, link, Pair, Start and the agent composer, base against
+  candidate, with a screenshot per step.
 - [Start the first agent from Home in one tap](./home-first-agent.md) —
   fresh release app paired to the fake-Herdr stack with no agents and a lab
   `claude` stand-in: `Start Claude Code` opens the agent with no picker; signed
@@ -153,6 +162,9 @@ rules, with no H2 sections.
   Home Screen guide, hidden once installed or with no install path, at 393 and
   270 px, light and dark.
 
+- [Read a Claude or Pi agent as a chat, and switch it with the terminal](./chat-view.md) —
+  real Claude and Pi panes in a Herdr lab session, paired PWA at 390 px: bubbles, the running
+  line with Stop, the needs-you card into the terminal, and the Settings default.
 - [Show one needs-you count on the app, the favicon and the PWA icon](./needs-you-count.md) —
   private fake stack with a lab-only `lab.set_agent_status`: blocked, failed and
   uncovered-request herds drive the Needs you list, the Spaces header, the
@@ -194,6 +206,10 @@ rules, with no H2 sections.
   computer with its Online/Asleep/Offline state and the one in use, and the
   Pair a computer / Add a cloud computer rows; tapping another online computer
   switches it after a confirmation and the next prompt runs there, dark and light at 393/270 px.
+- [Switch panes from the pane switcher](./pane-switcher.md) — release APK over
+  the fake stack, three tabs: the full-height sheet with the workspace name,
+  Spaces and Done on their own row, the tabs in their own lane, a card with a
+  live preview per pane and the New pane card, at 390 dp light and dark and 270 dp.
 - [Continue an agent on another computer](./continue-on-computer.md) —
   source-written note, read-only preview, same-kind start and prompt on a paired
   target, home-relative folder mapping, source retired only after a strict idle/done read (busy-again, declined confirm or close error keep both), native and installed-PWA proof.
@@ -236,11 +252,11 @@ rules, with no H2 sections.
   real `machine.shell` over a fake-Herdr stack: prompt reply, backgrounded child
   reaped, and the host unit's memory and process count flat across the run.
 - [Name the current workspace and pane](./agent-naming.md) — `muxr name`
-  inside a Herdr pane, with provider/model attribution.
+  inside a Herdr pane, with provider/model attribution; a shared workspace
+  keeps its name on the phone (`workspaceNameLab.mjs`).
 - [Name panes by their Herdr tab label](./pane-tab-names.md) — release APK
   on a lab Herdr, across a restart and a live relabel: Herdr tab labels name Home and Panes rows
-  verbatim instead of a shared Claude title, and an `ssh-ed25519` space shows
-  its folder.
+  in words instead of a shared Claude doorbell title.
 - [Inspect and prune Shared Artifacts history](./artifact-retention.md) —
   `muxr artifacts status` / `prune`.
 - [Ask whether the phone is driving this pane](./preview-status.md) —
@@ -262,6 +278,10 @@ rules, with no H2 sections.
   native release app over a real-Herdr lab with no panes: fresh install,
   Home's Start an agent opens Claude Code and neither notifications modal
   appears in 30 s of 0.5 s screenshots; the Home card still asks.
+- [Ask for notifications once an agent exists and say when they are off](./notification-permission.md) —
+  native release app over a one-agent fake stack: the prompt on the first
+  return to Home with an agent (none after Pair), Home's off card and its missed-alert form when an agent needs you,
+  the Settings > Notifications hint, no prompt after a permanent denial.
 - [Read the computer name in the Home header](./home-header-name.md) —
   native app over a named fake-Herdr stack: one line with an ellipsis, at
   270dp and font scale 2.0, light and dark.
@@ -285,6 +305,17 @@ rules, with no H2 sections.
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.
+- [A pane's account chip names only its own agent's account](./pane-account-chip.md) —
+  release APK on an emulator over a fake-Herdr stack with two Claude
+  accounts: a Pi pane muxr did not start wears no chip, a Claude pane keeps
+  its own, at 270 and 393 wide and font 1.0/2.0, both themes, before/after.
+- [Manage Claude accounts by hand from the CLI](./accounts-cli.md) — real lab
+  Herdr and host with two stand-in Claude accounts: `muxr accounts` lists them
+  with 5-hour and 7-day quota, starts an agent, shows each agent's account and
+  moves one, and refuses `auto`.
+- [Move a conversation to another account](./plan-move.md) — release APK on
+  an emulator over a real lab Herdr and host with two stand-in Claude accounts:
+  the same conversation moves A to B and back, recorded.
 - [OpenCode agents start on Muse Spark 1.3 Contributor](./opencode-go-default-model.md) —
   release APK on an emulator over a real lab host with an OpenCode Go
   sign-in: new agents open on the Go default model before/after one build,
@@ -376,6 +407,7 @@ rules, with no H2 sections.
 - [Keep pairing and settings across an app upgrade](./upgrade-keeps-state.md) —
   main release APK paired with settings changed, `install -r` of the
   candidate, then pairing, theme and text size read back; fresh pair after.
+  `checkUpgradeJourney.mjs` drives that whole journey on a real phone.
 - [Keep every New agent field clear of the sticky Start button](./new-agent-footer-clearance.md) —
   native release APK: at 270 dp largest font the scroll ends above the sticky
   Start footer, so the Folder field and every field stay fully visible above

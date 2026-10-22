@@ -76,6 +76,8 @@ const checks = [
     // Freezes its own lab Herdr, relay and host for a minute each way, so it
     // stays out of the fast lane.
     ['e2e: a frozen computer comes back by itself (isolated lab herdr)', 'node', ['scripts/diagnostics/application/checkHerdrStallE2E.mjs'], 'herdr-lab', 300000],
+    ['e2e: a vanished agent pane never wedges the Herdr tree (isolated lab herdr)', 'node', ['scripts/diagnostics/application/checkHerdrVanishedWatch.mjs'], 'herdr-lab', 120000],
+    ['e2e: retired pane generations release host bookkeeping (isolated lab herdr)', 'node', ['scripts/diagnostics/application/checkHerdrSessionRetention.mjs'], 'herdr-lab', 300000],
     ['e2e: realtime voice attachment (isolated lab herdr)', 'bash', ['scripts/diagnostics/application/checkRealtimeAgentHealth.sh'], 'herdr-lab', 900000],
     ['e2e: worktree session (live stack)', 'node', ['scripts/diagnostics/application/checkWorktreeE2E.mjs'], 'herdr'],
     ['e2e: real-pi runs stay inside an isolated agent home', 'node', ['scripts/diagnostics/application/checkPiAgentIsolation.mjs']],

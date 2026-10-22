@@ -411,3 +411,9 @@ export async function changesPatch(
         ...(file.base === undefined ? {} : { base: file.base }),
     });
 }
+
+// --- chat (the host reads the agent's own session log) -----------------------
+
+export function chatRead(sessionId: string, revision?: string) {
+    return sync.request('chat.read', { sessionId, ...(revision === undefined ? {} : { revision }) });
+}

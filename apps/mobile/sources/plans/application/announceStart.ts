@@ -10,7 +10,7 @@ export async function announceStartAccount(sessionId: string, agentKind: string,
     if (entry === undefined) return;
     let account: PlanAccount | undefined;
     try {
-        account = runningOn(entry, (await agentAccount(sessionId, connection)).accountId);
+        account = runningOn(entry, (await agentAccount(sessionId, connection)).accountId, agentKind);
     } catch (error) {
         if (samePlanConnection(connection)) useUnknownAccounts.setState((state) => ({ reasons: { ...state.reasons, [sessionId]: planFailure(error) } }));
         return;

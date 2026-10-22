@@ -208,6 +208,7 @@ export function startHost(options: HostOptions): Host {
             ? { ...body, session: withPreview([body.session], devicePreviewFor)[0] ?? body.session }
             : body;
         const event: SessionEvent = { ...carried, seq: nextSeq(sessionId) };
+        if (body.type === 'session.removed') seqBySession.delete(sessionId);
         broadcast({ type: 'session.event', sessionId, event }, deviceId);
     }
 
@@ -244,8 +245,8 @@ export function startHost(options: HostOptions): Host {
         answer: async (frame, authenticatedSenderId, connectionId) => {
             const response = await answerFrame(frame, authenticatedSenderId, connectionId);
             if (frame.type === 'machine.hello' && response?.type === 'result' && response.ok) {
-                // The phone admits this handshake before fetching its tree. Reconcile closed or
-                // recovered panes first, then deliver retained launch errors before shell routing.
+                // Index the known tree before replay. The source's replay owner
+                // revalidates retained launch errors before shell routing can follow.
                 await source.list();
             }
             if (frame.type === 'client.hello' || frame.type === 'machine.hello' && response?.type === 'result' && response.ok) {

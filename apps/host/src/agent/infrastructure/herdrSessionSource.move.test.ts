@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, relative } from 'node:path';
@@ -23,7 +24,7 @@ function fakeHerdr(dir: string, cwd: string) {
             agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
         },
     ];
-    const state = { nextWait: undefined as (() => Promise<void>) | undefined, failNextStart: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), loseCloseAckFor: new Set<string>(), echoOnlyReads: 0, answerFolder: undefined as string | undefined, promptPrefixedEcho: false };
+    const state = { nextWait: undefined as (() => Promise<void>) | undefined, failNextStart: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), loseCloseAckFor: new Set<string>() };
     const calls: Array<{ method: string; detail: string }> = [];
     const splits: Array<{ target: unknown; env: unknown }> = [];
     const sendTexts: Array<{ pane_id: unknown; text: unknown; live: boolean }> = [];
@@ -76,52 +77,37 @@ function fakeHerdr(dir: string, cwd: string) {
                         break;
                     }
                     case 'pane.get': {
+                        // Herdr 0.9.1's pane_info: the split env is applied but never reported.
                         const pane = panes.find((row) => row.pane_id === p.pane_id);
+                        const { env: _env, output: _output, ...shown } = pane ?? {};
                         reply = pane === undefined
                             ? { id, error: { code: 'not_found', message: 'pane not found' } }
-                            : { id, result: { pane } };
+                            : { id, result: { pane: shown } };
                         break;
                     }
+                    case 'pane.process_info':
+                        reply = { id, result: { process_info: { shell_pid: 1, foreground_processes: [{ pid: 1, name: 'sh' }] } } };
+                        break;
                     case 'pane.send_text': {
-                        sendTexts.push({ pane_id: p.pane_id, text: p.text, live: agents.some((agent) => agent.pane_id === p.pane_id) });
+                        const live = agents.some((agent) => agent.pane_id === p.pane_id);
+                        sendTexts.push({ pane_id: p.pane_id, text: p.text, live });
                         const pane = panes.find((row) => row.pane_id === p.pane_id);
                         if (pane !== undefined) {
                             const text = String(p.text);
-                            if (text.startsWith('unset ')) {
-                                for (const key of text.trim().slice(6).split(' ')) delete (pane.env as Record<string, string>)[key];
-                            }
                             (pane.output as string[]).push(text);
+                            // A shell pane runs what is typed (read from its stdin, never a command-line string) with the env it was opened with;
+                            // text typed at a live agent reaches the agent as chat, never the shell.
+                            if (!live) {
+                                const env = { PATH: '/usr/bin:/bin', ...(pane.env as Record<string, string>) };
+                                (pane.output as string[]).push(spawnSync('/bin/sh', [], { input: text, env, encoding: 'utf8' }).stdout);
+                            }
                         }
                         reply = { id, result: {} };
                         break;
                     }
                     case 'pane.read': {
                         const pane = panes.find((row) => row.pane_id === p.pane_id);
-                        const output = ((pane?.output ?? []) as string[]).join('');
-                        // Production only evaluates shell input on shell panes: text typed
-                        // at a live agent reaches the agent as chat, never the shell.
-                        if (state.echoOnlyReads > 0) {
-                            state.echoOnlyReads -= 1;
-                            let text = output;
-                            if (state.promptPrefixedEcho) {
-                                text = output.split('\n').map((entry) => entry.startsWith('echo ') ? `$ ${entry}` : entry).join('\n');
-                            }
-                            reply = { id, result: { read: { text } } };
-                            break;
-                        }
-                        const liveAgent = agents.some((agent) => agent.pane_id === p.pane_id);
-                        const echo = liveAgent
-                            ? undefined
-                            : output.split('\n').reverse().find((entry) => entry.startsWith('echo '));
-                        const parsed = /echo (\S+)="\$(?:\{([A-Z_]+)\+x\}|([A-Z_]+))"/.exec(echo ?? '');
-                        const env = pane?.env as Record<string, string> ?? {};
-                        let evaluated = String(env[parsed?.[3] ?? ''] ?? '');
-                        if (parsed?.[2] !== undefined) evaluated = Object.hasOwn(env, parsed[2]) ? 'x' : '';
-                        if (state.answerFolder !== undefined) evaluated = state.answerFolder;
-                        const text = parsed === null
-                            ? output
-                            : `${output}\n${parsed[1]}=${evaluated}\n`;
-                        reply = { id, result: { read: { text } } };
+                        reply = { id, result: { read: { text: ((pane?.output ?? []) as string[]).join('') } } };
                         break;
                     }
                     case 'pane.close': {

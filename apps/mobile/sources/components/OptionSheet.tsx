@@ -58,6 +58,7 @@ export function OptionSheet({
     onSubmitCustom,
     searchPlaceholder,
     maxWidth,
+    fill = false,
 }: {
     visible: boolean;
     title: string;
@@ -78,6 +79,8 @@ export function OptionSheet({
     searchPlaceholder?: string;
     /** A wider sheet for a body that lays out in columns; others keep the default. */
     maxWidth?: number;
+    /** Stand at full height under the status bar, so nothing behind the sheet shows above it; the body owns its scrolling. */
+    fill?: boolean;
 }) {
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
@@ -120,7 +123,9 @@ export function OptionSheet({
         [models, provider, search],
     );
     // Measure the area left by avoidance, so long lists also fit a short phone.
-    const sheetCap = Math.min(windowHeight * 0.82, Math.max(0, availableHeight - safeArea.top - 24));
+    const sheetCap = fill
+        ? Math.max(0, availableHeight - safeArea.top)
+        : Math.min(windowHeight * 0.82, Math.max(0, availableHeight - safeArea.top - 24));
     // The handle and title above a body; a body that draws its own title only pays for the handle.
     const bodyCap = Math.max(0, sheetCap - (title === '' ? 40 : 108));
     const showSearch = !!onSubmitCustom || models.length > SEARCH_THRESHOLD;
@@ -201,7 +206,9 @@ export function OptionSheet({
                         maxWidth === undefined ? null : { maxWidth },
                         // A body sheet has no rows to measure, so it grows with its content
                         // and the inner ScrollView takes the cap instead.
-                        body
+                        fill
+                            ? { height: sheetCap }
+                            : body
                             ? { maxHeight: sheetCap }
                             : {
                                 height: Math.min(
@@ -217,7 +224,9 @@ export function OptionSheet({
                         {title !== '' && <Text style={styles.title}>{title}</Text>}
 
                         {body ? (
-                            virtualizedBody
+                            fill
+                                ? <View style={{ flex: 1 }}>{body}</View>
+                                : virtualizedBody
                                 ? <View style={{ height: Math.min(bodyCap, virtualizedBodyHeight ?? bodyCap) }}>{body}</View>
                                 // A tap on the body's button acts even with the keyboard up, rather than only lowering it.
                                 : <ScrollView style={{ maxHeight: bodyCap }} keyboardShouldPersistTaps="handled">{body}</ScrollView>

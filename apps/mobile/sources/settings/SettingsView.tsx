@@ -6,6 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
+import { SESSION_VIEW_CHOICES } from '@/chat';
 import { getCachedConnectionSettings } from '@/connection';
 import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/pairing/e2ee';
 import { forgetMachine as forgetPairedMachine, isMachineOnline, pairMachine } from '@/pairing';
@@ -55,12 +56,15 @@ export const SettingsView = React.memo(function SettingsView({
     const openPreferences = React.useCallback(() => router.push('/settings/features' as never), [router]);
     const openNotifications = React.useCallback(() => router.push('/settings/notifications' as never), [router]);
     const openGestures = React.useCallback(() => router.push('/settings/gestures' as never), [router]);
+    const openSessionView = React.useCallback(() => router.push('/settings/session-view' as never), [router]);
+    const sessionView = useLocalSettingMutable('sessionView')[0];
     useRealtimeAppControl('Connection', openConnection, '/settings');
     useRealtimeAppControl('Voice & dictation', openVoice, '/settings');
     useRealtimeAppControl('Appearance', openAppearance, '/settings');
     useRealtimeAppControl('Preferences', openPreferences, '/settings');
     useRealtimeAppControl('Notifications', openNotifications, '/settings');
     useRealtimeAppControl('Gestures', openGestures, '/settings');
+    useRealtimeAppControl('Session view', openSessionView, '/settings');
     const lifecycleNotificationLevel = useLocalSettingMutable('lifecycleNotificationLevel')[0];
     const themePreference = useLocalSettingMutable('themePreference')[0];
     const terminalFontSize = FONT_STEPS[clampFontIndex(useLocalSettingMutable('terminalFontIndex')[0])];
@@ -399,6 +403,13 @@ export const SettingsView = React.memo(function SettingsView({
                     detail={sortSessionsByActivity ? 'Recent activity' : 'Created'}
                     icon={<Ionicons name="options-outline" size={29} color="#FF9500" />}
                     onPress={openPreferences}
+                />
+                <Item
+                    title="Session view"
+                    subtitle="Open Claude and Pi as a chat or a terminal"
+                    detail={SESSION_VIEW_CHOICES.find((choice) => choice.key === sessionView)?.title ?? 'Terminal'}
+                    icon={<Ionicons name="chatbubbles-outline" size={29} color="#AF52DE" />}
+                    onPress={openSessionView}
                 />
                 <Item
                     title="Gestures"

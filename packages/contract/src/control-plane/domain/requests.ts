@@ -792,6 +792,15 @@ export interface RequestMap extends PeerRequestMap {
         result: { title: string; note: string; patch: string };
     };
 
+    // --- chat ----------------------------------------------------------------
+    // The conversation of a Claude or Pi agent, read by the host from the
+    // agent's own session log. Whole messages only; the phone polls with the
+    // revision it last saw and gets `unchanged` back until the log moves.
+    'chat.read': {
+        params: { sessionId: string; revision?: string };
+        result: ChatRead;
+    };
+
     // --- files + git history ------------------------------------------------
     // Product-owned since the muxr.code plugin fold-in: the Files tree,
     // bounded file previews, and git history. The host runs git, clients
@@ -957,6 +966,22 @@ export interface ChangesFile {
     /** False for deletions and links: only the patch is reviewable. */
     openable: boolean;
 }
+
+/** One finished message of an agent's conversation. */
+export interface ChatMessage {
+    /** Stable within the conversation: the log's own id for the message. */
+    id: string;
+    role: 'user' | 'assistant';
+    text: string;
+    /** Epoch ms the log stamped it. */
+    at: number;
+}
+
+export type ChatRead =
+    | { state: 'ok'; revision: string; messages: ChatMessage[]; truncated: boolean }
+    | { state: 'unchanged' }
+    /** Why this agent has no chat: its kind is not supported, or it has no conversation on disk yet. */
+    | { state: 'unavailable'; reason: 'unsupported-agent' | 'no-conversation' };
 
 export interface ChangesBadge {
     branch: string;

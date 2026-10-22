@@ -199,7 +199,7 @@ export function parseCodexLine(line: string, state: Pick<FileState, 'model' | 'r
 
 const JSONL_HARNESSES: Array<Exclude<Harness, 'opencode'>> = ['pi', 'omp', 'claude', 'codex'];
 
-function* jsonlFiles(directory: string, depth = 0): Generator<string> {
+export function* jsonlFiles(directory: string, depth = 0): Generator<string> {
     // Pi nests transcripts deep on real hosts (worktree slug, session,
     // subagent, run: depth 5 observed); past 8 a tree is unread, not empty.
     if (depth > 8) throw new Error('session tree nested too deep');

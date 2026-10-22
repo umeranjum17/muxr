@@ -72,9 +72,14 @@ jobs:
           # can redefine: `run` executes the working-tree command and `check`
           # never re-derives it. Bootstrap (origin/main without .done-done.yaml)
           # has no trusted config to compare and runs; otherwise the config must
-          # byte-match origin/main, and --trusted-ref still guards `check`.
+          # carry origin/main's `fast` journey byte for byte (other journeys,
+          # like the phone's, may be added), and --trusted-ref still guards
+          # `check`.
+          fast_block() { awk '/^  fast:/{on=1;print;next} on&&/^  [^ ]/{exit} on' "$1"; }
           if git cat-file -e "origin/main:.done-done.yaml" 2>/dev/null; then
-            git diff --quiet origin/main -- .done-done.yaml || exit 1
+            git show origin/main:.done-done.yaml > "$RUNNER_TEMP/main-done-done.yaml"
+            [ -n "$(fast_block .done-done.yaml)" ] || exit 1
+            [ "$(fast_block .done-done.yaml)" = "$(fast_block "$RUNNER_TEMP/main-done-done.yaml")" ] || exit 1
             TRUSTED_REF_ARGS=(--trusted-ref origin/main)
           else
             TRUSTED_REF_ARGS=()

@@ -8,7 +8,18 @@ the host opening sockets of its own.
 ## Sub-features
 
 - A new workspace or pane appears in the host's tree without a restart.
+- A status push reuses the tree the kit supplies with its notification; the host does not synchronously clone that whole tree again while indexing the push.
 - An agent's status changes (working, blocked, idle) land within a second.
+- Listing known agents, opening one, and reading its status/output do not await
+  a whole-tree status-watch refresh. Pane-only focus validates the live target
+  too; operations needing topology/CWD still await full discovery. Reads retain
+  live before/after generation checks and use the kit's epoch-ordered status.
+  Listings coalesce background discovery for omitted rename/readiness pushes.
+  Files/changes directories, repository roots, plan-pane bindings and peer sender
+  names explicitly request a fresh list; retained launch-error replay also reads
+  after its own call, never reusing an earlier discovery pass.
+- Automatic bootstrap recovery retains the existing 20-second backstop even
+  without a passive reader incidentally requesting a refresh.
 - The host holds one Herdr socket with no agents, plus exactly one per agent
   (the kit's status watch), and drops it when the pane closes.
 - Applying a saved layout starts each recorded agent through the kit's
@@ -62,6 +73,10 @@ Preconditions: a built host (`yarn build`) and the guarded lab helper
    that leaves no workspace, then `PASS herdrStartLab`.
 8. SIGTERM the status probe (it disposes the source), then teardown; teardown
    must exit 0.
+9. Run `npx vitest run apps/host/src/agent/infrastructure/herdrSessionSource.dupEmit.test.ts` for the real-kit/socket-fixture feed flow: animated title ticks stay quiet, a real metadata change publishes once, and a status push reaches the source without a redundant in-notification tree snapshot. Revert `syncFromKit(snapshot)` to the no-argument call to see that last assertion fail.
+
+10. Run `npx vitest run apps/host/src/agent/infrastructure/herdrSessionSource.codex.test.ts` for the real-kit/socket route flow: list/open/status/output complete while an explicit whole-tree response is held, a Files request reads the newly selected repository rather than the held snapshot's directory, and text from an unannounced replacement is rejected. Restore the old full-refresh resolver/list to see the pending-read assertion fail; remove the Files context's `fresh` flag to see the real dispatcher return the wrong repository.
+11. Run `HERDR_LAB_HELPER=<guarded-helper> node scripts/diagnostics/application/checkHerdrVanishedWatch.mjs`. It holds a real status subscription until its pane closes, then requires automatic recovery with the new workspace retained, **without** calling refresh/list/attach to arm recovery; an explicit refresh must still answer afterwards. Capture its log/exit code and successful guarded teardown.
 
 ## Gotchas
 
