@@ -85,8 +85,17 @@ try {
     await dismissPrompts().catch(() => undefined);
 
     await tap('Cloud computer', (v) => v === 'Cloud computer' || v === 'Add a cloud computer. Boat.', 180);
-    await tap('email field', (v) => v === 'Email address' || v === 'Boat account email');
-    await sh('input text umer@example.com');
+    // A busy emulator drops keys from a long `input text`: type in short chunks and read the field back.
+    const EMAIL = 'umer@example.com';
+    for (let attempt = 0; ; attempt += 1) {
+        await tap('email field', (v) => v === 'Email address' || v === 'Boat account email' || v.startsWith('u'));
+        await sh('input keyevent KEYCODE_MOVE_END');
+        for (let i = 0; i < 40; i += 1) await sh('input keyevent KEYCODE_DEL');
+        for (const chunk of EMAIL.match(/.{1,4}/g)) { await sh(`input text '${chunk}'`); await sleep(300); }
+        if (find(await screen(), (v) => v === EMAIL)) break;
+        if (attempt === 2) throw new Error('the email field never held the whole address');
+        say('the email field lost keys; typing it again');
+    }
     await sh('input keyevent KEYCODE_ESCAPE').catch(() => undefined);
     await tap('Connect Boat account', (v) => v === 'Connect Boat account');
     await tap('Sign in to Boat', (v) => v === 'Sign in to Boat');
