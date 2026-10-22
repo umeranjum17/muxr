@@ -19,11 +19,14 @@ journeys:
   suite:
     command: yarn run check > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}.log 2>&1
     timeout: 30m
-  # The release journey on the real phone: install the release build, pair
-  # with a private lab host, open an agent, close a pane, attach again through
-  # pane churn, type and see output. Fails on a host that wedges on a tree
-  # read that never lands (0.2.9). Runs by hand under the phone's keeper lock;
-  # a stable release needs its receipt committed (scripts/release).
+  # The release journey: install the release APK on an owned emulator (or the
+  # test phone), run the lab host from the release's npm tarball (PHONE_PACKAGE),
+  # pair, open an agent, attach again through pane churn, type and see output,
+  # scroll the history back and forward fast, open Usage and come back, and
+  # count one host alive. Fails on a host that wedges on a tree read (0.2.9)
+  # or boots a second host from Usage (0.2.8). Writes release-build.json with
+  # the build digests and the attach and scroll times; a stable release needs
+  # its receipt and that result committed (scripts/release, docs/RELEASING.md).
   phone-attach:
     command: node scripts/diagnostics/application/checkPhoneAttach.mjs
     timeout: 30m
