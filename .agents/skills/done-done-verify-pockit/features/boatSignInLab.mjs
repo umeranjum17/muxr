@@ -2,7 +2,10 @@
 // so a lab APK built with EXPO_PUBLIC_MUXR_BOAT_API=http://127.0.0.1:<port>/api/v1 can link an
 // account with no real Boat claim. Token polls answer `authorization_pending` until the phone
 // opens the sign-in page (the person approving); BOAT_LAB_APPROVE=never keeps them pending.
-// Accepts the email umer@example.com, code 123456. Usage: node boatSignInLab.mjs <port>
+// Accepts the email umer@example.com, code 123456, and the stored key test-key.
+// BOAT_LAB_TAILSCALE=1 also stands in for Tailscale on the machine: it waits for a login with a sign-in link, joins
+// 20 s after the link is first read (the person approving on the page the phone opened), and stops the run at
+// muxr's own set-up. Usage: node boatSignInLab.mjs <port>
 // (run from the repo root after `yarn install`) -> prints "boat lab listening on <port>".
 import { createServer } from 'node:http';
 import { startFakeSandboxServer } from '@byokit/cloud/testing';
@@ -13,6 +16,29 @@ const fake = await startFakeSandboxServer({ claimInterval: 2 });
 const fakeOrigin = new URL(fake.url).origin;
 const ownOrigin = `http://127.0.0.1:${port}`;
 let approved = false;
+
+if (process.env.BOAT_LAB_TAILSCALE === '1') {
+    const login = 'https://login.tailscale.com/a/umer-lab';
+    let joinAt;
+    const run = fake.machine.run.bind(fake.machine);
+    fake.machine.run = (argv, o) => {
+        const ok = (stdout = '') => ({ code: 0, stdout, stderr: '', timedOut: false });
+        if (argv[0] === 'sh' && argv[1] === '-c' && argv[2]?.includes('tailscaled')) return ok();
+        if (argv[0] === 'systemctl' && argv.includes('tailscaled')) return ok();
+        if (argv[0] === 'tailscale' && argv[1] === 'up') {
+            joinAt ??= Date.now() + 20_000;
+            console.log('tailscale up: waiting for the sign-in page');
+            return { code: 1, stdout: '', stderr: `\nTo authenticate, visit:\n\n\t${login}\n`, timedOut: false };
+        }
+        if (argv[0] === 'tailscale' && argv[1] === 'status') {
+            const joined = joinAt !== undefined && Date.now() >= joinAt;
+            return ok(JSON.stringify({ BackendState: joined ? 'Running' : 'NeedsLogin', AuthURL: joined ? '' : login, Self: { DNSName: 'muxr-cloud.umer.ts.net.' } }));
+        }
+        if (argv[0] === 'tailscale' && argv[1] === 'serve') return ok(argv[2] === 'status' ? JSON.stringify({ TCP: { 8792: { TCPForward: '127.0.0.1:8792' } } }) : '');
+        if (argv.includes('self-host')) return { code: 1, stdout: '', stderr: 'The Boat lab stops before muxr sets itself up.', timedOut: false };
+        return run(argv, o);
+    };
+}
 
 createServer(async (req, res) => {
     const chunks = [];
