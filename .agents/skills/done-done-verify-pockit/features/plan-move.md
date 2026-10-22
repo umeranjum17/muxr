@@ -1,8 +1,9 @@
 # Move a conversation to another account
 
 A running Claude conversation moves to the person's other Claude account from
-its Pane actions › Move to another account: the phone says `Moved to <account>`,
-the same conversation carries on in the same tab on the new account's sign-in,
+its Pane actions › Move to another account: the sheet closes and the header
+chip names the new account (the `Moved to <account>` notice shows only on the
+Accounts screen), the same conversation carries on in the same tab on the new account's sign-in,
 and the host records the new account for it. The kit owns the move
 (`@byokit/herdr` `move`, called from `movePlanAccount` in
 `apps/host/src/agent/infrastructure/herdrSessionSource.ts`); the sheet is
@@ -10,7 +11,7 @@ and the host records the new account for it. The kit owns the move
 
 ## Sub-features
 
-- `plan-move-there` A to B: the notice names B, the pane runs on B's sign-in
+- `plan-move-there` A to B: the chip names B, the pane runs on B's sign-in
   and shows the conversation so far.
 - `plan-move-back` B to A: the same, back again.
 

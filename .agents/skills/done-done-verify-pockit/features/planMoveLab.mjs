@@ -233,9 +233,14 @@ try {
         await sleep(1500);
         shot(`${step}a-move-sheet-to-${letter}`);
         await tapText(new RegExp(`^Move to ${to}$`));
-        await waitFor(new RegExp(`Moved to ${to}`), 120);
-        shot(`${step}b-moved-notice-${letter}`);
-        await waitFor(new RegExp(`text="${to}"`), 60);
+        // The "Moved to" notice shows only on the Accounts screen; here the sheet closes and the
+        // header chip names the new account. A failed move opens "Couldn't move" instead.
+        for (const deadline = Date.now() + 120_000; ; await sleep(2000)) {
+            const xml = dump();
+            if (/Couldn't move/.test(xml)) { shot(`${step}b-move-failed-${letter}`); throw new Error(`the phone says the move to ${to} failed`); }
+            if (xml.includes(`text="${to}"`) && !xml.includes('text="Move to another account"')) break;
+            if (Date.now() > deadline) throw new Error(`the header never named ${to}`);
+        }
         await sleep(1500);
         shot(`${step}c-on-account-${letter}`);
         const agent = await ask('plans.agent', { sessionId: current });
