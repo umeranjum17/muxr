@@ -64,7 +64,9 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
         const waited = `${(waitMs / 1000).toFixed(1)}s`;
         console.log(`lab link wait ${waited} (1-min load ${load.toFixed(2)})`);
         const deadline = Date.now() + waitMs;
-        const relay = start(['apps/relay/dist/main.js'], { MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: relayDir, MUXR_RELAY_MDNS: '0' });
+        // MUXR_LAB_PACKAGE_DIR runs an installed @trymuxr/cli instead of this checkout's build: the release journey drives the exact tarball.
+        const packageDir = process.env.MUXR_LAB_PACKAGE_DIR;
+        const relay = start([packageDir ? join(packageDir, 'relay.js') : 'apps/relay/dist/main.js'], { MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: relayDir, MUXR_RELAY_MDNS: '0' });
         const port = await waitForRelay(relay, deadline - Date.now());
         // A journey that photographs the phone names the lab's computer for it, so the real hostname stays off every capture.
         const machine = { ...machineIdentity(undefined), ...(process.env.MUXR_LAB_MACHINE_NAME ? { name: process.env.MUXR_LAB_MACHINE_NAME } : {}) };
@@ -73,7 +75,7 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
             relayUrl: `ws://${process.env.MUXR_RELAY_HOST ?? '127.0.0.1'}:${port}`, relayLocation: 'local', relayRole: 'single-machine',
             connectionMode: 'lan', webEnabled: false, mintSecret: owner })}\n`, { mode: 0o600 });
         // A relay bound for a device elsewhere on the network is dialled at that address too.
-        const host = start(['apps/host/dist/main.js'], { MUXR_MODE: 'selfhost', MUXR_DATA_DIR: hostDir,
+        const host = start([packageDir ? join(packageDir, 'host.js') : 'apps/host/dist/main.js'], { MUXR_MODE: 'selfhost', MUXR_DATA_DIR: hostDir,
             ...(process.env.MUXR_RELAY_HOST ? { MUXR_RELAY_URL: `ws://${process.env.MUXR_RELAY_HOST}:${port}/relay` } : {}) });
         while (!existsSync(join(hostDir, 'pair.sock'))) {
             if (host.exitCode !== null || Date.now() > deadline) throw new Error(`link host did not start within ${waited}: ${host.output()}`);

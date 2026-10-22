@@ -1,12 +1,10 @@
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import {
     CANONICAL_REPOSITORY, CATALOG_BRANCH, MANIFEST_ASSET, channelEntry, mergeCatalog, parseCatalog, serializeCatalog,
 } from '../domain/channelCatalog.mjs';
 import {
-    commitCatalogBranch, readCatalogBranch, readReleaseManifestAsset, readReleaseMetadata, readTagCommit, withReleaseAsset,
+    commitCatalogBranch, readCatalogBranch, readReleaseManifestAsset, readReleaseMetadata, readTagCommit, requireRegistryTarball,
 } from '../infrastructure/catalogBranch.mjs';
-import { readRegistryDistTag, readRegistryIntegrity } from '../infrastructure/publicRecord.mjs';
+import { readRegistryDistTag } from '../infrastructure/publicRecord.mjs';
 
 const PACKAGE = '@trymuxr/cli';
 
@@ -57,14 +55,7 @@ export async function updateChannelCatalog({ repository = CANONICAL_REPOSITORY, 
     // The published package must be the retained tarball, byte for byte.
     const tarball = manifest.artifacts.find((item) => item.name.endsWith('.tgz'));
     if (tarball === undefined) throw new Error(`${tag} has no npm tarball in its manifest`);
-    const registryIntegrity = await readRegistryIntegrity({ package: PACKAGE, version: entry.version });
-    await withReleaseAsset({ repository, tag, name: tarball.name }, async (asset) => {
-        if (asset.bytes !== tarball.bytes || asset.sha256 !== tarball.sha256) {
-            throw new Error(`${tarball.name} on the release does not match its manifest digest`);
-        }
-        const integrity = `sha512-${createHash('sha512').update(readFileSync(asset.path)).digest('base64')}`;
-        if (integrity !== registryIntegrity) throw new Error(`npm ${entry.version} was published from different bytes than ${tarball.name}`);
-    });
+    await requireRegistryTarball({ repository, tag, tarball, package: PACKAGE, version: entry.version });
 
     // The registry decides what a channel currently is; the catalog mirrors it.
     const registryVersion = await readRegistryDistTag({ package: PACKAGE, tag: entry.npmDistTag });

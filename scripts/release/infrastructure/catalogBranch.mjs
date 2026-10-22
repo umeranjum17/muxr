@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CATALOG_PATH, MANIFEST_ASSET } from '../domain/channelCatalog.mjs';
 import { digestFile } from './artifacts.mjs';
+import { readRegistryIntegrity } from './publicRecord.mjs';
 
 /**
  * The catalog branch is arbitrated the same way as the Android build ledger:
@@ -97,4 +99,16 @@ export function readReleaseManifestAsset({ repository, tag }) {
 export function downloadReleaseAsset({ repository, tag, name, directory }) {
     execFileSync('gh', ['release', 'download', tag, '--repo', repository, '--pattern', name, '--dir', directory, '--clobber'],
         { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+}
+
+/** Throws unless npm serves `version` from the exact tarball the release retained under its manifest digest. */
+export async function requireRegistryTarball({ repository, tag, tarball, package: name, version }) {
+    const registryIntegrity = await readRegistryIntegrity({ package: name, version });
+    await withReleaseAsset({ repository, tag, name: tarball.name }, async (asset) => {
+        if (asset.bytes !== tarball.bytes || asset.sha256 !== tarball.sha256) {
+            throw new Error(`${tarball.name} on the release does not match its manifest digest`);
+        }
+        const integrity = `sha512-${createHash('sha512').update(readFileSync(asset.path)).digest('base64')}`;
+        if (integrity !== registryIntegrity) throw new Error(`npm ${version} was published from different bytes than ${tarball.name}`);
+    });
 }

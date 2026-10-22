@@ -23,15 +23,26 @@
  * or path (a raw shell pane, or Home with the person's other agents on it)
  * is never kept: the journey drops those frames and never shoots them.
  *
+ * It is the stable release's journey too (scripts/release): with PHONE_PACKAGE
+ * set to the release's npm tarball, the lab host and relay run from that
+ * tarball installed, not from this checkout, and after typing it scrolls the
+ * agent's history back and forth fast, opens Usage and comes back, and counts
+ * the hosts alive. It writes `release-build.json`: the version, the sha256 of
+ * the APK and tarball it ran, each step's result, the host count, and the
+ * attach and scroll times. The release gate reads that file against the
+ * budgets in scripts/release/domain/releaseJourney.mjs.
+ *
  * Never run against a host that is not a lab: it pairs, closes panes and
  * types. Only the test phone, only this app, never the captain's screens.
- * Usage (inside the phone's keeper lock, with a Herdr lab helper set):
+ * Usage (inside the phone's keeper lock or the emulator lock, with a Herdr lab helper set):
  *
  *   PHONE_SERIAL=a4b93ea2 DONE_DONE_EVIDENCE_ROOT=<dir> PHONE_ATTACH_ROOT=<short scratch> \
+ *     PHONE_APK=<release apk> PHONE_PACKAGE=<release tarball> \
  *     node scripts/diagnostics/application/checkPhoneAttach.mjs
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join } from 'node:path';
 
@@ -41,6 +52,7 @@ const repo = process.cwd();
 const serial = process.env.PHONE_SERIAL;
 if (serial !== 'a4b93ea2' && !/^emulator-\d+$/.test(serial ?? '')) throw new Error('phone-attach runs on the test phone a4b93ea2 under its keeper lock, or on an emulator this run owns');
 const apk = process.env.PHONE_APK || undefined;
+const tarball = process.env.PHONE_PACKAGE || undefined;
 const rounds = Number(process.env.PHONE_ATTACH_ROUNDS ?? 18);
 const { linkHerdrLab } = await import(join(repo, 'scripts/diagnostics/application/linkHerdrLab.mjs'));
 const PKG = 'com.trymuxr.app';
@@ -158,7 +170,7 @@ mkdirSync(join(work, 'muxr'), { recursive: true });
 mkdirSync(bin, { recursive: true });
 // The stand-in agent: it clears the screen it starts in, so the pane never
 // shows the computer's own shell prompt, and it echoes what it is sent.
-writeFileSync(join(bin, 'claude'), `#!/bin/sh\nprintf '\\033]2;%s\\007' 'Fix the login page'\nsleep 1\nprintf '\\033[3J\\033[2J\\033[H'\necho 'lab agent ready'\nwhile read -r line; do echo "lab agent got: $line"; done\nwhile :; do sleep 3600; done\n`, { mode: 0o755 });
+writeFileSync(join(bin, 'claude'), `#!/bin/sh\nprintf '\\033]2;%s\\007' 'Fix the login page'\nsleep 1\nprintf '\\033[3J\\033[2J\\033[H'\necho 'lab agent ready'\nwhile read -r line; do case "$line" in rows) i=1; while [ $i -le 400 ]; do echo "row $i of the lab agent's history"; i=$((i+1)); done ;; *) echo "lab agent got: $line" ;; esac; done\nwhile :; do sleep 3600; done\n`, { mode: 0o755 });
 
 let offering;
 let paired = false;
@@ -187,11 +199,15 @@ const attaches = () => (lab?.hostOutput().match(/link: terminal stream attached/
 
 // The phone is attached when its screen shows a terminal and the host logged a
 // new terminal stream: a screen that still shows the last pane proves nothing.
-const waitAttached = async (before, budget = 90) => {
-    const since = Date.now();
+// `since` is when the person asked for the agent; the time to attach counts from there.
+let attachedMs;
+const waitAttached = async (before, since = Date.now(), budget = 90) => {
     for (let second = 0; second < budget; second += 1) {
         const xml = dump();
-        if (surface(xml) && attaches() > before) return `attached in ${((Date.now() - since) / 1000).toFixed(1)}s`;
+        if (surface(xml) && attaches() > before) {
+            attachedMs = Date.now() - since;
+            return `attached in ${(attachedMs / 1000).toFixed(1)}s`;
+        }
         // A refused attempt leaves the phone a retry to press; the person presses it.
         if (/content-desc="Reconnect terminal/.test(xml)) await tapNode(/^Reconnect terminal/, 4, undefined, true);
         await sleep(1000);
@@ -219,12 +235,43 @@ const openAgentAgain = async (what) => {
     await tapNode(/umer-lab/, 60);
     await waitOffHome();
     leakWindows.push([from - 500, Date.now()]);
-    const verdict = await waitAttached(before);
+    const verdict = await waitAttached(before, from);
     if (!verdict.startsWith('attached')) log(`${what}: ${verdict}`);
     return verdict;
 };
 
+// What the release gate reads: each step's result, the hosts alive at the end, and the timed steps.
+const { RELEASE_JOURNEY, RELEASE_STEPS } = await import(join(repo, 'scripts/release/domain/releaseJourney.mjs'));
+const steps = Object.fromEntries(RELEASE_STEPS.map((step) => [step, 'not reached']));
+const timings = {};
+let hosts;
+let packageDir;
+const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
+
+// Hosts alive: processes in the lab host's own process tree that hold a link to
+// the lab relay. 0.2.8's Usage ledger child booted a second host from the
+// bundle; that one dials the relay too and counts here.
+const hostsAlive = () => {
+    const [, hostPid] = lab.pids();
+    const table = execFileSync('ps', ['-eo', 'pid=,ppid='], { encoding: 'utf8' }).trim().split('\n').map((row) => row.trim().split(/\s+/).map(Number));
+    const tree = new Set([hostPid]);
+    for (let grew = true; grew;) {
+        grew = false;
+        for (const [pid, parent] of table) if (tree.has(parent) && !tree.has(pid)) { tree.add(pid); grew = true; }
+    }
+    const links = execFileSync('ss', ['-tnpH', 'state', 'established', `dport = :${lab.port}`], { encoding: 'utf8' });
+    return new Set([...links.matchAll(/pid=(\d+)/g)].map((match) => Number(match[1])).filter((pid) => tree.has(pid))).size;
+};
+
 try {
+    // The release's npm tarball, installed the way a person installs it; the lab host and relay run from it.
+    if (tarball !== undefined) {
+        const prefix = join(root, 'pkg');
+        execFileSync('npm', ['install', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund', tarball], { stdio: 'ignore', timeout: 600_000 });
+        packageDir = join(prefix, 'node_modules', '@trymuxr', 'cli');
+        process.env.MUXR_LAB_PACKAGE_DIR = packageDir;
+        log(`lab host from ${tarball}: @trymuxr/cli ${JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')).version}`);
+    }
     // The journey installs the exact release build, on a fresh app data dir:
     // an install over an existing app would keep a pairing to another computer.
     // PHONE_USE_INSTALLED=1 drives the app already on the phone as it is instead, and installs nothing.
@@ -278,6 +325,7 @@ try {
     for (let second = 0; second < 30 && !paired; second += 1) await sleep(1000);
     offering?.destroy();
     if (!paired) throw new Error('the host never saw the pairing approval');
+    steps.pair = 'pass';
     await sleep(6000);
 
     // Open the agent: the terminal has to land, not sit on connecting.
@@ -287,9 +335,10 @@ try {
     await tapNode(/umer-lab/, 120);
     await waitOffHome();
     leakWindows.push([from - 500, Date.now()]);
-    const first = await waitAttached(beforeOpen);
+    const first = await waitAttached(beforeOpen, from);
     log(`first attach: ${first}; host attached ${attaches() - beforeOpen} stream(s)`);
     if (!first.startsWith('attached')) throw new Error(`the phone never attached: ${first}`);
+    timings.attachMs = attachedMs;
     await sleep(3000);
     shot('01-agent-attached');
 
@@ -321,6 +370,7 @@ try {
     }
     shot(verdict.startsWith('stuck') ? '03-stuck-after-pane-churn' : '03-attached-after-pane-churn');
     if (verdict.startsWith('stuck')) throw new Error(verdict);
+    steps.attach = 'pass';
     log(`every attach landed through ${rounds} rounds of agent panes coming and going`);
 
     // Type at it, and read the answer back out of the pane itself.
@@ -338,11 +388,68 @@ try {
     }
     await sleep(4000);
     shot('04-typed-command-and-output');
-    const clean = surface(dump());
-    verdict = `pass: attached through ${rounds} churn rounds, typed output shown, no overlay`;
-    if (!echoed) verdict = 'fail: the typed command never printed';
-    else if (!clean) verdict = 'fail: the screen was not clean';
-    log(echoed ? `typed "echo ${word}" and a pane printed it` : 'the typed command never printed');
+    if (!echoed) throw new Error('the typed command never printed');
+    if (!surface(dump())) throw new Error('the screen was not clean after typing');
+    steps.send = 'pass';
+    log(`typed "echo ${word}" and a pane printed it`);
+
+    // Scroll the agent's history back and forward fast, the way a thumb does.
+    // Each direction is timed from the first fling until the phone shows it
+    // arrived: Latest offered once back in history, gone once at the newest output.
+    if (/mInputShown=true/.test(sh('dumpsys input_method'))) { sh('input keyevent KEYCODE_BACK'); await sleep(1000); }
+    lab.herdr(['pane', 'send-text', keep.pane_id, 'rows\n']);
+    await sleep(5000);
+    const [width, height] = /(\d+)x(\d+)/.exec(sh('wm size').split('\n').filter(Boolean).pop()).slice(1).map(Number);
+    const fling = (from, to) => sh(`input swipe ${width >> 1} ${Math.round(height * from)} ${width >> 1} ${Math.round(height * to)} 60`);
+    const LATEST = /content-desc="Jump to latest output/;
+    const scrollUntil = async (from, to, arrived) => {
+        const since = Date.now();
+        for (let burst = 0; burst < 6; burst += 1) {
+            for (let flick = 0; flick < 3; flick += 1) fling(from, to);
+            for (let look = 0; look < 3; look += 1) if (arrived(dump())) return Date.now() - since;
+        }
+        return undefined;
+    };
+    const back = await scrollUntil(0.3, 0.7, (xml) => LATEST.test(xml) && xml.includes('Terminal surface'));
+    log(back === undefined ? 'scrolling back never left the newest output' : `scrolled back into history in ${back} ms`);
+    if (back === undefined) throw new Error('scrolling back never left the newest output');
+    shot('05-scrolled-back');
+    const forward = await scrollUntil(0.7, 0.3, (xml) => !LATEST.test(xml) && surface(xml));
+    log(forward === undefined ? 'scrolling forward never reached the newest output' : `scrolled forward to the newest output in ${forward} ms`);
+    if (forward === undefined) throw new Error('scrolling forward never reached the newest output');
+    timings.scrollMs = Math.max(back, forward);
+    steps.scroll = 'pass';
+    shot('06-scrolled-to-latest');
+
+    // Usage, and back to the agent. The Usage read starts the host's ledger
+    // child, which in 0.2.8 booted a second host instead of counting.
+    await tapNode(/^Pane actions/, 30);
+    await sleep(1000);
+    await tapNode(/^Usage$/, 30);
+    let onUsage = false;
+    for (let second = 0; second < 30 && !onUsage; second += 1) {
+        const xml = dump();
+        onUsage = !xml.includes('Terminal surface') && /(?:text|content-desc)="Usage"/.test(xml);
+        if (!onUsage) await sleep(1000);
+    }
+    if (!onUsage) throw new Error('Usage never opened');
+    log('Usage open');
+    await sleep(10_000);
+    sh('input keyevent KEYCODE_BACK');
+    let backOnAgent = false;
+    for (let second = 0; second < 30 && !backOnAgent; second += 1) {
+        backOnAgent = surface(dump());
+        if (!backOnAgent) await sleep(1000);
+    }
+    if (!backOnAgent) throw new Error('coming back from Usage never showed the agent again');
+    steps.usage = 'pass';
+    shot('07-back-from-usage');
+
+    hosts = hostsAlive();
+    log(`hosts alive: ${hosts}`);
+    if (hosts !== 1) throw new Error(`${hosts} hosts alive after Usage, not exactly one`);
+    steps['one-host'] = 'pass';
+    verdict = `pass: attached through ${rounds} churn rounds, typed output shown, scrolled back and forward, Usage and back, one host`;
 } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     if (verdict === 'not reached') verdict = `fail: ${cause}`;
@@ -351,12 +458,23 @@ try {
     await recordOff('journey over');
     record();
     log(`verdict: ${verdict}`);
+    let version = installed;
+    if (packageDir !== undefined) {
+        version = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')).version;
+        if (version !== installed) log(`the app is ${installed} but the host is ${version}`);
+    }
+    writeFileSync(join(evidence, 'release-build.json'), `${JSON.stringify({
+        schema: 1, journey: RELEASE_JOURNEY, version,
+        build: { apk: apk === undefined ? null : sha256(apk), package: tarball === undefined ? null : sha256(tarball) },
+        result: verdict.startsWith('pass') && version === installed ? 'pass' : 'fail', steps, hosts: hosts ?? null, timings,
+    }, null, 2)}\n`);
     // done-done's step record: what a user did and what they saw, from the verdict this run reached.
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
         target: { version: installed },
         start: `${apk === undefined ? 'the release app already installed on the phone, restarted' : 'the release app freshly installed on the phone'}, with a lab computer running two agent panes that the phone is not yet paired to`,
-        steps: ['pair the phone to the lab computer', 'open an agent', 'close agent panes and attach again through pane churn', 'type a command at the agent'],
-        result: verdict.startsWith('pass') ? 'the phone attached after every round of pane churn and the typed command printed its output on a clean screen' : verdict,
+        steps: ['pair the phone to the lab computer', 'open an agent', 'close agent panes and attach again through pane churn', 'type a command at the agent',
+            'scroll its history back and forward fast', 'open Usage and come back', 'count the hosts alive'],
+        result: verdict.startsWith('pass') ? 'the phone attached after every round of pane churn, the typed command printed its output on a clean screen, the history scrolled back and forward, Usage opened and closed, and one host stayed alive' : verdict,
     }, null, 2)}\n`);
     if (lab) writeFileSync(join(evidence, 'host.log'), lab.hostOutput()
         .replace(/pairing string[^\n]*/g, '<pairing>').replace(/muxr:\/\/pair#\S*/g, '<offer>'));

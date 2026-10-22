@@ -12,7 +12,11 @@
  * - the receipt was sealed against the tree of the commit it names, and that
  *   commit is an ancestor of the release commit;
  * - nothing but release metadata changed between the proved commit and the
- *   release commit, so the proof still covers the code that ships.
+ *   release commit, so the proof still covers the code that ships;
+ * - the journey ran this exact build: the receipt cites, by digest, the
+ *   committed journey result for the release's version, and that result
+ *   names the APK and npm tarball digests the release ships, every step
+ *   passed, exactly one host alive, and attach and scroll times in budget.
  *
  * The receipt is a record, not a signature: a forged one is caught by the
  * merge gate that reviews it, not by this check. What this check refuses is
@@ -20,6 +24,7 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { buildResultFault, buildResultPath, RELEASE_JOURNEY } from '../domain/releaseJourney.mjs';
 import { isReleaseMetadata, RECEIPT_DIR } from '../domain/releaseMetadata.mjs';
 
 const git = (repo, args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
@@ -53,7 +58,7 @@ const commitTime = (repo, commit) => Number(gitText(repo, ['show', '-s', '--form
 /** The receipts committed on a ref. */
 function receiptPaths(repo, ref) {
     const listed = gitText(repo, ['ls-tree', '-r', '--name-only', ref, '--', `${RECEIPT_DIR}/`]);
-    return listed.split('\n').filter((path) => path.endsWith('.json'));
+    return listed.split('\n').filter((path) => path.endsWith('.json') && !path.startsWith(`${RECEIPT_DIR}/builds/`));
 }
 
 /**
@@ -125,17 +130,45 @@ function captureFault(repo, ref, receipt) {
 }
 
 /**
- * Check that a release commit is covered by a committed receipt for the
- * release journey. Returns `{ ok: true, path, receipt }` or
- * `{ ok: false, reason }` naming every receipt that was considered and why it
- * did not count.
+ * Why the committed journey result does not prove this exact build, or null.
+ * The receipt must cite the result's own bytes, so a result edited after the
+ * judge saw the run counts for nothing.
  */
-export function checkJourneyReceipt({ repo = process.cwd(), commit = 'HEAD', receiptsRef = 'origin/main', journey = 'phone-attach' } = {}) {
+function buildFault(receipt, result, build) {
+    if (result === undefined) return `no journey result is committed at ${buildResultPath(build.version)}`;
+    if (!receipt.files.some((file) => file.sha256 === result.sha256)) return `it does not cite the journey result ${buildResultPath(build.version)}`;
+    return buildResultFault(result.value, build);
+}
+
+/** The journey result committed for a version, with its digest, or undefined. */
+function readBuildResult(repo, ref, version) {
+    const path = buildResultPath(version);
+    let bytes;
+    try {
+        bytes = execFileSync('git', ['show', `${ref}:${path}`], { cwd: repo, encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch {
+        return undefined;
+    }
+    let value;
+    try { value = JSON.parse(bytes.toString('utf8')); } catch { value = null; }
+    return { sha256: sha256(bytes), value };
+}
+
+/**
+ * Check that a release commit and its exact build are covered by a committed
+ * receipt for the release journey. `build` is `{ version, apk, package }`, the
+ * sha256 digests of the APK and npm tarball the release ships. Returns
+ * `{ ok: true, path, receipt }` or `{ ok: false, reason }` naming every
+ * receipt that was considered and why it did not count.
+ */
+export function checkJourneyReceipt({ repo = process.cwd(), commit = 'HEAD', receiptsRef = 'origin/main', journey = RELEASE_JOURNEY, build } = {}) {
+    if (!/^[0-9A-Za-z.+-]{1,120}$/.test(build?.version ?? '')) return { ok: false, reason: 'the release names no build version to check' };
     const release = resolveCommit(repo, commit);
     if (!release) return { ok: false, reason: `${commit} names no commit` };
     const ref = resolveCommit(repo, receiptsRef) ?? release;
     const paths = receiptPaths(repo, ref);
     if (!paths.length) return { ok: false, reason: `no receipt is committed in ${RECEIPT_DIR} on ${receiptsRef}` };
+    const result = readBuildResult(repo, ref, build.version);
     const faults = [];
     for (const path of paths) {
         let receipt;
@@ -145,7 +178,8 @@ export function checkJourneyReceipt({ repo = process.cwd(), commit = 'HEAD', rec
             faults.push(`${path}: it is not readable JSON (${error instanceof Error ? error.message : String(error)})`);
             continue;
         }
-        const fault = receiptFault(receipt, journey) ?? coverageFault(repo, release, receipt) ?? captureFault(repo, ref, receipt);
+        const fault = receiptFault(receipt, journey) ?? coverageFault(repo, release, receipt) ?? captureFault(repo, ref, receipt)
+            ?? buildFault(receipt, result, build);
         if (!fault) return { ok: true, path, receipt, head: receipt.head };
         faults.push(`${path}: ${fault}`);
     }

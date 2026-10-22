@@ -121,10 +121,11 @@ jobs:
       - name: Publish with provenance
         if: needs.build.outputs.needed == 'true'
         run: node scripts/release/presentation/publishNpm.mjs
-      # CI publishes stable under `next`. `latest` moves by hand once the
-      # version passed its proof (npm dist-tag add @trymuxr/cli@<version> latest);
-      # re-run this job after that to promote the release and point the catalog
-      # (a version already on npm skips the download and the publish, not these).
+      # CI publishes stable under `next`. `latest` moves only through
+      # scripts/release/presentation/promoteLatest.mjs, once the release journey
+      # passed on the exact build; re-run this job after that to promote the
+      # release and point the catalog (a version already on npm skips the
+      # download and the publish, not these).
       - id: live
         name: Check whether npm latest serves this version
         run: |
@@ -132,7 +133,7 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "$RELEASE_VERSION is on npm as next. The release and catalog stay unchanged until npm latest is moved by hand: npm dist-tag add @trymuxr/cli@$RELEASE_VERSION latest, then re-run this job." >> "$GITHUB_STEP_SUMMARY"
+            echo "$RELEASE_VERSION is on npm as next. The release and catalog stay unchanged until its release journey passes on the exact build and npm latest moves through it: node scripts/release/presentation/promoteLatest.mjs --version $RELEASE_VERSION, then re-run this job." >> "$GITHUB_STEP_SUMMARY"
           fi
       - id: github-release
         name: Check for the candidate's GitHub release
@@ -144,12 +145,13 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "The public channel catalog and GitHub release were not updated: no $GITHUB_RELEASE_TAG GitHub release exists, and only the candidate flow creates one." >> "$GITHUB_STEP_SUMMARY"
           fi
-      # No model and no key: git objects only. A stable release reaches
-      # GitHub Latest and the public channel only when a committed receipt
-      # proves the phone-attach journey on the code it ships.
-      - name: Require the phone-attach receipt for this stable commit
+      # No model and no key: git objects and the release manifest only. A
+      # stable release reaches GitHub Latest and the public channel only when a
+      # committed receipt proves the phone-attach journey on the code it ships
+      # and on the exact APK and npm tarball its release sealed.
+      - name: Require the phone-attach receipt for this stable commit and build
         if: steps.live.outputs.ready == 'true' && steps.github-release.outputs.exists == 'true' && needs.build.outputs.channel == 'stable'
-        run: node scripts/release/presentation/checkJourneyReceipt.mjs --journey phone-attach --commit "$RELEASE_COMMIT"
+        run: node scripts/release/presentation/checkJourneyReceipt.mjs --tag "$GITHUB_RELEASE_TAG" --commit "$RELEASE_COMMIT"
       - name: Promote the accepted stable release to GitHub Latest
         if: steps.live.outputs.ready == 'true' && steps.github-release.outputs.exists == 'true' && needs.build.outputs.channel == 'stable'
         run: node scripts/release/presentation/promoteReleaseVisibility.mjs --tag "$GITHUB_RELEASE_TAG"

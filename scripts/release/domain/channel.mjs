@@ -2,8 +2,8 @@
 export const channelTags = Object.freeze({ stable: 'latest', nightly: 'nightly' });
 /**
  * The npm tag CI publishes under. Stable goes to `next`: `latest` (channelTags)
- * moves only by hand, after the version passed its proof run:
- * `npm dist-tag add @trymuxr/cli@<version> latest`.
+ * moves only through `scripts/release/presentation/promoteLatest.mjs`, once the
+ * release journey passed on the version's exact build.
  */
 export const publishTags = Object.freeze({ stable: 'next', nightly: 'nightly' });
 /**
