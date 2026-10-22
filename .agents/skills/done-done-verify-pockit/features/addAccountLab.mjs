@@ -211,8 +211,20 @@ try {
     shot('3-code-in-composer');
     await tapText(/^Send$/);
     log('sent the code from the composer');
-    // The add ends on naming the account; a stuck add keeps the banner up instead.
-    await waitFor(/text="Name this account"/, 90);
+    // The add ends on naming the account. If it stalls, find out whether the phone still holds
+    // the pending sign-in: with one pending, opening another sign-in says it is already open.
+    try {
+        await waitFor(/text="Name this account"/, 90);
+    } catch (error) {
+        shot('4-stalled');
+        sh(`am start -W -a android.intent.action.VIEW -d 'muxr:///settings/accounts' -n ${activity}`);
+        await tapText(/^Add a Claude account$/);
+        await tapText(/^Open Claude sign-in$/);
+        await sleep(3000);
+        shot('4-stalled-second-open');
+        log(`pending sign-in on the phone: ${/Sign-in is already open/.test(dump()) ? 'still held' : 'gone (a second sign-in opened)'}`);
+        throw error;
+    }
     await sleep(1500);
     shot('4-name-this-account');
     checkHost(signInPane);
@@ -234,6 +246,10 @@ try {
     log('PASS: account added from the phone');
 } catch (error) {
     failed = error?.done !== true;
+    if (emu !== undefined) {
+        // The app's own warnings for the run, whatever the outcome.
+        try { writeFileSync(join(evidence, 'app-log.txt'), execFileSync('adb', ['-s', emu.serial, 'logcat', '-d', '-s', 'ReactNativeJS:V'], { encoding: 'utf8' })); } catch { /* the emulator is gone */ }
+    }
     if (failed && emu !== undefined) {
         // The phone's screen and its view tree at the step that stalled.
         try {
