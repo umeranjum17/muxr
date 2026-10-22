@@ -1,9 +1,13 @@
 # Read a Claude or Pi agent as a chat, and switch it with the terminal
 
-A paired phone can open a Claude or Pi agent as a chat: your messages and the
-agent's replies as whole bubbles (Markdown drawn), a running line with the
-agent's current task, the model it runs, and the normal composer (attach, mic,
-and a stop button while it works). The header's chat and terminal buttons switch
+A paired phone can open a Claude or Pi agent as a chat: your messages in grey
+bubbles on the right, the agent's replies as plain text across the column
+(Markdown drawn), the tools each reply used as chips ("Read a file ›") that open
+what the call was about, a running line with the agent's current task, the
+model it runs, and the normal composer ("Reply to Claude", attach, mic, a blue
+send, and a stop button while it works). The header reads "‹ Agents", the
+agent's status dot and its task; below 340 dp of text width the back is a bare
+chevron and the agent name gives way to the task. The header's chat and terminal buttons switch
 that agent between the two; the terminal stays attached underneath, so
 switching never re-attaches the pane. Settings → Session view picks the default
 (Terminal, Chat, or Chat on phone). An agent that waits on an approval shows a
@@ -11,14 +15,18 @@ switching never re-attaches the pane. Settings → Session view picks the defaul
 real prompt is answered. The host reads the harness's own session log through
 `chat.read` (`apps/host/src/agent/infrastructure/chatTranscript.ts`), found the
 way Herdr names it: Claude by session id under the project folder, Pi by the
-log path Herdr reports. Codex, OpenCode, tool cards and in-chat approvals are
-not part of it.
+log path Herdr reports. Codex, OpenCode, inline images and in-chat approvals
+are not part of it.
 
 ## Sub-features
 
-- `chat-read` a real Claude and a real Pi log become user/assistant bubbles;
-  thinking, tool calls and results, sidechains, slash-command bookkeeping,
+- `chat-read` a real Claude and a real Pi log become user bubbles and plain
+  replies; thinking, tool results, sidechains, slash-command bookkeeping,
   background-task notices and `[Request interrupted by user…]` never do.
+- `chat-tools` each reply's tool calls (Claude `tool_use`, Pi `toolCall`) ride
+  on it as chips in words (`chatMessages.ts` `TOOL_VERBS`; an MCP tool reads
+  `Used <its name>`); a tap opens a sheet with the path, command or pattern. A
+  reply that only ran tools shows its chips alone. Each chip is a 44 dp target.
 - `chat-toggle` the header's chat/terminal pair switches per agent and is
   remembered; an agent without a chat (Codex, OpenCode, a shell) keeps the
   terminal and its chat button dimmed.
@@ -74,7 +82,30 @@ muxr.naming --token provider=claude --token "model=Sonnet 5.5"` through the help
    markup, no home paths, ids, or the person's own data. Stop every pid the run
    started (lab, export server, browser), then the helper's `teardown`.
 
+## Driving it without Herdr (fake stack)
+
+When the task may not drive Herdr, `chatFakeLab.mjs` runs the fake-Herdr stack
+(real relay, host and E2EE) with a Claude conversation seeded where the host
+reads Claude logs, so `chat.read`, the bubbles and the tool chips are the real
+code paths; only the agents are fake (Pi and Claude, both idle). It drops
+`CLAUDE_CONFIG_DIR`, the other harness dirs and `XDG_*_HOME` from its env so the
+host never finds the person's own logs. Run it from the repo root after
+`yarn build`: `node --input-type=module -e "$(< .agents/skills/done-done-verify-pockit/features/chatFakeLab.mjs)"`.
+`SIGUSR1` mints a browser link (pair the lab PWA as in step 2 above),
+`SIGUSR2` a native one; `CHAT_LAB_SERIAL=<emulator>` makes it reverse the relay
+port onto that emulator. Native: install a lab-id release APK (perf/README),
+`pm clear` it, open `muxr-dev://pair#<native link>` with an explicit component
+and tap Pair; dismiss Home's notification card and scroll before tapping the
+Claude row (the Home composer covers the bottom). Open it, tap Chat view, tap a
+chip for the sheet, type in the composer for the blue send. Capture at 390 dp
+(1080 px at density 443) and 270 dp (density 640), dark and light.
+
 ## Gotchas
+
+- The PWA's terminal redraws constantly, so `chrome-devtools-axi` snapshot
+  refs go stale before a `click @uid` lands (STALE_REF, easy to miss with output
+  hidden). Click the chat controls with an `eval` that finds the on-screen
+  element by `aria-label` and calls `.click()`.
 
 - Unistyles keeps each hook's first scope: switching a screen's `ScopedTheme`
   while it is mounted leaves half of it on the old theme. The chat therefore

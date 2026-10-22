@@ -982,9 +982,18 @@ export interface ChatMessage {
     /** Stable within the conversation: the log's own id for the message. */
     id: string;
     role: 'user' | 'assistant';
+    /** Empty for a reply that only used tools. */
     text: string;
     /** Epoch ms the log stamped it. */
     at: number;
+    /** The tools a reply used, in order, in the person's words. */
+    tools?: ChatTool[];
+}
+
+/** One tool call: what it did ("Read a file") and on what (a path, a command). */
+export interface ChatTool {
+    verb: string;
+    detail?: string;
 }
 
 export type ChatRead =
