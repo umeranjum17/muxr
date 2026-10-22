@@ -34,7 +34,7 @@ are not part of it.
   file, ran 1 command  +1 −1") that opens in place. A tap on a step peeks in
   place: an edit's first 8 diff lines (numbered from Claude's own
   `toolUseResult.structuredPatch`, from the edit's arguments for Pi) then `Full
-  diff ›` (a sheet with every line the host sent, at most 40); a command's last 6
+  diff ›` (a sheet with every line the host sent, at most 40, in the app theme over the always-dark chat); a command's last 6
   output lines with `Exit N` and `Open terminal ›`; a search's matches; a read's
   first lines; a plan's checklist. Results are matched to calls by id (Claude
   `tool_result`, Pi `toolResult`). An older host's steps (no `kind`) draw a gear
@@ -117,7 +117,7 @@ type in the composer for the blue send. Capture at 390 dp
 `chatStepsNativeLab.mjs <apk> <evidenceDir> <avdHome>` drives that native recipe
 end to end for the tool steps (boot an owned emulator, the fake lab over adb,
 pair, then folded / group with edit peek / command peek / full diff at 390 and
-270 dp, light and dark, then Home in the same theme (the chat and its Full diff sheet stay dark in every app theme; Home shows which one is on), through `visualCheck.mjs`, plus a recording (a frame per step) of
+270 dp, light and dark, then Home in the same theme (the chat stays dark in every app theme; its Full diff sheet and Home follow the app theme), through `visualCheck.mjs`, plus a recording (a frame per step) of
 open, peek and fold). Run it inside the emulator lock: `flock -o -w 3600
 /tmp/fm-muxr-emulator.lock timeout 1800 node …/chatStepsNativeLab.mjs …`. The
 APK is a lab-id release (`APP_ENV=development MUXR_APP_ID_BASE=app.muxr.chatsteps

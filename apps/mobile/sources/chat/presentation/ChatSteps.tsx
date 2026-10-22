@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useUnistyles } from 'react-native-unistyles';
+import { UnistylesRuntime, useUnistyles } from 'react-native-unistyles';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import type { ChatTool, ChatToolKind } from '@trymuxr/contract';
 import { Typography } from '@/constants/Typography';
@@ -366,12 +366,13 @@ function shownChanges(tool: ChatTool): number {
 
 /**
  * An edit's whole diff, as far as the host sent it, in a sheet over the chat.
- * The app's OptionSheet resolves its styles against the app theme on native,
- * so it came out white over the dark chat in the light app theme; this one
- * takes the theme the chat mounted with, the same look otherwise.
+ * It follows the app theme, like every other sheet, though the chat under it
+ * stays dark: read from the runtime, because inside the chat's dark scope
+ * `useUnistyles` answers dark, and on the web the app's OptionSheet did too.
  */
-export function DiffSheet({ tool, theme, onClose }: { tool: ChatTool | null; theme: ReturnType<typeof useUnistyles>['theme']; onClose: () => void }): React.JSX.Element {
+export function DiffSheet({ tool, onClose }: { tool: ChatTool | null; onClose: () => void }): React.JSX.Element {
     const insets = useSafeAreaInsets();
+    const theme = UnistylesRuntime.getTheme(UnistylesRuntime.themeName);
     const changed = tool === null ? 0 : (tool.added ?? 0) + (tool.removed ?? 0);
     return (
         <Modal visible={tool !== null} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>

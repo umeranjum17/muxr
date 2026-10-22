@@ -142,7 +142,7 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
                 </View>
             )}
 
-            <DiffSheet tool={tool} theme={theme} onClose={() => setTool(null)} />
+            <DiffSheet tool={tool} onClose={() => setTool(null)} />
         </View>
     );
 }
