@@ -140,7 +140,8 @@ function patchOf(hunks: Hunk[]): Pick<ChatTool, 'diff' | 'added' | 'removed'> {
 }
 
 /** What a call came to, in the words and lines a peek shows. */
-function withResult({ id: _id, ...tool }: Pending, result: Result | undefined, cwd: string | undefined): ChatTool {
+function withResult({ id, ...tool }: Pending, results: Map<string, Result>, cwd: string | undefined): ChatTool {
+    const result = id === undefined ? undefined : results.get(id);
     if (result === undefined) return tool;
     let lines = result.text.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '').split('\n').map((line) => cwd === undefined ? line : line.split(`${cwd}/`).join('')).filter((line) => line.trim() !== '');
     const out: ChatTool = { ...tool, outcome: result.failed ? 'failed' : 'ok', ...(result.patch === undefined ? {} : patchOf(result.patch)) };
@@ -236,6 +237,6 @@ export function chatMessagesFrom(harness: ChatHarness, lines: Iterable<string>, 
     return out.map(({ group: _group, tools, ...message }) => ({
         ...message,
         text: clip(message.text),
-        ...(tools === undefined ? {} : { tools: tools.slice(0, CHAT_TOOLS_MAX).map((tool) => withResult(tool, tool.id === undefined ? undefined : results.get(tool.id), cwd)) }),
+        ...(tools === undefined ? {} : { tools: tools.slice(0, CHAT_TOOLS_MAX).map((tool) => withResult(tool, results, cwd)) }),
     }));
 }

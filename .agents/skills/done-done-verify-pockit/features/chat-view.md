@@ -114,6 +114,16 @@ open it, a step to peek, `Full diff ›` for the sheet, the group again to fold 
 type in the composer for the blue send. Capture at 390 dp
 (1080 px at density 443) and 270 dp (density 640), dark and light.
 
+`chatStepsNativeLab.mjs <apk> <evidenceDir> <avdHome>` drives that native recipe
+end to end for the tool steps (boot an owned emulator, the fake lab over adb,
+pair, then folded / group with edit peek / command peek / full diff at 390 and
+270 dp, light and dark, through `visualCheck.mjs`, plus a screen recording of
+open, peek and fold). Run it inside the emulator lock: `flock -o -w 3600
+/tmp/fm-muxr-emulator.lock timeout 1800 node …/chatStepsNativeLab.mjs …`. The
+APK is a lab-id release (`APP_ENV=development MUXR_APP_ID_BASE=app.muxr.chatsteps
+MUXR_DEV_APP_ID=app.muxr.chatsteps.dev MUXR_DISTRIBUTION=direct` with
+`-PmuxrDevelopmentApp=true`); the journey finds the package by `chatsteps`.
+
 ## Gotchas
 
 - The PWA's terminal redraws constantly, so `chrome-devtools-axi` snapshot

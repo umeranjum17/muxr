@@ -67,7 +67,9 @@ function cutMiddle(text: string, room: number, path: boolean): string {
     if (text.length <= room) return text;
     const space = text.lastIndexOf(' ');
     const dot = text.split('').findIndex((char, index) => char === '.' && index > 0 && text.length - index <= 12);
-    const preferred = path && dot > 0 ? text.slice(dot) : !path && space > 0 && text.length - space <= 18 ? text.slice(space) : text.slice(-10);
+    let preferred = text.slice(-10);
+    if (path && dot > 0) preferred = text.slice(dot);
+    else if (!path && space > 0 && text.length - space <= 18) preferred = text.slice(space);
     // At least three characters of the head show before the ellipsis.
     const tail = preferred.length <= room - 4 ? preferred : text.slice(-(Math.max(1, room - 4)));
     return `${text.slice(0, Math.max(0, room - tail.length - 1))}…${tail}`;
@@ -123,6 +125,13 @@ function Row({ open, onPress, label, children }: { open: boolean; onPress: () =>
     );
 }
 
+type CodeColors = ReturnType<typeof useUnistyles>['theme']['colors']['code'];
+const MARKS: Record<string, { sign: string; background: (code: CodeColors) => string; mark: (code: CodeColors) => string }> = {
+    '+': { sign: '+', background: (code) => code.addedBg, mark: (code) => code.addedMark },
+    '-': { sign: '−', background: (code) => code.removedBg, mark: (code) => code.removedMark },
+    ' ': { sign: '', background: () => 'transparent', mark: (code) => code.dim },
+};
+
 /** Diff lines in the code panel's colours, numbered from the hunk headers Claude's own patch carries. */
 export function DiffLines({ lines }: { lines: string[] }): React.JSX.Element {
     const theme = useChatTheme();
@@ -140,13 +149,15 @@ export function DiffLines({ lines }: { lines: string[] }): React.JSX.Element {
                         newLine = Number(hunk[2]);
                         return index === 0 ? null : <Text key={index} style={[text, { color: code.dim, paddingLeft: 10 }]}>⋯</Text>;
                     }
-                    const mark = line.charAt(0);
+                    const kind = MARKS[line.charAt(0)] ?? MARKS[' '];
                     const numbered = oldLine > 0;
-                    const number = mark === '-' ? oldLine++ : mark === '+' ? newLine++ : (oldLine++, newLine++);
+                    let number = newLine;
+                    if (kind.sign === '−') number = oldLine++;
+                    else { if (kind.sign === '') oldLine++; newLine++; }
                     return (
-                        <View key={index} style={{ flexDirection: 'row', paddingRight: 10, backgroundColor: mark === '+' ? code.addedBg : mark === '-' ? code.removedBg : 'transparent' }}>
+                        <View key={index} style={{ flexDirection: 'row', paddingRight: 10, backgroundColor: kind.background(code) }}>
                             {numbered && <Text style={[text, { width: 34, textAlign: 'right', paddingRight: 6, color: code.dim }]}>{number}</Text>}
-                            <Text style={[text, { width: 16, textAlign: 'center', color: mark === '+' ? code.addedMark : mark === '-' ? code.removedMark : code.dim }]}>{mark === '-' ? '−' : mark === '+' ? '+' : ''}</Text>
+                            <Text style={[text, { width: 16, textAlign: 'center', color: kind.mark(code) }]}>{kind.sign}</Text>
                             <Text style={text}>{line.slice(1)}</Text>
                         </View>
                     );
@@ -191,7 +202,7 @@ function Peek({ tool, onFullDiff, onOpenTerminal }: { tool: ChatTool; onFullDiff
                     <Stat added={tool.added ?? 0} removed={tool.removed ?? 0} />
                 </>}
                 footer={<>
-                    <Text style={dim}>{tool.kind === 'write' ? 'New file' : `${changed} line${changed === 1 ? '' : 's'} changed`}</Text>
+                    <Text style={dim}>{tool.kind === 'write' ? 'New file' : `${plural(changed, 'line')} changed`}</Text>
                     <FooterLink label="Full diff" onPress={() => onFullDiff(tool)} />
                 </>}>
                 <DiffLines lines={tool.diff.slice(0, PEEK_LINES + (tool.diff[0]?.startsWith('@@') ? 1 : 0))} />
@@ -217,7 +228,7 @@ function Peek({ tool, onFullDiff, onOpenTerminal }: { tool: ChatTool; onFullDiff
         const text = { fontSize: 12, lineHeight: 18, ...Typography.mono() };
         return (
             <Panel footer={tool.kind === 'run' ? <>
-                <Text style={dim}>{tool.exit === undefined ? (tool.outcome === 'failed' ? 'Failed' : 'Done') : `Exit ${tool.exit}`}</Text>
+                <Text style={dim}>{endOf(tool)}</Text>
                 <FooterLink label="Open terminal" onPress={onOpenTerminal} />
             </> : undefined}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -240,7 +251,7 @@ function Step({ tool, running, onFullDiff, onOpenTerminal }: { tool: ChatTool; r
     const mono = MONO_KINDS.has(tool.kind);
     return (
         <View>
-            <Row open={open} onPress={() => setOpen(!open)} label={`${verbOf(tool)} ${target}${running ? ', running' : tool.outcome === 'failed' ? ', failed' : ''}`}>
+            <Row open={open} onPress={() => setOpen(!open)} label={`${verbOf(tool)} ${target}${stateWords(tool, running)}`}>
                 <Glyph kind={tool.kind} />
                 <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
                     {/* Narrow, a file or command needs the room: its icon already says the kind. */}
@@ -256,10 +267,36 @@ function Step({ tool, running, onFullDiff, onOpenTerminal }: { tool: ChatTool; r
     );
 }
 
+function plural(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+/** How a command ended, for its peek's footer. */
+function endOf(tool: ChatTool): string {
+    if (tool.exit !== undefined) return `Exit ${tool.exit}`;
+    return tool.outcome === 'failed' ? 'Failed' : 'Done';
+}
+
+function stateWords(tool: ChatTool, running: boolean): string {
+    if (running) return ', running';
+    return tool.outcome === 'failed' ? ', failed' : '';
+}
+
+function runningVerb(tool: ChatTool): string {
+    return tool.kind === 'run' ? 'Running' : verbOf(tool);
+}
+
+function GroupMeta({ running, failed, added, removed, count }: { running: boolean; failed: boolean; added: number; removed: number; count: number }): React.JSX.Element {
+    const theme = useChatTheme();
+    if (running) return <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.75 }] }} />;
+    if (failed) return <Text style={{ fontSize: 12.5, color: theme.colors.diff.error }}>failed</Text>;
+    if (added + removed > 0) return <Stat added={added} removed={removed} />;
+    return <Text style={{ fontSize: 12.5, color: theme.colors.textSecondary }}>{plural(count, 'step')}</Text>;
+}
+
 /** "Edited 2 files, read 1 file, ran 1 command": the three kinds that matter most, in that order. */
 function summaryOf(tools: ChatTool[]): string {
     const count = (kinds: Array<ChatToolKind | undefined>) => tools.filter((tool) => kinds.includes(tool.kind)).length;
-    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
     const parts: string[] = [];
     const edits = count(['edit', 'write']);
     if (edits > 0) parts.push(`edited ${plural(edits, 'file')}`);
@@ -299,7 +336,7 @@ function Steps({ tools, live, ink, onFullDiff, onOpenTerminal }: { tools: ChatTo
     const added = tools.reduce((sum, tool) => sum + (tool.added ?? 0), 0);
     const removed = tools.reduce((sum, tool) => sum + (tool.removed ?? 0), 0);
     const failed = tools.some((tool) => tool.outcome === 'failed');
-    const summary = current === undefined ? summaryOf(tools) : `${current.kind === 'run' ? 'Running' : verbOf(current)} ${targetOf(current)}`;
+    const summary = current === undefined ? summaryOf(tools) : `${runningVerb(current)} ${targetOf(current)}`;
     return (
         <View>
             <Row open={open} onPress={() => setOpen(!open)} label={`${tools.length} steps. ${summary}`}>
@@ -310,13 +347,7 @@ function Steps({ tools, live, ink, onFullDiff, onOpenTerminal }: { tools: ChatTo
                 ))}
                 </View>
                 <Text numberOfLines={3} style={{ flex: 1, minWidth: 0, color: theme.colors.text, fontSize: 14.5, lineHeight: 20 }}>{summary}</Text>
-                {current !== undefined
-                    ? <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.75 }] }} />
-                    : failed
-                        ? <Text style={{ fontSize: 12.5, color: theme.colors.diff.error }}>failed</Text>
-                        : added + removed > 0
-                            ? <Stat added={added} removed={removed} />
-                            : <Text style={{ fontSize: 12.5, color: theme.colors.textSecondary }}>{tools.length} steps</Text>}
+                <GroupMeta running={current !== undefined} failed={failed} added={added} removed={removed} count={tools.length} />
             </Row>
             {open && (
                 <View style={{ marginLeft: narrow ? 4 : 12, paddingLeft: narrow ? 8 : 12, borderLeftWidth: 1, borderLeftColor: theme.colors.divider }}>
