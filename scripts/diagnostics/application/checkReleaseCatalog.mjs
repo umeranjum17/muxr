@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import {
     channelEntry, checksumLineMismatch, emptyCatalog, mergeCatalog, parseCatalog, publicDeadline, publicRecordMismatch,
-    publishTags, readPublicJson, requireRedirect, serializeCatalog,
+    channelTags, readPublicJson, requireRedirect, serializeCatalog,
 } from '../../release/index.mjs';
 
 // A nightly manifest in the shape the candidate workflow seals: a -nightly
@@ -44,9 +44,9 @@ const published = {
 const { channel, entry } = channelEntry({ tag: 'v0.1.28-nightly.1.1', manifest: nightlyManifest, publishedAt: '2026-09-06T13:17:22Z' });
 assert.equal(channel, 'nightly');
 assert.equal(entry.npmDistTag, 'nightly');
-// CI publishes stable under `next`; `latest` is moved by hand after the proof run.
-assert.equal(publishTags.stable, 'next');
-assert.equal(publishTags.nightly, 'nightly');
+// CI publishes stable under `latest`, and only once the release journey passed on the exact build.
+assert.equal(channelTags.stable, 'latest');
+assert.equal(channelTags.nightly, 'nightly');
 assert.equal(entry.appVersion, '0.1.28');
 assert.equal(entry.android.applicationId, 'app.muxr.local.dev', 'nightly must keep the side-by-side application identity');
 assert.equal(entry.android.url, 'https://github.com/umeranjum17/muxr/releases/download/v0.1.28-nightly.1.1/muxr-0.1.28-361.apk');

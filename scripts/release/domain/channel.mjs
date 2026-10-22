@@ -1,11 +1,11 @@
-/** Distribution channel is independent of server environment and app identity. */
-export const channelTags = Object.freeze({ stable: 'latest', nightly: 'nightly' });
 /**
- * The npm tag CI publishes under. Stable goes to `next`: `latest` (channelTags)
- * moves only through `scripts/release/presentation/promoteLatest.mjs`, once the
- * release journey passed on the version's exact build.
+ * Distribution channel is independent of server environment and app identity.
+ * CI publishes each version under its channel's tag. A stable version is
+ * published only once the release journey passed on its exact build
+ * (`scripts/release/application/acceptStable.mjs`), so `latest` moves in that
+ * same publication: trusted publishing cannot move a tag afterwards.
  */
-export const publishTags = Object.freeze({ stable: 'next', nightly: 'nightly' });
+export const channelTags = Object.freeze({ stable: 'latest', nightly: 'nightly' });
 /**
  * Beta and dev are historical. Their published versions, tags and releases stay
  * exactly as they are: readable, installable, never written to again. An input

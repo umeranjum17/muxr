@@ -92,7 +92,7 @@ rules, with no H2 sections.
 - [A stable release passes the real-app journey on its exact build](./release-journey.md) —
   release APK on an owned emulator, host from the release tarball, real Herdr
   lab: pair, attach, send, fast scroll, Usage and back, one host; attach and
-  scroll times against budgets; `promoteLatest.mjs` refuses any other build.
+  scroll times against budgets; `acceptStable.mjs` keeps any other build off npm `latest`.
 - [Release host bookkeeping when panes close](./closed-pane-bookkeeping.md) —
   real named Herdr lab, host and paired link: 30 retired pane generations leave
   timestamp and event-sequence owner counts at their live baseline.
@@ -171,6 +171,10 @@ rules, with no H2 sections.
   line with Stop, the needs-you card into the terminal, and the Settings default; or, without
   Herdr, `chatFakeLab.mjs` (fake stack, seeded Claude log) for the look and the tool steps on
   the PWA and a lab-id APK on an emulator.
+- [Fit the agent header beside its controls with a long task](./chat-header-fit.md) —
+  `headerFitNativeLab.mjs` (chat fake lab, lab-id APK on an emulator) and `headerFitPwaCells.sh` (installed PWA): chat and terminal view
+  at 360 and 390 dp, light and dark, quiet then Working with a long task and three changes;
+  the toggle, pane count and ⋮ must be the same pixels in both.
 - [Show one needs-you count on the app, the favicon and the PWA icon](./needs-you-count.md) —
   private fake stack with a lab-only `lab.set_agent_status`: blocked, failed and
   uncovered-request herds drive the Needs you list, the Spaces header, the
@@ -327,6 +331,10 @@ rules, with no H2 sections.
 - [Move a conversation to another account](./plan-move.md) — release APK on
   an emulator over a real lab Herdr and host with two stand-in Claude accounts:
   the same conversation moves A to B and back, recorded.
+- [Add a Claude account from the phone](./add-account.md) — release APK on
+  an emulator over a real lab Herdr and host with a stand-in Claude sign-in:
+  the code is sent once from the sign-in tab, the tab closes and the add ends
+  on Name this account and the Added notice, recorded.
 - [OpenCode agents start on Muse Spark 1.3 Contributor](./opencode-go-default-model.md) —
   release APK on an emulator over a real lab host with an OpenCode Go
   sign-in: new agents open on the Go default model before/after one build,

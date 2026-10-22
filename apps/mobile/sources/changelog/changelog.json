@@ -1,6 +1,61 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.11",
+            "title": "A chat view for your agents, and a simpler way around",
+            "summary": "Since 0.2.10: Claude and Pi agents can be read as a chat, panes switch from one full-height sheet, and adding a Claude account no longer hangs.",
+            "features": [
+                {
+                    "title": "Chat view",
+                    "detail": "Open a Claude or Pi agent as a chat and switch back to the terminal when you want it. Tool steps show what they touched, with icons, and fold away until you open them."
+                },
+                {
+                    "title": "Pane switcher",
+                    "detail": "Every pane in one full-height sheet, with a live card for each."
+                },
+                {
+                    "title": "Computers in the pane menu",
+                    "detail": "See your computers and add another from one entry in the pane menu."
+                },
+                {
+                    "title": "Moving a Claude account",
+                    "detail": "A Claude agent can move to another account of yours, and the move is reported as done once it is."
+                },
+                {
+                    "title": "One look for choices",
+                    "detail": "Alerts and choices open in the same sheet on Android and on the web."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Claude pane scrolling",
+                    "detail": "The history of a Claude pane scrolls smoothly under your finger."
+                },
+                {
+                    "title": "Agent header on a narrow screen",
+                    "detail": "A long task name no longer pushes the header buttons out of reach at 390 dp and narrower."
+                },
+                {
+                    "title": "Adding a Claude account",
+                    "detail": "The sign-in tab closes once you are signed in, so adding an account ends on the account added screen instead of hanging."
+                },
+                {
+                    "title": "Screen sharing",
+                    "detail": "When the computer's screen-sharing portal runs without the right service, the phone tells you to restart screen sharing."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Checks",
+                    "status": "not-run",
+                    "detail": "Not accepted on a device."
+                }
+            ],
+            "knownLimits": [
+                "Update phone and computer together."
+            ]
+        },
+        {
             "appVersion": "0.2.10",
             "title": "Panes open again after Herdr closes one",
             "summary": "Panes open again after Herdr closes one.",

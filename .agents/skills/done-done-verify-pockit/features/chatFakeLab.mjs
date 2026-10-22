@@ -5,7 +5,13 @@
 // (`node --input-type=module -e "$(< …/chatFakeLab.mjs)"`). CHAT_LAB_SERIAL
 // (an emulator) switches to the adb transport for a native app. SIGUSR1 mints
 // a browser link, SIGUSR2 a native one; SIGTERM stops the stack. See chat-view.md.
+// Stdin lines drive the header-fit journey (chat-header-fit.md): `status <state>
+// <task>` sets Claude 1's lifecycle and task title, `changes` leaves three
+// uncommitted files in its folder.
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { createConnection } from 'node:net';
+import { createInterface } from 'node:readline';
 import { dirname, join } from 'node:path';
 import { startFakeStack } from './perf/lib/fakeStack.mjs';
 import { setAndroidSerial } from './perf/lib/deviceTarget.mjs';
@@ -57,11 +63,13 @@ const conversationIn = (cwd) => {
     ].join('');
 };
 
+let project;
 const stack = await startFakeStack({
     transport: serial ? 'adb' : 'loopback', panes: 2, agents: 2, titleChurnHz: 0,
     // The host reads Claude logs from the lab HOME, by the pane's cwd and session id.
     setupHome: (home) => {
         const cwd = join(dirname(home), 'herdr', 'project');
+        project = cwd;
         const folder = join(home, '.claude', 'projects', cwd.replace(/[^A-Za-z0-9]/g, '-'));
         mkdirSync(folder, { recursive: true });
         for (const id of ['gen-1', 'gen-2']) writeFileSync(join(folder, `${id}.jsonl`), conversationIn(cwd));
@@ -78,5 +86,32 @@ const mint = async (kind) => {
 };
 process.on('SIGUSR1', () => void mint('browser').catch((error) => console.error(error)));
 process.on('SIGUSR2', () => void mint('native').catch((error) => console.error(error)));
+// The fake Herdr's own socket; `lab.set_agent_status` is its verification-only method.
+const herdr = (method, params) => new Promise((resolve, reject) => {
+    const socket = createConnection(stack.cellMetricsJsonl.replace(/\.cell-metrics\.jsonl$/, ''), () => socket.write(`${JSON.stringify({ id: 'lab', method, params })}\n`));
+    let buffer = '';
+    socket.on('error', reject);
+    socket.on('data', (chunk) => {
+        buffer += chunk;
+        const reply = buffer.split('\n').slice(0, -1).map((row) => JSON.parse(row)).find((row) => row.id === 'lab');
+        if (reply === undefined) return;
+        socket.destroy();
+        reply.error == null ? resolve(reply.result) : reject(new Error(JSON.stringify(reply.error)));
+    });
+});
+const claude = stack.world.agents.find((agent) => agent.agent === 'claude');
+const git = (...args) => execFileSync('git', ['-c', 'user.name=Umer', '-c', 'user.email=umer@example.invalid', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: project, stdio: 'ignore' });
+createInterface({ input: process.stdin }).on('line', (text) => {
+    const [command, state, ...task] = text.trim().split(' ');
+    const done = command === 'status' ? herdr('lab.set_agent_status', { pane_id: claude.pane_id, agent_status: state, title: task.join(' ') })
+        : command === 'changes' ? Promise.resolve().then(() => {
+            git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'Start');
+            writeFileSync(join(project, 'notes.txt'), 'line 1\nline 2 changed\n');
+            writeFileSync(join(project, 'shipping.ts'), 'export const FREE_FROM = 50;\n');
+            writeFileSync(join(project, 'shipping.test.ts'), "import { FREE_FROM } from './shipping';\n");
+        })
+            : Promise.reject(new Error(`unknown command: ${text}`));
+    done.then(() => console.log(`lab did: ${command}`), (error) => console.error(`lab failed: ${command}: ${error.message}`));
+});
 console.log(`lab ready: agents ${stack.world.agents.map((agent) => `${agent.agent}=${agent.pane_id}`).join(', ')}, self ${process.pid}`);
 setInterval(() => {}, 1 << 30);

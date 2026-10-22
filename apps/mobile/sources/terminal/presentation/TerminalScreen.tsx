@@ -96,6 +96,7 @@ import { PREVIEW_DOCK, previewDocks, requestDesktop, type DesktopOrigin } from '
 import { PreviewChip, PreviewTooltip, previewIcon, usePreviewGate } from '@/desktop/preview';
 import { FindOutputSheet } from './FindOutputSheet';
 import { PendingChoices } from './PendingChoices';
+import { TITLE_BUTTON_PADDING, useHeaderFit } from './useHeaderFit';
 
 /** What a reply row's primary tap really does, for replies that never send. */
 const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
@@ -1379,6 +1380,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // grace, so a sub-second blip never flickers the header.
     const linkUnproven = returnStale || shownStatus !== 'live';
     const headerLifecycleLabel = linkUnproven || headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
+    const headerNameShown = identityKnown && contextName !== undefined && !narrowChrome && !(chatShown && !backWord);
+    const headerAccountShown = identityKnown && !narrowChrome && (currentPane?.planAccount !== undefined || unknownAccount !== undefined);
+    const headerWordShown = headerLifecycleLabel !== undefined && !chatShown && !narrowChrome;
+    const headerFit = useHeaderFit(fontScale, { word: headerWordShown, name: headerNameShown, account: headerAccountShown });
     return (
         <ScopedTheme name="dark"><DarkSurface>{(theme) => {
             if (sessionError !== undefined) return <TerminalFailure message={sessionError} onHome={() => router.replace('/')} />;
@@ -1617,23 +1622,26 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             {chatShown ? <Ionicons name="chevron-back" size={20} color={theme.colors.text} /> : <Ionicons name="arrow-back" size={18} color={theme.colors.text} />}
                             {backWord && <Text style={{ color: theme.colors.text, fontSize: 15 }}>Agents</Text>}
                         </Pressable>
-                        <Pressable onPress={() => { setActionsOpen(false); setOverviewOpen(true); }} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentWhoLine(labels)}${currentPane?.planAccount !== undefined ? `. On ${currentPane.planAccount}` : unknownAccount === undefined ? '' : '. Account unknown'}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. Open panes` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
+                        <Pressable onPress={() => { setActionsOpen(false); setOverviewOpen(true); }} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentWhoLine(labels)}${currentPane?.planAccount !== undefined ? `. On ${currentPane.planAccount}` : unknownAccount === undefined ? '' : '. Account unknown'}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. Open panes` : 'Pane loading'} onLayout={headerFit.onRoom} style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: TITLE_BUTTON_PADDING, overflow: 'hidden' }}>
+                            {/* Everything in the title button shrinks or goes before it
+                                reaches the controls after it (useHeaderFit). */}
+                            <View onLayout={headerFit.onUsed} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, minWidth: 0 }}>
                             {/* A narrow header keeps the task and the status dot; the
                                 glyph, the name and the status word stay in the label. */}
                             {identityKnown && !narrowChrome && !chatShown && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
                             {/* The chat leads with the agent's status dot, the way a conversation shows who is there. */}
                             {identityKnown && chatShown && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: headerStatus.color }} />}
-                            {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: backWord ? 15 : 13, fontWeight: '600' }}>{contextTitle}</Text>}
+                            {identityKnown && <Text numberOfLines={1} onLayout={headerFit.onTitle} style={{ flexShrink: 1, color: theme.colors.text, fontSize: backWord ? 15 : 13, fontWeight: '600' }}>{contextTitle}</Text>}
                             {/* Whose task it is, after the task: the same order as the
                                 Spaces row that opened this. A name is short, so the task
-                                gives way first. */}
-                            {identityKnown && contextName !== undefined && !narrowChrome && !(chatShown && !backWord) && <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: '40%', color: theme.colors.textSecondary, fontSize: 13 }}>{contextName}</Text>}
+                                gives way first; then the name and the account leave. */}
+                            {headerNameShown && headerFit.shown('name') && <Text numberOfLines={1} onLayout={headerFit.onName} style={{ flexShrink: 0, maxWidth: headerFit.share(0.4), color: theme.colors.textSecondary, fontSize: 13 }}>{contextName}</Text>}
                             {/* The plan account it runs on, only when there is a choice of
                                 account, or "Account unknown" when its check failed (the
                                 reason opens on tap). In this row, not a new one: chrome that
                                 appears late would re-attach the terminal. */}
-                            {identityKnown && !narrowChrome && (currentPane?.planAccount !== undefined || unknownAccount !== undefined) && <Text numberOfLines={1} accessibilityRole={currentPane?.planAccount === undefined ? 'button' : undefined} onPress={currentPane?.planAccount === undefined ? () => Modal.alert("Couldn't check which account it is on", unknownAccount) : undefined} style={{ flexShrink: 0, maxWidth: '30%', color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>{currentPane?.planAccount ?? 'Account unknown'}</Text>}
-                            {identityKnown && <HeaderChangesPill count={changesCount} compact={windowWidth / fontScale < 360} onPress={openChanges} />}
+                            {headerAccountShown && headerFit.shown('account') && <Text numberOfLines={1} onLayout={headerFit.onAccount} accessibilityRole={currentPane?.planAccount === undefined ? 'button' : undefined} onPress={currentPane?.planAccount === undefined ? () => Modal.alert("Couldn't check which account it is on", unknownAccount) : undefined} style={{ flexShrink: 0, maxWidth: headerFit.share(0.3), color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>{currentPane?.planAccount ?? 'Account unknown'}</Text>}
+                            {identityKnown && <HeaderChangesPill count={changesCount} compact={windowWidth / fontScale < 420} onPress={openChanges} />}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
                                 is gone; the dot carries the same colour (scout §4.1).
@@ -1641,10 +1649,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 shell is not "Offline". */}
                             {headerLifecycleLabel !== undefined && !chatShown && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                 <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: headerStatus.color }} />
-                                {/* A narrow header gives the chip (or, at the largest text, the
-                                    changes pill) the word's room; the dot and the label keep it. */}
-                                {!narrowChrome && !(preview.shown !== undefined && windowWidth < 340) && !(changesCount !== null && changesCount > 0 && windowWidth / fontScale < 240) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
+                                {/* The word only where the row has room for it; the dot and the
+                                    label keep it everywhere. */}
+                                {headerWordShown && headerFit.shown('word') && <Text numberOfLines={1} onLayout={headerFit.onWord} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
                             </View>}
+                            </View>
                         </Pressable>
                         {identityKnown && !paneMissing && paneKind !== undefined && <ChatViewToggle view={paneView} chatAvailable={agentHasChat(paneKind)} onChange={choosePaneView} />}
                         <PreviewChip preview={preview.shown} live={preview.live} openable={preview.openable} labelled={preview.openable && preview.tooltip.open} onPress={watchPreview} onLayout={setPreviewChipBox} />
