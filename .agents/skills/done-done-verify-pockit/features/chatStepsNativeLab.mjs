@@ -132,6 +132,11 @@ try {
             await tap(/Full diff/);
             await sleep(1200);
             await shot(`${cell}-full-diff`);
+            // Home in the same theme: the chat stays dark in every app theme, Home shows which one is on.
+            sh('input keyevent 4'); await sleep(1000);
+            sh('input keyevent 4'); await sleep(2000);
+            await find(/claude · Claude 1/, 30);
+            await shot(`${cell}-home`);
         }
     }
 
@@ -156,8 +161,8 @@ try {
     const steps = `${JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: 'lab-id release APK freshly installed and paired to the chat fake lab, whose Claude log has a read/search reply, an edit+test reply and a five-step reply with two edits, a plan and a failed command',
-        steps: ['open the Claude agent in Chat view and scroll to the end', 'tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'repeat at 390 and 270 dp wide, light and dark'],
-        result: 'tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; a Full diff sheet titled with the file name',
+        steps: ['open the Claude agent in Chat view and scroll to the end', 'tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'go back to Home', 'repeat at 390 and 270 dp wide, light and dark'],
+        result: 'tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; a Full diff sheet titled with the file name, dark like the chat it opens over in both app themes, while Home follows the app theme',
     }, null, 2)}\n`;
     writeFileSync(join(evidence, 'steps.json'), steps);
     writeFileSync(join(evidence, 'native', 'steps.json'), steps);
