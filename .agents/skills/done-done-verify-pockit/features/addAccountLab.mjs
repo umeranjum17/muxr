@@ -232,6 +232,14 @@ try {
     log('PASS: account added from the phone');
 } catch (error) {
     failed = error?.done !== true;
+    if (failed && emu !== undefined) {
+        // The phone's screen and its view tree at the step that stalled.
+        try {
+            writeFileSync(join(evidence, 'failure.png'), execFileSync('adb', ['-s', emu.serial, 'exec-out', 'screencap', '-p']));
+            execFileSync('adb', ['-s', emu.serial, 'shell', 'uiautomator dump /sdcard/d.xml >/dev/null']);
+            writeFileSync(join(evidence, 'failure.xml'), execFileSync('adb', ['-s', emu.serial, 'exec-out', 'cat', '/sdcard/d.xml']));
+        } catch { /* the emulator is gone */ }
+    }
     if (failed) {
         log(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
         if (lab !== undefined) {
