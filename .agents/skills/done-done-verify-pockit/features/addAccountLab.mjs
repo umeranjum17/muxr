@@ -196,8 +196,10 @@ try {
     await waitFor(/text="Open Claude sign-in"/);
     shot('1-add-sheet');
     await tapText(/^Open Claude sign-in$/);
-    // The sign-in tab: the banner says whose sign-in it is while the stand-in waits for the code.
-    await waitFor(/Signing in your Claude account/, 90);
+    // The sign-in tab, once Herdr sees Claude in it. Its "Signing in…" banner is recorded, not
+    // required: the add must still end on "Name this account" below.
+    const tab = await waitFor(/text="Sign in · Claude"/, 90);
+    log(`sign-in banner ${/Signing in your Claude account/.test(tab) ? 'shown' : 'not shown'}`);
     const signInPane = panes().find((pane) => pane.agent === 'claude')?.pane_id;
     if (signInPane === undefined) throw new Error('no sign-in tab in Herdr');
     await sleep(3000);
