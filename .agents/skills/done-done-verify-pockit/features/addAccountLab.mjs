@@ -234,7 +234,12 @@ try {
     failed = error?.done !== true;
     if (failed) {
         log(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
-        if (lab !== undefined) writeFileSync(join(evidence, 'host-output.txt'), lab.hostOutput().split('\n').slice(-80).join('\n'));
+        if (lab !== undefined) {
+            writeFileSync(join(evidence, 'host-output.txt'), lab.hostOutput().split('\n').slice(-80).join('\n'));
+            // What Herdr holds when the add stalls: which panes are open and what the sign-in read.
+            try { writeFileSync(join(evidence, 'herdr-panes.txt'), panes().map((pane) => `${pane.pane_id} ${pane.agent ?? '-'} ${pane.agent_status} ${pane.cwd}`).join('\n')); } catch { /* lab already gone */ }
+            writeFileSync(join(evidence, 'sign-in-lines.txt'), `${linesRead().join('\n')}\n`);
+        }
     }
 } finally {
     if (recorder !== undefined && emu !== undefined) {
