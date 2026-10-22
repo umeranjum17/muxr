@@ -43,6 +43,8 @@ emulator lock, and the release's assets:
 4. `done-done receipt --outcome "<claim>" <captures> <evidence>/release-build.json`, then commit the receipt at `.done-done-receipts/<head>.json` and the result at `.done-done-receipts/builds/<v>.json`.
 5. `node scripts/release/presentation/acceptStable.mjs --version <v> --package <the release's .tgz> --captain-tested <v>` prints `may be published as npm latest`; without `--captain-tested <v>` (a push), without a result, with a result for another build, or for another tarball, it prints `npm latest stays where it is:` and the reason (and `accepted=false` to `GITHUB_OUTPUT` when set).
 
+Gate journey: `done-done run release-latest-gate` (`releaseLatestGateLab.mjs`) runs release.yml's own `accepted` step command on the newest stable GitHub release's real manifest and tarball, with a stand-in receipt in a scratch clone, as a push and as hand runs; `gate.log` shows the publish step running only for the hand run naming the tested version with the receipt. It publishes nothing.
+
 Flow test: `scripts/release/checkJourneyReceipt.spec.mjs` (no result, another APK, a rebuilt tarball, matching build, and `acceptStable` refusing a push with no captain-tested version and a tarball packed after the tag).
 
 ## Gotchas
