@@ -115,7 +115,7 @@ const styles = StyleSheet.create((theme) => ({
         lineHeight: 21,
         color: theme.colors.textSecondary,
         marginHorizontal: 20,
-        paddingBottom: 12,
+        marginBottom: 12,
         ...Typography.default(),
     },
     row: {

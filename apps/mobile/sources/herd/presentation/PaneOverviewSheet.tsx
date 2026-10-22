@@ -51,6 +51,7 @@ const PaneCard = React.memo(function PaneCard(props: {
     onOpen: (pane: HerdrTreePane) => void;
     onClose: (pane: HerdrTreePane) => void;
     onLongPress: (pane: HerdrTreePane) => void;
+    onPressOut: () => void;
 }): React.JSX.Element {
     const { theme } = useUnistyles();
     const { pane } = props;
@@ -69,6 +70,7 @@ const PaneCard = React.memo(function PaneCard(props: {
             <Pressable
                 onPress={() => props.onOpen(pane)}
                 onLongPress={closable ? () => props.onLongPress(pane) : undefined}
+                onPressOut={props.onPressOut}
                 disabled={!openable}
                 accessibilityRole="button"
                 accessibilityState={{ selected: props.current, disabled: !openable }}
@@ -194,9 +196,19 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
         ]);
     }, [tab, props.sessionId, navigate, close, refresh]);
 
+    // A long-press swaps this sheet for its actions only once the finger lifts:
+    // closing it under a held touch strands that touch, and no press after it fires.
+    const held = React.useRef<(() => void) | undefined>(undefined);
+    const released = React.useCallback(() => {
+        const next = held.current;
+        held.current = undefined;
+        next?.();
+    }, []);
     const paneActions = React.useCallback((pane: HerdrTreePane) => {
-        close();
-        showPaneActions(pane, () => closePane(pane));
+        held.current = () => {
+            close();
+            showPaneActions(pane, () => closePane(pane));
+        };
     }, [close, closePane]);
 
     const splitPane = React.useCallback((option: ModelMode) => {
@@ -275,7 +287,8 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                     <Pressable
                         key={entry.tabId}
                         onPress={() => setViewedTabId(entry.tabId)}
-                        onLongPress={canMutate ? () => { close(); showTabActions(entry.tabId, label); } : undefined}
+                        onLongPress={canMutate ? () => { held.current = () => { close(); showTabActions(entry.tabId, label); }; } : undefined}
+                        onPressOut={released}
                         accessibilityRole="button"
                         accessibilityState={{ selected: active }}
                         accessibilityLabel={`${label}, ${count}${here ? ', this tab' : ''}`}
@@ -313,6 +326,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                         onOpen={openPane}
                         onClose={closePane}
                         onLongPress={paneActions}
+                        onPressOut={released}
                     />
                 ))}
                 {gridWidth > 0 && (
