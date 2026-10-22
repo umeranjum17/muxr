@@ -189,7 +189,9 @@ try {
     sh(`pm clear ${PKG}`);
     adb('reverse', `tcp:${lab.port}`, `tcp:${lab.port}`);
     sh('wm size 1080x2376'); sh('wm density 440'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no');
+    log('app data cleared');
     const offer = await mintPairing(join(root, 'lab', 'host', 'pair.sock'));
+    log('pairing offer minted');
     sh(`am start -W -n ${activity}`);
     await sleep(4000);
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr://pair#${offer}' -n ${activity}`);
