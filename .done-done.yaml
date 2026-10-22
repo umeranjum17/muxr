@@ -102,6 +102,13 @@ journeys:
   plan-move:
     command: node .agents/skills/done-done-verify-pockit/features/planMoveLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$(mktemp -d "$HOME/.cache/fms/mxmv.XXXX")" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # A Claude account is added from the phone end to end: Accounts, Open Claude
+  # sign-in, the code sent from the sign-in tab's composer, Name this account
+  # (see the add-account feature). Runs by hand under the emulator lock with
+  # MUXR_LAB_APK and the Herdr lab helper set; each run takes a fresh lab root.
+  add-account:
+    command: node .agents/skills/done-done-verify-pockit/features/addAccountLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$(mktemp -d "$HOME/.cache/fms/aa.XXXX")" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   action-sheet:
     command: node .agents/skills/done-done-verify-pockit/features/actionSheetLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --interact > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
