@@ -158,11 +158,14 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
         if (sessionId === undefined) return;
         const labels = agentLabels(pane);
         const siblings = tab?.panes.filter((entry) => entry.sessionId !== undefined) ?? [];
+        // One sheet at a time: the switcher goes before its confirm comes up.
+        close();
         Modal.alert(`Close ${labels.title}?`, 'Its running process stops. If it is the last pane of its tab, nothing closes.', [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Close',
                 style: 'destructive',
+                icon: 'close-circle-outline',
                 onPress: () => {
                     setPending((current) => new Set([...current, pane.paneId]));
                     sync.request('pane.close', { sessionId })
@@ -192,8 +195,9 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
     }, [tab, props.sessionId, navigate, close, refresh]);
 
     const paneActions = React.useCallback((pane: HerdrTreePane) => {
+        close();
         showPaneActions(pane, () => closePane(pane));
-    }, [closePane]);
+    }, [close, closePane]);
 
     const splitPane = React.useCallback((option: ModelMode) => {
         const direction = splitDirection;
@@ -271,7 +275,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                     <Pressable
                         key={entry.tabId}
                         onPress={() => setViewedTabId(entry.tabId)}
-                        onLongPress={canMutate ? () => showTabActions(entry.tabId, label) : undefined}
+                        onLongPress={canMutate ? () => { close(); showTabActions(entry.tabId, label); } : undefined}
                         accessibilityRole="button"
                         accessibilityState={{ selected: active }}
                         accessibilityLabel={`${label}, ${count}${here ? ', this tab' : ''}`}

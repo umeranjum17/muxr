@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { hapticsSelection } from '@/components/haptics';
 import { OptionSheet } from '@/components/OptionSheet';
 import { Typography } from '@/constants/Typography';
 import { AlertButton, AlertModalConfig, ConfirmModalConfig } from '@/modal/types';
@@ -11,6 +12,13 @@ interface ActionSheetProps {
     config: AlertModalConfig | ConfirmModalConfig;
     onClose: () => void;
     onConfirm?: (value: boolean) => void;
+}
+
+/** Every row leads with an icon; a button that names none gets its style's. */
+function iconOf(button: AlertButton): NonNullable<AlertButton['icon']> {
+    if (button.icon !== undefined) return button.icon;
+    if (button.style === 'cancel') return 'close-outline';
+    return button.style === 'destructive' ? 'trash-outline' : 'checkmark-circle-outline';
 }
 
 function buttonsOf(config: AlertModalConfig | ConfirmModalConfig): AlertButton[] {
@@ -36,8 +44,8 @@ export function dismissAlert(config: AlertModalConfig): void {
 
 /**
  * The one app-styled sheet behind every `Modal.alert` and `Modal.confirm`,
- * on every platform: title, message, a row per choice (with its icon when it
- * has one) and the cancel row last. A tap outside, a swipe down or back
+ * on Android and web: title, message, a full-width row per choice, each led
+ * by an icon, and the cancel row last. A tap outside, a swipe down or back
  * dismisses it as its cancel.
  */
 export function ActionSheet({ config, onClose, onConfirm }: ActionSheetProps) {
@@ -52,6 +60,7 @@ export function ActionSheet({ config, onClose, onConfirm }: ActionSheetProps) {
     };
 
     const press = (button: AlertButton) => {
+        hapticsSelection();
         // Close first, so a picker or a second sheet the choice opens is not covered.
         onClose();
         if (config.type === 'confirm') onConfirm?.(button.style !== 'cancel');
@@ -66,6 +75,7 @@ export function ActionSheet({ config, onClose, onConfirm }: ActionSheetProps) {
             onSelect={() => undefined}
             onClose={dismiss}
             avoidKeyboard={false}
+            raised
             body={
                 <View style={styles.body}>
                     {!!config.message && <Text style={styles.message}>{config.message}</Text>}
@@ -78,13 +88,14 @@ export function ActionSheet({ config, onClose, onConfirm }: ActionSheetProps) {
                                 key={index}
                                 accessibilityRole="button"
                                 onPress={() => press(button)}
+                                android_ripple={{ color: theme.colors.surfaceRipple }}
                                 style={({ pressed }) => [
                                     styles.row,
                                     button.style === 'cancel' && styles.cancelRow,
-                                    pressed && { backgroundColor: theme.colors.surfacePressedOverlay },
+                                    pressed && { backgroundColor: theme.colors.surfaceRipple },
                                 ]}
                             >
-                                {button.icon !== undefined && <Ionicons name={button.icon} size={22} color={color} />}
+                                <Ionicons name={iconOf(button)} size={22} color={color} />
                                 <Text style={[styles.label, { color }, button.style === 'cancel' && styles.cancelLabel]}>{button.text}</Text>
                             </Pressable>
                         );
@@ -97,14 +108,13 @@ export function ActionSheet({ config, onClose, onConfirm }: ActionSheetProps) {
 
 const styles = StyleSheet.create((theme) => ({
     body: {
-        paddingHorizontal: 6,
         paddingBottom: 4,
     },
     message: {
         fontSize: 15,
         lineHeight: 21,
         color: theme.colors.textSecondary,
-        marginHorizontal: 14,
+        marginHorizontal: 20,
         paddingBottom: 12,
         ...Typography.default(),
     },
@@ -112,14 +122,14 @@ const styles = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 14,
-        minHeight: 52,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        borderRadius: 12,
+        minHeight: 56,
+        paddingVertical: 14,
+        paddingHorizontal: 20,
     },
     cancelRow: {
-        justifyContent: 'center',
         marginTop: 4,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: theme.colors.divider,
     },
     label: {
         flexShrink: 1,

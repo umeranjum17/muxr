@@ -62,6 +62,7 @@ export function OptionSheet({
     maxWidth,
     fill = false,
     avoidKeyboard = true,
+    raised = false,
 }: {
     visible: boolean;
     title: string;
@@ -90,6 +91,8 @@ export function OptionSheet({
      * undimmed band at the bottom.
      */
     avoidKeyboard?: boolean;
+    /** A raised surface, so a sheet over a dimmed dark screen still shows its edge. */
+    raised?: boolean;
 }) {
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
@@ -230,6 +233,7 @@ export function OptionSheet({
                     </TouchableWithoutFeedback>
                     <Animated.View style={[
                         styles.sheet,
+                        raised && { backgroundColor: theme.dark ? theme.colors.surfaceHighest : theme.colors.surface },
                         { transform: [{ translateY: dragY }] },
                         maxWidth === undefined ? null : { maxWidth },
                         // A body sheet has no rows to measure, so it grows with its content

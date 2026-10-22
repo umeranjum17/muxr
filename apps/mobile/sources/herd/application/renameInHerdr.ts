@@ -42,8 +42,8 @@ export function renamePane(pane: HerdrTreePane): Promise<void> {
  * what the item is under its name.
  */
 export function showNameActions(title: string, kind: string, rename: () => void, close?: { label: string; onPress: () => void }): void {
-    const actions: AlertButton[] = [{ text: 'Rename', onPress: rename }];
-    if (close !== undefined) actions.push({ text: close.label, style: 'destructive', onPress: close.onPress });
+    const actions: AlertButton[] = [{ text: 'Rename', icon: 'pencil-outline', onPress: rename }];
+    if (close !== undefined) actions.push({ text: close.label, style: 'destructive', icon: 'close-circle-outline', onPress: close.onPress });
     const cancel: AlertButton = { text: 'Cancel', style: 'cancel' };
     Modal.alert(title, kind, [...actions, cancel]);
 }

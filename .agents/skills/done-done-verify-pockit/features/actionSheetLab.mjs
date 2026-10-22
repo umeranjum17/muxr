@@ -23,7 +23,7 @@ if (!opts.apk || !opts.evidence || !opts['avd-home']) throw new Error('--apk, --
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
 const CHECK = resolve('.agents/skills/done-done-verify-pockit/features/visualCheck.mjs');
-const CELLS = [[270, '1.0', 'light'], [270, '1.0', 'dark'], [270, '2.0', 'light'], [270, '2.0', 'dark'], [393, '1.0', 'light'], [393, '1.0', 'dark']];
+const CELLS = [[270, '1.0', 'light'], [270, '1.0', 'dark'], [270, '2.0', 'light'], [270, '2.0', 'dark'], [390, '1.0', 'light'], [390, '1.0', 'dark']];
 mkdirSync(EVIDENCE, { recursive: true });
 const exec = promisify(execFile);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -157,7 +157,7 @@ try {
         const cell = `${width}-${font}-${theme}`;
         const dir = join(EVIDENCE, cell);
         mkdirSync(dir, { recursive: true });
-        await sh(`wm size 1080x2376; wm density ${width === 270 ? 640 : 440}; settings put system font_scale ${font}; cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
+        await sh(`wm size 1080x2376; wm density ${width === 270 ? 640 : 443}; settings put system font_scale ${font}; cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
         await sh(`am force-stop ${PKG}`);
         await sh(`monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
         await relaunched();
