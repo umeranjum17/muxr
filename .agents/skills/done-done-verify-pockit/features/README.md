@@ -171,6 +171,10 @@ rules, with no H2 sections.
   line with Stop, the needs-you card into the terminal, and the Settings default; or, without
   Herdr, `chatFakeLab.mjs` (fake stack, seeded Claude log) for the look and the tool steps on
   the PWA and a lab-id APK on an emulator.
+- [Fit the agent header beside its controls with a long task](./chat-header-fit.md) —
+  `headerFitNativeLab.mjs` (chat fake lab, lab-id APK on an emulator) and `headerFitPwaCells.sh` (installed PWA): chat and terminal view
+  at 360 and 390 dp, light and dark, quiet then Working with a long task and three changes;
+  the toggle, pane count and ⋮ must be the same pixels in both.
 - [Show one needs-you count on the app, the favicon and the PWA icon](./needs-you-count.md) —
   private fake stack with a lab-only `lab.set_agent_status`: blocked, failed and
   uncovered-request herds drive the Needs you list, the Spaces header, the
