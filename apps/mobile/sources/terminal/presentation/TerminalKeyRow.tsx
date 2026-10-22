@@ -105,6 +105,8 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, entr
         justifyContent: 'center' as const,
         alignItems: 'center' as const,
     };
+    // Never flattened: a transparent mark has no native view of its own, and
+    // the one Android creates when a lock fills it came up square.
     const mark = (locked = false) => ({
         height: KEY_MARK_HEIGHT,
         justifyContent: 'center' as const,
@@ -154,7 +156,7 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, entr
                 accessibilityState={{ selected: active(ctrl) }}
                 style={({ pressed }) => [target, pressed && { opacity: 0.6 }]}
             >
-                <View style={mark(ctrl === 'lock')}>
+                <View collapsable={false} style={mark(ctrl === 'lock')}>
                     <Text maxFontSizeMultiplier={KEY_LABEL_MAX_SCALE} style={labelStyle(active(ctrl) ? theme.colors.accent : theme.colors.textSecondary)}>{modifierIcons === true ? '⌃' : 'ctrl'}</Text>
                 </View>
             </Pressable>
@@ -169,7 +171,7 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, entr
                 accessibilityState={{ selected: active(shift) }}
                 style={({ pressed }) => [target, pressed && { opacity: 0.6 }]}
             >
-                <View style={mark(shift === 'lock')}>
+                <View collapsable={false} style={mark(shift === 'lock')}>
                     <Text maxFontSizeMultiplier={KEY_LABEL_MAX_SCALE} style={labelStyle(active(shift) ? theme.colors.accent : theme.colors.textSecondary)}>{modifierIcons === true ? '⇧' : 'shift'}</Text>
                 </View>
             </Pressable>
@@ -197,7 +199,7 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, entr
                         onPressOut={stopRepeat}
                         style={({ pressed }) => [target, unavailable && { opacity: 0.35 }, pressed && { opacity: 0.6 }]}
                     >
-                        <View style={mark()}>
+                        <View collapsable={false} style={mark()}>
                             {icon !== undefined
                                 ? <Ionicons name={icon} size={KEY_ICON_SIZE} color={theme.colors.textSecondary} />
                                 : <Text maxFontSizeMultiplier={KEY_LABEL_MAX_SCALE} style={labelStyle(theme.colors.textSecondary)}>{key.label}</Text>}
