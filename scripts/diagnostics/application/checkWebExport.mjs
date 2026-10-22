@@ -188,7 +188,8 @@ if (!existsSync(distIndex)) {
     // dependency tree (cytoscape, @mermaid-js/parser, d3, lodash) can be hoisted
     // into an eager chunk (guarded below).
     // The Session view setting (screen, saved choices, chat request schema) adds about 740 B to the eager entry in CI's measure (1,777,483 B).
-    const USABLE_GZIP_CEILING = 1778500;
+    // The Computer view's portal-without-desktop wording measures 1,778,596 B in CI.
+    const USABLE_GZIP_CEILING = 1779600;
     check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,
