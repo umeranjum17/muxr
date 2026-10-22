@@ -6,7 +6,7 @@
 // Run from the repo root:
 //   node .agents/skills/done-done-verify-pockit/features/cloudTailnetLab.mjs --apk <apk> --evidence <dir> --avd-home <dir> --port <boat lab port>
 import { execFile, spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
@@ -123,6 +123,12 @@ try {
     await waitFor('setup past the tailnet join', (found) => find(found, (v) => v.startsWith('muxr could not set itself up there')) !== undefined, 120);
     await shot('05-joined-then-lab-stops');
     say('PASS: Tailscale sign-in opened with no tap in muxr, and setup went on past the tailnet join');
+    writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
+        target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
+        start: 'fresh release APK on an owned emulator, Boat lab with its Tailscale stand-in',
+        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else in muxr', 'approve on the Tailscale page that opened', 'come back to muxr'],
+        result: 'the browser opened the Tailscale sign-in page by itself, and setup went on past Join your tailnet',
+    }, null, 2));
 } finally {
     if (emulator) await emulator.stop().catch((error) => say(`emulator stop failed: ${error.message}`));
     if (lab) {
