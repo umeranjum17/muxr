@@ -48,6 +48,10 @@ dismissal and Files checks.
 
 ## Gotchas
 
+- `visualCheck.mjs` flags the sheet's dimmed backdrop, a full-screen
+  `ViewGroup` [0,0][1080,2376], as under the bars and covering every row. It
+  covers the screen on purpose; the lab logs those lines apart as backdrop lines.
+- A relaunch reopens the agent the app left, not Home; the lab backs out first.
 - The dock button and the sheet title are both labelled `Add attachment`; the
   sheet title is the last text node of that name.
 - On main the popup is the system `AlertDialog` (capitals, grey box), so its

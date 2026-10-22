@@ -105,15 +105,25 @@ async function toHome() {
     await waitFor('connected Home', atHome, 30);
 }
 
+// A relaunch reopens the agent it left, so wait for either screen, then back out to Home.
+async function relaunched() {
+    await waitFor('app after relaunch', (found) => atHome(found) || has('Back')(found), 120);
+    await toHome();
+}
+
 const defects = [];
 async function capture(dir, name) {
     await sleep(1200); // the sheet's slide-in settles
     const args = [CHECK, serial, dir, name];
     if (opts.ref) args.push('--ref', join(resolve(opts.ref), dir.slice(EVIDENCE.length + 1), `${name}.xml`));
     const run = await exec(process.execPath, args, { timeout: 180_000, maxBuffer: 16 << 20 }).then((r) => ({ out: r.stdout, code: 0 }), (e) => ({ out: `${e.stdout ?? ''}${e.stderr ?? ''}`, code: e.code }));
-    const lines = run.out.split('\n').filter((line) => line.startsWith('DEFECT'));
+    // The sheet's dimmed backdrop covers the whole screen on purpose (tap outside closes),
+    // so lines that name only that full-screen view are logged apart, not counted.
+    const all = run.out.split('\n').filter((line) => line.startsWith('DEFECT'));
+    const backdrop = all.filter((line) => line.includes('"android.view.ViewGroup" [0,0][1080,2376]'));
+    const lines = all.filter((line) => !backdrop.includes(line));
     for (const line of lines) defects.push(`${name}: ${line}`);
-    say(`shot ${name}: ${lines.length === 0 ? 'clean' : lines.join(' | ')}`);
+    say(`shot ${name}: ${lines.length === 0 ? 'clean' : lines.join(' | ')}${backdrop.length ? ` (backdrop lines: ${backdrop.length})` : ''}`);
 }
 async function back() { await sh('input keyevent KEYCODE_BACK'); await sleep(1200); }
 
@@ -150,7 +160,7 @@ try {
         await sh(`wm size 1080x2376; wm density ${width === 270 ? 640 : 440}; settings put system font_scale ${font}; cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
         await sh(`am force-stop ${PKG}`);
         await sh(`monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
-        await waitFor('connected Home', atHome, 120);
+        await relaunched();
         await sleep(2000);
 
         await openAttach();
@@ -191,7 +201,7 @@ try {
         await sh(`wm size 1080x2376; wm density 640; settings put system font_scale 1.0; cmd uimode night no`);
         await sh(`am force-stop ${PKG}`);
         await sh(`monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
-        await waitFor('connected Home', atHome, 120);
+        await relaunched();
         await sleep(2000);
         // Tap outside: the backdrop above the sheet.
         await openAttach();
