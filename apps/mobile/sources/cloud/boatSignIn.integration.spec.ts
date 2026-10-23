@@ -3,6 +3,7 @@ import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import { createHash } from 'node:crypto';
 import { startFakeSandboxServer, type SandboxServer } from '@byokit/cloud/testing';
+import { sshPublicKeyFromPrivate } from '@/connection/sshPublicKey';
 
 // The Boat account step and the SSH route to a new computer on the real screen, against byokit's fake Boat server
 // through the real claim() and setup(). The stand-ins are the person, who approves whatever page opens in their
@@ -232,7 +233,8 @@ it('reaches a new cloud computer over SSH with a key this phone made, pairs thro
     expect(getCachedConnectionSettings()).toMatchObject({ machineId: 'umer-cloud', relayUrl: 'ws://127.0.0.1:8792', ssh: { host: '203.0.113.7', port: 22, username: 'user', relayPort: 8792, hostKey: HOST_FINGERPRINT } });
     // Pairing started the sync client on the relay's advertised name; it redials once the SSH route is saved.
     expect(lab.redials).toEqual([expect.objectContaining({ host: '203.0.113.7', hostKey: HOST_FINGERPRINT })]);
-    expect(JSON.parse(lab.secrets.get('muxr.ssh.credential.v1.umer-cloud') ?? '{}').privateKey).toMatch(/^-----BEGIN OPENSSH PRIVATE KEY-----\n/);
+    const saved: string = JSON.parse(lab.secrets.get('muxr.ssh.credential.v1.umer-cloud') ?? '{}').privateKey;
+    expect((await sshPublicKeyFromPrivate(saved))?.publicKey).toBe(lab.authorized[0].split(' ').slice(0, 2).join(' '));
 
     // No tailnet anywhere: no sign-in page, no tailscale command, no tailnet name handed to muxr.
     expect(lab.opened).toEqual([]);

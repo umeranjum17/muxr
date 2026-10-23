@@ -39,7 +39,11 @@ if (process.env.BOAT_LAB_SSH) {
     setInterval(() => {
         const outbox = join(cloud.workDir, '.byokit/outbox');
         const real = new Set();
-        try { for (const name of readdirSync(outbox)) { real.add(name); fake.machine.writeFile(`${kitBox}/outbox/${name}`, readFileSync(join(outbox, name)), 0o600, 'user'); } } catch {}
+        try {
+            for (const name of readdirSync(outbox)) { real.add(name); fake.machine.writeFile(`${kitBox}/outbox/${name}`, readFileSync(join(outbox, name)), 0o600, 'user'); }
+        } catch (error) {
+            if (error.code !== 'ENOENT') throw error; // no offer written yet
+        }
         for (const path of [...fake.machine.files.keys()]) {
             if (path.startsWith(`${kitBox}/outbox/`) && !real.has(path.slice(kitBox.length + 8))) fake.machine.files.delete(path);
             if (!path.startsWith(`${kitBox}/inbox/`)) continue;

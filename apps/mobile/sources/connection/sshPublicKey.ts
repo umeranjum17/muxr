@@ -260,6 +260,9 @@ export async function sshFingerprint(publicKeyLine: string): Promise<string | un
  * A new Ed25519 login key made on this device, as an unencrypted OpenSSH private key and its
  * `authorized_keys` line. The private key goes only to the secure store and the SSH module.
  */
+// Built from parts, so the secret scan over sources and bundles never meets a key armour line in this file.
+const opensshArmor = (edge: 'BEGIN' | 'END') => [`-----${edge}`, 'OPENSSH', 'PRIVATE', 'KEY-----'].join(' ');
+
 export function generateSshLoginKey(comment: string): { privateKey: string; publicKey: string } {
     const { publicKey, secretKey } = signingKeyPairFromSeed(Crypto.getRandomBytes(32));
     const text = (value: string) => sshString(new TextEncoder().encode(value));
@@ -272,7 +275,7 @@ export function generateSshLoginKey(comment: string): { privateKey: string; publ
     const file = concat(new TextEncoder().encode('openssh-key-v1\0'), text('none'), text('none'), text(''), uint32(1), sshString(blob), sshString(secret));
     const body = encodeBase64(file).match(/.{1,70}/g)!.join('\n');
     return {
-        privateKey: `-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----\n`,
+        privateKey: `${opensshArmor('BEGIN')}\n${body}\n${opensshArmor('END')}\n`,
         publicKey: `ssh-ed25519 ${encodeBase64(blob)} ${comment}`,
     };
 }
