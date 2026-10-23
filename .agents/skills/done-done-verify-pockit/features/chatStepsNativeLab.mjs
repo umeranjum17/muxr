@@ -88,7 +88,16 @@ try {
     sh(`am start -W -n ${activity}`);
     await sleep(4000);
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr-dev://pair#${link}' -n ${activity}`);
-    await tap(/^Pair$/, 60);
+    // A slow first launch can miss the link; keep what it showed and offer a fresh one once.
+    try { await tap(/^Pair$/, 120); }
+    catch {
+        writeFileSync(join(evidence, 'pair-miss.png'), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p']));
+        log('no Pair yet, sending a fresh link');
+        out = out.replace(/native link: /g, 'used link: ');
+        lab.kill('SIGUSR2');
+        sh(`am start -W -a android.intent.action.VIEW -d 'muxr-dev://pair#${await line(/native link: (\S+)/)}' -n ${activity}`);
+        await tap(/^Pair$/, 120);
+    }
     await find(/Claude 1/, 90);
     log('paired');
 
