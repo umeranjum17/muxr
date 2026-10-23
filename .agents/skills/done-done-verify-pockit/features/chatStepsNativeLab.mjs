@@ -22,7 +22,19 @@ const serial = emu.serial;
 log(`emulator ${serial}`);
 const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: 120_000 });
 const sh = (cmd) => adb('shell', cmd);
-const nodes = () => { sh('uiautomator dump /sdcard/d.xml >/dev/null'); return adb('exec-out', 'cat', '/sdcard/d.xml').match(/<node\s[^>]*>/g) ?? []; };
+const nodes = () => {
+    for (let i = 0; ; i += 1) {
+        sh('uiautomator dump /sdcard/d.xml >/dev/null');
+        const found = adb('exec-out', 'cat', '/sdcard/d.xml').match(/<node\s[^>]*>/g) ?? [];
+        // A slow host raises "Pixel Launcher/System UI isn't responding" over the app; tap Wait and look again.
+        const wait = found.some((node) => /isn't responding/.test(node)) ? found.find((node) => /text="Wait"/.test(node)) : undefined;
+        if (wait === undefined || i === 5) return found;
+        const [x1, y1, x2, y2] = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(wait).slice(1).map(Number);
+        sh(`input tap ${(x1 + x2) >> 1} ${(y1 + y2) >> 1}`);
+        log('tapped Wait on a not-responding dialog');
+        execFileSync('sleep', ['1.5']);
+    }
+};
 const labelsOf = (node) => [/text="([^"]*)"/.exec(node)?.[1] ?? '', /content-desc="([^"]*)"/.exec(node)?.[1] ?? ''];
 const matches = (node, re) => labelsOf(node).some((label) => re.test(label));
 const boundsOf = (node) => /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(node).slice(1).map(Number);
