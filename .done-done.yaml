@@ -145,7 +145,8 @@ journeys:
   # The chat's tool steps on Android: the release app on an owned emulator,
   # paired to the chat fake lab (seeded Claude log with real edits, a failed
   # command and a plan), shows each reply's steps folded, a group opened with an
-  # edit's peek, a command's peek and the full diff at 390 and 270 dp, light and
+  # edit's peek, a command's peek, the full diff, the ⋮ actions menu and the
+  # terminal view at 390, 360 and 270 dp, light and
   # dark, plus a frame-per-step recording (chat-view.md, chat-tools). Runs by
   # hand under the shared emulator lock; MUXR_LAB_APK is a lab-id release build
   # of this commit, MUXR_LAB_AVD_HOME a task-owned emulator home.
