@@ -19,7 +19,12 @@ const lines = [];
 const say = (line) => { lines.push(line); process.stdout.write(`${line}\n`); };
 const step = (name, ok, detail = '') => { steps.push({ name, ok, detail }); say(`${ok ? 'ok' : 'FAIL'}  ${name}${detail ? ` - ${detail}` : ''}`); };
 const finish = (code) => {
-    writeFileSync(join(evidence, 'steps.json'), JSON.stringify({ target: `web export ${version}`, start: head, steps, result: code === 0 ? 'pass' : 'fail' }, null, 2));
+    writeFileSync(join(evidence, 'steps.json'), JSON.stringify({
+        target: { version },
+        start: 'a fresh web export of the version bump, served on a private port, opened on its connection settings at 390 px',
+        steps: steps.map((s) => `${s.name}: ${s.ok ? 'ok' : 'FAILED'}`),
+        result: code === 0 ? `Settings shows Version ${version} and the changelog and export checks pass` : 'a step failed',
+    }, null, 2));
     writeFileSync(join(evidence, 'release-bump.log'), `${lines.join('\n')}\n`);
     process.exit(code);
 };
