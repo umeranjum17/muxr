@@ -47,6 +47,14 @@ journeys:
   release-latest-gate:
     command: node .agents/skills/done-done-verify-pockit/features/releaseLatestGateLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m
+  # The stable gate on a release whose journey ran its x86_64 twin: the
+  # release's sealed APK checked against the twin built from its tag
+  # (TWIN_APK, its build record beside it), the arm64 APK as its own twin
+  # refused, then the gate and a push's npm latest dry run on the receipts at
+  # HEAD. Publishes nothing. Needs gh read access to the public releases.
+  release-twin-gate:
+    command: node .agents/skills/done-done-verify-pockit/features/releaseTwinGateLab.mjs "$DONE_DONE_EVIDENCE_ROOT" "${TWIN_VERSION:-0.2.12}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 10m
   # The app upgrade on the real phone: the previous release installed and
   # paired, Theme and Text size set, the candidate installed over it with
   # `install -r`, the settings read back, an agent's terminal opened, then a
