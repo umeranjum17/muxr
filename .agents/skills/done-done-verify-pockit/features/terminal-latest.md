@@ -25,7 +25,7 @@ program's wheel.
 - `latest-pill` once scrolled back, the pill reads `Latest` (accessibility label `Jump to latest output`); none in Codex, whose `Back to bottom` is esc on the key row.
 - `latest-reach` tapping it lands on the newest line, and the pill goes away.
 - `latest-streaming` the same while the agent is still printing: the pane lands on the live edge and keeps following new lines; the pill does not stay on `Still catching up`.
-- `latest-local` (Android, Claude Code) a drag back through output the phone already showed moves with the finger at the display rate; a fling covers hundreds of rows and stops at the oldest row the phone holds.
+- `latest-local` (Android, Claude Code) a drag back through output the phone already showed moves with the finger at the display rate; a fling covers hundreds of rows and stops at the oldest row the phone holds; output printed at 100 lines a second walks back with no holes.
 - `latest-split` all of the above with the app in half of a split screen (iPad Split View, Android split screen).
 
 ## How to get to it (user POV)
@@ -72,7 +72,10 @@ a `stream` a few seconds before the drag covers it while Claude prints.
 
 `latest-local` has its own journey: `done-done run terminal-scroll-local` (see
 `.done-done.yaml` for its env) drives `terminalScrollLocalLab.sh` on an owned
-emulator and writes each screen's visible `MARK-n` range to `proof.log`.
+emulator and writes each screen's visible `MARK-n` range to `proof.log`. With
+`LINES=1200 STUB_LPS=100 WALK=30` it instead walks back through the history a
+little under a screen per drag, records the walk to `walk.mp4`, and logs every
+break in a screen's `MARK-n` numbers as `gap MARK-a -> MARK-b`: none may show.
 
 ## Gotchas
 
@@ -91,10 +94,16 @@ emulator and writes each screen's visible `MARK-n` range to `proof.log`.
   the time the finger lifted, then crawled on for seconds; while Claude printed
   it did not leave the live edge until the finger had stopped. Latest turned
   the wheel and stopped 17-23 rows short of the newest line.
-- The phone-side copy holds only what reached the phone: output that streams
-  past faster than the host sends screens (`STUB_LPS=100`) leaves holes, and
-  the copy joins the pieces with no break. Count rows across the whole screen
-  (`MARK-977..984` then `MARK-1154`), not from the top row alone.
+- Every row Herdr paints reaches the phone: each of its frames is one
+  synchronized update, and at `STUB_LPS=100` consecutive frames still share
+  rows. The phone-side copy finds how far the screen moved by comparing
+  screens, so it compares after every frame, also when the app combined several
+  into one write, and only rows that appear once and changed in place vote. A
+  fixed footer and repeated sentence tails once outvoted the real move, which
+  left 100-line holes (`MARK-977..984` then `MARK-1154`). Only output that moves
+  a whole screen within one ~100 ms Herdr tick never reaches the phone, and the
+  host sees the same frames, so it cannot fill that either. Count rows across
+  the whole screen, not from the top row alone.
 - An emulator presents 2-4 frames a second for any app here: compare fps and
   settle against a reference app on the same emulator, never against 60 fps.
 - On iOS, a `muxr://` link opened by the system goes to whichever muxr app
