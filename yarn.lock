@@ -1269,25 +1269,25 @@
   resolved "https://registry.yarnpkg.com/@chevrotain/types/-/types-11.1.2.tgz#e83a1a2704f0c5e49e7592b214031a0f4a34d7e5"
   integrity sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==
 
-"@desklink/host-darwin-arm64@0.5.8":
-  version "0.5.8"
-  resolved "https://registry.yarnpkg.com/@desklink/host-darwin-arm64/-/host-darwin-arm64-0.5.8.tgz#94bb11c62a27eaf7dab912c8364401d53c4ae522"
-  integrity sha512-JL3GTZ/raKPsqUpsqBI5wnoKgfAFRP3V/aNZQpshgnVW+ZychDMtxfLwYs9PKb3Ehbh4XXJmSJFDLYiK2oGbrQ==
+"@desklink/host-darwin-arm64@0.5.10":
+  version "0.5.10"
+  resolved "https://registry.yarnpkg.com/@desklink/host-darwin-arm64/-/host-darwin-arm64-0.5.10.tgz#9c209c19ced36f22b87b9dc7b4639e601ff0495a"
+  integrity sha512-sBw15VhfD+r73scr7BhSnQTTr4nu6SqPsAnZJLFj98rGOOaJAMVU2tJHarN/YbP3zo6gcjqYVtgsfqZPpw5exQ==
 
-"@desklink/host-linux-x64-gnu@0.5.8":
-  version "0.5.8"
-  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.5.8.tgz#9cff3cd0fe2f9123a4c18f904017b20708ca6d73"
-  integrity sha512-WQVh1A/UfT4YaUdIVZaZNhmiwgiyceZKLpi+FJvwO/RK+Zkbsgqm/RGEQyNUwUZUtlH007q6vVTjj85iuhNF4Q==
+"@desklink/host-linux-x64-gnu@0.5.10":
+  version "0.5.10"
+  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.5.10.tgz#bb6e325b992b57c5607871c076849488f5e21cf7"
+  integrity sha512-/IsD1ZtGRmO4AcnllcSGDGuTNuP1RryLV/9wK2MRpZCLFExcs0o//ek2PoAbzGm5Nn+0zk5nGPI2dblfLwP8uw==
 
-"@desklink/host@0.5.8":
-  version "0.5.8"
-  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.5.8.tgz#25475b79838deea447257ffca09547a798aa1780"
-  integrity sha512-Lqz3eVd3ft6J/JUuy6q3YSg/mnhBcIsxkXyjdLNpHlTLOdTreIrJzxmJAAjDjY6BrMi4XMI2nBxb8ODgqRuzUg==
+"@desklink/host@0.5.10":
+  version "0.5.10"
+  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.5.10.tgz#f1df02716af1d580d33e1cb9640f78cee241fcea"
+  integrity sha512-ebfuTZ006qFsb5ct1JWa3Ef/lNtc1KFi5a1CnGBC4qduzftIPE4neu92PFJJk+uEGBHB37GdrWCdsmCSx/Ho5Q==
   dependencies:
     ws "8.21.3"
   optionalDependencies:
-    "@desklink/host-darwin-arm64" "0.5.8"
-    "@desklink/host-linux-x64-gnu" "0.5.8"
+    "@desklink/host-darwin-arm64" "0.5.10"
+    "@desklink/host-linux-x64-gnu" "0.5.10"
 
 "@desklink/react-native@0.5.8":
   version "0.5.8"
