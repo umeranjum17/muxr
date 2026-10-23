@@ -58,7 +58,8 @@ const reveal = async (re) => {
 let lab;
 let defects = 0;
 try {
-    adb('install', '-r', apk);
+    // A loaded machine takes minutes over a release APK install.
+    execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 600_000 });
     const pkg = sh('pm list packages').split('\n').map((line) => line.replace('package:', '').trim()).find((name) => name.includes('chatsteps'));
     if (pkg === undefined) throw new Error('the lab-id app did not install');
     const activity = sh(`cmd package resolve-activity --brief ${pkg}`).trim().split('\n').pop();
