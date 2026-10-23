@@ -1,4 +1,6 @@
-import type { ChatMessage, ChatTool, ChatToolKind } from '@trymuxr/contract';
+import { createHash } from 'node:crypto';
+import { basename, isAbsolute, join } from 'node:path';
+import type { ChatImage, ChatMessage, ChatTool, ChatToolKind } from '@trymuxr/contract';
 
 export type ChatHarness = 'claude' | 'pi';
 
@@ -13,7 +15,51 @@ const TOOL_DETAIL_MAX = 300;
 /** Claude Code writes its own bookkeeping into the user turn; none of it is something the person said. */
 const NOT_SPOKEN = /^\s*(?:<(?:command-name|command-message|command-args|local-command-stdout|local-command-caveat|system-reminder|bash-input|bash-stdout|bash-stderr)\b|\[Request interrupted by user)/;
 
-interface Block { type?: unknown; text?: unknown; name?: unknown; id?: unknown; input?: unknown; arguments?: unknown; tool_use_id?: unknown; content?: unknown; is_error?: unknown }
+interface Block { type?: unknown; text?: unknown; name?: unknown; id?: unknown; input?: unknown; arguments?: unknown; tool_use_id?: unknown; content?: unknown; is_error?: unknown; source?: unknown; data?: unknown; mimeType?: unknown }
+
+/** Where an image's bytes are: in the log itself, or a file a reply named. */
+export type ChatImageSource = { mimeType: string; data: string } | { path: string };
+/** A message shows this many images at most. */
+const IMAGES_MAX = 8;
+const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+/** `![alt](target)`: the target a reply drew as an image. */
+const MARKDOWN_IMAGE = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
+/** A path to an image file standing on its own in the text, bare or in code quotes. */
+const IMAGE_PATH = /(?<=^|[\s`'"(\[])((?:\.{1,2}\/|\/)?[\w@%+~.-]+(?:\/[\w@%+~.-]+)*\.(?:png|jpe?g|gif|webp))(?=$|[\s`'")\],:;!?]|\.(?:\s|$))/gim;
+
+export function imageTypeOf(path: string): string | undefined {
+    return IMAGE_TYPES[path.slice(path.lastIndexOf('.') + 1).toLowerCase()];
+}
+
+/** The image blocks of a content array, in either harness's shape. */
+function inlineImagesOf(content: unknown): Array<{ mimeType: string; data: string }> {
+    if (!Array.isArray(content)) return [];
+    return (content as Block[]).flatMap((block) => {
+        if (block?.type !== 'image') return [];
+        // Claude Code: `{ source: { type: 'base64', media_type, data } }`; Pi: `{ data, mimeType }`.
+        const source = block.source as { media_type?: unknown; data?: unknown } | undefined;
+        const mimeType = source?.media_type ?? block.mimeType;
+        const data = source?.data ?? block.data;
+        return typeof mimeType === 'string' && mimeType.startsWith('image/') && typeof data === 'string' && data !== '' ? [{ mimeType, data }] : [];
+    });
+}
+
+/** The image files a reply names, as absolute paths, and its text with the local `![…](…)` it drew taken out. */
+function imageFilesOf(text: string, cwd: string | undefined): { text: string; paths: string[] } {
+    const paths = new Set<string>();
+    const resolve = (target: string) => isAbsolute(target) ? target : cwd === undefined ? undefined : join(cwd, target);
+    const kept = text.replace(MARKDOWN_IMAGE, (whole, target: string) => {
+        const path = /^[a-z][a-z0-9+.-]*:/i.test(target) || imageTypeOf(target) === undefined ? undefined : resolve(target);
+        if (path === undefined) return whole;
+        paths.add(path);
+        return '';
+    });
+    for (const [, target] of kept.matchAll(IMAGE_PATH)) {
+        const path = resolve(target!);
+        if (path !== undefined) paths.add(path);
+    }
+    return { text: kept.replace(/\n{3,}/g, '\n\n').trim(), paths: [...paths] };
+}
 
 /** Claude Code's and Pi's tool names, lower-cased, to the kind of step and what the person would say the agent did. */
 const TOOL_KINDS: Record<string, [ChatToolKind, string]> = {
@@ -34,7 +80,7 @@ const LINE_MAX = 200;
 
 type Args = Record<string, unknown> | undefined;
 type Pending = ChatTool & { id?: string };
-interface Result { text: string; failed: boolean; patch?: Hunk[] }
+interface Result { text: string; failed: boolean; patch?: Hunk[]; images: Array<{ mimeType: string; data: string }> }
 /** Claude Code's own record of an edit, beside its result: real line numbers. */
 interface Hunk { oldStart: number; newStart: number; lines: string[] }
 
@@ -112,12 +158,12 @@ function resultsOf(entries: Array<Record<string, unknown>>): Map<string, Result>
     for (const entry of entries) {
         const message = entry.message as { role?: unknown; content?: unknown; toolCallId?: unknown; isError?: unknown } | undefined;
         if (message?.role === 'toolResult' && typeof message.toolCallId === 'string') {
-            results.set(message.toolCallId, { text: textOf(message.content), failed: message.isError === true });
+            results.set(message.toolCallId, { text: textOf(message.content), failed: message.isError === true, images: inlineImagesOf(message.content) });
         } else if (message?.role === 'user' && Array.isArray(message.content)) {
             const answers = (message.content as Block[]).filter((block) => block?.type === 'tool_result' && typeof block.tool_use_id === 'string');
             // The patch rides on the line, so it names the call only when the line answers one.
             const patch = answers.length === 1 ? hunksOf((entry.toolUseResult as { structuredPatch?: unknown } | undefined)?.structuredPatch) : undefined;
-            for (const block of answers) results.set(block.tool_use_id as string, { text: textOf(block.content), failed: block.is_error === true, ...(patch === undefined ? {} : { patch }) });
+            for (const block of answers) results.set(block.tool_use_id as string, { text: textOf(block.content), failed: block.is_error === true, images: inlineImagesOf(block.content), ...(patch === undefined ? {} : { patch }) });
         }
     }
     return results;
@@ -155,7 +201,7 @@ function withResult({ id, ...tool }: Pending, results: Map<string, Result>, cwd:
     if (result.failed || (tool.kind !== 'edit' && tool.kind !== 'write' && tool.kind !== 'plan')) {
         if (tool.kind === 'read' && !result.failed) {
             lines = lines.map((line) => line.replace(/^\s*\d+(?:→|\t)/, ''));
-            out.note = `${lines.length} line${lines.length === 1 ? '' : 's'}`;
+            out.note = lines.length === 0 && result.images.length > 0 ? 'an image' : `${lines.length} line${lines.length === 1 ? '' : 's'}`;
         }
         if (tool.kind === 'search' && !result.failed) {
             const found = /^Found (\d+) files?/.exec(lines[0] ?? '');
@@ -177,7 +223,7 @@ function textOf(content: unknown): string {
         .join('\n\n');
 }
 
-type Parsed = Omit<ChatMessage, 'tools'> & { group: string; tools?: Pending[] };
+type Parsed = Omit<ChatMessage, 'tools' | 'images'> & { group: string; tools?: Pending[]; pasted: Array<{ mimeType: string; data: string }> };
 
 function clip(text: string): string {
     return text.length > CHAT_TEXT_MAX ? `${text.slice(0, CHAT_TEXT_MAX)}…` : text;
@@ -200,7 +246,8 @@ function parseEntry(harness: ChatHarness, entry: Record<string, unknown>, cwd: s
     if (role !== 'user' && role !== 'assistant') return undefined;
     const text = textOf(message.content).trim();
     const tools = role === 'assistant' ? toolsOf(message.content, cwd) : [];
-    if ((text === '' && tools.length === 0) || (role === 'user' && NOT_SPOKEN.test(text))) return undefined;
+    const pasted = inlineImagesOf(message.content);
+    if ((text === '' && tools.length === 0 && pasted.length === 0) || (role === 'user' && NOT_SPOKEN.test(text))) return undefined;
     const stamp = message.timestamp ?? entry.timestamp;
     const at = typeof stamp === 'number' ? stamp : Date.parse(String(stamp));
     if (!Number.isFinite(at)) return undefined;
@@ -208,14 +255,15 @@ function parseEntry(harness: ChatHarness, entry: Record<string, unknown>, cwd: s
     if (id === '') return undefined;
     // Claude Code writes one line per content block of a reply, all under the reply's id.
     const group = harness === 'claude' && role === 'assistant' && typeof message.id === 'string' ? message.id : id;
-    return { id: group, group, role, text, at, ...(tools.length > 0 ? { tools } : {}) };
+    return { id: group, group, role, text, at, pasted, ...(tools.length > 0 ? { tools } : {}) };
 }
 
 /**
  * The conversation in a session log, oldest first, one entry per message.
- * `cwd` is the agent's folder: paths inside it read from there.
+ * `cwd` is the agent's folder: paths inside it read from there. Each image
+ * a message carries is filed in `images` under the id the message gives it.
  */
-export function chatMessagesFrom(harness: ChatHarness, lines: Iterable<string>, cwd?: string): ChatMessage[] {
+export function chatMessagesFrom(harness: ChatHarness, lines: Iterable<string>, cwd?: string, images?: Map<string, ChatImageSource>): ChatMessage[] {
     const entries: Array<Record<string, unknown>> = [];
     for (const line of lines) {
         try { const entry: unknown = JSON.parse(line); if (typeof entry === 'object' && entry !== null) entries.push(entry as Record<string, unknown>); } catch { /* a torn or foreign line */ }
@@ -229,14 +277,27 @@ export function chatMessagesFrom(harness: ChatHarness, lines: Iterable<string>, 
         if (last !== undefined && last.group === parsed.group && last.role === parsed.role) {
             if (parsed.text !== '') last.text = last.text === '' ? parsed.text : `${last.text}\n\n${parsed.text}`;
             if (parsed.tools !== undefined) last.tools = [...(last.tools ?? []), ...parsed.tools];
+            last.pasted.push(...parsed.pasted);
             continue;
         }
         last = parsed;
         out.push(parsed);
     }
-    return out.map(({ group: _group, tools, ...message }) => ({
-        ...message,
-        text: clip(message.text),
-        ...(tools === undefined ? {} : { tools: tools.slice(0, CHAT_TOOLS_MAX).map((tool) => withResult(tool, results, cwd)) }),
-    }));
+    return out.map(({ group: _group, tools, pasted, ...message }) => {
+        const shown = tools?.slice(0, CHAT_TOOLS_MAX);
+        const files = message.role === 'assistant' ? imageFilesOf(message.text, cwd) : { text: message.text, paths: [] };
+        const sources: Array<[string, ChatImageSource]> = [
+            ...pasted.map((image, index): [string, ChatImageSource] => [`${message.id}.${index}`, image]),
+            ...(shown ?? []).flatMap((tool) => (tool.id === undefined ? [] : results.get(tool.id)?.images ?? []).map((image, index): [string, ChatImageSource] => [`${tool.id}.${index}`, image])),
+            ...files.paths.map((path): [string, ChatImageSource] => [`f${createHash('sha256').update(path).digest('hex').slice(0, 16)}`, { path }]),
+        ].slice(0, IMAGES_MAX);
+        for (const [id, source] of sources) images?.set(id, source);
+        const shownImages: ChatImage[] = sources.map(([id, source]) => ({ id, name: 'path' in source ? basename(source.path) : 'Image' }));
+        return {
+            ...message,
+            text: clip(files.text),
+            ...(shown === undefined ? {} : { tools: shown.map((tool) => withResult(tool, results, cwd)) }),
+            ...(shownImages.length > 0 ? { images: shownImages } : {}),
+        };
+    });
 }

@@ -91,4 +91,48 @@ describe('the chat read of an agent conversation', () => {
         expect(await chats.read({ agent: 'claude', cwd, ref: { kind: 'path', value: stray } })).toEqual({ state: 'unavailable', reason: 'no-conversation' });
         expect(await chats.read({ agent: 'claude', cwd, ref: { kind: 'id', value: '../../stray' } })).toEqual({ state: 'unavailable', reason: 'no-conversation' });
     });
+
+    it('shows the images of a conversation: pasted, returned by a tool, and files a reply names, each fetched on its own', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'muxr-chat-'));
+        scratch.push(root);
+        const claude = join(root, 'claude', 'projects');
+        const pi = join(root, 'pi', 'sessions');
+        const cwd = join(root, 'little-shop');
+        const folder = join(claude, cwd.replace(/[^A-Za-z0-9]/g, '-'));
+        mkdirSync(folder, { recursive: true });
+        mkdirSync(join(cwd, 'shots'), { recursive: true });
+        mkdirSync(join(pi, 'run'), { recursive: true });
+        const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+        writeFileSync(join(cwd, 'shots', 'cart.png'), png);
+        const pasted = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cGFzdGVk' } };
+
+        writeFileSync(join(folder, 'img-1.jsonl'), [
+            line({ type: 'user', uuid: 'u1', timestamp: at(1), message: { role: 'user', content: [{ type: 'text', text: '[Image #1] The cart looks off.' }, pasted] } }),
+            line({ type: 'assistant', uuid: 'a1', timestamp: at(2), message: { id: 'msg_1', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: `${cwd}/shots/before.png` } }] } }),
+            line({ type: 'user', uuid: 'u2', timestamp: at(2), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'YmVmb3Jl' } }] }] } }),
+            line({ type: 'assistant', uuid: 'a2', timestamp: at(3), message: { id: 'msg_2', role: 'assistant', content: [{ type: 'text', text: 'Here is the page after the fix:\n\n![cart](shots/cart.png)\n\nThe old one was `shots/gone.png`.' }] } }),
+        ].join(''));
+        writeFileSync(join(pi, 'run', '2026-10-21T10-00-00Z_pi-8.jsonl'), [
+            line({ type: 'message', id: 'p1', timestamp: at(1), message: { role: 'assistant', timestamp: Date.parse(at(1)), content: [{ type: 'toolCall', id: 'call_1', name: 'read', arguments: { path: 'shot.webp' } }] } }),
+            line({ type: 'message', id: 'p2', timestamp: at(2), message: { role: 'toolResult', toolCallId: 'call_1', content: [{ type: 'image', data: 'cGk=', mimeType: 'image/webp' }] } }),
+        ].join(''));
+
+        const conversation = { agent: 'claude', cwd, ref: { kind: 'id' as const, value: 'img-1' } };
+        const read = await new ChatTranscripts(() => ({ claude: [claude], pi })).read(conversation);
+        expect(read.state === 'ok' && read.messages.map((m) => [m.text, m.images, m.tools?.[0]?.note])).toEqual([
+            ['[Image #1] The cart looks off.', [{ id: 'u1.0', name: 'Image' }], undefined],
+            ['', [{ id: 'toolu_1.0', name: 'Image' }], 'an image'],
+            // The drawn image leaves the text for its own card; a named file that is not there shows nothing.
+            ['Here is the page after the fix:\n\nThe old one was `shots/gone.png`.', [{ id: expect.stringMatching(/^f[0-9a-f]{16}$/), name: 'cart.png' }], undefined],
+        ]);
+
+        // A host that restarted since the phone read still finds each image by the id it gave.
+        const chats = new ChatTranscripts(() => ({ claude: [claude], pi }));
+        const fileId = read.state === 'ok' ? read.messages[2]!.images![0]!.id : '';
+        expect(await chats.image(conversation, fileId)).toEqual({ mimeType: 'image/png', data: png.toString('base64') });
+        expect(await chats.image(conversation, 'toolu_1.0')).toEqual({ mimeType: 'image/png', data: 'YmVmb3Jl' });
+        expect(await chats.image(conversation, 'u1.0')).toEqual({ mimeType: 'image/png', data: 'cGFzdGVk' });
+        expect(await chats.image(conversation, 'not-an-id')).toBeNull();
+        expect(await chats.image({ agent: 'pi', cwd, ref: { kind: 'id', value: 'pi-8' } }, 'call_1.0')).toEqual({ mimeType: 'image/webp', data: 'cGk=' });
+    });
 });

@@ -114,7 +114,7 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     // The pre-rename spellings are the same read-only calls.
     'attachment.list', 'attachment.fetch', 'attachment.read',
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'machine.hello',
-    'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch', 'chat.read',
+    'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch', 'chat.read', 'chat.image',
     'files.repos', 'files.list', 'files.read', 'history.log', 'history.show',
     'promptAttachments.list',
     'usage.report', 'usage.now',
@@ -268,6 +268,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return useCaseData(listed);
         },
         'chat.read': async (params) => chat.read(await source.conversation?.(params.sessionId), params.revision),
+        'chat.image': async (params) => chat.image(await source.conversation?.(params.sessionId), params.imageId),
         'changes.list': async (params) => changesList(await changesInput(params.sessionId, params.root)),
         'changes.browse': async (params) => changesBrowse({
             ...(await changesInput(params.sessionId, params.root)),

@@ -1787,6 +1787,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </View>
                         {chatShown && (
                             <ChatPane
+                                sessionId={props.id}
                                 state={chat}
                                 agentLabel={agentKindLabel(labels.agentKind) ?? 'The agent'}
                                 working={paneLifecycle === 'working'}

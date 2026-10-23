@@ -25,9 +25,9 @@ const VERB: Record<ChatToolKind, string> = {
  * screen's `ScopedTheme` has closed, so its own `useUnistyles` would read the
  * app's theme: dark text on the dark chat in the light app theme.
  */
-const MountTheme = React.createContext<ReturnType<typeof useUnistyles>['theme'] | null>(null);
+export const MountTheme = React.createContext<ReturnType<typeof useUnistyles>['theme'] | null>(null);
 
-function useChatTheme(): ReturnType<typeof useUnistyles>['theme'] {
+export function useChatTheme(): ReturnType<typeof useUnistyles>['theme'] {
     const mounted = React.useContext(MountTheme);
     const { theme } = useUnistyles();
     return mounted ?? theme;
