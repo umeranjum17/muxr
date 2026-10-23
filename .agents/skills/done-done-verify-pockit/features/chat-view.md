@@ -129,7 +129,7 @@ type in the composer for the blue send. Capture at 390 dp
 `chatStepsNativeLab.mjs <apk> <evidenceDir> <avdHome>` drives that native recipe
 end to end for the tool steps (boot an owned emulator, the fake lab over adb,
 pair, then folded / group with edit peek / command peek / full diff at 390 and
-270 dp, light and dark, the drawn image, its full-screen viewer and the Read image, then Home in the same theme (the chat stays dark in every app theme; its Full diff sheet and Home follow the app theme), through `visualCheck.mjs`, plus a recording (a frame per step) of
+270 dp, light and dark, the drawn image, its full-screen viewer and the Read image, then Home in the same theme, and the three image shots again at 270 dp with font scale 1.3 (the chat stays dark in every app theme; its Full diff sheet and Home follow the app theme), through `visualCheck.mjs`, plus a recording (a frame per step) of
 open, peek and fold, and an image opened and closed). Run it inside the emulator lock: `flock -o -w 3600
 /tmp/fm-muxr-emulator.lock timeout 1800 node …/chatStepsNativeLab.mjs …`. The
 APK is a lab-id release (`APP_ENV=development MUXR_APP_ID_BASE=app.muxr.chatsteps

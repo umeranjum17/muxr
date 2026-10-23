@@ -164,6 +164,24 @@ try {
         }
     }
 
+    // The images at the narrowest width with the largest text, light and dark.
+    sh('wm density 640'); sh('settings put system font_scale 1.3');
+    for (const theme of ['dark', 'light']) {
+        sh(`cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
+        const cell = `chat-270-1.3-${theme}`;
+        await openChat();
+        await toEnd();
+        await reveal(/^Open files\.png$/);
+        await shot(`${cell}-image-file`);
+        await tap(/^Open files\.png$/);
+        await sleep(1200);
+        await shot(`${cell}-image-viewer`);
+        sh('input keyevent 4'); await sleep(1200);
+        await reveal(/^Open image$/);
+        await shot(`${cell}-image-tool`);
+    }
+    sh('settings put system font_scale 1.0');
+
     // One recording at 390 dp dark: open the group, peek an edit, peek the command, fold it all.
     // A frame after each step (screenrecord starts late and drops the first taps).
     sh('wm density 443'); sh('cmd uimode night yes');
@@ -188,7 +206,7 @@ try {
     const steps = `${JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: 'lab-id release APK freshly installed and paired to the chat fake lab, whose Claude log has a read/search reply, an edit+test reply and a five-step reply with two edits, a plan and a failed command, a reply whose Read returned an image and a reply that draws an image file',
-        steps: ['open the Claude agent in Chat view and scroll to the end', 'scroll up to the drawn image, tap it, go back, scroll to the Read image', 'scroll to the end and tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'go back to Home', 'repeat at 390 and 270 dp wide, light and dark'],
+        steps: ['open the Claude agent in Chat view and scroll to the end', 'scroll up to the drawn image, tap it, go back, scroll to the Read image', 'scroll to the end and tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'go back to Home', 'repeat at 390 and 270 dp wide, light and dark, and the images again at 270 dp with the largest text'],
         result: 'tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; a Full diff sheet titled with the file name that follows the app theme (light in the light theme, dark in the dark one) over the chat, which stays dark; Home shows the app theme; each image is a rounded card in the column (no broken image, no raw ![...](...) markup) and a tap opens it full screen on black with a close button',
     }, null, 2)}\n`;
     writeFileSync(join(evidence, 'steps.json'), steps);
