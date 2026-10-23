@@ -151,6 +151,19 @@ try {
         }
     }
 
+    // The largest text at 270 dp, light: the chat, a group's peek and the actions menu.
+    sh('wm density 640'); sh('cmd uimode night no'); sh('settings put system font_scale 2.0');
+    await openChat();
+    await toEnd();
+    await shot('chat-270-2.0-light-collapsed', true);
+    await tap(/^5 steps\./);
+    await tap(/^Edited src\/checkout\/shipping\.ts/);
+    await shot('chat-270-2.0-light-group-edit-peek');
+    await tap(/^Pane actions/);
+    await shot('chat-270-2.0-light-actions');
+    await tap(/^Close pane actions$/);
+    sh('settings put system font_scale 1.0');
+
     // One recording at 390 dp light: open the group, peek an edit, peek the command, fold it all.
     // A frame after each step (screenrecord starts late and drops the first taps).
     sh('wm density 443'); sh('cmd uimode night no');
@@ -172,7 +185,7 @@ try {
     const steps = `${JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: 'lab-id release APK freshly installed and paired to the chat fake lab, whose Claude log has a read/search reply, an edit+test reply and a five-step reply with two edits, a plan and a failed command',
-        steps: ['open the Claude agent in Chat view and scroll to the end', 'tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'close the sheet, open ⋮ Pane actions, close it', 'switch to Terminal view, then back to Chat view', 'go back to Home', 'repeat at 390, 360 and 270 dp wide, light and dark'],
+        steps: ['open the Claude agent in Chat view and scroll to the end', 'tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'close the sheet, open ⋮ Pane actions, close it', 'switch to Terminal view, then back to Chat view', 'go back to Home', 'repeat at 390, 360 and 270 dp wide, light and dark', 'at 270 dp and the largest text in the light theme, open the chat, a peek and ⋮'],
         result: 'the chat screen (header, messages, tool rows, peeks, Full diff sheet, ⋮ actions menu, composer) follows the app theme: white with dark text in the light theme, black in the dark one; tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; the terminal view stays dark in both themes and switching back gives the whole chat in the app theme again; Home shows the app theme',
     }, null, 2)}\n`;
     writeFileSync(join(evidence, 'steps.json'), steps);
