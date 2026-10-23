@@ -36,10 +36,10 @@ const receipt = (head, tree, capture, journey, records) => ({
 });
 
 // What the emulator journey writes for the build it ran.
-const journeyResult = (build) => `${JSON.stringify({
+const journeyResult = (build, timings = { attachMs: 3100, scrollMs: 2400 }) => `${JSON.stringify({
     schema: 1, journey: 'phone-attach', version: build.version, build: { apk: build.apk, package: build.package },
     result: 'pass', steps: { pair: 'pass', attach: 'pass', send: 'pass', scroll: 'pass', usage: 'pass', 'one-host': 'pass' },
-    hosts: 1, timings: { attachMs: 3100, scrollMs: 2400 },
+    hosts: 1, timings,
 }, null, 2)}\n`;
 
 it('covers a release, and publishes it as npm latest once the captain names it, only while the receipt proves the code and the exact build the release ships', () => {
@@ -120,6 +120,14 @@ it('covers a release, and publishes it as npm latest once the captain names it, 
         const accept = (captainTested) => acceptStable({ version: '0.2.11', manifest: manifest(head), taggedCommit: head, tarballSha256: build.package, captainTested, repo, receiptsRef: 'HEAD' });
         expect(accept('0.2.11')).toEqual({ ok: true, proof: `.done-done-receipts/${head}.json` });
         expect(accept('').reason).toContain('only from a release.yml run started by hand with captain_tested');
+        // An emulator under load is slow: the twin's times are reported, labelled, and never refuse it.
+        const loaded = { attachMs: 37542, scrollMs: 14742 };
+        const slowTwin = checkJourneyReceipt({ repo, commit: head, receiptsRef: land('phone-attach', journeyResult(twin, loaded), 'a slow twin journey', apkCheck()), build: tagged });
+        expect(slowTwin.reason).toBeUndefined();
+        expect(slowTwin.timings).toEqual({ basis: 'emulator-under-load, informational', ...loaded });
+        // The same times on the release's own APK, a phone run, are over budget: refused.
+        const slowPhone = checkJourneyReceipt({ repo, commit: head, receiptsRef: land('phone-attach', journeyResult(build, loaded), 'a slow phone journey'), build: tagged });
+        expect(slowPhone.reason).toContain('its attachMs of 37542 is over the 23000 budget');
         land('phone-attach', journeyResult(build), 'the exact-build journey again');
 
         // The same receipt does not cover a rebuilt tarball under the same version.

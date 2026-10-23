@@ -18,6 +18,7 @@ const build = releaseBuild(readReleaseManifestAsset({ repository: CANONICAL_REPO
 const result = checkJourneyReceipt({ commit, receiptsRef, journey, build });
 if (result.ok) {
     process.stdout.write(`the ${journey} receipt ${result.path} proves ${result.receipt.head.slice(0, 12)} and build ${build.version}\n`);
+    if (result.timings) process.stdout.write(`its x86_64 twin's times (${JSON.stringify(result.timings)}) do not gate: the owner's phone test does\n`);
 } else {
     process.stderr.write(`the release has no ${journey} proof on build ${build.version}:\n${result.reason}\n`);
     process.exitCode = 1;

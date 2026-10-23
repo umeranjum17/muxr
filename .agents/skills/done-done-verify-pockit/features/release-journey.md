@@ -14,7 +14,7 @@ scroll against the budgets in `scripts/release/domain/releaseJourney.mjs`.
 - `promote-latest` npm `latest` moves only when the captain runs `release.yml` by hand with `captain_tested` and the version after his own phone test, and `scripts/release/presentation/acceptStable.mjs` accepts the exact tarball it packed against the receipt; it then publishes straight under `latest` through trusted publishing, no npm login or token. A push never publishes a stable version. The script never publishes, so it is also the dry run.
 - `stable-apk` `release.yml`'s stable promote runs `checkJourneyReceipt.mjs --tag v<v>` before GitHub Latest and the catalog.
 - `one-host` after Usage, the processes in the lab host's own tree that hold a link to the lab relay number exactly one (0.2.8 booted a second host from the Usage ledger child).
-- `budgets` attach and scroll times over budget fail the gate, not the journey: the journey records what it measured.
+- `budgets` on a phone run, attach and scroll times over budget fail the gate, not the journey: the journey records what it measured. A twin run's times never gate (`TWIN_BUDGETS`); `checkJourneyReceipt.mjs` prints them labelled `emulator-under-load, informational`, and the owner's phone test is the timing gate.
 
 ## How to get to it (user POV)
 
@@ -49,7 +49,7 @@ emulator lock, and the release's assets:
 
 Gate journey: `done-done run release-latest-gate` (`releaseLatestGateLab.mjs`) runs release.yml's own `accepted` step command on the newest stable GitHub release's real manifest and tarball, with a stand-in receipt in a scratch clone, as a push and as hand runs; `gate.log` shows the publish step running only for the hand run naming the tested version with the receipt. It publishes nothing.
 
-Flow test: `scripts/release/checkJourneyReceipt.spec.mjs` (no result, another APK, a rebuilt tarball, matching build, the x86_64 twin with no, an uncited, a failed or another commit's APK check and with a passing one, and `acceptStable` refusing a push with no captain-tested version and a tarball packed after the tag).
+Flow test: `scripts/release/checkJourneyReceipt.spec.mjs` (no result, another APK, a rebuilt tarball, matching build, the x86_64 twin with no, an uncited, a failed or another commit's APK check and with a passing one, a slow twin accepted with labelled times and the same times refused on a phone run, and `acceptStable` refusing a push with no captain-tested version and a tarball packed after the tag).
 
 ## Gotchas
 
@@ -60,3 +60,4 @@ Flow test: `scripts/release/checkJourneyReceipt.spec.mjs` (no result, another AP
 - The scroll uses 60 ms swipes (flings); a slow swipe is a long-press selection, not a scroll.
 - Captures skip any screen with the computer's own name; `MUXR_LAB_MACHINE_NAME` keeps the real hostname off the phone.
 - Release path only: no visual surface changes; visual check: n/a (no UI change).
+- Twin on a loaded emulator (23 Oct, load 40-70): first attach 36.8-37.5 s, scroll 14.7 s; a fresh install also raises System UI ANR and notification-permission dialogs over the app (answer Wait, `pm grant ... POST_NOTIFICATIONS`).

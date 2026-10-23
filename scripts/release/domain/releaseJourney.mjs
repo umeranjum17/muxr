@@ -41,6 +41,16 @@ export const RELEASE_STEPS = ['pair', 'attach', 'send', 'scroll', 'usage', 'one-
  */
 export const RELEASE_BUDGETS = Object.freeze({ attachMs: 23_000, scrollMs: 7_500 });
 
+/**
+ * The budgets a journey on the x86_64 twin meets: none. The twin runs on an
+ * emulator under host load, whose times say nothing about a phone, so there
+ * the gate takes every functional step and reports the times as
+ * informational (`TWIN_TIMINGS`); a phone run keeps RELEASE_BUDGETS, and the
+ * owner's own phone test stays the timing gate before latest.
+ */
+export const TWIN_BUDGETS = Object.freeze({});
+export const TWIN_TIMINGS = 'emulator-under-load, informational';
+
 /** Where a release commits the journey result for one version. */
 export const buildResultPath = (version) => `${RECEIPT_DIR}/builds/${version}.json`;
 
