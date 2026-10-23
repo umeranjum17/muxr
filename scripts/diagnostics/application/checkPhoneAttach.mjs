@@ -293,6 +293,8 @@ try {
     if (apk !== undefined) {
         try { adb('uninstall', PKG); } catch { /* the app was not installed yet */ }
         adb('install', apk);
+        // A fresh install asks for notifications over Home, which hides the agent card.
+        try { sh(`pm grant ${PKG} android.permission.POST_NOTIFICATIONS`); } catch { /* Android 12 and older ask nothing */ }
     }
     const versionText = sh(`dumpsys package ${PKG} | grep versionName`).trim();
     installed = /versionName=([\d.]+)/.exec(versionText)?.[1] ?? 'unknown';
