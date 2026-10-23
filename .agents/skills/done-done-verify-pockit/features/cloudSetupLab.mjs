@@ -53,6 +53,11 @@ async function waitFor(what, test, seconds = 90) {
     throw new Error(`${what} never appeared within ${seconds}s`);
 }
 async function tap(what, test, seconds = 90) {
+    // On a short viewport the control can sit below the fold: scroll until it shows.
+    for (let i = 0; i < 6 && !(find(await screen(), test)?.box[3] < 2200); i += 1) {
+        await sh('input swipe 540 1700 540 900 300');
+        await sleep(800);
+    }
     const [l, t, r, b] = find(await waitFor(what, (found) => find(found, test) !== undefined, seconds), test).box;
     say(`tap ${what}`);
     await sh(`input tap ${Math.round((l + r) / 2)} ${Math.round((t + b) / 2)}`);
@@ -113,10 +118,6 @@ try {
     // First run leads with Tailscale, the desktop app and pairing; the cloud entry sits below them.
     const cloudEntry = (v) => v === 'Cloud computer' || v === 'Add a cloud computer. Boat.';
     await waitFor('the first-run screen', (found) => find(found, (v) => v === 'Let’s connect' || cloudEntry(v)) !== undefined, 180);
-    for (let i = 0; i < 8 && !(find(await screen(), cloudEntry)?.box[3] < 2200); i += 1) {
-        await sh('input swipe 540 1700 540 900 300');
-        await sleep(800);
-    }
     await tap('Cloud computer', cloudEntry);
     // A busy emulator drops keys from a long `input text`: type in short chunks and read the field back.
     const EMAIL = 'umer@example.com';
