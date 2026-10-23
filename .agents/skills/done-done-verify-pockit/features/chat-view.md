@@ -121,7 +121,7 @@ and tap Pair; dismiss Home's notification card and scroll before tapping the
 Claude row (the Home composer covers the bottom). Open it, tap Chat view; the seeded replies show a read/search group, an
 edit+test group and a five-step group whose last command failed; above them, the
 reply after the tests carries a Read that returned an image (`Open image`) and the
-next reply draws `shots/home-day.webp` (`Open home-day.webp`). Tap a group to
+next reply draws `shots/files.png` (`Open files.png`). Tap a group to
 open it, a step to peek, `Full diff ›` for the sheet, the group again to fold it;
 type in the composer for the blue send. Capture at 390 dp
 (1080 px at density 443) and 270 dp (density 640), dark and light.

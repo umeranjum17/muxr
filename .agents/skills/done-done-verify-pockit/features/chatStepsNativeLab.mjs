@@ -134,9 +134,9 @@ try {
             await openChat();
             await toEnd();
             await shot(`${cell}-collapsed`, true);
-            await reveal(/^Open home-day\.webp$/);
+            await reveal(/^Open files\.png$/);
             await shot(`${cell}-image-file`);
-            await tap(/^Open home-day\.webp$/);
+            await tap(/^Open files\.png$/);
             await sleep(1200);
             await shot(`${cell}-image-viewer`);
             sh('input keyevent 4'); await sleep(1200);
@@ -179,8 +179,8 @@ try {
     await tap(/^Edited src\/checkout\/shipping\.ts/); await tap(/^Ran yarn test checkout/); await toEnd(); still(4);
     await tap(/^Ran yarn test checkout/); await toEnd(); still(2);
     await tap(/^5 steps\./); await toEnd(); still(3);
-    await reveal(/^Open home-day\.webp$/); still(2);
-    await tap(/^Open home-day\.webp$/); still(3);
+    await reveal(/^Open files\.png$/); still(2);
+    await tap(/^Open files\.png$/); still(3);
     sh('input keyevent 4'); await sleep(1200); still(2);
     execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', '2', '-i', join(frames, 'f%03d.png'), '-vf', 'scale=540:-2,format=yuv420p', '-c:v', 'libx264', join(evidence, 'native-390-dark-open-peek-fold-image.mp4')]);
     log('recorded');
