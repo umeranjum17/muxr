@@ -201,7 +201,8 @@ function withResult({ id, ...tool }: Pending, results: Map<string, Result>, cwd:
     if (result.failed || (tool.kind !== 'edit' && tool.kind !== 'write' && tool.kind !== 'plan')) {
         if (tool.kind === 'read' && !result.failed) {
             lines = lines.map((line) => line.replace(/^\s*\d+(?:→|\t)/, ''));
-            out.note = lines.length === 0 && result.images.length > 0 ? 'an image' : `${lines.length} line${lines.length === 1 ? '' : 's'}`;
+            out.note = `${lines.length} line${lines.length === 1 ? '' : 's'}`;
+            if (lines.length === 0 && result.images.length > 0) out.note = 'an image';
         }
         if (tool.kind === 'search' && !result.failed) {
             const found = /^Found (\d+) files?/.exec(lines[0] ?? '');
