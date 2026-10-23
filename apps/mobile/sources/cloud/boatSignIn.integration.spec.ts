@@ -12,7 +12,7 @@ const lab = vi.hoisted(() => {
     return {
         approved: false, opened: [] as string[], secrets: new Map<string, string>(), storage: new Map<string, string>(),
         authorized: [] as string[], tunnels: [] as { host: string; port: number; username: string; knownHostKey?: string; remotePort: number }[],
-        logins: [] as string[], pairings: [] as number[],
+        logins: [] as string[], pairings: [] as number[], redials: [] as unknown[],
     };
 });
 // Boat's answer for the new computer: its address and host key (a fixed Ed25519 key, SHA256:qF1d…).
@@ -89,6 +89,10 @@ vi.mock('@/pairing', () => ({
     },
 }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: vi.fn() }));
+// The sync client redials, and reads the connection route only when it is made.
+vi.mock('@/catalog/sync', () => ({
+    syncReconnect: async () => { lab.redials.push((await import('@/connection')).getCachedConnectionSettings().ssh); },
+}));
 vi.mock('@/pairing/secrets', () => ({
     getNativeSecret: async (key: string) => lab.secrets.get(key) ?? null,
     setNativeSecret: async (key: string, value: string) => { lab.secrets.set(key, value); },
@@ -226,6 +230,8 @@ it('reaches a new cloud computer over SSH with a key this phone made, pairs thro
     // The phone keeps that route: the key in the secure store, the pinned target and the relay on the machine's loopback.
     const { getCachedConnectionSettings } = await import('@/connection');
     expect(getCachedConnectionSettings()).toMatchObject({ machineId: 'umer-cloud', relayUrl: 'ws://127.0.0.1:8792', ssh: { host: '203.0.113.7', port: 22, username: 'user', relayPort: 8792, hostKey: HOST_FINGERPRINT } });
+    // Pairing started the sync client on the relay's advertised name; it redials once the SSH route is saved.
+    expect(lab.redials).toEqual([expect.objectContaining({ host: '203.0.113.7', hostKey: HOST_FINGERPRINT })]);
     expect(JSON.parse(lab.secrets.get('muxr.ssh.credential.v1.umer-cloud') ?? '{}').privateKey).toMatch(/^-----BEGIN OPENSSH PRIVATE KEY-----\n/);
 
     // No tailnet anywhere: no sign-in page, no tailscale command, no tailnet name handed to muxr.

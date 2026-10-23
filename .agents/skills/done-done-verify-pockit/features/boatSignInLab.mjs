@@ -5,7 +5,7 @@
 // Accepts the email umer@example.com and code 123456.
 // BOAT_LAB_SSH=<root> also stands in for the new computer behind Boat (cloudMachineLab.mjs, under that root, with the
 // Herdr lab session HERDR_LAB_HELPER/HERDR_LAB_SESSION): Boat's SSH key route lets the phone's key into its sshd and
-// answers its loopback port (BOAT_LAB_SSH_PORT on stdout, for `adb reverse`), and the app's `muxr self-host` and
+// answers its loopback port (BOAT_LAB_SSH_PORT on stdout, for `adb reverse`), holds each set-up step BOAT_LAB_STEP_MS (8 s) so each is captured, and the app's `muxr self-host` and
 // `muxr pair --handoff` run this checkout's CLI there; a configured machine starts `muxr up` as its service would.
 // Usage: node boatSignInLab.mjs <port>
 // (run from the repo root after `yarn install`) -> prints "boat lab listening on <port>".
@@ -81,6 +81,11 @@ createServer(async (req, res) => {
         return;
     }
     if (req.method === 'POST' && path === '/api/boat/agent/identity') approved = false; // each new sign-in waits for its own approval
+    // A real machine spends minutes on each set-up step; the stand-in holds each for a moment so every step is seen.
+    const command = cloud && req.method === 'POST' && /\/commands$/.test(path) ? String(JSON.parse(body.toString()).command) : '';
+    if (cloud && req.method === 'POST' && (path === '/api/v1/sandboxes' || /\/sshkey$/.test(path) || command.includes("'npm' 'install'") || command.includes("'self-host'"))) {
+        await new Promise((done) => setTimeout(done, Number(process.env.BOAT_LAB_STEP_MS ?? 8000)));
+    }
     if (cloud && req.method === 'POST' && /^\/api\/v1\/sandboxes\/[^/]+\/sshkey$/.test(path)) {
         cloud.authorize(JSON.parse(body.toString()).key);
         console.log('machine: the phone key is authorized');
