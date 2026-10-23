@@ -91,7 +91,7 @@ try {
     // A slow first launch can miss the link; keep what it showed and offer a fresh one once.
     try { await tap(/^Pair$/, 120); }
     catch {
-        writeFileSync(join(evidence, 'pair-miss.png'), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p']));
+        try { writeFileSync(join(evidence, 'pair-miss.png'), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 60_000 })); } catch { /* the screen is stuck too */ }
         log('no Pair yet, sending a fresh link');
         out = out.replace(/native link: /g, 'used link: ');
         lab.kill('SIGUSR2');
