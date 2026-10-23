@@ -44,7 +44,8 @@ const toEnd = async () => { for (let i = 0; i < 4; i += 1) { sh('input swipe 540
 let lab;
 let defects = 0;
 try {
-    adb('install', '-r', apk);
+    // A release APK is ~170 MB: under load its install outlasts the 2 minutes an adb step gets.
+    execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 600_000 });
     const pkg = sh('pm list packages').split('\n').map((line) => line.replace('package:', '').trim()).find((name) => name.includes('chatsteps'));
     if (pkg === undefined) throw new Error('the lab-id app did not install');
     const activity = sh(`cmd package resolve-activity --brief ${pkg}`).trim().split('\n').pop();
