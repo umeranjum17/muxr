@@ -150,6 +150,17 @@ journeys:
   chat-steps:
     command: node .agents/skills/done-done-verify-pockit/features/chatStepsNativeLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$MUXR_LAB_AVD_HOME" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # The unpaired first screen leads with Get Tailscale, then Get muxr on your
+  # computer (the Linux desktop app), then Pair with your computer: the release
+  # app on an owned emulator, at 390 and 270 dp, text 1.0 and 2.0, light and
+  # dark, at rest and scrolled, then the desktop-app and Tailscale buttons
+  # (tailscale-first-step.md). Runs by hand under the shared emulator lock;
+  # MUXR_LAB_APK is a release build of this commit, MUXR_LAB_AVD_HOME a
+  # task-owned emulator home, MUXR_LAB_REF main's run of the same journey
+  # (its --baseline evidence folder).
+  first-run-steps:
+    command: node .agents/skills/done-done-verify-pockit/features/firstRunStepsLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --ref "$MUXR_LAB_REF" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # A version bump on the built web export: the changelog entry validates for
   # package.json's version, checkWebExport passes, and the served export's
   # Settings screen reads that version at 390 px. Run after `yarn web:export`.

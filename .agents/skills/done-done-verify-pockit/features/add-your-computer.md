@@ -12,7 +12,7 @@ terminal install.
 
 ## Sub-features
 
-- `entry-first-run` an unpaired native app shows an **Add your computer** tile ("Desktop app") first under "Not set up yet?", leaving the no-terminal qualifier to the screen it opens.
+- `entry-first-run` an unpaired native app's step 2, **Get muxr on your computer**, has **Get the desktop app**, which opens this screen; it sits after step 1 (Get Tailscale) and before the pair card.
 - `entry-settings` Settings → Machines has **Add your computer** above **Pair another machine**.
 - `link-and-qr` the screen shows the link's QR (dark on white in both themes), the link text, **Copy link** (with a "Link copied." line) and **Share link** (the system sheet).
 - `pair-step` step 3 is **Scan the computer’s QR** (or **Enter its pairing code** where the device can't scan), into the existing consent and two-word check.
@@ -21,7 +21,7 @@ terminal install.
 
 ## How to get to it (user POV)
 
-- Fresh phone app: **Connect a machine** → scroll to **Not set up yet?** → **Add your computer**.
+- Fresh phone app: **Connect a machine** → step 2 → **Get the desktop app**.
 - Already paired: Settings → Machines → **Add your computer**.
 - On the computer: open the link, download, open muxr, then on the phone **Scan the computer’s QR**.
 
@@ -41,7 +41,7 @@ Steps:
 - Warm the Google code scanner once with a Scan and Back first; the first Scan on a fresh AVD only downloads the module.
 - Timed journey: `pm clear`, tap the tile (t0), open the lab site's `/desktop` in a lab Chromium, check the sha256 the page shows against the file, start the app, scan, **Pair**, then click `#approve` over CDP when `#words` matches the phone. Stop when the phone's Home shows the computer as connected.
 - Failure that recovers in place: at 270 dp font 2.0, remove the `adb reverse` before Scan. The pair page shows the retryable failure with **Try again**; restore the reverse and tap **Try again** to reach consent, then pair.
-- Drive the phone with Maestro text matchers (`^Add your computer$`, `^Copy link$`, `Link copied\.`, `Sharing link`, `wants to pair with this.*`, `^Pair$`), not pixel taps or uiautomator dumps: a dump chain costs minutes per pass and the desktop's pairing code lasts about 115 s. Read the fresh offer over CDP just before the pairing flow; tile to paired then takes about 100 s.
+- Drive the phone with Maestro text matchers (`^Get the desktop app$`, `^Add your computer$`, `^Copy link$`, `Link copied\.`, `Sharing link`, `wants to pair with this.*`, `^Pair$`), not pixel taps or uiautomator dumps: a dump chain costs minutes per pass and the desktop's pairing code lasts about 115 s. Read the fresh offer over CDP just before the pairing flow; tile to paired then takes about 100 s.
 - Site: `npx vitest run test/site.journey.test.ts` from `apps/site` covers the offered, foreign-URL and unpublished `/desktop` cases.
 - Pass: the tile and Settings row open the screen; the link QR decodes to the link; one scan reaches consent, the same two words show on both, and Home shows the computer connected.
 

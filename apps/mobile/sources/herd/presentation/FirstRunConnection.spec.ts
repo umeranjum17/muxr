@@ -26,6 +26,7 @@ const theme = vi.hoisted(() => ({
 vi.mock('react-native', () => ({
     AppState: { currentState: 'active' },
     Share: { share: vi.fn(async () => undefined) },
+    Linking: { openURL: vi.fn(async () => undefined) },
     Platform: { get OS() { return platformOs; } },
     useWindowDimensions: () => ({ fontScale: 1 }),
     View: 'View',
@@ -69,7 +70,7 @@ vi.mock('@/connection', () => ({ sshTunnelAvailable: () => platformOs === 'andro
 vi.mock('@/modal', () => ({ Modal: { alert: (...args: unknown[]) => pairingAlert(...args) } }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: vi.fn() }));
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => true) }));
-vi.mock('@/catalog', () => ({ loadAppConfig: () => ({}) }));
+vi.mock('@/catalog', () => ({ loadAppConfig: () => ({ publicBaseUrl: 'https://trymuxr.example' }) }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 
 import { FirstRunConnection } from './FirstRunConnection';
@@ -116,17 +117,18 @@ describe('link-first connect shell', () => {
         pairingAlert.mockClear();
     });
 
-    it('leads with the connect link, validates pasted input like a scan, keeps SSH and opens cloud setup', async () => {
+    it('leads with Tailscale then the desktop app, validates pasted input like a scan, keeps SSH and opens cloud setup', async () => {
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
         const visible = texts(renderer.root);
         expect(visible).toContain('Your machine. No new account.');
         expect(visible).toContain('Let’s connect');
         expect(visible).toContain('Use the machine you already have.');
-        expect(visible).toContain('Have a connect link?');
-        expect(visible).toContain('Fastest · 20–60 sec*');
+        // Tailscale first, then muxr on the computer, then pairing.
+        const order = ['Get Tailscale', 'Get muxr on your computer', 'Pair with your computer'].map((title) => visible.indexOf(title));
+        expect(order.every((index, step) => index >= 0 && (step === 0 || index > order[step - 1]!))).toBe(true);
         expect(visible).toContain('Private link or pairing code');
-        expect(visible).toContain('Not set up yet?');
+        expect(visible).toContain('Other ways');
         expect(visible).toContain('Cloud computer');
         expect(visible).toContain('Boat · 2–5 min');
         expect(visible).toContain('SSH login');
@@ -196,6 +198,10 @@ describe('link-first connect shell', () => {
         expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: whole } });
         expect(pairingAlert).not.toHaveBeenCalled();
         routerPush.mockClear();
+        // Step 2 hands the desktop app's link over on the Add your computer screen.
+        press(renderer.root, 'Get the desktop app. Open its download link on your computer.');
+        expect(routerPush).toHaveBeenCalledWith('/add-computer');
+        routerPush.mockClear();
         // SSH login opens the existing SSH flow unchanged.
         press(renderer.root, 'SSH login. Any server, 3 to 7 minutes.');
         expect(routerPush).toHaveBeenCalledWith('/pair?route=ssh');
@@ -220,12 +226,15 @@ describe('link-first connect shell', () => {
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
         const visible = texts(renderer.root);
-        expect(visible).toContain('Have a connect link?');
+        expect(visible).toContain('Get Tailscale');
+        expect(visible).toContain('Pair with your computer');
         expect(visible.some((text) => text.includes('Paste the browser link from muxr on your computer.'))).toBe(true);
         expect(visible.some((text) => text.includes('compare two words before access is granted'))).toBe(true);
         expect(visible).toContain('Cloud computer');
         expect(visible).toContain('Set up from the muxr phone app');
         expect(visible).not.toContain('SSH login');
+        // A browser cannot pair with the desktop app, so step 2 points at the command.
+        expect(buttons(renderer.root).some((node) => node.props.accessibilityLabel?.startsWith('Get the desktop app'))).toBe(false);
         expect(visible.some((text) => text.includes("can't scan"))).toBe(false);
         expect(buttons(renderer.root).some((node) => node.props.accessibilityLabel === 'Scan the QR')).toBe(false);
         const whole = freshOffer();
