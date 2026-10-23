@@ -198,7 +198,8 @@ try {
             sh('input keyevent 4'); await sleep(1000);
             await tap(/^Pane actions/);
             await shot(`${cell}-actions`);
-            await tap(/^Close pane actions$/);
+            // The backdrop spans the screen; its centre is a menu row. Back closes the menu.
+            sh('input keyevent 4'); await sleep(1200);
             // The terminal under the chat stays dark in every app theme; the chat comes back in the app's.
             await tap(/^Terminal view$/);
             await sleep(1500);
@@ -223,7 +224,8 @@ try {
     await shot('chat-270-2.0-light-group-edit-peek');
     await tap(/^Pane actions/);
     await shot('chat-270-2.0-light-actions');
-    await tap(/^Close pane actions$/);
+    // The backdrop spans the screen; its centre is a menu row. Back closes the menu.
+            sh('input keyevent 4'); await sleep(1200);
 
     // The images at the narrowest width with the largest text, dark and light.
     for (const theme of ['dark', 'light']) {
