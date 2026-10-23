@@ -24,8 +24,9 @@ const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding
 const sh = (cmd) => adb('shell', cmd);
 const nodes = () => {
     for (let i = 0; ; i += 1) {
-        sh('uiautomator dump /sdcard/d.xml >/dev/null');
-        const found = adb('exec-out', 'cat', '/sdcard/d.xml').match(/<node\s[^>]*>/g) ?? [];
+        // A dump that gives up leaves the last one in place; never read a stale screen.
+        sh('rm -f /sdcard/d.xml; uiautomator dump /sdcard/d.xml >/dev/null');
+        const found = adb('exec-out', 'cat /sdcard/d.xml 2>/dev/null; true').match(/<node\s[^>]*>/g) ?? [];
         // A slow host raises "Pixel Launcher/System UI isn't responding" over the app; tap Wait and look again.
         const wait = found.some((node) => /isn't responding/.test(node)) ? found.find((node) => /text="Wait"/.test(node)) : undefined;
         if (i === 5 || (found.length > 0 && wait === undefined)) return found;
