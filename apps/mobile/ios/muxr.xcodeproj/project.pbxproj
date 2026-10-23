@@ -366,7 +366,7 @@ fi
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.11;
+				MARKETING_VERSION = 0.2.12;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -395,7 +395,7 @@ fi
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.11;
+				MARKETING_VERSION = 0.2.12;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -545,7 +545,7 @@ fi
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				CODE_SIGN_STYLE = Automatic;
-				MARKETING_VERSION = 0.2.11;
+				MARKETING_VERSION = 0.2.12;
 				CURRENT_PROJECT_VERSION = 52;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -566,7 +566,7 @@ fi
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				CODE_SIGN_STYLE = Automatic;
-				MARKETING_VERSION = 0.2.11;
+				MARKETING_VERSION = 0.2.12;
 				CURRENT_PROJECT_VERSION = 52;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 			};

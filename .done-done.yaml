@@ -150,3 +150,9 @@ journeys:
   chat-steps:
     command: node .agents/skills/done-done-verify-pockit/features/chatStepsNativeLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$MUXR_LAB_AVD_HOME" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # A version bump on the built web export: the changelog entry validates for
+  # package.json's version, checkWebExport passes, and the served export's
+  # Settings screen reads that version at 390 px. Run after `yarn web:export`.
+  release-bump:
+    command: node .agents/skills/done-done-verify-pockit/features/releaseBumpLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 10m
