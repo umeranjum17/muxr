@@ -80,7 +80,11 @@ try {
     const link = await line(/native link: (\S+)/);
     log('lab ready, native link minted');
 
-    sh('wm size 1080x2376'); sh('wm density 443'); sh('settings put system font_scale 1.0'); sh('cmd uimode night yes');
+    // Just after an install the system can stall a settings call past the adb bound; ask again.
+    for (let attempt = 1; ; attempt += 1) {
+        try { sh('wm size 1080x2376'); sh('wm density 443'); sh('settings put system font_scale 1.0'); sh('cmd uimode night yes'); break; }
+        catch (error) { if (attempt === 3) throw error; log(`display setup retry ${attempt}`); await sleep(20_000); }
+    }
     sh(`am start -W -n ${activity}`);
     await sleep(4000);
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr-dev://pair#${link}' -n ${activity}`);
