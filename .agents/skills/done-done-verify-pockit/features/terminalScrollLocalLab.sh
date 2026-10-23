@@ -5,7 +5,7 @@
 # lines/s while attached. Saves the live edge, a stepped 400 px drag back, a
 # fling back and Latest, and writes each screen's visible MARK range to
 # proof.log. WALK=n instead walks back through the history in n stepped drags
-# of under a screen each and logs every break in the MARK numbers a screen
+# of under a screen each, at 411 dp, and logs every break in the MARK numbers a screen
 # shows (`gap MARK-a -> MARK-b`), the hole check, recorded to walk.mp4.
 # Run from the repo root:
 # bash <this> <apk> <evidence-dir>, with MUXR_LAB_SERIAL and a provisioned Herdr
@@ -36,6 +36,10 @@ for n in re.findall(r"<node\s[^>]*>", sys.stdin.read()):
 }
 
 mkdir -p "$E"
+# A walk needs the phone-side copy, which a panned terminal never keeps: at
+# 270 dp the grid is taller than its box, so a drag scrolls Claude's own
+# transcript instead and no hole can show. 420 on a 1080 px screen is 411 dp.
+[ "$WALK" -gt 0 ] && { a shell wm density 420; trap 'a shell wm density reset; rm -rf -- "$D"' EXIT; sleep 10; }
 a uninstall com.trymuxr.app >/dev/null 2>&1; a install "$APK" | tail -1
 a shell pm grant com.trymuxr.app android.permission.POST_NOTIFICATIONS 2>/dev/null
 log "installed $(basename "$APK") on $SER"

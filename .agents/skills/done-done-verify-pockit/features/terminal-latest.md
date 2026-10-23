@@ -74,8 +74,11 @@ a `stream` a few seconds before the drag covers it while Claude prints.
 `.done-done.yaml` for its env) drives `terminalScrollLocalLab.sh` on an owned
 emulator and writes each screen's visible `MARK-n` range to `proof.log`. With
 `LINES=1200 STUB_LPS=100 WALK=30` it instead walks back through the history a
-little under a screen per drag, records the walk to `walk.mp4`, and logs every
-break in a screen's `MARK-n` numbers as `gap MARK-a -> MARK-b`: none may show.
+little under a screen per drag at 411 dp, records the walk to `walk.mp4`, and
+logs every break in a screen's `MARK-n` numbers as `gap MARK-a -> MARK-b`: none
+may show. It sets that width itself: at 270 dp the grid is taller than its box,
+the terminal pans and keeps no phone-side copy, and the drag scrolls Claude's
+own transcript (`Jump to bottom` on screen), which has no holes to find.
 
 ## Gotchas
 
