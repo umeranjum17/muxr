@@ -25,7 +25,7 @@ open.
 
 ## How to get to it (user POV)
 
-- First run: open the app unpaired, then **Scan the QR** on the "Have a connect link?" card.
+- First run: open the app unpaired, then **Scan the QR** on the "Pair with your computer" card (step 3).
 - Already paired: Settings → Pair another machine, the recovery card's Pair again, or the command palette's Connect Device.
 - A code that ran out: open an old pairing link, or scan an old QR, and press **Scan a new code**.
 

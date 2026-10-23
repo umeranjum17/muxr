@@ -108,7 +108,7 @@ In the app, paste the private link or pairing code your computer shows and tap *
 
 ## Build with us
 
-[Contributing](CONTRIBUTING.md) has the local setup and checks. [Architecture](docs/ARCHITECTURE.md) explains how the pieces fit; [releasing](docs/RELEASING.md) covers stable and nightly channels.
+[Vision](VISION.md) says who muxr is for, where it is going and what comes next. [Contributing](CONTRIBUTING.md) has the local setup and checks. [Architecture](docs/ARCHITECTURE.md) explains how the pieces fit; [releasing](docs/RELEASING.md) covers stable and nightly channels.
 
 [Report a bug](https://github.com/umeranjum17/muxr/issues) · [Website](https://trymuxr.com) · [Self-hosting](docs/SELF-HOSTING.md)
 
