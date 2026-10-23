@@ -1,7 +1,8 @@
 // The chat's tool steps on a native release app: boots an owned emulator, runs
 // chatFakeLab.mjs over adb, pairs a lab-id release APK and captures the chat with
-// its steps folded, a group opened with an edit's peek, a command's peek and the
-// full diff, at 390 and 270 dp, light and dark, through visualCheck.mjs; then
+// its steps folded, a group opened with an edit's peek, a command's peek, the
+// full diff, the ⋮ actions menu and the terminal it switches to, at 390, 360 and
+// 270 dp, light and dark, through visualCheck.mjs; then
 // records open, peek and fold as a frame per step. See chat-view.md. Run from the repo root, inside
 // the emulator lock: node .agents/skills/done-done-verify-pockit/features/chatStepsNativeLab.mjs <apk> <evidenceDir> <avdHome>
 import { execFileSync, spawn } from 'node:child_process';
@@ -43,7 +44,8 @@ const toEnd = async () => { for (let i = 0; i < 4; i += 1) { sh('input swipe 540
 let lab;
 let defects = 0;
 try {
-    adb('install', '-r', apk);
+    // A release APK is ~170 MB: under load its install outlasts the 2 minutes an adb step gets.
+    execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 600_000 });
     const pkg = sh('pm list packages').split('\n').map((line) => line.replace('package:', '').trim()).find((name) => name.includes('chatsteps'));
     if (pkg === undefined) throw new Error('the lab-id app did not install');
     const activity = sh(`cmd package resolve-activity --brief ${pkg}`).trim().split('\n').pop();
@@ -111,7 +113,7 @@ try {
         log(`captured ${name}`);
     };
 
-    for (const [width, density] of [['390', 443], ['270', 640]]) {
+    for (const [width, density] of [['390', 443], ['360', 480], ['270', 640]]) {
         for (const theme of ['dark', 'light']) {
             sh(`wm density ${density}`);
             sh(`cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
@@ -132,17 +134,40 @@ try {
             await tap(/Full diff/);
             await sleep(1200);
             await shot(`${cell}-full-diff`);
-            // Home in the same theme: the chat stays dark in every app theme, Home (and the Full diff sheet) show which one is on.
             sh('input keyevent 4'); await sleep(1000);
+            await tap(/^Pane actions/);
+            await shot(`${cell}-actions`);
+            await tap(/^Close pane actions$/);
+            // The terminal under the chat stays dark in every app theme; the chat comes back in the app's.
+            await tap(/^Terminal view$/);
+            await sleep(1500);
+            await shot(`${cell}-terminal`);
+            await tap(/^Chat view$/);
+            await sleep(1500);
+            await shot(`${cell}-back-to-chat`, true);
+            // Home in the same theme.
             sh('input keyevent 4'); await sleep(2000);
             await find(/claude · Claude 1/, 30);
             await shot(`${cell}-home`);
         }
     }
 
-    // One recording at 390 dp dark: open the group, peek an edit, peek the command, fold it all.
+    // The largest text at 270 dp, light: the chat, a group's peek and the actions menu.
+    sh('wm density 640'); sh('cmd uimode night no'); sh('settings put system font_scale 2.0');
+    await openChat();
+    await toEnd();
+    await shot('chat-270-2.0-light-collapsed', true);
+    await tap(/^5 steps\./);
+    await tap(/^Edited src\/checkout\/shipping\.ts/);
+    await shot('chat-270-2.0-light-group-edit-peek');
+    await tap(/^Pane actions/);
+    await shot('chat-270-2.0-light-actions');
+    await tap(/^Close pane actions$/);
+    sh('settings put system font_scale 1.0');
+
+    // One recording at 390 dp light: open the group, peek an edit, peek the command, fold it all.
     // A frame after each step (screenrecord starts late and drops the first taps).
-    sh('wm density 443'); sh('cmd uimode night yes');
+    sh('wm density 443'); sh('cmd uimode night no');
     await openChat();
     await toEnd();
     const frames = join(evidence, 'native-frames');
@@ -155,14 +180,14 @@ try {
     await tap(/^Edited src\/checkout\/shipping\.ts/); await tap(/^Ran yarn test checkout/); await toEnd(); still(4);
     await tap(/^Ran yarn test checkout/); await toEnd(); still(2);
     await tap(/^5 steps\./); await toEnd(); still(3);
-    execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', '2', '-i', join(frames, 'f%03d.png'), '-vf', 'scale=540:-2,format=yuv420p', '-c:v', 'libx264', join(evidence, 'native-390-dark-open-peek-fold.mp4')]);
+    execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', '2', '-i', join(frames, 'f%03d.png'), '-vf', 'scale=540:-2,format=yuv420p', '-c:v', 'libx264', join(evidence, 'native-390-light-open-peek-fold.mp4')]);
     log('recorded');
     // The step record done-done's judge reads beside the captures.
     const steps = `${JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: 'lab-id release APK freshly installed and paired to the chat fake lab, whose Claude log has a read/search reply, an edit+test reply and a five-step reply with two edits, a plan and a failed command',
-        steps: ['open the Claude agent in Chat view and scroll to the end', 'tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'go back to Home', 'repeat at 390 and 270 dp wide, light and dark'],
-        result: 'tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; a Full diff sheet titled with the file name that follows the app theme (light in the light theme, dark in the dark one) over the chat, which stays dark; Home shows the app theme',
+        steps: ['open the Claude agent in Chat view and scroll to the end', 'tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'close the sheet, open ⋮ Pane actions, close it', 'switch to Terminal view, then back to Chat view', 'go back to Home', 'repeat at 390, 360 and 270 dp wide, light and dark', 'at 270 dp and the largest text in the light theme, open the chat, a peek and ⋮'],
+        result: 'the chat screen (header, messages, tool rows, peeks, Full diff sheet, ⋮ actions menu, composer) follows the app theme: white with dark text in the light theme, black in the dark one; tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; the terminal view stays dark in both themes and switching back gives the whole chat in the app theme again; Home shows the app theme',
     }, null, 2)}\n`;
     writeFileSync(join(evidence, 'steps.json'), steps);
     writeFileSync(join(evidence, 'native', 'steps.json'), steps);

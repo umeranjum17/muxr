@@ -105,6 +105,8 @@ journeys:
   # latest-local). Runs by hand under the shared emulator lock with
   # MUXR_LAB_APK a release build of this commit, MUXR_LAB_SERIAL an owned
   # emulator and a provisioned Herdr lab (HERDR_LAB_PREPROVISIONED=1).
+  # LINES=1200 STUB_LPS=100 WALK=30 walks the history instead and logs every
+  # hole in it (terminal-latest.md).
   terminal-scroll-local:
     command: bash .agents/skills/done-done-verify-pockit/features/terminalScrollLocalLab.sh "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT"
     timeout: 20m
@@ -143,16 +145,33 @@ journeys:
   # The chat's tool steps on Android: the release app on an owned emulator,
   # paired to the chat fake lab (seeded Claude log with real edits, a failed
   # command and a plan), shows each reply's steps folded, a group opened with an
-  # edit's peek, a command's peek and the full diff at 390 and 270 dp, light and
+  # edit's peek, a command's peek, the full diff, the ⋮ actions menu and the
+  # terminal view at 390, 360 and 270 dp, light and
   # dark, plus a frame-per-step recording (chat-view.md, chat-tools). Runs by
   # hand under the shared emulator lock; MUXR_LAB_APK is a lab-id release build
   # of this commit, MUXR_LAB_AVD_HOME a task-owned emulator home.
   chat-steps:
     command: node .agents/skills/done-done-verify-pockit/features/chatStepsNativeLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$MUXR_LAB_AVD_HOME" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # The unpaired first screen leads with Get Tailscale, then Get muxr on your
+  # computer (the Linux desktop app), then Pair with your computer: the release
+  # app on an owned emulator, at 390 and 270 dp, text 1.0 and 2.0, light and
+  # dark, at rest and scrolled, then the desktop-app and Tailscale buttons
+  # (tailscale-first-step.md). Runs by hand under the shared emulator lock;
+  # MUXR_LAB_APK is a release build of this commit, MUXR_LAB_AVD_HOME a
+  # task-owned emulator home, MUXR_LAB_REF main's run of the same journey
+  # (its --baseline evidence folder).
+  first-run-steps:
+    command: node .agents/skills/done-done-verify-pockit/features/firstRunStepsLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --ref "$MUXR_LAB_REF" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # A version bump on the built web export: the changelog entry validates for
   # package.json's version, checkWebExport passes, and the served export's
   # Settings screen reads that version at 390 px. Run after `yarn web:export`.
   release-bump:
     command: node .agents/skills/done-done-verify-pockit/features/releaseBumpLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 10m
+  # The @desklink/host pin: the host built on it starts, reaches the relay and
+  # pairs a lab client in an isolated Herdr lab session. Needs HERDR_LAB_HELPER.
+  desklink-pin:
+    command: node .agents/skills/done-done-verify-pockit/features/desklinkPinLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m

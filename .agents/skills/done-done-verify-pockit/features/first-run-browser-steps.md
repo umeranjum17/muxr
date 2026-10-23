@@ -1,7 +1,10 @@
 # First-run link-first shell
 
-An unpaired native app and installed PWA open directly on **Have a connect
-link?**, with a private-link/code field and **Connect**. Native also offers
+An unpaired native app and installed PWA open on three steps: **Get
+Tailscale**, **Get muxr on your computer** (native: **Get the desktop app**,
+which opens Add your computer; PWA: a pointer to the command under More ways),
+then **Pair with your computer**, with a private-link/code field and
+**Connect**. Native also offers
 **Scan the QR** where the scanner is available, **SSH login** where the
 existing SSH transport is available, and an active **Cloud computer** entry.
 That entry opens the cloud checklist on native and a phone-app instruction on
@@ -10,8 +13,8 @@ and optional HTTPS, tunnel, Tailscale and local-network routes.
 
 ## Sub-features
 
-- `link-first`: the field and Connect precede setup alternatives; no Tailscale
-  gate or oversized marketing hero precedes them.
+- `steps-order`: Tailscale, then muxr on the computer, then the pair field and
+  Connect, all on one screen; nothing must be tapped before the field is usable.
 - `existing-consent`: Connect and keyboard Go use the same `useHostedPairing`
   validator and `/pair` consent route as Scan. There is no automatic claim,
   grant storage or second consent flow in the shell.
@@ -20,7 +23,7 @@ and optional HTTPS, tunnel, Tailscale and local-network routes.
 - `cloud-entry`: Cloud computer is an active native entry to the checklist;
   PWA directs setup to the muxr phone app.
 - `setup-details`: More ways reveals the existing copyable command and its
-  effects disclosure; a ready-link timing estimate explicitly excludes setup.
+  effects disclosure.
 
 ## Driving it
 
@@ -31,10 +34,10 @@ from the candidate, verify the APK provenance and served web chunk before
 capturing, and confirm PWA `display-mode: standalone`. Capture with
 `visualCheck.mjs` (native) and its PWA DOM leads; inspect every shot.
 
-1. Open with no stored grant. The ready-link card is first, with no
-   Tailscale prerequisite. Ensure the field, Connect, alternatives and footer
-   wrap without overlap at the narrow/largest-text extremes; there the card
-   heading stacks above its Fastest badge instead of shrinking to a sliver.
+1. Open with no stored grant. Steps 1 and 2 lead, then the pair card. Ensure
+   the steps, field, Connect, alternatives and footer wrap without overlap at
+   the narrow/largest-text extremes; there a step drops its number badge and
+   its title carries the number ("1. Get Tailscale") instead.
 2. Tap Cloud computer: native opens the cloud checklist; PWA shows the phone-app
    instruction. Do not start a Boat claim. Tap native SSH login: the existing SSH
    form opens. Return to the shell.
