@@ -45,6 +45,8 @@ try {
         await new Promise((r) => setTimeout(r, 1000));
         text = axi('eval', 'document.body.innerText').stdout;
     }
+    axi('eval', `(() => { const hit = [...document.querySelectorAll('div,span')].filter((el) => el.children.length === 0 && el.textContent.startsWith('Version ${version}')); hit[0]?.scrollIntoView({ block: 'center' }); })()`);
+    await new Promise((r) => setTimeout(r, 500));
     axi('screenshot', join(evidence, 'settings-version-390.png'));
     step(`Settings reads Version ${version} at 390 px`, text.includes(`Version ${version}`));
 } finally {
