@@ -31,7 +31,7 @@ try {
     say(`RESULT ${result}`);
     writeFileSync(join(evidence, 'pin.log'), `${lines.join('\n')}\n`);
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
-        target: { desklinkHost: installed },
+        target: { version: installed },
         start: 'this checkout\'s relay and host in an isolated Herdr lab session',
         steps: ['host starts', 'link relay online', 'lab client pairs', 'lab torn down'],
         result: result === 'pass' ? `host on @desklink/host ${installed} started, reached the relay and paired` : 'fail',
