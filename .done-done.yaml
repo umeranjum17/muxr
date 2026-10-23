@@ -170,3 +170,8 @@ journeys:
   release-bump:
     command: node .agents/skills/done-done-verify-pockit/features/releaseBumpLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m
+  # The @desklink/host pin: the host built on it starts, reaches the relay and
+  # pairs a lab client in an isolated Herdr lab session. Needs HERDR_LAB_HELPER.
+  desklink-pin:
+    command: node .agents/skills/done-done-verify-pockit/features/desklinkPinLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 10m
