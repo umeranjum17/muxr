@@ -110,10 +110,14 @@ try {
     serial = emulator.serial;
     say(`emulator ${serial} booted`);
     // The phone's width in dp is 1080 px * 160 / density: 443 is 390 dp, 640 is 270 dp.
-    await sh(`wm density ${Math.round((1080 * 160) / Number(opts.dp))}`);
-    await sh(`settings put system font_scale ${opts.font}`);
-    await sh(`cmd uimode night ${opts.theme === 'dark' ? 'yes' : 'no'}`);
-    say(`view: ${opts.dp} dp, font ${opts.font}, ${opts.theme}`);
+    const view = async (dp, font, theme) => {
+        await sh(`wm density ${Math.round((1080 * 160) / Number(dp))}`);
+        await sh(`settings put system font_scale ${font}`);
+        await sh(`cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
+        say(`view: ${dp} dp, font ${font}, ${theme}`);
+    };
+    // The account link is the same at every view; a narrow view starts once the account is linked.
+    await view(390, '1.0', 'light');
     await sh('settings put global heads_up_notifications_enabled 0').catch(() => undefined);
     await adb(['reverse', `tcp:${opts.port}`, `tcp:${opts.port}`]);
     await adb(['reverse', `tcp:${sshPort}`, `tcp:${sshPort}`]);
@@ -150,6 +154,13 @@ try {
     say(`after Sign in to Boat: ${await focused()}`);
     await bringMuxrBack();
     await waitFor('Boat account Connected', (found) => find(found, (v) => v === 'Connected') !== undefined);
+    if (opts.dp !== '390' || opts.font !== '1.0' || opts.theme !== 'light') {
+        await view(opts.dp, opts.font, opts.theme);
+        await sh(`am force-stop ${PKG}`);
+        await bringMuxrBack();
+        await tap('Cloud computer', (v) => v === 'Cloud computer' || v === 'Add a cloud computer. Boat.', 180);
+        await waitFor('the size step with the linked account', (found) => find(found, (v) => v === 'Connected') !== undefined);
+    }
     await shot('01-size-and-price');
 
     await tap('Create cloud computer', (v) => v === 'Create cloud computer');
