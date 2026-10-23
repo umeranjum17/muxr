@@ -130,9 +130,10 @@ journeys:
   # ssh-route). Runs by hand under the emulator lock and a provisioned Herdr
   # lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION); MUXR_LAB_APK is a release build
   # of this commit with EXPO_PUBLIC_MUXR_BOAT_API pointing at
-  # 127.0.0.1:$BOAT_LAB_PORT, MUXR_LAB_AVD_HOME a task-owned emulator home.
+  # 127.0.0.1:$BOAT_LAB_PORT, MUXR_LAB_AVD_HOME a task-owned emulator home;
+  # CLOUD_LAB_DP, CLOUD_LAB_FONT and CLOUD_LAB_THEME pick the view (390, 1.0, light).
   cloud-setup:
-    command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --machine "$(mktemp -d "$HOME/.cache/fms/mxcs.XXXX")" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --machine "$(mktemp -d "$HOME/.cache/fms/mxcs.XXXX")" --dp "${CLOUD_LAB_DP:-390}" --font "${CLOUD_LAB_FONT:-1.0}" --theme "${CLOUD_LAB_THEME:-light}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
   # A Claude account is added from the phone end to end: Accounts, Open Claude
   # sign-in, the code sent from the sign-in tab's composer, Name this account

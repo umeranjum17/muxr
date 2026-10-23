@@ -5,6 +5,7 @@
 // step is captured, and the phone must land on Home with the computer connected through the SSH tunnel.
 // Needs a provisioned Herdr lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION). Run from the repo root:
 //   node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk <apk> --evidence <dir> --avd-home <dir> --port <boat lab port> --machine <short dir>
+//     [--dp 390|270] [--font 1.0|2.0] [--theme light|dark]
 import { execFile, spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -14,6 +15,7 @@ import { dismissPrompts, dumpUiXml } from '../../../../perf/lib/androidSignals.m
 
 const { values: opts } = parseArgs({ options: {
     apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' }, port: { type: 'string' }, machine: { type: 'string' },
+    dp: { type: 'string', default: '390' }, font: { type: 'string', default: '1.0' }, theme: { type: 'string', default: 'light' },
 } });
 if (!opts.apk || !opts.evidence || !opts['avd-home'] || !opts.port || !opts.machine) throw new Error('--apk, --evidence, --avd-home, --port and --machine are required');
 const PKG = 'com.trymuxr.app';
@@ -89,8 +91,11 @@ try {
     emulator = await bootOwnedEmulator({ name: 'mxcs', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: ['nice', '-n', '10'] });
     serial = emulator.serial;
     say(`emulator ${serial} booted`);
-    // 1080 px at density 443 is a 390 dp wide phone.
-    await sh('wm density 443');
+    // The phone's width in dp is 1080 px * 160 / density: 443 is 390 dp, 640 is 270 dp.
+    await sh(`wm density ${Math.round((1080 * 160) / Number(opts.dp))}`);
+    await sh(`settings put system font_scale ${opts.font}`);
+    await sh(`cmd uimode night ${opts.theme === 'dark' ? 'yes' : 'no'}`);
+    say(`view: ${opts.dp} dp, font ${opts.font}, ${opts.theme}`);
     await sh('settings put global heads_up_notifications_enabled 0').catch(() => undefined);
     await adb(['reverse', `tcp:${opts.port}`, `tcp:${opts.port}`]);
     await adb(['reverse', `tcp:${sshPort}`, `tcp:${sshPort}`]);
@@ -156,6 +161,8 @@ try {
             await shot(name);
             say(`step: ${name}`);
         }
+        // A short viewport keeps the active step below the fold; follow it as a person would, with a scroll.
+        if (Number(opts.dp) < 390 && seen.size < STEPS.length && find(found, (v) => v === 'Your cloud computer')) await sh('input swipe 540 1800 540 700 300');
         if (find(found, (v) => v === 'Try again')) { await shot('07-setup-failed'); throw new Error(`set-up failed: ${found.filter((n) => n.text).map((n) => n.text).join(' | ')}`); }
         if (find(found, (v) => v.includes('connected')) && find(found, (v) => v === 'Plan, ask, build…')) { home = true; break; }
         await sleep(1500);
