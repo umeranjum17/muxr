@@ -1,10 +1,10 @@
-// The Tailscale sign-in of a new Boat cloud computer opens by itself (cloud-computer-onboarding.md,
-// tailnet-sign-in). Boots a task-owned emulator, runs boatSignInLab.mjs with its Tailscale stand-in,
-// links the lab Boat account on a release APK built with EXPO_PUBLIC_MUXR_BOAT_API, taps Create
-// cloud computer and then nothing in muxr: the browser must come up on the Tailscale sign-in page
-// by itself, and once the lab joins, setup must move on to muxr's own set-up (where the lab stops it).
-// Run from the repo root:
-//   node .agents/skills/done-done-verify-pockit/features/cloudTailnetLab.mjs --apk <apk> --evidence <dir> --avd-home <dir> --port <boat lab port>
+// A new Boat cloud computer set up from the phone over SSH, with no tailnet (cloud-computer-onboarding, ssh-route).
+// Boots a task-owned emulator at 390 dp, runs boatSignInLab.mjs with its stand-in computer (BOAT_LAB_SSH: a real sshd
+// and this checkout's muxr in a namespace of their own), links the lab Boat account on a release APK built with
+// EXPO_PUBLIC_MUXR_BOAT_API, taps Create cloud computer and then nothing in muxr: no browser may open, each set-up
+// step is captured, and the phone must land on Home with the computer connected through the SSH tunnel.
+// Needs a provisioned Herdr lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION). Run from the repo root:
+//   node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk <apk> --evidence <dir> --avd-home <dir> --port <boat lab port> --machine <short dir>
 import { execFile, spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -13,9 +13,9 @@ import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
 import { dismissPrompts, dumpUiXml } from '../../../../perf/lib/androidSignals.mjs';
 
 const { values: opts } = parseArgs({ options: {
-    apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' }, port: { type: 'string' },
+    apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' }, port: { type: 'string' }, machine: { type: 'string' },
 } });
-if (!opts.apk || !opts.evidence || !opts['avd-home'] || !opts.port) throw new Error('--apk, --evidence, --avd-home and --port are required');
+if (!opts.apk || !opts.evidence || !opts['avd-home'] || !opts.port || !opts.machine) throw new Error('--apk, --evidence, --avd-home, --port and --machine are required');
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
 mkdirSync(EVIDENCE, { recursive: true });
@@ -56,30 +56,51 @@ async function tap(what, test, seconds = 90) {
     await sh(`input tap ${Math.round((l + r) / 2)} ${Math.round((t + b) / 2)}`);
     await sleep(1500);
 }
+const RECORD = "i=0; while [ $i -lt 20 ]; do screenrecord --time-limit 170 --bit-rate 2000000 /sdcard/mxrec-$i.mp4 || break; i=$((i+1)); done";
+async function stopRecording() {
+    await sh('pkill -INT screenrecord').catch(() => undefined);
+    await sleep(3000);
+    const files = (await sh('ls /sdcard/ | grep mxrec- || true')).split('\n').map((f) => f.trim()).filter(Boolean).sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
+    for (const [i, file] of files.entries()) await adb(['pull', `/sdcard/${file}`, join(EVIDENCE, `recording-${String(i).padStart(2, '0')}.mp4`)], 120_000);
+    say(`recording: ${files.length} file(s)`);
+}
 const focused = async () => (await sh('dumpsys window displays')).match(/mCurrentFocus=.*/)?.[0] ?? '';
 let activity = '';
 const bringMuxrBack = async () => { await sh(`am start -n ${activity}`); await sleep(2000); };
 
 let lab;
 let emulator;
+let recorder;
 try {
     lab = spawn(process.execPath, ['.agents/skills/done-done-verify-pockit/features/boatSignInLab.mjs', opts.port], {
-        env: { ...process.env, BOAT_LAB_TAILSCALE: '1' }, stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, BOAT_LAB_SSH: resolve(opts.machine) }, stdio: ['ignore', 'pipe', 'pipe'],
     });
-    lab.stdout.on('data', (chunk) => appendFileSync(join(EVIDENCE, 'boat-lab.log'), chunk));
+    let labOut = '';
+    lab.stdout.on('data', (chunk) => { labOut += chunk; appendFileSync(join(EVIDENCE, 'boat-lab.log'), chunk); });
     lab.stderr.on('data', (chunk) => appendFileSync(join(EVIDENCE, 'boat-lab.log'), chunk));
     say(`boat lab pid ${lab.pid} on port ${opts.port}`);
+    while (!/BOAT_LAB_SSH_PORT=(\d+)/.test(labOut)) {
+        if (lab.exitCode !== null) throw new Error(`the Boat lab stopped: ${labOut}`);
+        await sleep(200);
+    }
+    const sshPort = labOut.match(/BOAT_LAB_SSH_PORT=(\d+)/)[1];
+    say(`stand-in computer's SSH on 127.0.0.1:${sshPort}`);
 
-    emulator = await bootOwnedEmulator({ name: 'mxts', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: ['nice', '-n', '10'] });
+    emulator = await bootOwnedEmulator({ name: 'mxcs', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: ['nice', '-n', '10'] });
     serial = emulator.serial;
     say(`emulator ${serial} booted`);
+    // 1080 px at density 443 is a 390 dp wide phone.
+    await sh('wm density 443');
+    await sh('settings put global heads_up_notifications_enabled 0').catch(() => undefined);
     await adb(['reverse', `tcp:${opts.port}`, `tcp:${opts.port}`]);
+    await adb(['reverse', `tcp:${sshPort}`, `tcp:${sshPort}`]);
     // Chrome's first-run screens would stand in front of every page it opens.
     await sh(`echo 'chrome --disable-fre --no-default-browser-check --no-first-run' > /data/local/tmp/chrome-command-line`);
     await sh('am set-debug-app --persistent com.android.chrome');
     await adb(['uninstall', PKG], 120_000).catch(() => undefined);
     await adb(['install', opts.apk], 300_000);
     await sh(`pm grant ${PKG} android.permission.POST_NOTIFICATIONS`).catch(() => undefined);
+    recorder = spawn('adb', ['-s', serial, 'shell', RECORD], { stdio: 'ignore' });
     activity = (await sh(`cmd package resolve-activity --brief ${PKG}`)).trim().split('\n').pop();
     await bringMuxrBack();
     await dismissPrompts().catch(() => undefined);
@@ -107,47 +128,45 @@ try {
 
     await tap('Create cloud computer', (v) => v === 'Create cloud computer');
     const created = Date.now();
-    say('from here the journey taps nothing in muxr until the browser has opened by itself');
-    let frame = 0;
-    let opened = '';
-    while (Date.now() - created < 240_000) {
+    say('from here the journey taps nothing in muxr; no browser may open');
+    // Each set-up step's words, in order, as the checklist shows them.
+    const STEPS = [
+        ['02-creating', (v) => v === 'Creating your cloud computer on Boat.' || v === 'Starting your cloud computer.'],
+        ['03-installing', (v) => /^Putting muxr on|^Installing/.test(v)],
+        ['04-configuring', (v) => v === 'Setting up muxr on your cloud computer.'],
+        ['05-private-connection', (v) => v === 'Connecting this phone to your cloud computer over a private SSH link.'],
+        ['06-pairing', (v) => v === 'Connecting this device to muxr.'],
+    ];
+    const seen = new Set();
+    let home = false;
+    while (Date.now() - created < 600_000) {
         const focus = await focused();
-        if (frame % 3 === 0 || !focus.includes(PKG)) await shot(`02-after-create-${String(frame).padStart(2, '0')}`);
-        frame += 1;
-        if (!focus.includes(PKG) && /chrome|browser/i.test(focus)) { opened = focus; break; }
-        if (focus.includes(PKG) && frame % 3 === 1) {
-            const stuck = find(await screen(), (v) => v === 'Try again');
-            if (stuck) { await shot('02-setup-failed'); throw new Error('setup failed before the Tailscale sign-in'); }
+        if (!focus.includes(PKG)) { await shot('07-left-muxr'); throw new Error(`something opened over muxr during set-up: ${focus}`); }
+        const found = await screen();
+        for (const [name, test] of STEPS) {
+            if (seen.has(name) || find(found, test) === undefined) continue;
+            seen.add(name);
+            await shot(name);
+            say(`step: ${name}`);
         }
-        await sleep(2000);
+        if (find(found, (v) => v === 'Try again')) { await shot('07-setup-failed'); throw new Error(`set-up failed: ${found.filter((n) => n.text).map((n) => n.text).join(' | ')}`); }
+        if (find(found, (v) => v.includes('connected')) && find(found, (v) => v === 'Plan, ask, build…')) { home = true; break; }
+        await sleep(1500);
     }
-    if (!opened) throw new Error('the browser never opened on its own after Create cloud computer');
-    say(`browser opened by itself ${Math.round((Date.now() - created) / 1000)} s after Create: ${opened}`);
-    // The Boat tab is still up (the journey came back with am start, as a person switching apps does), so this
-    // fails if muxr only brought that tab back: the address bar must name Tailscale.
-    // Chrome's own notification prompt can cover the page on a fresh emulator; it is Chrome's, not muxr's, so answer it.
-    const page = find(await waitFor('the Tailscale page in the browser', (found) => {
-        const prompt = find(found, (v) => v === 'No thanks');
-        if (prompt) void sh(`input tap ${Math.round((prompt.box[0] + prompt.box[2]) / 2)} ${Math.round((prompt.box[1] + prompt.box[3]) / 2)}`);
-        return !prompt && find(found, (v) => /tailscale\.com/.test(v)) !== undefined;
-    }, 45), (v) => /tailscale\.com/.test(v));
-    say(`browser address bar: ${page.text || page.desc}`);
-    await sleep(2000);
-    await shot('03-tailscale-page-opened-by-itself');
-
-    // The person approves on Tailscale's page (the lab joins 20 s after the link) and comes back.
-    await bringMuxrBack();
-    await shot('04-back-in-muxr');
-    await waitFor('setup past the tailnet join', (found) => find(found, (v) => v.startsWith('muxr could not set itself up there')) !== undefined, 120);
-    await shot('05-joined-then-lab-stops');
-    say('PASS: Tailscale sign-in opened with no tap in muxr, and setup went on past the tailnet join');
+    if (!home) throw new Error('the phone never reached Home with the computer connected');
+    await sleep(3000);
+    await shot('07-home-connected');
+    say(`PASS: Home connected ${Math.round((Date.now() - created) / 1000)} s after Create, over SSH, no browser opened; steps seen: ${[...seen].join(', ')}`);
+    if (!seen.has('05-private-connection')) throw new Error('the Private connection step was never shown');
     writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
-        start: 'fresh release APK on an owned emulator, Boat lab with its Tailscale stand-in',
-        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else in muxr', 'approve on the Tailscale page that opened', 'come back to muxr'],
-        result: 'the browser opened the Tailscale sign-in page by itself, and setup went on past Join your tailnet',
+        start: 'fresh release APK on an owned 390 dp emulator, Boat lab with its stand-in computer (sshd + muxr in a namespace)',
+        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else in muxr'],
+        result: 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
     }, null, 2));
 } finally {
+    if (recorder) await stopRecording().catch((error) => say(`recording pull failed: ${error.message}`));
+    recorder?.kill();
     if (emulator) await emulator.stop().catch((error) => say(`emulator stop failed: ${error.message}`));
     if (lab) {
         lab.kill('SIGTERM');
