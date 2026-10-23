@@ -115,8 +115,9 @@ const tapNode = async (pattern, seconds = 90, className, optional = false) => {
                 break;
             }
             sh(`input tap ${(x1 + x2) >> 1} ${(y1 + y2) >> 1}`);
+            const tapped = Date.now();
             log(`tapped ${text || description}`);
-            return true;
+            return tapped;
         }
         await sleep(2000);
     }
@@ -197,17 +198,21 @@ let installed = 'unknown';
 // The host logs one line per terminal stream it really attached.
 const attaches = () => (lab?.hostOutput().match(/link: terminal stream attached/g) ?? []).length;
 
+// The time to attach runs from the tap to the host's new terminal stream, which
+// it logs once Herdr painted the pane's first frame. Nothing else may run while
+// it is awaited: a ui dump blocks this process for a second or more, and the
+// host's line would be counted when the dump returned, not when it landed.
+const hostAttachMs = async (before, tapped) => {
+    while (attaches() <= before && Date.now() - tapped < 30_000) await sleep(25);
+    return attaches() > before ? Date.now() - tapped : undefined;
+};
+
 // The phone is attached when its screen shows a terminal and the host logged a
 // new terminal stream: a screen that still shows the last pane proves nothing.
-// `since` is when the person asked for the agent; the time to attach counts from there.
-let attachedMs;
 const waitAttached = async (before, since = Date.now(), budget = 90) => {
     for (let second = 0; second < budget; second += 1) {
         const xml = dump();
-        if (surface(xml) && attaches() > before) {
-            attachedMs = Date.now() - since;
-            return `attached in ${(attachedMs / 1000).toFixed(1)}s`;
-        }
+        if (surface(xml) && attaches() > before) return `attached in ${((Date.now() - since) / 1000).toFixed(1)}s`;
         // A refused attempt leaves the phone a retry to press; the person presses it.
         if (/content-desc="Reconnect terminal/.test(xml)) await tapNode(/^Reconnect terminal/, 4, undefined, true);
         await sleep(1000);
@@ -344,13 +349,15 @@ try {
     const beforeOpen = attaches();
     const from = Date.now();
     await recordOn('the lab agent terminal');
-    await tapNode(/umer-lab/, 120);
+    const tapped = await tapNode(/umer-lab/, 120);
+    const attachMs = await hostAttachMs(beforeOpen, tapped);
     await waitOffHome();
     leakWindows.push([from - 500, Date.now()]);
     const first = await waitAttached(beforeOpen, from);
-    log(`first attach: ${first}; host attached ${attaches() - beforeOpen} stream(s)`);
+    log(`first attach: ${first}; host attached ${attaches() - beforeOpen} stream(s), the first ${attachMs} ms after the tap`);
     if (!first.startsWith('attached')) throw new Error(`the phone never attached: ${first}`);
-    timings.attachMs = attachedMs;
+    // Past 30 s (a refused attach the journey had to press Reconnect for) only the outer bound is known.
+    timings.attachMs = attachMs ?? Date.now() - tapped;
     await sleep(3000);
     shot('01-agent-attached');
 
