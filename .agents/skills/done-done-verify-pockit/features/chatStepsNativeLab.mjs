@@ -1,8 +1,9 @@
 // The chat's tool steps on a native release app: boots an owned emulator, runs
 // chatFakeLab.mjs over adb, pairs a lab-id release APK and captures the chat with
 // its steps folded, a group opened with an edit's peek, a command's peek and the
-// full diff, at 390 and 270 dp, light and dark, through visualCheck.mjs; then
-// records open, peek and fold as a frame per step. See chat-view.md. Run from the repo root, inside
+// full diff, at 390 and 270 dp, light and dark, through visualCheck.mjs, and its
+// inline images (a file the reply drew, one a Read returned) with the full-screen
+// viewer; then records open, peek and fold, and an image opened and closed, as a frame per step. See chat-view.md. Run from the repo root, inside
 // the emulator lock: node .agents/skills/done-done-verify-pockit/features/chatStepsNativeLab.mjs <apk> <evidenceDir> <avdHome>
 import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -39,6 +40,20 @@ const tap = async (re, seconds) => {
 };
 // A fast swipe scrolls; a slow one starts a text selection.
 const toEnd = async () => { for (let i = 0; i < 4; i += 1) { sh('input swipe 540 1700 540 700 120'); await sleep(400); } await sleep(800); };
+// Scrolls back up until a node is whole on screen, clear of the header and the composer.
+const reveal = async (re) => {
+    for (let i = 0; i < 10; i += 1) {
+        const hit = nodes().find((node) => matches(node, re));
+        if (hit !== undefined) {
+            const [, y1, , y2] = boundsOf(hit);
+            if (y1 > 300 && y2 < 1800) { await sleep(800); return; }
+            if (y2 >= 1800) { sh('input swipe 540 1500 540 1100 300'); await sleep(700); continue; }
+        }
+        sh('input swipe 540 900 540 1400 150');
+        await sleep(700);
+    }
+    throw new Error(`never brought ${re} into view`);
+};
 
 let lab;
 let defects = 0;
@@ -119,6 +134,15 @@ try {
             await openChat();
             await toEnd();
             await shot(`${cell}-collapsed`, true);
+            await reveal(/^Open home-day\.webp$/);
+            await shot(`${cell}-image-file`);
+            await tap(/^Open home-day\.webp$/);
+            await sleep(1200);
+            await shot(`${cell}-image-viewer`);
+            sh('input keyevent 4'); await sleep(1200);
+            await reveal(/^Open image$/);
+            await shot(`${cell}-image-tool`);
+            await toEnd();
             await tap(/^5 steps\./);
             await tap(/^Edited src\/checkout\/shipping\.ts/);
             await toEnd();
@@ -155,14 +179,17 @@ try {
     await tap(/^Edited src\/checkout\/shipping\.ts/); await tap(/^Ran yarn test checkout/); await toEnd(); still(4);
     await tap(/^Ran yarn test checkout/); await toEnd(); still(2);
     await tap(/^5 steps\./); await toEnd(); still(3);
-    execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', '2', '-i', join(frames, 'f%03d.png'), '-vf', 'scale=540:-2,format=yuv420p', '-c:v', 'libx264', join(evidence, 'native-390-dark-open-peek-fold.mp4')]);
+    await reveal(/^Open home-day\.webp$/); still(2);
+    await tap(/^Open home-day\.webp$/); still(3);
+    sh('input keyevent 4'); await sleep(1200); still(2);
+    execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', '2', '-i', join(frames, 'f%03d.png'), '-vf', 'scale=540:-2,format=yuv420p', '-c:v', 'libx264', join(evidence, 'native-390-dark-open-peek-fold-image.mp4')]);
     log('recorded');
     // The step record done-done's judge reads beside the captures.
     const steps = `${JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
-        start: 'lab-id release APK freshly installed and paired to the chat fake lab, whose Claude log has a read/search reply, an edit+test reply and a five-step reply with two edits, a plan and a failed command',
-        steps: ['open the Claude agent in Chat view and scroll to the end', 'tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'go back to Home', 'repeat at 390 and 270 dp wide, light and dark'],
-        result: 'tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; a Full diff sheet titled with the file name that follows the app theme (light in the light theme, dark in the dark one) over the chat, which stays dark; Home shows the app theme',
+        start: 'lab-id release APK freshly installed and paired to the chat fake lab, whose Claude log has a read/search reply, an edit+test reply and a five-step reply with two edits, a plan and a failed command, a reply whose Read returned an image and a reply that draws an image file',
+        steps: ['open the Claude agent in Chat view and scroll to the end', 'scroll up to the drawn image, tap it, go back, scroll to the Read image', 'scroll to the end and tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'go back to Home', 'repeat at 390 and 270 dp wide, light and dark'],
+        result: 'tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; a Full diff sheet titled with the file name that follows the app theme (light in the light theme, dark in the dark one) over the chat, which stays dark; Home shows the app theme; each image is a rounded card in the column (no broken image, no raw ![...](...) markup) and a tap opens it full screen on black with a close button',
     }, null, 2)}\n`;
     writeFileSync(join(evidence, 'steps.json'), steps);
     writeFileSync(join(evidence, 'native', 'steps.json'), steps);

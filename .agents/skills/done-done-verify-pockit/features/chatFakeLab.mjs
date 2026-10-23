@@ -5,11 +5,13 @@
 // (`node --input-type=module -e "$(< …/chatFakeLab.mjs)"`). CHAT_LAB_SERIAL
 // (an emulator) switches to the adb transport for a native app. SIGUSR1 mints
 // a browser link, SIGUSR2 a native one; SIGTERM stops the stack. See chat-view.md.
+// Two of the repo's own Home screenshots stand in for the agent's images: one a
+// Read returned, one a file the reply draws (chat-images).
 // Stdin lines drive the header-fit journey (chat-header-fit.md): `status <state>
 // <task>` sets Claude 1's lifecycle and task title, `changes` leaves three
 // uncommitted files in its folder.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { createInterface } from 'node:readline';
 import { dirname, join } from 'node:path';
@@ -39,6 +41,7 @@ const conversationIn = (cwd) => {
     const write1 = tool('Write', { file_path: at(cwd, 'src/checkout/shipping.empty.test.ts'), content: "import { shipping } from './shipping';\n\ntest('an empty cart ships free', () => {\n  expect(shipping(0)).toBe(0);\n});\n" });
     const plan1 = tool('TodoWrite', { todos: [{ content: 'Fix the $50 edge', status: 'completed' }, { content: 'Free shipping for an empty cart', status: 'completed' }, { content: 'Test both', status: 'completed' }] });
     const test2 = tool('Bash', { command: 'yarn test checkout --reporter=dot', description: 'Run every checkout test' });
+    const look = tool('Read', { file_path: at(cwd, 'shots/home-night.webp') });
     const patch = (oldStart, lines) => ({ toolUseResult: { structuredPatch: [{ oldStart, oldLines: lines.filter((l) => !l.startsWith('+')).length, newStart: oldStart, newLines: lines.filter((l) => !l.startsWith('-')).length, lines }] } });
     return [
         user('u1', 1, 'Review the checkout. Keep free shipping from $50.'),
@@ -50,7 +53,9 @@ const conversationIn = (cwd) => {
         reply('a3', 4, 'm3', [edit1, test1]),
         answer('r4', 4, edit1, 'The file has been updated.', patch(4, [' export function shipping(subtotal: number) {', '-  if (subtotal > FREE_FROM) return 0;', '+  if (subtotal >= FREE_FROM) return 0;', '   return FLAT_RATE;'])),
         answer('r5', 4, test1, 'PASS src/checkout/shipping.test.ts\n  ✓ over $50 ships free (2 ms)\n  ✓ under $50 pays the flat rate (1 ms)\n  ✓ $50 exactly ships free (1 ms)\nTests: 3 passed, 3 total'),
-        reply('a4', 5, 'm4', [{ type: 'text', text: 'Changed `shipping()` to use `>= 50` and added a test for the $50 edge. All 3 tests pass.' }]),
+        reply('a4', 5, 'm4', [{ type: 'text', text: 'Changed `shipping()` to use `>= 50` and added a test for the $50 edge. All 3 tests pass.' }, look]),
+        answer('r11', 5, look, [{ type: 'image', source: { type: 'base64', media_type: 'image/webp', data: readFileSync('docs/readme/answer-night.webp').toString('base64') } }]),
+        reply('a8', 5, 'm7', [{ type: 'text', text: 'Here is Home in the day theme after the fix:\n\n![Home](shots/home-day.webp)' }]),
         user('u2', 6, 'Good. Now check the empty cart, Umer here.'),
         reply('a5', 7, 'm5', [{ type: 'text', text: 'Checking the empty cart.' }, grep2]),
         answer('r6', 7, grep2, 'No matches found'),
@@ -72,6 +77,8 @@ const stack = await startFakeStack({
         project = cwd;
         const folder = join(home, '.claude', 'projects', cwd.replace(/[^A-Za-z0-9]/g, '-'));
         mkdirSync(folder, { recursive: true });
+        mkdirSync(join(cwd, 'shots'), { recursive: true });
+        copyFileSync('docs/readme/answer-day.webp', join(cwd, 'shots', 'home-day.webp'));
         for (const id of ['gen-1', 'gen-2']) writeFileSync(join(folder, `${id}.jsonl`), conversationIn(cwd));
         return {};
     },

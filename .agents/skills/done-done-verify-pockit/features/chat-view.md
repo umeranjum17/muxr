@@ -16,8 +16,8 @@ switching never re-attaches the pane. Settings → Session view picks the defaul
 real prompt is answered. The host reads the harness's own session log through
 `chat.read` (`apps/host/src/agent/infrastructure/chatTranscript.ts`), found the
 way Herdr names it: Claude by session id under the project folder, Pi by the
-log path Herdr reports. Codex, OpenCode, inline images and in-chat approvals
-are not part of it.
+log path Herdr reports. Images in the conversation show inline and open full
+screen. Codex, OpenCode and in-chat approvals are not part of it.
 
 ## Sub-features
 
@@ -39,6 +39,16 @@ are not part of it.
   first lines; a plan's checklist. Results are matched to calls by id (Claude
   `tool_result`, Pi `toolResult`). An older host's steps (no `kind`) draw a gear
   and their old words. Every row is a 44 dp target.
+- `chat-images` a message's images show as rounded cards in the column, at most
+  260 dp tall (the person's on the right, above their bubble): a pasted image
+  (Claude `image` blocks, Pi `{ data, mimeType }`), an image a tool returned (a
+  Read of a screenshot; its step notes `an image`), and an image file a reply
+  names (`![alt](path)` or a bare `shots/x.png`, relative to the agent's folder),
+  which leaves the text so no broken Markdown image shows; a named file that is
+  not there shows nothing. `chat.read` sends only ids and names; each card
+  fetches its bytes through `chat.image` (at most 2 MB, the artifact preview
+  cap), once per id. A tap opens it full screen on black, pinch to zoom, with a
+  close button. A gone or too-big image says so in the card.
 - `chat-toggle` the header's chat/terminal pair switches per agent and is
   remembered; an agent without a chat (Codex, OpenCode, a shell) keeps the
   terminal and its chat button dimmed.
@@ -109,7 +119,9 @@ port onto that emulator. Native: install a lab-id release APK (perf/README),
 `pm clear` it, open `muxr-dev://pair#<native link>` with an explicit component
 and tap Pair; dismiss Home's notification card and scroll before tapping the
 Claude row (the Home composer covers the bottom). Open it, tap Chat view; the seeded replies show a read/search group, an
-edit+test group and a five-step group whose last command failed. Tap a group to
+edit+test group and a five-step group whose last command failed; above them, the
+reply after the tests carries a Read that returned an image (`Open image`) and the
+next reply draws `shots/home-day.webp` (`Open home-day.webp`). Tap a group to
 open it, a step to peek, `Full diff ›` for the sheet, the group again to fold it;
 type in the composer for the blue send. Capture at 390 dp
 (1080 px at density 443) and 270 dp (density 640), dark and light.
@@ -117,8 +129,8 @@ type in the composer for the blue send. Capture at 390 dp
 `chatStepsNativeLab.mjs <apk> <evidenceDir> <avdHome>` drives that native recipe
 end to end for the tool steps (boot an owned emulator, the fake lab over adb,
 pair, then folded / group with edit peek / command peek / full diff at 390 and
-270 dp, light and dark, then Home in the same theme (the chat stays dark in every app theme; its Full diff sheet and Home follow the app theme), through `visualCheck.mjs`, plus a recording (a frame per step) of
-open, peek and fold). Run it inside the emulator lock: `flock -o -w 3600
+270 dp, light and dark, the drawn image, its full-screen viewer and the Read image, then Home in the same theme (the chat stays dark in every app theme; its Full diff sheet and Home follow the app theme), through `visualCheck.mjs`, plus a recording (a frame per step) of
+open, peek and fold, and an image opened and closed). Run it inside the emulator lock: `flock -o -w 3600
 /tmp/fm-muxr-emulator.lock timeout 1800 node …/chatStepsNativeLab.mjs …`. The
 APK is a lab-id release (`APP_ENV=development MUXR_APP_ID_BASE=app.muxr.chatsteps
 MUXR_DEV_APP_ID=app.muxr.chatsteps.dev MUXR_DISTRIBUTION=direct` with
