@@ -42,11 +42,21 @@ async function screen() {
     });
 }
 const find = (found, test) => found.find((n) => test(n.text) || test(n.desc));
+// A loaded host can make the emulator's own System UI stop answering; that dialog is Android's, not muxr's: wait it out.
+async function answerAnr(found) {
+    const wait = find(found, (v) => v === 'Wait');
+    if (!wait || !find(found, (v) => /isn.t responding/.test(v))) return false;
+    say('Android showed a not-responding dialog; tapping Wait');
+    await sh(`input tap ${Math.round((wait.box[0] + wait.box[2]) / 2)} ${Math.round((wait.box[1] + wait.box[3]) / 2)}`);
+    await sleep(1500);
+    return true;
+}
 async function waitFor(what, test, seconds = 90) {
     const deadline = Date.now() + seconds * 1000;
     while (Date.now() < deadline) {
         const found = await screen();
         if (test(found)) return found;
+        await answerAnr(found);
         await sleep(1500);
     }
     await shot(`missing-${what.replace(/\W+/g, '-')}`).catch(() => undefined);
@@ -54,7 +64,10 @@ async function waitFor(what, test, seconds = 90) {
 }
 async function tap(what, test, seconds = 90) {
     // On a short viewport the control can sit below the fold: scroll until it shows.
-    for (let i = 0; i < 6 && !(find(await screen(), test)?.box[3] < 2200); i += 1) {
+    for (let i = 0; i < 15; i += 1) {
+        const found = await screen();
+        if (find(found, test)?.box[3] < 2200) break;
+        if (await answerAnr(found)) continue;
         await sh('input swipe 540 1700 540 900 300');
         await sleep(800);
     }
@@ -154,8 +167,9 @@ try {
     let home = false;
     while (Date.now() - created < 600_000) {
         const focus = await focused();
-        if (!focus.includes(PKG)) { await shot('07-left-muxr'); throw new Error(`something opened over muxr during set-up: ${focus}`); }
         const found = await screen();
+        if (await answerAnr(found)) continue;
+        if (!focus.includes(PKG)) { await shot('07-left-muxr'); throw new Error(`something opened over muxr during set-up: ${focus}`); }
         for (const [name, test] of STEPS) {
             if (seen.has(name) || find(found, test) === undefined) continue;
             seen.add(name);
