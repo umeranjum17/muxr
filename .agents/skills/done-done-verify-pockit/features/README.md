@@ -416,6 +416,11 @@ rules, with no H2 sections.
   release APK over the fake stack (`keyRowLab.mjs`): every key and the
   quick-actions control measure 48 dp in the dump, with the control clear of
   the tabs, at 390 and 270 dp, light and dark, and 2x text.
+- [A sent prompt says it is on its way, then that it arrived](./send-feedback.md) —
+  release APK over a guarded real-Herdr lab with a stub-backed Claude Code
+  (`sendFeedbackNativeLab.mjs`): Sending, Sent, a refused send's Not sent and
+  retry, recorded at 390 dp; `sendLatencyLab.mjs` times tap-to-confirm and
+  tap-to-echo p50/p95 over the lab link.
 - [Answer an agent's folder-trust question in one tap](./agent-trust-answers.md) —
   release APK and PWA over a guarded real-Herdr lab with a real, untrusted
   Claude Code: unnumbered choices as chips, timed trust step before/after, and

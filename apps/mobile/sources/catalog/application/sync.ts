@@ -48,7 +48,11 @@ import { lifecycleNotificationCopy } from '@/herd';
 
 /** A shell that never reports back must not pin the promise forever. */
 const SHELL_TIMEOUT_MS = 120_000;
-/** Outlasts the host's wait for a starting agent to take the first prompt, so the host always answers first. */
+/**
+ * Outlasts the host's wait for an agent to take a prompt (a starting one, or one
+ * Herdr reports not ready), so the host always answers first: a send the phone
+ * gave up on could still be typed after it said "not sent".
+ */
 const PROMPT_REQUEST_TIMEOUT_MS = 75_000;
 
 const LIFECYCLE_CATALOG_UNAVAILABLE_CODES = new Set([
@@ -752,7 +756,7 @@ class MuxrSync {
                     streamingBehavior,
                     ...(attachments === undefined || attachments.length === 0 ? {} : { attachments }),
                     ...(options?.firstPrompt === true ? { firstPrompt: true } : {}),
-                }, options?.firstPrompt === true ? PROMPT_REQUEST_TIMEOUT_MS : undefined),
+                }, PROMPT_REQUEST_TIMEOUT_MS),
             },
         );
     }
