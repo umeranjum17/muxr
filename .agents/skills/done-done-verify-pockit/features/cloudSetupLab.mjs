@@ -105,7 +105,14 @@ try {
     await bringMuxrBack();
     await dismissPrompts().catch(() => undefined);
 
-    await tap('Cloud computer', (v) => v === 'Cloud computer' || v === 'Add a cloud computer. Boat.', 180);
+    // First run leads with Tailscale, the desktop app and pairing; the cloud entry sits below them.
+    const cloudEntry = (v) => v === 'Cloud computer' || v === 'Add a cloud computer. Boat.';
+    await waitFor('the first-run screen', (found) => find(found, (v) => v === 'Let’s connect' || cloudEntry(v)) !== undefined, 180);
+    for (let i = 0; i < 8 && !(find(await screen(), cloudEntry)?.box[3] < 2200); i += 1) {
+        await sh('input swipe 540 1700 540 900 300');
+        await sleep(800);
+    }
+    await tap('Cloud computer', cloudEntry);
     // A busy emulator drops keys from a long `input text`: type in short chunks and read the field back.
     const EMAIL = 'umer@example.com';
     for (let attempt = 0; ; attempt += 1) {
