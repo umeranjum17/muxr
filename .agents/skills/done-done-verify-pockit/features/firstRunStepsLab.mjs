@@ -82,7 +82,8 @@ async function tapOn(what, test, seconds = 60) {
     say(`tap ${what}`);
     await sh(`input tap ${center(node).join(' ')}`);
 }
-const atFirstRun = (found) => find(found, (v) => v === 'Private link or pairing code') !== undefined;
+// The pair field sits below the fold at 2.0 text now that it is step 3; main's screen has no heading match.
+const atFirstRun = (found) => find(found, (v) => v === 'Let’s connect' || v === 'Private link or pairing code') !== undefined;
 // A stepped drag scrolls; a slow `input swipe` reads as a long press.
 const drag = (from, to) => sh(`input motionevent DOWN 540 ${from}; y=${from}; while [ $y -gt ${to} ]; do y=$((y-40)); input motionevent MOVE 540 $y; done; input motionevent UP 540 ${to}`);
 async function scrollToEnd() {
@@ -110,7 +111,7 @@ async function capture(dir, name, end = false) {
 }
 async function launch() {
     await sh(`am force-stop ${PKG}`);
-    await sh(`monkey -p ${PKG} -c android.intent.category.LAUNCHER 1`);
+    await sh(`am start -W -n ${PKG}/.MainActivity`);
     await waitFor('the first-run screen', atFirstRun, 120);
     await sleep(1500);
 }
@@ -187,6 +188,7 @@ try {
 } catch (error) {
     say(`RESULT FAIL: ${error instanceof Error ? error.message : String(error)}`);
     if (serial) await screenshot(join(EVIDENCE, 'failure.png')).catch(() => undefined);
+    if (serial) writeFileSync(join(EVIDENCE, 'crash.log'), await adb(['logcat', '-d', '-b', 'crash']).catch((e) => String(e)));
     process.exitCode = 1;
 } finally {
     if (serial) await sh('wm size reset; wm density reset; settings put system font_scale 1.0; cmd uimode night no').catch(() => undefined);
