@@ -68,10 +68,18 @@ export function TerminalMenuQuickActions({ slots, terminalHeight, hasTools, onCl
     ));
 }
 /** The control's disc: the height of the row it sits in. */
-export const CONTROL_SIZE = 24;
-/** Gap between the control and the region's trailing edge. */
-export const CONTROL_EDGE = 8;
-const CENTER = CONTROL_SIZE;
+const CENTER = 24;
+/** The control's own 48dp touch target around the disc. A 24dp disc leaning
+ *  on hit slop beside the tabs was easy to miss and easy to hit instead of
+ *  the last tab. */
+const TARGET = 48;
+/** How far the target reaches below the disc's centre: half the 24dp row and
+ *  its 4dp margin, so it ends at the key row's top edge instead of covering
+ *  its keys; the rest of the target sits over the terminal's last line. */
+const TARGET_BELOW = 16;
+/** The room the control holds at the trailing end of its row: its target and
+ *  8dp clear of the tabs. */
+export const CONTROL_CLEARANCE = TARGET + 8;
 const CENTER_ICON = 14;
 // Slots render at a disc size that follows the terminal's width: the full
 // 48dp discs on reference-width phones, a 38dp set on narrow PWA panes.
@@ -135,7 +143,7 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
     React.useImperativeHandle(handle, () => ({ close: () => setOverlay('none') }), []);
 
     // Where the control rests, in region coordinates.
-    const center = React.useMemo(() => ({ x: width - CONTROL_EDGE - CENTER / 2, y: restY }), [width, restY]);
+    const center = React.useMemo(() => ({ x: width - TARGET / 2, y: restY }), [width, restY]);
     const disc = slotSize(width);
     const fan = React.useMemo(
         () => ringFan(center, { width, height }, terminalHeight, count, disc),
@@ -230,8 +238,8 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
             // The responder IS the control, so the touch already answers where
             // the finger is relative to its centre. No window measurement, and
             // so no coordinate space to get wrong.
-            g.fromCenterX = event.nativeEvent.locationX - CENTER / 2;
-            g.fromCenterY = event.nativeEvent.locationY - CENTER / 2;
+            g.fromCenterX = event.nativeEvent.locationX - TARGET / 2;
+            g.fromCenterY = event.nativeEvent.locationY - (TARGET - TARGET_BELOW);
             g.phase = 'sweep';
             hapticsLight();
             // A slide off a held-open cluster switches modes; it never stacks
@@ -337,7 +345,7 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
             <Animated.View
                 {...pan.panHandlers}
                 collapsable={false}
-                style={[{ position: 'absolute', left: center.x - CENTER / 2, top: center.y - CENTER / 2, width: CENTER, height: CENTER }, controlStyle]}
+                style={[{ position: 'absolute', left: center.x - TARGET / 2, top: center.y + TARGET_BELOW - TARGET, width: TARGET, height: TARGET }, controlStyle]}
             >
                 <Pressable
                     accessibilityRole="button"
@@ -348,8 +356,7 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
                     // here because the responder has claimed it.
                     onPress={() => { hapticsLight(); setOverlay(up ? 'none' : 'ring'); }}
                     pressRetentionOffset={{ top: 40, bottom: 40, left: 40, right: 40 }}
-                    hitSlop={10}
-                    style={({ pressed }) => ({ width: CENTER, height: CENTER, opacity: pressed ? 0.85 : 1 })}
+                    style={({ pressed }) => ({ width: TARGET, height: TARGET, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: TARGET_BELOW - CENTER / 2, opacity: pressed ? 0.85 : 1 })}
                 >
                     <Animated.View style={[{
                         width: CENTER, height: CENTER, borderRadius: CENTER / 2,
