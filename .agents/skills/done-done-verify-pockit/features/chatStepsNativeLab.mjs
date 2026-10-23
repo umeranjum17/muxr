@@ -30,7 +30,12 @@ const nodes = () => {
         const wait = found.some((node) => /isn't responding/.test(node)) ? found.find((node) => /text="Wait"/.test(node)) : undefined;
         if (i === 5 || (found.length > 0 && wait === undefined)) return found;
         // "could not get idle state": the dump gave up on a busy screen; look again.
-        if (wait === undefined) { execFileSync('sleep', ['2']); continue; }
+        if (wait === undefined) {
+            // Name what keeps the screen busy, once per look.
+            if (i === 0) log(`busy screen: ${sh('timeout 3 uiautomator events 2>&1 | head -c 1500 || true').replace(/\s+/g, ' ')}`);
+            execFileSync('sleep', ['2']);
+            continue;
+        }
         const [x1, y1, x2, y2] = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(wait).slice(1).map(Number);
         sh(`input tap ${(x1 + x2) >> 1} ${(y1 + y2) >> 1}`);
         log('tapped Wait on a not-responding dialog');
