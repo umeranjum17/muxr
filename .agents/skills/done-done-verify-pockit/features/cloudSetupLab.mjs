@@ -6,7 +6,7 @@
 // Needs a provisioned Herdr lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION). Run from the repo root:
 //   node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk <apk> --evidence <dir> --avd-home <dir> --port <boat lab port> --machine <short dir>
 import { execFile, spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
@@ -172,5 +172,7 @@ try {
         lab.kill('SIGTERM');
         await new Promise((done) => (lab.exitCode !== null ? done() : lab.once('exit', done)));
         say(`boat lab ${lab.pid} stopped`);
+        // Only once its processes are gone: the stand-in's sshd, relay and host live under this folder.
+        rmSync(resolve(opts.machine), { recursive: true, force: true });
     }
 }

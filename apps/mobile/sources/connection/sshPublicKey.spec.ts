@@ -1,14 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createHash, createPublicKey, generateKeyPairSync } from 'node:crypto';
+import { createHash, createPublicKey, generateKeyPairSync, randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 vi.mock('expo-crypto', () => ({
     CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
     // Node's SHA-256 is the same primitive expo-crypto wraps on-device.
     digest: async (_algorithm: string, data: Uint8Array) =>
         new Uint8Array(createHash('sha256').update(data).digest()),
+    getRandomBytes: (length: number) => new Uint8Array(randomBytes(length)),
 }));
 
-import { sshPublicKeyFromPrivate } from './sshPublicKey';
+import { generateSshLoginKey, sshFingerprint, sshPublicKeyFromPrivate } from './sshPublicKey';
 
 function base64UrlToBytes(value: string): Uint8Array {
     return new Uint8Array(Buffer.from(value, 'base64url'));
@@ -156,5 +161,23 @@ describe('sshPublicKeyFromPrivate', () => {
         const { privateKey } = generateKeyPairSync('ed25519');
         const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
         await expect(sshPublicKeyFromPrivate(pem.slice(0, 80))).resolves.toBeUndefined();
+    });
+});
+
+describe('generateSshLoginKey', () => {
+    it('makes an OpenSSH Ed25519 key that ssh-keygen reads back to the same public key and fingerprint', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-ssh-login-'));
+        try {
+            const { privateKey, publicKey } = generateSshLoginKey('muxr phone');
+            writeFileSync(join(dir, 'login'), privateKey, { mode: 0o600 });
+            writeFileSync(join(dir, 'login.pub'), `${publicKey}\n`);
+            const derived = execFileSync('ssh-keygen', ['-y', '-f', join(dir, 'login')], { encoding: 'utf8' }).trim();
+            expect(derived.split(' ').slice(0, 2).join(' ')).toBe(publicKey.split(' ').slice(0, 2).join(' '));
+            const fingerprint = execFileSync('ssh-keygen', ['-l', '-E', 'sha256', '-f', join(dir, 'login.pub')], { encoding: 'utf8' }).split(' ')[1];
+            await expect(sshFingerprint(publicKey)).resolves.toBe(fingerprint);
+            expect((await sshPublicKeyFromPrivate(privateKey))?.fingerprint).toBe(fingerprint);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
     });
 });
