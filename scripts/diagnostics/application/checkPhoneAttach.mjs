@@ -73,7 +73,12 @@ const dump = () => {
             sh('uiautomator dump /sdcard/d.xml >/dev/null');
             const xml = adb('exec-out', 'cat', '/sdcard/d.xml');
             sh('rm -f /sdcard/d.xml');
-            return xml;
+            // A loaded emulator raises "System UI isn't responding" over the app: wait it out.
+            const wait = /isn(?:'|&apos;)t responding/.test(xml) && /text="Wait"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(xml);
+            if (!wait) return xml;
+            sh(`input tap ${(Number(wait[1]) + Number(wait[3])) >> 1} ${(Number(wait[2]) + Number(wait[4])) >> 1}`);
+            log('waited out a system "not responding" dialog');
+            if (attempt === 3) return xml;
         } catch (error) {
             if (attempt === 3) throw error;
             log(`ui dump stalled (attempt ${attempt}); retrying`);
