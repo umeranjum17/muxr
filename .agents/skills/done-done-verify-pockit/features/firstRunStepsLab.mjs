@@ -77,8 +77,8 @@ async function waitFor(what, test, seconds = 60) {
     writeFileSync(`${stem}.txt`, (await screen()).filter((n) => n.text || n.desc).map((n) => `${n.text} | ${n.desc} | ${n.box}`).join('\n'));
     throw new Error(`${what} never appeared within ${seconds}s`);
 }
-async function tapOn(what, test, seconds = 60) {
-    const node = find(await waitFor(what, (found) => find(found, test) !== undefined, seconds), test);
+async function tapOn(what, test, seconds = 60, pick = find) {
+    const node = pick(await waitFor(what, (found) => pick(found, test) !== undefined, seconds), test);
     say(`tap ${what}`);
     await sh(`input tap ${center(node).join(' ')}`);
 }
@@ -86,10 +86,12 @@ async function tapOn(what, test, seconds = 60) {
 const atFirstRun = (found) => find(found, (v) => v === 'Let’s connect' || v === 'Private link or pairing code') !== undefined;
 // A stepped drag scrolls; a slow `input swipe` reads as a long press.
 const drag = (from, to) => sh(`input motionevent DOWN 540 ${from}; y=${from}; while [ $y -gt ${to} ]; do y=$((y-40)); input motionevent MOVE 540 $y; done; input motionevent UP 540 ${to}`);
-async function scrollToEnd() {
+async function scrollToEnd(onScreen = () => undefined) {
     let last = '';
     for (let i = 0; i < 8; i += 1) {
-        const now = JSON.stringify((await screen()).map((n) => n.box));
+        const found = await screen();
+        onScreen(found, i);
+        const now = JSON.stringify(found.map((n) => n.box));
         if (now === last) return;
         last = now;
         await drag(1900, 500);
@@ -138,7 +140,14 @@ try {
         const atRest = await screen();
         const tops = Object.fromEntries(STEPS.map((title) => [title, find(atRest, titled(title))?.box[1] ?? null]));
         await capture(dir, `firstrun-${cell}`);
-        await scrollToEnd();
+        // A step between the fold and the end (step 3 at 270 dp) is only on a middle pass:
+        // a title first seen on pass n ranks below everything on earlier passes.
+        await scrollToEnd((found, pass) => {
+            for (const title of STEPS) {
+                const node = tops[title] === null ? find(found, titled(title)) : undefined;
+                if (node !== undefined) tops[title] = pass * 10_000 + node.box[1];
+            }
+        });
         await capture(dir, `firstrun-${cell}-scrolled`, true);
         const scrolled = await screen();
         for (const title of STEPS) if (tops[title] === null && find(scrolled, titled(title)) !== undefined) tops[title] = Infinity;
@@ -160,7 +169,8 @@ try {
         await capture(dir, 'add-computer-390-1.0-light');
         await sh('input keyevent KEYCODE_BACK');
         await waitFor('back on the first-run screen', atFirstRun, 30);
-        await tapOn('Get Tailscale button', (v) => v === 'Get Tailscale', 30);
+        // The step title reads Get Tailscale too; only the button carries it as its description.
+        await tapOn('Get Tailscale button', (v) => v === 'Get Tailscale', 30, (found, test) => found.find((n) => test(n.desc)));
         // This AVD has no Play Store, so the market link falls back to the Play web page.
         const store = await waitFor('the Tailscale store page', (found) => found.some((n) => n.pkg !== PKG && n.pkg !== '' && n.pkg !== 'com.android.systemui'), 60);
         await sleep(4000);
