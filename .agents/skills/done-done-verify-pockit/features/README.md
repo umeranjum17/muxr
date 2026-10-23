@@ -237,17 +237,18 @@ rules, with no H2 sections.
   screen's worktree hint: installed PWA at 393/270/208 dp, font 1.0/2.0, both
   themes, and native at 270 dp font 2.0; DOM ranges and screenshot OCR lead on
   words split across lines.
-- [Tailscale is a fallback route, not a first-run gate](./tailscale-first-step.md) —
-  the unpaired first screen's link-first card on a release APK (Play Store AVD)
-  and the PWA: no gate stands in front of the connect link, "More ways & timing"
-  names Tailscale among the fallback routes; use the Visual check's native
-  and installed-PWA matrix at 393/270 dp, font 1.0/2.0, both themes.
+- [Tailscale is step 1 of the first run, not a gate](./tailscale-first-step.md) —
+  the unpaired first screen on a release APK (Play Store AVD) and the PWA reads
+  Get Tailscale → Get muxr on your computer (the desktop app) → Pair with your
+  computer, with no tap needed before the link field; **Get Tailscale** opens the
+  store; use the Visual check's native and installed-PWA matrix at 393/270 dp,
+  font 1.0/2.0, both themes.
 - [Say which end to fix when pairing can't reach the computer over Tailscale](./pair-tailscale-unreachable.md) —
   a Tailscale-address offer whose first dial fails: one sentence naming this phone (no Tailscale
   address here) or the computer, on main and candidate release APKs at 393/270 dp both themes, a
   root-staged tun for the Tailscale-on case, the good case over this desktop's tailnet address, and the PWA.
 - [Land on the first-run link-first shell](./first-run-browser-steps.md) —
-  unpaired release APK and installed PWA: ready-link field → Connect →
+  unpaired release APK and installed PWA: Tailscale and desktop-app steps, then ready-link field → Connect →
   existing consent, active cloud-computer entry, unchanged native SSH login and
   expandable setup details; 393/270 dp, font 1.0/2.0, both themes and scrolled,
   plus a link-to-consent recording.

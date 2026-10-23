@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Linking, Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -9,8 +9,26 @@ import { sshTunnelAvailable } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { WordWrappingText } from '@/components/WordWrappingText';
 import { useCompactWindow } from '@/components/useCompactWindow';
-import { FirstRunSetupCard } from './FirstRunSetupCard';
+import { Modal } from '@/modal';
+import { openExternalUrl } from '@/utils/openExternalUrl';
+import { FirstRunSetupCard, SetupStep } from './FirstRunSetupCard';
 import { addComputerLink } from '@/commercialization';
+
+const PLAY_STORE_APP = 'market://details?id=com.tailscale.ipn';
+const PLAY_STORE_WEB = 'https://play.google.com/store/apps/details?id=com.tailscale.ipn';
+const APP_STORE = 'https://apps.apple.com/app/id1470499037';
+const TAILSCALE_DOWNLOAD = 'https://tailscale.com/download';
+
+async function openTailscaleStore(): Promise<void> {
+    try {
+        if (Platform.OS === 'web') return await openExternalUrl(TAILSCALE_DOWNLOAD);
+        if (Platform.OS === 'ios') return await Linking.openURL(APP_STORE);
+        // A device without the Play Store app has no market: handler; its web page still installs.
+        await Linking.openURL(PLAY_STORE_APP).catch(() => openExternalUrl(PLAY_STORE_WEB));
+    } catch (error) {
+        Modal.alert('Could not open the store', `${error instanceof Error ? error.message : String(error)}\nSearch for Tailscale in your app store.`);
+    }
+}
 
 /**
  * Segmented Fast pairing / Direct SSH switcher. Rendered at the top of the
@@ -36,8 +54,10 @@ export function RouteSwitcher(props: { onFastPairing: () => void }) {
     );
 }
 
-// Paste and Scan share the existing validator and consent route; this shell
-// does not claim an offer or store a grant.
+// The first run reads as three steps: Tailscale on both ends, muxr on the
+// computer (the Linux desktop app where this build can hand over its link),
+// then pairing. Paste and Scan share the existing validator and consent route;
+// this shell does not claim an offer or store a grant.
 export function FirstRunConnection() {
     const router = useRouter();
     const styles = stylesheet;
@@ -52,6 +72,9 @@ export function FirstRunConnection() {
     // Offer Direct SSH only when this native build includes the transport.
     const sshAvailable = !browser && sshTunnelAvailable();
     const canAddComputer = addComputerLink() !== undefined;
+    const device = browser ? 'device' : pairingDeviceNoun();
+    // A compact step drops its number badge, so the title carries the number.
+    const stepTitle = (number: number, title: string) => compact ? `${number}. ${title}` : title;
     const connectLink = React.useCallback(() => {
         void processPairLink(linkValue.trim());
     }, [processPairLink, linkValue]);
@@ -64,12 +87,39 @@ export function FirstRunConnection() {
                 <Text style={styles.subtitle}>Use the machine you already have.</Text>
             </View>
             <View style={[styles.card, compact && styles.cardCompact]}>
-                <View style={[styles.cardHead, compact && styles.cardHeadCompact]}>
-                    <Text style={styles.cardTitle}>Have a connect link?</Text>
-                    <View style={styles.badge}>
-                        <Text style={styles.badgeText}>Fastest · 20–60 sec*</Text>
+                <SetupStep
+                    number={1}
+                    compact={compact}
+                    title={stepTitle(1, 'Get Tailscale')}
+                    hint={`Install the free Tailscale app on this ${device} and on your computer. Sign in to the same account on both.`}
+                >
+                    <View style={styles.stepAction}>
+                        <ActionButton variant="secondary" title="Get Tailscale" icon={compact ? undefined : 'download-outline'} wrap action={openTailscaleStore} />
                     </View>
-                </View>
+                </SetupStep>
+                <SetupStep
+                    number={2}
+                    compact={compact}
+                    title={stepTitle(2, 'Get muxr on your computer')}
+                    hint={canAddComputer
+                        ? 'Download the Linux desktop app there and open it. It shows a QR to pair.'
+                        : 'Install muxr there and run it. More ways below has the command.'}
+                >
+                    {canAddComputer && (
+                        <View style={styles.stepAction}>
+                            <ActionButton
+                                title="Get the desktop app"
+                                icon={compact ? undefined : 'laptop-outline'}
+                                wrap
+                                accessibilityLabel="Get the desktop app. Open its download link on your computer."
+                                onPress={() => router.push('/add-computer')}
+                            />
+                        </View>
+                    )}
+                </SetupStep>
+            </View>
+            <View style={[styles.card, compact && styles.cardCompact]}>
+                <SetupStep number={3} compact={compact} title={stepTitle(3, 'Pair with your computer')} />
                 <Text style={styles.inputLabel}>Private link or pairing code</Text>
                 <TextInput
                     accessibilityLabel="Private link or pairing code"
@@ -97,20 +147,8 @@ export function FirstRunConnection() {
                 )}
             </View>
             <View style={styles.alternatives}>
-                <Text style={styles.alternativesLabel}>Not set up yet?</Text>
+                <Text style={styles.alternativesLabel}>Other ways</Text>
                 <View style={styles.alternativeRow}>
-                    {canAddComputer && (
-                        <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel="Add your computer. Install the muxr app on it from a link."
-                            style={({ pressed }) => [styles.wayTile, { flexBasis: 112 * fontScale }, pressed && styles.wayTilePressed]}
-                            onPress={() => router.push('/add-computer')}
-                        >
-                            <Ionicons name="laptop-outline" size={22} color={styles.wayIcon.color} />
-                            <Text style={styles.wayTitle}>Add your computer</Text>
-                            <Text style={styles.waySub}>Desktop app</Text>
-                        </Pressable>
-                    )}
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={browser ? 'Cloud computer. Set up from the muxr phone app.' : 'Add a cloud computer. Boat.'}
@@ -153,7 +191,7 @@ export function FirstRunConnection() {
                 {moreWaysOpen && (
                     <View style={styles.moreWaysBody}>
                         <FirstRunSetupCard variant="command" />
-                        <Text style={styles.hint}>Your own HTTPS endpoint, user-owned tunnel, Tailscale or local network also work. *Estimated; a ready link excludes setup. Setup still needs your consent on the computer.</Text>
+                        <Text style={styles.hint}>Your own HTTPS endpoint, user-owned tunnel, Tailscale or local network also work. Setup still needs your consent on the computer.</Text>
                     </View>
                 )}
             </View>
@@ -200,33 +238,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         gap: 10,
     },
     cardCompact: { paddingHorizontal: 8 },
-    cardHead: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        flexWrap: 'wrap',
-    },
-    // Yoga shrinks a wrapping row title to a sliver instead of wrapping it.
-    cardHeadCompact: { flexDirection: 'column', alignItems: 'flex-start' },
-    cardTitle: {
-        ...Typography.default('semiBold'),
-        flexGrow: 1,
-        flexShrink: 1,
-        fontSize: 17,
-        color: theme.colors.text,
-    },
-    badge: {
-        maxWidth: '100%',
-        borderRadius: 999,
-        backgroundColor: theme.colors.accentSubtle,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-    },
-    badgeText: {
-        ...Typography.default('semiBold'),
-        fontSize: 11,
-        color: theme.colors.text,
-    },
+    stepAction: { marginTop: 6 },
     inputLabel: {
         ...Typography.default('semiBold'),
         fontSize: 14,
