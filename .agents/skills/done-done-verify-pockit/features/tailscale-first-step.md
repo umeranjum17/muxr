@@ -1,19 +1,20 @@
-# Tailscale is an optional route, not a first-run gate
+# Tailscale is step 1 of the first run, not a gate
 
-The former Get Tailscale / I have Tailscale first-run gate is removed. Native
-and PWA clients now open directly on the ready-link card; pending pairing
-and launch links retain the existing consent flow. Tailscale remains one
-supported reachability route, named under **More ways & timing** alongside
-HTTPS, user-owned tunnels and local networks. No Tailscale installation or
-login is required to open the connect screen.
+The unpaired first screen (native and PWA) opens on three numbered steps:
+**Get Tailscale** (one line: the free app on this device and on the computer,
+same account on both, with a **Get Tailscale** store button), **Get muxr on
+your computer** (the Linux desktop app), then **Pair with your computer** with
+the link field, Connect and Scan. Step 1 is a step, not a gate: the link field
+is on the same screen with nothing to tap first. **More ways & timing** still
+names HTTPS, user-owned tunnels and local networks as other routes.
 
 Drive and capture the actual shell with
 [first-run-browser-steps.md](./first-run-browser-steps.md), including the
 Visual check's native/installed-PWA width, font and theme matrix. On a fresh
-unpaired client, verify no gate precedes the field. Expand More ways and
-capture the optional-route line. Do not install Tailscale or administer any
-real host for this proof.
+unpaired client, verify the order Tailscale → muxr on the computer → pair, and
+that **Get Tailscale** opens the store (Play Store on Android, App Store on iOS,
+tailscale.com/download on the PWA); back out of the store without installing.
+Do not install Tailscale or administer any real host for this proof.
 
-Historical gate captures describe the retired screen, not the candidate.
 Existing Tailscale-specific reachability failure/recovery is separately
 covered by [pair-tailscale-unreachable.md](./pair-tailscale-unreachable.md).

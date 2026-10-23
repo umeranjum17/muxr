@@ -1,11 +1,10 @@
 import * as React from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { UnistylesRuntime, useUnistyles } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import type { ChatTool, ChatToolKind } from '@trymuxr/contract';
 import { Typography } from '@/constants/Typography';
-import { loadThemePreference } from '@/catalog';
 
 /** A peek shows this many diff lines; Full diff shows the rest the host sent. */
 const PEEK_LINES = 8;
@@ -20,19 +19,6 @@ const VERB: Record<ChatToolKind, string> = {
     edit: 'Edited', write: 'Created', read: 'Read', list: 'Listed', search: 'Searched', run: 'Ran',
     fetch: 'Opened', web: 'Searched the web', helper: 'Helper', plan: 'Plan', ask: 'Asked you', tool: 'Used',
 };
-/**
- * The theme a reply mounted in. A row or peek opened later mounts after the
- * screen's `ScopedTheme` has closed, so its own `useUnistyles` would read the
- * app's theme: dark text on the dark chat in the light app theme.
- */
-const MountTheme = React.createContext<ReturnType<typeof useUnistyles>['theme'] | null>(null);
-
-function useChatTheme(): ReturnType<typeof useUnistyles>['theme'] {
-    const mounted = React.useContext(MountTheme);
-    const { theme } = useUnistyles();
-    return mounted ?? theme;
-}
-
 const PATH_KINDS = new Set<ChatToolKind | undefined>(['edit', 'write', 'read', 'list']);
 const MONO_KINDS = new Set<ChatToolKind | undefined>(['edit', 'write', 'read', 'list', 'search', 'run']);
 
@@ -48,7 +34,7 @@ function verbOf(tool: ChatTool): string {
 }
 
 function Glyph({ kind }: { kind: ChatToolKind | undefined }): React.JSX.Element {
-    const theme = useChatTheme();
+    const { theme } = useUnistyles();
     return (
         // Decorative: the row's label already says what the step was.
         <View aria-hidden style={{ width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider }}>
@@ -95,7 +81,7 @@ function MiddleText({ text, path, color }: { text: string; path: boolean; color:
 
 /** Colour only where it means something: lines added and removed, a failure, a step still running. */
 function Meta({ tool, running }: { tool: ChatTool; running: boolean }): React.JSX.Element | null {
-    const theme = useChatTheme();
+    const { theme } = useUnistyles();
     const small = { fontSize: 12.5 };
     if (running) return <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.75 }] }} />;
     if (tool.outcome === 'failed') return <Text style={[small, { color: theme.colors.diff.error }]}>failed</Text>;
@@ -106,7 +92,7 @@ function Meta({ tool, running }: { tool: ChatTool; running: boolean }): React.JS
 }
 
 function Stat({ added, removed }: { added: number; removed: number }): React.JSX.Element {
-    const theme = useChatTheme();
+    const { theme } = useUnistyles();
     return (
         <View style={{ flexDirection: 'row', gap: 5 }}>
             <Text style={{ fontSize: 12.5, color: theme.colors.diff.success }}>+{added}</Text>
@@ -117,7 +103,7 @@ function Stat({ added, removed }: { added: number; removed: number }): React.JSX
 
 /** A tappable row: 44 dp tall, its chevron turning as it opens. */
 function Row({ open, onPress, label, children }: { open: boolean; onPress: () => void; label: string; children: React.ReactNode }): React.JSX.Element {
-    const theme = useChatTheme();
+    const { theme } = useUnistyles();
     return (
         <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ expanded: open }}
             style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 2, borderRadius: 10, backgroundColor: pressed ? theme.colors.surfaceHigh : 'transparent' })}>
@@ -136,7 +122,7 @@ const MARKS: Record<string, { sign: string; background: (code: CodeColors) => st
 
 /** Diff lines in the code panel's colours, numbered from the hunk headers Claude's own patch carries. */
 function DiffLines({ lines }: { lines: string[] }): React.JSX.Element {
-    const theme = useChatTheme();
+    const { theme } = useUnistyles();
     const code = theme.colors.code;
     let oldLine = 0;
     let newLine = 0;
@@ -170,7 +156,7 @@ function DiffLines({ lines }: { lines: string[] }): React.JSX.Element {
 }
 
 function Panel({ caption, footer, children }: { caption?: React.ReactNode; footer?: React.ReactNode; children: React.ReactNode }): React.JSX.Element {
-    const theme = useChatTheme();
+    const { theme } = useUnistyles();
     const code = theme.colors.code;
     return (
         <View style={{ backgroundColor: code.surface, borderWidth: 1, borderColor: code.hairline, borderRadius: 10, overflow: 'hidden' }}>
@@ -182,7 +168,7 @@ function Panel({ caption, footer, children }: { caption?: React.ReactNode; foote
 }
 
 function FooterLink({ label, onPress }: { label: string; onPress: () => void }): React.JSX.Element {
-    const theme = useChatTheme();
+    const { theme } = useUnistyles();
     return (
         <Pressable onPress={onPress} accessibilityRole="button" hitSlop={4} style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, opacity: pressed ? 0.6 : 1 })}>
             <Text style={{ color: theme.colors.code.number, fontSize: 13 }}>{label} ›</Text>
@@ -192,7 +178,7 @@ function FooterLink({ label, onPress }: { label: string; onPress: () => void }):
 
 /** What a step opens to, in place: its diff, its output, its checklist, or its whole target. */
 function Peek({ tool, onFullDiff, onOpenTerminal }: { tool: ChatTool; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
-    const theme = useChatTheme();
+    const { theme } = useUnistyles();
     const code = theme.colors.code;
     const dim = { color: code.dim, fontSize: 12.5 };
     if (tool.diff !== undefined && tool.diff.length > 0) {
@@ -246,7 +232,7 @@ function Peek({ tool, onFullDiff, onOpenTerminal }: { tool: ChatTool; onFullDiff
 }
 
 function Step({ tool, running, onFullDiff, onOpenTerminal }: { tool: ChatTool; running: boolean; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
-    const theme = useChatTheme();
+    const { theme } = useUnistyles();
     const narrow = useWindowDimensions().width < NARROW;
     const [open, setOpen] = React.useState(false);
     const target = targetOf(tool);
@@ -289,7 +275,7 @@ function runningVerb(tool: ChatTool): string {
 }
 
 function GroupMeta({ running, failed, added, removed, count }: { running: boolean; failed: boolean; added: number; removed: number; count: number }): React.JSX.Element {
-    const theme = useChatTheme();
+    const { theme } = useUnistyles();
     if (running) return <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.75 }] }} />;
     if (failed) return <Text style={{ fontSize: 12.5, color: theme.colors.diff.error }}>failed</Text>;
     if (added + removed > 0) return <Stat added={added} removed={removed} />;
@@ -320,14 +306,8 @@ function summaryOf(tools: ChatTool[]): string {
  * that opens in place. `live` is the newest reply of an agent still working:
  * its unanswered calls are the ones running.
  */
-export function ChatSteps(props: { tools: ChatTool[]; live: boolean; ink: string; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
-    // Read here, where the reply mounts inside the screen's dark scope.
+export function ChatSteps({ tools, live, ink, onFullDiff, onOpenTerminal }: { tools: ChatTool[]; live: boolean; ink: string; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
     const { theme } = useUnistyles();
-    return <MountTheme.Provider value={theme}><Steps {...props} /></MountTheme.Provider>;
-}
-
-function Steps({ tools, live, ink, onFullDiff, onOpenTerminal }: { tools: ChatTool[]; live: boolean; ink: string; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
-    const theme = useChatTheme();
     const narrow = useWindowDimensions().width < NARROW;
     const [open, setOpen] = React.useState(false);
     const running = (tool: ChatTool) => live && tool.outcome === undefined;
@@ -365,41 +345,31 @@ function shownChanges(tool: ChatTool): number {
     return (tool.diff ?? []).filter((line) => line.startsWith('+') || line.startsWith('-')).length;
 }
 
-/**
- * An edit's whole diff, as far as the host sent it, in a sheet over the chat.
- * It follows the app theme, like every other sheet, though the chat under it
- * stays dark. The theme is resolved the way `unistyles.ts` picks it (the saved
- * preference, else the system's): inside the chat's dark scope both
- * `useUnistyles` and the runtime's theme name answer dark.
- */
+/** An edit's whole diff, as far as the host sent it, in a sheet over the chat. */
 export function DiffSheet({ tool, onClose }: { tool: ChatTool | null; onClose: () => void }): React.JSX.Element {
     const insets = useSafeAreaInsets();
-    const system = useColorScheme() === 'dark' ? 'dark' : 'light';
-    const preference = loadThemePreference();
-    const theme = UnistylesRuntime.getTheme(preference === 'adaptive' ? system : preference);
+    const { theme } = useUnistyles();
     const changed = tool === null ? 0 : (tool.added ?? 0) + (tool.removed ?? 0);
     return (
         <Modal visible={tool !== null} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
             <View style={{ flex: 1, justifyContent: 'flex-end' }}>
                 <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.45)' }} />
                 {tool !== null && (
-                    <MountTheme.Provider value={theme}>
-                        <View style={{ width: '100%', maxWidth: 560, maxHeight: '80%', alignSelf: 'center', backgroundColor: theme.colors.groupped.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden', paddingBottom: Math.max(12, insets.bottom) }}>
-                            <View style={{ alignItems: 'center', paddingTop: 8 }}>
-                                <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.colors.textSecondary, opacity: 0.5 }} />
-                            </View>
-                            <Text style={{ fontSize: 24, color: theme.colors.text, marginHorizontal: 20, paddingVertical: 12, ...Typography.default('semiBold') }}>{tool.detail?.split('/').pop() ?? tool.verb}</Text>
-                            <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8 }}>
-                                {tool.detail !== undefined && <Text selectable style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono() }}>{tool.detail}</Text>}
-                                <View style={{ backgroundColor: theme.colors.code.surface, borderWidth: 1, borderColor: theme.colors.code.hairline, borderRadius: 10, overflow: 'hidden' }}>
-                                    <DiffLines lines={tool.diff ?? []} />
-                                </View>
-                                {shownChanges(tool) < changed && <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>
-                                    {`Showing ${shownChanges(tool)} of ${changed} changed lines. The rest is in the terminal.`}
-                                </Text>}
-                            </ScrollView>
+                    <View style={{ width: '100%', maxWidth: 560, maxHeight: '80%', alignSelf: 'center', backgroundColor: theme.colors.groupped.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden', paddingBottom: Math.max(12, insets.bottom) }}>
+                        <View style={{ alignItems: 'center', paddingTop: 8 }}>
+                            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.colors.textSecondary, opacity: 0.5 }} />
                         </View>
-                    </MountTheme.Provider>
+                        <Text style={{ fontSize: 24, color: theme.colors.text, marginHorizontal: 20, paddingVertical: 12, ...Typography.default('semiBold') }}>{tool.detail?.split('/').pop() ?? tool.verb}</Text>
+                        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 8 }}>
+                            {tool.detail !== undefined && <Text selectable style={{ color: theme.colors.textSecondary, fontSize: 13, ...Typography.mono() }}>{tool.detail}</Text>}
+                            <View style={{ backgroundColor: theme.colors.code.surface, borderWidth: 1, borderColor: theme.colors.code.hairline, borderRadius: 10, overflow: 'hidden' }}>
+                                <DiffLines lines={tool.diff ?? []} />
+                            </View>
+                            {shownChanges(tool) < changed && <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>
+                                {`Showing ${shownChanges(tool)} of ${changed} changed lines. The rest is in the terminal.`}
+                            </Text>}
+                        </ScrollView>
+                    </View>
                 )}
             </View>
         </Modal>

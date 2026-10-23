@@ -34,7 +34,7 @@ are not part of it.
   file, ran 1 command  +1 −1") that opens in place. A tap on a step peeks in
   place: an edit's first 8 diff lines (numbered from Claude's own
   `toolUseResult.structuredPatch`, from the edit's arguments for Pi) then `Full
-  diff ›` (a sheet with every line the host sent, at most 40, in the app theme over the always-dark chat); a command's last 6
+  diff ›` (a sheet with every line the host sent, at most 40); a command's last 6
   output lines with `Exit N` and `Open terminal ›`; a search's matches; a read's
   first lines; a plan's checklist. Results are matched to calls by id (Claude
   `tool_result`, Pi `toolResult`). An older host's steps (no `kind`) draw a gear
@@ -50,6 +50,12 @@ are not part of it.
   switches to the terminal.
 - `chat-model` the model pill shows what Herdr's pane metadata (`muxr name`)
   says; absent when none.
+- `chat-theme` the chat screen follows the app theme: header, messages, tool
+  rows, the Full diff sheet, the ⋮ actions menu and the composer are white with
+  dark text in the light theme and black in the dark one (code peeks keep the
+  app's dark code palette in both). The terminal under it stays dark in every
+  theme, and switching chat → terminal → chat repaints the whole screen in the
+  right theme each time.
 
 ## How to get to it (user POV)
 
@@ -117,8 +123,9 @@ type in the composer for the blue send. Capture at 390 dp
 `chatStepsNativeLab.mjs <apk> <evidenceDir> <avdHome>` drives that native recipe
 end to end for the tool steps (boot an owned emulator, the fake lab over adb,
 pair, then folded / group with edit peek / command peek / full diff at 390 and
-270 dp, light and dark, then Home in the same theme (the chat stays dark in every app theme; its Full diff sheet and Home follow the app theme), through `visualCheck.mjs`, plus a recording (a frame per step) of
-open, peek and fold). Run it inside the emulator lock: `flock -o -w 3600
+the ⋮ actions menu, the terminal view and the chat again at 390, 360 and 270 dp,
+light and dark, then Home in the same theme, through `visualCheck.mjs`, plus a
+recording (a frame per step) of open, peek and fold in the light theme). Run it inside the emulator lock: `flock -o -w 3600
 /tmp/fm-muxr-emulator.lock timeout 1800 node …/chatStepsNativeLab.mjs …`. The
 APK is a lab-id release (`APP_ENV=development MUXR_APP_ID_BASE=app.muxr.chatsteps
 MUXR_DEV_APP_ID=app.muxr.chatsteps.dev MUXR_DISTRIBUTION=direct` with
@@ -131,9 +138,13 @@ MUXR_DEV_APP_ID=app.muxr.chatsteps.dev MUXR_DISTRIBUTION=direct` with
   hidden). Click the chat controls with an `eval` that finds the on-screen
   element by `aria-label` and calls `.click()`.
 
-- Unistyles keeps each hook's first scope: switching a screen's `ScopedTheme`
-  while it is mounted leaves half of it on the old theme. The chat therefore
-  lives in the terminal screen's own dark scope in every app theme.
+- The terminal screen's `ScopedTheme` is the app theme in chat view and dark in
+  terminal view, with the terminal itself in a dark scope of its own. That
+  works because the patched unistyles hook reads its scope from React context
+  (`patches/react-native-unistyles+3.1.1.patch`); reading it from the shadow
+  registry, as upstream does, left half the screen on the old theme after a
+  switch, and lazy or self-re-rendering parts (Markdown, a step's peek) on the
+  app theme.
 - A Home draft in the composer turns the next tap on an agent into a
   new-agent start; clear it before opening agents from Home.
 - Pi's own "Claude rate limit warning" line trips the host's quota-retry
