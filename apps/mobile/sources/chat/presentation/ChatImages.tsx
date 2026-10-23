@@ -47,7 +47,10 @@ function useImage(sessionId: string, id: string): Loaded {
 function ImageCard({ sessionId, image, width, onOpen }: { sessionId: string; image: ChatImage; width: number; onOpen: (uri: string) => void }): React.JSX.Element {
     const { theme } = useUnistyles();
     const loaded = useImage(sessionId, image.id);
-    const [ratio, setRatio] = React.useState(4 / 3);
+    // Android reports the decoded size, which follows the card's own size: taking it again on every load resizes
+    // the card on every load, and the chat never settles. The first answer stands.
+    const [first, setRatio] = React.useState<number | undefined>(undefined);
+    const ratio = first ?? 4 / 3;
     const height = Math.min(MAX_HEIGHT, width / ratio);
     const label = image.name === 'Image' ? 'image' : image.name;
     if (loaded !== undefined && 'error' in loaded) {
@@ -70,7 +73,7 @@ function ImageCard({ sessionId, image, width, onOpen }: { sessionId: string; ima
                 {loaded === undefined
                     ? <ActivityIndicator color={theme.colors.textSecondary} />
                     : <Image source={{ uri: loaded.uri }} style={{ width: '100%', height: '100%' }} contentFit="contain" recyclingKey={image.id}
-                        onLoad={(event) => { if (event.source.width > 0 && event.source.height > 0) setRatio(event.source.width / event.source.height); }} />}
+                        onLoad={(event) => { const { width: w, height: h } = event.source; if (w > 0 && h > 0) setRatio((now) => now ?? w / h); }} />}
             </View>
         </Pressable>
     );
