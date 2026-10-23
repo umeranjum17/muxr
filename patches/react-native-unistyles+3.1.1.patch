@@ -15,22 +15,25 @@ index 1696d1d..38ac507 100644
      _specs.UnistylesShadowRegistry.flush();
    });
 diff --git a/node_modules/react-native-unistyles/lib/commonjs/components/ScopedTheme.js b/node_modules/react-native-unistyles/lib/commonjs/components/ScopedTheme.js
-index c83eb51..6ff5f67 100644
+index c83eb51..651af4a 100644
 --- a/node_modules/react-native-unistyles/lib/commonjs/components/ScopedTheme.js
 +++ b/node_modules/react-native-unistyles/lib/commonjs/components/ScopedTheme.js
-@@ -10,6 +10,11 @@ var _AdaptiveTheme = require("./AdaptiveTheme");
+@@ -8,8 +8,14 @@ var _react = _interopRequireDefault(require("react"));
+ var _specs = require("../specs");
+ var _AdaptiveTheme = require("./AdaptiveTheme");
  var _NamedTheme = require("./NamedTheme");
++var _ScopedThemeContext = require("./ScopedThemeContext");
  var _jsxRuntime = require("react/jsx-runtime");
  function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e }; }
 +// The scope this subtree sits in. A scope restores its parent's theme when its
 +// children end, and reading that parent from the registry instead takes in any
 +// theme a suspended or discarded render left set, so a dark scope that once
 +// did not finish kept every later render outside it dark.
-+const ParentScopedTheme = /*#__PURE__*/_react.default.createContext(undefined);
++const ParentScopedTheme = _ScopedThemeContext.ScopedThemeContext;
  const ScopedTheme = ({
    name,
    children,
-@@ -18,24 +23,33 @@ const ScopedTheme = ({
+@@ -18,24 +24,33 @@ const ScopedTheme = ({
  }) => {
    const hasAdaptiveThemes = _specs.UnistylesRuntime.hasAdaptiveThemes;
    const isAdaptiveTheme = invertedAdaptive && hasAdaptiveThemes;
@@ -76,6 +79,63 @@ index c83eb51..6ff5f67 100644
        });
      default:
        return children;
+diff --git a/node_modules/react-native-unistyles/lib/commonjs/components/ScopedThemeContext.js b/node_modules/react-native-unistyles/lib/commonjs/components/ScopedThemeContext.js
+new file mode 100644
+index 0000000..5499778
+--- /dev/null
++++ b/node_modules/react-native-unistyles/lib/commonjs/components/ScopedThemeContext.js
+@@ -0,0 +1,12 @@
++"use strict";
++
++Object.defineProperty(exports, "__esModule", {
++  value: true
++});
++exports.ScopedThemeContext = void 0;
++var _react = _interopRequireDefault(require("react"));
++function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e }; }
++// The scope a subtree sits in, carried by React rather than read from the
++// registry: a component that re-renders on its own, mounts after its scope's
++// render or lives under a scope that changed name still knows its theme.
++const ScopedThemeContext = exports.ScopedThemeContext = /*#__PURE__*/_react.default.createContext(undefined);
+diff --git a/node_modules/react-native-unistyles/lib/commonjs/core/useProxifiedUnistyles/useProxifiedUnistyles.js b/node_modules/react-native-unistyles/lib/commonjs/core/useProxifiedUnistyles/useProxifiedUnistyles.js
+index 2211637..3d46758 100644
+--- a/node_modules/react-native-unistyles/lib/commonjs/core/useProxifiedUnistyles/useProxifiedUnistyles.js
++++ b/node_modules/react-native-unistyles/lib/commonjs/core/useProxifiedUnistyles/useProxifiedUnistyles.js
+@@ -5,6 +5,7 @@ Object.defineProperty(exports, "__esModule", {
+ });
+ exports.useProxifiedUnistyles = void 0;
+ var _react = require("react");
++var _ScopedThemeContext = require("../../components/ScopedThemeContext");
+ var _specs = require("../../specs");
+ var _NativePlatform = require("../../specs/NativePlatform");
+ var _listener = require("./listener");
+@@ -31,7 +32,12 @@ const RTDependencyMap = {
+   rtl: _NativePlatform.UnistyleDependency.Rtl
+ };
+ const useProxifiedUnistyles = forcedTheme => {
+-  const [scopedTheme, setScopedTheme] = (0, _react.useState)(forcedTheme ?? _specs.UnistylesShadowRegistry.getScopedTheme());
++  // The scope comes from the tree: the registry only holds it while the
++  // scope's own render runs, so a component re-rendered on its own, or a
++  // scope renamed under a mounted screen, read the wrong theme from it.
++  const treeScopedTheme = (0, _react.useContext)(_ScopedThemeContext.ScopedThemeContext);
++  const currentScopedTheme = forcedTheme ?? treeScopedTheme;
++  const [scopedTheme, setScopedTheme] = (0, _react.useState)(currentScopedTheme);
+   const [dependencies] = (0, _react.useState)(() => new Set());
+   const [theme, setTheme] = (0, _react.useState)(_specs.UnistylesRuntime.getTheme(scopedTheme));
+   const [_, runtimeChanged] = (0, _react.useReducer)(() => ({}), {});
+@@ -59,9 +65,9 @@ const useProxifiedUnistyles = forcedTheme => {
+   (0, _react.useEffect)(() => {
+     return () => disposeRef.current?.();
+   }, [disposeRef]);
+-  const maybeNewScopedTheme = _specs.UnistylesShadowRegistry.getScopedTheme();
+-  if (scopedTheme && maybeNewScopedTheme && scopedTheme !== maybeNewScopedTheme) {
+-    setScopedTheme(maybeNewScopedTheme);
++  if (scopedTheme !== currentScopedTheme) {
++    setScopedTheme(currentScopedTheme);
++    setTheme(_specs.UnistylesRuntime.getTheme(currentScopedTheme));
+   }
+   const proxifiedTheme = new Proxy(theme, {
+     get: (target, prop) => {
 diff --git a/node_modules/react-native-unistyles/lib/module/components/NamedTheme.js b/node_modules/react-native-unistyles/lib/module/components/NamedTheme.js
 index 6ddb8e7..49d66bf 100644
 --- a/node_modules/react-native-unistyles/lib/module/components/NamedTheme.js
@@ -102,10 +162,10 @@ index 6ddb8e7..49d66bf 100644
      UnistylesShadowRegistry.flush();
    });
 diff --git a/node_modules/react-native-unistyles/lib/module/components/ScopedTheme.js b/node_modules/react-native-unistyles/lib/module/components/ScopedTheme.js
-index f6edfc0..a25afbf 100644
+index f6edfc0..d7308aa 100644
 --- a/node_modules/react-native-unistyles/lib/module/components/ScopedTheme.js
 +++ b/node_modules/react-native-unistyles/lib/module/components/ScopedTheme.js
-@@ -1,10 +1,15 @@
+@@ -1,10 +1,16 @@
  "use strict";
  
  import React from 'react';
@@ -113,16 +173,17 @@ index f6edfc0..a25afbf 100644
 +import { UnistylesRuntime } from '../specs';
  import { AdaptiveTheme } from './AdaptiveTheme';
  import { NamedTheme } from './NamedTheme';
++import { ScopedThemeContext } from './ScopedThemeContext';
  import { jsx as _jsx } from "react/jsx-runtime";
 +// The scope this subtree sits in. A scope restores its parent's theme when its
 +// children end, and reading that parent from the registry instead takes in any
 +// theme a suspended or discarded render left set, so a dark scope that once
 +// did not finish kept every later render outside it dark.
-+const ParentScopedTheme = /*#__PURE__*/React.createContext(undefined);
++const ParentScopedTheme = ScopedThemeContext;
  export const ScopedTheme = ({
    name,
    children,
-@@ -13,24 +18,33 @@ export const ScopedTheme = ({
+@@ -13,24 +19,33 @@ export const ScopedTheme = ({
  }) => {
    const hasAdaptiveThemes = UnistylesRuntime.hasAdaptiveThemes;
    const isAdaptiveTheme = invertedAdaptive && hasAdaptiveThemes;
@@ -168,6 +229,61 @@ index f6edfc0..a25afbf 100644
        });
      default:
        return children;
+diff --git a/node_modules/react-native-unistyles/lib/module/components/ScopedThemeContext.js b/node_modules/react-native-unistyles/lib/module/components/ScopedThemeContext.js
+new file mode 100644
+index 0000000..706e0c7
+--- /dev/null
++++ b/node_modules/react-native-unistyles/lib/module/components/ScopedThemeContext.js
+@@ -0,0 +1,7 @@
++"use strict";
++
++import React from 'react';
++// The scope a subtree sits in, carried by React rather than read from the
++// registry: a component that re-renders on its own, mounts after its scope's
++// render or lives under a scope that changed name still knows its theme.
++export const ScopedThemeContext = /*#__PURE__*/React.createContext(undefined);
+diff --git a/node_modules/react-native-unistyles/lib/module/core/useProxifiedUnistyles/useProxifiedUnistyles.js b/node_modules/react-native-unistyles/lib/module/core/useProxifiedUnistyles/useProxifiedUnistyles.js
+index 255cb9f..21044f5 100644
+--- a/node_modules/react-native-unistyles/lib/module/core/useProxifiedUnistyles/useProxifiedUnistyles.js
++++ b/node_modules/react-native-unistyles/lib/module/core/useProxifiedUnistyles/useProxifiedUnistyles.js
+@@ -1,7 +1,8 @@
+ "use strict";
+ 
+-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
+-import { UnistylesRuntime, UnistylesShadowRegistry } from '../../specs';
++import { useContext, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
++import { ScopedThemeContext } from '../../components/ScopedThemeContext';
++import { UnistylesRuntime } from '../../specs';
+ // It's imported that way because of circular dependency
+ import { UnistyleDependency } from '../../specs/NativePlatform';
+ import { listener } from './listener';
+@@ -26,7 +27,12 @@ const RTDependencyMap = {
+   rtl: UnistyleDependency.Rtl
+ };
+ export const useProxifiedUnistyles = forcedTheme => {
+-  const [scopedTheme, setScopedTheme] = useState(forcedTheme ?? UnistylesShadowRegistry.getScopedTheme());
++  // The scope comes from the tree: the registry only holds it while the
++  // scope's own render runs, so a component re-rendered on its own, or a
++  // scope renamed under a mounted screen, read the wrong theme from it.
++  const treeScopedTheme = useContext(ScopedThemeContext);
++  const currentScopedTheme = forcedTheme ?? treeScopedTheme;
++  const [scopedTheme, setScopedTheme] = useState(currentScopedTheme);
+   const [dependencies] = useState(() => new Set());
+   const [theme, setTheme] = useState(UnistylesRuntime.getTheme(scopedTheme));
+   const [_, runtimeChanged] = useReducer(() => ({}), {});
+@@ -54,9 +60,9 @@ export const useProxifiedUnistyles = forcedTheme => {
+   useEffect(() => {
+     return () => disposeRef.current?.();
+   }, [disposeRef]);
+-  const maybeNewScopedTheme = UnistylesShadowRegistry.getScopedTheme();
+-  if (scopedTheme && maybeNewScopedTheme && scopedTheme !== maybeNewScopedTheme) {
+-    setScopedTheme(maybeNewScopedTheme);
++  if (scopedTheme !== currentScopedTheme) {
++    setScopedTheme(currentScopedTheme);
++    setTheme(UnistylesRuntime.getTheme(currentScopedTheme));
+   }
+   const proxifiedTheme = new Proxy(theme, {
+     get: (target, prop) => {
 diff --git a/node_modules/react-native-unistyles/src/components/NamedTheme.tsx b/node_modules/react-native-unistyles/src/components/NamedTheme.tsx
 index d717120..6cec0f7 100644
 --- a/node_modules/react-native-unistyles/src/components/NamedTheme.tsx
@@ -195,10 +311,10 @@ index d717120..6cec0f7 100644
          UnistylesShadowRegistry.flush()
      })
 diff --git a/node_modules/react-native-unistyles/src/components/ScopedTheme.tsx b/node_modules/react-native-unistyles/src/components/ScopedTheme.tsx
-index 4643b00..c0bb949 100644
+index 4643b00..8a732fc 100644
 --- a/node_modules/react-native-unistyles/src/components/ScopedTheme.tsx
 +++ b/node_modules/react-native-unistyles/src/components/ScopedTheme.tsx
-@@ -2,7 +2,7 @@ import React from 'react'
+@@ -2,9 +2,10 @@ import React from 'react'
  
  import type { UnistylesThemes } from '../global'
  
@@ -206,8 +322,11 @@ index 4643b00..c0bb949 100644
 +import { UnistylesRuntime } from '../specs'
  import { AdaptiveTheme } from './AdaptiveTheme'
  import { NamedTheme } from './NamedTheme'
++import { ScopedThemeContext } from './ScopedThemeContext'
  
-@@ -23,6 +23,12 @@ type ThemeProps =
+ type ThemeProps =
+     | {
+@@ -23,6 +24,12 @@ type ThemeProps =
            reset: boolean
        }
  
@@ -215,12 +334,12 @@ index 4643b00..c0bb949 100644
 +// children end, and reading that parent from the registry instead takes in any
 +// theme a suspended or discarded render left set, so a dark scope that once
 +// did not finish kept every later render outside it dark.
-+const ParentScopedTheme = React.createContext<keyof UnistylesThemes | undefined>(undefined)
++const ParentScopedTheme = ScopedThemeContext
 +
  export const ScopedTheme: React.FunctionComponent<React.PropsWithChildren<ThemeProps>> = ({
      name,
      children,
-@@ -31,22 +37,30 @@ export const ScopedTheme: React.FunctionComponent<React.PropsWithChildren<ThemeP
+@@ -31,22 +38,30 @@ export const ScopedTheme: React.FunctionComponent<React.PropsWithChildren<ThemeP
  }) => {
      const hasAdaptiveThemes = UnistylesRuntime.hasAdaptiveThemes
      const isAdaptiveTheme = invertedAdaptive && hasAdaptiveThemes
@@ -259,3 +378,63 @@ index 4643b00..c0bb949 100644
              )
          default:
              return children
+diff --git a/node_modules/react-native-unistyles/src/components/ScopedThemeContext.ts b/node_modules/react-native-unistyles/src/components/ScopedThemeContext.ts
+new file mode 100644
+index 0000000..72648e6
+--- /dev/null
++++ b/node_modules/react-native-unistyles/src/components/ScopedThemeContext.ts
+@@ -0,0 +1,8 @@
++import React from 'react'
++
++import type { UnistylesThemes } from '../global'
++
++// The scope a subtree sits in, carried by React rather than read from the
++// registry: a component that re-renders on its own, mounts after its scope's
++// render or lives under a scope that changed name still knows its theme.
++export const ScopedThemeContext = React.createContext<keyof UnistylesThemes | undefined>(undefined)
+diff --git a/node_modules/react-native-unistyles/src/core/useProxifiedUnistyles/useProxifiedUnistyles.ts b/node_modules/react-native-unistyles/src/core/useProxifiedUnistyles/useProxifiedUnistyles.ts
+index 782c0a6..29543ea 100644
+--- a/node_modules/react-native-unistyles/src/core/useProxifiedUnistyles/useProxifiedUnistyles.ts
++++ b/node_modules/react-native-unistyles/src/core/useProxifiedUnistyles/useProxifiedUnistyles.ts
+@@ -1,8 +1,9 @@
+-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
++import { useContext, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+ 
+ import type { UnistylesTheme } from '../../types'
+ 
+-import { type UnistylesMiniRuntime, UnistylesRuntime, UnistylesShadowRegistry } from '../../specs'
++import { ScopedThemeContext } from '../../components/ScopedThemeContext'
++import { type UnistylesMiniRuntime, UnistylesRuntime } from '../../specs'
+ // It's imported that way because of circular dependency
+ import { UnistyleDependency } from '../../specs/NativePlatform'
+ import { listener } from './listener'
+@@ -30,9 +31,12 @@ const RTDependencyMap = {
+ } satisfies Partial<Record<keyof UnistylesMiniRuntime, UnistyleDependency>>
+ 
+ export const useProxifiedUnistyles = (forcedTheme?: UnistylesTheme) => {
+-    const [scopedTheme, setScopedTheme] = useState(
+-        forcedTheme ?? (UnistylesShadowRegistry.getScopedTheme() as UnistylesTheme),
+-    )
++    // The scope comes from the tree: the registry only holds it while the
++    // scope's own render runs, so a component re-rendered on its own, or a
++    // scope renamed under a mounted screen, read the wrong theme from it.
++    const treeScopedTheme = useContext(ScopedThemeContext) as UnistylesTheme | undefined
++    const currentScopedTheme = forcedTheme ?? treeScopedTheme
++    const [scopedTheme, setScopedTheme] = useState(currentScopedTheme)
+     const [dependencies] = useState(() => new Set<number>())
+     const [theme, setTheme] = useState(UnistylesRuntime.getTheme(scopedTheme))
+     const [_, runtimeChanged] = useReducer(() => ({}), {})
+@@ -65,10 +69,9 @@ export const useProxifiedUnistyles = (forcedTheme?: UnistylesTheme) => {
+         return () => disposeRef.current?.()
+     }, [disposeRef])
+ 
+-    const maybeNewScopedTheme = UnistylesShadowRegistry.getScopedTheme() as UnistylesTheme
+-
+-    if (scopedTheme && maybeNewScopedTheme && scopedTheme !== maybeNewScopedTheme) {
+-        setScopedTheme(maybeNewScopedTheme)
++    if (scopedTheme !== currentScopedTheme) {
++        setScopedTheme(currentScopedTheme)
++        setTheme(UnistylesRuntime.getTheme(currentScopedTheme))
+     }
+ 
+     const proxifiedTheme = new Proxy(theme, {
