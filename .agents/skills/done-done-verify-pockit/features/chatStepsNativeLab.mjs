@@ -28,7 +28,9 @@ const nodes = () => {
         const found = adb('exec-out', 'cat', '/sdcard/d.xml').match(/<node\s[^>]*>/g) ?? [];
         // A slow host raises "Pixel Launcher/System UI isn't responding" over the app; tap Wait and look again.
         const wait = found.some((node) => /isn't responding/.test(node)) ? found.find((node) => /text="Wait"/.test(node)) : undefined;
-        if (wait === undefined || i === 5) return found;
+        if (i === 5 || (found.length > 0 && wait === undefined)) return found;
+        // "could not get idle state": the dump gave up on a busy screen; look again.
+        if (wait === undefined) { execFileSync('sleep', ['2']); continue; }
         const [x1, y1, x2, y2] = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(wait).slice(1).map(Number);
         sh(`input tap ${(x1 + x2) >> 1} ${(y1 + y2) >> 1}`);
         log('tapped Wait on a not-responding dialog');
@@ -95,7 +97,7 @@ try {
 
     // Just after an install the system can stall a settings call past the adb bound; ask again.
     for (let attempt = 1; ; attempt += 1) {
-        try { sh('wm size 1080x2376'); sh('wm density 443'); sh('settings put system font_scale 1.0'); sh('cmd uimode night yes'); break; }
+        try { sh('wm size 1080x2376'); sh('wm density 443'); sh('settings put system font_scale 1.0'); sh('cmd uimode night yes'); for (const scale of ['window_animation_scale', 'transition_animation_scale', 'animator_duration_scale']) sh(`settings put global ${scale} 0`); break; }
         catch (error) { if (attempt === 3) throw error; log(`display setup retry ${attempt}`); await sleep(20_000); }
     }
     sh(`am start -W -n ${activity}`);
