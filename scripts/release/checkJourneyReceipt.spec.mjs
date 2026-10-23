@@ -62,11 +62,11 @@ it('covers a release, and publishes it as npm latest once the captain names it, 
         const manifest = (source) => ({ release: { channel: 'stable', version: '0.2.11' }, source: { commit: source },
             artifacts: [{ name: 'muxr-0.2.11-60.apk', sha256: build.apk }, { name: 'trymuxr-cli-0.2.11.tgz', sha256: build.package }] });
         const publishable = (source, tarballSha256, captainTested = '0.2.11') => acceptStable({ version: '0.2.11', manifest: manifest(source), taggedCommit: source, tarballSha256, captainTested, repo, receiptsRef: 'HEAD' });
-        // The receipt cites the journey result and, for the x86_64 twin, the released APK's check.
-        const land = (journey, result, message, apkCheck, citesCheck = true) => {
+        // The receipt cites the journey result; the x86_64 twin's APK check lands beside it.
+        const land = (journey, result, message, apkCheck) => {
             rmSync(join(repo, '.done-done-receipts', 'builds'), { recursive: true, force: true });
             mkdirSync(join(repo, '.done-done-receipts', 'builds'), { recursive: true });
-            const records = [result, citesCheck && apkCheck].filter(Boolean);
+            const records = [result].filter(Boolean);
             writeFileSync(join(repo, '.done-done-receipts', `${head}.json`), `${JSON.stringify(receipt(head, tree, cited, journey, records), null, 2)}\n`);
             if (result) writeFileSync(join(repo, '.done-done-receipts', 'builds', '0.2.11.json'), result);
             if (apkCheck) writeFileSync(join(repo, '.done-done-receipts', 'builds', '0.2.11.release-apk.json'), apkCheck);
@@ -110,9 +110,9 @@ it('covers a release, and publishes it as npm latest once the captain names it, 
             journeyApk: { name: 'app-release.apk', sha256: twinApk, abi: 'x86_64', commit: built },
         }, null, 2)}\n`;
         const tagged = { ...build, commit: head };
-        const twinFault = (record, cite) => checkJourneyReceipt({ repo, commit: head, receiptsRef: land('phone-attach', journeyResult(twin), 'the twin journey', record, cite), build: tagged }).reason;
+        const twinFault = (record) => checkJourneyReceipt({ repo, commit: head, receiptsRef: land('phone-attach', journeyResult(twin), 'the twin journey', record), build: tagged }).reason;
         expect(twinFault(undefined)).toContain(`it ran apk ${twinApk.slice(0, 12)}, not this release's ${build.apk.slice(0, 12)}`);
-        expect(twinFault(apkCheck(), false)).toContain('it does not cite the release APK check .done-done-receipts/builds/0.2.11.release-apk.json');
+        expect(twinFault(apkCheck({ checks: { code: 'fail' } }))).toContain('the released apk did not pass code');
         expect(twinFault(apkCheck({ checks: { signature: 'fail' } }))).toContain('the released apk did not pass signature');
         expect(twinFault(apkCheck({ commit: sha('another commit').slice(0, 40) }))).toContain('its journey apk was built from');
         expect(twinFault(apkCheck())).toBeUndefined();

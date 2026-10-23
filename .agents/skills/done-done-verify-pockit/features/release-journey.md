@@ -9,7 +9,7 @@ scroll against the budgets in `scripts/release/domain/releaseJourney.mjs`.
 
 ## Sub-features
 
-- `x86_64-twin` on an emulator the journey runs the APK `journey-apk.yml` builds clean from the release tag; `checkReleaseApk.mjs` checks the released arm64 APK's signature, manifest, native libraries, version, its JS bundle and dex against the twin's, and the twin's source against the sealed release, and writes `.done-done-receipts/builds/<v>.release-apk.json` with both digests. The gate takes another APK digest only through that cited record.
+- `x86_64-twin` on an emulator the journey runs the APK `journey-apk.yml` builds clean from the release tag; `checkReleaseApk.mjs` checks the released arm64 APK's signature, manifest, native libraries, version, its JS bundle and dex against the twin's, and the twin's source against the sealed release, and writes `.done-done-receipts/builds/<v>.release-apk.json` with both digests. The gate takes another APK digest only through that committed record, whose twin digest must be the one the cited result ran.
 - `exact-build` the journey records the sha256 of the APK it installed and the tarball its host ran from in `release-build.json`; the gate compares them with the release's sealed manifest and refuses any other build of the same version.
 - `promote-latest` npm `latest` moves only when the captain runs `release.yml` by hand with `captain_tested` and the version after his own phone test, and `scripts/release/presentation/acceptStable.mjs` accepts the exact tarball it packed against the receipt; it then publishes straight under `latest` through trusted publishing, no npm login or token. A push never publishes a stable version. The script never publishes, so it is also the dry run.
 - `stable-apk` `release.yml`'s stable promote runs `checkJourneyReceipt.mjs --tag v<v>` before GitHub Latest and the catalog.
@@ -44,12 +44,12 @@ emulator lock, and the release's assets:
 2. `PHONE_SERIAL=<serial> PHONE_APK=<apk> (or PHONE_USE_INSTALLED=1) PHONE_PACKAGE=<tgz> PHONE_ATTACH_ROOT=$(mktemp -d ~/.cache/fms/rj.XXXX) MUXR_LAB_MACHINE_NAME='Umer lab' done-done run phone-attach`.
    The tarball is installed with `npm install --prefix <root>/pkg --ignore-scripts`; the lab runs its `relay.js` and `host.js` (`MUXR_LAB_PACKAGE_DIR`).
 3. Read `release-build.json` in the run's evidence folder: `result: pass`, every step `pass`, `hosts: 1`, `timings.attachMs` and `timings.scrollMs`.
-4. `done-done receipt --outcome "<claim>" <captures> <evidence>/release-build.json <v>.release-apk.json`, then commit the receipt at `.done-done-receipts/<head>.json`, the result at `.done-done-receipts/builds/<v>.json` and the APK check at `.done-done-receipts/builds/<v>.release-apk.json`.
+4. `done-done receipt --outcome "<claim in the journey's step words>" <captures> <evidence>/release-build.json` (done-done cites only files a run wrote), then commit the receipt at `.done-done-receipts/<head>.json`, the result at `.done-done-receipts/builds/<v>.json` and the APK check at `.done-done-receipts/builds/<v>.release-apk.json`.
 5. `node scripts/release/presentation/acceptStable.mjs --version <v> --package <the release's .tgz> --captain-tested <v>` prints `may be published as npm latest`; without `--captain-tested <v>` (a push), without a result, with a result for another build, or for another tarball, it prints `npm latest stays where it is:` and the reason (and `accepted=false` to `GITHUB_OUTPUT` when set).
 
 Gate journey: `done-done run release-latest-gate` (`releaseLatestGateLab.mjs`) runs release.yml's own `accepted` step command on the newest stable GitHub release's real manifest and tarball, with a stand-in receipt in a scratch clone, as a push and as hand runs; `gate.log` shows the publish step running only for the hand run naming the tested version with the receipt. It publishes nothing.
 
-Flow test: `scripts/release/checkJourneyReceipt.spec.mjs` (no result, another APK, a rebuilt tarball, matching build, the x86_64 twin with no, an uncited, a failed or another commit's APK check and with a passing one, a slow twin accepted with labelled times and the same times refused on a phone run, and `acceptStable` refusing a push with no captain-tested version and a tarball packed after the tag).
+Flow test: `scripts/release/checkJourneyReceipt.spec.mjs` (no result, another APK, a rebuilt tarball, matching build, the x86_64 twin with no, a failed or another commit's APK check and with a passing one, a slow twin accepted with labelled times and the same times refused on a phone run, and `acceptStable` refusing a push with no captain-tested version and a tarball packed after the tag).
 
 ## Gotchas
 

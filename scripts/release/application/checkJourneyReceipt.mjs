@@ -17,8 +17,8 @@
  *   committed journey result for the release's version, and that result
  *   names the APK and npm tarball digests the release ships, every step
  *   passed, exactly one host alive, and attach and scroll times in budget;
- * - or it ran the release's x86_64 twin: the receipt also cites the
- *   committed release APK check, which names both APK digests, a journey APK
+ * - or it ran the release's x86_64 twin: the release also commits the
+ *   release APK check, which names both APK digests, a journey APK
  *   built from the release commit, and the released APK's static checks;
  *   every functional step must pass there, and its times are reported,
  *   labelled emulator-under-load, without gating.
@@ -136,17 +136,17 @@ function captureFault(repo, ref, receipt) {
 
 /**
  * Why the committed journey result does not prove this exact build, or null.
- * The receipt must cite the result's own bytes (and the APK check's), so a
- * record edited after the judge saw the run counts for nothing.
+ * The receipt must cite the result's own bytes, so a result edited after the
+ * judge saw the run counts for nothing. The APK check is a static record any
+ * reviewer can recompute (checkReleaseApk.mjs) and lands beside the result:
+ * done-done cites only what a run wrote, and the tag's journey cannot write it.
  */
 function buildFault(receipt, result, apkCheck, build) {
     if (result === undefined) return `no journey result is committed at ${buildResultPath(build.version)}`;
-    const cites = (record) => receipt.files.some((file) => file.sha256 === record.sha256);
-    if (!cites(result)) return `it does not cite the journey result ${buildResultPath(build.version)}`;
-    // A journey on another APK counts only through a cited check that the
-    // released APK passed its static checks and the journey ran its same-commit twin.
+    if (!receipt.files.some((file) => file.sha256 === result.sha256)) return `it does not cite the journey result ${buildResultPath(build.version)}`;
+    // A journey on another APK counts only through a committed check that the
+    // released APK passed its static checks and the cited run drove its same-commit twin.
     if (result.value?.build?.apk === build.apk || build.apk === undefined || apkCheck === undefined) return buildResultFault(result.value, build);
-    if (!cites(apkCheck)) return `it does not cite the release APK check ${apkCheckPath(build.version)}`;
     const fault = apkCheckFault(apkCheck.value, build);
     if (fault) return `${apkCheckPath(build.version)}: ${fault}`;
     return buildResultFault(result.value, { ...build, apk: apkCheck.value.journeyApk.sha256 }, TWIN_BUDGETS);
