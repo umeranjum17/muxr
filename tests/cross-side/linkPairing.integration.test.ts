@@ -227,6 +227,12 @@ describe('native pairing over the byokit link', () => {
     afterAll(async () => {
         vi.unstubAllGlobals();
         await Promise.all([...children].map((child) => stop(child)));
+        // `muxr self-host` starts its own detached relay when its health probe misses ours (a loaded machine);
+        // that relay is no child of this test, but it records itself in the relay data dir.
+        const stray = Number(existsSync(join(home, 'relay', 'relay.pid')) ? readFileSync(join(home, 'relay', 'relay.pid'), 'utf8') : '');
+        if (Number.isSafeInteger(stray) && stray > 1 && stray !== relay?.pid) {
+            try { process.kill(stray, 'SIGTERM'); } catch { /* already gone */ }
+        }
         rmSync(home, { recursive: true, force: true });
     });
 
