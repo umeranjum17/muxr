@@ -149,11 +149,13 @@ const PANE_TABS_HEIGHT = 24;
 const RAILS_TOP_PAD = 6;
 
 /**
- * The session is one dark surface: the terminal paints dark whatever the app
- * theme, so everything around it -- header, strip, composer, keys, Tools and
- * every sheet they open -- reads the dark theme too. The scope sits at this
- * screen's own render root and the theme is read beneath it, so each render
- * of the screen (and everything it mounts) paints from the same palette.
+ * The terminal is one dark surface: it paints dark whatever the app theme, so
+ * everything around it -- header, strip, composer, keys, Tools and every sheet
+ * they open -- reads the dark theme too. The chat is a page of its own and
+ * follows the app theme, header and composer with it; the terminal under it
+ * keeps its own dark scope. The scope sits at this screen's own render root
+ * and the theme is read beneath it, so each render of the screen (and
+ * everything it mounts) paints from the same palette.
  */
 // The material is decided once, in the theme (`terminalChrome`): the canvas is
 // the Ghostty background itself, and the floating control and its ring are the
@@ -192,7 +194,7 @@ const LATEST_KEY: Partial<Record<string, string>> = { opencode: BUILTIN_KEY_CATA
 const WATCH_LABEL = { android: 'preview.watchAndroid', ios: 'preview.watchIos' } as const;
 const TERMINAL_REPLY = /^\u001b(?:\[[IO]$|\[[?>]?[\d;$]*[cRnty]$|\[\?[\d;]*u$|[\]P]|\[<|\[M)/;
 const DesktopSurface = React.lazy(async () => ({ default: (await import('@/desktop')).DesktopSurface }));
-function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
+function ScreenSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
     return <>{children(theme)}</>;
 }
@@ -797,6 +799,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [paneViews, setPaneViews] = useLocalSettingMutable('paneViews');
     const paneView = resolvePaneView({ agentKind: paneKind, own: paneViews[props.id], setting: sessionViewSetting, shortSide: Math.min(windowWidth, windowHeight) });
     const chatShown = paneView === 'chat';
+    const appTheme = useUnistyles().rt.themeName ?? 'dark';
     // Back names Home only where the title keeps its room beside it.
     const backWord = chatShown && windowWidth / fontScale >= 340;
     const choosePaneView = React.useCallback((view: 'chat' | 'terminal') => setPaneViews(rememberPaneView(paneViews, props.id, view)), [paneViews, props.id, setPaneViews]);
@@ -1385,7 +1388,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const headerWordShown = headerLifecycleLabel !== undefined && !chatShown && !narrowChrome;
     const headerFit = useHeaderFit(fontScale, { word: headerWordShown, name: headerNameShown, account: headerAccountShown });
     return (
-        <ScopedTheme name="dark"><DarkSurface>{(theme) => {
+        <ScopedTheme name={chatShown ? appTheme : 'dark'}><ScreenSurface>{(theme) => {
             if (sessionError !== undefined) return <TerminalFailure message={sessionError} onHome={() => router.replace('/')} />;
             const headerStatus = agentStatusColor(headerLifecycle, theme);
             const tabPanes = currentTab?.panes ?? [];
@@ -1395,8 +1398,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const showConnectingStatus = gestureHint === null && (shownStatus === 'connecting' || shownStatus === 'reconnecting');
             const showRetryStatus = shownStatus !== 'live' && gestureHint === null && !showConnectingStatus && shownStatus !== 'unconfirmed';
             const showUnconfirmedStatus = shownStatus === 'unconfirmed' && gestureHint === null;
-            // The chat sits in the screen's own dark scope. Switching the scope under a screen that is already mounted
-            // leaves its parts on the old theme (unistyles keeps each hook's first scope), so a light chat came out half black.
             const railInk = chatShown ? theme.colors.header.background : theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'];
             // Settings can put away the pane tabs at one pane and the key row
             // altogether; the rail's top air stays with whatever row is first.
@@ -1582,12 +1583,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // above the IME, and it measures the gap below itself to do it, so a bar
             // that floats over it gets counted as empty space and lands on the output.
                 return (
-                <Animated.View collapsable={false} style={[{ flex: 1, backgroundColor: props.desktop ? '#000' : theme.colors.terminalChrome.canvas, paddingTop: insets.top, paddingRight: previewDocked ? PREVIEW_DOCK.width : 0 }, settledLayout]}>
+                <Animated.View collapsable={false} style={[{ flex: 1, backgroundColor: props.desktop ? '#000' : chatShown ? railInk : theme.colors.terminalChrome.canvas, paddingTop: insets.top, paddingRight: previewDocked ? PREVIEW_DOCK.width : 0 }, settledLayout]}>
                     {watchingWorkingAgent && <ActiveAgentWakeLock />}
-                    {/* The terminal is dark in both themes, so the system bar
-                        above it is too: under a light app theme its clock and
-                        battery were drawn dark on the terminal's own ink. */}
-                    {isFocused && <StatusBar style="light" />}
+                    {/* The system bar follows the screen: light over the always-dark
+                        terminal, where a light app theme drew its clock and battery
+                        dark on the terminal's own ink; dark over a light chat. */}
+                    {isFocused && <StatusBar style={theme.dark ? 'light' : 'dark'} />}
 
                     {/* One quiet line above the terminal plane: a back mark,
                         the session identity, the pane pager, and an overflow
@@ -1751,6 +1752,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         {/* ...cut to whole rows, so none shows half of itself at either edge. */}
                         <View style={[{ overflow: 'hidden', justifyContent: 'flex-end' }, shownHeight < (terminalBox?.height ?? 0) ? { height: shownHeight } : { flex: 1 }]}>
                         <Animated.View style={[{ flexGrow: 1, minHeight: pannedHeight }, surfacePan]}>
+                        <ScopedTheme name="dark">
                         <AgentPager
                             key={props.id}
                             sessionId={props.id}
@@ -1783,6 +1785,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             columns={grid?.cols}
                         />
                         </AgentPager>
+                        </ScopedTheme>
                         </Animated.View>
                         </View>
                         {chatShown && (
@@ -2341,6 +2344,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     {findOpen && <FindOutputSheet sessionId={props.id} keyboardOffset={Platform.OS === 'web' || !keyboardVisible ? 0 : keyboardHeight} onClose={() => setFindOpen(false)} />}
                 </Animated.View>
             );
-        }}</DarkSurface></ScopedTheme>
+        }}</ScreenSurface></ScopedTheme>
     );
 });

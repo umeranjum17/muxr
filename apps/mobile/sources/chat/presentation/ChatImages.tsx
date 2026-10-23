@@ -9,7 +9,6 @@ import type { ChatImage } from '@trymuxr/contract';
 import { chatImage } from '@/catalog/ops';
 import { ZoomableImage } from '@/components/ZoomableImage';
 import { humanError } from '@/utils/errors';
-import { MountTheme, useChatTheme } from './ChatSteps';
 
 /** An image in the column is never taller than this; tap opens it whole. */
 const MAX_HEIGHT = 260;
@@ -46,7 +45,7 @@ function useImage(sessionId: string, id: string): Loaded {
 }
 
 function ImageCard({ sessionId, image, width, onOpen }: { sessionId: string; image: ChatImage; width: number; onOpen: (uri: string) => void }): React.JSX.Element {
-    const theme = useChatTheme();
+    const { theme } = useUnistyles();
     const loaded = useImage(sessionId, image.id);
     const [ratio, setRatio] = React.useState(4 / 3);
     const height = Math.min(MAX_HEIGHT, width / ratio);
@@ -79,17 +78,15 @@ function ImageCard({ sessionId, image, width, onOpen }: { sessionId: string; ima
 
 /** The images a message carries, each a card in the column; tap shows it full screen to zoom. */
 export function ChatImages({ sessionId, images, mine }: { sessionId: string; images: ChatImage[]; mine: boolean }): React.JSX.Element {
-    // Read here, where the message mounts inside the screen's scope; a card redraws later, once its bytes arrive.
-    const { theme } = useUnistyles();
     const [column, setColumn] = React.useState(0);
     const [open, setOpen] = React.useState<string | null>(null);
     return (
-        <MountTheme.Provider value={theme}>
+        <>
             <View onLayout={(event) => setColumn(event.nativeEvent.layout.width)} style={{ gap: 8, alignItems: mine ? 'flex-end' : 'flex-start' }}>
                 {column > 0 && images.map((image) => <ImageCard key={image.id} sessionId={sessionId} image={image} width={Math.min(column * (mine ? 0.84 : 1), 520) - 12} onOpen={setOpen} />)}
             </View>
             <ImageViewer uri={open} onClose={() => setOpen(null)} />
-        </MountTheme.Provider>
+        </>
     );
 }
 

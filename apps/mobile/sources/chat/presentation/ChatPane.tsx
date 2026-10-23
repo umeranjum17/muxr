@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { ChatMessage, ChatTool } from '@trymuxr/contract';
 import { withAlpha } from '@/components/ui';
@@ -26,14 +26,8 @@ export interface ChatPaneProps {
 
 const NEAR_BOTTOM = 80;
 
-/**
- * The shared lazy code-surfaces chunk (it keeps Markdown out of the eager entry). It resolves after the
- * screen's dark scope has closed, so it opens that scope again itself: left alone its text came out
- * in the app's light theme, dark on the dark bubble.
- */
-const ChatMarkdown = React.lazy(() => import('@/components/code/codeSurfaces').then(({ MarkdownView }) => ({
-    default: (props: { markdown: string }) => <ScopedTheme name="dark"><MarkdownView {...props} /></ScopedTheme>,
-})));
+/** The shared lazy code-surfaces chunk: it keeps Markdown out of the eager entry. */
+const ChatMarkdown = React.lazy(() => import('@/components/code/codeSurfaces').then(({ MarkdownView }) => ({ default: MarkdownView })));
 
 function clock(at: number): string {
     return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
