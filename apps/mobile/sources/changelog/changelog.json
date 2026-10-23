@@ -1,6 +1,37 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.12",
+            "title": "Cloud computers join your tailnet, and roomier keys",
+            "summary": "Since 0.2.11: a new cloud computer opens its Tailscale sign-in page for you, and the terminal keys are easier to hit.",
+            "features": [
+                {
+                    "title": "Cloud computer joins your tailnet",
+                    "detail": "When a new cloud computer is ready, the phone opens its Tailscale sign-in page by itself. Approve it there and the computer joins your tailnet. Sign in to Tailscale stays on the step if you want to open the page again."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Terminal keys",
+                    "detail": "Every key is a 48 dp target with space between them, so Ctrl and Shift are no longer tapped by mistake. A row wider than the screen scrolls."
+                },
+                {
+                    "title": "Quick-actions button",
+                    "detail": "The button that opens the radial menu has its own 48 dp target and clear space from the tabs."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Checks",
+                    "status": "not-run",
+                    "detail": "Not accepted on a device."
+                }
+            ],
+            "knownLimits": [
+                "Update phone and computer together."
+            ]
+        },
+        {
             "appVersion": "0.2.11",
             "title": "A chat view for your agents, and a simpler way around",
             "summary": "Since 0.2.10: Claude and Pi agents can be read as a chat, panes switch from one full-height sheet, and adding a Claude account no longer hangs.",
