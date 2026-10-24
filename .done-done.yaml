@@ -137,7 +137,8 @@ journeys:
   # MUXR_LAB_APK a release build of this commit, MUXR_LAB_SERIAL an owned
   # emulator and a provisioned Herdr lab (HERDR_LAB_PREPROVISIONED=1).
   # LINES=1200 STUB_LPS=100 WALK=30 walks the history instead and logs every
-  # hole in it (terminal-latest.md).
+  # hole in it (terminal-latest.md); DENSITY=640 walks it on the 270 dp
+  # reference phone, DENSITY=420 at 411 dp.
   terminal-scroll-local:
     command: bash .agents/skills/done-done-verify-pockit/features/terminalScrollLocalLab.sh "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT"
     timeout: 20m
