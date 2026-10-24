@@ -508,7 +508,9 @@ try {
         commit: run('git', ['rev-parse', 'HEAD'], { cwd: snapshot }).stdout.trim(), directory: tarDir, sourceRoot: snapshot };
     const { entry, files: rendered } = prepareChangelog({ mode: 'generate', ...reportRequest });
     const html = rendered[reportFiles.html];
-    for (const heading of ['Added', 'Fixed', 'Verification', 'Known limits']) assert.match(html, new RegExp(`<h2>${heading}</h2>`), `${heading} missing from the release report`);
+    // The report leaves out an empty Added or Fixed section, so a fix-only release has no Added.
+    const headings = [...(entry.features.length ? ['Added'] : []), ...(entry.fixes.length ? ['Fixed'] : []), 'Verification', 'Known limits'];
+    for (const heading of headings) assert.match(html, new RegExp(`<h2>${heading}</h2>`), `${heading} missing from the release report`);
     assert.match(html, new RegExp(entry.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.doesNotMatch(html, /<script|https?:\/\//, 'release report must stay offline and script-free');
     prepareChangelog({ mode: 'check', ...reportRequest });
