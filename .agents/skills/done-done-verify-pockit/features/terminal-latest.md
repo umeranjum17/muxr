@@ -79,9 +79,9 @@ break in a screen's `MARK-n` numbers as `gap MARK-a -> MARK-b`: none may show.
 `DENSITY` sets the width: run it at `640` (the 270 dp reference phone) and
 `420` (411 dp). At 270 dp the grid is taller than its box, so the first rows of
 a drag pan it to its top rows and the rest walks the phone-side copy. Before
-that fix a panned terminal kept no copy, the drag scrolled Claude's own
-transcript (`Jump to bottom` on screen), and the walk found screens with no
-`MARK` rows at all.
+that fix a panned terminal kept no copy: the drag scrolled Claude's own
+transcript (`Jump to bottom` on screen) through Herdr, about 6 lines per
+800 px drag.
 
 ## Gotchas
 
@@ -104,10 +104,16 @@ transcript (`Jump to bottom` on screen), and the walk found screens with no
   synchronized update, and at `STUB_LPS=100` consecutive frames still share
   rows. The phone-side copy finds how far the screen moved by comparing
   screens, so it compares after every frame, also when the app combined several
-  into one write, and only rows that appear once and changed in place vote. A
+  into one write, and only rows that changed in place vote: a row that appears
+  once on both screens, and the unbroken run of matching rows around it. A
   fixed footer and repeated sentence tails once outvoted the real move, which
-  left 100-line holes (`MARK-977..984` then `MARK-1154`). Only output that moves
-  a whole screen within one ~100 ms Herdr tick never reaches the phone, and the
+  left 100-line holes (`MARK-977..984` then `MARK-1154`). At 270 dp (33
+  columns) each line wraps and a frame moves ~20 of the 23 content rows, so two
+  frames share one line plus its wrapped tails, or nothing but the footer: the
+  copy then kept 10 of 1200 rows. A run around one anchor lines that up, and a
+  frame whose footer held while every row above it changed pushes that whole
+  area. Only output that moves
+  more than a whole screen within one ~100 ms Herdr tick never reaches the phone, and the
   host sees the same frames, so it cannot fill that either. Count rows across
   the whole screen, not from the top row alone.
 - An emulator presents 2-4 frames a second for any app here: compare fps and
