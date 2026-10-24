@@ -190,7 +190,8 @@ if (!existsSync(distIndex)) {
     // The Session view setting (screen, saved choices, chat request schema) adds about 740 B to the eager entry in CI's measure (1,777,483 B).
     // The Computer view's portal-without-desktop wording measures 1,778,596 B in CI.
     // The shared action sheet (icon rows, the Camera choice) measures 1,779,739 B in CI.
-    const USABLE_GZIP_CEILING = 1780800;
+    // A cloud computer reached over SSH (the phone's login key, Boat's SSH key call) measures 1,780,994 B in CI.
+    const USABLE_GZIP_CEILING = 1782000;
     check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,

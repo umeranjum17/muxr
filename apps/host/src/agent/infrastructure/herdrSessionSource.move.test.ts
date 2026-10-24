@@ -271,12 +271,12 @@ describe('a plan-account move', () => {
                 expect(listed.map((session) => session.paneId)).toEqual(['p1']);
                 expect((await source.open({ sessionId })).info.paneId).toBe('p1');
                 rememberPlanPane(env, 'other-pane', 'personal', listed.map((session) => session.paneId ?? session.id));
-                expect(planPaneAccount(env, 'p1')).toEqual({ accountId: 'work' });
+                expect(await planPaneAccount(env, 'p1', 'claude', async () => [])).toEqual({ accountId: 'work' });
             } finally {
                 failReady();
                 await failed;
             }
-            expect(planPaneAccount(env, 'p1')).toEqual({ accountId: 'work' });
+            expect(await planPaneAccount(env, 'p1', 'claude', async () => [])).toEqual({ accountId: 'work' });
             expect(herdr.agents).toEqual([original]);
             expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p1']);
             expect(herdr.calls.some((call) => call.method === 'pane.close' && call.detail === 'p1')).toBe(false);

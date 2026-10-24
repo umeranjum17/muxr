@@ -1,5 +1,5 @@
 /** muxr owns sign-in tabs and pane/account bookkeeping. Each sign-in attempt owns a kit instance. */
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import type { HerdrTreePane, HerdrTreeWorkspace, PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
@@ -201,6 +201,7 @@ export function rememberPlanPane(env: NodeJS.ProcessEnv, paneId: string, account
     const kept = [...loadPanes(env).filter(([id]) => id !== paneId && livePaneIds.includes(id)), [paneId, accountId] as [string, string]];
     mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
     writeFileSync(panesPath(env), JSON.stringify(kept), { mode: 0o600 });
+    observedFolders.delete(paneId);
 }
 
 /**
@@ -209,11 +210,16 @@ export function rememberPlanPane(env: NodeJS.ProcessEnv, paneId: string, account
  * holds no other), and never on a sign-in tab. Reading names from that list
  * keeps the tree's own cadence free of any provider tool call.
  *
+ * `observed` (`observePlanPanes`) is what each agent's own process runs on
+ * and outranks the record of where muxr last put the pane: anything can
+ * relaunch an agent in the same pane on another folder. `null` there is the
+ * computer's own sign-in.
+ *
  * Pi signs in to its own providers, so the computer's Claude sign-in says
  * nothing about it: a Pi pane is named only for the Claude account muxr put
  * it on, and not once it reports a model from another provider.
  */
-export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>(env: NodeJS.ProcessEnv, tree: T, listed: readonly PlanProviderAccounts[] | undefined, observed: ReadonlyMap<string, string> = new Map()): T {
+export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>(env: NodeJS.ProcessEnv, tree: T, listed: readonly PlanProviderAccounts[] | undefined, observed: ReadonlyMap<string, string | null> = new Map()): T {
     if (listed === undefined || listed.length === 0) return tree;
     const recorded = new Map(loadPanes(env));
     const signingIn = new Set(signInTabs.values());
@@ -225,7 +231,7 @@ export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>
         else if (kind === 'opencode') provider = 'opencode';
         const entry = listed.find((candidate) => candidate.provider === provider);
         if (entry === undefined || signingIn.has(pane.paneId)) return undefined;
-        const id = recorded.get(pane.paneId) ?? observed.get(pane.paneId);
+        const id = observed.has(pane.paneId) ? observed.get(pane.paneId) ?? undefined : recorded.get(pane.paneId);
         if (kind === 'pi' && (id === undefined || (pane.provider !== undefined && !/anthropic|claude/i.test(pane.provider)))) return undefined;
         return (id === undefined ? entry.accounts.find((account) => account.foundOnComputer) : entry.accounts.find((account) => account.id === id))?.name;
     };
@@ -244,59 +250,77 @@ export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>
     };
 }
 
-const FOLDER_KEY = 'CLAUDE_CONFIG_DIR=';
-const observedFolders = new Map<string, { at: number; accountId: string | undefined }>();
+/** The sign-in folder variable each agent kind's own process reads. Pi keeps
+ *  its own folder, so a Pi pane is never observed. */
+const FOLDER_VARS = { claude: 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME' } as const;
+type ObservedProvider = keyof typeof FOLDER_VARS;
+const observedProvider = (kind: string | undefined): ObservedProvider | undefined =>
+    kind === 'claude' || kind === 'codex' ? kind : undefined;
+
+const observedFolders = new Map<string, { at: number; accountId: string | null | undefined }>();
 const OBSERVED_TTL_MS = 30_000;
 
-/** The `CLAUDE_CONFIG_DIR` a process runs with. Only that one variable leaves
- *  the process's environment. Linux only (`/proc`): elsewhere nothing is
- *  observed and the pane reads as before. */
-function folderOfProcess(pid: number): string | undefined {
+/** The sign-in folder a process runs with: its folder variable, `null` when it
+ *  runs without one, `undefined` when the process cannot be read. Only that
+ *  one variable leaves the process's environment. Linux only (`/proc`):
+ *  elsewhere nothing is observed and the pane reads as before. */
+function folderOfProcess(pid: number, variable: string): string | null | undefined {
+    const key = `${variable}=`;
     try {
-        const entry = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').find((line) => line.startsWith(FOLDER_KEY));
-        return entry === undefined || entry.length === FOLDER_KEY.length ? undefined : entry.slice(FOLDER_KEY.length);
+        const entry = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').find((line) => line.startsWith(key));
+        return entry === undefined || entry.length === key.length ? null : entry.slice(key.length);
     } catch {
         return undefined;
     }
 }
 
+const sameFolder = (left: string, right: string): boolean => {
+    if (resolve(left) === resolve(right)) return true;
+    try { return realpathSync(left) === realpathSync(right); } catch { return false; }
+};
+
 /**
- * The roster account whose sign-in folder an agent's own process runs with,
- * for a pane muxr did not start (so `agent-panes-v1.json` is silent). A pane
- * with no folder of its own runs on the computer's sign-in, which is the
- * fallback, so nothing is returned for it. Read at most every 30 s per pane.
+ * The roster account whose sign-in folder an agent's own process runs with:
+ * its id, `null` for the computer's own sign-in (no folder of its own, or one
+ * muxr does not know), `undefined` when no process of the pane could be read.
+ * Read at most every 30 s per pane.
  */
-export async function observePaneAccount(env: NodeJS.ProcessEnv, paneId: string, foregroundPids: (paneId: string) => Promise<number[]>): Promise<string | undefined> {
+async function observePaneAccount(env: NodeJS.ProcessEnv, paneId: string, provider: ObservedProvider, foregroundPids: (paneId: string) => Promise<number[]>): Promise<string | null | undefined> {
     const cached = observedFolders.get(paneId);
     if (cached !== undefined && Date.now() - cached.at < OBSERVED_TTL_MS) return cached.accountId;
-    let accountId: string | undefined;
+    let accountId: string | null | undefined;
     try {
         for (const pid of await foregroundPids(paneId)) {
-            const folder = folderOfProcess(pid);
+            const folder = folderOfProcess(pid, FOLDER_VARS[provider]);
             if (folder === undefined) continue;
-            accountId = loadPlanAccounts(env).find((record) => record.provider === 'claude' && resolve(record.folder) === resolve(folder))?.id;
+            accountId = folder === null ? null
+                : loadPlanAccounts(env).find((record) => record.provider === provider && sameFolder(record.folder, folder))?.id ?? null;
             break;
         }
     } catch {
-        // An unreadable pane keeps the last answer's absence: no chip beats a wrong one only when it is recorded.
+        // An unreadable pane stays unobserved: the record, if any, names it.
     }
     if (observedFolders.size > 512) observedFolders.clear();
     observedFolders.set(paneId, { at: Date.now(), accountId });
     return accountId;
 }
 
-/** The observed account of every Claude pane in the tree that muxr has no record for. */
-export async function observePlanPanes(env: NodeJS.ProcessEnv, tree: { workspaces: HerdrTreeWorkspace[] }, foregroundPids: (paneId: string) => Promise<number[]>): Promise<Map<string, string>> {
-    const recorded = new Set(loadPanes(env).map(([id]) => id));
-    const panes = tree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes))
-        .filter((pane) => pane.agentKind === 'claude' && !recorded.has(pane.paneId));
-    const found = await Promise.all(panes.map(async (pane) => [pane.paneId, await observePaneAccount(env, pane.paneId, foregroundPids)] as const));
-    return new Map(found.filter((entry): entry is [string, string] => entry[1] !== undefined));
+/** What the own process of every Claude and Codex pane in the tree runs on, where it could be read. */
+export async function observePlanPanes(env: NodeJS.ProcessEnv, tree: { workspaces: HerdrTreeWorkspace[] }, foregroundPids: (paneId: string) => Promise<number[]>): Promise<Map<string, string | null>> {
+    const panes = tree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
+    const found = await Promise.all(panes.map(async (pane) => {
+        const provider = observedProvider(pane.agentKind);
+        return [pane.paneId, provider === undefined ? undefined : await observePaneAccount(env, pane.paneId, provider, foregroundPids)] as const;
+    }));
+    return new Map(found.filter((entry): entry is [string, string | null] => entry[1] !== undefined));
 }
 
-/** The account an agent's pane runs on, when muxr started or moved it onto
- *  one. Absent means the computer's own sign-in, as before accounts existed. */
-export function planPaneAccount(env: NodeJS.ProcessEnv, paneId: string): { accountId?: string } {
-    const accountId = loadPanes(env).find(([id]) => id === paneId)?.[1];
+/** The account an agent's pane runs on: what its own process runs on, else
+ *  the one muxr started or moved it onto. Absent means the computer's own
+ *  sign-in, as before accounts existed. */
+export async function planPaneAccount(env: NodeJS.ProcessEnv, paneId: string, agentKind: string | undefined, foregroundPids: (paneId: string) => Promise<number[]>): Promise<{ accountId?: string }> {
+    const provider = observedProvider(agentKind);
+    const observed = provider === undefined ? undefined : await observePaneAccount(env, paneId, provider, foregroundPids);
+    const accountId = observed === undefined ? loadPanes(env).find(([id]) => id === paneId)?.[1] : observed ?? undefined;
     return accountId !== undefined && loadPlanAccounts(env).some((record) => record.id === accountId) ? { accountId } : {};
 }
