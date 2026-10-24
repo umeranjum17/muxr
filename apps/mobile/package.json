@@ -24,12 +24,12 @@
     "@expo/vector-icons": "^15.0.2",
     "@desklink/react-native": "0.5.8",
     "@byokit/cloud": "0.3.0",
-    "@byokit/dictation": "0.5.0",
-    "@byokit/pair": "0.10.3",
-    "@byokit/reach": "0.6.0",
-    "@byokit/realtime": "0.3.1",
-    "@byokit/seal": "0.3.0",
-    "@byokit/ui-core": "0.6.0",
+    "@byokit/dictation": "0.5.3",
+    "@byokit/pair": "0.10.4",
+    "@byokit/reach": "0.7.1",
+    "@byokit/realtime": "0.3.2",
+    "@byokit/seal": "0.3.1",
+    "@byokit/ui-core": "0.7.0",
     "@trymuxr/contract": "0.1.0",
     "@trymuxr/crypto": "0.1.0",
     "@paralleldrive/cuid2": "^2.3.1",
@@ -133,7 +133,7 @@
     "whisper.rn": "0.7.2",
     "zod": "^4.0.0",
     "zustand": "^5.0.15",
-    "@byokit/statusbar": "0.1.1"
+    "@byokit/statusbar": "0.1.2"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
