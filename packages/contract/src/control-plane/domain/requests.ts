@@ -810,6 +810,11 @@ export interface RequestMap extends PeerRequestMap {
         params: { sessionId: string; revision?: string };
         result: ChatRead;
     };
+    /** One image of the conversation by the id `chat.read` gave it; null once it is gone or too big to send. */
+    'chat.image': {
+        params: { sessionId: string; imageId: string };
+        result: { mimeType: string; data: string } | null;
+    };
 
     // --- files + git history ------------------------------------------------
     // Product-owned since the muxr.code plugin fold-in: the Files tree,
@@ -988,6 +993,15 @@ export interface ChatMessage {
     at: number;
     /** The tools a reply used, in order, in the person's words. */
     tools?: ChatTool[];
+    /** Images in the message: pasted ones, ones a tool returned, files the reply names. Bytes come from `chat.image`. */
+    images?: ChatImage[];
+}
+
+/** An image in the conversation; the id is the host's own and only means something to `chat.image`. */
+export interface ChatImage {
+    id: string;
+    /** The file's name, or "Image" for one with no file. */
+    name: string;
 }
 
 /** One tool call: what it did ("Read a file") and on what (a path, a command). */

@@ -417,3 +417,7 @@ export async function changesPatch(
 export function chatRead(sessionId: string, revision?: string) {
     return sync.request('chat.read', { sessionId, ...(revision === undefined ? {} : { revision }) });
 }
+
+export function chatImage(sessionId: string, imageId: string) {
+    return sync.request('chat.image', { sessionId, imageId });
+}

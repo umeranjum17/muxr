@@ -5,9 +5,11 @@ import { Ionicons } from '@expo/vector-icons';
 import type { ChatMessage, ChatTool } from '@trymuxr/contract';
 import { withAlpha } from '@/components/ui';
 import type { ChatState } from '../application/useChat';
+import { ChatImages } from './ChatImages';
 import { ChatSteps, DiffSheet } from './ChatSteps';
 
 export interface ChatPaneProps {
+    sessionId: string;
     state: ChatState;
     /** "Claude", "Pi": who is answering. */
     agentLabel: string;
@@ -32,13 +34,16 @@ function clock(at: number): string {
 }
 
 /** The person's words sit in a grey bubble on the right; the agent's are plain text across the column. */
-function Message({ message, live, ink, onFullDiff, onOpenTerminal }: { message: ChatMessage; live: boolean; ink: string; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
+function Message({ sessionId, message, live, ink, onFullDiff, onOpenTerminal }: { sessionId: string; message: ChatMessage; live: boolean; ink: string; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
     const { theme } = useUnistyles();
     const mine = message.role === 'user';
     if (mine) {
         return (
-            <View accessible accessibilityLabel={`You, ${clock(message.at)}. ${message.text}`} style={{ alignSelf: 'flex-end', maxWidth: '84%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, backgroundColor: theme.colors.surfaceHighest }}>
-                <Text selectable style={{ color: theme.colors.text, fontSize: 15.5, lineHeight: 22 }}>{message.text}</Text>
+            <View style={{ gap: 6 }}>
+                {message.images !== undefined && <ChatImages sessionId={sessionId} images={message.images} mine />}
+                {message.text !== '' && <View accessible accessibilityLabel={`You, ${clock(message.at)}. ${message.text}`} style={{ alignSelf: 'flex-end', maxWidth: '84%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, backgroundColor: theme.colors.surfaceHighest }}>
+                    <Text selectable style={{ color: theme.colors.text, fontSize: 15.5, lineHeight: 22 }}>{message.text}</Text>
+                </View>}
             </View>
         );
     }
@@ -47,6 +52,7 @@ function Message({ message, live, ink, onFullDiff, onOpenTerminal }: { message: 
             {message.text !== '' && <View accessible accessibilityLabel={`Agent, ${clock(message.at)}. ${message.text}`}>
                 <React.Suspense fallback={null}><ChatMarkdown markdown={message.text} /></React.Suspense>
             </View>}
+            {message.images !== undefined && <View style={{ paddingVertical: 4 }}><ChatImages sessionId={sessionId} images={message.images} mine={false} /></View>}
             {message.tools !== undefined && <ChatSteps tools={message.tools} live={live} ink={ink} onFullDiff={onFullDiff} onOpenTerminal={onOpenTerminal} />}
         </View>
     );
@@ -84,7 +90,7 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
     else if (state.status === 'unavailable') body = <Notice title="No messages yet" body={`${props.agentLabel} has not started a conversation here. It shows up as soon as it does.`} />;
     else if (state.status === 'failed') body = <Notice title="Chat is not available" body={state.outdatedHost ? 'This computer runs an older muxr. Update it to read chats here.' : state.message} action={{ label: 'Open terminal', onPress: props.onOpenTerminal }} />;
     else if (messages.length === 0) body = <Notice title="No messages yet" body={`Ask ${props.agentLabel} about this workspace. Replies show up here as whole messages.`} />;
-    else body = messages.map((message, index) => <Message key={message.id} message={message} live={props.working && index === messages.length - 1} ink={props.ink} onFullDiff={setTool} onOpenTerminal={props.onOpenTerminal} />);
+    else body = messages.map((message, index) => <Message key={message.id} sessionId={props.sessionId} message={message} live={props.working && index === messages.length - 1} ink={props.ink} onFullDiff={setTool} onOpenTerminal={props.onOpenTerminal} />);
 
     return (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: props.ink }}>

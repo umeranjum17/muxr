@@ -9,6 +9,7 @@ export type {
     ClientRequest,
     ChangesBadge,
     ChatMessage,
+    ChatImage,
     ChatTool,
     ChatToolKind,
     ChatRead,

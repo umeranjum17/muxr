@@ -2,8 +2,9 @@
 // chatFakeLab.mjs over adb, pairs a lab-id release APK and captures the chat with
 // its steps folded, a group opened with an edit's peek, a command's peek, the
 // full diff, the ⋮ actions menu and the terminal it switches to, at 390, 360 and
-// 270 dp, light and dark, through visualCheck.mjs; then
-// records open, peek and fold as a frame per step. See chat-view.md. Run from the repo root, inside
+// 270 dp, light and dark, through visualCheck.mjs, and its inline images (a file
+// the reply drew, one a Read returned) with the full-screen viewer; then records
+// open, peek and fold, and an image opened and closed, as a frame per step. See chat-view.md. Run from the repo root, inside
 // the emulator lock: node .agents/skills/done-done-verify-pockit/features/chatStepsNativeLab.mjs <apk> <evidenceDir> <avdHome>
 import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -21,7 +22,27 @@ const serial = emu.serial;
 log(`emulator ${serial}`);
 const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: 120_000 });
 const sh = (cmd) => adb('shell', cmd);
-const nodes = () => { sh('uiautomator dump /sdcard/d.xml >/dev/null'); return adb('exec-out', 'cat', '/sdcard/d.xml').match(/<node\s[^>]*>/g) ?? []; };
+const nodes = () => {
+    for (let i = 0; ; i += 1) {
+        // A dump that gives up leaves the last one in place; never read a stale screen.
+        sh('rm -f /sdcard/d.xml; uiautomator dump /sdcard/d.xml >/dev/null');
+        const found = adb('exec-out', 'cat /sdcard/d.xml 2>/dev/null; true').match(/<node\s[^>]*>/g) ?? [];
+        // A slow host raises "Pixel Launcher/System UI isn't responding" over the app; tap Wait and look again.
+        const wait = found.some((node) => /isn't responding/.test(node)) ? found.find((node) => /text="Wait"/.test(node)) : undefined;
+        if (i === 5 || (found.length > 0 && wait === undefined)) return found;
+        // "could not get idle state": the dump gave up on a busy screen; look again.
+        if (wait === undefined) {
+            // Name what keeps the screen busy, once per look.
+            if (i === 0) log(`busy screen: ${sh('timeout 3 uiautomator events 2>&1 | head -c 1500 || true').replace(/\s+/g, ' ')}`);
+            execFileSync('sleep', ['2']);
+            continue;
+        }
+        const [x1, y1, x2, y2] = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(wait).slice(1).map(Number);
+        sh(`input tap ${(x1 + x2) >> 1} ${(y1 + y2) >> 1}`);
+        log('tapped Wait on a not-responding dialog');
+        execFileSync('sleep', ['1.5']);
+    }
+};
 const labelsOf = (node) => [/text="([^"]*)"/.exec(node)?.[1] ?? '', /content-desc="([^"]*)"/.exec(node)?.[1] ?? ''];
 const matches = (node, re) => labelsOf(node).some((label) => re.test(label));
 const boundsOf = (node) => /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(node).slice(1).map(Number);
@@ -40,12 +61,31 @@ const tap = async (re, seconds) => {
 };
 // A fast swipe scrolls; a slow one starts a text selection.
 const toEnd = async () => { for (let i = 0; i < 4; i += 1) { sh('input swipe 540 1700 540 700 120'); await sleep(400); } await sleep(800); };
+// Scrolls back up until a node is whole on screen, clear of the header and the composer.
+const reveal = async (re) => {
+    for (let i = 0; i < 10; i += 1) {
+        const hit = nodes().find((node) => matches(node, re));
+        if (hit !== undefined) {
+            const [, y1, , y2] = boundsOf(hit);
+            // A node scrolled under the header dumps with its bottom above its top; the header ends lower at the largest text.
+            if (y1 > 400 && y2 > y1 && y2 < 1800) { await sleep(800); return; }
+            if (y2 >= 1800) { sh('input swipe 540 1500 540 1100 300'); await sleep(700); continue; }
+        }
+        sh('input swipe 540 900 540 1400 150');
+        await sleep(700);
+    }
+    throw new Error(`never brought ${re} into view`);
+};
 
 let lab;
 let defects = 0;
 try {
-    // A release APK is ~170 MB: under load its install outlasts the 2 minutes an adb step gets.
-    execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 600_000 });
+    // Under load the package service answers well after boot completes, and a release APK
+    // outlasts the usual adb bound.
+    for (let attempt = 1; ; attempt += 1) {
+        try { execFileSync('adb', ['-s', serial, 'install', '-r', apk], { encoding: 'utf8', timeout: 600_000 }); break; }
+        catch (error) { if (attempt === 4) throw error; log(`install retry ${attempt}`); await sleep(30_000); }
+    }
     const pkg = sh('pm list packages').split('\n').map((line) => line.replace('package:', '').trim()).find((name) => name.includes('chatsteps'));
     if (pkg === undefined) throw new Error('the lab-id app did not install');
     const activity = sh(`cmd package resolve-activity --brief ${pkg}`).trim().split('\n').pop();
@@ -62,11 +102,24 @@ try {
     const link = await line(/native link: (\S+)/);
     log('lab ready, native link minted');
 
-    sh('wm size 1080x2376'); sh('wm density 443'); sh('settings put system font_scale 1.0'); sh('cmd uimode night yes');
+    // Just after an install the system can stall a settings call past the adb bound; ask again.
+    for (let attempt = 1; ; attempt += 1) {
+        try { sh('wm size 1080x2376'); sh('wm density 443'); sh('settings put system font_scale 1.0'); sh('cmd uimode night yes'); for (const scale of ['window_animation_scale', 'transition_animation_scale', 'animator_duration_scale']) sh(`settings put global ${scale} 0`); break; }
+        catch (error) { if (attempt === 3) throw error; log(`display setup retry ${attempt}`); await sleep(20_000); }
+    }
     sh(`am start -W -n ${activity}`);
     await sleep(4000);
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr-dev://pair#${link}' -n ${activity}`);
-    await tap(/^Pair$/, 60);
+    // A slow first launch can miss the link; keep what it showed and offer a fresh one once.
+    try { await tap(/^Pair$/, 120); }
+    catch {
+        try { writeFileSync(join(evidence, 'pair-miss.png'), execFileSync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], { timeout: 60_000 })); } catch { /* the screen is stuck too */ }
+        log('no Pair yet, sending a fresh link');
+        out = out.replace(/native link: /g, 'used link: ');
+        lab.kill('SIGUSR2');
+        sh(`am start -W -a android.intent.action.VIEW -d 'muxr-dev://pair#${await line(/native link: (\S+)/)}' -n ${activity}`);
+        await tap(/^Pair$/, 120);
+    }
     await find(/Claude 1/, 90);
     log('paired');
 
@@ -121,6 +174,15 @@ try {
             await openChat();
             await toEnd();
             await shot(`${cell}-collapsed`, true);
+            await reveal(/^Open files\.png$/);
+            await shot(`${cell}-image-file`);
+            await tap(/^Open files\.png$/);
+            await sleep(1200);
+            await shot(`${cell}-image-viewer`);
+            sh('input keyevent 4'); await sleep(1200);
+            await reveal(/^Open image$/);
+            await shot(`${cell}-image-tool`);
+            await toEnd();
             await tap(/^5 steps\./);
             await tap(/^Edited src\/checkout\/shipping\.ts/);
             await toEnd();
@@ -137,7 +199,8 @@ try {
             sh('input keyevent 4'); await sleep(1000);
             await tap(/^Pane actions/);
             await shot(`${cell}-actions`);
-            await tap(/^Close pane actions$/);
+            // The backdrop spans the screen; its centre is a menu row. Back closes the menu.
+            sh('input keyevent 4'); await sleep(1200);
             // The terminal under the chat stays dark in every app theme; the chat comes back in the app's.
             await tap(/^Terminal view$/);
             await sleep(1500);
@@ -152,20 +215,41 @@ try {
         }
     }
 
+    // The images at the narrowest width with the largest text, dark and light, first: they are what this journey is for.
+    sh('wm density 640'); sh('settings put system font_scale 2.0');
+    for (const theme of ['dark', 'light']) {
+        sh(`cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
+        const cell = `chat-270-2.0-${theme}`;
+        await openChat();
+        await toEnd();
+        await reveal(/^Open files\.png$/);
+        await shot(`${cell}-image-file`);
+        await tap(/^Open files\.png$/);
+        await sleep(1200);
+        await shot(`${cell}-image-viewer`);
+        sh('input keyevent 4'); await sleep(1200);
+        await reveal(/^Open image$/);
+        await shot(`${cell}-image-tool`);
+    }
     // The largest text at 270 dp, light: the chat, a group's peek and the actions menu.
-    sh('wm density 640'); sh('cmd uimode night no'); sh('settings put system font_scale 2.0');
+    sh('cmd uimode night no');
     await openChat();
     await toEnd();
     await shot('chat-270-2.0-light-collapsed', true);
+    // The opened group runs taller than the screen; bring the edit's row into view before tapping it.
     await tap(/^5 steps\./);
+    await toEnd();
+    await reveal(/^Edited src\/checkout\/shipping\.ts/);
     await tap(/^Edited src\/checkout\/shipping\.ts/);
     await shot('chat-270-2.0-light-group-edit-peek');
     await tap(/^Pane actions/);
     await shot('chat-270-2.0-light-actions');
-    await tap(/^Close pane actions$/);
+    // The backdrop spans the screen; its centre is a menu row. Back closes the menu.
+    sh('input keyevent 4'); await sleep(1200);
+
     sh('settings put system font_scale 1.0');
 
-    // One recording at 390 dp light: open the group, peek an edit, peek the command, fold it all.
+    // One recording at 390 dp light: open the group, peek an edit, peek the command, fold it all, open an image and close it.
     // A frame after each step (screenrecord starts late and drops the first taps).
     sh('wm density 443'); sh('cmd uimode night no');
     await openChat();
@@ -180,14 +264,17 @@ try {
     await tap(/^Edited src\/checkout\/shipping\.ts/); await tap(/^Ran yarn test checkout/); await toEnd(); still(4);
     await tap(/^Ran yarn test checkout/); await toEnd(); still(2);
     await tap(/^5 steps\./); await toEnd(); still(3);
-    execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', '2', '-i', join(frames, 'f%03d.png'), '-vf', 'scale=540:-2,format=yuv420p', '-c:v', 'libx264', join(evidence, 'native-390-light-open-peek-fold.mp4')]);
+    await reveal(/^Open files\.png$/); still(2);
+    await tap(/^Open files\.png$/); still(3);
+    sh('input keyevent 4'); await sleep(1200); still(2);
+    execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', '2', '-i', join(frames, 'f%03d.png'), '-vf', 'scale=540:-2,format=yuv420p', '-c:v', 'libx264', join(evidence, 'native-390-light-open-peek-fold-image.mp4')]);
     log('recorded');
     // The step record done-done's judge reads beside the captures.
     const steps = `${JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
-        start: 'lab-id release APK freshly installed and paired to the chat fake lab, whose Claude log has a read/search reply, an edit+test reply and a five-step reply with two edits, a plan and a failed command',
-        steps: ['open the Claude agent in Chat view and scroll to the end', 'tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'close the sheet, open ⋮ Pane actions, close it', 'switch to Terminal view, then back to Chat view', 'go back to Home', 'repeat at 390, 360 and 270 dp wide, light and dark', 'at 270 dp and the largest text in the light theme, open the chat, a peek and ⋮'],
-        result: 'the chat screen (header, messages, tool rows, peeks, Full diff sheet, ⋮ actions menu, composer) follows the app theme: white with dark text in the light theme, black in the dark one; tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; the terminal view stays dark in both themes and switching back gives the whole chat in the app theme again; Home shows the app theme',
+        start: 'lab-id release APK freshly installed and paired to the chat fake lab, whose Claude log has a read/search reply, an edit+test reply and a five-step reply with two edits, a plan and a failed command, a reply whose Read returned an image and a reply that draws an image file',
+        steps: ['open the Claude agent in Chat view and scroll to the end', 'scroll up to the drawn image, tap it, go back, scroll to the Read image', 'scroll to the end and tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'close the sheet, open ⋮ Pane actions, close it', 'switch to Terminal view, then back to Chat view', 'go back to Home', 'repeat at 390, 360 and 270 dp wide, light and dark', 'at 270 dp and the largest text, the images and the viewer, dark and light; then, in the light theme, the chat, a peek and ⋮'],
+        result: 'the chat screen (header, messages, tool rows, peeks, Full diff sheet, ⋮ actions menu, composer) follows the app theme: white with dark text in the light theme, black in the dark one; tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; the terminal view stays dark in both themes and switching back gives the whole chat in the app theme again; Home shows the app theme; each image is a rounded card in the column (no broken image, no raw ![...](...) markup) and a tap opens it full screen on black with a close button',
     }, null, 2)}\n`;
     writeFileSync(join(evidence, 'steps.json'), steps);
     writeFileSync(join(evidence, 'native', 'steps.json'), steps);

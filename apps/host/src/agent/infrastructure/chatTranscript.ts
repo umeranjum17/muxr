@@ -1,8 +1,9 @@
-import { open, realpath, stat } from 'node:fs/promises';
+import { open, readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, sep } from 'node:path';
 import type { ChatRead } from '@trymuxr/contract';
 import { transcriptFiles, transcriptRoots, type TranscriptRoots } from '../../usage/index.js';
-import { CHAT_MESSAGES_MAX, chatMessagesFrom, type ChatHarness } from '../domain/chatMessages.js';
+import { CHAT_MESSAGES_MAX, chatMessagesFrom, imageTypeOf, type ChatHarness, type ChatImageSource } from '../domain/chatMessages.js';
+import { MAX_FETCH_BYTES } from './artifactWatcher.js';
 
 /** The conversation Herdr published for an agent: a harness session id, or the log's own path. */
 export interface ChatConversation {
@@ -16,6 +17,8 @@ const TAIL_BYTES = 4 * 1024 * 1024;
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
 /** How long a search that found no log is not repeated: the agent has not written one yet. */
 const MISS_MS = 5_000;
+/** The image tables of this many logs are kept: the chats open on phones. */
+const IMAGE_LOGS = 8;
 
 function harnessOf(agent: string | undefined): ChatHarness | undefined {
     return agent === 'claude' || agent === 'pi' ? agent : undefined;
@@ -40,6 +43,8 @@ async function inside(root: string, path: string): Promise<boolean> {
 export class ChatTranscripts {
     private readonly found = new Map<string, string>();
     private readonly missed = new Map<string, number>();
+    /** By log: the images its last read gave the phone, by the id it gave each. */
+    private readonly images = new Map<string, Map<string, ChatImageSource>>();
 
     constructor(private readonly roots: () => TranscriptRoots = () => transcriptRoots()) {}
 
@@ -89,10 +94,44 @@ export class ChatTranscripts {
             const lines = bytes.toString('utf8').split('\n');
             // A tail begins mid-line: its first line is a fragment.
             if (start > 0) lines.shift();
-            const all = chatMessagesFrom(harness, lines, conversation.cwd);
-            return { state: 'ok', revision: next, messages: all.slice(-CHAT_MESSAGES_MAX), truncated: start > 0 || all.length > CHAT_MESSAGES_MAX };
+            const images = new Map<string, ChatImageSource>();
+            const all = chatMessagesFrom(harness, lines, conversation.cwd, images);
+            const messages = all.slice(-CHAT_MESSAGES_MAX);
+            // A reply names files it meant to make too: only an image that is there is shown.
+            const missing = new Set<string>();
+            await Promise.all([...images].map(async ([id, source]) => {
+                if ('path' in source && !await stat(source.path).then((file) => file.isFile(), () => false)) missing.add(id);
+            }));
+            for (const message of messages) {
+                if (message.images?.some((image) => missing.has(image.id))) {
+                    const kept = message.images.filter((image) => !missing.has(image.id));
+                    if (kept.length > 0) message.images = kept; else delete message.images;
+                }
+            }
+            for (const id of missing) images.delete(id);
+            this.images.delete(path);
+            this.images.set(path, images);
+            if (this.images.size > IMAGE_LOGS) this.images.delete(this.images.keys().next().value!);
+            return { state: 'ok', revision: next, messages, truncated: start > 0 || all.length > CHAT_MESSAGES_MAX };
         } finally {
             await handle.close();
         }
+    }
+
+    /** One image a read gave the phone; null once it is gone, is no longer an image, or is too big for one frame. */
+    async image(conversation: ChatConversation | undefined, imageId: string): Promise<{ mimeType: string; data: string } | null> {
+        const harness = harnessOf(conversation?.agent);
+        if (conversation === undefined || harness === undefined) return null;
+        const path = await this.locate(harness, conversation);
+        if (path === undefined) return null;
+        // A host that restarted since the phone's read has no table yet: read the log again.
+        if (!this.images.get(path)?.has(imageId)) await this.read(conversation);
+        const source = this.images.get(path)?.get(imageId);
+        if (source === undefined) return null;
+        if (!('path' in source)) return source.data.length <= Math.ceil(MAX_FETCH_BYTES / 3) * 4 ? source : null;
+        const mimeType = imageTypeOf(source.path);
+        const file = await stat(source.path).catch(() => undefined);
+        if (mimeType === undefined || file?.isFile() !== true || file.size > MAX_FETCH_BYTES) return null;
+        return { mimeType, data: (await readFile(source.path)).toString('base64') };
     }
 }
