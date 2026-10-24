@@ -14,7 +14,7 @@ import { mkdir, open, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { findHerdrBin, herdrAvailability } from '../../../../../scripts/setup/infrastructure/herdr.mjs';
+import { HERDR_OUTDATED, findHerdrBin, herdrAvailability } from '../../../../../scripts/setup/infrastructure/herdr.mjs';
 import type {
     AgentLifecycle,
     ApplicationLauncher,
@@ -1873,6 +1873,8 @@ export async function createHerdrSessionSource(
         await artifacts.rescanAll();
     } catch (cause) {
         process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
+        // A Herdr binary below the minimum is said plainly too, not only as the socket error it led to.
+        if (!client.outdated && herdrAvailability(options.herdrBin) === 'outdated') process.stderr.write(`${HERDR_OUTDATED}\n`);
     }
 
     function agentUnavailable(): Error {
@@ -2810,9 +2812,9 @@ export async function createHerdrSessionSource(
                     tabs,
                 });
             }
-            // A Herdr below the minimum muxr supports is not a restart: the phone
-            // must lead with the install, exactly as it does when none is there.
-            const unavailable = client.connected ? undefined : herdrAvailability(options.herdrBin);
+            // A Herdr below the minimum muxr supports, as a binary or as the server
+            // still running, is not a muxr restart: the phone leads with the update.
+            const unavailable = client.connected ? undefined : client.outdated ? 'outdated' : herdrAvailability(options.herdrBin);
             return {
                 workspaces,
                 connected: client.connected,
