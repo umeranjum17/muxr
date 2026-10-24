@@ -12,6 +12,7 @@
 // past 50 minutes after Create), so `--attach <serial>` can run the screen part again on the same phone, back on Home. Run from the repo root:
 //   node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk <apk> --evidence <dir> --avd-home <dir> --port <boat lab port>
 //     (--machine <short dir> | --upstream <api base> --key-file <path>) [--dp 390|270] [--font 1.0|2.0] [--theme light|dark] [--screen [--hold <s>]]
+//     [--views <dp:font:theme,…> [--size-only]]  (the size step's screen switch, off and on, at each view; --size-only stops before Create)
 //   node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --attach <serial> --evidence <dir>
 import { execFile, spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -26,6 +27,7 @@ const { values: opts } = parseArgs({ options: {
     dp: { type: 'string', default: '390' }, font: { type: 'string', default: '1.0' }, theme: { type: 'string', default: 'light' },
     upstream: { type: 'string' }, 'key-file': { type: 'string' },
     screen: { type: 'boolean', default: false }, hold: { type: 'string', default: '0' }, attach: { type: 'string' },
+    views: { type: 'string' }, 'size-only': { type: 'boolean', default: false },
 } });
 if (!opts.evidence || (!opts.attach && (!opts.apk || !opts['avd-home'] || !opts.port))) throw new Error('--apk, --evidence, --avd-home and --port are required (or --attach and --evidence)');
 if (!opts.attach && (opts.upstream ? !opts['key-file'] || opts.machine : !opts.machine)) throw new Error('give --machine, or --upstream with --key-file');
@@ -263,6 +265,25 @@ try {
         await waitFor('the size step with the linked account', (found) => find(found, (v) => v === 'Connected') !== undefined);
     }
     await shot('01-size-and-price');
+    // --views 390:1.0:dark,270:2.0:light,… shoots the size step's screen switch, off and then on, at each view.
+    for (const cell of opts.views?.split(',') ?? []) {
+        const [dp, font, theme] = cell.split(':');
+        await view(dp, font, theme);
+        await sh(`am force-stop ${PKG}`);
+        await bringMuxrBack();
+        await tap('Cloud computer', (v) => v === 'Cloud computer' || v === 'Add a cloud computer. Boat.', 180);
+        await waitFor('the size step with the linked account', (found) => find(found, (v) => v === 'Connected') !== undefined);
+        await tap('the screen switch', (v) => v === 'Add a screen for sign-ins');
+        await shot(`01-screen-switch-on-${dp}-${font}-${theme}`);
+        await tap('the screen switch', (v) => v === 'Add a screen for sign-ins');
+        await shot(`01-screen-switch-off-${dp}-${font}-${theme}`);
+    }
+    // --size-only stops before Create: nothing past the size step runs.
+    deploy: {
+    if (opts['size-only']) {
+        say('PASS: size step shot at every view; --size-only stops before Create');
+        break deploy;
+    }
 
     if (opts.upstream) {
         before = await machineIds();
@@ -310,6 +331,7 @@ try {
         result: 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
     }, null, 2));
     if (opts.screen) await screenPhase();
+    }
 } catch (error) {
     say(`FAIL: ${error.message}`);
     process.exitCode = 1;
