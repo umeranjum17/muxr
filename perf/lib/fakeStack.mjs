@@ -259,7 +259,8 @@ async function startStack(options, live) {
         track('relay', relay);
         relay.stdout.on('data', (chunk) => relayLog.push(String(chunk)));
         relay.stderr.on('data', (chunk) => relayLog.push(String(chunk)));
-        relayPort = await waitForRelay(relay);
+        // A loaded host takes well over waitForRelay's default 10 s to boot the relay.
+        relayPort = await waitForRelay(relay, 60_000);
         if (relayPort === 8792 || relayPort === 8793) throw new Error('Lab relay bound a reserved port');
         if (!await relayHealthy(relayPort)) {
             throw new Error(`the relay never became healthy: ${relayLog.join('').trim().split('\n').slice(-3).join(' | ')}`);
