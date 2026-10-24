@@ -226,6 +226,10 @@ rules, with no H2 sections.
   computer with its Online/Asleep/Offline state and the one in use, and the
   Pair a computer / Add a cloud computer rows; tapping another online computer
   switches it after a confirmation and the next prompt runs there, dark and light at 393/270 px.
+- [Reach every pane menu row on a small phone](./pane-menu.md) — release APK over
+  the fake stack (`paneMenuLab.mjs`) and the installed PWA (`paneMenuPwaCells.sh`):
+  the ⋮ menu at 270 and 393 dp, font 1.0 and 2.0, dark and light, at rest with its
+  bottom edge fading while rows lie below and scrolled to its end, and Usage opened from it in every cell.
 - [Switch panes from the pane switcher](./pane-switcher.md) — release APK over
   the fake stack, three tabs: the full-height sheet with the workspace name,
   Spaces and Done on their own row, the tabs in their own lane, a card with a
@@ -311,9 +315,10 @@ rules, with no H2 sections.
   shared stack header on PWA and native: Accounts/Settings whole at 270 dp
   font 2.0; a longer title (Home's Connect a machine) wraps to two lines;
   390 dp font 1.0 unchanged.
-- [Read a version difference as one quiet Home line](./home-version-line.md) —
-  native release app and PWA over a fake-Herdr stack whose host reports 0.1.0:
-  one secondary line at the foot, never the top slot, themes and 270dp/font 1.3.
+- [See which versions are running from Home and Settings](./home-version-line.md) —
+  native release app and PWA over a fake-Herdr stack on the app's version, then
+  announcing 0.2.10: `App X · Host Y` at the foot of Home and in Settings >
+  About, the mismatch hint, channel labels, themes and 270dp/font 2.0.
 - [Read plan limits on the Home card](./home-quota-row.md) —
   native app and PWA over a fake-Herdr stack with a stand-in Codex: window
   first, whole-item wrap, no ellipsis, at 270dp and font 1.3/2.0, both themes.

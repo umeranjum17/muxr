@@ -6,13 +6,15 @@ import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { useMachine } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
-import { getAppVersion } from '@/utils/appVersion';
-import { versionsMismatch } from '@/utils/versionStatus';
+import { getAppBuild, getAppVersion } from '@/utils/appVersion';
+import { versionPairLine, versionsMismatch } from '@/utils/versionStatus';
 
 /**
- * A version difference is chronic and low-urgency, so it never takes the top
- * slot: one quiet line (secondary text, no card, no dot, no chevron) at the
- * foot of Home. The whole line is the action, opening the versions screen.
+ * The running versions sit at the foot of Home as one quiet line (secondary
+ * text, no card, no dot, no chevron), so the build in use is always one glance
+ * away. A version difference is chronic and low-urgency, so it never takes the
+ * top slot: it adds its hint to the same line. The whole line opens the
+ * versions screen.
  */
 const stylesheet = StyleSheet.create((theme) => ({
     line: {
@@ -38,27 +40,26 @@ const stylesheet = StyleSheet.create((theme) => ({
     cardText: { flex: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18, ...Typography.default() },
 }));
 
-/**
- * The app and the computer run different versions: one quiet line, the whole
- * line a tap to the only detailed version/support screen.
- */
+/** App and computer versions, with a plain hint when they differ. */
 export function VersionNotice() {
     const { theme } = useUnistyles();
     const router = useRouter();
     const machine = useMachine(getCachedConnectionSettings().machineId);
-    if (!versionsMismatch(getAppVersion(), machine?.metadata?.muxrCliVersion)) return null;
+    const hostVersion = machine?.metadata?.muxrCliVersion;
+    const versions = versionPairLine(getAppBuild().label, hostVersion);
+    const mismatch = versionsMismatch(getAppVersion(), hostVersion);
     return (
         <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${t('homeNotices.versions')}. ${t('homeNotices.reviewUpdates')}.`}
+            accessibilityLabel={mismatch ? `${versions}. ${t('homeNotices.versions')}. ${t('homeNotices.reviewUpdates')}.` : versions}
             onPress={() => router.push('/settings/connection')}
             hitSlop={{ top: 8, bottom: 8 }}
             style={({ pressed }) => [stylesheet.line, pressed && Platform.select({ android: {}, default: { opacity: 0.75 } })]}
             android_ripple={{ color: theme.colors.surfaceRipple, foreground: true }}
         >
-            <Text numberOfLines={2} style={stylesheet.text}>
-                {t('homeNotices.versions')}
-                <Text> · {t('homeNotices.reviewUpdates')}</Text>
+            <Text style={stylesheet.text}>
+                {versions}
+                {mismatch && <Text> · {t('homeNotices.versions')} · {t('homeNotices.reviewUpdates')}</Text>}
             </Text>
         </Pressable>
     );

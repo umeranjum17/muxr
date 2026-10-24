@@ -115,6 +115,22 @@ journeys:
   home-herdr-outdated:
     command: node .agents/skills/done-done-verify-pockit/features/homeHerdrOutdatedLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # Home's version line and Settings > About on Android (home-version-line.md):
+  # the fake stack first on this checkout's version, then announcing 0.2.10;
+  # the foot of Home and the Version row read both versions and the mismatch
+  # hint. Runs by hand under the shared emulator lock; MUXR_LAB_APK is a
+  # release build of this commit.
+  home-version-line:
+    command: node .agents/skills/done-done-verify-pockit/features/homeVersionLineLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
+  # The same version line and Settings row in the installed PWA
+  # (home-version-line.md): phone widths 360/390/445/270 and font 2.0, desktop
+  # 1280/1440, dark and light. MUXR_LAB_WEB is a lab web export of this commit
+  # (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export, optionally with a
+  # MUXR_RELEASE_VERSION pre-release identity).
+  home-version-line-pwa:
+    command: scripts/diagnostics/application/withPrivateXvfb.sh bash .agents/skills/done-done-verify-pockit/features/homeVersionLinePwaCells.sh "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # Home with the internet up and the Tailscale path to the computer gone
   # (home-tailscale-off.md): the pairing offer names this desktop's Tailscale
   # address, forwarded to the lab relay; closing the forwarder must bring
@@ -244,6 +260,16 @@ journeys:
   # of this commit, MUXR_LAB_AVD_HOME a task-owned emulator home.
   chat-steps:
     command: node .agents/skills/done-done-verify-pockit/features/chatStepsNativeLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$MUXR_LAB_AVD_HOME" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
+  # The pane menu on a small phone: the release app on an owned emulator,
+  # paired to the perf fake stack, opens an agent's ⋮ menu at 270 and 393 dp,
+  # text 1.0 and 2.0, light and dark, shoots it at rest (its edge fading while
+  # rows lie below) and scrolled to its end, then scrolls Usage into view and
+  # opens it (pane-menu.md). Runs by hand under the shared emulator lock;
+  # MUXR_LAB_APK is a release build of this commit, MUXR_LAB_AVD_HOME a
+  # task-owned emulator home, MUXR_LAB_REF main's run of the same journey.
+  pane-menu:
+    command: node .agents/skills/done-done-verify-pockit/features/paneMenuLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$MUXR_LAB_AVD_HOME" "$MUXR_LAB_REF" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
   # The unpaired first screen leads with Get Tailscale, then Get muxr on your
   # computer (the Linux desktop app), then Pair with your computer: the release

@@ -21,8 +21,8 @@ import { refreshPushState, unsubscribeWebPush, updateWebPushNotificationLevel, t
 import { resolveForgetPushAction } from '@/utils/pushForget';
 import { loadAppConfig } from '@/catalog';
 import { addComputerLink } from '@/commercialization';
-import { versionsMismatch } from '@/utils/versionStatus';
-import { getAppVersion } from '@/utils/appVersion';
+import { versionPairLine, versionsMismatch } from '@/utils/versionStatus';
+import { getAppBuild, getAppVersion } from '@/utils/appVersion';
 import { usePlanAccountsAvailable } from '@/plans';
 import {
     collaborationSummary,
@@ -120,7 +120,9 @@ export const SettingsView = React.memo(function SettingsView({
     const [notificationsAllowed, setNotificationsAllowed] = React.useState(true);
     const auth = useAuth();
     const activeMachineId = getCachedConnectionSettings().machineId;
-    const versionMismatch = versionsMismatch(appVersion, allMachinesWithOffline.find((machine) => machine.id === activeMachineId)?.metadata?.muxrCliVersion);
+    const activeHostVersion = allMachinesWithOffline.find((machine) => machine.id === activeMachineId)?.metadata?.muxrCliVersion;
+    const versionMismatch = versionsMismatch(appVersion, activeHostVersion);
+    const versionLine = versionPairLine(getAppBuild().label, activeHostVersion);
 
     const openMachine = React.useCallback(async (machineId: string) => {
         const active = getCachedConnectionSettings().machineId;
@@ -429,8 +431,8 @@ export const SettingsView = React.memo(function SettingsView({
             <ItemGroup title="About">
                 <Item
                     title="Version"
-                    subtitle="App version; host version and diagnostics are under Connection & updates"
-                    detail={appVersion}
+                    subtitle={versionMismatch ? `${versionLine} · ${t('homeNotices.versions')}` : versionLine}
+                    subtitleLines={0}
                     icon={<Ionicons name="information-circle-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={openConnection}
                 />

@@ -133,12 +133,23 @@ const COMMAND_HELP = {
 };
 
 function printHelp(command) {
-    process.stdout.write(command && COMMAND_HELP[command] ? COMMAND_HELP[command] : HELP);
+    process.stdout.write(command && COMMAND_HELP[command] ? COMMAND_HELP[command] : HELP.replace('muxr —', `${versionBanner()} —`));
+}
+
+// A published package carries its package.json beside this file; a source
+// checkout reads the repository's, so it says it is a development build.
+function packageVersion() {
+    const require = createRequire(import.meta.url);
+    try { return { version: require('./package.json').version, source: false }; } catch { return { version: require('../package.json').version, source: true }; }
 }
 
 function versionString() {
-    const require = createRequire(import.meta.url);
-    try { return require('./package.json').version; } catch { return require('../package.json').version; }
+    return packageVersion().version;
+}
+
+function versionBanner() {
+    const { version, source } = packageVersion();
+    return `muxr ${version}${source ? ' (development checkout)' : ''}`;
 }
 
 function commandVersion(command) {

@@ -235,6 +235,8 @@ button:hover { background: #333333; }
 .toggle-title { font-size: 14px; }
 .toggle-hint { font-size: 12px; color: var(--text-secondary); }
 
+.version { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); }
+
 /* The window follows the desktop's light or dark appearance. The dark tokens
    above are the app's own; these light values keep the same roles readable. */
 @media (prefers-color-scheme: light) {

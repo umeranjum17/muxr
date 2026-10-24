@@ -4,14 +4,16 @@ import TestRenderer from 'react-test-renderer';
 import { ConnectionSupport } from './ConnectionSupport';
 
 /*
- * Flow test for the install-context row on the versions card: it must name the
- * real runtime — native installed app, installed standalone PWA, or an
- * ordinary browser tab — from display-mode signals only, never from viewport
- * width. Item/ItemGroup are stubbed at their module seam; the detection and
- * the row wiring are the real component.
+ * Flow test for the versions card: the install-context row must name the real
+ * runtime — native installed app, installed standalone PWA, or an ordinary
+ * browser tab — from display-mode signals only, never from viewport width, and
+ * the version rows must name the running build's channel from the build's own
+ * config. Item/ItemGroup are stubbed at their module seam; the detection, the
+ * app config reader, the version labels and the row wiring are real.
  */
 
 let platformOs: 'android' | 'web' = 'android';
+const build = { native: '0.1.28', releaseVersion: undefined as string | undefined, variant: 'production' as string | undefined };
 
 const theme = vi.hoisted(() => ({
     colors: {
@@ -39,9 +41,11 @@ vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => true) }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
 vi.mock('@/catalog/store', () => ({ useLocalSettingMutable: () => [false, vi.fn()] }));
-vi.mock('@/catalog', () => ({ loadAppConfig: () => ({}) }));
+vi.mock('expo-application', () => ({ get nativeApplicationVersion() { return build.native; }, nativeBuildVersion: '42' }));
+vi.mock('expo-constants', () => ({ default: { get expoConfig() { return { version: build.native, extra: { app: { releaseVersion: build.releaseVersion, buildVariant: build.variant } } }; } } }));
+vi.mock('expo-modules-core', () => ({ requireOptionalNativeModule: () => null }));
+vi.mock('@/catalog', async () => ({ loadAppConfig: (await import('@/catalog/infrastructure/appConfig')).loadAppConfig }));
 vi.mock('@/catalog/diagnostics', () => ({ formatConnectionDiagnosticsForReport: () => 'diagnostics' }));
-vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => '0.1.28', getAppBuildNumber: () => '42' }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('./useHostUpdate', () => ({ useHostUpdate: () => ({ message: undefined, busy: false, check: vi.fn() }) }));
@@ -53,11 +57,14 @@ vi.mock('@/components/ItemGroup', () => ({
 
 let rendered: any;
 
-const renderCard = () => {
+const renderCard = (hostVersion?: string) => {
+    if (rendered) TestRenderer.act(() => rendered.unmount());
     TestRenderer.act(() => {
-        rendered = TestRenderer.create(React.createElement(ConnectionSupport, { hostVersion: undefined }));
+        rendered = TestRenderer.create(React.createElement(ConnectionSupport, { hostVersion }));
     });
 };
+
+const statusRow = () => rendered.root.findAll((node: any) => node.type === 'Item')[0];
 
 const installRow = () => rendered.root
     .findAll((node: any) => node.type === 'Item')
@@ -71,6 +78,8 @@ const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigat
 
 afterEach(() => {
     if (rendered) TestRenderer.act(() => rendered.unmount());
+    rendered = undefined;
+    Object.assign(build, { native: '0.1.28', releaseVersion: undefined, variant: 'production' });
     delete (globalThis as { window?: unknown }).window;
     if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
 });
@@ -107,5 +116,30 @@ describe('ConnectionSupport install-context row', () => {
         };
         renderCard();
         expect(installRow()?.props.title).toBe('Web app');
+    });
+});
+
+describe('ConnectionSupport version rows', () => {
+    it('names a stable, nightly, pre-release or source build and flags a host that differs', () => {
+        Object.assign(build, { native: '0.2.13', releaseVersion: '0.2.13', variant: 'production' });
+        renderCard('0.2.13');
+        expect(statusRow()?.props.title).toBe('Check compatibility / align host');
+        expect(statusRow()?.props.subtitle).toBe('App 0.2.13 · Host 0.2.13');
+        expect(installRow()?.props.subtitle).toBe('Version 0.2.13 · build 42');
+
+        // The nightly APK is a development-variant build whose release identity says nightly.
+        Object.assign(build, { native: '0.2.14', releaseVersion: '0.2.14-nightly.1.1', variant: 'development' });
+        renderCard('0.2.14-nightly.1.1');
+        expect(statusRow()?.props.subtitle).toBe('App 0.2.14-nightly.1.1 · Host 0.2.14-nightly.1.1');
+
+        Object.assign(build, { native: '0.2.14', releaseVersion: '0.2.14-rc.1', variant: 'production' });
+        renderCard('0.2.14');
+        expect(installRow()?.props.subtitle).toBe('Version 0.2.14-rc.1 pre-release · build 42');
+        expect(statusRow()?.props.title).toBe('Check compatibility / align host');
+
+        Object.assign(build, { native: '0.2.13', releaseVersion: '0.2.13', variant: 'development' });
+        renderCard('0.2.10');
+        expect(statusRow()?.props.title).toBe('homeNotices.versions');
+        expect(statusRow()?.props.subtitle).toBe('App 0.2.13-dev · Host 0.2.10');
     });
 });
