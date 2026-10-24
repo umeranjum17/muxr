@@ -214,20 +214,8 @@ try {
         }
     }
 
-    // The largest text at 270 dp, light: the chat, a group's peek and the actions menu.
-    sh('wm density 640'); sh('cmd uimode night no'); sh('settings put system font_scale 2.0');
-    await openChat();
-    await toEnd();
-    await shot('chat-270-2.0-light-collapsed', true);
-    await tap(/^5 steps\./);
-    await tap(/^Edited src\/checkout\/shipping\.ts/);
-    await shot('chat-270-2.0-light-group-edit-peek');
-    await tap(/^Pane actions/);
-    await shot('chat-270-2.0-light-actions');
-    // The backdrop spans the screen; its centre is a menu row. Back closes the menu.
-            sh('input keyevent 4'); await sleep(1200);
-
-    // The images at the narrowest width with the largest text, dark and light.
+    // The images at the narrowest width with the largest text, dark and light, first: they are what this journey is for.
+    sh('wm density 640'); sh('settings put system font_scale 2.0');
     for (const theme of ['dark', 'light']) {
         sh(`cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
         const cell = `chat-270-2.0-${theme}`;
@@ -242,6 +230,22 @@ try {
         await reveal(/^Open image$/);
         await shot(`${cell}-image-tool`);
     }
+    // The largest text at 270 dp, light: the chat, a group's peek and the actions menu.
+    sh('cmd uimode night no');
+    await openChat();
+    await toEnd();
+    await shot('chat-270-2.0-light-collapsed', true);
+    // The opened group runs past the composer; the edit's row is whole only once scrolled to.
+    await tap(/^5 steps\./);
+    await toEnd();
+    await tap(/^Edited src\/checkout\/shipping\.ts/);
+    await toEnd();
+    await shot('chat-270-2.0-light-group-edit-peek');
+    await tap(/^Pane actions/);
+    await shot('chat-270-2.0-light-actions');
+    // The backdrop spans the screen; its centre is a menu row. Back closes the menu.
+    sh('input keyevent 4'); await sleep(1200);
+
     sh('settings put system font_scale 1.0');
 
     // One recording at 390 dp light: open the group, peek an edit, peek the command, fold it all, open an image and close it.
@@ -268,7 +272,7 @@ try {
     const steps = `${JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: 'lab-id release APK freshly installed and paired to the chat fake lab, whose Claude log has a read/search reply, an edit+test reply and a five-step reply with two edits, a plan and a failed command, a reply whose Read returned an image and a reply that draws an image file',
-        steps: ['open the Claude agent in Chat view and scroll to the end', 'scroll up to the drawn image, tap it, go back, scroll to the Read image', 'scroll to the end and tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'close the sheet, open ⋮ Pane actions, close it', 'switch to Terminal view, then back to Chat view', 'go back to Home', 'repeat at 390, 360 and 270 dp wide, light and dark', 'at 270 dp and the largest text in the light theme, open the chat, a peek and ⋮; then the images and the viewer at 270 dp and the largest text, dark and light'],
+        steps: ['open the Claude agent in Chat view and scroll to the end', 'scroll up to the drawn image, tap it, go back, scroll to the Read image', 'scroll to the end and tap the five-step row', 'tap the edit of shipping.ts', 'tap the edit again, then the failed command', 'tap the command again, then the edit, then Full diff', 'close the sheet, open ⋮ Pane actions, close it', 'switch to Terminal view, then back to Chat view', 'go back to Home', 'repeat at 390, 360 and 270 dp wide, light and dark', 'at 270 dp and the largest text, the images and the viewer, dark and light; then, in the light theme, the chat, a peek and ⋮'],
         result: 'the chat screen (header, messages, tool rows, peeks, Full diff sheet, ⋮ actions menu, composer) follows the app theme: white with dark text in the light theme, black in the dark one; tool calls as rows with a grey kind icon, the verb and the file name or command; several steps folded into one row that opens in place; an edit peek with numbered changed lines and Full diff; a failed command peek with its output, Exit 1 and Open terminal; the terminal view stays dark in both themes and switching back gives the whole chat in the app theme again; Home shows the app theme; each image is a rounded card in the column (no broken image, no raw ![...](...) markup) and a tap opens it full screen on black with a close button',
     }, null, 2)}\n`;
     writeFileSync(join(evidence, 'steps.json'), steps);
