@@ -223,6 +223,10 @@ try {
 
     emulator = await bootOwnedEmulator({ name: 'mxcs', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: ['nice', '-n', '10'] });
     serial = emulator.serial;
+    if (process.platform === 'linux') {
+        const stat = readFileSync(`/proc/${emulator.pid}/stat`, 'utf8');
+        writeFileSync(join(EVIDENCE, 'emulator-owner.json'), JSON.stringify({ pid: emulator.pid, start: stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/)[19], serial, avdHome: resolve(opts['avd-home']) }));
+    }
     say(`emulator ${serial} booted`);
     // The phone's width in dp is 1080 px * 160 / density: 443 is 390 dp, 640 is 270 dp.
     const view = async (dp, font, theme) => {
