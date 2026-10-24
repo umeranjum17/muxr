@@ -200,6 +200,20 @@ journeys:
   cloud-boat:
     command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --upstream "${BOAT_LIVE_API:-https://boat.dev/api/v1}" --key-file "$BOAT_LIVE_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # The same real run going on to the screen for sign-ins (cloud-computer-onboarding,
+  # screen-for-sign-ins, step 9): Computer's Set it up for me on the new machine,
+  # then Firefox on a sign-in page tapped and typed into; the machine is removed.
+  cloud-boat-screen:
+    command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --upstream "${BOAT_LIVE_API:-https://boat.dev/api/v1}" --key-file "$BOAT_LIVE_KEY_FILE" --screen --hold "${CLOUD_LAB_HOLD:-0}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 60m
+  # The size step's Add a screen for sign-ins switch, off by default, turned on
+  # and off at 360, 390, 445 and 270 dp, font 1.0 and 2.0, light and dark, on the lab
+  # account; nothing is created (cloud-computer-onboarding, screen-for-sign-ins).
+  # MUXR_LAB_APK is a release build with
+  # EXPO_PUBLIC_MUXR_BOAT_API=http://127.0.0.1:$BOAT_LAB_PORT/api/v1.
+  cloud-screen-switch:
+    command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --views 360:1.0:light,360:1.0:dark,390:1.0:light,390:1.0:dark,445:1.0:light,445:1.0:dark,270:1.0:light,270:2.0:light,270:2.0:dark --size-only > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # A Claude account is added from the phone end to end: Accounts, Open Claude
   # sign-in, the code sent from the sign-in tab's composer, Name this account
   # (see the add-account feature). Runs by hand under the emulator lock with
