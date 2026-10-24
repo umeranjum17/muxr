@@ -103,8 +103,10 @@ const scrollIntoView = async (pattern, bottom = 2180) => {
         const [, , y1, , y2] = node.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/).map(Number);
         if (y1 >= 330 && y2 <= bottom) return true;
         // Too low: lift it by what it overhangs; too high: bring it back down.
-        const lift = y2 > bottom ? Math.min(900, Math.max(250, y2 - bottom + 280)) : -Math.min(900, Math.max(250, 600 - y1));
-        await adb('shell', 'input', 'swipe', '540', String(1500), '540', String(1500 - lift), '350');
+        const lift = y2 > bottom ? Math.min(700, Math.max(250, y2 - bottom + 200)) : -Math.min(700, Math.max(250, 600 - y1));
+        // Back down the list starts high so the swipe stays on screen.
+        const from = lift > 0 ? 1500 : 700;
+        await adb('shell', 'input', 'swipe', '540', String(from), '540', String(from - lift), '350');
         await sleep(1200);
     }
     return false;
