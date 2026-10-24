@@ -1,5 +1,6 @@
-// Pane account chip proof on a real (lab) Herdr: a Claude pane muxr never started, whose own
-// process runs with the Work sign-in folder, wears the Work chip, not the computer's account.
+// Pane account chip proof on a real (lab) Herdr: a Claude pane whose own process runs with the
+// Work sign-in folder wears the Work chip, not the computer's account, even though muxr's record
+// (agent-panes-v1.json) still says it put that pane on the computer's own sign-in.
 // Pairs the APK on an owned emulator and captures each pane's header. See pane-account-chip.md.
 //   node .agents/skills/done-done-verify-pockit/features/paneAccountChipLab.mjs <apk> <evidenceDir> <labRoot>
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -52,6 +53,8 @@ const startAgents = async () => {
     const at = (tab) => panes.find((entry) => entry.tab_id === tab).pane_id;
     herdr('pane', 'send-text', at('w1:t1'), `clear; CLAUDE_CONFIG_DIR=${workFolder} ${join(bin, 'claude')}\n`);
     herdr('pane', 'send-text', at('w1:t2'), `clear; ${join(bin, 'claude')}\n`);
+    // muxr once put work-pane on the computer's sign-in; its agent was then relaunched on Work.
+    writeFileSync(join(labDir, 'muxr', 'plans', 'agent-panes-v1.json'), JSON.stringify([[at('w1:t1'), 'found-claude']]), { mode: 0o600 });
     await sleep(3000);
 };
 
@@ -173,9 +176,9 @@ try {
     const version = sh(`dumpsys package ${PKG} | grep -m1 versionName`).trim().replace(/^versionName=/, '');
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
         target: { version: `muxr ${version} release APK on ${phone ? 'the test phone' : 'an emulator'}` },
-        start: 'a fresh install of muxr and a private lab Herdr with two Claude panes: work-pane runs under the Work account folder, own-pane under the computer\'s own folder',
+        start: 'a fresh install of muxr and a private lab Herdr with two Claude panes: work-pane runs under the Work account folder although muxr\'s record still has it on the computer\'s own sign-in, own-pane under the computer\'s own folder',
         steps: ['Install muxr and open it', 'Pair it with the lab computer from a pairing link', 'Open work-pane and read its header', 'Open own-pane and read its header', 'Repeat at 270 dp'],
-        result: 'a Claude pane started under its own plans folder shows the account signed in at that folder in its header chip, not the default computer account, in two parts labelled exactly "work" and "own". Part "work": work-pane-393-1.0-light.screen.png and work-pane-270-1.0-light.screen.png each show the header chip reading Work. Part "own": own-pane-393-1.0-light.screen.png and own-pane-270-1.0-light.screen.png each show the header chip reading Umer. Each file is a phone screen below its status bar',
+        result: 'a Claude pane whose own process runs under a plans folder shows the account signed in at that folder in its header chip, not the default computer account, even when muxr last recorded it on the default one, in two parts labelled exactly "work" and "own". Part "work": work-pane-393-1.0-light.screen.png and work-pane-270-1.0-light.screen.png each show the header chip reading Work. Part "own": own-pane-393-1.0-light.screen.png and own-pane-270-1.0-light.screen.png each show the header chip reading Umer. Each file is a phone screen below its status bar',
     }, null, 2)}\n`);
     finished = true;
 } finally {
