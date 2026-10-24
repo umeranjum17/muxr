@@ -7,13 +7,16 @@
 # proof.log. WALK=n instead walks back through the history in n stepped drags
 # of under a screen each, at 411 dp, and logs every break in the MARK numbers a screen
 # shows (`gap MARK-a -> MARK-b`), the hole check, recorded to walk.mp4.
+# DENSITY sets the width first: 640 on a 1080 px screen is the 270 dp reference
+# phone, where the grid is taller than its box and a drag pans it before the
+# history moves.
 # Run from the repo root:
 # bash <this> <apk> <evidence-dir>, with MUXR_LAB_SERIAL and a provisioned Herdr
 # lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION, HERDR_LAB_PREPROVISIONED=1).
 # Needs adb and tesseract.
 set -u
 APK=$1; E=$2; SER=${MUXR_LAB_SERIAL:?}; REPO=$PWD
-LINES=${LINES:-400}; LPS=${STUB_LPS:-15}; WALK=${WALK:-0}
+LINES=${LINES:-400}; LPS=${STUB_LPS:-15}; WALK=${WALK:-0}; DENSITY=${DENSITY:-}
 D=$(mktemp -d); trap 'rm -rf -- "$D"' EXIT; mkfifo "$D/in"
 a() { adb -s "$SER" "$@" </dev/null; }
 t0=$(date +%s%3N); log() { echo "$(( $(date +%s%3N) - t0 )) $*" | tee -a "$E/proof.log"; }
@@ -36,10 +39,7 @@ for n in re.findall(r"<node\s[^>]*>", sys.stdin.read()):
 }
 
 mkdir -p "$E"
-# A walk needs the phone-side copy, which a panned terminal never keeps: at
-# 270 dp the grid is taller than its box, so a drag scrolls Claude's own
-# transcript instead and no hole can show. 420 on a 1080 px screen is 411 dp.
-[ "$WALK" -gt 0 ] && { a shell wm density 420; trap 'a shell wm density reset; rm -rf -- "$D"' EXIT; sleep 10; }
+[ -n "$DENSITY" ] && { a shell wm density "$DENSITY"; trap 'a shell wm density reset; rm -rf -- "$D"' EXIT; sleep 10; }
 a uninstall com.trymuxr.app >/dev/null 2>&1; a install "$APK" | tail -1
 a shell pm grant com.trymuxr.app android.permission.POST_NOTIFICATIONS 2>/dev/null
 log "installed $(basename "$APK") on $SER"
@@ -82,5 +82,5 @@ cat > "$E/steps.json" <<JSON
 {"target": {"version": "muxr Android release $(node -p "require('$REPO/package.json').version")+$(git rev-parse --short HEAD)"},
  "start": "Fresh install, paired to a private lab host with one fullscreen Claude Code pane; the pane prints MARK-1..$LINES at $LPS lines/s while the phone is attached",
  "steps": ["Open the Claude Code pane from Home", "Wait for the output to finish (live edge)", $([ "$WALK" -gt 0 ] && echo "\"Walk back through the history in $WALK stepped 800 px drags\"" || echo '"Drag back slowly 400 px", "Fling back"'), "Tap Latest"],
- "result": "$([ "$WALK" -gt 0 ] && echo "Every walked screen shows consecutive MARK rows (no gap line in proof.log), and Latest returns to the newest output (MARK-$LINES) with the pill gone" || echo "The drag moves the view about as far as the finger, the fling keeps going back through consecutive rows with Latest shown, and Latest returns to the newest output (MARK-$LINES) with the pill gone")"}
+ "result": "$([ "$WALK" -gt 0 ] && echo "Each drag walks the view back through the history: every screen shows consecutive MARK rows overlapping the screen before, and proof.log logs any break in the numbers as a gap line; Latest returns to the newest output (MARK-$LINES) with the pill gone" || echo "The drag moves the view about as far as the finger, the fling keeps going back through consecutive rows with Latest shown, and Latest returns to the newest output (MARK-$LINES) with the pill gone")"}
 JSON

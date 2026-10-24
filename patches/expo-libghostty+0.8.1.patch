@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
-index b9c118e..08af197 100644
+index b9c118e..f1d3cac 100644
 --- a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
 +++ b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
 @@ -18,7 +18,8 @@
@@ -59,7 +59,7 @@ index b9c118e..08af197 100644
  };
  
  void writePtyCallback(GhosttyTerminal, void* userdata, const uint8_t* data, size_t len) {
-@@ -225,6 +243,129 @@ uint32_t appendUtf16(uint32_t cp, uint16_t* out, uint32_t used, uint32_t cap) {
+@@ -225,6 +243,161 @@ uint32_t appendUtf16(uint32_t cp, uint16_t* out, uint32_t used, uint32_t cap) {
    return 2;
  }
  
@@ -125,22 +125,37 @@ index b9c118e..08af197 100644
 +
 +// How many rows the screen's content moved up from [prev] to [cur]: the shift
 +// k at which the most rows read cur[i] == prev[i + k]. Negative is content
-+// moving down. Only non-blank rows that appear once in [prev] vote, so text that
-+// repeats (wrapped sentence tails, rules) cannot line up at a false shift, and a
-+// move counts only rows that changed in place, so a fixed footer, which lines up
-+// at 0, cannot outvote a content area that moved most of its height. Returns
-+// false when no row lines up at any shift.
++// moving down. A row that appears once on both screens anchors a shift, and
++// the unbroken run of matching rows around it votes with it: on a narrow grid
++// a line wraps, its tail ("stone.", "the rocks.") repeats down the screen, and
++// fast output leaves only one line in common between two frames, so the tails
++// beside it are what make a move of most of the screen visible. A run with no
++// anchor never votes, so repeating text cannot line up at a false shift, and a
++// move counts only rows that changed in place, so a fixed footer, which lines
++// up at 0, cannot outvote a content area that moved most of its height.
++// Returns false when no row lines up at any shift.
 +bool screenShift(const std::vector<std::string>& prev, const std::vector<std::string>& cur, int* shift) {
 +  const int n = static_cast<int>(std::min(prev.size(), cur.size()));
-+  std::unordered_map<std::string, int> seen;
-+  for (const auto& row : prev) seen[row]++;
++  std::unordered_map<std::string, int> seenPrev, seenCur;
++  for (const auto& row : prev) seenPrev[row]++;
++  for (const auto& row : cur) seenCur[row]++;
 +  const auto count = [&](int k) {
++    const auto matches = [&](int i) {
++      return !cur[i].empty() && cur[i] == prev[i + k] && (k == 0 || cur[i] != prev[i]);
++    };
 +    int matched = 0;
-+    for (int i = std::max(0, -k); i < n && i + k < n; i++) {
-+      if (!cur[i].empty() && cur[i] == prev[i + k] && seen.at(cur[i]) == 1 &&
-+          (k == 0 || cur[i] != prev[i])) {
-+        matched++;
++    for (int i = std::max(0, -k); i < n && i + k < n;) {
++      if (!matches(i)) {
++        i++;
++        continue;
 +      }
++      int end = i;
++      bool anchored = false;
++      for (; end < n && end + k < n && matches(end); end++) {
++        anchored = anchored || (seenPrev.at(cur[end]) == 1 && seenCur.at(cur[end]) == 1);
++      }
++      if (anchored) matched += end - i;
++      i = end;
 +    }
 +    return matched;
 +  };
@@ -160,6 +175,23 @@ index b9c118e..08af197 100644
 +  }
 +  *shift = 0;
 +  return count(0) >= 2;
++}
++
++// Rows of a whole content area that moved off in one frame: [cur]'s footer
++// (the rows at the bottom that did not change, an agent's prompt box and
++// status) held while every row above it changed, so nothing is left to line
++// up, yet the area above it is new output. Returns 0 for anything else.
++int areaMoved(const std::vector<std::string>& prev, const std::vector<std::string>& cur) {
++  int top = static_cast<int>(std::min(prev.size(), cur.size()));
++  bool footer = false;
++  for (; top > 0 && prev[top - 1] == cur[top - 1]; top--) footer = footer || !prev[top - 1].empty();
++  if (!footer) return 0;
++  bool content = false;
++  for (int i = 0; i < top; i++) {
++    if (!prev[i].empty() && prev[i] == cur[i]) return 0;
++    content = content || !prev[i].empty();
++  }
++  return content ? top : 0;
 +}
 +
 +// Repaints the mirror's screen as the live one, after pushing [pushRows] of its
@@ -189,7 +221,7 @@ index b9c118e..08af197 100644
  }  // namespace
  
  extern "C" {
-@@ -507,6 +648,14 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -507,6 +680,14 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
      rowHeader[1] = selResult == GHOSTTY_SUCCESS ? selection.start_x : -1;
      rowHeader[2] = selResult == GHOSTTY_SUCCESS ? selection.end_x : -1;
  
@@ -204,7 +236,7 @@ index b9c118e..08af197 100644
      if (ghostty_render_state_row_get(session->rowIter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS,
                                       &session->cells) != GHOSTTY_SUCCESS) {
        return -1;
-@@ -534,6 +683,10 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -534,6 +715,10 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
          flags |= kFlagSpacer;
        }
  
@@ -215,7 +247,7 @@ index b9c118e..08af197 100644
        bool hasStyling = false;
        ghostty_render_state_row_cells_get(session->cells,
                                           GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING,
-@@ -628,6 +781,86 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -628,6 +813,86 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
    return rowCount;
  }
  
@@ -302,7 +334,7 @@ index b9c118e..08af197 100644
  JNIEXPORT jboolean JNICALL
  Java_expo_modules_libghostty_GhosttyVt_nativeSelectWord(
      JNIEnv*, jobject, jlong handle, jint col, jint row) {
-@@ -826,4 +1059,58 @@ Java_expo_modules_libghostty_GhosttyVt_nativeEncodeKey(
+@@ -826,4 +1091,60 @@ Java_expo_modules_libghostty_GhosttyVt_nativeEncodeKey(
    return outArray;
  }
  
@@ -332,7 +364,9 @@ index b9c118e..08af197 100644
 +      std::chrono::steady_clock::now().time_since_epoch()).count();
 +  if (!linedUp && now - live->mirrorResumedAt < kMirrorResumeMs) return 0;
 +  live->mirrorResumedAt = 0;
-+  const int pushed = linedUp ? shift : 0;
++  // Lined up in place: the footer held. Output that moved the whole area
++  // above it within one frame leaves nothing else in common.
++  const int pushed = !linedUp ? 0 : shift > 0 ? shift : areaMoved(live->mirrorRows, rows);
 +  paintMirror(mirror, live, pushed);
 +  live->mirrorRows = std::move(rows);
 +  return pushed;
@@ -362,10 +396,10 @@ index b9c118e..08af197 100644
 +
  }  // extern "C"
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
-index 1516400..d878616 100644
+index 1516400..13ec975 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
-@@ -12,13 +12,35 @@ class ExpoLibghosttyModule : Module() {
+@@ -12,13 +12,45 @@ class ExpoLibghosttyModule : Module() {
      Name("ExpoLibghostty")
  
      View(ExpoLibghosttyView::class) {
@@ -386,6 +420,16 @@ index 1516400..d878616 100644
 +        view.setLocalHistory(enabled)
 +      }
 +
++      // The host pans first and hands the rest to scrollHistory (see GhosttyTerminalView.panFirst).
++      Prop("panFirst") { view: ExpoLibghosttyView, enabled: Boolean ->
++        view.setPanFirst(enabled)
++      }
++
++      // Move the local history by the rows a panFirst host could not pan; resolves to the rows left for the server.
++      AsyncFunction("scrollHistory") { view: ExpoLibghosttyView, rows: Int ->
++        view.scrollHistory(rows)
++      }
++
 +      // Show the live screen again and resume history capture.
 +      AsyncFunction("toLive") { view: ExpoLibghosttyView ->
 +        view.toLive()
@@ -403,7 +447,7 @@ index 1516400..d878616 100644
        Prop("theme") { view: ExpoLibghosttyView, theme: TerminalThemeRecord? ->
          view.setTheme(theme)
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
-index 2d3ed62..2ad59fa 100644
+index 2d3ed62..f7717fa 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
 @@ -19,6 +19,10 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
@@ -476,12 +520,14 @@ index 2d3ed62..2ad59fa 100644
    }
  
    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-@@ -82,6 +97,12 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -82,6 +97,14 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
    /** Base font size in dp; applied live (the grid reflows in place). */
    fun setFontSize(dp: Float) = terminal.setFontSize(dp)
  
 +  fun setAutoShowKeyboard(enabled: Boolean) { terminal.autoShowKeyboard = enabled }
 +  fun setLocalHistory(enabled: Boolean) { terminal.localHistory = enabled }
++  fun setPanFirst(enabled: Boolean) { terminal.panFirst = enabled }
++  fun scrollHistory(rows: Int) = terminal.scrollHistory(rows)
 +  fun toLive() = terminal.toLive()
 +  fun showKeyboard() = terminal.showKeyboard()
 +  fun hideKeyboard() = terminal.hideKeyboard()
@@ -490,7 +536,7 @@ index 2d3ed62..2ad59fa 100644
    internal fun setTheme(theme: TerminalThemeRecord?) = terminal.setTheme(
      foreground = theme?.foreground,
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
-index 9d6ad16..65d5fd0 100644
+index 9d6ad16..b50f22a 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 @@ -9,7 +9,11 @@ import android.graphics.Canvas
@@ -513,7 +559,7 @@ index 9d6ad16..65d5fd0 100644
  import kotlin.math.ceil
  import kotlin.math.floor
  import kotlin.math.hypot
-@@ -42,26 +47,88 @@ import kotlin.math.roundToInt
+@@ -42,26 +47,97 @@ import kotlin.math.roundToInt
   * Owns a libghostty-vt session via [GhosttyVt]. PTY output is fed in with
   * [write]; user input (IME text, key escape sequences, VT query responses)
   * comes back through [onInputBytes]. Rendering pulls flattened dirty-row
@@ -545,6 +591,15 @@ index 9d6ad16..65d5fd0 100644
 +      field = value
 +      if (value) ensureMirror() else showLive()
 +    }
++
++  /**
++   * The host moves this view inside a taller box (a grid taller than the
++   * screen it sits in): a drag goes to [onScrollRows] first, so the host can
++   * pan, and the host hands what it could not take back through
++   * [scrollHistory]. Once the mirror is shown it takes the drag here again,
++   * both ways, until it is back at its bottom.
++   */
++  var panFirst = false
 +
 +  /** Rows the shown history is back from the live screen; 0 once live again. */
 +  var onHistory: ((rowsBack: Int) -> Unit)? = null
@@ -609,7 +664,7 @@ index 9d6ad16..65d5fd0 100644
  
    // Nerd Font private-use glyphs (powerline, devicons, …) are absent from the
    // system fallback chain; route those cells to the bundled symbols-only font.
-@@ -72,7 +139,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -72,7 +148,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
    private val fillPaint = Paint()
    private val cursorPaint = Paint()
@@ -618,7 +673,7 @@ index 9d6ad16..65d5fd0 100644
    private var cellHeight = ceil(
      textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
    ).toInt()
-@@ -82,6 +149,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -82,6 +158,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    // ── Grid state ──
    private var cols = INITIAL_COLS
    private var rows = INITIAL_ROWS
@@ -632,7 +687,7 @@ index 9d6ad16..65d5fd0 100644
    private var bitmap: Bitmap? = null
    private var bitmapCanvas: Canvas? = null
    private var snapshotBuf: ByteBuffer? = null
-@@ -95,6 +169,16 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -95,6 +178,16 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private var rowSelEnd = IntArray(0)
    private var rowSelEndWide = BooleanArray(0)
  
@@ -649,7 +704,7 @@ index 9d6ad16..65d5fd0 100644
    // ── Selection state ──
    private var selectionMode = false
    private var actionMode: ActionMode? = null
-@@ -130,9 +214,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -130,9 +223,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    // bitmap; the grid is untouched.
    private var blinkPhaseOn = true
    private var blinkScheduled = false
@@ -668,7 +723,7 @@ index 9d6ad16..65d5fd0 100644
        blinkPhaseOn = !blinkPhaseOn
        invalidate()
        postDelayed(this, BLINK_INTERVAL_MS)
-@@ -150,6 +243,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -150,6 +252,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    // ── Scrollback state ──
    private val scroller = OverScroller(context)
    private var flingLastY = 0
@@ -678,7 +733,7 @@ index 9d6ad16..65d5fd0 100644
    private var scrollbarTotal = 0L
    private var scrollbarOffset = 0L
    private var scrollbarLen = 0L
-@@ -161,12 +257,15 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -161,12 +266,15 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      override fun run() {
        if (handle == 0L || !scroller.computeScrollOffset()) return
        val y = scroller.currY
@@ -698,7 +753,7 @@ index 9d6ad16..65d5fd0 100644
          markScrollActivity()
          scheduleFrame()
        }
-@@ -180,7 +279,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -180,7 +288,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        override fun onDown(e: MotionEvent) = true
  
        override fun onSingleTapUp(e: MotionEvent): Boolean {
@@ -707,7 +762,7 @@ index 9d6ad16..65d5fd0 100644
            val (cx, cy) = jumpChipCenter()
            val slop = JUMP_CHIP_RADIUS_DP * 1.5f * resources.displayMetrics.density
            if (hypot(e.x - cx, e.y - cy) <= slop) {
-@@ -193,9 +292,17 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -193,9 +301,17 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
            clearSelection()
            return true
          }
@@ -727,7 +782,7 @@ index 9d6ad16..65d5fd0 100644
          return true
        }
  
-@@ -204,7 +311,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -204,7 +320,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          lastPressCol = (e.x / cellWidth).toInt().coerceIn(0, cols - 1)
          lastPressRow = (e.y / cellHeight).toInt().coerceIn(0, rows - 1)
          performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -742,7 +797,7 @@ index 9d6ad16..65d5fd0 100644
          scheduleFrame()
          if (selectionMode) {
            // Keep dragging without lifting: extend from the pressed cell.
-@@ -229,7 +342,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -229,7 +351,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          val deltaRows = (scrollAccum / cellHeight).toInt()
          if (deltaRows != 0) {
            scrollAccum -= deltaRows * cellHeight
@@ -751,7 +806,7 @@ index 9d6ad16..65d5fd0 100644
            markScrollActivity()
            scheduleFrame()
          }
-@@ -245,7 +358,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -245,7 +367,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          if (handle == 0L || scaleDetector.isInProgress) return false
          // Finger up (negative velocity) scrolls content down: invert.
          flingLastY = 0
@@ -762,7 +817,7 @@ index 9d6ad16..65d5fd0 100644
          postOnAnimation(flingRunnable)
          return true
        }
-@@ -262,11 +377,19 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -262,11 +386,19 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
          pinchScale = 1f
          pinchLastScale = 1f
@@ -782,7 +837,7 @@ index 9d6ad16..65d5fd0 100644
          val steps = ((pinchScale - pinchLastScale) / PINCH_SCALE_STEP).toInt()
          if (steps != 0) {
            pinchLastScale += steps * PINCH_SCALE_STEP
-@@ -274,6 +397,10 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -274,6 +406,10 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          }
          return true
        }
@@ -793,7 +848,7 @@ index 9d6ad16..65d5fd0 100644
      }
    )
  
-@@ -285,6 +412,28 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -285,6 +421,28 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private fun newTextPaint(typeface: Typeface) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
      this.typeface = typeface
      textSize = fontSizeDp * resources.displayMetrics.density
@@ -822,7 +877,7 @@ index 9d6ad16..65d5fd0 100644
    }
  
    /**
-@@ -300,7 +449,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -300,7 +458,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      for (paint in arrayOf(textPaint, boldPaint, italicPaint, boldItalicPaint, symbolsPaint)) {
        paint?.textSize = px
      }
@@ -831,7 +886,7 @@ index 9d6ad16..65d5fd0 100644
      cellHeight = ceil(textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent).toInt()
      baseline = -textPaint.fontMetrics.ascent
      // Cell geometry moved under any active selection handles.
-@@ -329,7 +478,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -329,7 +487,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      selectionFg = selectionForeground
        ?.let { GhosttyVt.nativeParseColor(it) }
        ?.takeIf { it != 0 }
@@ -842,7 +897,7 @@ index 9d6ad16..65d5fd0 100644
      scheduleFrame()
    }
  
-@@ -338,14 +489,38 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -338,14 +498,38 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    /** Feed PTY output into the grid. */
    fun write(data: ByteArray) {
      if (handle == 0L) return
@@ -884,7 +939,7 @@ index 9d6ad16..65d5fd0 100644
    /** Mark the underlying PTY as exited: stop forwarding input. */
    fun finish(@Suppress("UNUSED_PARAMETER") exitCode: Int) {
      finished = true
-@@ -361,16 +536,24 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -361,16 +545,24 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      scroller.abortAnimation()
      removeCallbacks(flingRunnable)
      actionMode?.finish()
@@ -909,7 +964,7 @@ index 9d6ad16..65d5fd0 100644
        if (handle != 0L && scrollbarOffset + scrollbarLen < scrollbarTotal) {
          GhosttyVt.nativeScrollToBottom(handle)
          scheduleFrame()
-@@ -380,6 +563,72 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -380,6 +572,94 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -931,19 +986,41 @@ index 9d6ad16..65d5fd0 100644
 +      GhosttyVt.nativeScroll(handle, deltaRows)
 +      return
 +    }
-+    if (scrollsLocally(deltaRows)) {
-+      if (!showingMirror) {
-+        if (selectionMode) clearSelection()
-+        showingMirror = true
-+        GhosttyVt.nativeMarkDirty(mirror)
-+      }
-+      GhosttyVt.nativeScroll(mirror, deltaRows)
-+      if (mirrorAtBottom()) showLive()
++    if ((showingMirror || !panFirst) && scrollsLocally(deltaRows)) {
++      scrollMirror(deltaRows)
++      return
++    }
++    if (panFirst) {
++      remote(deltaRows)
 +      return
 +    }
 +    // The server's screen is about to show old rows; capture only its live edge.
 +    if (deltaRows < 0) GhosttyVt.nativeMirrorPause(handle, true)
 +    remote(deltaRows)
++  }
++
++  /**
++   * The drag a [panFirst] host could not pan: moves the mirror where it can
++   * and returns the rows left for the server (0 when the mirror took them).
++   */
++  fun scrollHistory(deltaRows: Int): Int {
++    if (scrollsLocally(deltaRows)) {
++      scrollMirror(deltaRows)
++      scheduleFrame()
++      return 0
++    }
++    if (deltaRows < 0) GhosttyVt.nativeMirrorPause(handle, true)
++    return deltaRows
++  }
++
++  private fun scrollMirror(deltaRows: Int) {
++    if (!showingMirror) {
++      if (selectionMode) clearSelection()
++      showingMirror = true
++      GhosttyVt.nativeMarkDirty(mirror)
++    }
++    GhosttyVt.nativeScroll(mirror, deltaRows)
++    if (mirrorAtBottom()) showLive()
 +  }
 +
 +  private fun scrollsLocally(deltaRows: Int): Boolean =
@@ -982,7 +1059,7 @@ index 9d6ad16..65d5fd0 100644
    private fun markScrollActivity() {
      lastScrollActivityAt = android.os.SystemClock.uptimeMillis()
    }
-@@ -454,10 +703,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -454,10 +734,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      val changed = newCols != cols || newRows != rows
      cols = newCols
      rows = newRows
@@ -996,7 +1073,7 @@ index 9d6ad16..65d5fd0 100644
      }
      scheduleFrame()
    }
-@@ -465,9 +715,27 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -465,9 +746,27 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private fun allocateGridBuffers() {
      val widthPx = max(1, ceil(cols * cellWidth).toInt())
      val heightPx = max(1, rows * cellHeight)
@@ -1027,7 +1104,7 @@ index 9d6ad16..65d5fd0 100644
      }
      val capacity = HEADER_BYTES +
        rows * (ROW_HEADER_BYTES + cols * CELL_RECORD_BYTES + cols * MAX_CELL_TEXT_UNITS * 2 + 4)
-@@ -481,6 +749,10 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -481,6 +780,10 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      rowSelStart = IntArray(rows) { -1 }
      rowSelEnd = IntArray(rows) { -1 }
      rowSelEndWide = BooleanArray(rows)
@@ -1038,7 +1115,7 @@ index 9d6ad16..65d5fd0 100644
    }
  
    // ── Rendering ──
-@@ -493,16 +765,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -493,16 +796,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun renderFrame() {
      val buf = snapshotBuf ?: return
@@ -1060,7 +1137,7 @@ index 9d6ad16..65d5fd0 100644
  
      buf.position(0)
      buf.int // version
-@@ -520,12 +794,200 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -520,12 +825,200 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      cursorColor = buf.int
      syncBlinkTimer()
  
@@ -1263,7 +1340,7 @@ index 9d6ad16..65d5fd0 100644
    // ── Selection ──
  
    /** Top-left / bottom-right cells of the rendered selection, or null. */
-@@ -558,7 +1020,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -558,7 +1051,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
  
    private fun clearSelection() {
@@ -1272,7 +1349,7 @@ index 9d6ad16..65d5fd0 100644
      selectionMode = false
      draggingHandle = HANDLE_NONE
      actionMode?.finish()
-@@ -567,7 +1029,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -567,7 +1060,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun selectAllContent() {
      if (handle == 0L) return
@@ -1281,7 +1358,7 @@ index 9d6ad16..65d5fd0 100644
        selectionMode = true
        scheduleFrame()
        actionMode?.invalidate()
-@@ -576,7 +1038,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -576,7 +1069,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun copySelection() {
      if (handle == 0L) return
@@ -1290,7 +1367,7 @@ index 9d6ad16..65d5fd0 100644
      val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
      clipboard.setPrimaryClip(
        ClipData.newPlainText("terminal", String(bytes, Charsets.UTF_8))
-@@ -705,7 +1167,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -705,7 +1198,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      if (handle == 0L) return
      val col = (x / cellWidth).toInt().coerceIn(0, cols - 1)
      val row = ((y / cellHeight).toInt() - dragBiasRows).coerceIn(0, rows - 1)
@@ -1299,7 +1376,7 @@ index 9d6ad16..65d5fd0 100644
      magnifier?.show(x, y)
      scheduleFrame()
    }
-@@ -730,6 +1192,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -730,6 +1223,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun wantsBlink(): Boolean {
      return cursorBlinks && cursorVisible && isAttachedToWindow && hasWindowFocus() &&
@@ -1307,7 +1384,7 @@ index 9d6ad16..65d5fd0 100644
        Settings.Global.getFloat(
          context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f
        ) != 0f
-@@ -756,9 +1219,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -756,9 +1250,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        blinkPhaseOn = true
        invalidate()
      }
@@ -1322,7 +1399,7 @@ index 9d6ad16..65d5fd0 100644
      }
    }
  
-@@ -777,11 +1243,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -777,11 +1274,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      syncBlinkTimer()
    }
  
@@ -1337,7 +1414,7 @@ index 9d6ad16..65d5fd0 100644
      if (rowIndex < rowSelStart.size) {
        rowSelStart[rowIndex] = selStart
        rowSelEnd[rowIndex] = selEnd
-@@ -836,12 +1304,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -836,12 +1335,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
      buf.position(nextRecord)
  
@@ -1359,7 +1436,7 @@ index 9d6ad16..65d5fd0 100644
      for (col in 0 until colCount) {
        val bg = cellBg[col]
        if (bg == defaultBg) continue
-@@ -851,12 +1325,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -851,12 +1356,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        canvas.drawRect(x, top, x + width, bottom, fillPaint)
      }
  
@@ -1384,7 +1461,7 @@ index 9d6ad16..65d5fd0 100644
        val paint = when {
          symbolsPaint != null &&
            (codepoint in PUA_BMP_FIRST..PUA_BMP_LAST || codepoint >= PUA_SUPPLEMENTARY_FIRST) ->
-@@ -868,23 +1350,122 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -868,23 +1381,122 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        }
        paint.color = cellFg[col]
        if (flags and FLAG_FAINT != 0) paint.alpha = 160
@@ -1516,7 +1593,7 @@ index 9d6ad16..65d5fd0 100644
      drawCursor(canvas)
      drawSelectionHandles(canvas)
      drawScrollIndicator(canvas)
-@@ -921,7 +1502,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -921,7 +1533,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
  
    private fun drawJumpToBottomChip(canvas: Canvas) {
@@ -1525,7 +1602,7 @@ index 9d6ad16..65d5fd0 100644
      val density = resources.displayMetrics.density
      val (cx, cy) = jumpChipCenter()
      val radius = JUMP_CHIP_RADIUS_DP * density
-@@ -970,6 +1551,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -970,6 +1582,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -1546,7 +1623,7 @@ index 9d6ad16..65d5fd0 100644
    // ── Input ──
  
    override fun onTouchEvent(event: MotionEvent): Boolean {
-@@ -1094,17 +1689,29 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1094,17 +1720,29 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -1577,7 +1654,7 @@ index 9d6ad16..65d5fd0 100644
  
      // Nerd Font glyph ranges: BMP private-use area plus the supplementary
      // private-use planes (material icons live at U+F0000+ since v3).
-@@ -1131,7 +1738,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1131,7 +1769,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
  
      const val HEADER_BYTES = 52
@@ -1586,7 +1663,7 @@ index 9d6ad16..65d5fd0 100644
      const val CELL_RECORD_BYTES = 16
      const val MAX_CELL_TEXT_UNITS = 32
  
-@@ -1153,5 +1760,22 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1153,5 +1791,22 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val FLAG_SPACER = 1 shl 8
      const val FLAG_FG_DEFAULT = 1 shl 9
      const val FLAG_BG_NONE = 1 shl 10
@@ -1645,7 +1722,7 @@ index 8cfe86e..4c758b6 100644
  
    /** Install a linear selection between two viewport cells (inclusive). */
 diff --git a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
-index 0969f13..9daf825 100644
+index 0969f13..9aeccc6 100644
 --- a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
 +++ b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
 @@ -10,6 +10,12 @@ export type TerminalResizeEvent = {
@@ -1661,12 +1738,15 @@ index 0969f13..9daf825 100644
  };
  export type TerminalViewRef = {
      /** Feed base64-encoded PTY output into the terminal grid. */
-@@ -18,6 +24,12 @@ export type TerminalViewRef = {
+@@ -18,6 +24,15 @@ export type TerminalViewRef = {
      writeText(text: string): Promise<void>;
      /** Mark the underlying PTY as exited. */
      finish(exitCode: number): Promise<void>;
 +    /** Show the live screen again, leaving any local history (Android). */
 +    toLive(): Promise<void>;
++    /** Move the local history by the rows a `panFirst` host could not pan
++     *  (negative goes back); resolves to the rows left for the server (Android). */
++    scrollHistory(rows: number): Promise<number>;
 +    /** Explicitly open the software keyboard. */
 +    showKeyboard(): Promise<void>;
 +    /** Explicitly hide the software keyboard and release focus. */
@@ -1674,7 +1754,7 @@ index 0969f13..9daf825 100644
  };
  export type TerminalTheme = {
      /**
-@@ -52,6 +64,8 @@ export type TerminalViewProps = {
+@@ -52,6 +67,8 @@ export type TerminalViewProps = {
       * pass undefined fields to keep ghostty's defaults.
       */
      theme?: TerminalTheme;
@@ -1683,7 +1763,7 @@ index 0969f13..9daf825 100644
      /** User keyboard/IME input to forward to the PTY. */
      onInput?: (event: {
          nativeEvent: TerminalInputEvent;
-@@ -60,6 +74,35 @@ export type TerminalViewProps = {
+@@ -60,6 +77,38 @@ export type TerminalViewProps = {
      onResize?: (event: {
          nativeEvent: TerminalResizeEvent;
      }) => void;
@@ -1710,6 +1790,9 @@ index 0969f13..9daf825 100644
 +    /** Android: scroll a local copy of the history where there is one, instead
 +     *  of reporting the drag through `onScroll`. */
 +    localHistory?: boolean;
++    /** Android: the host pans this view first; a drag goes to `onScroll`, and
++     *  the host hands what it could not pan to `scrollHistory`. */
++    panFirst?: boolean;
 +    /** Rows the shown local history is back from the live screen; 0 when live. */
 +    onHistory?: (event: {
 +        nativeEvent: {
@@ -1720,10 +1803,10 @@ index 0969f13..9daf825 100644
      style?: StyleProp<ViewStyle>;
  };
 diff --git a/node_modules/expo-libghostty/build/ExpoLibghosttyView.js b/node_modules/expo-libghostty/build/ExpoLibghosttyView.js
-index e3bf3b8..ab4d6e0 100644
+index e3bf3b8..6b60c25 100644
 --- a/node_modules/expo-libghostty/build/ExpoLibghosttyView.js
 +++ b/node_modules/expo-libghostty/build/ExpoLibghosttyView.js
-@@ -19,9 +19,13 @@ export default function TerminalView({ ref, onResize, ...props }) {
+@@ -19,9 +19,14 @@ export default function TerminalView({ ref, onResize, ...props }) {
              });
          };
          return {
@@ -1734,6 +1817,7 @@ index e3bf3b8..ab4d6e0 100644
              finish: whenReady((exitCode) => native.current.finish(exitCode)),
 +            // Android only; elsewhere there is no local history to leave.
 +            toLive: whenReady(() => native.current.toLive?.() ?? Promise.resolve()),
++            scrollHistory: whenReady((rows) => native.current.scrollHistory?.(rows) ?? Promise.resolve(rows)),
          };
      }, []);
      return (<NativeView {...props} ref={native} onResize={(event) => {
@@ -2248,7 +2332,7 @@ index 7a7b11d..41910c7 100644
  @MainActor
  public protocol TerminalSurfacePwdDelegate: TerminalSurfaceViewDelegate {
 diff --git a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
-index cbd0ab4..c8f0176 100644
+index cbd0ab4..c5e358d 100644
 --- a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 +++ b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 @@ -12,6 +12,12 @@ export type TerminalResizeEvent = {
@@ -2264,12 +2348,15 @@ index cbd0ab4..c8f0176 100644
  };
  
  export type TerminalViewRef = {
-@@ -21,6 +27,12 @@ export type TerminalViewRef = {
+@@ -21,6 +27,15 @@ export type TerminalViewRef = {
    writeText(text: string): Promise<void>;
    /** Mark the underlying PTY as exited. */
    finish(exitCode: number): Promise<void>;
 +  /** Show the live screen again, leaving any local history (Android). */
 +  toLive(): Promise<void>;
++  /** Move the local history by the rows a `panFirst` host could not pan
++   *  (negative goes back); resolves to the rows left for the server (Android). */
++  scrollHistory(rows: number): Promise<number>;
 +  /** Explicitly open the software keyboard. */
 +  showKeyboard(): Promise<void>;
 +  /** Explicitly hide the software keyboard and release focus. */
@@ -2277,7 +2364,7 @@ index cbd0ab4..c8f0176 100644
  };
  
  export type TerminalTheme = {
-@@ -57,10 +69,25 @@ export type TerminalViewProps = {
+@@ -57,10 +72,28 @@ export type TerminalViewProps = {
     * pass undefined fields to keep ghostty's defaults.
     */
    theme?: TerminalTheme;
@@ -2298,16 +2385,19 @@ index cbd0ab4..c8f0176 100644
 +  /** Android: scroll a local copy of the history where there is one, instead
 +   *  of reporting the drag through `onScroll`. */
 +  localHistory?: boolean;
++  /** Android: the host pans this view first; a drag goes to `onScroll`, and
++   *  the host hands what it could not pan to `scrollHistory`. */
++  panFirst?: boolean;
 +  /** Rows the shown local history is back from the live screen; 0 when live. */
 +  onHistory?: (event: { nativeEvent: { back: number } }) => void;
    ref?: Ref<TerminalViewRef>;
    style?: StyleProp<ViewStyle>;
  };
 diff --git a/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx b/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx
-index 80ad4b1..b9b202e 100644
+index 80ad4b1..a684cba 100644
 --- a/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx
 +++ b/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx
-@@ -25,9 +25,13 @@ export default function TerminalView({ ref, onResize, ...props }: TerminalViewPr
+@@ -25,9 +25,14 @@ export default function TerminalView({ ref, onResize, ...props }: TerminalViewPr
          });
        };
      return {
@@ -2318,6 +2408,7 @@ index 80ad4b1..b9b202e 100644
        finish: whenReady((exitCode: number) => native.current!.finish(exitCode)),
 +      // Android only; elsewhere there is no local history to leave.
 +      toLive: whenReady(() => native.current!.toLive?.() ?? Promise.resolve()),
++      scrollHistory: whenReady((rows: number) => native.current!.scrollHistory?.(rows) ?? Promise.resolve(rows)),
      };
    }, []);
  
