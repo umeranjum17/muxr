@@ -29,6 +29,7 @@ const seed = () => {
     herdr('workspace', 'create', '--cwd', folder('a/firstmate'), '--label', 'firstmate', '--no-focus');
     herdr('workspace', 'create', '--cwd', folder('b/firstmate'), '--label', join(root, 'w', 'b', 'firstmate'), '--no-focus');
 };
+mkdirSync(labDir, { recursive: true });
 let lab; let ok = false;
 try {
     lab = await linkHerdrLab(labDir, 'wnh', undefined, (_h, s) => { session = s; seed(); });
