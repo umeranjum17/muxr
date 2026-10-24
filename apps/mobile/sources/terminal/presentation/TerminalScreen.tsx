@@ -39,6 +39,7 @@ import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { AgentPager } from './AgentPager';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
+import { FadingScrollView } from '@/components/FadingScrollView';
 import { NARROW_SHEET_WINDOW, SheetIcon } from '@/components/SheetIcon';
 import { agentBesideName, agentLabels, agentStatusColor, agentWhoLine, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, renameInHerdr, renamePane, resolveTabPane, showTabActions, tabLabel, useNavigateToSession } from '@/herd';
 import {
@@ -2173,7 +2174,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 transformOrigin: 'top right',
                                 elevation: 12,
                             }}>
-                                <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
+                                <FadingScrollView fadeInto={theme.colors.surface} style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
                                     <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>
                                     <PaneActionsChangesRow count={changesCount} onPress={openChanges} />
                                     <Pressable onPress={() => { setActionsOpen(false); setFindOpen(true); }} accessibilityRole="button" accessibilityLabel="Find in output"
@@ -2325,7 +2326,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Terminal controls</Text>
                                         <SheetIcon name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
-                                </ScrollView>
+                                </FadingScrollView>
                                 {/* Closing the pane is the one row here that destroys
                                     something, so it never scrolls away and never sits in
                                     the run of things you were only going to look at. */}

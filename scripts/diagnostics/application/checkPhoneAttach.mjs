@@ -110,19 +110,61 @@ const shot = (name) => {
     rmSync(raw);
     log(`captured ${name}`);
 };
+// A drag that always moves: `input swipe` sends no move at all when the app is
+// slow to take its down, and a down then an up far away is a tap wherever it lands.
+const drag = (x, from, to) => {
+    const moves = [1, 2, 3].map((step) => `input motionevent MOVE ${x} ${Math.round(from + ((to - from) * step) / 3)}`);
+    sh([`input motionevent DOWN ${x} ${from}`, ...moves, `input motionevent UP ${x} ${to}`].join('; '));
+};
+// Each node, with the box of the nearest scroller around it. uiautomator clips a
+// row its scroller cuts to the part still shown: at 270 dp the pane menu shows
+// 1.5 dp of Usage above Stop agent, and a tap on that sliver can miss the row.
+const nodes = (xml) => {
+    const found = [];
+    const open = [];
+    for (const [tag] of xml.matchAll(/<node\s[^>]*>|<\/node>/g)) {
+        if (tag === '</node>') { open.pop(); continue; }
+        const box = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(tag).slice(1).map(Number);
+        found.push({ tag, box, scroller: open.findLast(Boolean) });
+        if (!tag.endsWith('/>')) open.push(tag.includes('scrollable="true"') ? box : undefined);
+    }
+    return found;
+};
 const tapNode = async (pattern, seconds = 90, className, optional = false) => {
+    let unmoved;
+    let held;
+    let scrolled = false;
     for (let second = 0; second < seconds; second += 2) {
-        for (const node of dump().match(/<node\s[^>]*>/g) ?? []) {
+        for (const { tag: node, box, scroller } of nodes(dump())) {
+            const [x1, y1, x2, y2] = box;
             const text = /text="([^"]*)"/.exec(node)?.[1] ?? '';
             const description = /content-desc="([^"]*)"/.exec(node)?.[1] ?? '';
             if (className ? !node.includes(`class="${className}"`) : (!pattern.test(text) && !pattern.test(description))) continue;
-            const [, x1, y1, x2, y2] = /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(node).map(Number);
             const [width, height] = /(\d+)x(\d+)/.exec(sh('wm size').split('\n').filter(Boolean).pop()).slice(1).map(Number);
-            // A control below the fold (an "already paired" note pushes Pair down) takes no tap: scroll first.
-            if (!className && (y2 > height - 120 || y1 < 0)) {
-                log(`${pattern} at y ${y1}-${y2} of ${height}; scrolling`);
-                sh(`input swipe ${width >> 1} ${Math.round(height * 0.75)} ${width >> 1} ${Math.round(height * 0.3)} 150`);
+            // A control out of view (an "already paired" note pushes Pair below the
+            // fold), or touching its scroller's edge and so maybe cut there, takes no
+            // tap: scroll it into view first. One that fills its scroller's view (a
+            // Home card in its own scroller), or touches the edge of a scroller that
+            // could not move it, is whole.
+            const [left, top, right, bottom] = scroller ?? [0, 0, width, height];
+            const [shownTop, shownBottom] = [Math.max(top, 0), Math.min(bottom, height - 120)];
+            const out = y2 > shownBottom || y1 < shownTop;
+            const touching = scroller !== undefined && (y2 >= shownBottom || y1 <= shownTop)
+                && y2 - y1 < shownBottom - shownTop && String(box) !== unmoved;
+            if (!className && (out || touching)) {
+                unmoved = String(box);
+                log(`${pattern} at y ${y1}-${y2}, shown ${shownTop}-${shownBottom}; scrolling`);
+                const [near, far] = [shownTop + (shownBottom - shownTop) * 0.3, shownTop + (shownBottom - shownTop) * 0.75].map(Math.round);
+                const [from, to] = y2 >= shownBottom ? [far, near] : [near, far];
+                drag((left + right) >> 1, from, to);
+                scrolled = true;
                 await sleep(1500);
+                break;
+            }
+            // A list still moving takes a tap as a stop: tap once the row held still across two reads.
+            if (scrolled && String(box) !== held) {
+                held = String(box);
+                await sleep(1000);
                 break;
             }
             sh(`input tap ${(x1 + x2) >> 1} ${(y1 + y2) >> 1}`);
@@ -432,16 +474,26 @@ try {
     // Each direction is timed from the first fling until the phone shows it
     // arrived: Latest offered once back in history, gone once at the newest output.
     // The whole input_method dump runs past a megabyte on some phones: only the one flag leaves the device.
-    if (sh('dumpsys input_method | grep -q mInputShown=true && echo shown || echo hidden').trim() === 'shown') { sh('input keyevent KEYCODE_BACK'); await sleep(1000); }
+    const imeShown = () => sh('dumpsys input_method | grep -q mInputShown=true && echo shown || echo hidden').trim() === 'shown';
+    if (imeShown()) { sh('input keyevent KEYCODE_BACK'); await sleep(1000); }
     lab.herdr(['pane', 'send-text', keep.pane_id, 'rows\n']);
     await sleep(5000);
     const [width, height] = /(\d+)x(\d+)/.exec(sh('wm size').split('\n').filter(Boolean).pop()).slice(1).map(Number);
-    const fling = (from, to) => sh(`input swipe ${width >> 1} ${Math.round(height * from)} ${width >> 1} ${Math.round(height * to)} 60`);
+    // 200 ms, not 60: `input swipe` waits for the app to take each event, so a
+    // down that a busy app takes longer than the whole swipe to handle leaves no
+    // move to send, and the down and the up land as a tap: the terminal opens its
+    // keyboard (6 of 30 bursts at 60 ms on a loaded emulator, 0 of 30 at 200 ms;
+    // a monkey script of pointer events arrived late instead, as long presses).
+    // Still a flick: 200 ms over 40% of the screen flings the history.
+    const fling = (from, to) => sh(`input swipe ${width >> 1} ${Math.round(height * from)} ${width >> 1} ${Math.round(height * to)} 200`);
     const LATEST = /content-desc="Jump to latest output/;
     const scrollUntil = async (from, to, arrived) => {
         const since = Date.now();
         for (let burst = 0; burst < 6; burst += 1) {
             for (let flick = 0; flick < 3; flick += 1) fling(from, to);
+            // Even at 200 ms a heavily loaded emulator can still turn one into a tap:
+            // say so, and put the keyboard away so the screen it judges is the history.
+            if (imeShown()) { log('a fling arrived as a tap (no move reached the app) and opened the keyboard; closing it'); sh('input keyevent KEYCODE_BACK'); }
             for (let look = 0; look < 3; look += 1) if (arrived(dump())) return Date.now() - since;
         }
         return undefined;

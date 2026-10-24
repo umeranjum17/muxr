@@ -103,6 +103,11 @@ function childEnv(home, muxrHome, extra, base = process.env) {
     }
     // A lab shell's HERDR_SESSION would make the host demand that named session from the fake.
     if (!('HERDR_SESSION' in (extra ?? {}))) delete env.HERDR_SESSION;
+    // HOME is the lab's, but these point the host's usage and account readers at the
+    // person's own agent accounts: a lab's Usage screen showed the owner's Claude usage.
+    for (const key of Object.keys(env)) {
+        if (/^(CLAUDE_CONFIG_DIR|CODEX_HOME|PI_CODING_AGENT_DIR|PI_CONFIG_DIR|OPENCODE_\w+|ANTHROPIC_\w+|OPENAI_API_KEY|XDG_(DATA|STATE|CACHE)_HOME)$/.test(key) && !(key in (extra ?? {}))) delete env[key];
+    }
     return {
         ...env,
         HOME: home,
