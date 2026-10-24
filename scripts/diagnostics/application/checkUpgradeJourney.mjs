@@ -169,7 +169,9 @@ const mintNativePairing = (path) => new Promise((resolve, reject) => {
             const event = JSON.parse(pending.slice(0, end));
             pending = pending.slice(end + 1);
             if (event.offer) resolve(event.offer.text);
-            if (event.approval) { socket.write('{"yes":true}\n'); paired = true; log('device paired'); }
+            if (event.approval) { socket.write('{"yes":true}\n'); log('pairing approved'); }
+            // Closing this socket before the phone proves its key rolls the device back, so only the result counts.
+            if (event.result) { paired = true; log('device paired'); }
             if (event.error) reject(new Error(event.error));
         }
     });

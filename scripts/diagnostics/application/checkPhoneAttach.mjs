@@ -39,6 +39,10 @@
  *   PHONE_SERIAL=a4b93ea2 DONE_DONE_EVIDENCE_ROOT=<dir> PHONE_ATTACH_ROOT=<short scratch> \
  *     PHONE_APK=<release apk> PHONE_PACKAGE=<release tarball> \
  *     node scripts/diagnostics/application/checkPhoneAttach.mjs
+ *
+ * PHONE_ATTACH_STOP_AFTER=send ends the run once the typed command printed:
+ * a timing run for the attach that skips scroll, Usage and the host count.
+ * Its release-build.json says `partial`, which no release gate accepts.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -54,6 +58,8 @@ if (serial !== 'a4b93ea2' && !/^emulator-\d+$/.test(serial ?? '')) throw new Err
 const apk = process.env.PHONE_APK || undefined;
 const tarball = process.env.PHONE_PACKAGE || undefined;
 const rounds = Number(process.env.PHONE_ATTACH_ROUNDS ?? 18);
+const stopAfterSend = process.env.PHONE_ATTACH_STOP_AFTER === 'send';
+const STOPPED_AFTER_SEND = Symbol('stopped after send');
 const { linkHerdrLab } = await import(join(repo, 'scripts/diagnostics/application/linkHerdrLab.mjs'));
 const PKG = 'com.trymuxr.app';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -73,7 +79,12 @@ const dump = () => {
             sh('uiautomator dump /sdcard/d.xml >/dev/null');
             const xml = adb('exec-out', 'cat', '/sdcard/d.xml');
             sh('rm -f /sdcard/d.xml');
-            return xml;
+            // A loaded emulator raises "System UI isn't responding" over the app: wait it out.
+            const wait = /isn(?:'|&apos;)t responding/.test(xml) && /text="Wait"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(xml);
+            if (!wait) return xml;
+            sh(`input tap ${(Number(wait[1]) + Number(wait[3])) >> 1} ${(Number(wait[2]) + Number(wait[4])) >> 1}`);
+            log('waited out a system "not responding" dialog');
+            if (attempt === 3) return xml;
         } catch (error) {
             if (attempt === 3) throw error;
             log(`ui dump stalled (attempt ${attempt}); retrying`);
@@ -115,8 +126,9 @@ const tapNode = async (pattern, seconds = 90, className, optional = false) => {
                 break;
             }
             sh(`input tap ${(x1 + x2) >> 1} ${(y1 + y2) >> 1}`);
+            const tapped = Date.now();
             log(`tapped ${text || description}`);
-            return true;
+            return tapped;
         }
         await sleep(2000);
     }
@@ -185,7 +197,9 @@ const mintNativePairing = (socketPath) => new Promise((resolve, reject) => {
             const event = JSON.parse(pending.slice(0, end));
             pending = pending.slice(end + 1);
             if (event.offer) resolve(event.offer.text);
-            if (event.approval) { socket.write('{"yes":true}\n'); paired = true; log('device paired'); }
+            if (event.approval) { socket.write('{"yes":true}\n'); log('pairing approved'); }
+            // Closing this socket before the phone proves its key rolls the device back, so only the result counts.
+            if (event.result) { paired = true; log('device paired'); }
             if (event.error) reject(new Error(event.error));
         }
     });
@@ -197,17 +211,21 @@ let installed = 'unknown';
 // The host logs one line per terminal stream it really attached.
 const attaches = () => (lab?.hostOutput().match(/link: terminal stream attached/g) ?? []).length;
 
+// The time to attach runs from the tap to the host's new terminal stream, which
+// it logs once Herdr painted the pane's first frame. Nothing else may run while
+// it is awaited: a ui dump blocks this process for a second or more, and the
+// host's line would be counted when the dump returned, not when it landed.
+const hostAttachMs = async (before, tapped) => {
+    while (attaches() <= before && Date.now() - tapped < 30_000) await sleep(25);
+    return attaches() > before ? Date.now() - tapped : undefined;
+};
+
 // The phone is attached when its screen shows a terminal and the host logged a
 // new terminal stream: a screen that still shows the last pane proves nothing.
-// `since` is when the person asked for the agent; the time to attach counts from there.
-let attachedMs;
 const waitAttached = async (before, since = Date.now(), budget = 90) => {
     for (let second = 0; second < budget; second += 1) {
         const xml = dump();
-        if (surface(xml) && attaches() > before) {
-            attachedMs = Date.now() - since;
-            return `attached in ${(attachedMs / 1000).toFixed(1)}s`;
-        }
+        if (surface(xml) && attaches() > before) return `attached in ${((Date.now() - since) / 1000).toFixed(1)}s`;
         // A refused attempt leaves the phone a retry to press; the person presses it.
         if (/content-desc="Reconnect terminal/.test(xml)) await tapNode(/^Reconnect terminal/, 4, undefined, true);
         await sleep(1000);
@@ -288,6 +306,8 @@ try {
     if (apk !== undefined) {
         try { adb('uninstall', PKG); } catch { /* the app was not installed yet */ }
         adb('install', apk);
+        // A fresh install asks for notifications over Home, which hides the agent card.
+        try { sh(`pm grant ${PKG} android.permission.POST_NOTIFICATIONS`); } catch { /* Android 12 and older ask nothing */ }
     }
     const versionText = sh(`dumpsys package ${PKG} | grep versionName`).trim();
     installed = /versionName=([\d.]+)/.exec(versionText)?.[1] ?? 'unknown';
@@ -344,13 +364,15 @@ try {
     const beforeOpen = attaches();
     const from = Date.now();
     await recordOn('the lab agent terminal');
-    await tapNode(/umer-lab/, 120);
+    const tapped = await tapNode(/umer-lab/, 120);
+    const attachMs = await hostAttachMs(beforeOpen, tapped);
     await waitOffHome();
     leakWindows.push([from - 500, Date.now()]);
     const first = await waitAttached(beforeOpen, from);
-    log(`first attach: ${first}; host attached ${attaches() - beforeOpen} stream(s)`);
+    log(`first attach: ${first}; host attached ${attaches() - beforeOpen} stream(s), the first ${attachMs} ms after the tap`);
     if (!first.startsWith('attached')) throw new Error(`the phone never attached: ${first}`);
-    timings.attachMs = attachedMs;
+    // Past 30 s (a refused attach the journey had to press Reconnect for) only the outer bound is known.
+    timings.attachMs = attachMs ?? Date.now() - tapped;
     await sleep(3000);
     shot('01-agent-attached');
 
@@ -404,6 +426,7 @@ try {
     if (!surface(dump())) throw new Error('the screen was not clean after typing');
     steps.send = 'pass';
     log(`typed "echo ${word}" and a pane printed it`);
+    if (stopAfterSend) throw STOPPED_AFTER_SEND;
 
     // Scroll the agent's history back and forward fast, the way a thumb does.
     // Each direction is timed from the first fling until the phone shows it
@@ -464,9 +487,12 @@ try {
     steps['one-host'] = 'pass';
     verdict = `pass: attached through ${rounds} churn rounds, typed output shown, scrolled back and forward, Usage and back, one host`;
 } catch (error) {
-    const cause = error instanceof Error ? error.message : String(error);
-    if (verdict === 'not reached') verdict = `fail: ${cause}`;
-    throw error;
+    if (error === STOPPED_AFTER_SEND) verdict = `partial: attached through ${rounds} churn rounds and typed output shown; scroll, Usage and the host count not run`;
+    else {
+        const cause = error instanceof Error ? error.message : String(error);
+        if (verdict === 'not reached') verdict = `fail: ${cause}`;
+        throw error;
+    }
 } finally {
     await recordOff('journey over');
     record();
@@ -479,15 +505,16 @@ try {
     writeFileSync(join(evidence, 'release-build.json'), `${JSON.stringify({
         schema: 1, journey: RELEASE_JOURNEY, version,
         build: { apk: apkDigest, package: tarball === undefined ? null : sha256(tarball) },
-        result: verdict.startsWith('pass') && version === installed ? 'pass' : 'fail', steps, hosts: hosts ?? null, timings,
+        result: verdict.startsWith('partial') ? 'partial' : verdict.startsWith('pass') && version === installed ? 'pass' : 'fail', steps, hosts: hosts ?? null, timings,
     }, null, 2)}\n`);
     // done-done's step record: what a user did and what they saw, from the verdict this run reached.
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
         target: { version: installed },
         start: `${apk === undefined ? 'the release app already installed on the phone, restarted' : 'the release app freshly installed on the phone'}, with a lab computer running two agent panes that the phone is not yet paired to`,
-        steps: ['pair the phone to the lab computer', 'open an agent', 'close agent panes and attach again through pane churn', 'type a command at the agent',
-            'scroll its history back and forward fast', 'open Usage and come back', 'count the hosts alive'],
-        result: verdict.startsWith('pass') ? 'the phone attached after every round of pane churn, the typed command printed its output on a clean screen, the history scrolled back and forward, Usage opened and closed, and one host stayed alive' : verdict,
+        steps: ['pair the phone to the lab computer', 'open an agent and time its first attach, from the tap to the host\'s new terminal stream', 'close agent panes and attach again through pane churn', 'type a command at the agent',
+            ...(stopAfterSend ? [] : ['scroll its history back and forward fast', 'open Usage and come back', 'count the hosts alive'])],
+        result: verdict.startsWith('partial') ? `the first attach took ${timings.attachMs} ms from the tap to the host's new terminal stream, the phone attached after every round of pane churn, and the typed command printed its output on a clean screen; scrolling, Usage and the host count were not run`
+            : verdict.startsWith('pass') ? `the first attach took ${timings.attachMs} ms from the tap to the host's new terminal stream, the phone attached after every round of pane churn, the typed command printed its output on a clean screen, the history scrolled back and forward, Usage opened and closed, and one host stayed alive` : verdict,
     }, null, 2)}\n`);
     if (lab) writeFileSync(join(evidence, 'host.log'), lab.hostOutput()
         .replace(/pairing string[^\n]*/g, '<pairing>').replace(/muxr:\/\/pair#\S*/g, '<offer>'));

@@ -57,9 +57,12 @@ Flow test: `scripts/release/checkJourneyReceipt.spec.mjs` (no result, another AP
 
 - npm 12 answers `npm view <pkg>@<v> <field> --json` with a one-element array; the registry readers unwrap it. Before that fix every local registry check read "published from different bytes".
 - `dumpsys input_method` runs past a megabyte on the test phone: read only `mInputShown` on the device.
-- Baseline (0.2.10, test phone, 22 Oct): first attach 9.7-11.5 s, scroll 2.3 s back and 3.7 s forward, one host after Usage.
+- Baseline (0.2.10, test phone, 22 Oct): scroll 2.3 s back and 3.7 s forward, one host after Usage. Its first attach of 9.7-11.5 s counted the journey's own ui dumps and one-second polls; `attachMs` now runs from the tap to the host's new terminal stream, awaited with no dump running, and 0.2.12 measured 0.4-1.0 s on the x86_64 emulator.
+- Never time anything while a ui dump or other `execFileSync` runs: the journey's process is blocked, so the lab host's lines are read when the call returns, not when they were written.
 - Usage opens from the terminal's `Pane actions` menu; a dump with no `Terminal surface` and a `Usage` node is the Usage screen.
 - The scroll uses 60 ms swipes (flings); a slow swipe is a long-press selection, not a scroll.
 - Captures skip any screen with the computer's own name; `MUXR_LAB_MACHINE_NAME` keeps the real hostname off the phone.
 - Release path only: no visual surface changes; visual check: n/a (no UI change).
 - Twin on a loaded emulator (23 Oct, load 40-70): first attach 36.8-37.5 s, scroll 14.7 s; a fresh install also raises System UI ANR and notification-permission dialogs over the app (answer Wait, `pm grant ... POST_NOTIFICATIONS`).
+- Attach timing only: `PHONE_ATTACH_STOP_AFTER=send` ends the run after the typed command prints. Its release-build.json says `partial`, which the release receipt check refuses. Use it while the Usage step fails on main at 270 dp (task mx-fix-usage-row-270dp: Usage sits under the Pane actions menu's Stop agent footer).
+- The pair.sock client must stay open until the host's `result`: closing it after `yes` rolls back a phone that has not proved its key yet ("This pairing didn't finish on your computer").
