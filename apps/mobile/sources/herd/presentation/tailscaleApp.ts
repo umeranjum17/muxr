@@ -1,7 +1,6 @@
 import { Linking, Platform } from 'react-native';
 import { Modal } from '@/modal';
 import { openExternalUrl } from '@/utils/openExternalUrl';
-import { openTailscaleApp } from '@/../modules/tailnet-address';
 
 const PLAY_STORE_APP = 'market://details?id=com.tailscale.ipn';
 const PLAY_STORE_WEB = 'https://play.google.com/store/apps/details?id=com.tailscale.ipn';
@@ -22,5 +21,6 @@ export async function openTailscaleStore(): Promise<void> {
 /** Opens Tailscale where Android can launch it, else its store page, which
  *  offers Open once it is installed. */
 export async function openTailscale(): Promise<void> {
-    if (!openTailscaleApp()) await openTailscaleStore();
+    // Loaded on use, so code that never opens Tailscale needs no native bridge.
+    if (!(await import('@/../modules/tailnet-address')).openTailscaleApp()) await openTailscaleStore();
 }

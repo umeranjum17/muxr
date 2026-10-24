@@ -22,7 +22,7 @@ deletes the old caches).
   `muxr-shell-<hash>`, and deletes the previous caches on activate.
 - Relay, link, API and `/health` traffic is never cached.
 - Push and notification-click behaviour is unchanged.
-- Home's connecting and unreachable cards read "You're offline" (no restart command, no blame on the computer) when a 3 s fetch to the paired relay's `/health` fails, even while `navigator.onLine` stays true (a VPN holds the network up with no route out).
+- Home's connecting and unreachable cards read "You're offline" (no restart command, no blame on the computer) when a 3 s fetch to the paired relay's `/health` fails and the public internet probe fails too, even while `navigator.onLine` stays true (a VPN holds the network up with no route out). With the internet up and only the relay gone they keep the computer's own cards instead ([home-tailscale-off.md](./home-tailscale-off.md)).
 - The finalized shell carries a light/dark `theme-color` pair equal to the splash colours; the manifest has `id`, `launch_handler` and `categories`.
 
 ## How to get to it (user POV)
@@ -69,10 +69,12 @@ offline session, not just the shell) pair it with the lab hook first — see
 7. Record the offline→online transition as a short screen recording (screenshot
    frames through `ffmpeg`) into the evidence folder.
 8. Offline copy: pair via the lab hook, then kill the lab relay by its exact PID
-   (the phone's path to the computer is gone while `navigator.onLine` stays
-   true), wait about 20 s, and assert the connecting card says "You're offline"
-   with no restart command. Read `navigator.onLine` in the same page to show it
-   was still true.
+   and take the page offline with chrome-devtools-axi's network emulation (the
+   internet probe must fail too), wait about 20 s, and assert the connecting
+   card says "You're offline" with no restart command. With the relay killed
+   but the page online, the card must instead read the computer's own
+   ("isn't answering" / "Computer unreachable"), never "This device has no
+   network".
 
 ## Gotchas
 

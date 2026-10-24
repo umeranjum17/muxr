@@ -200,18 +200,23 @@ export function BusyConnectingCard({ since, computer }: { since: number; compute
         const timer = setInterval(() => setNow(Date.now()), 1_000);
         return () => clearInterval(timer);
     }, []);
-    const deviceOffline = useDeviceReach() === 'offline';
+    const reach = useDeviceReach();
+    const noun = pairingDeviceNoun();
+    const device = noun === 'browser' ? 'device' : noun;
     const seconds = Math.max(0, Math.floor((now - since) / 1_000));
     const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
     return (
         <View style={[styles.card, cardStyle(theme)]}>
-            <Text style={styles.title}>{deviceOffline ? "You're offline." : `${computer} isn't answering, likely busy.`}</Text>
+            <Text style={styles.title}>{reach === 'offline' ? "You're offline." : reach === 'tailscale-off' ? `Tailscale is off on this ${device}.` : `${computer} isn't answering, likely busy.`}</Text>
             <Text accessibilityLiveRegion="polite" style={styles.body}>
-                {deviceOffline
+                {reach === 'offline'
                     ? `This device has no network, so it can't reach ${computer}. Check the connection once you're back online.`
+                    : reach === 'tailscale-off'
+                    ? `This ${device} is online, but it reaches ${computer} through Tailscale. Turn Tailscale on and muxr reconnects on its own.`
                     : `Reconnecting on its own… No answer for ${elapsed}. Your terminals come back when the computer catches up; nothing to do there.`}
             </Text>
             <View style={styles.actions}>
+                {reach === 'tailscale-off' && <ActionButton title="Open Tailscale" onPress={() => void openTailscale()} />}
                 <ActionButton title="Connection details" variant="secondary" onPress={() => router.push('/settings/connection' as never)} />
             </View>
         </View>
