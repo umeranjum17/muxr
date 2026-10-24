@@ -109,18 +109,19 @@ const SIGN_IN_PAGE = 'github.com/login';
 /** Computer on a computer with no screen: Set it up for me, then a browser sign-in page tapped and typed into. */
 async function screenPhase() {
     say('screen: open a shell, then Computer');
-    await tap('the agent picker', (v) => /^Choose agent|^Agent:|, selected agent/.test(v), 60);
-    await tap('Shell', (v) => v === 'Shell' || v.startsWith('Shell,'), 30);
-    await tap('Start Shell', (v) => v === 'Start Shell without a prompt', 30);
+    await tap('Choose an agent', (v) => v === 'Choose an agent', 60);
+    await tap('Shell', (v) => v.startsWith('Shell (no agent),'), 30);
+    await tap('Start Shell', (v) => v.startsWith('Start Shell (no agent) in'), 30);
     await tap('Pane actions', (v) => v === 'Pane actions', 120);
+    await tap('Computers', (v) => v === 'Computers', 30);
     // The stand-in computer shares this host's /tmp/.X11-unix, so its Computer would look at the owner's displays.
     if (opts.machine) {
-        await waitFor('Computer in the pane actions', (found) => find(found, (v) => v === 'Computer') !== undefined, 30);
-        await shot('08-pane-actions');
-        say('stand-in: stopping before Computer, which only a real cloud computer may open');
+        await waitFor('View screen', (found) => find(found, (v) => v === 'View screen') !== undefined, 30);
+        await shot('08-computers');
+        say('stand-in: stopping before View screen, which only a real cloud computer may open');
         return;
     }
-    await tap('Computer', (v) => v === 'Computer', 30);
+    await tap('View screen', (v) => v === 'View screen', 30);
     const card = await waitFor('the Computer screen', (found) => find(found, (v) => v === 'Set it up for me' || v === 'Tap to control' || v === "Couldn't open this computer") !== undefined, 120);
     if (!find(card, (v) => v === 'Set it up for me')) { await shot('08-computer-without-card'); throw new Error(`Computer did not offer Set it up for me: ${card.filter((n) => n.text).map((n) => n.text).join(' | ')}`); }
     await sleep(1500);
