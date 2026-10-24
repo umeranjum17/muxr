@@ -1489,8 +1489,8 @@ export async function createHerdrSessionSource(
     // every revision, refresh() re-reads after our own mutations. The flat maps are a
     // thin index over kit.snapshot(), rebuilt on every sync, plus pending-launch
     // overlays the kit does not carry yet. No manual event patching.
-    // A voice roster lookup has just paid for this snapshot. Only prompt routing
-    // may reuse it, and never across a revision change or reconnect.
+    // The revision this index was last rebuilt at; prompt routing re-indexes
+    // the live tree when it has moved instead of re-reading Herdr.
     let lastKitRevision = -1;
 
     function syncFromKit(snap = client.kit.snapshot()): void {
@@ -1885,9 +1885,12 @@ export async function createHerdrSessionSource(
     }
 
     async function resolvePane(sessionId: string, reuse?: 'prompt' | 'target'): Promise<CurrentSession> {
-        const recentPromptSnapshot = reuse === 'prompt' && client.connected
-            && client.kit.snapshot().revision === lastKitRevision;
-        if (recentPromptSnapshot) {
+        // Herdr's pushes keep the kit's tree live, so a prompt routes on it at
+        // once: a whole re-read before typing held every send while a busy
+        // fleet's titles kept moving the revision. Only the conversation the
+        // route is bound to resolves, so a replaced one still misses.
+        if (reuse === 'prompt' && client.connected) {
+            if (client.kit.snapshot().revision !== lastKitRevision) syncFromKit();
             const cached = currentSession(sessionId);
             // A miss must discover the target rather than reject from a cache.
             if (cached !== undefined) return cached;
@@ -2367,6 +2370,9 @@ export async function createHerdrSessionSource(
         // Herdr names the conversation the prompt reached; a match needs no confirming read.
         const reached = parseHerdrAgentSession(receipt.agentSession);
         if (reached !== undefined && `${receipt.paneId}\u0000${herdrAgentSessionKey(reached)}` === generation) return;
+        // An agent that publishes no conversation is known only by its pane,
+        // which the receipt already names: a fresh read cannot tell more.
+        if (reached === undefined && publishedAgentSession(session.agent) === undefined) return;
         try {
             await refreshSnapshot();
             const current = currentSession(sessionId);
