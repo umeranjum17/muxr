@@ -221,6 +221,10 @@ rules, with no H2 sections.
   computer with its Online/Asleep/Offline state and the one in use, and the
   Pair a computer / Add a cloud computer rows; tapping another online computer
   switches it after a confirmation and the next prompt runs there, dark and light at 393/270 px.
+- [Reach every pane menu row on a small phone](./pane-menu.md) — release APK over
+  the fake stack (`paneMenuLab.mjs`) and the installed PWA (`paneMenuPwaCells.sh`):
+  the ⋮ menu at 270 and 393 dp, font 1.0 and 2.0, dark and light, at rest with its
+  bottom edge fading while rows lie below and scrolled to its end, and Usage opened from it in every cell.
 - [Switch panes from the pane switcher](./pane-switcher.md) — release APK over
   the fake stack, three tabs: the full-height sheet with the workspace name,
   Spaces and Done on their own row, the tabs in their own lane, a card with a
