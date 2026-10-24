@@ -1,24 +1,23 @@
 import * as React from 'react';
 import { getCachedConnectionSettings } from '@/connection/connectionSettings';
+import { isTailscaleAddress } from '@/pairing/domain/pairingString';
 
 const PROBE_TIMEOUT_MS = 3_000;
 const PROBE_INTERVAL_MS = 5_000;
 
 /**
- * Whether this device can reach the paired computer's relay within a short
- * timeout. `navigator.onLine` stays true while a VPN holds the network up with
- * no route out, so the verdict is the fetch, not the flag.
+ * Public endpoints that answer any device with internet. They separate "this
+ * device has no network" from "the paired computer does not answer": a phone
+ * on Wi-Fi with Tailscale off fails the relay probe but passes these.
  */
-export async function relayAnswers(relayUrl: string): Promise<boolean> {
+const INTERNET_PROBE_URLS = ['https://connectivitycheck.gstatic.com/generate_204', 'https://cloudflare.com/cdn-cgi/trace'];
+
+async function answers(url: string): Promise<boolean> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
     try {
-        const health = new URL(relayUrl);
-        health.protocol = health.protocol === 'wss:' ? 'https:' : 'http:';
-        health.pathname = '/health';
-        health.search = '';
-        // `no-cors` lets a cross-origin web app see reachability without the relay's CORS headers.
-        await fetch(health.toString(), { mode: 'no-cors', cache: 'no-store', signal: controller.signal });
+        // `no-cors` lets a cross-origin web app see reachability without the far end's CORS headers.
+        await fetch(url, { mode: 'no-cors', cache: 'no-store', signal: controller.signal });
         return true;
     } catch {
         return false;
@@ -27,25 +26,55 @@ export async function relayAnswers(relayUrl: string): Promise<boolean> {
     }
 }
 
-/** True when this device has no route to the paired computer. An unpaired device has nothing to reach, so it is never offline here. */
-export async function isDeviceOffline(): Promise<boolean> {
+function relayHealthUrl(relayUrl: string): string {
+    const health = new URL(relayUrl);
+    health.protocol = health.protocol === 'wss:' ? 'https:' : 'http:';
+    health.pathname = '/health';
+    health.search = '';
+    return health.toString();
+}
+
+/**
+ * What stands between this device and the paired computer. `navigator.onLine`
+ * stays true while a VPN holds the network up with no route out, so every
+ * verdict is a fetch, not the flag.
+ * - `reachable`: the relay answers.
+ * - `unreachable`: the internet answers but the relay does not.
+ * - `offline`: neither answers.
+ */
+export async function reachVerdict(relayUrl: string, internetUrls: readonly string[] = INTERNET_PROBE_URLS): Promise<'reachable' | 'unreachable' | 'offline'> {
+    if (await answers(relayHealthUrl(relayUrl))) return 'reachable';
+    const online = await Promise.all(internetUrls.map(answers));
+    return online.includes(true) ? 'unreachable' : 'offline';
+}
+
+export type DeviceReach = 'reachable' | 'offline' | 'tailscale-off' | 'unreachable';
+
+/** The verdict for the paired computer, with `tailscale-off` when its relay is
+ *  a Tailscale address and this device is online without one. An unpaired
+ *  device has nothing to reach, so it is always `reachable` here. */
+export async function deviceReach(): Promise<DeviceReach> {
     const settings = getCachedConnectionSettings();
-    if (settings.machineId === '') return false;
-    return !(await relayAnswers(settings.relayUrl));
+    if (settings.machineId === '') return 'reachable';
+    const verdict = await reachVerdict(settings.relayUrl);
+    if (verdict !== 'unreachable' || !isTailscaleAddress(settings.relayUrl)) return verdict;
+    // Loaded on use, so the web build needs no native bridge.
+    return (await import('@/../modules/tailnet-address')).hasTailnetAddress() === false ? 'tailscale-off' : verdict;
 }
 
-/** Retry feedback that never blames the computer while this device has no network. */
+/** Retry feedback that never blames the computer while this device has no network, nor the network while it has one. */
 export async function unavailableFeedback(): Promise<string> {
-    return (await isDeviceOffline())
-        ? 'This device is offline. Check the connection, then tap Retry once you are back online.'
-        : 'Still unavailable. Run the command on your computer, check its network, then retry.';
+    const reach = await deviceReach();
+    if (reach === 'offline') return 'This device is offline. Check the connection, then tap Retry once you are back online.';
+    if (reach === 'tailscale-off') return 'Tailscale is off on this device. Turn it on, then tap Retry.';
+    return 'Still unavailable. Run the command on your computer, check its network, then retry.';
 }
 
-export function useDeviceOffline(): boolean {
-    const [offline, setOffline] = React.useState(false);
+export function useDeviceReach(): DeviceReach {
+    const [reach, setReach] = React.useState<DeviceReach>('reachable');
     React.useEffect(() => {
         let active = true;
-        const check = () => void isDeviceOffline().then((next) => { if (active) setOffline(next); });
+        const check = () => void deviceReach().then((next) => { if (active) setReach(next); });
         check();
         const timer = setInterval(check, PROBE_INTERVAL_MS);
         // Browser online/offline events only make the next check immediate; they never set the verdict.
@@ -62,5 +91,5 @@ export function useDeviceOffline(): boolean {
             }
         };
     }, []);
-    return offline;
+    return reach;
 }
