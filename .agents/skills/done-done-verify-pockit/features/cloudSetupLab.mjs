@@ -239,11 +239,14 @@ try {
         await tap('Pair Desk', (v) => v === 'Pair');
         await waitFor('Desk Home', (found) => find(found, (v) => v === 'Umer-Desk') !== undefined, 180);
         await shot('08-desk-after-cloud');
-        const settings = async () => {
-            await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://settings' -n ${activity}`);
-            await waitFor('Settings', (found) => find(found, (v) => v === 'Settings') !== undefined);
+        const computers = async () => {
+            await tap('Desk agent', (v) => /\. (Idle|Working|Done|Needs you)\b/.test(v));
+            await tap('Pane actions', (v) => v === 'Pane actions');
+            await tap('Computers', (v) => v === 'Computers');
+            await waitFor('SSH computer checked on pick', (found) => find(found, (v) => v.includes('Checked when you pick it')) !== undefined);
         };
-        await settings();
+        await computers();
+        await shot('08b-cloud-checked-on-pick');
         await tap('Cloud computer row', (v) => v === 'muxr-cloud');
         await tap('Switch back to cloud', (v) => v === 'Switch');
         await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://' -n ${activity}`);
@@ -259,7 +262,7 @@ try {
     writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: opts.upstream ? `fresh release APK on an owned 390 dp emulator, a real Boat machine through the lab's key proxy to ${opts.upstream}` : 'fresh release APK on an owned 390 dp emulator, Boat lab with its stand-in computer (sshd + muxr in a namespace)',
-        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else until Home connects', ...(opts['switch-route'] ? ['pair Desk', 'switch back to the cloud in Settings', 'force-stop and relaunch muxr'] : [])],
+        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else until Home connects', ...(opts['switch-route'] ? ['pair Desk', 'open Desk agent → Pane actions → Computers; cloud says Checked when you pick it', 'pick the cloud and confirm Switch', 'force-stop and relaunch muxr'] : [])],
         result: opts['switch-route'] ? 'Home reconnected to the cloud computer over its retained SSH route after switching to Desk and back, then after relaunch; no SSH credential was re-entered' : 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
     }, null, 2));
 } finally {
