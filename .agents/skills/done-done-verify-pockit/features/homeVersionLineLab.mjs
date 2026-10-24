@@ -32,7 +32,9 @@ const defects = [];
 
 const emu = await bootOwnedEmulator({ name: 'mxversions', avdHome: process.env.MUXR_LAB_AVD_HOME, launcher: ['nice', '-n', '10'], extraArgs: ['-no-snapshot-load'] });
 note(`emulator ${emu.serial} pid ${emu.pid}`);
-const adb = (...args) => exec('adb', ['-s', emu.serial, ...args], { timeout: 600_000, maxBuffer: 32 * 1024 * 1024 });
+const adbOnce = (...args) => exec('adb', ['-s', emu.serial, ...args], { timeout: 600_000, maxBuffer: 32 * 1024 * 1024 });
+// A loaded emulator drops an occasional shell call (exit 255); one retry rides it out.
+const adb = (...args) => adbOnce(...args).catch(async () => { await sleep(3000); return adbOnce(...args); });
 const dump = async () => {
     for (let i = 0; i < 5; i += 1) {
         try {
@@ -96,6 +98,15 @@ const pairFresh = async () => {
     note(`lab stack: relay ${stack.relayPort}, host pid ${stack.pids.host}, relay pid ${stack.pids.relay}`);
     setAndroidSerial(emu.serial);
     for (const args of [['svc', 'power', 'stayon', 'true'], ['input', 'keyevent', 'KEYCODE_WAKEUP'], ['wm', 'dismiss-keyguard']]) await adb('shell', ...args).catch(() => undefined);
+    // The first launch after a data clear can miss its offer; a fresh offer on a warm app pairs.
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+        if (await pairOnce()) return true;
+        note(`pairing attempt ${attempt} never reached Home`);
+        await adb('shell', 'am', 'force-stop', PKG);
+    }
+    return false;
+};
+const pairOnce = async () => {
     const pairing = await stack.mintPairing();
     const link = /^(muxr|https?):/.test(pairing.code) ? pairing.code : `muxr://pair#${pairing.code}`;
     await adb('shell', `am start -n ${PKG}/.MainActivity -a android.intent.action.VIEW -d '${link}'`);
