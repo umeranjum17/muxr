@@ -109,7 +109,7 @@ Old server, no window: `homeHerdrOutdatedLab.mjs <apk> <evidenceDir>` (the
 protocol 21 while its binary reports 0.9.1, pairs a release APK on an owned
 emulator, captures Home at 270 dp font 1.3 and 393 dp font 1.0, dark and
 light, at rest and at the end, checks the host log line, then flips the fake
-to protocol 22 through its `fake.protocol` method and waits for Home to drop
+to protocol 22 through its `lab.protocol` method and waits for Home to drop
 the card with no tap. Run it once with a host built from origin/main for the
 before shot: the generic restart card, and no recovery after the flip.
 

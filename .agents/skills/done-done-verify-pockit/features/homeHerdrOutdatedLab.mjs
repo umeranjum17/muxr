@@ -60,7 +60,7 @@ const cell = (dir, name, end) => {
 const setProtocol = (socketPath, protocol) => new Promise((done, fail) => {
     const socket = createConnection(socketPath);
     socket.on('error', fail);
-    socket.on('connect', () => socket.write(`${JSON.stringify({ id: 'lab', method: 'fake.protocol', params: { protocol } })}\n`));
+    socket.on('connect', () => socket.write(`${JSON.stringify({ id: 'lab', method: 'lab.protocol', params: { protocol } })}\n`));
     socket.on('data', () => { socket.destroy(); done(); });
 });
 

@@ -24,7 +24,7 @@ export async function startFakeHerdr(options) {
     // a pane that has never printed and one whose output has ended.
     const emptyAfterMs = Number(options.emptyAfterMs ?? 0);
     // The protocol `ping` reports: below 22 stands in for a Herdr server older
-    // than muxr supports; `fake.protocol` changes it, as a restart onto an update would.
+    // than muxr supports; `lab.protocol` changes it, as a restart onto an update would.
     let protocol = Number(options.protocol ?? 22);
     const startedAt = Date.now();
     const cwd = join(dir, 'project');
@@ -240,7 +240,7 @@ export async function startFakeHerdr(options) {
     const methods = {
         // The kit pings for the protocol version on connect, like real Herdr.
         'ping': () => ({ protocol }),
-        'fake.protocol': (params) => { protocol = Number(params.protocol); return {}; },
+        'lab.protocol': (params) => { protocol = Number(params.protocol); return {}; },
         'session.snapshot': () => ({ snapshot: snapshotOf(live) }),
         'plugin.list': () => ({ plugins: [] }),
         'plugin.action.invoke': (params) => {
