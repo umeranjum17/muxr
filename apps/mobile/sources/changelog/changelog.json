@@ -1,6 +1,65 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.15",
+            "title": "Home says when Tailscale is off",
+            "summary": "Since 0.2.14: Home no longer says there is no network when the phone is online but Tailscale is off.",
+            "features": [],
+            "fixes": [
+                {
+                    "title": "Tailscale is off message",
+                    "detail": "When the phone is online but cannot reach your computer, Home now says Tailscale is off on this phone, with a button that opens Tailscale, instead of saying the device has no network."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Checks",
+                    "status": "not-run",
+                    "detail": "Not accepted on a device."
+                }
+            ],
+            "knownLimits": []
+        },
+        {
+            "appVersion": "0.2.14",
+            "title": "Images in chat, and a quicker attach",
+            "summary": "Since 0.2.13: pictures in a chat open full screen, a pane opens faster, and an old Herdr is called out plainly.",
+            "features": [
+                {
+                    "title": "Images in chat",
+                    "detail": "Pictures in the chat show inline. Tap one to open it full screen."
+                },
+                {
+                    "title": "Old Herdr warning",
+                    "detail": "If the computer runs an out-of-date Herdr, including an old one still running, the host log and Home now say so plainly."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Faster pane attach",
+                    "detail": "A pane attaches sooner when you open it."
+                },
+                {
+                    "title": "Scroll-back on the narrowest phones",
+                    "detail": "Scrolling back in a full-screen agent pane on a narrow screen now walks the history the phone already holds."
+                },
+                {
+                    "title": "Workspace names",
+                    "detail": "A workspace shows its Herdr label on the phone, and a worker now names only its own pane or tab."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Checks",
+                    "status": "not-run",
+                    "detail": "Not accepted on a device."
+                }
+            ],
+            "knownLimits": [
+                "Update phone and computer together: the naming and Herdr warning changes live in the computer's muxr host."
+            ]
+        },
+        {
             "appVersion": "0.2.13",
             "title": "Truer account chips, and sending you can see",
             "summary": "Since 0.2.12: each pane shows the account it is really running on, a sent prompt says so, and cloud computers are reached over SSH.",

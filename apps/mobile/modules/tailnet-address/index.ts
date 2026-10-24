@@ -2,6 +2,7 @@ import { Platform, requireOptionalNativeModule } from 'expo-modules-core';
 
 interface TailnetAddressNative {
     present: () => boolean;
+    openApp: () => boolean;
 }
 
 const native = Platform.OS === 'android'
@@ -18,5 +19,15 @@ export function hasTailnetAddress(): boolean | undefined {
         return native?.present();
     } catch {
         return undefined;
+    }
+}
+
+/** Opens the Tailscale app on Android. False where it is not installed or
+ *  cannot be opened from here: iOS and the web. */
+export function openTailscaleApp(): boolean {
+    try {
+        return native?.openApp() ?? false;
+    } catch {
+        return false;
     }
 }

@@ -47,6 +47,14 @@ const ABOVE_KEYS = 8;
 const PICTURE_GAP = 8;
 
 type DesktopPermission = 'view' | 'control' | 'clipboard';
+type ScreenSetup = { running: true } | { error: string } | null;
+
+/** The no-screen card on a Boat computer: the offer, the install under way, or why it failed (with the command to run instead). */
+function describeScreenSetup(setup: ScreenSetup) {
+    if (setup === null) return { title: desktopCopy.noScreenTitle, detail: desktopCopy.noScreenBoatBody, spinner: false, action: desktopCopy.addScreenAction };
+    if ('running' in setup) return { title: desktopCopy.addingScreenTitle, detail: desktopCopy.addingScreenBody, spinner: true };
+    return { title: desktopCopy.noScreenTitle, detail: setup.error, command: desktopCopy.noScreenCommand, spinner: false, action: desktopCopy.addScreenAction };
+}
 type Menu = 'clipboard' | 'help' | 'more';
 
 /** What each gesture does, for the help the header's "?" opens. */
@@ -305,6 +313,21 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
         void connect();
     }, [connect]);
 
+    // A Boat computer this phone set up can be given its screen from here; any other computer gets the command.
+    // The cloud kit loads only for that check, so Computer on any other computer never carries it.
+    const [boatComputer, setBoatComputer] = React.useState(false);
+    React.useEffect(() => {
+        void import('@/cloud').then((cloud) => cloud.isBoatComputer(getCachedConnectionSettings().machineId)).then(setBoatComputer, () => undefined);
+    }, []);
+    const [screenSetup, setScreenSetup] = React.useState<ScreenSetup>(null);
+    const addScreen = React.useCallback(() => {
+        setScreenSetup({ running: true });
+        import('@/cloud').then((cloud) => cloud.addBoatScreen()).then(() => {
+            setScreenSetup(null);
+            retry();
+        }, (cause: unknown) => setScreenSetup({ error: cause instanceof Error ? cause.message : String(cause) }));
+    }, [retry]);
+
     React.useEffect(() => setKeyboardOpen(keyboard.isVisible), [keyboard.isVisible]);
 
     React.useEffect(() => {
@@ -553,13 +576,16 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
         : resuming && !closed ? { title: copy.opening, spinner: true }
         : dropped && !closed && (snapshot.status === 'opening' || snapshot.status === 'connecting') ? null
         : describePreviewOverlay(snapshot, kind, closed);
+    const offerScreen = !preview && started && boatComputer && snapshot.status === 'failed' && snapshot.failure?.code === 'no-screen';
     const status: { title: string; detail?: string; command?: string; spinner: boolean; action?: string } = previewStatus !== null
         ? { ...previewStatus, action: previewStatus.action?.label }
+        : offerScreen
+            ? describeScreenSetup(screenSetup)
         : started
             ? { ...described, action: described.canRetry ? 'Try again' : undefined }
             : { title: desktopCopy.stoppedTitle, detail: desktopCopy.stoppedBody, command: undefined, spinner: false, action: desktopCopy.startAction };
     const overlayShown = preview ? previewStatus !== null : !live;
-    const onStatusAction = previewStatus?.action?.exit === true ? onExit : started ? retry : start;
+    const onStatusAction = previewStatus?.action?.exit === true ? onExit : offerScreen ? addScreen : started ? retry : start;
     const shownNotice = live ? notice?.text ?? null : null;
     // The row stays while the keyboard is still on its way down, fading with it.
     const web = Platform.OS === 'web';

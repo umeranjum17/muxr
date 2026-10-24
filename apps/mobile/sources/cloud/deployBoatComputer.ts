@@ -1,5 +1,5 @@
 import { boat, machine, MachineError, setup, words, type HostRecipe, type MachineRef, type MachineStore, type Price, type Provider } from '@byokit/cloud';
-import { applySshAfterPairing, establishSshTunnel, stopSshTunnel, type SshFieldInput } from '@/connection';
+import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { generateSshLoginKey, sshFingerprint } from '@/connection/sshPublicKey';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/pairing/secrets';
 
@@ -7,6 +7,8 @@ import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/pairing/
 export const BOAT_API = process.env.EXPO_PUBLIC_MUXR_BOAT_API || 'https://boat.dev/api/v1';
 export const BOAT_KEY = 'muxr.cloud.boat-key.v1';
 const MACHINE_KEY = 'muxr.cloud.boat-machine.v1';
+/** The paired machine id of the Boat computer, so the Computer screen knows which computer it can add a screen to. */
+const PAIRED_KEY = 'muxr.cloud.boat-paired.v1';
 const PORT = 8792;
 const WORK_DIR = '/home/user/muxr';
 /**
@@ -52,11 +54,60 @@ const RECIPE: HostRecipe = {
 /** The muxr CLI as the recipe's unit runs it; `machine.run` puts the kit's node first on PATH and sets `recipe.run.env`. */
 const MUXR = ['node', `${WORK_DIR}/npm/bin/muxr`];
 
-export type DeployStep = { step: 'creating' | 'starting' | 'installing' | 'configuring' | 'connecting' | 'pairing' };
+/**
+ * The screen for sign-ins, as root: the host's own Xvfb needs `xvfb`, the window session and the engine's libraries
+ * (the no-screen card's line), plus Firefox from Mozilla's apt repo, its key checked against its sha256 (fingerprint
+ * 35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3), since Ubuntu's own `firefox` is a snap stub. Safe to run again.
+ */
+const SCREEN_SCRIPT = [
+    'set -eu',
+    'export DEBIAN_FRONTEND=noninteractive',
+    'install -d -m 0755 /etc/apt/keyrings',
+    'curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg -o /etc/apt/keyrings/packages.mozilla.org.asc',
+    "echo '3ecc63922b7795eb23fdc449ff9396f9114cb3cf186d6f5b53ad4cc3ebfbb11f  /etc/apt/keyrings/packages.mozilla.org.asc' | sha256sum -c --quiet -",
+    "echo 'deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main' > /etc/apt/sources.list.d/mozilla.list",
+    "printf 'Package: *\\nPin: origin packages.mozilla.org\\nPin-Priority: 1000\\n' > /etc/apt/preferences.d/mozilla",
+    // A new machine may still be running its own first apt job: wait for the lock rather than fail on it.
+    'apt-get -o DPkg::Lock::Timeout=300 update -q',
+    'apt-get -o DPkg::Lock::Timeout=300 install -y -q --no-install-recommends xvfb xfce4 xfce4-terminal dbus-x11 libpipewire-0.3-0t64 libxkbcommon0 libevdev2 firefox',
+].join('\n');
+export const ADD_SCREEN = ['sh', '-c', SCREEN_SCRIPT] as const;
+const SCREEN_TIMEOUT_MS = 900_000;
+
+export type DeployStep = { step: 'creating' | 'starting' | 'installing' | 'configuring' | 'screen' | 'connecting' | 'pairing' };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const loadRecord = async () => JSON.parse((await getNativeSecret(MACHINE_KEY)) ?? 'null');
+
+function boatProvider(): Provider {
+    return boat({
+        baseUrl: BOAT_API, label: 'Boat', prices: BOAT_PRICES,
+        key: async () => {
+            const key = await getNativeSecret(BOAT_KEY);
+            if (!key) throw new Error('Connect your Boat account first.');
+            return key;
+        },
+    });
+}
+
+async function addScreen(provider: Provider, ref: MachineRef): Promise<void> {
+    const done = await provider.exec(ref, ADD_SCREEN, { root: true, timeoutMs: SCREEN_TIMEOUT_MS });
+    if (done.timedOut) throw new Error('Adding the screen took longer than 15 minutes on your Boat computer. Try again.');
+    if (done.code !== 0) throw new Error(`The screen did not install on your Boat computer: ${(done.stderr.trim() || done.stdout.trim()).slice(-300)}`);
+}
+
+/** Whether the computer this phone is connected to is the Boat computer it set up. */
+export async function isBoatComputer(machineId: string | undefined): Promise<boolean> {
+    return machineId !== undefined && machineId !== '' && (await getNativeSecret(PAIRED_KEY)) === machineId;
+}
+
+/** Put the screen for sign-ins on this phone's Boat computer, without a redeploy; the host starts it when Computer opens. */
+export async function addBoatScreen(): Promise<void> {
+    const ref: MachineRef | undefined = (await loadRecord())?.ref;
+    if (!ref) throw new Error('This phone no longer knows its Boat computer, so it cannot add a screen. Run the command on it instead.');
+    await addScreen(boatProvider(), ref);
+}
 
 export async function pendingBoatSize(): Promise<BoatSize | undefined> {
     return (await loadRecord())?.pending?.size;
@@ -107,17 +158,12 @@ async function boatSsh(id: string, publicKey: string): Promise<{ host: string; p
  */
 export async function deployBoatComputer(o: {
     size: BoatSize;
+    /** Add the screen for sign-ins (off unless the person chose it). */
+    screen: boolean;
     onStep: (step: DeployStep) => void;
     pair: (offer: string, tunnelPort: number, deliverWords: (words: string) => void) => Promise<void>;
 }): Promise<void> {
-    const provider = boat({
-        baseUrl: BOAT_API, label: 'Boat', prices: BOAT_PRICES,
-        key: async () => {
-            const key = await getNativeSecret(BOAT_KEY);
-            if (!key) throw new Error('Connect your Boat account first.');
-            return key;
-        },
-    });
+    const provider = boatProvider();
     // One store per deploy: the kit caches the record it loaded under the store object, so a shared one would keep a cleared machine.
     const store: MachineStore = {
         load: loadRecord,
@@ -165,6 +211,10 @@ export async function deployBoatComputer(o: {
                 o.onStep({ step: 'configuring' });
                 const configured = await m.run(RECIPE, [...MUXR, 'self-host', '--configure-only', '--loopback', '--install-herdr', '--advertise', SSH_ONLY_ADVERTISE, '--port', String(PORT)], { timeoutMs: 600_000 });
                 if (configured.code !== 0) throw new Error(`muxr could not set itself up there: ${configured.stderr.trim().slice(-300)}`);
+                if (o.screen) {
+                    o.onStep({ step: 'screen' });
+                    await addScreen(provider, created);
+                }
                 o.onStep({ step: 'connecting' });
                 const login = generateSshLoginKey('muxr phone');
                 const target = await boatSsh(id, login.publicKey);
@@ -222,6 +272,8 @@ export async function deployBoatComputer(o: {
                     // From now on the phone reaches this computer only through SSH, with the key it just made.
                     const applied = await applySshAfterPairing(ssh, { hostKey: opened.hostKey, relayUrl: RELAY_ON_MACHINE });
                     if (!applied.ok) throw new Error(applied.message);
+                    const paired = getCachedConnectionSettings().machineId;
+                    if (paired) await setNativeSecret(PAIRED_KEY, paired);
                     tunnel = false;
                     return;
                 }

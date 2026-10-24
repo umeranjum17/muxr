@@ -12,7 +12,7 @@ import { ShortcutHintBadge, useShortcutHints } from '@/components/ShortcutHints'
 import { useDeviceAuthority } from '@/pairing';
 import { useHomeNeedsYouIds, useHomePendingIds } from '@/catalog/store';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
-import { useDeviceOffline } from '@/utils/web/deviceOffline';
+import { useDeviceReach } from '@/utils/web/deviceOffline';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -97,7 +97,7 @@ export const SidebarView = React.memo(() => {
     const router = useRouter();
     const headerHeight = useHeaderHeight();
     const { visible: shortcutHintsVisible } = useShortcutHints();
-    const deviceOffline = useDeviceOffline();
+    const deviceOffline = useDeviceReach() === 'offline';
     const pathname = usePathname();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const needsYouIds = useHomeNeedsYouIds();
