@@ -16,6 +16,7 @@ import { parseArgs, promisify } from 'node:util';
 import { boat } from '@byokit/cloud';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
 import { dismissPrompts, dumpUiXml } from '../../../../perf/lib/androidSignals.mjs';
+import { sha256, sourceIdentity } from '../../../../perf/lib/provenance.mjs';
 
 const { values: opts } = parseArgs({ options: {
     apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' }, port: { type: 'string' }, machine: { type: 'string' },
@@ -27,6 +28,12 @@ if (opts.upstream ? !opts['key-file'] || opts.machine : !opts.machine) throw new
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
 mkdirSync(EVIDENCE, { recursive: true });
+const source = sourceIdentity();
+const build = JSON.parse(readFileSync(`${opts.apk}.json`, 'utf8'));
+if (source.dirty || build.dirty || build.mobileSha256 !== source.mobileSha256 || build.apkSha256 !== sha256(opts.apk)) {
+    throw new Error('Cloud proof requires a clean candidate and its matching release APK');
+}
+writeFileSync(join(EVIDENCE, 'apk-source.json'), JSON.stringify({ source, build }, null, 2));
 const exec = promisify(execFile);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const say = (line) => { const out = `${new Date().toISOString()} ${line}`; console.log(out); appendFileSync(join(EVIDENCE, 'journey.log'), `${out}\n`); };
