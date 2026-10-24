@@ -81,7 +81,8 @@ function send(next) {
 }
 
 function settingsForRenderer() {
-    return { keepAwake: settings.keepAwake, autostart: autostartInstalled() };
+    // An unpackaged run is a source checkout, so it says so beside the version.
+    return { keepAwake: settings.keepAwake, autostart: autostartInstalled(), version: `muxr ${app.getVersion()}${app.isPackaged ? '' : '-dev'}` };
 }
 
 function applyKeepAwake(on) {

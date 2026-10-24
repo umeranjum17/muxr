@@ -1,60 +1,77 @@
-# Read a version difference as one quiet Home line
+# See which versions are running from Home and Settings
 
-When the phone app and the computer run different muxr versions, Home says so
-once, quietly: one line in secondary text at the foot of Home, whole line a tap
-to Settings > Connection. It is never a card, never the top slot; the runtime
-notice keeps that place.
+The foot of Home always names the running app build and, once the paired
+computer reports it, the host: `App 0.2.13 · Host 0.2.13`. When the two differ
+the same line adds the plain hint `App and computer versions differ · Review
+updates`. It is one quiet line in secondary text, whole line a tap to
+Settings > Connection; never a card, never the top slot (the runtime notice
+keeps that place). Settings > About > Version carries the same pair line, and
+Settings > Connection names the app build on its Installed app row.
+
+A build that is not a stable release says so, from the build's own config
+(`extra.app.releaseVersion` and `extra.app.buildVariant`, baked by
+`apps/mobile/app.config.js`): a nightly reads `0.2.14-nightly.1.1`, another
+pre-release `0.2.14-rc.1 pre-release`, a development build `0.2.13-dev`, a
+preview build `0.2.13 preview` (`appBuild()` in
+`apps/mobile/sources/utils/versionStatus.ts`).
+
+The other surfaces: `muxr --help` leads with `muxr <version>` (a source
+checkout adds `(development checkout)`), and the desktop window's footer names
+`muxr <version>` (`-dev` when unpackaged).
 
 ## Sub-features
 
 - `version-line-quiet` secondary text size and colour, no card, no dot, no
-  chevron, at the foot of Home below every section.
-- `version-line-action` one plain sentence with the action after a `·`; the
-  whole line opens the versions screen.
+  chevron, at the foot of Home below every section, in every state.
+- `version-line-action` the mismatch hint follows the versions after a `·`;
+  the whole line opens the versions screen.
+- `version-channel` a nightly, pre-release, development or preview build names
+  its channel wherever the app version shows.
+- `settings-version-row` Settings > About > Version reads the same pair line.
 
 ## How to get to it (user POV)
 
-- Keep the computer on an older muxr than the phone app, pair, open Home,
-  scroll to the foot.
+- Pair, open Home, scroll to the foot. For the hint, keep the computer on an
+  older muxr than the phone app. Settings (Home header) > scroll to About.
 
 ## Driving it with the private stack
 
-Preconditions:
+`homeVersionLineLab.mjs <apk> <evidence-dir>` (journey `home-version-line` in
+`.done-done.yaml`) runs both states on an owned emulator under the shared
+emulator lock: the fake stack on this checkout's version, then announcing
+0.2.10; it captures the foot of Home and the Settings Version row at 270 dp
+font 2.0 and 393 dp font 1.0, dark and light, and taps the line through to
+Settings > Connection. The APK is `node perf/buildPrApk.mjs <out>` (a
+production release build, so it reads as stable).
 
-- The lab host must report a version the app does not. After `yarn build`,
-  write `{"version":"0.1.0"}` to `apps/host/dist/package.json` (build output,
-  never tracked): the host walks up from its compiled file to the first real
-  manifest, so the fake stack host then announces 0.1.0 against the app's
-  release version. This is a lab-only override; it must carry `"type":
-  "module"` (a typeless manifest makes Node warn and the host self-checks
-  fail) and be deleted before running the suite or packing.
-- A release APK per build from `node perf/buildPrApk.mjs <out>` on an owned
-  emulator `SERIAL` (as `home-header-name.md`); builds from different code
-  install over each other, but `pm clear` between before and after keeps each
-  pairing fresh. Pair from `mintPairing()`'s `muxr://pair#<code>` deep link.
-- Capture Home at 360dp and at the reference phone (`wm size 1080x2376`,
-  `wm density 640`, font scale 1.3) with the composer dock on screen, each
-  dark and light, relaunching after every change. Capture the top of Home too,
-  so the proof shows the notice is absent from the top slot. At 270dp/font
-  1.3, scroll from clear of the dock: a swipe that starts on the dock (the
-  bottom ~y>=1660 of the 1080x2376 frame) never reaches the SectionList, so
-  start above it or the foot is never reached.
-- PWA: `yarn web:export`, serve `apps/mobile/dist`, mint a `browser` offer
-  off `<host data>/pair.sock`, pair through `/pair` (as `home-quota-row.md`),
-  then capture at 393, 270, 1440 and 1920 wide, dark and light.
-- Pass: before build shows the old top-slot card; after build shows one quiet
-  line at the foot, never above the first Home section, no clipped or
-  overlapped text at 270dp font 1.3, and Settings > Connection still opens
+- The older host comes from a lab-only manifest: the journey writes
+  `{"version":"0.2.10","type":"module"}` to `apps/host/dist/package.json`
+  (build output, never tracked; the host walks up from its compiled file to
+  the first manifest) and deletes it when it ends. A typeless manifest makes
+  Node warn and the host self-checks fail.
+- PWA: `homeVersionLinePwaCells.sh <web export> <out>` (journey
+  `home-version-line-pwa`) pairs a standalone `--app` window through
+  `__MUXR_LAB_PAIR__` and captures Home's foot and the Settings row at phone
+  widths 360/390/445/270, 270 and 393 at font 2.0, and desktop 1280/1440, dark
+  and light. Export with `EXPO_PUBLIC_MUXR_LAB_PAIR=1`; add
+  `MUXR_RELEASE_VERSION=<version>-nightly.1.1` to prove a channel label (the
+  base must equal the package version).
+- Pass: the line reads both versions at the foot in every cell, never above
+  the first Home section, no clipped or overlapped text at 270 dp font 2.0;
+  the hint appears only against the older host; Settings > Connection opens
   from the line.
 
 ## Gotchas
 
-- The mismatch needs both versions known: a host reporting `0.0.0` or nothing
-  is "unknown" and must not raise the line (`knownHostVersion`).
+- The host half needs a known host version: a host reporting `0.0.0` or
+  nothing is "unknown" (`knownHostVersion`), so the line reads `App X` alone
+  and never raises the hint.
 - The override changes the version every dist host reports, so the suite's
-  pairing tests refuse to pair against it: write it for the capture run and
-  delete it before `yarn run check`.
+  pairing tests refuse to pair against it: never leave it behind before
+  `yarn run check`.
 - The app reads theme and font scale at launch; force-stop and relaunch after
   every `wm`/`uimode` change.
 - One pending offer per host: close a native offer's socket before minting a
   browser one.
+- At 270 dp, scroll from clear of the dock: a swipe that starts on the dock
+  (the bottom ~y>=1660 of the 1080x2376 frame) never reaches the list.

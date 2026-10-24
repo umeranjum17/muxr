@@ -3,6 +3,7 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
 
 export interface AppConfig {
     releaseVersion?: string;
+    buildVariant?: string;
     publicBaseUrl?: string;
     directDistribution?: boolean;
     consoleLoggingDefault?: boolean;
