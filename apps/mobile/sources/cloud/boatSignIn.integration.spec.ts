@@ -29,6 +29,7 @@ vi.mock('react-native', () => ({
     Pressable: 'Pressable',
     ScrollView: 'ScrollView',
     ActivityIndicator: 'ActivityIndicator',
+    useWindowDimensions: () => ({ width: 390, height: 844, scale: 3, fontScale: 1 }),
 }));
 vi.mock('@react-native-async-storage/async-storage', () => ({
     default: { getItem: async (key: string) => lab.storage.get(key) ?? null, setItem: async (key: string, value: string) => { lab.storage.set(key, value); } },
