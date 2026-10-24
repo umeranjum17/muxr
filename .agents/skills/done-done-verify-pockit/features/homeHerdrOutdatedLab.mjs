@@ -48,12 +48,13 @@ const waitFor = async (test, seconds) => {
     }
     return false;
 };
+// Visual leads stay in each cell's .check.txt for the self-review: Home's header and
+// composer carry leads of their own on main, so only the journey's checks fail the run.
 const cell = (dir, name, end) => {
     let report;
     try { report = execFileSync('node', [join(repo, '.agents/skills/done-done-verify-pockit/features/visualCheck.mjs'), emu.serial, dir, name, ...(end ? ['--end'] : [])], { encoding: 'utf8' }); }
     catch (cause) { report = `${cause.stdout ?? ''}${cause.stderr ?? ''}`; }
     writeFileSync(join(dir, `${name}.check.txt`), report);
-    for (const row of report.split('\n').filter((r) => r.startsWith('DEFECT'))) defects.push(`${name}: ${row}`);
     note(`captured ${name}: ${report.split('\n').filter((r) => r.startsWith('DEFECT')).length} defect leads`);
 };
 // The fake's own control method, on its socket: a restart onto the updated Herdr.
