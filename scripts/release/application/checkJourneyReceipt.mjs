@@ -16,7 +16,12 @@
  * - the journey ran this exact build: the receipt cites, by digest, the
  *   committed journey result for the release's version, and that result
  *   names the APK and npm tarball digests the release ships, every step
- *   passed, exactly one host alive, and attach and scroll times in budget.
+ *   passed, exactly one host alive, and attach and scroll times in budget;
+ * - or it ran the release's x86_64 twin: the release also commits the
+ *   release APK check, which names both APK digests, a journey APK
+ *   built from the release commit, and the released APK's static checks;
+ *   every functional step must pass there, and its times are reported,
+ *   labelled emulator-under-load, without gating.
  *
  * The receipt is a record, not a signature: a forged one is caught by the
  * merge gate that reviews it, not by this check. What this check refuses is
@@ -24,7 +29,7 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { buildResultFault, buildResultPath, RELEASE_JOURNEY } from '../domain/releaseJourney.mjs';
+import { apkCheckFault, apkCheckPath, buildResultFault, buildResultPath, RELEASE_JOURNEY, TWIN_BUDGETS, TWIN_TIMINGS } from '../domain/releaseJourney.mjs';
 import { isReleaseMetadata, RECEIPT_DIR } from '../domain/releaseMetadata.mjs';
 
 const git = (repo, args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
@@ -132,17 +137,23 @@ function captureFault(repo, ref, receipt) {
 /**
  * Why the committed journey result does not prove this exact build, or null.
  * The receipt must cite the result's own bytes, so a result edited after the
- * judge saw the run counts for nothing.
+ * judge saw the run counts for nothing. The APK check is a static record any
+ * reviewer can recompute (checkReleaseApk.mjs) and lands beside the result:
+ * done-done cites only what a run wrote, and the tag's journey cannot write it.
  */
-function buildFault(receipt, result, build) {
+function buildFault(receipt, result, apkCheck, build) {
     if (result === undefined) return `no journey result is committed at ${buildResultPath(build.version)}`;
     if (!receipt.files.some((file) => file.sha256 === result.sha256)) return `it does not cite the journey result ${buildResultPath(build.version)}`;
-    return buildResultFault(result.value, build);
+    // A journey on another APK counts only through a committed check that the
+    // released APK passed its static checks and the cited run drove its same-commit twin.
+    if (result.value?.build?.apk === build.apk || build.apk === undefined || apkCheck === undefined) return buildResultFault(result.value, build);
+    const fault = apkCheckFault(apkCheck.value, build);
+    if (fault) return `${apkCheckPath(build.version)}: ${fault}`;
+    return buildResultFault(result.value, { ...build, apk: apkCheck.value.journeyApk.sha256 }, TWIN_BUDGETS);
 }
 
-/** The journey result committed for a version, with its digest, or undefined. */
-function readBuildResult(repo, ref, version) {
-    const path = buildResultPath(version);
+/** A JSON record committed at a path, with its digest, or undefined. */
+function readRecord(repo, ref, path) {
     let bytes;
     try {
         bytes = execFileSync('git', ['show', `${ref}:${path}`], { cwd: repo, encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -156,9 +167,11 @@ function readBuildResult(repo, ref, version) {
 
 /**
  * Check that a release commit and its exact build are covered by a committed
- * receipt for the release journey. `build` is `{ version, apk, package }`, the
- * sha256 digests of the APK and npm tarball the release ships. Returns
- * `{ ok: true, path, receipt }` or `{ ok: false, reason }` naming every
+ * receipt for the release journey. `build` is `{ version, commit, apk, package }`:
+ * the commit the release was sealed from and the sha256 digests of the APK and
+ * npm tarball it ships. Returns
+ * `{ ok: true, path, receipt, timings? }` (timings only for a twin run) or
+ * `{ ok: false, reason }` naming every
  * receipt that was considered and why it did not count.
  */
 export function checkJourneyReceipt({ repo = process.cwd(), commit = 'HEAD', receiptsRef = 'origin/main', journey = RELEASE_JOURNEY, build } = {}) {
@@ -168,7 +181,8 @@ export function checkJourneyReceipt({ repo = process.cwd(), commit = 'HEAD', rec
     const ref = resolveCommit(repo, receiptsRef) ?? release;
     const paths = receiptPaths(repo, ref);
     if (!paths.length) return { ok: false, reason: `no receipt is committed in ${RECEIPT_DIR} on ${receiptsRef}` };
-    const result = readBuildResult(repo, ref, build.version);
+    const result = readRecord(repo, ref, buildResultPath(build.version));
+    const apkCheck = readRecord(repo, ref, apkCheckPath(build.version));
     const faults = [];
     for (const path of paths) {
         let receipt;
@@ -179,9 +193,14 @@ export function checkJourneyReceipt({ repo = process.cwd(), commit = 'HEAD', rec
             continue;
         }
         const fault = receiptFault(receipt, journey) ?? coverageFault(repo, release, receipt) ?? captureFault(repo, ref, receipt)
-            ?? buildFault(receipt, result, build);
-        if (!fault) return { ok: true, path, receipt, head: receipt.head };
-        faults.push(`${path}: ${fault}`);
+            ?? buildFault(receipt, result, apkCheck, build);
+        if (fault) {
+            faults.push(`${path}: ${fault}`);
+            continue;
+        }
+        // A twin run's times are kept, labelled, never gated: the owner's phone test is the timing gate.
+        const twin = result.value.build?.apk !== build.apk;
+        return { ok: true, path, receipt, head: receipt.head, ...(twin ? { timings: { basis: TWIN_TIMINGS, ...result.value.timings } } : {}) };
     }
     return { ok: false, reason: faults.join('\n') };
 }

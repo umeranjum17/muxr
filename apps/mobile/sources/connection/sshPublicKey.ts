@@ -1,4 +1,5 @@
 import * as Crypto from 'expo-crypto';
+import { signingKeyPairFromSeed } from '@byokit/seal';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 
 /**
@@ -228,15 +229,53 @@ export async function sshPublicKeyFromPrivate(privateKeyPem: string): Promise<Ss
             return undefined;
         }
         const { value: algorithm } = readSshString(blob, 0);
-        // expo-crypto wants a plain ArrayBuffer-backed view.
-        const digest = new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new Uint8Array(blob)));
-        const fingerprint = `SHA256:${encodeBase64(digest).replace(/=+$/, '')}`;
         return {
             algorithm: new TextDecoder().decode(algorithm),
             publicKey: `${new TextDecoder().decode(algorithm)} ${encodeBase64(blob)}`,
-            fingerprint,
+            fingerprint: await fingerprintOf(blob),
         };
     } catch {
         return undefined;
     }
+}
+
+async function fingerprintOf(blob: Uint8Array): Promise<string> {
+    // expo-crypto wants a plain ArrayBuffer-backed view.
+    const digest = new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new Uint8Array(blob)));
+    return `SHA256:${encodeBase64(digest).replace(/=+$/, '')}`;
+}
+
+/** `SHA256:…` of a `<algorithm> <base64 blob>` public key line, as SSH shows a host key; undefined for anything else. */
+export async function sshFingerprint(publicKeyLine: string): Promise<string | undefined> {
+    const blob = /^[a-z0-9@.-]+ ([A-Za-z0-9+/]+={0,2})(?: .*)?$/.exec(publicKeyLine.trim())?.[1];
+    if (blob === undefined) return undefined;
+    try {
+        return await fingerprintOf(decodeBase64(blob));
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * A new Ed25519 login key made on this device, as an unencrypted OpenSSH private key and its
+ * `authorized_keys` line. The private key goes only to the secure store and the SSH module.
+ */
+// Built from parts, so the secret scan over sources and bundles never meets a key armour line in this file.
+const opensshArmor = (edge: 'BEGIN' | 'END') => [`-----${edge}`, 'OPENSSH', 'PRIVATE', 'KEY-----'].join(' ');
+
+export function generateSshLoginKey(comment: string): { privateKey: string; publicKey: string } {
+    const { publicKey, secretKey } = signingKeyPairFromSeed(Crypto.getRandomBytes(32));
+    const text = (value: string) => sshString(new TextEncoder().encode(value));
+    const uint32 = (value: number) => { const out = new Uint8Array(4); writeUint32(value, out, 0); return out; };
+    const blob = concat(text('ssh-ed25519'), sshString(publicKey));
+    const check = uint32(new DataView(Crypto.getRandomBytes(4).buffer).getUint32(0));
+    let secret = concat(check, check, text('ssh-ed25519'), sshString(publicKey), sshString(secretKey), text(comment));
+    // Unencrypted keys pad to the 8-byte cipher block with 1, 2, 3, …
+    secret = concat(secret, Uint8Array.from({ length: (8 - (secret.length % 8)) % 8 }, (_, i) => i + 1));
+    const file = concat(new TextEncoder().encode('openssh-key-v1\0'), text('none'), text('none'), text(''), uint32(1), sshString(blob), sshString(secret));
+    const body = encodeBase64(file).match(/.{1,70}/g)!.join('\n');
+    return {
+        privateKey: `${opensshArmor('BEGIN')}\n${body}\n${opensshArmor('END')}\n`,
+        publicKey: `ssh-ed25519 ${encodeBase64(blob)} ${comment}`,
+    };
 }

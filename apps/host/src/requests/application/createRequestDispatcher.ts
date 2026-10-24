@@ -50,7 +50,6 @@ import {
     acknowledgeAutoTerms,
     listPlans,
     withPlanAccounts,
-    observePaneAccount,
     observePlanPanes,
     planAccountStatus,
     planLaunchEnv,
@@ -689,9 +688,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plans.agent': async (params) => {
             const session = (await source.list({ fresh: true })).find((candidate) => candidate.id === params.sessionId);
             const paneId = session?.paneId ?? params.sessionId;
-            const recorded = planPaneAccount(process.env, paneId);
-            const accountId = recorded.accountId
-                ?? (session?.agentKind === 'claude' ? await observePaneAccount(process.env, paneId, (id) => source.paneForegroundPids(id)) : undefined);
+            const { accountId } = await planPaneAccount(process.env, paneId, session?.agentKind ?? undefined, (id) => source.paneForegroundPids(id));
             return {
                 ...(accountId === undefined ? {} : { accountId }),
                 ...(source.canMovePlanAccount === undefined ? {} : { movable: await source.canMovePlanAccount(params.sessionId) }),

@@ -25,7 +25,7 @@ program's wheel.
 - `latest-pill` once scrolled back, the pill reads `Latest` (accessibility label `Jump to latest output`); none in Codex, whose `Back to bottom` is esc on the key row.
 - `latest-reach` tapping it lands on the newest line, and the pill goes away.
 - `latest-streaming` the same while the agent is still printing: the pane lands on the live edge and keeps following new lines; the pill does not stay on `Still catching up`.
-- `latest-local` (Android, Claude Code) a drag back through output the phone already showed moves with the finger at the display rate; a fling covers hundreds of rows and stops at the oldest row the phone holds; output printed at 100 lines a second walks back with no holes.
+- `latest-local` (Android, Claude Code) a drag back through output the phone already showed moves with the finger at the display rate; a fling covers hundreds of rows and stops at the oldest row the phone holds; output printed at 100 lines a second walks back with no holes, at 270 dp (after the grid pans to its top) as at 411 dp.
 - `latest-split` all of the above with the app in half of a split screen (iPad Split View, Android split screen).
 
 ## How to get to it (user POV)
@@ -74,11 +74,14 @@ a `stream` a few seconds before the drag covers it while Claude prints.
 `.done-done.yaml` for its env) drives `terminalScrollLocalLab.sh` on an owned
 emulator and writes each screen's visible `MARK-n` range to `proof.log`. With
 `LINES=1200 STUB_LPS=100 WALK=30` it instead walks back through the history a
-little under a screen per drag at 411 dp, records the walk to `walk.mp4`, and
-logs every break in a screen's `MARK-n` numbers as `gap MARK-a -> MARK-b`: none
-may show. It sets that width itself: at 270 dp the grid is taller than its box,
-the terminal pans and keeps no phone-side copy, and the drag scrolls Claude's
-own transcript (`Jump to bottom` on screen), which has no holes to find.
+little under a screen per drag, records the walk to `walk.mp4`, and logs every
+break in a screen's `MARK-n` numbers as `gap MARK-a -> MARK-b`: none may show.
+`DENSITY` sets the width: run it at `640` (the 270 dp reference phone) and
+`420` (411 dp). At 270 dp the grid is taller than its box, so the first rows of
+a drag pan it to its top rows and the rest walks the phone-side copy. Before
+that fix a panned terminal kept no copy: the drag scrolled Claude's own
+transcript (`Jump to bottom` on screen) through Herdr, about 6 lines per
+800 px drag.
 
 ## Gotchas
 
@@ -101,10 +104,16 @@ own transcript (`Jump to bottom` on screen), which has no holes to find.
   synchronized update, and at `STUB_LPS=100` consecutive frames still share
   rows. The phone-side copy finds how far the screen moved by comparing
   screens, so it compares after every frame, also when the app combined several
-  into one write, and only rows that appear once and changed in place vote. A
+  into one write, and only rows that changed in place vote: a row that appears
+  once on both screens, and the unbroken run of matching rows around it. A
   fixed footer and repeated sentence tails once outvoted the real move, which
-  left 100-line holes (`MARK-977..984` then `MARK-1154`). Only output that moves
-  a whole screen within one ~100 ms Herdr tick never reaches the phone, and the
+  left 100-line holes (`MARK-977..984` then `MARK-1154`). At 270 dp (33
+  columns) each line wraps and a frame moves ~20 of the 23 content rows, so two
+  frames share one line plus its wrapped tails, or nothing but the footer: the
+  copy then kept 10 of 1200 rows. A run around one anchor lines that up, and a
+  frame whose footer held while every row above it changed pushes that whole
+  area. Only output that moves
+  more than a whole screen within one ~100 ms Herdr tick never reaches the phone, and the
   host sees the same frames, so it cannot fill that either. Count rows across
   the whole screen, not from the top row alone.
 - An emulator presents 2-4 frames a second for any app here: compare fps and

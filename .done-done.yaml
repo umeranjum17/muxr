@@ -37,6 +37,15 @@ journeys:
   pane-account-chip:
     command: node .agents/skills/done-done-verify-pockit/features/paneAccountChipLab.mjs "$PHONE_APK" "$DONE_DONE_EVIDENCE_ROOT" "$PHONE_ATTACH_ROOT"
     timeout: 30m
+  # The same chip on the host, no phone: a Claude pane muxr recorded on the
+  # computer's own account, relaunched in the same pane on Work, reads Work in
+  # herdr.tree (the chip) and plans.agent (the Out of room banner and Move).
+  # Writes gate.log and steps.json. Needs `yarn build` and HERDR_LAB_HELPER
+  # (HERDR_LAB_SESSION names the lab session; the lab link provisions it and
+  # tears it down).
+  pane-account-host:
+    command: node .agents/skills/done-done-verify-pockit/features/paneAccountHostLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 10m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A
@@ -46,6 +55,14 @@ journeys:
   # nothing. Needs gh read access to the public releases.
   release-latest-gate:
     command: node .agents/skills/done-done-verify-pockit/features/releaseLatestGateLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 10m
+  # The stable gate on a release whose journey ran its x86_64 twin: the
+  # release's sealed APK checked against the twin built from its tag
+  # (TWIN_APK, its build record beside it), the arm64 APK as its own twin
+  # refused, then the gate and a push's npm latest dry run on the receipts at
+  # HEAD. Publishes nothing. Needs gh read access to the public releases.
+  release-twin-gate:
+    command: node .agents/skills/done-done-verify-pockit/features/releaseTwinGateLab.mjs "$DONE_DONE_EVIDENCE_ROOT" "${TWIN_VERSION:-0.2.12}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m
   # The app upgrade on the real phone: the previous release installed and
   # paired, Theme and Text size set, the candidate installed over it with
@@ -99,6 +116,20 @@ journeys:
   key-targets:
     command: node .agents/skills/done-done-verify-pockit/features/keyRowLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # The composer's send feedback on Android: the release app over a stub-backed
+  # Claude Code in a provisioned Herdr lab (HERDR_LAB_PREPROVISIONED=1), a
+  # delivered send and a refused one retried from its chip, recorded at 390 dp
+  # (send-feedback.md). Runs by hand under the shared emulator lock with
+  # MUXR_LAB_APK a release build of this commit.
+  send-feedback:
+    command: node .agents/skills/done-done-verify-pockit/features/sendFeedbackNativeLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$(mktemp -d "$HOME/.cache/fms/mxsf.XXXX")" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
+  # Tap-to-confirm and tap-to-echo of a prompt over the lab link, idle, mid-turn,
+  # beside busy agents and in a retitling fleet (send-feedback.md, send-latency);
+  # in a provisioned Herdr lab, after yarn build.
+  send-latency:
+    command: EVIDENCE="$DONE_DONE_EVIDENCE_ROOT" node --input-type=module -e "$(cat .agents/skills/done-done-verify-pockit/features/sendLatencyLab.mjs)" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 20m
   # Phone-side history in a fullscreen Claude Code pane on Android: the release
   # app fresh-paired to the Latest lab, then a slow drag back, a fling back and
   # Latest, each screen's visible MARK range in proof.log (terminal-latest.md,
@@ -106,7 +137,8 @@ journeys:
   # MUXR_LAB_APK a release build of this commit, MUXR_LAB_SERIAL an owned
   # emulator and a provisioned Herdr lab (HERDR_LAB_PREPROVISIONED=1).
   # LINES=1200 STUB_LPS=100 WALK=30 walks the history instead and logs every
-  # hole in it (terminal-latest.md).
+  # hole in it (terminal-latest.md); DENSITY=640 walks it on the 270 dp
+  # reference phone, DENSITY=420 at 411 dp.
   terminal-scroll-local:
     command: bash .agents/skills/done-done-verify-pockit/features/terminalScrollLocalLab.sh "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT"
     timeout: 20m
@@ -123,14 +155,24 @@ journeys:
   plan-move:
     command: node .agents/skills/done-done-verify-pockit/features/planMoveLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$(mktemp -d "$HOME/.cache/fms/mxmv.XXXX")" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
-  # A new Boat cloud computer's Tailscale sign-in page opens by itself: the
-  # release app on an owned emulator, the Boat lab with its Tailscale stand-in,
+  # A new Boat cloud computer is set up over SSH and the phone lands on Home,
+  # with no tailnet: the release app on an owned 390 dp emulator, the Boat lab
+  # with its stand-in computer (sshd + this checkout's muxr in a namespace),
   # Create cloud computer and no other tap in muxr (cloud-computer-onboarding,
-  # tailnet-sign-in). Runs by hand under the emulator lock; MUXR_LAB_APK is a
-  # release build of this commit with EXPO_PUBLIC_MUXR_BOAT_API pointing at
-  # 127.0.0.1:$BOAT_LAB_PORT, MUXR_LAB_AVD_HOME a task-owned emulator home.
-  cloud-tailnet:
-    command: node .agents/skills/done-done-verify-pockit/features/cloudTailnetLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+  # ssh-route). Runs by hand under the emulator lock and a provisioned Herdr
+  # lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION); MUXR_LAB_APK is a release build
+  # of this commit with EXPO_PUBLIC_MUXR_BOAT_API pointing at
+  # 127.0.0.1:$BOAT_LAB_PORT, MUXR_LAB_AVD_HOME a task-owned emulator home;
+  # CLOUD_LAB_DP, CLOUD_LAB_FONT and CLOUD_LAB_THEME pick the view (390, 1.0, light).
+  cloud-setup:
+    command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --machine "$(mktemp -d "$HOME/.cache/fms/mxcs.XXXX")" --dp "${CLOUD_LAB_DP:-390}" --font "${CLOUD_LAB_FONT:-1.0}" --theme "${CLOUD_LAB_THEME:-light}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
+  # The same set-up on a real Boat machine (it costs money: only once approved):
+  # the Boat lab as the key proxy in front of Boat, the key read in place from
+  # BOAT_LIVE_KEY_FILE (never on the phone), Home connected over SSH, and every
+  # machine the run created removed (cloud-computer-onboarding, step 8).
+  cloud-boat:
+    command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --upstream "${BOAT_LIVE_API:-https://boat.dev/api/v1}" --key-file "$BOAT_LIVE_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
   # A Claude account is added from the phone end to end: Accounts, Open Claude
   # sign-in, the code sent from the sign-in tab's composer, Name this account

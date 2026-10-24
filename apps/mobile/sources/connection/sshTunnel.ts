@@ -329,6 +329,9 @@ export async function applySshAfterPairing(input: SshFieldInput, options?: { hos
             ssh: target,
             ...(options?.relayUrl !== undefined ? { relayUrl: options.relayUrl } : {}),
         });
+        // Pairing already started the sync client on the relay's own address; it reads the route only when made.
+        const { syncReconnect } = await import('@/catalog/sync');
+        await syncReconnect();
         return { ok: true };
     } catch (cause) {
         return { ok: false, message: cause instanceof Error ? cause.message : String(cause) };
