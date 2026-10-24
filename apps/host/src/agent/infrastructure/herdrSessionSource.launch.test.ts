@@ -1179,9 +1179,16 @@ describe('first prompt to a just-started agent', () => {
             expect(herdr.state.paneText.split('Run the tests').length - 1).toBe(1);
 
             // An ordinary send takes the single-call path: no receipt wait, so a dropped one is not reported.
+            // A title tick has just moved the tree: the send still types at once, routed on the live tree.
+            // Only the confirming read follows, as this agent's receipt does not name its conversation.
+            herdr.emit('pane.updated', { pane_id: 'w1:p1', pane: { pane_id: 'w1:p1', terminal_title_stripped: 'Umer is reading calc.py' } });
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            herdr.calls.length = 0;
             herdr.state.losePrompts = 1;
             await expect(source.prompt({ sessionId: started.info.id, text: 'Ordinary send' })).resolves.toBeUndefined();
             expect(herdr.state.prompts.filter((text) => text === 'Ordinary send')).toHaveLength(1);
+            expect(herdr.calls.map((call) => call.method).filter((method) => method === 'session.snapshot' || method === 'agent.prompt'))
+                .toEqual(['agent.prompt', 'session.snapshot']);
         } finally {
             if (savedPath === undefined) delete process.env.PATH;
             else process.env.PATH = savedPath;

@@ -71,6 +71,8 @@ import { ARROW_CLUSTER, BUILTIN_KEY_CATALOG, DEFAULT_ROW_IDS, type RowEntry, typ
 import { resolveQuickActions, type QuickAction } from '../domain/quickActions';
 import { quickActionCommand } from '../application/quickActionCommands';
 import { appendToDraft, clearDraftInsertion, consumeDraftInsertion } from '../application/draftInsertion';
+import { useSendDelivery } from '../application/useSendDelivery';
+import { hapticsLight } from '@/components/haptics';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { useDeviceAuthority } from '@/pairing';
@@ -1140,6 +1142,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // prompt. But splicing that path into the draft the moment you attach
     // lands it in the middle of whatever you were typing, so paths ride as
     // chips and are appended once, at send.
+    const { delivery, start: startSend, settle: settleSend } = useSendDelivery();
+    const sendPromptRef = React.useRef<() => void>(() => undefined);
     const sendPrompt = React.useCallback(() => {
         // A pane with no agent has nothing to prompt, but a shell still takes
         // a typed line: the draft goes to the terminal as keystrokes, then
@@ -1160,6 +1164,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             setDraft('');
             clearDraft();
             setAttachedImages([]);
+            hapticsLight();
             typing.sendText(`${text}\r`);
             return;
         }
@@ -1173,14 +1178,16 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         // Try the ordinary agent prompt first. A definite blocked refusal may
         // use the same text + Enter path as typing into this terminal.
         const terminal = terminalInputReadyRef.current ? channelRef.current : undefined;
+        const send = startSend();
         const request = sync.sendMessage(props.id, text);
-        void request.catch((error: unknown) => {
+        void request.then(() => settleSend(send, 'sent'), (error: unknown) => {
             // Never retry an ambiguous delivery or send into a replacement pane.
             if (typeof error === 'object' && error !== null && 'code' in error
                 && error.code === 'agent-blocked' && terminal !== undefined
                 && channelRef.current === terminal && terminalInputReadyRef.current) {
                 try {
                     terminal.sendText(`${text}\r`);
+                    settleSend(send, 'sent');
                     return;
                 } catch (cause) {
                     error = cause;
@@ -1190,9 +1197,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             draftRef.current = restoredDraft;
             setDraft(restoredDraft);
             setAttachedImages((current) => [...previousImages, ...current]);
-            Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
+            settleSend(send, 'failed');
+            Modal.alert('Send failed', error instanceof Error ? error.message : String(error), [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Retry', onPress: () => sendPromptRef.current() },
+            ]);
         });
-    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, firstPromptQueued, markScrolledAway, pendingAttachments.length, props.id]);
+    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, firstPromptQueued, markScrolledAway, pendingAttachments.length, props.id, settleSend, startSend]);
+    sendPromptRef.current = sendPrompt;
 
     const handleDraftChange = React.useCallback((text: string) => setDraft((previous) =>
         Platform.OS === 'ios' && currentPaneRef.current?.agentKind === undefined ? undoSmartPunctuation(previous, text) : text), []);
@@ -1552,8 +1564,31 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // Capped like the tabs beside it, so the chip keeps the row's one
             // fixed height at the largest system text.
             const noticeLabel = (text: string) => <Text numberOfLines={1} maxFontSizeMultiplier={1.5} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 11 }}>{text}</Text>;
+            // The composer's last send: on its way, typed into the pane, or
+            // refused with its text back in the field and a tap to send again,
+            // for as long as that text is still there to send.
+            // It never shrinks (the tabs behind it scroll); where even one word
+            // cannot fit beside the quick-actions control, its marks say it.
+            const shownDelivery = delivery === 'failed' && !readyToSend ? null : delivery;
+            const sendWords = windowWidth / Math.min(fontScale, 1.5) >= 160;
+            const sendChip = [noticeChip, { flexShrink: 0 }];
+            const sendNotice = shownDelivery === 'failed'
+                ? <Pressable onPress={sendPrompt} hitSlop={8} accessibilityRole="button" accessibilityLabel="Not sent. Send again"
+                    style={({ pressed }) => [...sendChip, { opacity: pressed ? 0.7 : 1 }]}>
+                    <Ionicons name="alert-circle" size={13} color={theme.colors.textDestructive} />
+                    {sendWords && noticeLabel('Not sent')}
+                    <Ionicons name="refresh-outline" size={12} color={theme.colors.textSecondary} />
+                </Pressable>
+                : <View pointerEvents="none" accessibilityLiveRegion="polite" accessibilityLabel={shownDelivery === 'sent' ? 'Sent' : 'Sending'} style={sendChip}>
+                    {shownDelivery === 'sent'
+                        ? <Ionicons name="checkmark" size={13} color={theme.colors.success} />
+                        : <ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} />}
+                    {sendWords && noticeLabel(shownDelivery === 'sent' ? 'Sent' : 'Sending')}
+                </View>;
             const terminalNotice = gestureHint !== null
                 ? <View pointerEvents="none" style={noticeChip}>{noticeLabel(gestureHint)}</View>
+                : shownDelivery !== null
+                    ? <Animated.View entering={FadeIn.duration(120).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(220).reduceMotion(ReduceMotion.System)}>{sendNotice}</Animated.View>
                 : firstPromptQueued
                     ? <View pointerEvents="none" accessibilityLabel="Prompt queued until the agent is ready" style={noticeChip}><ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} />{noticeLabel('Prompt queued')}</View>
                 : showConnectingStatus

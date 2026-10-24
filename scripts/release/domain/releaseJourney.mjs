@@ -3,12 +3,19 @@
  * before that build may become stable.
  *
  * The journey (`phone-attach`, scripts/diagnostics/application/checkPhoneAttach.mjs)
- * drives the release APK on an emulator against a host started from the
- * release's own npm tarball, and writes `release-build.json`: the version, the
- * sha256 of the APK and of the tarball it ran, the steps it passed, how many
- * hosts were alive at the end, and how long the attach and the fast scroll
- * took. The receipt cites that file by digest, and the release commits it at
+ * drives an APK on an emulator against a host started from the release's own
+ * npm tarball, and writes `release-build.json`: the version, the sha256 of the
+ * APK and of the tarball it ran, the steps it passed, how many hosts were
+ * alive at the end, and how long the attach and the fast scroll took. The
+ * receipt cites that file by digest, and the release commits it at
  * `buildResultPath(version)` next to the receipt.
+ *
+ * The stable APK carries only arm64 libraries and React Native cannot load
+ * them under an x86_64 emulator's ARM translation, so the journey may instead
+ * run an x86_64 APK built from the release's own commit (journey-apk.yml).
+ * The release then also commits `apkCheckPath(version)`: both APK digests,
+ * the commit the journey APK was built from, and the static checks the
+ * released arm64 APK passed. The owner's own phone test stays the last gate.
  */
 import { RECEIPT_DIR } from './releaseMetadata.mjs';
 
@@ -35,8 +42,32 @@ export const RELEASE_STEPS = ['pair', 'attach', 'send', 'scroll', 'usage', 'one-
  */
 export const RELEASE_BUDGETS = Object.freeze({ attachMs: 4_000, scrollMs: 7_500 });
 
+/**
+ * The budgets a journey on the x86_64 twin meets: none. The twin runs on an
+ * emulator under host load, whose times say nothing about a phone, so there
+ * the gate takes every functional step and reports the times as
+ * informational (`TWIN_TIMINGS`); a phone run keeps RELEASE_BUDGETS, and the
+ * owner's own phone test stays the timing gate before latest.
+ */
+export const TWIN_BUDGETS = Object.freeze({});
+export const TWIN_TIMINGS = 'emulator-under-load, informational';
+
 /** Where a release commits the journey result for one version. */
 export const buildResultPath = (version) => `${RECEIPT_DIR}/builds/${version}.json`;
+
+/** Where a release commits the released APK's checks when the journey ran a same-commit x86_64 build. */
+export const apkCheckPath = (version) => `${RECEIPT_DIR}/builds/${version}.release-apk.json`;
+
+/**
+ * What the released arm64 APK must pass when the journey ran its x86_64 twin:
+ * - `signature`: apksigner verifies it and prints exactly the sealed signer.txt;
+ * - `manifest`: it is com.trymuxr.app and its compiled manifest is exactly the sealed compiled-manifest.xml;
+ * - `nativeLibs`: it carries arm64-v8a libraries only, the same set the journey APK carries for x86_64;
+ * - `version`: its versionName is the release's app version and its versionCode the one in its name;
+ * - `code`: its JS bundle and dex files are byte for byte the journey APK's;
+ * - `source`: the journey APK was built clean from the commit, source digest and native patches the sealed native-provenance.json names.
+ */
+export const APK_CHECKS = ['signature', 'manifest', 'nativeLibs', 'version', 'code', 'source'];
 
 const DIGEST = /^[0-9a-f]{64}$/;
 
@@ -71,13 +102,35 @@ export function buildResultFault(result, build, budgets = RELEASE_BUDGETS) {
 }
 
 /**
- * The build a sealed release manifest names: its version and the sha256 of
- * the APK and npm tarball it carries (an npm-only manifest has no APK).
+ * Why a released-APK check record does not let a journey on another APK stand
+ * for `build` ({ version, apk, commit }), or null: it must name the release's
+ * own APK with every check passed, and a journey APK built from the release's
+ * own commit.
+ */
+export function apkCheckFault(check, build) {
+    if (!check || typeof check !== 'object') return 'it is not a release APK check';
+    if (check.schema !== 1) return `its schema is ${check.schema}, not 1`;
+    if (check.version !== build.version) return `it checked ${check.version}, not ${build.version}`;
+    if (!DIGEST.test(build.apk ?? '')) return 'the release names no APK digest to check';
+    if (check.releaseApk?.sha256 !== build.apk) return `it checked apk ${String(check.releaseApk?.sha256).slice(0, 12)}, not this release's ${build.apk.slice(0, 12)}`;
+    const failed = APK_CHECKS.filter((name) => check.releaseApk?.checks?.[name] !== 'pass');
+    if (failed.length) return `the released apk did not pass ${failed.join(', ')}`;
+    if (!DIGEST.test(check.journeyApk?.sha256 ?? '')) return 'it names no journey apk digest';
+    if (typeof build.commit !== 'string' || check.journeyApk?.commit !== build.commit) {
+        return `its journey apk was built from ${String(check.journeyApk?.commit).slice(0, 12)}, not the release commit ${String(build.commit).slice(0, 12)}`;
+    }
+    return null;
+}
+
+/**
+ * The build a sealed release manifest names: its version, the commit it was
+ * sealed from, and the sha256 of the APK and npm tarball it carries (an
+ * npm-only manifest has no APK).
  */
 export function releaseBuild(manifest) {
     const version = manifest?.release?.version;
     if (typeof version !== 'string') throw new Error('the release manifest names no version');
     const artifacts = Array.isArray(manifest.artifacts) ? manifest.artifacts : [];
     const digest = (suffix) => artifacts.find((item) => typeof item?.name === 'string' && item.name.endsWith(suffix))?.sha256;
-    return { version, apk: digest('.apk'), package: digest('.tgz') };
+    return { version, commit: manifest.source?.commit, apk: digest('.apk'), package: digest('.tgz') };
 }
