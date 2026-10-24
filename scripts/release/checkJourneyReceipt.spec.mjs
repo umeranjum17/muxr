@@ -127,7 +127,7 @@ it('covers a release, and publishes it as npm latest once the captain names it, 
         expect(slowTwin.timings).toEqual({ basis: 'emulator-under-load, informational', ...loaded });
         // The same times on the release's own APK, a phone run, are over budget: refused.
         const slowPhone = checkJourneyReceipt({ repo, commit: head, receiptsRef: land('phone-attach', journeyResult(build, loaded), 'a slow phone journey'), build: tagged });
-        expect(slowPhone.reason).toContain('its attachMs of 37542 is over the 23000 budget');
+        expect(slowPhone.reason).toContain('its attachMs of 37542 is over the 4000 budget');
         land('phone-attach', journeyResult(build), 'the exact-build journey again');
 
         // The same receipt does not cover a rebuilt tarball under the same version.
