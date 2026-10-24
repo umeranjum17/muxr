@@ -136,12 +136,21 @@ try {
     const resumed = (top.match(/(?:topResumedActivity|mResumedActivity)[^\n]*/) ?? ['none'])[0].trim();
     note(`tapped Open Tailscale: ${opened}; resumed after: ${resumed}`);
     if (!opened || resumed.includes(PKG)) defects.push('Open Tailscale did not leave muxr for Tailscale or its store page');
+    // A cold start skips the busy grace and lands on the recovery card, the
+    // card with Retry the owner saw.
+    await adb('shell', 'am', 'force-stop', PKG);
     await adb('shell', 'am', 'start', '-n', `${PKG}/.MainActivity`);
-    await sleep(3000);
+    const recovery = await waitFor((xml) => TAILSCALE_OFF.test(xml) && /Retry connection/.test(xml), 150);
+    note(`cold start: recovery card says "Tailscale is off on this phone" with Retry connection: ${recovery !== undefined}`);
+    if (recovery === undefined) defects.push('the recovery card never said Tailscale is off');
+    if (recovery !== undefined && NO_NETWORK.test(recovery)) defects.push('the recovery card blamed the device network while it was online');
+    for (const [dp, density, font, theme] of [['390', '443', '1.0', 'light'], ['390', '443', '1.0', 'dark'], ['270', '640', '1.3', 'dark']]) {
+        cell(dir, `home-recovery-tailscale-off-${await view(dp, density, font, theme)}`);
+    }
 
     // Now the internet goes too: only now may Home blame this device's network.
     await adb('shell', 'cmd', 'connectivity', 'airplane-mode', 'enable');
-    const offline = await waitFor((xml) => /You're offline/.test(xml) && NO_NETWORK.test(xml), 60);
+    const offline = await waitFor((xml) => /You're offline/.test(xml) && NO_NETWORK.test(xml), 90);
     note(`airplane mode: Home says "You're offline" / "This device has no network": ${offline !== undefined}`);
     if (offline === undefined) defects.push('Home never said the device is offline with airplane mode on');
     cell(dir, `home-offline-${await view('390', '443', '1.0', 'dark')}`);
@@ -150,8 +159,8 @@ try {
     const steps = JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: "fresh app data on an Android emulator with internet and no Tailscale address; a private lab host whose pairing offer names this desktop's Tailscale address, forwarded to the lab relay",
-        steps: ['open the muxr://pair link and tap Pair; Home connects', 'close the Tailscale path while the relay and host keep running', 'read Home at 390 dp font 1.0 and 270 dp font 1.3, light and dark', 'tap Open Tailscale', 'turn airplane mode on and read Home at 390 dp dark'],
-        result: 'with the internet up and the Tailscale path gone, Home says "Tailscale is off on this phone" with Open Tailscale and Retry connection, never "This device has no network"; Open Tailscale leaves muxr; only with airplane mode on does Home say "You\'re offline" and "This device has no network"',
+        steps: ['open the muxr://pair link and tap Pair; Home connects', 'close the Tailscale path while the relay and host keep running', 'read Home at 390 dp font 1.0 and 270 dp font 1.3, light and dark', 'tap Open Tailscale', 'cold-start the app and read the recovery card at 390 dp light and dark and 270 dp font 1.3 dark', 'turn airplane mode on and read Home at 390 dp dark'],
+        result: 'with the internet up and the Tailscale path gone, Home says "Tailscale is off on this phone" with Open Tailscale (the busy card, then after a cold start the recovery card with Retry connection), never "This device has no network"; Open Tailscale leaves muxr; only with airplane mode on does Home say "You\'re offline" and "This device has no network"',
     }, null, 2);
     for (const at of [evidence, dir]) writeFileSync(join(at, 'steps.json'), steps);
     finished = true;

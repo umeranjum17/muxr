@@ -157,7 +157,7 @@ export function HomeRecoveryCard({
                                 : router.push('/pair' as never)}
                     />
                 ) : <>
-                    {tailscaleOff && <ActionButton title="Open Tailscale" onPress={() => void openTailscale()} />}
+                    {tailscaleOff && <ActionButton title="Open Tailscale" wrap onPress={() => void openTailscale()} />}
                     {!sshKey && <ActionButton title={retrying ? 'Retrying…' : 'Retry connection'} accessibilityLabel="Retry connection" variant={tailscaleOff ? 'secondary' : undefined} disabled={retrying} onPress={onRetry} />}
                     <Pressable accessibilityRole="link" onPress={() => router.push('/settings/connection' as never)} style={styles.actionTarget}>
                         <Text style={styles.action}>Connection details</Text>
@@ -216,8 +216,8 @@ export function BusyConnectingCard({ since, computer }: { since: number; compute
                     : `Reconnecting on its own… No answer for ${elapsed}. Your terminals come back when the computer catches up; nothing to do there.`}
             </Text>
             <View style={styles.actions}>
-                {reach === 'tailscale-off' && <ActionButton title="Open Tailscale" onPress={() => void openTailscale()} />}
-                <ActionButton title="Connection details" variant="secondary" onPress={() => router.push('/settings/connection' as never)} />
+                {reach === 'tailscale-off' && <ActionButton title="Open Tailscale" wrap onPress={() => void openTailscale()} />}
+                <ActionButton title="Connection details" variant="secondary" wrap onPress={() => router.push('/settings/connection' as never)} />
             </View>
         </View>
     );

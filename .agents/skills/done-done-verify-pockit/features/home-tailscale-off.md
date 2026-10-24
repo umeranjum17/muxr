@@ -46,7 +46,9 @@ desktop's Tailscale), forwards that address to the loopback lab relay, pairs a
 fresh install, closes only the forwarder (relay and host keep running), and
 captures the Tailscale card at 390 dp font 1.0 and 270 dp font 1.3, light and
 dark, under `native/`. It then taps Open Tailscale (expects muxr to leave the
-foreground) and turns airplane mode on for the offline card at 390 dp dark.
+foreground), cold-starts the app for the recovery card with Retry connection
+(390 dp light and dark, 270 dp font 1.3 dark), and turns airplane mode on for
+the offline card at 390 dp dark.
 Pass: `done; defects: 0` in `journey.log`, and every shot shows the whole card.
 
 ## Gotchas
