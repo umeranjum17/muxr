@@ -1,5 +1,6 @@
 package expo.modules.tailnetaddress
 
+import android.content.Intent
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.net.Inet4Address
@@ -21,6 +22,13 @@ class TailnetAddressModule : Module() {
           address is Inet4Address && address.address[0] == 100.toByte() && (address.address[1].toInt() and 0xC0) == 64
         }
       }
+    }
+
+    // Opens the installed Tailscale app; false when it is not installed.
+    Function("openApp") {
+      val activity = appContext.currentActivity ?: return@Function false
+      val intent = activity.packageManager.getLaunchIntentForPackage("com.tailscale.ipn") ?: return@Function false
+      runCatching { activity.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess
     }
   }
 }

@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- Open Tailscale finds the Tailscale app's launcher; Android 11+ hides
+       every other app's package unless it is named here. -->
+  <queries>
+    <package android:name="com.tailscale.ipn" />
+  </queries>
+</manifest>

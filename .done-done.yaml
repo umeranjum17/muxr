@@ -115,6 +115,16 @@ journeys:
   home-herdr-outdated:
     command: node .agents/skills/done-done-verify-pockit/features/homeHerdrOutdatedLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # Home with the internet up and the Tailscale path to the computer gone
+  # (home-tailscale-off.md): the pairing offer names this desktop's Tailscale
+  # address, forwarded to the lab relay; closing the forwarder must bring
+  # "Tailscale is off on this phone" with Open Tailscale, and only airplane
+  # mode "You're offline". Runs by hand under the shared emulator lock;
+  # MUXR_LAB_APK is a release build of this commit, MUXR_LAB_AVD_HOME a
+  # task-owned emulator home.
+  home-tailscale-off:
+    command: node .agents/skills/done-done-verify-pockit/features/homeTailscaleOffLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # The pane switcher on Android: the release app on an owned emulator, paired
   # to the fake stack (three tabs), opened from an agent's pane counter at
   # 390 dp light and dark and 270 dp (pane-switcher.md). Runs by hand under the

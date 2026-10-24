@@ -110,6 +110,11 @@ rules, with no H2 sections.
   taps enable dev mode, then the live receiver reports `VideoToolbox`/H.264,
   picture size and rising frame counters from the private fake stack.
 
+- [Say Tailscale is off, not "no network"](./home-tailscale-off.md) —
+  owned emulator, lab offer on this desktop's Tailscale address: with the
+  internet up and the path gone, Home says Tailscale is off with Open
+  Tailscale; only airplane mode brings "You're offline".
+
 - [Reload the installed PWA with no network](./pwa-offline.md) —
   standalone-window PWA over the owned relay serving `dist`: boot-registered
   worker, versioned shell, offline reload, self-recovery, and a build update.

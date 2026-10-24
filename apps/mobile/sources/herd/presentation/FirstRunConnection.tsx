@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Linking, Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -9,26 +9,9 @@ import { sshTunnelAvailable } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { WordWrappingText } from '@/components/WordWrappingText';
 import { useCompactWindow } from '@/components/useCompactWindow';
-import { Modal } from '@/modal';
-import { openExternalUrl } from '@/utils/openExternalUrl';
 import { FirstRunSetupCard, SetupStep } from './FirstRunSetupCard';
 import { addComputerLink } from '@/commercialization';
-
-const PLAY_STORE_APP = 'market://details?id=com.tailscale.ipn';
-const PLAY_STORE_WEB = 'https://play.google.com/store/apps/details?id=com.tailscale.ipn';
-const APP_STORE = 'https://apps.apple.com/app/id1470499037';
-const TAILSCALE_DOWNLOAD = 'https://tailscale.com/download';
-
-async function openTailscaleStore(): Promise<void> {
-    try {
-        if (Platform.OS === 'web') return await openExternalUrl(TAILSCALE_DOWNLOAD);
-        if (Platform.OS === 'ios') return await Linking.openURL(APP_STORE);
-        // A device without the Play Store app has no market: handler; its web page still installs.
-        await Linking.openURL(PLAY_STORE_APP).catch(() => openExternalUrl(PLAY_STORE_WEB));
-    } catch (error) {
-        Modal.alert('Could not open the store', `${error instanceof Error ? error.message : String(error)}\nSearch for Tailscale in your app store.`);
-    }
-}
+import { openTailscaleStore } from './tailscaleApp';
 
 /**
  * Segmented Fast pairing / Direct SSH switcher. Rendered at the top of the

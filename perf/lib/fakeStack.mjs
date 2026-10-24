@@ -116,7 +116,9 @@ function childEnv(home, muxrHome, extra, base = process.env) {
 /**
  * @param {{ panes?: number, agents?: number, titleChurnHz?: number,
  *   terminalBytesPerSecond?: number, emptyPanes?: number, emptyAfterMs?: number,
- *   transport?: 'adb' | 'loopback' }} [options]
+ *   transport?: 'adb' | 'loopback', advertiseHost?: string }} [options]
+ * `advertiseHost` names the address the pairing offer carries instead of
+ * 127.0.0.1 (a lab forwards it to the loopback relay itself).
  */
 export async function startFakeStack(options = {}) {
     return startStack(options);
@@ -273,7 +275,7 @@ async function startStack(options, live) {
         const identity = await run(process.execPath, [
             join(sourceRoot, 'scripts/cli.mjs'), 'self-host', '--relay-only',
             '--port', String(relayPort),
-            '--advertise', `ws://127.0.0.1:${relayPort}`,
+            '--advertise', `ws://${options.advertiseHost ?? '127.0.0.1'}:${relayPort}`,
             '--connection-mode', 'lan',
             '--bind-loopback',
         ], { cwd: sourceRoot, env: childEnv(home, muxrHome, undefined, live?.env), timeout: 120_000 }).catch((cause) => {
