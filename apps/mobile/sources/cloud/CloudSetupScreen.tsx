@@ -5,6 +5,7 @@ import { claim, errorWords, MachineError, words } from '@byokit/cloud';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionButton } from '@/components/ActionButton';
+import { Switch } from '@/components/Switch';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/account/ui';
 import { pairLinkOffer } from '@/pairing';
@@ -15,12 +16,13 @@ import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, pendingBoatSize, P
 
 const STEPS = ['Provider', 'Your Boat account', 'Size and price', 'Create', 'Put muxr on it', 'Private connection', 'Pair with this phone'];
 const SIZES: { id: BoatSize; title: string }[] = [{ id: 'small', title: 'Small · 2 CPUs, 4 GB' }, { id: 'default', title: 'Standard · 4 CPUs, 8 GB' }];
-const STEP_INDEX: Record<DeployStep['step'], number> = { creating: 3, starting: 3, installing: 4, configuring: 4, connecting: 5, pairing: 6 };
+const STEP_INDEX: Record<DeployStep['step'], number> = { creating: 3, starting: 3, installing: 4, configuring: 4, screen: 4, connecting: 5, pairing: 6 };
 const STEP_WORDS: Record<DeployStep['step'], string> = {
     creating: 'Creating your cloud computer on Boat.',
     starting: 'Starting your cloud computer.',
     installing: words('setup.installing', { app: 'muxr' }),
     configuring: 'Setting up muxr on your cloud computer.',
+    screen: 'Adding a screen for sign-ins. This takes a few minutes.',
     connecting: 'Connecting this phone to your cloud computer over a private SSH link.',
     pairing: words('setup.pairing', { app: 'muxr' }),
 };
@@ -67,6 +69,7 @@ export function CloudSetupScreen() {
     const mounted = React.useRef(true);
     const [size, setSize] = React.useState<BoatSize>('small');
     const [sizeLocked, setSizeLocked] = React.useState(false);
+    const [screen, setScreen] = React.useState(false);
     const [deploy, setDeploy] = React.useState<DeployStep | undefined>(deployStep);
     const auth = useAuth();
     const router = useRouter();
@@ -109,6 +112,7 @@ export function CloudSetupScreen() {
         setError(undefined);
         const run = deployBoatComputer({
             size,
+            screen,
             onStep: (s) => {
                 deployStep = s;
                 if (mounted.current) setDeploy(s);
@@ -122,7 +126,7 @@ export function CloudSetupScreen() {
         });
         deployRun = run;
         void settle(run);
-    }, [size, auth, settle]);
+    }, [size, screen, auth, settle]);
     const current = deploy ? STEP_INDEX[deploy.step] : connected ? 2 : 1;
 
     const connect = React.useCallback(async () => {
@@ -200,6 +204,15 @@ export function CloudSetupScreen() {
                                                 <Text style={styles.detail}>{perHour(option.id)}</Text>
                                             </Pressable>
                                         ))}
+                                        <Pressable accessibilityRole="switch" accessibilityLabel="Add a screen for sign-ins" accessibilityState={{ checked: screen, disabled: busy }} disabled={busy} onPress={() => setScreen((on) => !on)} style={styles.size}>
+                                            <View style={styles.option}>
+                                                <View style={styles.stepContent}>
+                                                    <Text style={styles.stepTitle}>Add a screen for sign-ins</Text>
+                                                    <Text style={styles.detail}>For a sign-in that needs a browser: see and use it in Computer. Adds a few minutes to set-up.</Text>
+                                                </View>
+                                                <Switch value={screen} disabled={busy} onValueChange={setScreen} />
+                                            </View>
+                                        </Pressable>
                                         <Text style={styles.detail}>{`Paid to Boat, not muxr. Free while asleep; Boat's plan is at least $${PRICE.planFloorPerMonth} a month. Prices checked ${checkedLabel(PRICE.checked)}.`}</Text>
                                         {busy && <Text style={styles.detail}>Setup is still running.</Text>}
                                         <ActionButton title="Create cloud computer" icon="cloud-outline" disabled={busy} onPress={() => { void create(); }} wrap />
@@ -276,6 +289,7 @@ const styles = StyleSheet.create((theme) => ({
     waiting: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     error: { ...Typography.default(), fontSize: 14, lineHeight: 20, color: theme.colors.status.disconnected },
     size: { gap: 2, padding: 12, borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 12 },
+    option: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     sizeChosen: { borderColor: theme.colors.accent, backgroundColor: theme.colors.surfaceHighest },
     createAccount: { ...Typography.default('semiBold'), paddingVertical: 8, textAlign: 'center', color: theme.colors.textSecondary },
 }));

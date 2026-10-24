@@ -75,6 +75,7 @@ vi.mock('react-native-unistyles', () => ({
 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+vi.mock('@/components/Switch', () => ({ Switch: 'Switch' }));
 const router = { replace: vi.fn() };
 vi.mock('expo-router', () => ({ useRouter: () => router }));
 vi.mock('@/account/ui', () => ({ useAuth: () => ({}) }));
@@ -192,14 +193,33 @@ it('signs in to Boat once the person opens the page, and gives up with a retry a
     }
 });
 
-it('reaches a new cloud computer over SSH with a key this phone made, pairs through that tunnel and joins no tailnet', async () => {
+// The screen for sign-ins, run as root: the host's Xvfb, the window session, the engine's libraries and Mozilla's Firefox.
+const ADD_SCREEN = ['sh', '-c', [
+    'set -eu',
+    'export DEBIAN_FRONTEND=noninteractive',
+    'install -d -m 0755 /etc/apt/keyrings',
+    'curl -fsSL https://packages.mozilla.org/apt/repo-signing-key.gpg -o /etc/apt/keyrings/packages.mozilla.org.asc',
+    "echo '3ecc63922b7795eb23fdc449ff9396f9114cb3cf186d6f5b53ad4cc3ebfbb11f  /etc/apt/keyrings/packages.mozilla.org.asc' | sha256sum -c --quiet -",
+    "echo 'deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main' > /etc/apt/sources.list.d/mozilla.list",
+    "printf 'Package: *\\nPin: origin packages.mozilla.org\\nPin-Priority: 1000\\n' > /etc/apt/preferences.d/mozilla",
+    'apt-get -o DPkg::Lock::Timeout=300 update -q',
+    'apt-get -o DPkg::Lock::Timeout=300 install -y -q --no-install-recommends xvfb xfce4 xfce4-terminal dbus-x11 libpipewire-0.3-0t64 libxkbcommon0 libevdev2 firefox',
+].join('\n')];
+
+it('reaches a new cloud computer over SSH with a key this phone made, adds the chosen screen, pairs through that tunnel and joins no tailnet', async () => {
     const run = server.machine.run.bind(server.machine);
     const outbox = '/home/user/muxr/.byokit/outbox';
     const commands: (readonly string[])[] = [];
+    const screens: { argv: readonly string[]; root: boolean }[] = [];
     server.machine.run = (argv, o) => {
         const ok = (stdout = '') => ({ code: 0, stdout, stderr: '', timedOut: false });
         commands.push(argv);
         if (argv.includes('self-host')) return ok('Configured');
+        // The first screen install fails the way apt does; the retry installs it.
+        if (argv[0] === 'sh' && String(argv[2]).includes('apt-get')) {
+            screens.push({ argv, root: o?.root === true });
+            return screens.length === 1 ? { code: 100, stdout: '', stderr: 'E: Unable to locate package libpipewire-0.3-0t64', timedOut: false } : ok();
+        }
         // `muxr pair --handoff` writes its offer, then reads the two words the phone delivers.
         if (argv.includes('--handoff')) {
             server.machine.writeFile(`${outbox}/muxr-pair-1.json`, new TextEncoder().encode(JSON.stringify({ offer: 'muxr-offer-umer', wordsFile: 'muxr-words-1' })), 0o600, 'user');
@@ -217,8 +237,20 @@ it('reaches a new cloud computer over SSH with a key this phone made, pairs thro
     current = root;
     await until(() => button(root, 'Create cloud computer') !== undefined, 'the size step');
     expect(texts(root)).toContain('Private connection');
+    // The screen is the person's choice and off until they turn it on.
+    expect(button(root, 'Add a screen for sign-ins').props.accessibilityState.checked).toBe(false);
+    TestRenderer.act(() => { button(root, 'Add a screen for sign-ins').props.onPress(); });
+    expect(button(root, 'Add a screen for sign-ins').props.accessibilityState.checked).toBe(true);
     TestRenderer.act(() => { button(root, 'Create cloud computer').props.onPress(); });
+    // A failing install shows apt's own words and stops before the phone signs in; Try again carries on.
+    await until(() => button(root, 'Try again') !== undefined, 'the failed screen install', 2_000);
+    expect(texts(root)).toContain('The screen did not install on your Boat computer: E: Unable to locate package libpipewire-0.3-0t64');
+    expect(lab.authorized).toEqual([]);
+    TestRenderer.act(() => { button(root, 'Try again').props.onPress(); });
     await until(() => router.replace.mock.calls.length > 0, 'Home after pairing', 2_000);
+    expect(screens).toEqual([{ argv: ADD_SCREEN, root: true }, { argv: ADD_SCREEN, root: true }]);
+    // The Computer screen offers the same step for this computer only.
+    expect(lab.secrets.get('muxr.cloud.boat-paired.v1')).toBe('umer-cloud');
 
     // Boat authorized one new Ed25519 key, and the phone signed in with exactly that key, to the host key Boat gave.
     expect(lab.authorized).toEqual([expect.stringMatching(/^ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI[A-Za-z0-9+/]+ muxr phone$/)]);

@@ -16,6 +16,7 @@ import { ui } from '@/components/ui';
 import { sync } from '@/catalog';
 import { useLocalSettingMutable, useMachine } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
+import { addBoatScreen, isBoatComputer } from '@/cloud';
 import { hapticsSelection } from '@/components/haptics';
 import { claimDesktopRequest, peekDesktopRequest, previewDocks, requestDesktop } from '../request';
 import { createDesktopSignaling } from '../application/desktopSignaling';
@@ -305,6 +306,18 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
         void connect();
     }, [connect]);
 
+    // A Boat computer this phone set up can be given its screen from here; any other computer gets the command.
+    const [boatComputer, setBoatComputer] = React.useState(false);
+    React.useEffect(() => { void isBoatComputer(getCachedConnectionSettings().machineId).then(setBoatComputer, () => undefined); }, []);
+    const [screenSetup, setScreenSetup] = React.useState<{ running: true } | { error: string } | null>(null);
+    const addScreen = React.useCallback(() => {
+        setScreenSetup({ running: true });
+        addBoatScreen().then(() => {
+            setScreenSetup(null);
+            retry();
+        }, (cause: unknown) => setScreenSetup({ error: cause instanceof Error ? cause.message : String(cause) }));
+    }, [retry]);
+
     React.useEffect(() => setKeyboardOpen(keyboard.isVisible), [keyboard.isVisible]);
 
     React.useEffect(() => {
@@ -553,13 +566,20 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
         : resuming && !closed ? { title: copy.opening, spinner: true }
         : dropped && !closed && (snapshot.status === 'opening' || snapshot.status === 'connecting') ? null
         : describePreviewOverlay(snapshot, kind, closed);
+    const offerScreen = !preview && started && boatComputer && snapshot.status === 'failed' && snapshot.failure?.code === 'no-screen';
     const status: { title: string; detail?: string; command?: string; spinner: boolean; action?: string } = previewStatus !== null
         ? { ...previewStatus, action: previewStatus.action?.label }
+        : offerScreen
+            ? screenSetup !== null && 'running' in screenSetup
+                ? { title: desktopCopy.addingScreenTitle, detail: desktopCopy.addingScreenBody, spinner: true }
+                : screenSetup !== null
+                    ? { title: desktopCopy.noScreenTitle, detail: screenSetup.error, command: desktopCopy.noScreenCommand, spinner: false, action: desktopCopy.addScreenAction }
+                    : { title: desktopCopy.noScreenTitle, detail: desktopCopy.noScreenBoatBody, spinner: false, action: desktopCopy.addScreenAction }
         : started
             ? { ...described, action: described.canRetry ? 'Try again' : undefined }
             : { title: desktopCopy.stoppedTitle, detail: desktopCopy.stoppedBody, command: undefined, spinner: false, action: desktopCopy.startAction };
     const overlayShown = preview ? previewStatus !== null : !live;
-    const onStatusAction = previewStatus?.action?.exit === true ? onExit : started ? retry : start;
+    const onStatusAction = previewStatus?.action?.exit === true ? onExit : offerScreen ? addScreen : started ? retry : start;
     const shownNotice = live ? notice?.text ?? null : null;
     // The row stays while the keyboard is still on its way down, fading with it.
     const web = Platform.OS === 'web';
