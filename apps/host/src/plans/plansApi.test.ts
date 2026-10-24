@@ -6,7 +6,7 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { execFileSync, spawn } from 'node:child_process';
-import { preparePlanSignIn, planAccountStatus, finishPlanSignIn, cancelPlanSignIn, rememberPlanPane, withPlanAccounts, observePlanPanes } from './planSignIn.js';
+import { preparePlanSignIn, planAccountStatus, finishPlanSignIn, cancelPlanSignIn, rememberPlanPane, withPlanAccounts, observePlanPanes, planPaneAccount } from './planSignIn.js';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
@@ -149,21 +149,31 @@ it('names a pane by its own agent account and leaves an unknown Pi pane without 
     });
 });
 
-/** A pane muxr did not start (no record) still runs on the folder its own
- *  process was launched with, not on the computer's sign-in. */
-it.skipIf(process.platform !== 'linux')('names an unrecorded Claude pane by the folder its own process runs with', async () => {
+/** Each Claude pane names the folder its own process runs with now: one muxr
+ *  never started, one on no folder of its own, and one muxr put on the
+ *  computer's account whose agent was then relaunched in the same pane on a
+ *  plans folder. The chip (tree) and the empty-room banner (`plans.agent`)
+ *  name the live process's account, not the old record. */
+it.skipIf(process.platform !== 'linux')('names each Claude pane by the folder its own process runs with now', async () => {
     env.CLAUDE_CONFIG_DIR = foundClaude('umer');
     savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder: addedClaude('work'), found: false }]);
     const listed = (await listPlans(env)).providers;
-    const child = spawn('sleep', ['30'], { env: { ...process.env, CLAUDE_CONFIG_DIR: loadPlanAccounts(env).find((record) => record.id === 'pa_work')!.folder }, stdio: 'ignore' });
+    const own = listed[0]!.accounts.find((account) => account.foundOnComputer)!;
+    rememberPlanPane(env, 'p-main', own.id, ['p-main']);
+    const run = (folder: string | undefined) => spawn('sleep', ['30'], { env: { ...process.env, CLAUDE_CONFIG_DIR: folder }, stdio: 'ignore' });
+    const work = run(loadPlanAccounts(env).find((record) => record.id === 'pa_work')!.folder);
+    const bare = run(undefined);
     try {
         const pane = (paneId: string): HerdrTreePane => ({ paneId, tabId: 't1', focused: false, agentKind: 'claude', agentStatus: 'idle' as const, promptable: true });
-        const tree = { workspaces: [{ workspaceId: 'w1', focused: true, agentStatus: 'idle' as const, tabs: [{ tabId: 't1', focused: true, agentStatus: 'idle' as const, panes: [pane('p-work'), pane('p-own')] }] }] };
-        const pids = async (paneId: string): Promise<number[]> => [paneId === 'p-work' ? child.pid! : process.pid];
+        const tree = { workspaces: [{ workspaceId: 'w1', focused: true, agentStatus: 'idle' as const, tabs: [{ tabId: 't1', focused: true, agentStatus: 'idle' as const, panes: [pane('p-work'), pane('p-own'), pane('p-main')] }] }] };
+        const pids = async (paneId: string): Promise<number[]> => [paneId === 'p-own' ? bare.pid! : work.pid!];
         const named = withPlanAccounts(env, tree, listed, await observePlanPanes(env, tree, pids));
-        expect(named.workspaces[0]!.tabs[0]!.panes.map((entry) => entry.planAccount)).toEqual(['Work', listed[0]!.accounts.find((account) => account.foundOnComputer)!.name]);
+        expect(named.workspaces[0]!.tabs[0]!.panes.map((entry) => entry.planAccount)).toEqual(['Work', own.name, 'Work']);
+        expect(await planPaneAccount(env, 'p-main', 'claude', pids)).toEqual({ accountId: 'pa_work' });
+        expect(await planPaneAccount(env, 'p-own', 'claude', pids)).toEqual({});
     } finally {
-        child.kill();
+        work.kill();
+        bare.kill();
     }
 });
 
