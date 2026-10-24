@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
-index b9c118e..08af197 100644
+index b9c118e..f1d3cac 100644
 --- a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
 +++ b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
 @@ -18,7 +18,8 @@
@@ -59,7 +59,7 @@ index b9c118e..08af197 100644
  };
  
  void writePtyCallback(GhosttyTerminal, void* userdata, const uint8_t* data, size_t len) {
-@@ -225,6 +243,129 @@ uint32_t appendUtf16(uint32_t cp, uint16_t* out, uint32_t used, uint32_t cap) {
+@@ -225,6 +243,161 @@ uint32_t appendUtf16(uint32_t cp, uint16_t* out, uint32_t used, uint32_t cap) {
    return 2;
  }
  
@@ -125,22 +125,37 @@ index b9c118e..08af197 100644
 +
 +// How many rows the screen's content moved up from [prev] to [cur]: the shift
 +// k at which the most rows read cur[i] == prev[i + k]. Negative is content
-+// moving down. Only non-blank rows that appear once in [prev] vote, so text that
-+// repeats (wrapped sentence tails, rules) cannot line up at a false shift, and a
-+// move counts only rows that changed in place, so a fixed footer, which lines up
-+// at 0, cannot outvote a content area that moved most of its height. Returns
-+// false when no row lines up at any shift.
++// moving down. A row that appears once on both screens anchors a shift, and
++// the unbroken run of matching rows around it votes with it: on a narrow grid
++// a line wraps, its tail ("stone.", "the rocks.") repeats down the screen, and
++// fast output leaves only one line in common between two frames, so the tails
++// beside it are what make a move of most of the screen visible. A run with no
++// anchor never votes, so repeating text cannot line up at a false shift, and a
++// move counts only rows that changed in place, so a fixed footer, which lines
++// up at 0, cannot outvote a content area that moved most of its height.
++// Returns false when no row lines up at any shift.
 +bool screenShift(const std::vector<std::string>& prev, const std::vector<std::string>& cur, int* shift) {
 +  const int n = static_cast<int>(std::min(prev.size(), cur.size()));
-+  std::unordered_map<std::string, int> seen;
-+  for (const auto& row : prev) seen[row]++;
++  std::unordered_map<std::string, int> seenPrev, seenCur;
++  for (const auto& row : prev) seenPrev[row]++;
++  for (const auto& row : cur) seenCur[row]++;
 +  const auto count = [&](int k) {
++    const auto matches = [&](int i) {
++      return !cur[i].empty() && cur[i] == prev[i + k] && (k == 0 || cur[i] != prev[i]);
++    };
 +    int matched = 0;
-+    for (int i = std::max(0, -k); i < n && i + k < n; i++) {
-+      if (!cur[i].empty() && cur[i] == prev[i + k] && seen.at(cur[i]) == 1 &&
-+          (k == 0 || cur[i] != prev[i])) {
-+        matched++;
++    for (int i = std::max(0, -k); i < n && i + k < n;) {
++      if (!matches(i)) {
++        i++;
++        continue;
 +      }
++      int end = i;
++      bool anchored = false;
++      for (; end < n && end + k < n && matches(end); end++) {
++        anchored = anchored || (seenPrev.at(cur[end]) == 1 && seenCur.at(cur[end]) == 1);
++      }
++      if (anchored) matched += end - i;
++      i = end;
 +    }
 +    return matched;
 +  };
@@ -160,6 +175,23 @@ index b9c118e..08af197 100644
 +  }
 +  *shift = 0;
 +  return count(0) >= 2;
++}
++
++// Rows of a whole content area that moved off in one frame: [cur]'s footer
++// (the rows at the bottom that did not change, an agent's prompt box and
++// status) held while every row above it changed, so nothing is left to line
++// up, yet the area above it is new output. Returns 0 for anything else.
++int areaMoved(const std::vector<std::string>& prev, const std::vector<std::string>& cur) {
++  int top = static_cast<int>(std::min(prev.size(), cur.size()));
++  bool footer = false;
++  for (; top > 0 && prev[top - 1] == cur[top - 1]; top--) footer = footer || !prev[top - 1].empty();
++  if (!footer) return 0;
++  bool content = false;
++  for (int i = 0; i < top; i++) {
++    if (!prev[i].empty() && prev[i] == cur[i]) return 0;
++    content = content || !prev[i].empty();
++  }
++  return content ? top : 0;
 +}
 +
 +// Repaints the mirror's screen as the live one, after pushing [pushRows] of its
@@ -189,7 +221,7 @@ index b9c118e..08af197 100644
  }  // namespace
  
  extern "C" {
-@@ -507,6 +648,14 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -507,6 +680,14 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
      rowHeader[1] = selResult == GHOSTTY_SUCCESS ? selection.start_x : -1;
      rowHeader[2] = selResult == GHOSTTY_SUCCESS ? selection.end_x : -1;
  
@@ -204,7 +236,7 @@ index b9c118e..08af197 100644
      if (ghostty_render_state_row_get(session->rowIter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS,
                                       &session->cells) != GHOSTTY_SUCCESS) {
        return -1;
-@@ -534,6 +683,10 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -534,6 +715,10 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
          flags |= kFlagSpacer;
        }
  
@@ -215,7 +247,7 @@ index b9c118e..08af197 100644
        bool hasStyling = false;
        ghostty_render_state_row_cells_get(session->cells,
                                           GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING,
-@@ -628,6 +781,86 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -628,6 +813,86 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
    return rowCount;
  }
  
@@ -302,7 +334,7 @@ index b9c118e..08af197 100644
  JNIEXPORT jboolean JNICALL
  Java_expo_modules_libghostty_GhosttyVt_nativeSelectWord(
      JNIEnv*, jobject, jlong handle, jint col, jint row) {
-@@ -826,4 +1059,58 @@ Java_expo_modules_libghostty_GhosttyVt_nativeEncodeKey(
+@@ -826,4 +1091,60 @@ Java_expo_modules_libghostty_GhosttyVt_nativeEncodeKey(
    return outArray;
  }
  
@@ -332,7 +364,9 @@ index b9c118e..08af197 100644
 +      std::chrono::steady_clock::now().time_since_epoch()).count();
 +  if (!linedUp && now - live->mirrorResumedAt < kMirrorResumeMs) return 0;
 +  live->mirrorResumedAt = 0;
-+  const int pushed = linedUp ? shift : 0;
++  // Lined up in place: the footer held. Output that moved the whole area
++  // above it within one frame leaves nothing else in common.
++  const int pushed = !linedUp ? 0 : shift > 0 ? shift : areaMoved(live->mirrorRows, rows);
 +  paintMirror(mirror, live, pushed);
 +  live->mirrorRows = std::move(rows);
 +  return pushed;
