@@ -7,6 +7,9 @@
 // Herdr lab session HERDR_LAB_HELPER/HERDR_LAB_SESSION): Boat's SSH key route lets the phone's key into its sshd and
 // answers its loopback port (BOAT_LAB_SSH_PORT on stdout, for `adb reverse`), holds each set-up step BOAT_LAB_STEP_MS (8 s) so each is captured, and the app's `muxr self-host` and
 // `muxr pair --handoff` run this checkout's CLI there; a configured machine starts `muxr up` as its service would.
+// BOAT_LAB_UPSTREAM=<api base> with BOAT_LAB_KEY_FILE=<path> makes it the key proxy for a real run instead: the sign-in
+// stays this lab's, and every other call goes to the upstream (https://boat.dev/api/v1) with the key read from the file
+// in place, so the key never reaches the phone, the APK or a log.
 // Usage: node boatSignInLab.mjs <port>
 // (run from the repo root after `yarn install`) -> prints "boat lab listening on <port>".
 import { execFileSync } from 'node:child_process';
@@ -23,6 +26,36 @@ const fake = await startFakeSandboxServer({ claimInterval: 2, key: 'boat-claimed
 const fakeOrigin = new URL(fake.url).origin;
 const ownOrigin = `http://127.0.0.1:${port}`;
 let approved = false;
+
+const upstream = process.env.BOAT_LAB_UPSTREAM;
+if (upstream && (!process.env.BOAT_LAB_KEY_FILE || process.env.BOAT_LAB_SSH)) throw new Error('BOAT_LAB_UPSTREAM needs BOAT_LAB_KEY_FILE and no BOAT_LAB_SSH');
+const HOP = new Set(['host', 'connection', 'content-length', 'accept-encoding', 'authorization', 'transfer-encoding']);
+
+// The phone holds the lab's claimed key; only a call carrying it gets the real one, read in place for this call.
+async function toUpstream(req, path, body, res) {
+    if (req.headers.authorization !== 'Bearer boat-claimed-key') {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'unauthorized' }));
+        return;
+    }
+    const key = readFileSync(process.env.BOAT_LAB_KEY_FILE, 'utf8').trim();
+    const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !HOP.has(name)));
+    let answer;
+    try {
+        answer = await fetch(`${upstream}${path.slice('/api/v1'.length)}`, {
+            method: req.method, headers: { ...headers, authorization: `Bearer ${key}` }, body: ['GET', 'HEAD'].includes(req.method) ? undefined : body,
+        });
+    } catch (cause) {
+        console.log(`  upstream unreachable: ${cause.cause?.code ?? cause.message}`);
+        res.writeHead(502, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'upstream unreachable' }));
+        return;
+    }
+    const text = (await answer.text()).replaceAll(key, '');
+    console.log(`  upstream ${answer.status}`);
+    res.writeHead(answer.status, { 'content-type': answer.headers.get('content-type') ?? 'application/json' });
+    res.end(text);
+}
 
 let cloud;
 const commands = new Map();
@@ -85,6 +118,10 @@ createServer(async (req, res) => {
         return;
     }
     if (req.method === 'POST' && path === '/api/boat/agent/identity') approved = false; // each new sign-in waits for its own approval
+    if (upstream && !path.startsWith('/api/boat/')) {
+        await toUpstream(req, path, body, res);
+        return;
+    }
     // A real machine spends minutes on each set-up step; the stand-in holds each for a moment so every step is seen.
     const command = cloud && req.method === 'POST' && /\/commands$/.test(path) ? String(JSON.parse(body.toString()).command) : '';
     if (cloud && req.method === 'POST' && (path === '/api/v1/sandboxes' || /\/sshkey$/.test(path) || command.includes("'npm' 'install'") || command.includes("'self-host'"))) {

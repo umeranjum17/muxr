@@ -3,21 +3,27 @@
 // and this checkout's muxr in a namespace of their own), links the lab Boat account on a release APK built with
 // EXPO_PUBLIC_MUXR_BOAT_API, taps Create cloud computer and then nothing in muxr: no browser may open, each set-up
 // step is captured, and the phone must land on Home with the computer connected through the SSH tunnel.
-// Needs a provisioned Herdr lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION). Run from the repo root:
-//   node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk <apk> --evidence <dir> --avd-home <dir> --port <boat lab port> --machine <short dir>
-//     [--dp 390|270] [--font 1.0|2.0] [--theme light|dark]
+// Needs a provisioned Herdr lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION). With --upstream and --key-file it is the real run
+// instead (it costs money: only once approved): the lab is the key proxy in front of that Boat API, so the phone creates
+// a real machine with the lab's key only, and the journey removes every machine the run created and reads the account
+// back. Run from the repo root:
+//   node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk <apk> --evidence <dir> --avd-home <dir> --port <boat lab port>
+//     (--machine <short dir> | --upstream <api base> --key-file <path>) [--dp 390|270] [--font 1.0|2.0] [--theme light|dark]
 import { execFile, spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
+import { boat } from '@byokit/cloud';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
 import { dismissPrompts, dumpUiXml } from '../../../../perf/lib/androidSignals.mjs';
 
 const { values: opts } = parseArgs({ options: {
     apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' }, port: { type: 'string' }, machine: { type: 'string' },
     dp: { type: 'string', default: '390' }, font: { type: 'string', default: '1.0' }, theme: { type: 'string', default: 'light' },
+    upstream: { type: 'string' }, 'key-file': { type: 'string' },
 } });
-if (!opts.apk || !opts.evidence || !opts['avd-home'] || !opts.port || !opts.machine) throw new Error('--apk, --evidence, --avd-home, --port and --machine are required');
+if (!opts.apk || !opts.evidence || !opts['avd-home'] || !opts.port) throw new Error('--apk, --evidence, --avd-home and --port are required');
+if (opts.upstream ? !opts['key-file'] || opts.machine : !opts.machine) throw new Error('give --machine, or --upstream with --key-file');
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
 mkdirSync(EVIDENCE, { recursive: true });
@@ -76,8 +82,10 @@ async function tap(what, test, seconds = 90) {
     await sh(`input tap ${Math.round((l + r) / 2)} ${Math.round((t + b) / 2)}`);
     await sleep(1500);
 }
-const RECORD = "i=0; while [ $i -lt 20 ]; do screenrecord --time-limit 170 --bit-rate 2000000 /sdcard/mxrec-$i.mp4 || break; i=$((i+1)); done";
+// Old files go first (the AVD's storage outlives a run); the stop file ends the loop before its last file is cut.
+const RECORD = "rm -f /sdcard/mxrec-* /sdcard/mxrec.stop; i=0; while [ $i -lt 20 ] && [ ! -e /sdcard/mxrec.stop ]; do screenrecord --time-limit 170 --bit-rate 2000000 /sdcard/mxrec-$i.mp4 || break; i=$((i+1)); done";
 async function stopRecording() {
+    await sh('touch /sdcard/mxrec.stop').catch(() => undefined);
     await sh('pkill -INT screenrecord').catch(() => undefined);
     await sleep(3000);
     const files = (await sh('ls /sdcard/ | grep mxrec- || true')).split('\n').map((f) => f.trim()).filter(Boolean).sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
@@ -88,23 +96,31 @@ const focused = async () => (await sh('dumpsys window displays')).match(/mCurren
 let activity = '';
 const bringMuxrBack = async () => { await sh(`am start -n ${activity}`); await sleep(2000); };
 
+// The journey reaches Boat only through the lab, with the phone's own lab key, so it never holds the real one.
+const account = boat({ baseUrl: `http://127.0.0.1:${opts.port}/api/v1`, label: 'Boat', prices: [], key: async () => 'boat-claimed-key' });
+const machineIds = async () => new Set((await account.list()).map((ref) => ref.id));
+
 let lab;
 let emulator;
 let recorder;
+let before;
 try {
+    const labEnv = opts.upstream ? { BOAT_LAB_UPSTREAM: opts.upstream, BOAT_LAB_KEY_FILE: resolve(opts['key-file']) } : { BOAT_LAB_SSH: resolve(opts.machine) };
     lab = spawn(process.execPath, ['.agents/skills/done-done-verify-pockit/features/boatSignInLab.mjs', opts.port], {
-        env: { ...process.env, BOAT_LAB_SSH: resolve(opts.machine) }, stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, ...labEnv }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     let labOut = '';
     lab.stdout.on('data', (chunk) => { labOut += chunk; appendFileSync(join(EVIDENCE, 'boat-lab.log'), chunk); });
     lab.stderr.on('data', (chunk) => appendFileSync(join(EVIDENCE, 'boat-lab.log'), chunk));
     say(`boat lab pid ${lab.pid} on port ${opts.port}`);
-    while (!/BOAT_LAB_SSH_PORT=(\d+)/.test(labOut)) {
+    // The stand-in computer's sshd sits on this host's loopback; a real machine's SSH address is public.
+    const ready = opts.upstream ? /boat lab listening/ : /BOAT_LAB_SSH_PORT=(\d+)/;
+    while (!ready.test(labOut)) {
         if (lab.exitCode !== null) throw new Error(`the Boat lab stopped: ${labOut}`);
         await sleep(200);
     }
-    const sshPort = labOut.match(/BOAT_LAB_SSH_PORT=(\d+)/)[1];
-    say(`stand-in computer's SSH on 127.0.0.1:${sshPort}`);
+    const sshPort = labOut.match(/BOAT_LAB_SSH_PORT=(\d+)/)?.[1];
+    if (sshPort) say(`stand-in computer's SSH on 127.0.0.1:${sshPort}`);
 
     emulator = await bootOwnedEmulator({ name: 'mxcs', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: ['nice', '-n', '10'] });
     serial = emulator.serial;
@@ -120,7 +136,7 @@ try {
     await view(390, '1.0', 'light');
     await sh('settings put global heads_up_notifications_enabled 0').catch(() => undefined);
     await adb(['reverse', `tcp:${opts.port}`, `tcp:${opts.port}`]);
-    await adb(['reverse', `tcp:${sshPort}`, `tcp:${sshPort}`]);
+    if (sshPort) await adb(['reverse', `tcp:${sshPort}`, `tcp:${sshPort}`]);
     // Chrome's first-run screens would stand in front of every page it opens.
     await sh(`echo 'chrome --disable-fre --no-default-browser-check --no-first-run' > /data/local/tmp/chrome-command-line`);
     await sh('am set-debug-app --persistent com.android.chrome');
@@ -163,6 +179,10 @@ try {
     }
     await shot('01-size-and-price');
 
+    if (opts.upstream) {
+        before = await machineIds();
+        say(`machines on the account before Create: ${before.size}`);
+    }
     await tap('Create cloud computer', (v) => v === 'Create cloud computer');
     const created = Date.now();
     say('from here the journey taps nothing in muxr; no browser may open');
@@ -200,19 +220,33 @@ try {
     if (!seen.has('05-private-connection')) throw new Error('the Private connection step was never shown');
     writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
-        start: 'fresh release APK on an owned 390 dp emulator, Boat lab with its stand-in computer (sshd + muxr in a namespace)',
+        start: opts.upstream ? `fresh release APK on an owned 390 dp emulator, a real Boat machine through the lab's key proxy to ${opts.upstream}` : 'fresh release APK on an owned 390 dp emulator, Boat lab with its stand-in computer (sshd + muxr in a namespace)',
         steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else in muxr'],
         result: 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
     }, null, 2));
 } finally {
     if (recorder) await stopRecording().catch((error) => say(`recording pull failed: ${error.message}`));
     recorder?.kill();
+    // A real machine bills while it lives: remove every one this run created and read the account back.
+    if (before) {
+        try {
+            for (const ref of await account.list()) {
+                if (before.has(ref.id)) continue;
+                await account.remove(ref, ref.id);
+                say('removed the machine this run created');
+            }
+            const left = [...await machineIds()].filter((id) => !before.has(id));
+            say(left.length === 0 ? 'no machine from this run is left on the account' : `STILL ON THE ACCOUNT: ${left.length} machine(s) from this run`);
+        } catch (error) {
+            say(`MACHINE REMOVAL FAILED: ${error.message}`);
+        }
+    }
     if (emulator) await emulator.stop().catch((error) => say(`emulator stop failed: ${error.message}`));
     if (lab) {
         lab.kill('SIGTERM');
         await new Promise((done) => (lab.exitCode !== null ? done() : lab.once('exit', done)));
         say(`boat lab ${lab.pid} stopped`);
         // Only once its processes are gone: the stand-in's sshd, relay and host live under this folder.
-        rmSync(resolve(opts.machine), { recursive: true, force: true });
+        if (opts.machine) rmSync(resolve(opts.machine), { recursive: true, force: true });
     }
 }
