@@ -153,14 +153,24 @@ journeys:
   plan-move:
     command: node .agents/skills/done-done-verify-pockit/features/planMoveLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" "$(mktemp -d "$HOME/.cache/fms/mxmv.XXXX")" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
-  # A new Boat cloud computer's Tailscale sign-in page opens by itself: the
-  # release app on an owned emulator, the Boat lab with its Tailscale stand-in,
+  # A new Boat cloud computer is set up over SSH and the phone lands on Home,
+  # with no tailnet: the release app on an owned 390 dp emulator, the Boat lab
+  # with its stand-in computer (sshd + this checkout's muxr in a namespace),
   # Create cloud computer and no other tap in muxr (cloud-computer-onboarding,
-  # tailnet-sign-in). Runs by hand under the emulator lock; MUXR_LAB_APK is a
-  # release build of this commit with EXPO_PUBLIC_MUXR_BOAT_API pointing at
-  # 127.0.0.1:$BOAT_LAB_PORT, MUXR_LAB_AVD_HOME a task-owned emulator home.
-  cloud-tailnet:
-    command: node .agents/skills/done-done-verify-pockit/features/cloudTailnetLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+  # ssh-route). Runs by hand under the emulator lock and a provisioned Herdr
+  # lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION); MUXR_LAB_APK is a release build
+  # of this commit with EXPO_PUBLIC_MUXR_BOAT_API pointing at
+  # 127.0.0.1:$BOAT_LAB_PORT, MUXR_LAB_AVD_HOME a task-owned emulator home;
+  # CLOUD_LAB_DP, CLOUD_LAB_FONT and CLOUD_LAB_THEME pick the view (390, 1.0, light).
+  cloud-setup:
+    command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --machine "$(mktemp -d "$HOME/.cache/fms/mxcs.XXXX")" --dp "${CLOUD_LAB_DP:-390}" --font "${CLOUD_LAB_FONT:-1.0}" --theme "${CLOUD_LAB_THEME:-light}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
+  # The same set-up on a real Boat machine (it costs money: only once approved):
+  # the Boat lab as the key proxy in front of Boat, the key read in place from
+  # BOAT_LIVE_KEY_FILE (never on the phone), Home connected over SSH, and every
+  # machine the run created removed (cloud-computer-onboarding, step 8).
+  cloud-boat:
+    command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --upstream "${BOAT_LIVE_API:-https://boat.dev/api/v1}" --key-file "$BOAT_LIVE_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
   # A Claude account is added from the phone end to end: Accounts, Open Claude
   # sign-in, the code sent from the sign-in tab's composer, Name this account

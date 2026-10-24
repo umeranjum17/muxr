@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, AppState, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { claim, errorWords, MachineError, words } from '@byokit/cloud';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -13,23 +13,20 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { Typography } from '@/constants/Typography';
 import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, pendingBoatSize, PRICE, type BoatSize, type DeployStep } from './deployBoatComputer';
 
-const STEPS = ['Provider', 'Your Boat account', 'Size and price', 'Create', 'Put muxr on it', 'Join your tailnet', 'Pair with this phone'];
+const STEPS = ['Provider', 'Your Boat account', 'Size and price', 'Create', 'Put muxr on it', 'Private connection', 'Pair with this phone'];
 const SIZES: { id: BoatSize; title: string }[] = [{ id: 'small', title: 'Small · 2 CPUs, 4 GB' }, { id: 'default', title: 'Standard · 4 CPUs, 8 GB' }];
-const STEP_INDEX: Record<DeployStep['step'], number> = { creating: 3, starting: 3, installing: 4, securing: 5, 'sign-in': 5, configuring: 6, pairing: 6 };
+const STEP_INDEX: Record<DeployStep['step'], number> = { creating: 3, starting: 3, installing: 4, configuring: 4, connecting: 5, pairing: 6 };
 const STEP_WORDS: Record<DeployStep['step'], string> = {
     creating: 'Creating your cloud computer on Boat.',
     starting: 'Starting your cloud computer.',
     installing: words('setup.installing', { app: 'muxr' }),
-    securing: words('tailnet.joining'),
-    'sign-in': words('tailnet.approvalNeeded'),
     configuring: 'Setting up muxr on your cloud computer.',
+    connecting: 'Connecting this phone to your cloud computer over a private SSH link.',
     pairing: words('setup.pairing', { app: 'muxr' }),
 };
 let deployRun: Promise<void> | undefined;
 /** The deploy's latest step outlives the screen, so coming back to it shows where setup is. */
 let deployStep: DeployStep | undefined;
-/** Waits for muxr to come back in front with a sign-in page still to open; a deploy that ends drops it. */
-let signInWait: { remove(): void } | undefined;
 /** Longer than Boat's sign-in code lives, so a person who is still typing it is never cut off; a lost connection still ends. */
 const SIGN_IN_TIMEOUT_MS = 10 * 60_000;
 const SIGN_IN_TIMEOUT = 'Boat did not finish signing in within 10 minutes. Try again.';
@@ -39,28 +36,6 @@ const checkedLabel = (iso: string) => {
     const [year, month, day] = iso.split('-');
     return `${Number(day)} ${MONTHS[Number(month) - 1]} ${year}`;
 };
-
-/**
- * The phone opens Tailscale's sign-in page itself the moment the kit hands it over, so the person never has to
- * find a button inside the link's five minutes. Android starts no browser for an app in the background, so then
- * it opens when muxr is in front again. Every page here opens fresh: the Boat sign-in tab may still be up.
- */
-function openSignInPage(url: string, onError: (message: string) => void) {
-    signInWait?.remove();
-    signInWait = undefined;
-    const open = () => {
-        if (AppState.currentState !== 'active') return false;
-        void openExternalUrl(url, { freshPage: true }).catch((cause) => onError(cause instanceof Error ? cause.message : String(cause)));
-        return true;
-    };
-    if (open()) return;
-    const wait = AppState.addEventListener('change', () => {
-        if (!open()) return;
-        wait.remove();
-        if (signInWait === wait) signInWait = undefined;
-    });
-    signInWait = wait;
-}
 
 function failureText(cause: unknown): string {
     if (cause instanceof MachineError && cause.code === 'exists') return 'Your first size choice is kept. Try again with that size.';
@@ -137,16 +112,13 @@ export function CloudSetupScreen() {
             onStep: (s) => {
                 deployStep = s;
                 if (mounted.current) setDeploy(s);
-                if (s.step === 'sign-in') openSignInPage(s.url, (message) => { if (mounted.current) setError(message); });
             },
-            pair: async (offer, deliverWords) => {
-                if (!(await pairLinkOffer(offer, auth, { confirm: async () => true, onWords: deliverWords }))) throw new Error('Pairing with your cloud computer failed. Try again.');
+            pair: async (offer, tunnelPort, deliverWords) => {
+                if (!(await pairLinkOffer(offer, auth, { tunnelPort, confirm: async () => true, onWords: deliverWords }))) throw new Error('Pairing with your cloud computer failed. Try again.');
             },
         }).finally(() => {
             deployRun = undefined;
             deployStep = undefined;
-            signInWait?.remove();
-            signInWait = undefined;
         });
         deployRun = run;
         void settle(run);
@@ -237,7 +209,6 @@ export function CloudSetupScreen() {
                                 {active && deploy && (
                                     <View style={styles.form}>
                                         <View style={styles.waiting}>{busy && <ActivityIndicator />}<Text style={[styles.detail, styles.stepContent]}>{STEP_WORDS[deploy.step]}</Text></View>
-                                        {deploy.step === 'sign-in' && <ActionButton title="Sign in to Tailscale" icon="link-outline" onPress={() => { void openExternalUrl(deploy.url, { freshPage: true }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />}
                                         {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
                                         {!busy && error && <ActionButton title="Try again" variant="secondary" onPress={() => { void create(); }} />}
                                     </View>
