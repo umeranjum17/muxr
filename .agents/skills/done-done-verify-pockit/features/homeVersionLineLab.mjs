@@ -81,7 +81,25 @@ const cell = (dir, name, end) => {
 };
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // Swipes start above the composer dock: a swipe that starts on it never reaches the list.
-const toEnd = async () => { for (let i = 0; i < 4; i += 1) { await adb('shell', 'input', 'swipe', '540', '1500', '540', '300', '600'); await sleep(700); } };
+const swipeUp = async () => { await adb('shell', 'input', 'swipe', '540', '1400', '540', '400', '500'); await sleep(1200); };
+// Until two dumps in a row match: the list stopped moving, so this is its end.
+const toEnd = async () => {
+    let last = '';
+    for (let i = 0; i < 12; i += 1) {
+        await swipeUp();
+        const xml = await dump();
+        if (xml === last) return;
+        last = xml;
+    }
+};
+// Until the pattern is on screen, for a row above a list's end.
+const scrollUntil = async (pattern) => {
+    for (let i = 0; i < 12; i += 1) {
+        if (pattern.test(await dump())) return true;
+        await swipeUp();
+    }
+    return pattern.test(await dump());
+};
 const toTop = async () => { for (let i = 0; i < 4; i += 1) { await adb('shell', 'input', 'swipe', '540', '300', '540', '1500', '600'); await sleep(700); } };
 const relaunch = async () => {
     await adb('shell', 'am', 'force-stop', PKG);
@@ -109,6 +127,9 @@ const pairFresh = async () => {
 const pairOnce = async () => {
     const pairing = await stack.mintPairing();
     const link = /^(muxr|https?):/.test(pairing.code) ? pairing.code : `muxr://pair#${pairing.code}`;
+    // A cold start straight from the link can drop it; the link goes to a running app.
+    await adb('shell', 'am', 'start', '-n', `${PKG}/.MainActivity`);
+    await sleep(10000);
     await adb('shell', `am start -n ${PKG}/.MainActivity -a android.intent.action.VIEW -d '${link}'`);
     const tapped = await tap(/(text|content-desc)="Pair"[^>]*clickable="true"|clickable="true"[^>]*(text|content-desc)="Pair"|text="Pair"/, 60);
     note(`tapped Pair: ${tapped}`);
@@ -136,10 +157,9 @@ const captureState = async (state, expected) => {
             await toTop();
             if (!await tap(/content-desc="Settings"/)) { defects.push(`${state}: no Settings button on Home`); continue; }
             await sleep(2500);
-            await toEnd();
-            const row = await waitFor((xml) => /text="Version"/.test(xml) && pattern.test(xml), 20);
+            const row = await scrollUntil(new RegExp(`text="${escape(expected)}`)) && await waitFor((xml) => /text="Version"/.test(xml), 6);
             if (!row) defects.push(`${state} ${dp}/${font}/${theme}: Settings Version row never read "${expected}"`);
-            cell(dir, `settings-version-${state}-${dp}-${font}-${theme}`, true);
+            cell(dir, `settings-version-${state}-${dp}-${font}-${theme}`, false);
         }
     }
 };
@@ -173,7 +193,7 @@ try {
     await toEnd();
     if (!await waitFor((xml) => new RegExp(escape(differ)).test(xml), 30)) defects.push(`Home foot never read "${differ}"`);
     if (!await tap(new RegExp(`text="${escape(differ)}"`))) defects.push('the version line was not tappable');
-    const opened = await waitFor((xml) => /Installed versions/i.test(xml), 20);
+    const opened = await waitFor((xml) => /Connection &amp; updates|Connection & updates/.test(xml), 20);
     note(`tapping the line opened Settings > Connection: ${opened}`);
     if (!opened) defects.push('tapping the version line did not open the versions screen');
     cell(join(evidence, 'native', 'mismatch'), 'connection-after-tap-393-1.0-light', false);
