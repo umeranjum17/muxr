@@ -205,13 +205,12 @@ export function CloudSetupScreen() {
                                             </Pressable>
                                         ))}
                                         <Pressable accessibilityRole="switch" accessibilityLabel="Add a screen for sign-ins" accessibilityState={{ checked: screen, disabled: busy }} disabled={busy} onPress={() => setScreen((on) => !on)} style={styles.size}>
+                                            {/* The switch shares the title's row so the description keeps the card's full width at large text. */}
                                             <View style={styles.option}>
-                                                <View style={styles.stepContent}>
-                                                    <Text style={styles.stepTitle}>Add a screen for sign-ins</Text>
-                                                    <Text style={styles.detail}>For a sign-in that needs a browser: see and use it in Computer. Adds a few minutes to set-up.</Text>
-                                                </View>
+                                                <Text style={[styles.stepTitle, styles.stepContent]}>Add a screen for sign-ins</Text>
                                                 <Switch value={screen} disabled={busy} onValueChange={setScreen} />
                                             </View>
+                                            <Text style={styles.detail}>For a sign-in that needs a browser: see and use it in Computer. Adds a few minutes to set-up.</Text>
                                         </Pressable>
                                         <Text style={styles.detail}>{`Paid to Boat, not muxr. Free while asleep; Boat's plan is at least $${PRICE.planFloorPerMonth} a month. Prices checked ${checkedLabel(PRICE.checked)}.`}</Text>
                                         {busy && <Text style={styles.detail}>Setup is still running.</Text>}

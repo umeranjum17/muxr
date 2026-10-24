@@ -275,6 +275,9 @@ try {
         await tap('Cloud computer', (v) => v === 'Cloud computer' || v === 'Add a cloud computer. Boat.', 180);
         await waitFor('the size step with the linked account', (found) => find(found, (v) => v === 'Connected') !== undefined);
         await tap('the screen switch', (v) => v === 'Add a screen for sign-ins');
+        // At large text the card is taller than the space left: bring its top, where the switch is, into the shot.
+        const card = find(await screen(), (v) => v === 'Add a screen for sign-ins');
+        if (card && card.box[1] < 400) { await sh(`input swipe 540 900 540 ${900 + Math.min(1200, 500 - card.box[1])} 600`); await sleep(1000); }
         await shot(`01-screen-switch-on-${dp}-${font}-${theme}`);
         await tap('the screen switch', (v) => v === 'Add a screen for sign-ins');
         await shot(`01-screen-switch-off-${dp}-${font}-${theme}`);
