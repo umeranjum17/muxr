@@ -136,7 +136,7 @@ try {
     await sleep(4000);
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr://pair#${offer}' -n ${activity}`);
     await tapText(/^Pair$/);
-    await waitFor(/work-pane/, 90);
+    await waitFor(/work.pane/, 90); // Home names a tab in words (`work pane`)
     offering?.destroy();
     // The tree names chips from the accounts the host last listed.
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr://settings/accounts' -n ${activity}`);
@@ -148,7 +148,7 @@ try {
         sh(`am force-stop ${PKG}`);
         sh(`am start -W -n ${activity}`);
         await sleep(3000);
-        await tapText(new RegExp(label), 60);
+        await tapText(new RegExp(label.replace('-', '.')), 60);
         await sleep(3500);
         const name = `${label}-${density === 440 ? 393 : 270}-1.0-light`;
         const dir = join(evidence, 'candidate');
