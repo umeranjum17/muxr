@@ -3,7 +3,9 @@
 When Home cannot reach the paired computer, the phone checks the internet on
 its own before it blames anything (`reachVerdict()` in
 `apps/mobile/sources/utils/web/deviceOffline.ts`: the relay's `/health`, then
-two public endpoints, 3 s each). It picks one of three states:
+two public endpoints, 3 s each; the web build's CSP admits no public origin,
+so the PWA reads `navigator.onLine` for the internet half). It picks one of
+three states:
 
 - The relay answers: no device-side card.
 - The internet answers but the relay does not, the relay is a Tailscale

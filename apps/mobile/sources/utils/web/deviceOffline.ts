@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Platform } from 'react-native';
 import { getCachedConnectionSettings } from '@/connection/connectionSettings';
 import { isTailscaleAddress } from '@/pairing/domain/pairingString';
 
@@ -36,16 +37,20 @@ function relayHealthUrl(relayUrl: string): string {
 
 /**
  * What stands between this device and the paired computer. `navigator.onLine`
- * stays true while a VPN holds the network up with no route out, so every
- * verdict is a fetch, not the flag.
+ * stays true while a VPN holds the network up with no route out, so the relay
+ * half is a fetch, not the flag; `internet` is the other half.
  * - `reachable`: the relay answers.
  * - `unreachable`: the internet answers but the relay does not.
  * - `offline`: neither answers.
  */
-export async function reachVerdict(relayUrl: string, internetUrls: readonly string[] = INTERNET_PROBE_URLS): Promise<'reachable' | 'unreachable' | 'offline'> {
+export async function reachVerdict(relayUrl: string, internet: () => Promise<boolean> = internetAnswers): Promise<'reachable' | 'unreachable' | 'offline'> {
     if (await answers(relayHealthUrl(relayUrl))) return 'reachable';
-    const online = await Promise.all(internetUrls.map(answers));
-    return online.includes(true) ? 'unreachable' : 'offline';
+    return await internet() ? 'unreachable' : 'offline';
+}
+
+/** Whether any of `urls` answers: the internet half of the verdict. */
+export async function internetAnswers(urls: readonly string[] = INTERNET_PROBE_URLS): Promise<boolean> {
+    return (await Promise.all(urls.map(answers))).includes(true);
 }
 
 export type DeviceReach = 'reachable' | 'offline' | 'tailscale-off' | 'unreachable';
@@ -56,7 +61,10 @@ export type DeviceReach = 'reachable' | 'offline' | 'tailscale-off' | 'unreachab
 export async function deviceReach(): Promise<DeviceReach> {
     const settings = getCachedConnectionSettings();
     if (settings.machineId === '') return 'reachable';
-    const verdict = await reachVerdict(settings.relayUrl);
+    // The web build's CSP admits no public https origin, so there the
+    // browser's own flag is the internet half: it can miss a VPN with no
+    // route out, but it never blames a network that is up.
+    const verdict = await reachVerdict(settings.relayUrl, Platform.OS === 'web' ? async () => navigator.onLine !== false : internetAnswers);
     if (verdict !== 'unreachable' || !isTailscaleAddress(settings.relayUrl)) return verdict;
     // Loaded on use, so the web build needs no native bridge.
     return (await import('@/../modules/tailnet-address')).hasTailnetAddress() === false ? 'tailscale-off' : verdict;

@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-// The settings module pulls in React Native; the probe under test never reads it.
+// The settings module and Platform pull in React Native; the probe under test never reads them.
 vi.mock('@/connection/connectionSettings', () => ({ getCachedConnectionSettings: () => ({ machineId: '', relayUrl: '' }) }));
+vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
 
-import { reachVerdict } from './deviceOffline';
+import { internetAnswers, reachVerdict } from './deviceOffline';
 
 describe('reachVerdict', () => {
     const servers: Server[] = [];
@@ -24,14 +25,14 @@ describe('reachVerdict', () => {
         const relay = await listen();
         const internet = await listen();
         const relayUrl = `ws://127.0.0.1:${relay.port}`;
-        const internetUrls = [`http://127.0.0.1:${internet.port}/generate_204`];
-        expect(await reachVerdict(relayUrl, internetUrls)).toBe('reachable');
+        const internetUp = () => internetAnswers([`http://127.0.0.1:${internet.port}/generate_204`]);
+        expect(await reachVerdict(relayUrl, internetUp)).toBe('reachable');
 
         // Tailscale off or the computer asleep: the phone is online, the relay is gone.
         await new Promise<void>((resolve) => relay.server.close(() => resolve()));
-        expect(await reachVerdict(relayUrl, internetUrls)).toBe('unreachable');
+        expect(await reachVerdict(relayUrl, internetUp)).toBe('unreachable');
 
         await new Promise<void>((resolve) => internet.server.close(() => resolve()));
-        expect(await reachVerdict(relayUrl, internetUrls)).toBe('offline');
+        expect(await reachVerdict(relayUrl, internetUp)).toBe('offline');
     });
 });
