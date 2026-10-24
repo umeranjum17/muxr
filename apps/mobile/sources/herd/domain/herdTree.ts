@@ -69,6 +69,15 @@ export function workspaceNames(workspaces: readonly HerdrTreeWorkspace[]): Reado
                 break;
             }
         }
+        // A workspace Herdr labels with a path keeps that label rather than a
+        // number nobody gave it (`/home/you/firstmate`, not `firstmate 2`
+        // beside the folder-named workspaces Herdr made there).
+        for (const ws of peers) {
+            const label = cleanLabel(ws);
+            if (names.get(ws.workspaceId) !== name || folderName(label) === undefined || taken.has(label)) continue;
+            names.set(ws.workspaceId, label);
+            taken.add(label);
+        }
         const unresolved = peers.filter((ws) => names.get(ws.workspaceId) === name);
         if (unresolved.length < 2) continue;
         for (const ws of unresolved.sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER))) {

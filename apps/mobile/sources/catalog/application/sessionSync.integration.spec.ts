@@ -7,7 +7,7 @@ import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
 import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, nativeLifecycleNotificationState, sortHerd } from '@/herd/model';
 import { normalizeRequestFailure, requestRequiresE2ee } from '@trymuxr/contract';
-import { buildSpaceRows, moveSpace, workspaceName, workspaceNames } from '@/herd/model';
+import { buildSpaceRows, displayedWorkspaceNames, moveSpace, workspaceName, workspaceNames } from '@/herd/model';
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 import { herdPanes } from '../../herd/domain/herd';
 import { agentLabels, agentWhoStateLine } from '../../herd/domain/agentPresentation';
@@ -1696,6 +1696,19 @@ describe('session sync flow', () => {
         expect(mmkvValues.has('spaces-pins-v1')).toBe(false);
         realSync.invalidateCatalog();
         hostSync.machineId = 'machine';
+    });
+
+    /** Herdr labels a workspace after its folder; one labelled with that folder's
+     *  path (Main's `/home/you/firstmate`) keeps its label, never a number. */
+    it('names a path-labelled space by its Herdr label beside the spaces Herdr named after the same folder', () => {
+        const space = (workspaceId: string, label: string, order: number): HerdrTreeWorkspace => ({
+            workspaceId, label, focused: false, agentStatus: 'idle', order,
+            tabs: [{ tabId: `${workspaceId}-tab`, focused: false, agentStatus: 'idle', panes: [{ paneId: `${workspaceId}-pane`, tabId: `${workspaceId}-tab`, cwd: '/home/you/firstmate', focused: false, agentStatus: 'idle', agentKind: 'claude', promptable: true }] }],
+        });
+        const tree = [space('w2JQ', 'firstmate', 1), space('w2XZ', '/home/you/firstmate', 2), space('w2ZZ', 'firstmate', 3)];
+        const names = displayedWorkspaceNames(buildSpaceRows(tree, new Set(), ''));
+        expect(names.get('w2XZ')).toBe('/home/you/firstmate');
+        expect([names.get('w2JQ'), names.get('w2ZZ')]).toEqual(['firstmate 1', 'firstmate 2']);
     });
 
     it('moves top-level spaces within their pin group and keeps favourite agents per machine', () => {

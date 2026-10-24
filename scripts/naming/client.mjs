@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 
-const fields = new Set(['workspace', 'pane', 'provider', 'model']);
+const fields = new Set(['tab', 'workspace', 'pane', 'provider', 'model']);
+const USAGE = 'usage: muxr name [--tab LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]';
 const MAX_NAME_LENGTH = 512;
 const MAX_ERROR_LENGTH = 512;
 const HERDR_TIMEOUT_MS = 10_000;
@@ -57,18 +58,23 @@ function herdr(...command) {
 }
 
 /**
- * The agent names its own workspace and pane. It knows what it is working
- * on; nothing should guess that from the command line. This calls the Herdr
- * CLI directly, so it works whenever Herdr does, with or without a muxr host.
+ * The agent names its own tab and pane. It knows what it is working on;
+ * nothing should guess that from the command line. This calls the Herdr CLI
+ * directly, so it works whenever Herdr does, with or without a muxr host.
+ *
+ * It never renames a workspace: a workspace holds whoever else its owner puts
+ * there later, so a lane that found it empty and named it after its own task
+ * left the lead's whole workspace named after one worker (`boat-live-cli`).
+ * `--workspace` is kept as the old spelling of `--tab`.
  */
 export async function nameAgent(args) {
     const body = {};
     for (let index = 0; index < args.length; index += 1) {
         const flag = args[index];
-        if (!flag.startsWith('--') || !fields.has(flag.slice(2))) {
-            throw new Error('usage: muxr name [--workspace LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]');
-        }
-        body[flag.slice(2)] = valueFor(args, index, flag);
+        if (!flag.startsWith('--') || !fields.has(flag.slice(2))) throw new Error(USAGE);
+        const field = flag.slice(2) === 'workspace' ? 'tab' : flag.slice(2);
+        if (body[field] !== undefined) throw new Error(USAGE);
+        body[field] = valueFor(args, index, flag);
         index += 1;
     }
     const paneId = process.env.HERDR_PANE_ID?.trim();
@@ -80,14 +86,14 @@ export async function nameAgent(args) {
     }
     // ponytail: Herdr's positional rename parser has no safe `--` escape;
     // reject only leading-dash labels rather than letting a name become a flag.
-    if (body.pane?.startsWith('-') || body.workspace?.startsWith('-')) throw new Error('pane and workspace names must not start with "-"');
+    if (body.pane?.startsWith('-') || body.tab?.startsWith('-')) throw new Error('pane and tab names must not start with "-"');
 
     // Resolve membership from Herdr before the first mutation. The pane id is
-    // not allowed to imply a workspace by string convention.
+    // not allowed to imply a tab by string convention.
     const current = await herdr('pane', 'get', paneId);
     if (!current.ok) throw new Error(`this pane is not available in Herdr: ${current.error}`);
-    const workspaceId = current.data?.pane?.workspace_id;
-    if (typeof workspaceId !== 'string' || !HERDR_TARGET.test(workspaceId)) throw new Error('this pane is not available in Herdr');
+    const tabId = current.data?.pane?.tab_id;
+    if (typeof tabId !== 'string' || !HERDR_TARGET.test(tabId)) throw new Error('this pane is not available in Herdr');
 
     const results = {};
     const errors = {};
@@ -97,18 +103,16 @@ export async function nameAgent(args) {
         if (!result.ok) errors[key] = result.error;
     };
     if (body.pane !== undefined) await apply('pane', 'pane', 'rename', paneId, body.pane);
-    if (body.workspace !== undefined) {
-        // A workspace that holds other tabs is shared by several lanes; each
-        // renaming it to its own task left it named after whichever ran last
-        // (`ssh-ed25519`). Only a workspace the agent has to itself is its to name.
-        const workspace = await herdr('workspace', 'get', workspaceId);
-        if (!workspace.ok) {
-            results.workspace = false;
-            errors.workspace = workspace.error;
-        } else if ((workspace.data?.workspace?.tab_count ?? 1) > 1) {
-            results.workspace = 'kept: shared with other tabs';
+    if (body.tab !== undefined) {
+        // A tab that holds other panes is shared, so it keeps its name.
+        const tab = await herdr('tab', 'get', tabId);
+        if (!tab.ok) {
+            results.tab = false;
+            errors.tab = tab.error;
+        } else if ((tab.data?.tab?.pane_count ?? 1) > 1) {
+            results.tab = 'kept: shared with other panes';
         } else {
-            await apply('workspace', 'workspace', 'rename', workspaceId, body.workspace);
+            await apply('tab', 'tab', 'rename', tabId, body.tab);
         }
     }
     if (body.provider !== undefined || body.model !== undefined) {

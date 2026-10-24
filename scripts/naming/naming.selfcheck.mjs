@@ -25,15 +25,15 @@ if [ -f '${failFile}' ] && grep -Fxq pane-get '${failFile}' && printf '%s' "$*" 
   printf '%s\\n' '{"error":{"code":"server_not_running","message":"connect ECONNREFUSED 127.0.0.1:7333"}}'
   exit 0
 fi
-if [ -f '${failFile}' ] && grep -Fxq workspace '${failFile}' && printf '%s' "$*" | grep -q 'workspace rename'; then
-  printf '%s\\n' '{"error":{"code":"workspace_unavailable","message":"workspace failed"}}'
+if [ -f '${failFile}' ] && grep -Fxq tab '${failFile}' && printf '%s' "$*" | grep -q 'tab rename'; then
+  printf '%s\\n' '{"error":{"code":"tab_unavailable","message":"tab failed"}}'
   exit 0
 fi
 case "$*" in
-  "pane get w2:p5") printf '%s\\n' '{"result":{"pane":{"pane_id":"w2:p5","workspace_id":"w2"}}}' ;;
-  "workspace get w2") printf '%s\\n' '{"result":{"workspace":{"workspace_id":"w2","label":"auth","tab_count":1}}}' ;;
-  "pane get w3:p1") printf '%s\\n' '{"result":{"pane":{"pane_id":"w3:p1","workspace_id":"w3"}}}' ;;
-  "workspace get w3") printf '%s\\n' '{"result":{"workspace":{"workspace_id":"w3","label":"muxr","tab_count":3}}}' ;;
+  "pane get w2:p5") printf '%s\\n' '{"result":{"pane":{"pane_id":"w2:p5","tab_id":"w2:t4","workspace_id":"w2"}}}' ;;
+  "tab get w2:t4") printf '%s\\n' '{"result":{"tab":{"tab_id":"w2:t4","label":"4","pane_count":1,"workspace_id":"w2"}}}' ;;
+  "pane get w3:p1") printf '%s\\n' '{"result":{"pane":{"pane_id":"w3:p1","tab_id":"w3:t1","workspace_id":"w3"}}}' ;;
+  "tab get w3:t1") printf '%s\\n' '{"result":{"tab":{"tab_id":"w3:t1","label":"muxr","pane_count":3,"workspace_id":"w3"}}}' ;;
   *) printf '%s\\n' '{"result":{}}' ;;
 esac
 `);
@@ -107,14 +107,15 @@ try {
     const namedCalls = await calls();
     check('pane target is resolved before mutation', namedCalls[0] === 'pane get w2:p5', namedCalls.join(' | '));
     check('pane label preserves punctuation/spaces', namedCalls.includes('pane rename w2:p5 Fix login validation --carefully'));
-    check('workspace uses Herdr membership, not pane-id splitting', namedCalls.includes('workspace rename w2 auth rework / -carefully'));
+    check('the old --workspace names the pane\'s own tab from Herdr membership, not pane-id splitting', namedCalls.includes('tab rename w2:t4 auth rework / -carefully'));
     check('provider/model use canonical Herdr metadata tokens', namedCalls.includes('pane report-metadata w2:p5 --source muxr.naming --token provider=provider with spaces --token model=model/v1:fast'));
 
-    // Lanes share a project workspace as tabs. A lane naming itself after its
-    // task (`ssh-ed25519`) must not rename the workspace every other tab sits in.
-    const shared = name(['--workspace', 'ssh-ed25519', '--pane', 'SSH key lane'], 'w3:p1');
-    check('a shared workspace keeps its name and the pane is still named', shared.status === 0 && shared.output.includes('kept: shared with other tabs'), shared.output);
-    check('no rename reaches a shared workspace', !(await calls()).some((line) => line.startsWith('workspace rename w3')) && (await calls()).includes('pane rename w3:p1 SSH key lane'));
+    // A lane alone in the lead's workspace once named the whole workspace after
+    // its task (`boat-live-cli`); a lane sharing a tab must not rename it either.
+    const shared = name(['--tab', 'ssh-ed25519', '--pane', 'SSH key lane'], 'w3:p1');
+    check('a shared tab keeps its name and the pane is still named', shared.status === 0 && shared.output.includes('kept: shared with other panes'), shared.output);
+    check('no rename reaches a shared tab', !(await calls()).some((line) => line.startsWith('tab rename w3')) && (await calls()).includes('pane rename w3:p1 SSH key lane'));
+    check('muxr name never renames a workspace', !(await calls()).some((line) => line.startsWith('workspace rename')), (await calls()).join(' | '));
 
     const callCount = (await calls()).length;
     const flagLike = name(['--pane', '-leading-dash']);
@@ -135,9 +136,9 @@ try {
     check('preflight failure mutates nothing', !(await calls()).some((line) => line.includes('Preflight down')));
     await rm(failFile, { force: true });
 
-    await writeFile(failFile, 'workspace\n');
-    const partial = name(['--pane', 'CLI partial', '--workspace', 'CLI partial workspace', '--provider', 'pi']);
-    check('partial Herdr failure is not overall success', partial.status === 1 && partial.output.includes('partial') && partial.output.includes('workspace: workspace_unavailable'), partial.output);
+    await writeFile(failFile, 'tab\n');
+    const partial = name(['--pane', 'CLI partial', '--tab', 'CLI partial tab', '--provider', 'pi']);
+    check('partial Herdr failure is not overall success', partial.status === 1 && partial.output.includes('partial') && partial.output.includes('tab: tab_unavailable'), partial.output);
     check('partial failure still applied the other operations', (await calls()).includes('pane rename w2:p5 CLI partial'));
     await rm(failFile, { force: true });
 

@@ -1,23 +1,27 @@
-# Name the current workspace and pane
+# Name the current tab and pane
 
-An agent names where it works: `muxr name` renames the current Herdr workspace
-and pane through Herdr itself and records provider/model attribution, so every
-client and the phone agree on the label.
+An agent names where it works: `muxr name` renames the current Herdr tab and
+pane through Herdr itself and records provider/model attribution, so every
+client and the phone agree on the label. It never renames a workspace.
 
 ## Sub-features
 
 - `name-pane` sets the pane's human-readable title.
-- `name-workspace` sets the workspace label when the workspace is the agent's
-  alone (one tab).
-- `name-workspace-shared` a workspace holding other tabs keeps its label; the
-  phone shows that label, never the last lane's task slug.
+- `name-tab` (`--tab`, old spelling `--workspace`) sets the agent's own tab
+  label when the tab holds only its pane; a shared tab keeps its label
+  (`"tab":"kept: shared with other panes"`).
+- `name-workspace-kept` no workspace is ever renamed, not even one the agent
+  started alone in; the phone shows the Herdr label, never a lane's task slug.
+- `name-path-label` a workspace Herdr labels with a folder's path keeps that
+  label on the phone beside a workspace Herdr named after the same folder,
+  never a number (`firstmate 2`).
 - `name-attribution` records provider/model pane metadata for display surfaces.
 - `name-report` prints the per-field apply result as one JSON line.
 
 ## How to get to it (user POV)
 
 - Inside a Herdr pane, run
-  `muxr name --workspace '<slug>' --pane '<title>' --provider '<provider>' --model '<model>'`
+  `muxr name --tab '<slug>' --pane '<title>' --provider '<provider>' --model '<model>'`
   (any subset; at least one value).
 - See the result in Herdr's own workspace/pane listings and in muxr surfaces
   that lead with the task and say who under it.
@@ -35,17 +39,26 @@ Preconditions:
   exits `0` with stdout `{"ok":true,"status":"ok","results":{"pane":true}}`.
   Confirm through Herdr, not the CLI echo:
   `herdr --session <yours> pane get "$HERDR_PANE_ID"` shows the new title.
-- **Name the workspace.** `node scripts/cli.mjs name --workspace 'done-done-verify-pockit'`
-  exits `0` and `herdr --session <yours> workspace list` shows the label.
+- **Name the tab.** `node scripts/cli.mjs name --tab 'done-done-verify-pockit'`
+  exits `0`, `herdr --session <yours> tab list` shows the label, and
+  `workspace list` is unchanged.
+- **Lead workspace keeps its label (host, no phone).** `done-done run workspace-name-host`
+  (`HERDR_LAB_HELPER` set, after `yarn build`): a lane alone in workspace
+  `2ndmate-muxr` runs the real `muxr name --workspace boat-live-cli`; `gate.log`
+  shows the workspace still `2ndmate-muxr`, the lane's tab `boat-live-cli`, and
+  `herdr.tree` carrying a path-labelled workspace beside Herdr's `firstmate`.
 - **Shared workspace (phone).** `node .agents/skills/done-done-verify-pockit/features/workspaceNameLab.mjs <apk> <evidence> <labRoot> <cliRepo> [taskTitlesPlugin]`
   (release APK from `node perf/buildPrApk.mjs <out>`, `yarn build`,
   `HERDR_LAB_HELPER` set, under the emulator lock). Workspace `umer-desk` holds
   tabs `fd-prompt-nosript` and `fm-crewhouse`; each lane runs `muxr name
-  --workspace <slug>`, the last `ssh-ed25519`, and a lone-tab workspace runs
-  `--workspace solo-task`. Pass: `herdr-after-self-naming.txt` keeps
-  `umer-desk` and shows `solo-task`, both lanes print
-  `"workspace":"kept: shared with other tabs"`, and Home and Panes
-  (393 dp light, 270 dp font 2.0 light and dark) read `umer-desk`, never `ssh-ed25519`.
+  --workspace <slug>`, the last `ssh-ed25519`, and a lane alone in workspace
+  `solo` runs `--workspace solo-task`. Pass: `herdr-after-self-naming.txt`
+  keeps the workspaces `umer-desk` and `solo` and shows each lane's tab
+  renamed (`solo-task` among them), and Home and Panes (393 dp light, 270 dp
+  font 2.0 light and dark) read `umer-desk` and `solo` as workspaces. The scene
+  also holds a workspace labelled `/tmp/fmws.XXXX/firstmate` beside one Herdr
+  labelled `firstmate` in that folder: Home reads the path label, never
+  `firstmate 2`. `spaces-393-1.0-light` is Home scrolled to those two rows.
   The same run carries a lead in an unlabelled tab, agent `firstmate-addons`,
   titled with Claude's doorbell topic: its row reads `Firstmate addons` over
   `claude · Idle`, and the `fm-crewhouse` lead, titled by the task-titles

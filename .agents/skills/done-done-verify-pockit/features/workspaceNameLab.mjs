@@ -1,6 +1,8 @@
 // Shared-workspace name proof on a real (lab) Herdr: a project workspace `umer-desk` holds two
 // lane tabs, and each lane self-names with `muxr name --workspace <its task slug>`, the last one
-// `ssh-ed25519`. A lone-tab workspace self-names too. A third lead sits in an unlabelled tab as
+// `ssh-ed25519`. A lane alone in workspace `solo` self-names too: only its tab takes the name. A
+// workspace Herdr labels with its folder's path sits beside one Herdr named after that folder, the
+// way Main's `/home/<you>/firstmate` sits beside `firstmate`. A third lead sits in an unlabelled tab as
 // agent `firstmate-addons`, every lead's terminal title is Claude's Firstmate doorbell topic, and
 // the task-titles plugin titles the `fm-crewhouse` lead. With <taskTitlesPlugin>, an installed
 // herdr.task-titles checkout, its real hook titles a Pi stand-in from a Pi session transcript.
@@ -10,9 +12,9 @@
 // With <apk> `pwa` it boots no emulator: it builds the same scene, prints `browser link: <link>` and
 // holds the lab until SIGTERM, for the installed-PWA capture in agent-naming.md.
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const [apk, evidence, root, cliRepo, taskTitles] = process.argv.slice(2);
 const repo = process.cwd();
@@ -31,6 +33,7 @@ const work = join(root, 'w');
 const folder = join(work, 'muxr');
 const soloFolder = join(work, 'solo');
 const bin = join(work, 'bin');
+let mainFolder;
 mkdirSync(folder, { recursive: true });
 mkdirSync(soloFolder, { recursive: true });
 mkdirSync(bin, { recursive: true });
@@ -43,6 +46,11 @@ const buildScene = () => {
     // No label: Herdr numbers the tab, which names nothing.
     herdr('tab', 'create', '--workspace', 'w1', '--cwd', folder, '--no-focus');
     herdr('workspace', 'create', '--cwd', soloFolder, '--label', 'solo', '--no-focus');
+    // Outside the home folder, so the path label the phone draws holds no owner detail.
+    mainFolder = join(execFileSync('mktemp', ['-d', '/tmp/fmws.XXXX'], { encoding: 'utf8' }).trim(), 'firstmate');
+    mkdirSync(mainFolder, { recursive: true });
+    herdr('workspace', 'create', '--cwd', mainFolder, '--no-focus');
+    herdr('workspace', 'create', '--cwd', mainFolder, '--label', mainFolder, '--no-focus');
     if (taskTitles) herdr('tab', 'create', '--workspace', 'w1', '--cwd', folder, '--no-focus');
 };
 // A Pi stand-in reports its session transcript the way Pi does, then the plugin's own hook runs on
@@ -180,7 +188,7 @@ try {
     const paneIn = (tab) => panes.find((entry) => entry.tab_id === tab).pane_id;
     log(`lane fd-prompt-nosript: ${selfName(paneIn('w1:t1'), 'prompt-noscript', 'Fix the prompt noscript fallback')}`);
     log(`lane fm-crewhouse: ${selfName(paneIn('w1:t2'), 'ssh-ed25519', 'Show the SSH key fingerprint')}`);
-    log(`solo workspace: ${selfName(paneIn('w2:t1'), 'solo-task', 'Solo task')}`);
+    log(`solo workspace lane: ${selfName(paneIn('w2:t1'), 'solo-task', 'Solo task')}`);
     saveHerdr('after-self-naming');
     const labels = JSON.parse(herdr('workspace', 'list')).result.workspaces.map((w) => w.label);
     log(`herdr workspace labels: ${labels.join(', ')}`);
@@ -190,6 +198,7 @@ try {
         await new Promise((resolve) => { process.once('SIGTERM', resolve); process.once('SIGINT', resolve); });
         offering?.destroy();
         await lab.stop();
+        if (mainFolder) rmSync(dirname(mainFolder), { recursive: true, force: true });
         log('pwa lab stopped');
         process.exit(0);
     }
@@ -240,7 +249,7 @@ try {
     // Since #1002 the first Home after pairing raises the notification prompt over the app. Dismiss
     // it: the test phone takes no permission grants.
     await tapText(/^(Not now|Don.t allow)$/i, 30).then(() => log('notification prompt dismissed'), () => log('no notification prompt'));
-    await waitFor(/nosript/i, 90);
+    await waitFor(/umer-desk/, 90);
     offering?.destroy();
 
     const shown = new Set();
@@ -249,10 +258,12 @@ try {
         sh(`am start -W -n ${activity}`);
         await sleep(3000);
         if (screen === 'panes') sh(`am start -W -a android.intent.action.VIEW -d 'muxr:///panes' -n ${activity}`);
-        await waitFor(/nosript/i, 60).catch(() => log(`${name}: names not seen`));
+        await waitFor(/umer-desk/, 60).catch(() => log(`${name}: names not seen`));
         await sleep(2500);
+        // The Spaces list runs under the composer on a short screen: scroll it so the path-labelled space shows.
+        if (screen === 'spaces') { sh('input swipe 540 1700 540 500 700'); await sleep(2000); }
         const xml = dump();
-        for (const word of ['umer-desk', 'ssh-ed25519', 'Firstmate addons', 'Firstmate operational inbox', 'claude · firstmate-addons', 'Show the SSH key fingerprint', 'Fix the flaky pairing retry', 'pi · fix-flaky-pairing']) if (xml.includes(word)) shown.add(`${name}:${word}`);
+        for (const word of [mainFolder, 'firstmate 2', 'solo-task', 'umer-desk', 'ssh-ed25519', 'Firstmate addons', 'Firstmate operational inbox', 'claude · firstmate-addons', 'Show the SSH key fingerprint', 'Fix the flaky pairing retry', 'pi · fix-flaky-pairing']) if (xml.includes(word)) shown.add(`${name}:${word}`);
         try {
             writeFileSync(join(evidence, `${name}.check.txt`), execFileSync('node',
                 [join(repo, '.agents/skills/done-done-verify-pockit/features/visualCheck.mjs'), serial, evidence, name], { encoding: 'utf8' }));
@@ -268,6 +279,10 @@ try {
         sh(`cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
         for (const screen of ['home', 'panes']) await capture(`${screen}-${width}-${font}-${theme}`, screen);
     }
+    if (emu) {
+        sh('wm density 440'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no');
+        await capture('spaces-393-1.0-light', 'spaces');
+    }
     log(`phone shows: ${[...shown].sort().join(', ') || 'none of the watched words'}`);
     // done-done's step record: what this run drove and what the captured screens held.
     const version = sh(`dumpsys package ${PKG} | grep -m1 versionName`).trim().replace(/^versionName=/, '');
@@ -275,8 +290,8 @@ try {
     const commit = JSON.parse(readFileSync(`${apk}.json`, 'utf8')).revision.slice(0, 11);
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
         target: { version: `muxr ${version} release APK built from ${commit}` },
-        start: `a fresh install of muxr on ${phone ? 'the test phone' : 'an emulator'}, and a lab Herdr whose shared workspace ${labels[0]} holds lanes that each self-named their workspace, the last one ssh-ed25519`,
-        steps: ['Install muxr and open it', 'Pair it with the lab computer from a pairing link', 'Dismiss the notification prompt', 'Open Home', 'Open Panes'],
+        start: `a fresh install of muxr on ${phone ? 'the test phone' : 'an emulator'}, and a lab Herdr whose shared workspace ${labels[0]} holds lanes that each self-named their workspace, the last one ssh-ed25519, a lone lane that self-named in workspace solo, and a workspace labelled with the path of a folder named firstmate beside one Herdr named firstmate`,
+        steps: ['Install muxr and open it', 'Pair it with the lab computer from a pairing link', 'Dismiss the notification prompt', 'Open Home', 'Open Panes', 'Scroll Home to the path-labelled space'],
         result: `the captured screens show: ${[...shown].sort().join(', ') || 'none of the watched words'}`,
     }, null, 2)}\n`);
     finished = true;
@@ -289,5 +304,6 @@ try {
     await lab?.stop();
     if (emu) try { execFileSync('adb', ['-s', serial, 'emu', 'kill'], { timeout: 30_000 }); } catch { /* already gone */ }
     await emu?.stop?.();
+    if (mainFolder) rmSync(dirname(mainFolder), { recursive: true, force: true });
     log(finished ? `done; cells with visual-check defects: ${defects}` : 'failed before every cell was captured');
 }

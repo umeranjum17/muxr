@@ -20,8 +20,8 @@ If that section is missing, run `herdr --skill` and follow its output.
   contains a colon). Skip publication when the variable is unset.
 - Use persistent, phone-visible Herdr work for long builds and servers rather
   than blocking the current agent session.
-- Name your own workspace and pane at task start — use the canonical
-  `muxr name --workspace LABEL --pane TITLE --provider PROVIDER --model MODEL`
+- Name your own tab and pane at task start — use the canonical
+  `muxr name --tab LABEL --pane TITLE --provider PROVIDER --model MODEL`
   command from the muxr skill. It binds to the current Herdr pane.
 
 ## Packaged-reference behavior
