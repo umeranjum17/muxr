@@ -27,7 +27,10 @@ The host decides all four (`withPlanAccounts` in
 `chip-pi-launched` and the provider switch are covered by the flow test in
 `apps/host/src/plans/plansApi.test.ts` (fake Herdr cannot report provider
 metadata); the phone drive covers the first two.
-`chip-claude-folder` is covered by the flow test and by
+`chip-claude-folder` is covered by the flow test, by the host-only journey
+`done-done run pane-account-host` (`paneAccountHostLab.mjs <evidenceDir>`: the
+same lab scene read through `herdr.tree` and `plans.agent` with the scripted
+lab client, into `gate.log` and `steps.json`), and by
 `paneAccountChipLab.mjs <apk> <evidenceDir> <labRoot>` (owned emulator, or
 `PHONE_SERIAL=a4b93ea2` inside the phone's keeper lock): two Claude panes in a
 private Herdr lab, one under the `Work` folder but recorded as `found-claude`,

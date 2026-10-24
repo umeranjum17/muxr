@@ -37,6 +37,15 @@ journeys:
   pane-account-chip:
     command: node .agents/skills/done-done-verify-pockit/features/paneAccountChipLab.mjs "$PHONE_APK" "$DONE_DONE_EVIDENCE_ROOT" "$PHONE_ATTACH_ROOT"
     timeout: 30m
+  # The same chip on the host, no phone: a Claude pane muxr recorded on the
+  # computer's own account, relaunched in the same pane on Work, reads Work in
+  # herdr.tree (the chip) and plans.agent (the Out of room banner and Move).
+  # Writes gate.log and steps.json. Needs `yarn build` and HERDR_LAB_HELPER
+  # (HERDR_LAB_SESSION names the lab session; the lab link provisions it and
+  # tears it down).
+  pane-account-host:
+    command: node .agents/skills/done-done-verify-pockit/features/paneAccountHostLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 10m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A
