@@ -96,15 +96,15 @@ const toEnd = async () => {
 };
 // Steps the list until the node the pattern names sits whole between the header
 // and the navigation bar (a 1080x2376 frame), for a row above a list's end.
-const scrollIntoView = async (pattern) => {
+const scrollIntoView = async (pattern, bottom = 2180) => {
     for (let i = 0; i < 24; i += 1) {
         const node = [...(await dump()).matchAll(/<node\s[^>]*>/g)].map((m) => m[0]).find((n) => pattern.test(n));
-        if (node === undefined) { await adb('shell', 'input', 'swipe', '540', '1400', '540', '700', '700'); await sleep(1200); continue; }
+        if (node === undefined) { await adb('shell', 'input', 'swipe', '540', '1400', '540', '700', '350'); await sleep(1200); continue; }
         const [, , y1, , y2] = node.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/).map(Number);
-        if (y1 >= 330 && y2 <= 2180) return true;
+        if (y1 >= 330 && y2 <= bottom) return true;
         // Too low: lift it by what it overhangs; too high: bring it back down.
-        const lift = y2 > 2180 ? Math.min(900, Math.max(250, y2 - 1900)) : -Math.min(900, Math.max(250, 600 - y1));
-        await adb('shell', 'input', 'swipe', '540', String(1500), '540', String(1500 - lift), '900');
+        const lift = y2 > bottom ? Math.min(900, Math.max(250, y2 - bottom + 280)) : -Math.min(900, Math.max(250, 600 - y1));
+        await adb('shell', 'input', 'swipe', '540', String(1500), '540', String(1500 - lift), '350');
         await sleep(1200);
     }
     return false;
@@ -188,6 +188,8 @@ try {
     await relaunch();
     await toEnd();
     if (!await waitFor((xml) => new RegExp(escape(differ)).test(xml), 30)) defects.push(`Home foot never read "${differ}"`);
+    // The composer dock covers the bottom of the frame (from about y=2150): tap only a line that sits above it.
+    await scrollIntoView(new RegExp(`text="${escape(differ)}"`), 2100);
     if (!await tap(new RegExp(`text="${escape(differ)}"`))) defects.push('the version line was not tappable');
     const opened = await waitFor((xml) => /Connection &amp; updates|Connection & updates/.test(xml), 20);
     note(`tapping the line opened Settings > Connection: ${opened}`);
