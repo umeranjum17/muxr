@@ -67,7 +67,8 @@ const reveal = async (re) => {
         const hit = nodes().find((node) => matches(node, re));
         if (hit !== undefined) {
             const [, y1, , y2] = boundsOf(hit);
-            if (y1 > 300 && y2 < 1800) { await sleep(800); return; }
+            // A node scrolled under the header dumps with its bottom above its top; the header ends lower at the largest text.
+            if (y1 > 400 && y2 > y1 && y2 < 1800) { await sleep(800); return; }
             if (y2 >= 1800) { sh('input swipe 540 1500 540 1100 300'); await sleep(700); continue; }
         }
         sh('input swipe 540 900 540 1400 150');
@@ -235,11 +236,11 @@ try {
     await openChat();
     await toEnd();
     await shot('chat-270-2.0-light-collapsed', true);
-    // The opened group runs past the composer; the edit's row is whole only once scrolled to.
+    // The opened group runs taller than the screen; bring the edit's row into view before tapping it.
     await tap(/^5 steps\./);
     await toEnd();
+    await reveal(/^Edited src\/checkout\/shipping\.ts/);
     await tap(/^Edited src\/checkout\/shipping\.ts/);
-    await toEnd();
     await shot('chat-270-2.0-light-group-edit-peek');
     await tap(/^Pane actions/);
     await shot('chat-270-2.0-light-actions');
