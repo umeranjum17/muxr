@@ -192,7 +192,9 @@ if (!existsSync(distIndex)) {
     // The shared action sheet (icon rows, the Camera choice) measures 1,779,739 B in CI.
     // A cloud computer reached over SSH (the phone's login key, Boat's SSH key call) measures 1,780,994 B in CI.
     // Home's Tailscale-off card and the separate internet probe measure 1,782,062 B in CI.
-    const USABLE_GZIP_CEILING = 1783000;
+    // The Boat screen for sign-ins (its install step, the set-up switch, the Computer offer) adds about 1,050 B in CI's
+    // measure (1,782,048 B on its head before Home's card), so about 1,783,110 B together.
+    const USABLE_GZIP_CEILING = 1784200;
     check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,
