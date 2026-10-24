@@ -202,8 +202,9 @@ if (!existsSync(distIndex)) {
     const commonGzip = commonRef === undefined ? 0 : gzipSync(readFileSync(join(mobile, 'dist', commonRef.replace(/^\//, '')))).length;
     // Ratchet, not target: this head's export measured here is 3,657 B (the
     // desktop copy shared by the Computer view and the preview chip, which
-    // gained the portal-without-desktop wording), pinned at that figure x1.005 (3,675 B).
-    check('dist __common chunk ratchet', commonGzip <= 3675, `${commonGzip} bytes`);
+    // gained the portal-without-desktop wording, then the Boat screen offer's
+    // four lines: 3,775 B), pinned at that figure x1.005 (3,794 B).
+    check('dist __common chunk ratchet', commonGzip <= 3794, `${commonGzip} bytes`);
     const refTexts = refs.map((ref) => {
         const file = join(mobile, 'dist', ref.replace(/^\//, ''));
         return existsSync(file) ? readFileSync(file, 'utf8') : '';

@@ -7,9 +7,9 @@
 // instead (it costs money: only once approved): the lab is the key proxy in front of that Boat API, so the phone creates
 // a real machine with the lab's key only, and the journey removes every machine the run created and reads the account
 // back. --screen then goes on to the screen for sign-ins: a shell, Computer, the no-screen card's Set it up for me, the
-// installed desktop, Firefox from its dock and a sign-in page with a field tapped and typed into (no sign-in is sent).
+// installed desktop, the browser from its dock and a sign-in page with a field tapped and typed into (no sign-in is sent).
 // --hold <s> keeps the machine and the emulator after a failure until <evidence>/release exists or the hold ends (never
-// past 50 minutes after Create), so `--attach <serial>` can run the screen part again on the same phone. Run from the repo root:
+// past 50 minutes after Create), so `--attach <serial>` can run the screen part again on the same phone, back on Home. Run from the repo root:
 //   node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk <apk> --evidence <dir> --avd-home <dir> --port <boat lab port>
 //     (--machine <short dir> | --upstream <api base> --key-file <path>) [--dp 390|270] [--font 1.0|2.0] [--theme light|dark] [--screen [--hold <s>]]
 //   node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --attach <serial> --evidence <dir>
@@ -101,9 +101,9 @@ const focused = async () => (await sh('dumpsys window displays')).match(/mCurren
 let activity = '';
 const bringMuxrBack = async () => { await sh(`am start -n ${activity}`); await sleep(2000); };
 
-// Where a fresh xfce session draws on the host's 1920x1080 screen: its dock's web browser, Firefox's first window
-// (its Welcome dialog's Continue, its address bar) and GitHub's sign-in field, as a stock Ubuntu 24.04 install shows them.
-const DESKTOP = { width: 1920, height: 1080, browser: [983, 1055], welcomeContinue: [640, 353], addressBar: [650, 92], loginField: [640, 320] };
+// Where Boat's xfce session draws on the host's 1920x1080 screen (read off the real run of 24 Oct 2026): the dock's web
+// browser, which opens Chromium with its address bar focused, and GitHub's sign-in field in that first window.
+const DESKTOP = { width: 1920, height: 1080, browser: [983, 1055], loginField: [482, 391] };
 const SIGN_IN_PAGE = 'github.com/login';
 
 /** Computer on a computer with no screen: Set it up for me, then a browser sign-in page tapped and typed into. */
@@ -135,42 +135,41 @@ async function screenPhase() {
     say(`screen: installed and the desktop is live ${Math.round((Date.now() - started) / 1000)} s after Set it up for me`);
     await sleep(8000); // the session draws its panel and dock a moment after the picture starts
     await shot('10-desktop');
-    await tap('Tap to control', (v) => v === 'Tap to control');
-    // Touch maps through the picture, which the view letterboxes to the desktop's shape.
+    // Computer's own controls sit low on a fixed screen: tap them where they are, never scroll for them (that drags the pointer).
+    const press = async (what, test) => {
+        const [pl, pt, pr, pb] = find(await waitFor(what, (found) => find(found, test) !== undefined, 30), test).box;
+        say(`tap ${what}`);
+        await sh(`input tap ${Math.round((pl + pr) / 2)} ${Math.round((pt + pb) / 2)}`);
+        await sleep(1500);
+    };
+    await press('Tap to control', (v) => v === 'Tap to control');
+    // Touch maps through the picture, which fills the view's width at its top.
     const view = find(await screen(), (v) => v.endsWith(' desktop'));
     if (!view) throw new Error('the desktop view is missing');
-    const [l, t, r, b] = view.box;
-    const scale = Math.min((r - l) / DESKTOP.width, (b - t) / DESKTOP.height);
-    const left = l + ((r - l) - DESKTOP.width * scale) / 2;
-    const top = t + ((b - t) - DESKTOP.height * scale) / 2;
+    const [l, t, r] = view.box;
+    const scale = (r - l) / DESKTOP.width;
+    const left = l;
+    const top = t;
     const at = async (what, [x, y]) => {
         say(`desktop tap ${what}`);
         await sh(`input tap ${Math.round(left + x * scale)} ${Math.round(top + y * scale)}`);
     };
     const type = async (text) => {
-        await tap('Keyboard', (v) => v === 'Keyboard');
         for (const chunk of text.match(/.{1,6}/g)) { await sh(`input text '${chunk}'`); await sleep(400); }
     };
     await at('the web browser in the dock', DESKTOP.browser);
-    await sleep(30_000);
-    await shot('11-firefox');
-    await at('Continue on Firefox\'s welcome', DESKTOP.welcomeContinue);
-    await sleep(5000);
-    await at('the address bar', DESKTOP.addressBar);
+    await sleep(25_000);
+    await shot('11-browser');
+    await press('Keyboard', (v) => v === 'Keyboard');
     await type(SIGN_IN_PAGE);
     await sh('input keyevent KEYCODE_ENTER');
-    await sleep(2000);
-    await tap('Hide keyboard', (v) => v === 'Hide keyboard');
-    await sleep(15_000);
+    await sleep(12_000);
     await shot('12-sign-in-page');
     await at('the username field', DESKTOP.loginField);
     await sleep(1500);
     await type('umer@example.com');
     await sleep(3000);
     await shot('13-typed-into-the-field');
-    await tap('Hide keyboard', (v) => v === 'Hide keyboard');
-    await sleep(2000);
-    await shot('14-sign-in-page-filled');
     say('PASS: the screen for sign-ins showed a browser sign-in page that took a tap and typing (nothing was sent)');
 }
 
