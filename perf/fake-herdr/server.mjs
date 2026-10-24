@@ -23,6 +23,9 @@ export async function startFakeHerdr(options) {
     // A pane can start empty or go empty after a delay, so a lab can hold both
     // a pane that has never printed and one whose output has ended.
     const emptyAfterMs = Number(options.emptyAfterMs ?? 0);
+    // The protocol `ping` reports: below 22 stands in for a Herdr server older
+    // than muxr supports; `fake.protocol` changes it, as a restart onto an update would.
+    let protocol = Number(options.protocol ?? 22);
     const startedAt = Date.now();
     const cwd = join(dir, 'project');
     const attachJsonl = join(dir, 'attach.jsonl');
@@ -236,7 +239,8 @@ export async function startFakeHerdr(options) {
 
     const methods = {
         // The kit pings for the protocol version on connect, like real Herdr.
-        'ping': () => ({ protocol: 22 }),
+        'ping': () => ({ protocol }),
+        'fake.protocol': (params) => { protocol = Number(params.protocol); return {}; },
         'session.snapshot': () => ({ snapshot: snapshotOf(live) }),
         'plugin.list': () => ({ plugins: [] }),
         'plugin.action.invoke': (params) => {
@@ -811,6 +815,7 @@ function parseArgs(argv) {
         terminalBytesPerSecond: 4096,
         emptyPanes: 0,
         emptyAfterMs: 0,
+        protocol: 22,
     };
     for (let index = 0; index < argv.length; index += 1) {
         const flag = argv[index];
@@ -822,6 +827,7 @@ function parseArgs(argv) {
         else if (flag === '--terminal-bytes-per-second') { out.terminalBytesPerSecond = Number(value); index += 1; }
         else if (flag === '--empty-panes') { out.emptyPanes = Number(value); index += 1; }
         else if (flag === '--empty-after-ms') { out.emptyAfterMs = Number(value); index += 1; }
+        else if (flag === '--protocol') { out.protocol = Number(value); index += 1; }
     }
     if (out.dir === undefined) throw new Error('fake-herdr: --dir is required');
     return out;
