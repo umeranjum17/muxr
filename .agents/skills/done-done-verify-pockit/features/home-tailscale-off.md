@@ -44,11 +44,19 @@ runs the fake stack with the pairing offer naming this desktop's Tailscale
 address (`tailscale ip -4`, read-only; never stop or reconfigure this
 desktop's Tailscale), forwards that address to the loopback lab relay, pairs a
 fresh install, closes only the forwarder (relay and host keep running), and
-captures the Tailscale card at 390 dp font 1.0 and 270 dp font 1.3, light and
-dark, under `native/`. It then taps Open Tailscale (expects muxr to leave the
-foreground), cold-starts the app for the recovery card with Retry connection
-(390 dp light and dark, 270 dp font 1.3 dark), and turns airplane mode on for
-the offline card at 390 dp dark.
+captures the Tailscale card at 360, 390 and 445 dp, light and dark, plus 270
+dp font 1.3 dark, under `native/`, each shot waiting for its own card words. It
+then taps Open Tailscale (expects muxr to leave the foreground), cold-starts the
+app for the recovery card with Retry connection (the same widths), and turns
+airplane mode on for the offline card at 390 dp, light and dark.
+
+Desktop frames (1280 and 1440, light and dark) come from the lab PWA
+(`lab-browser-pairing.md`): pair, stop only the lab relay by its PID, and
+capture the busy card, then reload for the recovery card ("Computer
+unreachable", never "You're offline"), then `chrome-devtools-axi emulate
+--network Offline` for "You're offline". Each `emulate` call resets the
+conditions it does not name, so pass `--network Offline` with every
+`--color-scheme`, and wait for the card's own words before each screenshot.
 Pass: `done; defects: 0` in `journey.log`, and every shot shows the whole card.
 
 ## Gotchas
