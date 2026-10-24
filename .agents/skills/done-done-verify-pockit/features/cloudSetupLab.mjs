@@ -21,11 +21,12 @@ import { parseArgs, promisify } from 'node:util';
 import { boat } from '@byokit/cloud';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
 import { dismissPrompts, dumpUiXml } from '../../../../perf/lib/androidSignals.mjs';
+import { sha256, sourceIdentity } from '../../../../perf/lib/provenance.mjs';
 
 const { values: opts } = parseArgs({ options: {
     apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' }, port: { type: 'string' }, machine: { type: 'string' },
     dp: { type: 'string', default: '390' }, font: { type: 'string', default: '1.0' }, theme: { type: 'string', default: 'light' },
-    upstream: { type: 'string' }, 'key-file': { type: 'string' },
+    upstream: { type: 'string' }, 'key-file': { type: 'string' }, 'switch-route': { type: 'boolean' },
     screen: { type: 'boolean', default: false }, hold: { type: 'string', default: '0' }, attach: { type: 'string' },
     views: { type: 'string' }, 'size-only': { type: 'boolean', default: false },
 } });
@@ -34,6 +35,14 @@ if (!opts.attach && !opts['size-only'] && (opts.upstream ? !opts['key-file'] || 
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
 mkdirSync(EVIDENCE, { recursive: true });
+if (opts.apk) {
+    const source = sourceIdentity();
+    const build = JSON.parse(readFileSync(`${opts.apk}.json`, 'utf8'));
+    if (source.dirty || build.dirty || build.mobileSha256 !== source.mobileSha256 || build.apkSha256 !== sha256(opts.apk)) {
+        throw new Error('Cloud proof requires a clean candidate and its matching release APK');
+    }
+    writeFileSync(join(EVIDENCE, 'apk-source.json'), JSON.stringify({ source, build }, null, 2));
+}
 const exec = promisify(execFile);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const say = (line) => { const out = `${new Date().toISOString()} ${line}`; console.log(out); appendFileSync(join(EVIDENCE, 'journey.log'), `${out}\n`); };
@@ -90,10 +99,10 @@ async function tap(what, test, seconds = 90) {
     await sleep(1500);
 }
 // Old files go first (the AVD's storage outlives a run); the stop file ends the loop before its last file is cut.
-const RECORD = "rm -f /sdcard/mxrec-* /sdcard/mxrec.stop; i=0; while [ $i -lt 20 ] && [ ! -e /sdcard/mxrec.stop ]; do screenrecord --time-limit 170 --bit-rate 2000000 /sdcard/mxrec-$i.mp4 || break; i=$((i+1)); done";
+const RECORD = "rm -f /sdcard/mxrec-* /sdcard/mxrec.stop /sdcard/mxrec.pid; i=0; while [ $i -lt 20 ] && [ ! -e /sdcard/mxrec.stop ]; do screenrecord --time-limit 170 --bit-rate 2000000 /sdcard/mxrec-$i.mp4 & p=$!; echo $p > /sdcard/mxrec.pid; wait $p || break; i=$((i+1)); done";
 async function stopRecording() {
     await sh('touch /sdcard/mxrec.stop').catch(() => undefined);
-    await sh('pkill -INT screenrecord').catch(() => undefined);
+    await sh('if [ -f /sdcard/mxrec.pid ]; then kill -INT "$(cat /sdcard/mxrec.pid)"; fi').catch(() => undefined);
     await sleep(3000);
     const files = (await sh('ls /sdcard/ | grep mxrec- || true')).split('\n').map((f) => f.trim()).filter(Boolean).sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
     for (const [i, file] of files.entries()) await adb(['pull', `/sdcard/${file}`, join(EVIDENCE, `recording-${String(i).padStart(2, '0')}.mp4`)], 120_000);
@@ -102,6 +111,47 @@ async function stopRecording() {
 const focused = async () => (await sh('dumpsys window displays')).match(/mCurrentFocus=.*/)?.[0] ?? '';
 let activity = '';
 const bringMuxrBack = async () => { await sh(`am start -n ${activity}`); await sleep(2000); };
+
+// Read the existing Connection UI, never fill or save a field during the return proof.
+async function sshDetails(prefix) {
+    say('open Connection settings read-only');
+    await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://settings/connection' -n ${activity}`);
+    await waitFor('SSH transport summary', (nodes) => find(nodes, (v) => v.startsWith('Goes through your SSH connection.')) !== undefined);
+    const scrollTo = async (test) => {
+        for (let i = 0; i < 20; i += 1) {
+            const nodes = await screen();
+            const node = find(nodes, test);
+            if (node && node.box[1] > 280 && node.box[3] < 1100) return nodes;
+            await sh('input swipe 540 1600 540 1050 350');
+            await sleep(500);
+        }
+        throw new Error('Saved SSH detail did not become visible');
+    };
+    const target = await scrollTo((v) => v === 'SSH host');
+    const account = Object.fromEntries(['SSH host', 'SSH username', 'SSH port', 'Relay port on the host'].map((label) => [label, target.find((node) => node.desc === label)?.text]));
+    if (Object.values(account).some((value) => !value)) throw new Error('Saved SSH target fields are missing');
+    await shot(`${prefix}-target`);
+    const keyNodes = await scrollTo((v) => v.startsWith('Saved private key on this device'));
+    const key = find(keyNodes, (v) => v.startsWith('Saved private key on this device'))?.text;
+    if (!key) throw new Error('Saved device-key fingerprint is missing');
+    await shot(`${prefix}-key`);
+    say(`read-only SSH details: ${JSON.stringify(account)}; ${key}`);
+    await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://' -n ${activity}`);
+    await waitFor('Home after reading SSH details', (nodes) => find(nodes, (v) => v === 'connected') !== undefined);
+    return JSON.stringify({ account, key });
+}
+
+// A labelled full-frame sequence, not a new product screen. Original PNGs and video remain beside it.
+async function evidenceBoard(name, panels, columns) {
+    for (const [file, label] of panels) writeFileSync(join(EVIDENCE, `${file}-caption.txt`), `${label}\nActual native capture: ${file}.png`);
+    const filters = panels.map(([file], i) => `[${i}:v]scale=400:-2,pad=iw:ih+70:0:70:color=0x111111,drawtext=font=Sans:textfile='${join(EVIDENCE, `${file}-caption.txt`)}':fontcolor=white:fontsize=14:x=8:y=10[p${i}]`);
+    const layout = panels.map((_, i) => `${i % columns ? 'w0' : '0'}_${Math.floor(i / columns) ? 'h0' : '0'}`).join('|');
+    // Three columns are used only for the single-row launch sequence.
+    const positions = columns === 3 ? '0_0|w0_0|w0+w1_0' : layout;
+    filters.push(`${panels.map((_, i) => `[p${i}]`).join('')}xstack=inputs=${panels.length}:layout=${positions}[out]`);
+    await exec('ffmpeg', ['-y', ...panels.flatMap(([file]) => ['-i', join(EVIDENCE, `${file}.png`)]), '-filter_complex_threads', '1', '-filter_complex', filters.join(';'), '-map', '[out]', '-frames:v', '1', '-threads', '1', join(EVIDENCE, `${name}.png`)], { timeout: 60_000, maxBuffer: 8 << 20 });
+    say(`full-frame evidence sequence ${name}.png`);
+}
 
 // Where Boat's xfce session draws on the host's 1920x1080 screen (read off the real run of 24 Oct 2026): the dock's web
 // browser, which opens Chromium with its address bar focused, and GitHub's sign-in field in that first window.
@@ -189,11 +239,13 @@ const machineIds = async () => new Set((await account.list()).map((ref) => ref.i
 let lab;
 let emulator;
 let recorder;
+let desk;
 let before;
+const createdFile = join(EVIDENCE, 'boat-created.json');
 let created = 0;
 try {
     // --size-only creates nothing, so it needs only the lab's sign-in, no stand-in computer behind it.
-    const labEnv = opts.upstream ? { BOAT_LAB_UPSTREAM: opts.upstream, BOAT_LAB_KEY_FILE: resolve(opts['key-file']) } : opts.machine ? { BOAT_LAB_SSH: resolve(opts.machine) } : {};
+    const labEnv = opts.upstream ? { BOAT_LAB_UPSTREAM: opts.upstream, BOAT_LAB_KEY_FILE: resolve(opts['key-file']), BOAT_LAB_CREATED_FILE: createdFile } : opts.machine ? { BOAT_LAB_SSH: resolve(opts.machine) } : {};
     lab = spawn(process.execPath, ['.agents/skills/done-done-verify-pockit/features/boatSignInLab.mjs', opts.port], {
         env: { ...process.env, ...labEnv }, stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -212,6 +264,10 @@ try {
 
     emulator = await bootOwnedEmulator({ name: 'mxcs', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: ['nice', '-n', '10'] });
     serial = emulator.serial;
+    if (process.platform === 'linux') {
+        const stat = readFileSync(`/proc/${emulator.pid}/stat`, 'utf8');
+        writeFileSync(join(EVIDENCE, 'emulator-owner.json'), JSON.stringify({ pid: emulator.pid, start: stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/)[19], serial, avdHome: resolve(opts['avd-home']) }));
+    }
     say(`emulator ${serial} booted`);
     // The phone's width in dp is 1080 px * 160 / density: 443 is 390 dp, 640 is 270 dp.
     const view = async (dp, font, theme) => {
@@ -299,6 +355,7 @@ try {
     if (opts.upstream) {
         before = await machineIds();
         say(`machines on the account before Create: ${before.size}`);
+        if (opts['switch-route'] && before.size > 0) throw new Error('SSH-return qualification needs an empty Boat account; existing machines are untouched');
     }
     await tap('Create cloud computer', (v) => v === 'Create cloud computer');
     created = Date.now();
@@ -327,19 +384,81 @@ try {
         // A short viewport keeps the active step below the fold; follow it as a person would, with a scroll.
         if (Number(opts.dp) < 390 && seen.size < STEPS.length && find(found, (v) => v === 'Your cloud computer')) await sh('input swipe 540 1800 540 700 300');
         if (find(found, (v) => v === 'Try again')) { await shot('07-setup-failed'); throw new Error(`set-up failed: ${found.filter((n) => n.text).map((n) => n.text).join(' | ')}`); }
-        if (find(found, (v) => v.includes('connected')) && find(found, (v) => v === 'Plan, ask, build…')) { home = true; break; }
+        if (find(found, (v) => v === 'connected') && find(found, (v) => v === 'Plan, ask, build…')) { home = true; break; }
         await sleep(1500);
     }
     if (!home) throw new Error('the phone never reached Home with the computer connected');
     await sleep(3000);
     await shot('07-home-connected');
     say(`PASS: Home connected ${Math.round((Date.now() - created) / 1000)} s after Create, over SSH, no browser opened; steps seen: ${[...seen].join(', ')}`);
+    if (opts['switch-route']) {
+        const header = (await screen()).find((node) => node.desc.endsWith('. Show computer details'));
+        const cloudName = header?.desc.slice(0, -'. Show computer details'.length);
+        if (!cloudName) throw new Error('Could not read the cloud computer name from Home');
+        const originalSsh = await sshDetails('07');
+        let deskOutput = '';
+        desk = spawn('unshare', ['-Ur', '--uts', '--', 'sh', '-c', 'hostname Umer-Desk; exec node "$1" Desk', 'sh', resolve('.agents/skills/done-done-verify-pockit/features/computersLab.mjs')], {
+            env: { ...process.env, PAIR_KIND: 'native', LAB_TERMINAL_BPS: '0', LAB_SOCK: join(resolve(opts.machine ?? process.env.MUXR_SSH_LAB_ROOT), 'desk.sock') }, stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        desk.stdout.on('data', (chunk) => { deskOutput += chunk; }); // pairing offer stays private
+        desk.stderr.on('data', (chunk) => appendFileSync(join(EVIDENCE, 'desk.log'), chunk));
+        say(`Desk lab pid ${desk.pid}`);
+        const deadline = Date.now() + 120_000;
+        while (!deskOutput.includes('pairing link: ')) {
+            if (desk.exitCode !== null || Date.now() > deadline) throw new Error('Desk lab did not become ready');
+            await sleep(200);
+        }
+        const deskPort = deskOutput.match(/ready: relay (\d+)/)?.[1];
+        const code = deskOutput.match(/pairing link: (\S+)/)?.[1];
+        if (!deskPort || !code) throw new Error('Desk lab did not report its own relay and offer');
+        await adb(['reverse', `tcp:${deskPort}`, `tcp:${deskPort}`]);
+        await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://pair#${code}' -n ${activity}`);
+        await tap('Pair Desk', (v) => v === 'Pair');
+        await waitFor('Desk Home', (found) => find(found, (v) => v === 'Umer-Desk') !== undefined, 180);
+        await shot('08-desk-after-cloud');
+        const computers = async () => {
+            await tap('Desk agent', (v) => /\. (Idle|Working|Done|Needs you)\b/.test(v));
+            await tap('Pane actions', (v) => v === 'Pane actions');
+            await tap('Computers', (v) => v === 'Computers');
+            await waitFor('SSH computer checked on pick', (found) => find(found, (v) => v.includes('Checked when you pick it')) !== undefined);
+        };
+        await computers();
+        await shot('08b-cloud-checked-on-pick');
+        await tap('Cloud computer row', (v) => v === cloudName);
+        await tap('Switch back to cloud', (v) => v === 'Switch');
+        await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://' -n ${activity}`);
+        await waitFor('Cloud connected again', (found) => find(found, (v) => v === cloudName) !== undefined && find(found, (v) => v === 'connected') !== undefined, 180);
+        await shot('09-cloud-reconnected');
+        if (await sshDetails('09') !== originalSsh) throw new Error('Saved SSH host or key fingerprint changed across Desk');
+        await evidenceBoard('retained-ssh-route', [
+            ['07-target', 'Before Desk: saved SSH target'], ['09-target', 'After return: same SSH target'],
+            ['07-key', 'Before Desk: saved device key'], ['09-key', 'After return: same saved key'],
+        ], 2);
+        const oldPid = (await sh(`pidof ${PKG}`)).trim();
+        await sh(`am force-stop ${PKG}`);
+        if ((await sh(`pidof ${PKG} || true`)).trim()) throw new Error('muxr did not stop before cold launch');
+        await sh('input keyevent KEYCODE_HOME');
+        await shot('10a-stopped');
+        say(`cold launch: old process ${oldPid} is gone; starting the app; no SSH input follows`);
+        await sh(`am start -n ${activity}`);
+        await shot('10b-app-start');
+        await waitFor('Cloud connected after relaunch', (found) => find(found, (v) => v === cloudName) !== undefined && find(found, (v) => v === 'connected') !== undefined, 180);
+        await shot('10-cloud-after-relaunch');
+        const newPid = (await sh(`pidof ${PKG}`)).trim();
+        if (!newPid || newPid === oldPid) throw new Error('Cold launch did not produce a new app process');
+        say(`cold launch: new process ${newPid} connected with no SSH entry`);
+        await evidenceBoard('cold-launch-sequence', [
+            ['10a-stopped', '1. Force-stopped: no app process'], ['10b-app-start', '2. App start: no SSH entry'],
+            ['10-cloud-after-relaunch', '3. New process: cloud connected'],
+        ], 3);
+        say('PASS: cloud → Desk → cloud retained the visible SSH host and saved key; a new process reconnected with no SSH entry');
+    }
     if (!seen.has('05-private-connection')) throw new Error('the Private connection step was never shown');
     writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: opts.upstream ? `fresh release APK on an owned 390 dp emulator, a real Boat machine through the lab's key proxy to ${opts.upstream}` : 'fresh release APK on an owned 390 dp emulator, Boat lab with its stand-in computer (sshd + muxr in a namespace)',
-        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else in muxr'],
-        result: 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
+        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else until Home connects', ...(opts['switch-route'] ? ['pair Desk', 'open Desk agent → Pane actions → Computers; cloud says Checked when you pick it', 'pick the cloud and confirm Switch', 'read Connection settings without editing: same SSH host and saved key fingerprint before and after Desk', 'force-stop: confirm the old app process is gone and capture the launcher', 'launch muxr and capture app start then connected in one recording, with no SSH input and a new process id'] : [])],
+        result: opts['switch-route'] ? 'Home reconnected to the cloud computer over its retained SSH route after switching to Desk and back, then after relaunch; no SSH credential was re-entered' : 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
     }, null, 2));
     if (opts.screen) await screenPhase();
     }
@@ -353,20 +472,30 @@ try {
         try { readFileSync(join(EVIDENCE, 'release')); say('released'); break; } catch { await sleep(5000); }
     }
 } finally {
+    if (desk && desk.exitCode === null) {
+        const exited = new Promise((done) => desk.once('exit', done));
+        desk.kill('SIGTERM');
+        await exited;
+    }
     if (recorder) await stopRecording().catch((error) => say(`recording pull failed: ${error.message}`));
     recorder?.kill();
-    // A real machine bills while it lives: remove every one this run created and read the account back.
+    // A concurrent run may create a foreign machine: account-list deltas are not ownership.
     if (before) {
         try {
+            const owned = new Set(JSON.parse(readFileSync(createdFile, 'utf8')));
             for (const ref of await account.list()) {
-                if (before.has(ref.id)) continue;
+                if (!owned.has(ref.id)) continue;
                 await account.remove(ref, ref.id);
                 say('removed the machine this run created');
             }
-            const left = [...await machineIds()].filter((id) => !before.has(id));
-            say(left.length === 0 ? 'no machine from this run is left on the account' : `STILL ON THE ACCOUNT: ${left.length} machine(s) from this run`);
+            const left = await machineIds();
+            const remainingOwned = [...left].filter((id) => owned.has(id)).length;
+            writeFileSync(join(EVIDENCE, 'boat-cleanup.json'), JSON.stringify({ createdCount: owned.size, remainingOwned, remainingAccount: left.size, elapsedSeconds: created ? (Date.now() - created) / 1000 : 0, upperBoundUsdAtDefaultRate: created ? 0.036 * (Date.now() - created) / 3_600_000 : 0 }, null, 2));
+            say(`Boat readback: ${remainingOwned} owned machine(s), ${left.size} total machine(s) remain`);
+            if (remainingOwned > 0 || (opts['switch-route'] && left.size > 0)) process.exitCode = 1;
         } catch (error) {
             say(`MACHINE REMOVAL FAILED: ${error.message}`);
+            process.exitCode = 1;
         }
     }
     if (emulator) await emulator.stop().catch((error) => say(`emulator stop failed: ${error.message}`));

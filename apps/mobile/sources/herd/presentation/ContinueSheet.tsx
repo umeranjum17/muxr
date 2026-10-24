@@ -11,7 +11,7 @@ import { sync } from '@/catalog/sync';
 import { sessionStopAfterHandoff } from '@/catalog/ops';
 import { Modal } from '@/modal';
 import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
-import { openPairedMachine } from '@/collaboration';
+import { openPairedMachine, SshComputerNeedsActivation } from '@/collaboration';
 import { SheetIcon } from '@/components/SheetIcon';
 import { navigateToSession } from '../application/useNavigateToSession';
 import { ComputerRows, type ComputerRow } from './ComputersSheet';
@@ -90,7 +90,7 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
     const machines = useAllMachines({ includeOffline: true });
     const socket = useSocketStatus();
     const [grants, setGrants] = React.useState<StoredHostedGrant[]>([]);
-    const [probes, setProbes] = React.useState<Record<string, { online: boolean; installed: boolean }>>({});
+    const [probes, setProbes] = React.useState<Record<string, { online: boolean; installed: boolean; ssh?: boolean }>>({});
     const [phase, setPhase] = React.useState<'pick' | 'writing' | 'preview' | 'starting'>('pick');
     const [picked, setPicked] = React.useState<{ grant: StoredHostedGrant; name: string; note: string; cwd: string; folder: string } | null>(null);
     const [failure, setFailure] = React.useState<string>();
@@ -124,8 +124,8 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
                                 [grant.machineId]: { online: true, installed: agentKind !== undefined && (kinds.installed ?? []).includes(agentKind) },
                             }));
                         } finally { client.close(); }
-                    } catch {
-                        if (generation.current === current) setProbes((value) => ({ ...value, [grant.machineId]: { online: false, installed: false } }));
+                    } catch (cause) {
+                        if (generation.current === current) setProbes((value) => ({ ...value, [grant.machineId]: { online: false, installed: false, ssh: cause instanceof SshComputerNeedsActivation } }));
                     }
                 })();
             }
@@ -139,14 +139,20 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
         const isOnline = active ? socket.status === 'connected' : probe?.online === true;
         const name = active ? 'This computer' : machines.find((machine) => machine.id === grant.machineId)?.metadata?.displayName?.trim()
             || grant.machineName?.trim() || 'Paired computer';
+        let state: ComputerRow['state'] = isOnline ? 'online' : 'offline';
+        if (!isOnline && active) state = 'asleep';
+        else if (!active && probe?.ssh) state = 'ssh';
+        let disabledReason: string | undefined;
+        if (probe?.ssh) disabledReason = 'Switch to it in Computers first.';
+        else if (probe?.online && !probe.installed) disabledReason = `${agentKind ?? 'This agent'} is not installed there.`;
         return {
             id: grant.machineId,
             name,
-            state: isOnline ? 'online' : active ? 'asleep' : 'offline',
+            state,
             inUse: active || session?.metadata?.machineId === grant.machineId,
             checking: !active && probe === undefined,
             grant,
-            disabledReason: probe?.online && !probe.installed ? `${agentKind ?? 'This agent'} is not installed there.` : undefined,
+            disabledReason,
         };
     }), [agentKind, grants, machines, probes, session?.metadata?.machineId, socket.status, sourceMachineId]);
 

@@ -1,5 +1,5 @@
 import type { StoredHostedGrant } from './linkPairing';
-import { forgetSshCredential, getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
+import { savedSshTarget, getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 
 export type PairMachineCommand = {
@@ -12,9 +12,7 @@ export type PairMachineResult =
     | { ok: false; reason: 'voice-pinned'; grant: StoredHostedGrant }
     | { ok: false; reason: 'failed'; message?: string };
 
-/** Make a paired Machine the active connection. Switching to a Machine that
- * does not carry the current SSH route drops that route and its credential, so
- * the rebuild never dials the wrong computer through the old tunnel. */
+/** Activate only this computer's route; leaving it keeps its SSH login and pin. */
 async function activateGrant(grant: StoredHostedGrant, endVoiceIfPinned: boolean): Promise<PairMachineResult> {
     const guard = realtimeMachineSwitchGuard(grant.machineId);
     if (!guard.allowed && !endVoiceIfPinned) {
@@ -22,9 +20,7 @@ async function activateGrant(grant: StoredHostedGrant, endVoiceIfPinned: boolean
     }
     if (!guard.allowed) stopRealtimeSession();
     const settings = getCachedConnectionSettings();
-    if (settings.machineId !== '' && (settings.machineId !== grant.machineId || settings.selfhost !== (grant.source === 'selfhost'))) {
-        await forgetSshCredential(settings.machineId);
-    }
+    const ssh = grant.source === 'selfhost' ? await savedSshTarget(grant.machineId) : undefined;
     await saveConnectionSettings({
         ...settings,
         mode: 'hosted',
@@ -32,7 +28,7 @@ async function activateGrant(grant: StoredHostedGrant, endVoiceIfPinned: boolean
         machineId: grant.machineId,
         token: '',
         selfhost: grant.source === 'selfhost' ? true : undefined,
-        ...(settings.selfhost === true && settings.machineId === grant.machineId ? {} : { ssh: undefined }),
+        ssh,
     });
     return { ok: true, credential: grant.credential, secretKey: grant.deviceKey.secretKey };
 }
@@ -40,7 +36,7 @@ async function activateGrant(grant: StoredHostedGrant, endVoiceIfPinned: boolean
 /** Claim a pairing link and make that Machine the active connection. */
 export async function pairMachine(command: PairMachineCommand): Promise<PairMachineResult> {
     try {
-        return activateGrant(command.grant, command.endVoiceIfPinned === true);
+        return await activateGrant(command.grant, command.endVoiceIfPinned === true);
     } catch (error) {
         return { ok: false, reason: 'failed', message: error instanceof Error ? error.message : String(error) };
     }

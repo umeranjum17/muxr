@@ -2,7 +2,7 @@ import type { PeerRequestType, RequestParams, RequestResult } from '@trymuxr/con
 import { MuxrRequestError } from '@/pairing';
 import { LinkFirstClient } from '@/pairing/client';
 import type { StoredHostedGrant } from '@/pairing/e2ee';
-import { getCachedConnectionSettings } from '@/connection';
+import { getCachedConnectionSettings, savedSshTarget } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { PeerHostResponseError } from './computerCollaboration';
 
@@ -35,10 +35,17 @@ export async function requestPairedMachine<T extends ScopedMachineRequestType>(
     }
 }
 
+/** The native transport owns one tunnel, so a background probe must not replace it. */
+export class SshComputerNeedsActivation extends Error {
+    constructor() { super('Checked when you pick it'); }
+}
+
 /** Open one paired machine's own link without touching the app's active
  * connection. Rejects when the host refuses the pairing permanently or does
  * not answer in time; the caller owns closing the returned client. */
 export async function openPairedMachine(grant: StoredHostedGrant): Promise<LinkFirstClient> {
+    const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(grant.relayUrl).hostname);
+    if (loopback || await savedSshTarget(grant.machineId) !== undefined) throw new SshComputerNeedsActivation();
     let permanentError: string | undefined;
     const client = new LinkFirstClient({
         hostedGrant: grant,

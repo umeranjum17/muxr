@@ -53,12 +53,17 @@ vi.mock('expo-crypto', async () => {
         digest: async (_algorithm: string, bytes: Uint8Array) => createHash('sha256').update(bytes).digest(),
     };
 });
-const pairing = vi.hoisted(() => ({ stored: null as string | null, cache: '' }));
+const pairing = vi.hoisted(() => ({ stored: null as string | null, cache: '', secrets: new Map<string, string>() }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {
     getItem: async () => pairing.stored,
     setItem: async (_key: string, value: string) => { pairing.stored = value; },
 } }));
-vi.mock('@/pairing/secrets', () => ({ getWebSecret: async () => null, setWebSecret: async () => undefined }));
+vi.mock('@/pairing/secrets', () => ({
+    getWebSecret: async () => null, setWebSecret: async () => undefined,
+    getNativeSecret: async (key: string) => pairing.secrets.get(key) ?? null,
+    setNativeSecret: async (key: string, value: string) => { pairing.secrets.set(key, value); },
+    deleteNativeSecret: async (key: string) => { pairing.secrets.delete(key); },
+}));
 vi.mock('expo-file-system', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');

@@ -28,7 +28,11 @@ const ownOrigin = `http://127.0.0.1:${port}`;
 let approved = false;
 
 const upstream = process.env.BOAT_LAB_UPSTREAM;
-if (upstream && (!process.env.BOAT_LAB_KEY_FILE || process.env.BOAT_LAB_SSH)) throw new Error('BOAT_LAB_UPSTREAM needs BOAT_LAB_KEY_FILE and no BOAT_LAB_SSH');
+const createdFile = process.env.BOAT_LAB_CREATED_FILE;
+if (upstream && (!process.env.BOAT_LAB_KEY_FILE || !createdFile || process.env.BOAT_LAB_SSH)) throw new Error('BOAT_LAB_UPSTREAM needs BOAT_LAB_KEY_FILE, BOAT_LAB_CREATED_FILE and no BOAT_LAB_SSH');
+const createdMachines = new Set();
+let creationKey;
+if (upstream) writeFileSync(createdFile, '[]\n', { mode: 0o600, flag: 'wx' });
 const HOP = new Set(['host', 'connection', 'content-length', 'accept-encoding', 'authorization', 'transfer-encoding']);
 
 // The phone holds the lab's claimed key; only a call carrying it gets the real one, read in place for this call.
@@ -37,6 +41,18 @@ async function toUpstream(req, path, body, res) {
         res.writeHead(401, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'unauthorized' }));
         return;
+    }
+    const creating = req.method === 'POST' && path === '/api/v1/sandboxes';
+    if (creating) {
+        const key = req.headers['idempotency-key'];
+        if (typeof key !== 'string' || !key || (creationKey && creationKey !== key)) {
+            res.writeHead(409); res.end('This lab permits one machine creation.'); return;
+        }
+        creationKey = key;
+    }
+    const deleting = req.method === 'DELETE' && path.match(/^\/api\/v1\/sandboxes\/([^/?]+)$/);
+    if (deleting && !createdMachines.has(decodeURIComponent(deleting[1]))) {
+        res.writeHead(403); res.end('This machine was not created by this lab.'); return;
     }
     const key = readFileSync(process.env.BOAT_LAB_KEY_FILE, 'utf8').trim();
     const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !HOP.has(name)));
@@ -52,6 +68,12 @@ async function toUpstream(req, path, body, res) {
         return;
     }
     const text = (await answer.text()).replaceAll(key, '');
+    if (creating && answer.ok) {
+        const id = JSON.parse(text)?.sandbox?.id;
+        if (typeof id !== 'string' || !id) throw new Error('Boat creation did not return a machine id');
+        createdMachines.add(id);
+        writeFileSync(createdFile, JSON.stringify([...createdMachines]), { mode: 0o600 });
+    }
     console.log(`  upstream ${answer.status}`);
     res.writeHead(answer.status, { 'content-type': answer.headers.get('content-type') ?? 'application/json' });
     res.end(text);

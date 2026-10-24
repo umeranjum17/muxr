@@ -1,9 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { getWebSecret, setWebSecret } from '@/pairing/secrets';
+import { deleteNativeSecret, getNativeSecret, getWebSecret, setNativeSecret, setWebSecret } from '@/pairing/secrets';
 
 const STORAGE_KEY = 'muxr.connection.v1';
 const MAX_RECENT_CWDS = 5;
+const sshTargetKey = (machineId: string): string => `muxr.ssh.target.v1.${machineId}`;
 
 export interface SshTarget {
     /** Host running sshd; never a muxr machine name or display label. */
@@ -162,8 +163,34 @@ export async function loadConnectionSettingsAsync(): Promise<ConnectionSettings>
     return memoryCache;
 }
 
+/** Per-computer route, beside its credential. Migrate the old active-only target once. */
+export async function savedSshTarget(machineId: string): Promise<SshTarget | undefined> {
+    if (Platform.OS === 'web' || machineId === '') return undefined;
+    const raw = await getNativeSecret(sshTargetKey(machineId));
+    if (raw !== null) return parseSshTarget(JSON.parse(raw));
+    const active = getCachedConnectionSettings();
+    if (active.machineId !== machineId || active.selfhost !== true || active.ssh === undefined) return undefined;
+    await setNativeSecret(sshTargetKey(machineId), JSON.stringify(active.ssh));
+    return active.ssh;
+}
+
+export async function forgetSshTarget(machineId: string): Promise<void> {
+    if (Platform.OS !== 'web') await deleteNativeSecret(sshTargetKey(machineId));
+}
+
 export async function saveConnectionSettings(settings: ConnectionSettings): Promise<void> {
     const previous = await loadConnectionSettingsAsync();
+    if (Platform.OS !== 'web') {
+        // Preserve legacy settings before replacing the one active connection.
+        if (previous.machineId !== settings.machineId) await savedSshTarget(previous.machineId);
+        if (settings.machineId !== '') {
+            if (settings.selfhost === true && settings.ssh !== undefined) {
+                await setNativeSecret(sshTargetKey(settings.machineId), JSON.stringify(settings.ssh));
+            } else {
+                await forgetSshTarget(settings.machineId);
+            }
+        }
+    }
     if (previous.machineId !== settings.machineId || previous.mode !== settings.mode) {
         await onConnectionTargetChange?.();
     }
