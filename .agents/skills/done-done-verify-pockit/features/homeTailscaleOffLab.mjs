@@ -95,7 +95,8 @@ try {
     });
     await adb('shell', 'pm', 'clear', PKG);
     note('installed release APK, cleared data');
-    for (const args of [['settings', 'put', 'global', 'heads_up_notifications_enabled', '0'], ['svc', 'power', 'stayon', 'true'], ['input', 'keyevent', 'KEYCODE_WAKEUP'], ['wm', 'dismiss-keyguard']]) await adb('shell', ...args).catch(() => undefined);
+    // The emulator's disk keeps airplane mode from an earlier run that stopped before its cleanup.
+    for (const args of [['cmd', 'connectivity', 'airplane-mode', 'disable'], ['settings', 'put', 'global', 'heads_up_notifications_enabled', '0'], ['svc', 'power', 'stayon', 'true'], ['input', 'keyevent', 'KEYCODE_WAKEUP'], ['wm', 'dismiss-keyguard']]) await adb('shell', ...args).catch(() => undefined);
     // The emulator reaches this desktop's Tailscale address through the host's
     // network stack, without one of its own: the phone with Tailscale off whose
     // path to the computer still worked a moment ago.
