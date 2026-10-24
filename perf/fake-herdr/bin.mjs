@@ -356,6 +356,11 @@ export function writeBinShim({ dir, socketPath, terminalBytesPerSecond, inputLog
 
 export async function main(argv = process.argv.slice(2)) {
     const [cmd, sub, ...rest] = argv;
+    // The stand-in is the Herdr release muxr pins, so the host's version check passes.
+    if (cmd === '--version') {
+        process.stdout.write('herdr 0.9.1\n');
+        return;
+    }
     if (cmd === 'terminal' && sub === 'session') {
         runTerminal(rest);
         return;

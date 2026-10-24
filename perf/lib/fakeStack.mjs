@@ -47,6 +47,7 @@ async function spawnFakeHerdr(dir, options) {
         ['--terminal-bytes-per-second', options.terminalBytesPerSecond],
         ['--empty-panes', options.emptyPanes],
         ['--empty-after-ms', options.emptyAfterMs],
+        ['--protocol', options.protocol],
     ]) {
         if (value !== undefined) args.push(flag, String(value));
     }

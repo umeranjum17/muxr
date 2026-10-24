@@ -63,7 +63,9 @@ function fakeHerdr(dir: string, cwd: string) {
         input: string;
         /** The note a handoff turn's agent writes into its result file; unset means it writes none. */
         handoffNote?: string;
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0, holdPrompts: 0, input: '' };
+        /** The protocol `ping` reports; below 22 is a Herdr older than muxr supports. */
+        protocol: number;
+    } = { protocol: 22, failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '', sentTexts: [], startAgentAs: {}, prompts: [], losePrompts: 0, drawingReads: 0, holdPrompts: 0, input: '' };
     const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
@@ -267,7 +269,7 @@ function fakeHerdr(dir: string, cwd: string) {
                 let reply: unknown;
                 switch (method) {
                     case 'ping':
-                        reply = { id, result: { protocol: 22 } };
+                        reply = { id, result: { protocol: state.protocol } };
                         break;
                     case 'session.snapshot': {
                         state.snapshotCount += 1;
@@ -1286,6 +1288,40 @@ describe('herdr installed in its own folder, off the host PATH', () => {
             rmSync(dir, { recursive: true, force: true });
         }
     });
+
+    it('a running Herdr server older than muxr supports warns at host start and on Home, and clears once Herdr is updated', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-herdr-old-server-'));
+        const binary = join(dir, 'herdr');
+        // `herdr update` already replaced the binary; the server still running is the old one.
+        writeFileSync(binary, '#!/bin/sh\ncase "$1" in --version) echo "herdr 0.9.1" ;; *) echo "ran $0" ;; esac\n', { mode: 0o755 });
+        const saved = process.env.HERDR_BIN;
+        process.env.HERDR_BIN = binary;
+        const herdr = fakeHerdr(dir, dir);
+        herdr.state.protocol = 21;
+        const stderr = vi.spyOn(process.stderr, 'write');
+        let source: Awaited<ReturnType<typeof createHerdrSessionSource>> | undefined;
+        try {
+            source = await createHerdrSessionSource({
+                socketPath: herdr.socketPath, dataDir: join(dir, 'data'),
+                artifactsDir: join(dir, 'attachments'), hostHttpPort: 0, herdrBin: binary,
+            });
+            const warning = 'Herdr is out of date: muxr needs Herdr 0.9.1 or newer. Run `herdr update`, then restart Herdr.\n';
+            expect(stderr.mock.calls.map(([line]) => String(line))).toContain(warning);
+            const old = await source.herdrTree();
+            expect(old).toMatchObject({ connected: false, outdated: true });
+            expect(old.missing).toBeUndefined();
+            herdr.state.protocol = 22;
+            await vi.waitFor(async () => expect(await source!.herdrTree()).toMatchObject({ connected: true }), { timeout: 10_000 });
+            expect((await source.herdrTree()).outdated).toBeUndefined();
+        } finally {
+            stderr.mockRestore();
+            await source?.dispose();
+            herdr.close();
+            if (saved === undefined) delete process.env.HERDR_BIN;
+            else process.env.HERDR_BIN = saved;
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
 });
 
 describe('isolated pi agent home', () => {
