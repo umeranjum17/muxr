@@ -275,11 +275,12 @@ try {
         await tap('Cloud computer', (v) => v === 'Cloud computer' || v === 'Add a cloud computer. Boat.', 180);
         await waitFor('the size step with the linked account', (found) => find(found, (v) => v === 'Connected') !== undefined);
         await tap('the screen switch', (v) => v === 'Add a screen for sign-ins');
-        // At large text the card is taller than the space left: bring its top, where the switch is, into the shot.
-        const card = find(await screen(), (v) => v === 'Add a screen for sign-ins');
-        if (card && card.box[1] < 400) { await sh(`input swipe 540 900 540 ${900 + Math.min(1200, 500 - card.box[1])} 600`); await sleep(1000); }
+        // At large text the card is taller than the space left: scroll back until its title, beside the switch, shows below the header.
+        const title = async () => (await screen()).find((n) => n.text === 'Add a screen for sign-ins');
+        for (let i = 0; i < 6 && !((await title())?.box[1] > 500); i += 1) { await sh('input swipe 540 900 540 1300 600'); await sleep(1000); }
         await shot(`01-screen-switch-on-${dp}-${font}-${theme}`);
         await tap('the screen switch', (v) => v === 'Add a screen for sign-ins');
+        for (let i = 0; i < 6 && !((await title())?.box[1] > 500); i += 1) { await sh('input swipe 540 900 540 1300 600'); await sleep(1000); }
         await shot(`01-screen-switch-off-${dp}-${font}-${theme}`);
     }
     // --size-only stops before Create: nothing past the size step runs.
