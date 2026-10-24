@@ -1796,7 +1796,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             status={status}
                             onNothingThere={nothingToSwipeTo}
                             onSwitch={switchAgent}
-                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} panBy={panBy} onFrame={handleFrame} scrollsLocally={pannedHeight - shownHeight < terminalRowHeight} onLocalHistory={setLocalBack} />}
+                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} onRowHeight={setDrawnRowHeight} panBy={panBy} onFrame={handleFrame} pansFirst={pannedHeight - shownHeight >= terminalRowHeight} onLocalHistory={setLocalBack} />}
                         >
                         {linkMenu !== null && terminalBox !== undefined && terminalLinkCardFits(terminalBox.height, linkActions.length) && (
                             <TerminalLinkMenu

@@ -9,7 +9,8 @@
  * repainted back. Ghostty's buffer holds only repaint diffs. On Android the
  * view also keeps a local mirror of the rows that scrolled off the screen
  * while it watched, and a drag back through those runs natively with no
- * round trip (`scrollsLocally`).
+ * round trip. A grid taller than its box (`pansFirst`) pans first, and only
+ * the travel the pan leaves reaches the mirror.
  */
 
 import * as React from 'react';
@@ -69,10 +70,11 @@ export interface TerminalViewProps {
     /** Each frame of pane output, as it reaches the renderer. */
     onFrame: (base64: string) => void;
     /**
-     * The grid fits its box, so no pan takes drag travel first: a drag back
-     * reads the local history before it scrolls the pane (Android).
+     * The grid is taller than its box, so `panBy` takes drag travel first; what
+     * it leaves going back reads the local history (Android) before it scrolls
+     * the pane. Otherwise the history takes a drag back straight away.
      */
-    scrollsLocally?: boolean;
+    pansFirst?: boolean;
     /** Rows the local history is scrolled back; 0 once the live screen shows again. */
     onLocalHistory?: (rowsBack: number) => void;
 }
@@ -440,7 +442,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // can end on a row line instead of clipping the row above.
                     if (nativeEvent.rowHeight > 0) props.onRowHeight?.(nativeEvent.rowHeight);
                 }}
-                localHistory={Platform.OS === 'android' && props.scrollsLocally === true}
+                localHistory={Platform.OS === 'android'}
+                panFirst={props.pansFirst === true}
                 onHistory={({ nativeEvent }) => props.onLocalHistory?.(nativeEvent.back)}
                 // What the local history cannot show moves herdr's viewport and
                 // is repainted back to us. Ghostty counts rows the way the
@@ -449,6 +452,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 onScroll={({ nativeEvent }) => {
                     if (scrollStoppedRef.current) return;
                     const lines = props.panBy(-nativeEvent.rows);
+                    if (lines > 0 && Platform.OS === 'android' && props.pansFirst === true) {
+                        // The pan is at its top: the rows above it are the local history's.
+                        void termRef.current?.scrollHistory(-lines).then((rest) => {
+                            if (rest !== 0 && !scrollStoppedRef.current) scrollGate.queue(-rest);
+                        }).catch(() => scrollGate.queue(lines));
+                        return;
+                    }
                     if (lines !== 0) scrollGate.queue(lines);
                 }}
                 onPinch={pinch}
