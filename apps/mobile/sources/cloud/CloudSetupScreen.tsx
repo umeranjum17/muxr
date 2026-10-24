@@ -205,9 +205,9 @@ export function CloudSetupScreen() {
                                             </Pressable>
                                         ))}
                                         <Pressable accessibilityRole="switch" accessibilityLabel="Add a screen for sign-ins" accessibilityState={{ checked: screen, disabled: busy }} disabled={busy} onPress={() => setScreen((on) => !on)} style={styles.size}>
-                                            {/* The switch shares the title's row so the description keeps the card's full width at large text. */}
+                                            {/* The switch shares the title's row while both fit; at large text it wraps below, so no word is cut. */}
                                             <View style={styles.option}>
-                                                <Text style={[styles.stepTitle, styles.stepContent]}>Add a screen for sign-ins</Text>
+                                                <Text style={[styles.stepTitle, styles.optionTitle]}>Add a screen for sign-ins</Text>
                                                 <Switch value={screen} disabled={busy} onValueChange={setScreen} />
                                             </View>
                                             <Text style={styles.detail}>For a sign-in that needs a browser: see and use it in Computer. Adds a few minutes to set-up.</Text>
@@ -288,7 +288,8 @@ const styles = StyleSheet.create((theme) => ({
     waiting: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     error: { ...Typography.default(), fontSize: 14, lineHeight: 20, color: theme.colors.status.disconnected },
     size: { gap: 2, padding: 12, borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 12 },
-    option: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    option: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+    optionTitle: { flexGrow: 1 },
     sizeChosen: { borderColor: theme.colors.accent, backgroundColor: theme.colors.surfaceHighest },
     createAccount: { ...Typography.default('semiBold'), paddingVertical: 8, textAlign: 'center', color: theme.colors.textSecondary },
 }));
