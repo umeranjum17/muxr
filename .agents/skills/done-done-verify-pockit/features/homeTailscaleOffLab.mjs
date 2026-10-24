@@ -145,7 +145,10 @@ try {
     if (recovery === undefined) defects.push('the recovery card never said Tailscale is off');
     if (recovery !== undefined && NO_NETWORK.test(recovery)) defects.push('the recovery card blamed the device network while it was online');
     for (const [dp, density, font, theme] of [['390', '443', '1.0', 'light'], ['390', '443', '1.0', 'dark'], ['270', '640', '1.3', 'dark']]) {
-        cell(dir, `home-recovery-tailscale-off-${await view(dp, density, font, theme)}`);
+        // A density or theme change recreates the activity, which redials before the card returns.
+        const name = await view(dp, density, font, theme);
+        if (await waitFor((xml) => TAILSCALE_OFF.test(xml) && /Retry connection/.test(xml), 150) === undefined) defects.push(`the recovery card did not come back at ${name}`);
+        cell(dir, `home-recovery-tailscale-off-${name}`);
     }
 
     // Now the internet goes too: only now may Home blame this device's network.
