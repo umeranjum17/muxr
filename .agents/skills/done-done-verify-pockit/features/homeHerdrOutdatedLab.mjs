@@ -66,8 +66,14 @@ const setProtocol = (socketPath, protocol) => new Promise((done, fail) => {
 });
 
 let stack;
+let finished = false;
 try {
-    await adb('install', '-r', apk);
+    // A rebuilt APK carries a fresh test signature; only this lab's own app on this lab's emulator is removed for it.
+    await adb('install', '-r', apk).catch(async (cause) => {
+        if (!/INSTALL_FAILED_UPDATE_INCOMPATIBLE/.test(String(cause.stderr))) throw cause;
+        await adb('uninstall', PKG);
+        await adb('install', apk);
+    });
     await adb('shell', 'pm', 'clear', PKG);
     note('installed release APK, cleared data');
     stack = await startFakeStack({ panes: 4, agents: 1, protocol: 21 });
@@ -134,7 +140,9 @@ try {
         steps: ['open the muxr://pair link from the lab host and tap Pair', 'read Home at 270 dp font 1.3 and 393 dp font 1.0, dark and light, at rest and scrolled to the end', 'the fake Herdr answers protocol 22, as after a restart onto the update'],
         result: 'the host log says "Herdr is out of date: muxr needs Herdr 0.9.1 or newer. Run `herdr update`, then restart Herdr."; Home titles "Herdr is out of date on your computer" with `herdr update` to copy; once Herdr answers 22, Home drops the card and lists the agents with no tap',
     }, null, 2));
+    finished = true;
 } finally {
+    if (!finished) defects.push('the journey stopped before its end');
     try { await adb('shell', 'wm', 'size', 'reset'); await adb('shell', 'wm', 'density', 'reset'); await adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0'); } catch { /* emulator gone */ }
     stack?.stop();
     note('stack stopped');
