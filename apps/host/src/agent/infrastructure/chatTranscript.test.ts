@@ -121,7 +121,7 @@ describe('the chat read of an agent conversation', () => {
         const read = await new ChatTranscripts(() => ({ claude: [claude], pi })).read(conversation);
         expect(read.state === 'ok' && read.messages.map((m) => [m.text, m.images, m.tools?.[0]?.note])).toEqual([
             ['[Image #1] The cart looks off.', [{ id: 'u1.0', name: 'Image' }], undefined],
-            ['', [{ id: 'toolu_1.0', name: 'Image' }], 'an image'],
+            ['', [{ id: 'toolu_1.0', name: 'Image' }], undefined],
             // The drawn image leaves the text for its own card; a named file that is not there shows nothing.
             ['Here is the page after the fix:\n\nThe old one was `shots/gone.png`.', [{ id: expect.stringMatching(/^f[0-9a-f]{16}$/), name: 'cart.png' }], undefined],
         ]);

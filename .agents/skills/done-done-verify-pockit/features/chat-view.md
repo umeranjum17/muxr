@@ -42,7 +42,7 @@ screen. Codex, OpenCode and in-chat approvals are not part of it.
 - `chat-images` a message's images show as rounded cards in the column, at most
   260 dp tall (the person's on the right, above their bubble): a pasted image
   (Claude `image` blocks, Pi `{ data, mimeType }`), an image a tool returned (a
-  Read of a screenshot; its step notes `an image`), and an image file a reply
+  Read of a screenshot; its step has no line count), and an image file a reply
   names (`![alt](path)` or a bare `shots/x.png`, relative to the agent's folder),
   which leaves the text so no broken Markdown image shows; a named file that is
   not there shows nothing. `chat.read` sends only ids and names; each card
