@@ -19,6 +19,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     default: { getItem: async () => null, setItem: async () => undefined },
 }));
 vi.mock('@/pairing/secrets', () => secrets);
+vi.mock('@/catalog/sync', () => ({ syncReconnect: async () => undefined }));
 
 const tunnel = vi.hoisted(() => ({
     openSshTunnel: vi.fn(),
