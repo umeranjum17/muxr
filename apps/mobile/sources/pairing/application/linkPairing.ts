@@ -15,7 +15,7 @@ import {
     unreachedTailscaleName,
 } from '../infrastructure/linkPairClient';
 import { clearPairingSecrets, deletePendingPair, readPendingPair, writePendingPair, type PendingLinkPair } from '../infrastructure/hostedSecretStore';
-import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
+import { forgetSshCredential, forgetSshTarget, getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
 import { restoreConnection } from './restoreConnection';
 
 export { CUTOFF_PAIRING_CODE, decidePairingInput, EXPIRED_PAIRING_CODE, hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, LEGACY_PAIRING_CODE, linkOfferExpired, looksLikeLinkOffer, NOT_A_PAIRING_STRING, PairingNeedsNewCode, type PairingInputDecision, prepareHostedPairingInput } from '../domain/pairingString';
@@ -52,6 +52,10 @@ export async function removeHostedGrant(machineId: string): Promise<StoredHosted
     const { clearArtifactDownloads } = await import('@/utils/artifactTransfer');
     await clearArtifactDownloads();
     (await import('@/catalog')).clearHomeSnapshot(machineId);
+    await forgetSshCredential(machineId);
+    await forgetSshTarget(machineId);
+    const settings = getCachedConnectionSettings();
+    if (settings.machineId === machineId) await saveConnectionSettings({ ...settings, ssh: undefined });
     return deleteGrant(machineId);
 }
 
@@ -166,5 +170,11 @@ export async function clearHostedE2ee(): Promise<void> {
     const { clearArtifactDownloads } = await import('@/utils/artifactTransfer');
     await clearArtifactDownloads();
     (await import('@/catalog')).clearHomeSnapshot();
+    for (const grant of await listPairedGrants()) {
+        await forgetSshCredential(grant.machineId);
+        await forgetSshTarget(grant.machineId);
+    }
+    const settings = getCachedConnectionSettings();
+    await saveConnectionSettings({ ...settings, ssh: undefined });
     await Promise.all([clearPairingSecrets(), clearGrants()]);
 }

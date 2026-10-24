@@ -1,6 +1,8 @@
 export {
     DEFAULT_CONNECTION,
     getCachedConnectionSettings,
+    savedSshTarget,
+    forgetSshTarget,
     isConnectionSettingsHydrated,
     loadConnectionSettingsAsync,
     rememberSessionCwd,

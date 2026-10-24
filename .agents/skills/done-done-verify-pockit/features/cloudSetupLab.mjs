@@ -20,7 +20,7 @@ import { dismissPrompts, dumpUiXml } from '../../../../perf/lib/androidSignals.m
 const { values: opts } = parseArgs({ options: {
     apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' }, port: { type: 'string' }, machine: { type: 'string' },
     dp: { type: 'string', default: '390' }, font: { type: 'string', default: '1.0' }, theme: { type: 'string', default: 'light' },
-    upstream: { type: 'string' }, 'key-file': { type: 'string' },
+    upstream: { type: 'string' }, 'key-file': { type: 'string' }, 'switch-route': { type: 'boolean' },
 } });
 if (!opts.apk || !opts.evidence || !opts['avd-home'] || !opts.port) throw new Error('--apk, --evidence, --avd-home and --port are required');
 if (opts.upstream ? !opts['key-file'] || opts.machine : !opts.machine) throw new Error('give --machine, or --upstream with --key-file');
@@ -103,6 +103,7 @@ const machineIds = async () => new Set((await account.list()).map((ref) => ref.i
 let lab;
 let emulator;
 let recorder;
+let desk;
 let before;
 try {
     const labEnv = opts.upstream ? { BOAT_LAB_UPSTREAM: opts.upstream, BOAT_LAB_KEY_FILE: resolve(opts['key-file']) } : { BOAT_LAB_SSH: resolve(opts.machine) };
@@ -217,6 +218,43 @@ try {
     await sleep(3000);
     await shot('07-home-connected');
     say(`PASS: Home connected ${Math.round((Date.now() - created) / 1000)} s after Create, over SSH, no browser opened; steps seen: ${[...seen].join(', ')}`);
+    if (opts['switch-route']) {
+        let deskOutput = '';
+        desk = spawn('unshare', ['-Ur', '--uts', '--', 'sh', '-c', 'hostname Umer-Desk; exec node "$1" Desk', 'sh', resolve('.agents/skills/done-done-verify-pockit/features/computersLab.mjs')], {
+            env: { ...process.env, PAIR_KIND: 'native', LAB_SOCK: join(resolve(opts.machine ?? EVIDENCE), 'desk.sock') }, stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        desk.stdout.on('data', (chunk) => { deskOutput += chunk; }); // pairing offer stays private
+        desk.stderr.on('data', (chunk) => appendFileSync(join(EVIDENCE, 'desk.log'), chunk));
+        say(`Desk lab pid ${desk.pid}`);
+        const deadline = Date.now() + 120_000;
+        while (!deskOutput.includes('pairing link: ')) {
+            if (desk.exitCode !== null || Date.now() > deadline) throw new Error('Desk lab did not become ready');
+            await sleep(200);
+        }
+        const deskPort = deskOutput.match(/ready: relay (\d+)/)?.[1];
+        const code = deskOutput.match(/pairing link: (\S+)/)?.[1];
+        if (!deskPort || !code) throw new Error('Desk lab did not report its own relay and offer');
+        await adb(['reverse', `tcp:${deskPort}`, `tcp:${deskPort}`]);
+        await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://pair#${code}' -n ${activity}`);
+        await tap('Pair Desk', (v) => v === 'Pair');
+        await waitFor('Desk Home', (found) => find(found, (v) => v === 'Umer-Desk') !== undefined, 180);
+        await shot('08-desk-after-cloud');
+        const settings = async () => {
+            await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://settings' -n ${activity}`);
+            await waitFor('Settings', (found) => find(found, (v) => v === 'Settings') !== undefined);
+        };
+        await settings();
+        await tap('Cloud computer row', (v) => v === 'muxr-cloud');
+        await tap('Switch back to cloud', (v) => v === 'Switch');
+        await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://' -n ${activity}`);
+        await waitFor('Cloud connected again', (found) => find(found, (v) => v === 'muxr-cloud') !== undefined && find(found, (v) => v.includes('connected')) !== undefined, 180);
+        await shot('09-cloud-reconnected');
+        await sh(`am force-stop ${PKG}`);
+        await bringMuxrBack();
+        await waitFor('Cloud connected after relaunch', (found) => find(found, (v) => v === 'muxr-cloud') !== undefined && find(found, (v) => v.includes('connected')) !== undefined, 180);
+        await shot('10-cloud-after-relaunch');
+        say('PASS: cloud → Desk → cloud and process relaunch reconnected over the saved SSH route');
+    }
     if (!seen.has('05-private-connection')) throw new Error('the Private connection step was never shown');
     writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
@@ -225,6 +263,11 @@ try {
         result: 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
     }, null, 2));
 } finally {
+    if (desk && desk.exitCode === null) {
+        const exited = new Promise((done) => desk.once('exit', done));
+        desk.kill('SIGTERM');
+        await exited;
+    }
     if (recorder) await stopRecording().catch((error) => say(`recording pull failed: ${error.message}`));
     recorder?.kill();
     // A real machine bills while it lives: remove every one this run created and read the account back.

@@ -19,9 +19,9 @@ import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
-import { getCachedConnectionSettings } from '@/connection';
+import { getCachedConnectionSettings, sshTunnelAvailable } from '@/connection';
 import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
-import { openPairedMachine } from '@/collaboration';
+import { openPairedMachine, SshComputerNeedsActivation } from '@/collaboration';
 import { pairMachine } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
@@ -31,7 +31,7 @@ import { ActionSheet } from '@/modal/components/ActionSheet';
 
 /** Plain states a row can show. "Not paired" is a computer the app is
  * connected to that this phone keeps no pairing for. */
-type ComputerState = 'online' | 'asleep' | 'offline' | 'not-paired';
+type ComputerState = 'online' | 'asleep' | 'offline' | 'not-paired' | 'ssh';
 
 export interface ComputerRow {
     id: string;
@@ -45,6 +45,7 @@ export interface ComputerRow {
 
 const STATE_LABEL: Record<ComputerState, string> = {
     online: 'Online',
+    ssh: 'Checked when you pick it',
     asleep: 'Asleep',
     offline: 'Offline',
     'not-paired': 'Not paired',
@@ -57,16 +58,17 @@ function stateReason(state: ComputerState, inUse: boolean): string | undefined {
         case 'offline': return 'Turn it on and keep muxr running to use it.';
         case 'asleep': return 'Not answering right now.';
         case 'not-paired': return 'No pairing is saved on this phone.';
-        case 'online': return undefined;
+        case 'online':
+        case 'ssh': return undefined;
     }
 }
 
 /** The active computer answers on the app's own link; every other one answers
  * a fresh probe. A paired computer the probe has not answered yet is still
  * being checked. */
-function resolveComputerState(isActive: boolean, socketConnected: boolean, probed: boolean | undefined): ComputerState {
+function resolveComputerState(isActive: boolean, socketConnected: boolean, probed: boolean | 'ssh' | undefined): ComputerState {
     if (isActive) return socketConnected ? 'online' : 'asleep';
-    return probed === true ? 'online' : 'offline';
+    return probed === 'ssh' ? 'ssh' : probed === true ? 'online' : 'offline';
 }
 
 function stateColor(state: ComputerState, theme: ReturnType<typeof useUnistyles>['theme']): string {
@@ -76,20 +78,21 @@ function stateColor(state: ComputerState, theme: ReturnType<typeof useUnistyles>
         // computer the phone has never reached.
         case 'asleep': return '#FF9F0A';
         case 'offline': return theme.colors.status.disconnected;
-        case 'not-paired': return theme.colors.textSecondary;
+        case 'not-paired':
+        case 'ssh': return theme.colors.textSecondary;
     }
 }
 
 /** A fresh liveness check that does not touch the app's active connection: open
  * the pairing's own link and see whether the host answers. Resolves true when
  * the link opens, false when it goes stale or does not answer in time. */
-async function probeComputer(grant: StoredHostedGrant): Promise<boolean> {
+async function probeComputer(grant: StoredHostedGrant): Promise<boolean | 'ssh'> {
     try {
         const client = await openPairedMachine(grant);
         client.close();
         return true;
-    } catch {
-        return false;
+    } catch (cause) {
+        return cause instanceof SshComputerNeedsActivation ? 'ssh' : false;
     }
 }
 
@@ -110,7 +113,7 @@ export function ComputerRows({ rows, onPick, loadingId }: { rows: ComputerRow[];
                 const reason = row.checking ? undefined : [stateReason(row.state, row.inUse), row.disabledReason].filter(Boolean).join(' ');
                 const subtitle = [availability, row.inUse ? 'In use' : undefined, reason]
                     .filter((part): part is string => Boolean(part)).join(' • ');
-                const selectable = row.state === 'online' && !row.inUse && row.grant !== undefined && row.disabledReason === undefined;
+                const selectable = (row.state === 'online' || row.state === 'ssh') && !row.inUse && row.grant !== undefined && row.disabledReason === undefined;
                 return (
                     <Item key={row.id} title={row.name}
                         titleStyle={{ color: theme.colors.text }} subtitleStyle={{ color: theme.colors.textSecondary }}
@@ -139,7 +142,7 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
     const liveMachines = useAllMachines({ includeOffline: true });
     const session = useSession(sessionId);
     const [grants, setGrants] = React.useState<StoredHostedGrant[]>([]);
-    const [probes, setProbes] = React.useState<Record<string, boolean>>({});
+    const [probes, setProbes] = React.useState<Record<string, boolean | 'ssh'>>({});
     const [switching, setSwitching] = React.useState<string | null>(null);
     // pairMachine stores the next machineId before the socket reconnects, so a
     // live read would label the picked computer asleep and reset the probes of
@@ -191,6 +194,7 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
                 inUse: grant.machineId === agentMachineId,
                 checking: !isActive && probed === undefined,
                 grant,
+                disabledReason: state === 'ssh' && !sshTunnelAvailable() ? 'Open this computer in the muxr phone app.' : undefined,
             });
         }
         // A connected computer this phone holds no pairing for: real, and
