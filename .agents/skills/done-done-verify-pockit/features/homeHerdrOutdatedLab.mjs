@@ -7,7 +7,7 @@
 // Home recovering with no tap. Run from the repo root, after `yarn build`:
 // node <this> <apk> <evidence-dir>; MUXR_LAB_AVD_HOME picks the emulator home.
 import { execFile, execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -136,6 +136,7 @@ try {
     cell(dir, 'home-recovered-393-1.0-dark', false);
     writeFileSync(join(evidence, 'host-log-herdr.txt'), `${stack.hostLog().split('\n').filter((row) => /herdr|Herdr/.test(row)).join('\n')}\n`);
     const steps = JSON.stringify({
+        target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: 'fresh app data on an Android emulator; a private lab host over a fake Herdr whose binary reports 0.9.1 while its running server answers protocol 21',
         steps: ['open the muxr://pair link from the lab host and tap Pair', 'read Home at 270 dp font 1.3 and 393 dp font 1.0, dark and light, at rest and scrolled to the end', 'the fake Herdr answers protocol 22, as after a restart onto the update'],
         result: 'the host log says "Herdr is out of date: muxr needs Herdr 0.9.1 or newer. Run `herdr update`, then restart Herdr."; Home titles "Herdr is out of date on your computer" with `herdr update` to copy; once Herdr answers 22, Home drops the card and lists the agents with no tap',
