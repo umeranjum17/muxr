@@ -1,10 +1,10 @@
 # Self-naming
 
-One provider-agnostic naming system. The agent names its own workspace and pane
+One provider-agnostic naming system. The agent names its own tab and pane
 through the canonical muxr skill:
 
 ```sh
-muxr name --workspace 'auth rework' \
+muxr name --tab 'auth rework' \
   --pane 'Fix login validation --carefully' \
   --provider pi --model gemini-3-flash
 ```
@@ -13,14 +13,15 @@ muxr name --workspace 'auth rework' \
 Herdr runs, with or without a muxr host. It uses the current Herdr pane identity
 (`HERDR_PANE_ID`) and the Herdr binary from `HERDR_BIN_PATH` or `HERDR_BIN`
 (else `herdr` on PATH). Inside a pane Herdr exports that session's socket, so a
-named session needs no extra flag. It reads the pane's current workspace from
+named session needs no extra flag. It reads the pane's current tab from
 Herdr before mutating anything.
 
-- `workspace` → `herdr workspace rename` on Herdr's current workspace membership,
-  only when that workspace has one tab. A workspace holding other tabs is shared
-  by several lanes, so it keeps its name and the result reads
-  `"workspace":"kept: shared with other tabs"`; otherwise every lane renamed it
-  after its own task and it read like whichever ran last (`ssh-ed25519`).
+- `tab` (old spelling `workspace`) → `herdr tab rename` on Herdr's current tab
+  membership, only when that tab holds this pane alone. A tab holding other
+  panes keeps its name and the result reads `"tab":"kept: shared with other panes"`.
+- A workspace is never renamed: whoever made it names it. Lanes renamed shared
+  workspaces after their own task (`ssh-ed25519`), and a lane that started
+  alone in the lead's workspace named all of it after itself (`boat-live-cli`).
 - `pane` → `herdr pane rename`: the task line muxr shows under the agent's
   name (a plain shell leads with it).
 - `provider`/`model` → Herdr pane metadata tokens (`--source muxr.naming`).

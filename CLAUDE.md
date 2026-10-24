@@ -70,20 +70,21 @@ behaviour it claims to cover and watch it go red.
 
 ## Self-naming
 
-At the START of a task, name the current Herdr workspace and pane through the
+At the START of a task, name the current Herdr tab and pane through the
 canonical provider-neutral facade:
 
 ```sh
-muxr name --workspace 'short-task-slug' \
+muxr name --tab 'short-task-slug' \
   --pane 'Human-readable task title' \
   --provider '<your-provider>' --model '<your-model>'
 ```
 
 - `HERDR_PANE_ID` binds the request to the current pane; `muxr name` calls the
-  Herdr CLI directly and resolves workspace membership from Herdr, so it needs
+  Herdr CLI directly and resolves tab membership from Herdr, so it needs
   no running muxr host.
-- A workspace that holds other tabs is shared and keeps its name; only a
-  workspace the agent has to itself is renamed.
+- It never renames a workspace (its owner names it). A tab that holds other
+  panes is shared and keeps its name. `--workspace` is the old spelling of
+  `--tab`.
 - Names are used verbatim within bounded limits. Provider/model attribution is
   read from Herdr pane metadata; there is no competing JSON state file.
 - See `scripts/naming/`.

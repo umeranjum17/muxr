@@ -68,7 +68,7 @@ work.
 | Connect computers; list, read, watch, or prompt a remote agent; voice | `muxr skill collaboration` · [source](references/collaboration.md) |
 | Watch desktop pages through Computer, watch a device preview, or hand a login, 2FA, or CAPTCHA to the phone | `muxr skill agent-browser-preview` · [source](references/agent-browser-preview.md) |
 | Publish an HTML page with images, or a new version of it | `muxr skill artifact-pages` · [source](references/artifact-pages.md) |
-| Name the current Herdr workspace/pane | `muxr name --workspace LABEL --pane TITLE --provider PROVIDER --model MODEL` |
+| Name the current Herdr tab/pane | `muxr name --tab LABEL --pane TITLE --provider PROVIDER --model MODEL` |
 | See Claude accounts and their quota, or start or move an agent onto one | `muxr accounts` (below) |
 | Troubleshoot, recover, or report a bug | run interactive `muxr doctor` for checked safe repairs, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |
 
@@ -97,16 +97,17 @@ muxr accounts move zulu-2 work     # carry agent zulu-2's conversation onto "wor
 
 ## Self-naming
 
-At task start, name the current Herdr workspace and pane with muxr's
+At task start, name the current Herdr tab and pane with muxr's
 provider-neutral command. `HERDR_PANE_ID` is the existing Herdr pane
-identity; `muxr name` resolves workspace membership from Herdr and renames
+identity; `muxr name` resolves tab membership from Herdr and renames
 through the Herdr CLI, so no muxr host needs to be running. Names stay
-verbatim within bounded input limits. A workspace that holds other tabs is
-shared, so it keeps its name (`"workspace":"kept: shared with other tabs"`);
-only the pane is renamed.
+verbatim within bounded input limits. It never renames a workspace: whoever
+made the workspace names it. A tab that holds other panes is shared, so it
+keeps its name (`"tab":"kept: shared with other panes"`); only the pane is
+renamed. `--workspace` is the old spelling of `--tab`.
 
 ```sh
-muxr name --workspace 'short-task-slug' \
+muxr name --tab 'short-task-slug' \
   --pane 'Human-readable task title' \
   --provider '<provider>' --model '<model>'
 ```
