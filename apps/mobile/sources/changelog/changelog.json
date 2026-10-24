@@ -1,6 +1,49 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.13",
+            "title": "Truer account chips, and sending you can see",
+            "summary": "Since 0.2.12: each pane shows the account it is really running on, a sent prompt says so, and cloud computers are reached over SSH.",
+            "features": [
+                {
+                    "title": "Sending feedback",
+                    "detail": "A prompt says Sending, then Sent, and reaches the pane sooner. If it does not go, it says Not sent and offers a retry."
+                },
+                {
+                    "title": "Chat follows the app theme",
+                    "detail": "The chat view now uses the light or dark theme you picked for the app."
+                },
+                {
+                    "title": "Linux desktop first",
+                    "detail": "The Linux desktop app is now the first desktop option, with desklink 0.5.10."
+                },
+                {
+                    "title": "Cloud computers over SSH",
+                    "detail": "A new cloud computer is reached over SSH. It is never joined to a tailnet."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Account chip and Out of room banner",
+                    "detail": "Each pane's account chip and Out of room banner now name the account that pane's own process runs on, not the computer's default."
+                },
+                {
+                    "title": "Android scroll-back",
+                    "detail": "Scrolling back in a terminal on Android keeps every row."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Checks",
+                    "status": "not-run",
+                    "detail": "Not accepted on a device."
+                }
+            ],
+            "knownLimits": [
+                "Update phone and computer together: the account fix lives in the computer's muxr host."
+            ]
+        },
+        {
             "appVersion": "0.2.12",
             "title": "Cloud computers join your tailnet, and roomier keys",
             "summary": "Since 0.2.11: a new cloud computer opens its Tailscale sign-in page for you, and the terminal keys are easier to hit.",
