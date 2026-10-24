@@ -30,7 +30,7 @@ const { values: opts } = parseArgs({ options: {
     views: { type: 'string' }, 'size-only': { type: 'boolean', default: false },
 } });
 if (!opts.evidence || (!opts.attach && (!opts.apk || !opts['avd-home'] || !opts.port))) throw new Error('--apk, --evidence, --avd-home and --port are required (or --attach and --evidence)');
-if (!opts.attach && (opts.upstream ? !opts['key-file'] || opts.machine : !opts.machine)) throw new Error('give --machine, or --upstream with --key-file');
+if (!opts.attach && !opts['size-only'] && (opts.upstream ? !opts['key-file'] || opts.machine : !opts.machine)) throw new Error('give --machine, or --upstream with --key-file');
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
 mkdirSync(EVIDENCE, { recursive: true });
@@ -192,7 +192,8 @@ let recorder;
 let before;
 let created = 0;
 try {
-    const labEnv = opts.upstream ? { BOAT_LAB_UPSTREAM: opts.upstream, BOAT_LAB_KEY_FILE: resolve(opts['key-file']) } : { BOAT_LAB_SSH: resolve(opts.machine) };
+    // --size-only creates nothing, so it needs only the lab's sign-in, no stand-in computer behind it.
+    const labEnv = opts.upstream ? { BOAT_LAB_UPSTREAM: opts.upstream, BOAT_LAB_KEY_FILE: resolve(opts['key-file']) } : opts.machine ? { BOAT_LAB_SSH: resolve(opts.machine) } : {};
     lab = spawn(process.execPath, ['.agents/skills/done-done-verify-pockit/features/boatSignInLab.mjs', opts.port], {
         env: { ...process.env, ...labEnv }, stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -201,7 +202,7 @@ try {
     lab.stderr.on('data', (chunk) => appendFileSync(join(EVIDENCE, 'boat-lab.log'), chunk));
     say(`boat lab pid ${lab.pid} on port ${opts.port}`);
     // The stand-in computer's sshd sits on this host's loopback; a real machine's SSH address is public.
-    const ready = opts.upstream ? /boat lab listening/ : /BOAT_LAB_SSH_PORT=(\d+)/;
+    const ready = opts.machine ? /BOAT_LAB_SSH_PORT=(\d+)/ : /boat lab listening/;
     while (!ready.test(labOut)) {
         if (lab.exitCode !== null) throw new Error(`the Boat lab stopped: ${labOut}`);
         await sleep(200);
@@ -281,6 +282,12 @@ try {
     // --size-only stops before Create: nothing past the size step runs.
     deploy: {
     if (opts['size-only']) {
+        writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
+            target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
+            start: 'fresh release APK on an owned emulator, the Boat lab account linked',
+            steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', ...(opts.views?.split(',') ?? []).map((cell) => `at ${cell.replaceAll(':', ' ')}: turn Add a screen for sign-ins on, then off`)],
+            result: 'the size step shows the Add a screen for sign-ins switch, off by default, and it turns on and off at every view',
+        }, null, 2));
         say('PASS: size step shot at every view; --size-only stops before Create');
         break deploy;
     }
