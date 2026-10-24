@@ -135,11 +135,13 @@ try {
     if (!recovered) defects.push('Home kept the card after Herdr answered protocol 22');
     cell(dir, 'home-recovered-393-1.0-dark', false);
     writeFileSync(join(evidence, 'host-log-herdr.txt'), `${stack.hostLog().split('\n').filter((row) => /herdr|Herdr/.test(row)).join('\n')}\n`);
-    writeFileSync(join(evidence, 'steps.json'), JSON.stringify({
+    const steps = JSON.stringify({
         start: 'fresh app data on an Android emulator; a private lab host over a fake Herdr whose binary reports 0.9.1 while its running server answers protocol 21',
         steps: ['open the muxr://pair link from the lab host and tap Pair', 'read Home at 270 dp font 1.3 and 393 dp font 1.0, dark and light, at rest and scrolled to the end', 'the fake Herdr answers protocol 22, as after a restart onto the update'],
         result: 'the host log says "Herdr is out of date: muxr needs Herdr 0.9.1 or newer. Run `herdr update`, then restart Herdr."; Home titles "Herdr is out of date on your computer" with `herdr update` to copy; once Herdr answers 22, Home drops the card and lists the agents with no tap',
-    }, null, 2));
+    }, null, 2);
+    // The step record sits beside every capture, so the shots under native/ are judged against it too.
+    for (const at of [evidence, dir]) writeFileSync(join(at, 'steps.json'), steps);
     finished = true;
 } finally {
     if (!finished) defects.push('the journey stopped before its end');
