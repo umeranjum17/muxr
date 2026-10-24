@@ -15,7 +15,7 @@ import {
     unreachedTailscaleName,
 } from '../infrastructure/linkPairClient';
 import { clearPairingSecrets, deletePendingPair, readPendingPair, writePendingPair, type PendingLinkPair } from '../infrastructure/hostedSecretStore';
-import { forgetSshCredential, forgetSshTarget, getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
+import { forgetSshCredential, forgetSshTarget, getCachedConnectionSettings, loadConnectionSettingsAsync, savedSshTarget, saveConnectionSettings } from '@/connection';
 import { restoreConnection } from './restoreConnection';
 
 export { CUTOFF_PAIRING_CODE, decidePairingInput, EXPIRED_PAIRING_CODE, hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, LEGACY_PAIRING_CODE, linkOfferExpired, looksLikeLinkOffer, NOT_A_PAIRING_STRING, PairingNeedsNewCode, type PairingInputDecision, prepareHostedPairingInput } from '../domain/pairingString';
@@ -71,6 +71,7 @@ export async function restoreHostedConnection(): Promise<StoredHostedGrant | und
             relayUrl: result.grant.relayUrl,
             machineId: result.grant.machineId,
             selfhost: result.grant.source === 'selfhost' ? true : undefined,
+            ssh: result.grant.source === 'selfhost' ? await savedSshTarget(result.grant.machineId) : undefined,
         });
     }
     return result.grant;

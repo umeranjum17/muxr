@@ -10,7 +10,7 @@ import { SystemBarBackdrop } from '@/components/SystemBarBackdrop';
 import { useCompactWindow } from '@/components/useCompactWindow';
 import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/pairing/e2ee';
-import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
+import { pairMachine } from '@/pairing';
 
 export default function Home() {
     const auth = useAuth();
@@ -28,15 +28,9 @@ function NotAuthenticated() {
         pairing.current = true;
         void resumePendingHostedPairing().then(async (grant) => {
             if (grant === undefined) return;
-            await saveConnectionSettings({
-                ...getCachedConnectionSettings(),
-                mode: 'hosted',
-                relayUrl: grant.relayUrl,
-                machineId: grant.machineId,
-                token: '',
-                selfhost: grant.source === 'selfhost' ? true : undefined,
-            });
-            await auth.login(grant.credential, grant.deviceKey.secretKey);
+            const activated = await pairMachine({ grant });
+            if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer.');
+            await auth.login(activated.credential, activated.secretKey);
         }).catch((error) => {
             Modal.alert('Pairing paused', error instanceof Error ? error.message : String(error));
         }).finally(() => { pairing.current = false; });
