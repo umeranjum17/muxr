@@ -22,6 +22,7 @@ const copyButton = document.getElementById('copy-code');
 const copyLabel = copyButton.querySelector('.copy-label');
 const keepAwake = document.getElementById('keep-awake');
 const autostart = document.getElementById('autostart');
+const appVersion = document.getElementById('app-version');
 const projectInput = document.getElementById('project-folder');
 const projectNoRepo = document.getElementById('project-no-repo');
 const projectError = document.getElementById('project-error');
@@ -142,6 +143,7 @@ window.muxr.onState((state) => {
 });
 
 window.muxr.onSettings((settings) => {
+    appVersion.textContent = settings.version ?? '';
     keepAwake.checked = settings.keepAwake === true;
     autostart.checked = settings.autostart === true;
 });
@@ -181,6 +183,7 @@ copyButton.addEventListener('click', async () => {
 });
 
 window.muxr.getSettings().then((settings) => {
+    appVersion.textContent = settings.version ?? '';
     keepAwake.checked = settings.keepAwake === true;
     autostart.checked = settings.autostart === true;
 });

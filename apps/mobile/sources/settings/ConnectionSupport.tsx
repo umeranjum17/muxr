@@ -11,8 +11,8 @@ import { useMultiClick } from '@/hooks/useMultiClick';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { formatConnectionDiagnosticsForReport } from '@/catalog/diagnostics';
 import { loadAppConfig } from '@/catalog';
-import { getAppBuildNumber, getAppVersion } from '@/utils/appVersion';
-import { knownHostVersion, versionsMismatch } from '@/utils/versionStatus';
+import { getAppBuild, getAppBuildNumber, getAppVersion } from '@/utils/appVersion';
+import { knownHostVersion, versionPairLine, versionsMismatch } from '@/utils/versionStatus';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { t } from '@/text';
 import { useHostUpdate } from './useHostUpdate';
@@ -52,6 +52,7 @@ const installContextTitles: Record<ReturnType<typeof detectInstallContext>, stri
 export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?: string }) {
     const { theme } = useUnistyles();
     const appVersion = getAppVersion();
+    const appLabel = getAppBuild().label;
     const build = getAppBuildNumber();
     const appConfig = loadAppConfig();
     const release = knownHostVersion(appConfig.releaseVersion);
@@ -88,9 +89,9 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
         : 'Keep this app and check for a compatible host release. Any installation requires confirmation; installing restarts the host.';
     const statusSubtitle = update.message
         ? `${update.message}${installBlocked === undefined ? '' : ` · ${installBlocked}`}`
-        : `App ${appVersion}${hostVersion === undefined ? '' : ` · host ${hostVersion}`}${installBlocked === undefined ? '' : ` · ${installBlocked}`}`;
+        : `${versionPairLine(appLabel, hostVersion)}${installBlocked === undefined ? '' : ` · ${installBlocked}`}`;
     const diagnosticText = () => [
-        `App ${appVersion}${build ? ` / build ${build}` : ''}; host ${hostVersion ?? 'unknown'}`,
+        `App ${appLabel}${build ? ` / build ${build}` : ''}; host ${hostVersion ?? 'unknown'}`,
         `App source ${sourceLine}`,
         formatConnectionDiagnosticsForReport(),
     ].filter(Boolean).join('\n');
@@ -107,7 +108,7 @@ export function ConnectionSupport({ hostVersion: reportedHost }: { hostVersion?:
                 onPress={installBlocked === undefined ? () => void update.check() : undefined}
             />
             {!update.message && <Text style={stylesheet.guidance}>{guidance}</Text>}
-            <Item title={installContextTitles[detectInstallContext()]} subtitle={`Version ${exactRelease ?? appVersion}${build ? ` · build ${build}` : ''}`}
+            <Item title={installContextTitles[detectInstallContext()]} subtitle={`Version ${appLabel}${build ? ` · build ${build}` : ''}`}
                 subtitleLines={0} onPress={versionClick} showChevron={false} />
             <Item title="Source" subtitle={sourceLine} subtitleLines={0} />
             <Item title="Connected host" subtitle={hostVersion ? `Version ${hostVersion}` : 'Unavailable until the host reports it'} subtitleLines={0} />

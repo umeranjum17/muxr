@@ -281,6 +281,7 @@ export default {
                 directDistribution: distribution === 'direct',
                 consoleLoggingDefault,
                 releaseVersion: releaseIdentity,
+                buildVariant: variant,
                 buildCommitSha: buildMetadata.commitSha,
                 buildCommitTimestamp: buildMetadata.commitTimestamp,
             }
