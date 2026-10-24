@@ -33,9 +33,7 @@ const work = join(root, 'w');
 const folder = join(work, 'muxr');
 const soloFolder = join(work, 'solo');
 const bin = join(work, 'bin');
-// Outside the home folder, so the path label the phone draws holds no owner detail.
-const mainFolder = join(execFileSync('mktemp', ['-d', '/tmp/fmws.XXXX'], { encoding: 'utf8' }).trim(), 'firstmate');
-mkdirSync(mainFolder, { recursive: true });
+let mainFolder;
 mkdirSync(folder, { recursive: true });
 mkdirSync(soloFolder, { recursive: true });
 mkdirSync(bin, { recursive: true });
@@ -48,6 +46,9 @@ const buildScene = () => {
     // No label: Herdr numbers the tab, which names nothing.
     herdr('tab', 'create', '--workspace', 'w1', '--cwd', folder, '--no-focus');
     herdr('workspace', 'create', '--cwd', soloFolder, '--label', 'solo', '--no-focus');
+    // Outside the home folder, so the path label the phone draws holds no owner detail.
+    mainFolder = join(execFileSync('mktemp', ['-d', '/tmp/fmws.XXXX'], { encoding: 'utf8' }).trim(), 'firstmate');
+    mkdirSync(mainFolder, { recursive: true });
     herdr('workspace', 'create', '--cwd', mainFolder, '--no-focus');
     herdr('workspace', 'create', '--cwd', mainFolder, '--label', mainFolder, '--no-focus');
     if (taskTitles) herdr('tab', 'create', '--workspace', 'w1', '--cwd', folder, '--no-focus');
@@ -197,7 +198,7 @@ try {
         await new Promise((resolve) => { process.once('SIGTERM', resolve); process.once('SIGINT', resolve); });
         offering?.destroy();
         await lab.stop();
-        rmSync(dirname(mainFolder), { recursive: true, force: true });
+        if (mainFolder) rmSync(dirname(mainFolder), { recursive: true, force: true });
         log('pwa lab stopped');
         process.exit(0);
     }
@@ -297,6 +298,6 @@ try {
     await lab?.stop();
     if (emu) try { execFileSync('adb', ['-s', serial, 'emu', 'kill'], { timeout: 30_000 }); } catch { /* already gone */ }
     await emu?.stop?.();
-    rmSync(dirname(mainFolder), { recursive: true, force: true });
+    if (mainFolder) rmSync(dirname(mainFolder), { recursive: true, force: true });
     log(finished ? `done; cells with visual-check defects: ${defects}` : 'failed before every cell was captured');
 }
