@@ -218,7 +218,7 @@ try {
         // A short viewport keeps the active step below the fold; follow it as a person would, with a scroll.
         if (Number(opts.dp) < 390 && seen.size < STEPS.length && find(found, (v) => v === 'Your cloud computer')) await sh('input swipe 540 1800 540 700 300');
         if (find(found, (v) => v === 'Try again')) { await shot('07-setup-failed'); throw new Error(`set-up failed: ${found.filter((n) => n.text).map((n) => n.text).join(' | ')}`); }
-        if (find(found, (v) => v.includes('connected')) && find(found, (v) => v === 'Plan, ask, build…')) { home = true; break; }
+        if (find(found, (v) => v === 'connected') && find(found, (v) => v === 'Plan, ask, build…')) { home = true; break; }
         await sleep(1500);
     }
     if (!home) throw new Error('the phone never reached Home with the computer connected');
@@ -257,11 +257,11 @@ try {
         await tap('Cloud computer row', (v) => v === 'muxr-cloud');
         await tap('Switch back to cloud', (v) => v === 'Switch');
         await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://' -n ${activity}`);
-        await waitFor('Cloud connected again', (found) => find(found, (v) => v === 'muxr-cloud') !== undefined && find(found, (v) => v.includes('connected')) !== undefined, 180);
+        await waitFor('Cloud connected again', (found) => find(found, (v) => v === 'muxr-cloud') !== undefined && find(found, (v) => v === 'connected') !== undefined, 180);
         await shot('09-cloud-reconnected');
         await sh(`am force-stop ${PKG}`);
         await bringMuxrBack();
-        await waitFor('Cloud connected after relaunch', (found) => find(found, (v) => v === 'muxr-cloud') !== undefined && find(found, (v) => v.includes('connected')) !== undefined, 180);
+        await waitFor('Cloud connected after relaunch', (found) => find(found, (v) => v === 'muxr-cloud') !== undefined && find(found, (v) => v === 'connected') !== undefined, 180);
         await shot('10-cloud-after-relaunch');
         say('PASS: cloud → Desk → cloud and process relaunch reconnected over the saved SSH route');
     }
