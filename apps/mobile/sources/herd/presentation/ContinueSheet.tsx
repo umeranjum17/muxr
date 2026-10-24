@@ -139,14 +139,20 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
         const isOnline = active ? socket.status === 'connected' : probe?.online === true;
         const name = active ? 'This computer' : machines.find((machine) => machine.id === grant.machineId)?.metadata?.displayName?.trim()
             || grant.machineName?.trim() || 'Paired computer';
+        let state: ComputerRow['state'] = isOnline ? 'online' : 'offline';
+        if (!isOnline && active) state = 'asleep';
+        else if (!active && probe?.ssh) state = 'ssh';
+        let disabledReason: string | undefined;
+        if (probe?.ssh) disabledReason = 'Switch to it in Computers first.';
+        else if (probe?.online && !probe.installed) disabledReason = `${agentKind ?? 'This agent'} is not installed there.`;
         return {
             id: grant.machineId,
             name,
-            state: isOnline ? 'online' : active ? 'asleep' : probe?.ssh ? 'ssh' : 'offline',
+            state,
             inUse: active || session?.metadata?.machineId === grant.machineId,
             checking: !active && probe === undefined,
             grant,
-            disabledReason: probe?.ssh ? 'Switch to it in Computers first.' : probe?.online && !probe.installed ? `${agentKind ?? 'This agent'} is not installed there.` : undefined,
+            disabledReason,
         };
     }), [agentKind, grants, machines, probes, session?.metadata?.machineId, socket.status, sourceMachineId]);
 

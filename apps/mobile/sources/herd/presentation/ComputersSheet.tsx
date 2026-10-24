@@ -68,7 +68,8 @@ function stateReason(state: ComputerState, inUse: boolean): string | undefined {
  * being checked. */
 function resolveComputerState(isActive: boolean, socketConnected: boolean, probed: boolean | 'ssh' | undefined): ComputerState {
     if (isActive) return socketConnected ? 'online' : 'asleep';
-    return probed === 'ssh' ? 'ssh' : probed === true ? 'online' : 'offline';
+    if (probed === 'ssh') return 'ssh';
+    return probed === true ? 'online' : 'offline';
 }
 
 function stateColor(state: ComputerState, theme: ReturnType<typeof useUnistyles>['theme']): string {

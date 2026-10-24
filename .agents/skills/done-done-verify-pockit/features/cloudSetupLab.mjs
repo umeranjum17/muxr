@@ -83,10 +83,10 @@ async function tap(what, test, seconds = 90) {
     await sleep(1500);
 }
 // Old files go first (the AVD's storage outlives a run); the stop file ends the loop before its last file is cut.
-const RECORD = "rm -f /sdcard/mxrec-* /sdcard/mxrec.stop; i=0; while [ $i -lt 20 ] && [ ! -e /sdcard/mxrec.stop ]; do screenrecord --time-limit 170 --bit-rate 2000000 /sdcard/mxrec-$i.mp4 || break; i=$((i+1)); done";
+const RECORD = "rm -f /sdcard/mxrec-* /sdcard/mxrec.stop /sdcard/mxrec.pid; i=0; while [ $i -lt 20 ] && [ ! -e /sdcard/mxrec.stop ]; do screenrecord --time-limit 170 --bit-rate 2000000 /sdcard/mxrec-$i.mp4 & p=$!; echo $p > /sdcard/mxrec.pid; wait $p || break; i=$((i+1)); done";
 async function stopRecording() {
     await sh('touch /sdcard/mxrec.stop').catch(() => undefined);
-    await sh('pkill -INT screenrecord').catch(() => undefined);
+    await sh('if [ -f /sdcard/mxrec.pid ]; then kill -INT "$(cat /sdcard/mxrec.pid)"; fi').catch(() => undefined);
     await sleep(3000);
     const files = (await sh('ls /sdcard/ | grep mxrec- || true')).split('\n').map((f) => f.trim()).filter(Boolean).sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
     for (const [i, file] of files.entries()) await adb(['pull', `/sdcard/${file}`, join(EVIDENCE, `recording-${String(i).padStart(2, '0')}.mp4`)], 120_000);
@@ -221,7 +221,7 @@ try {
     if (opts['switch-route']) {
         let deskOutput = '';
         desk = spawn('unshare', ['-Ur', '--uts', '--', 'sh', '-c', 'hostname Umer-Desk; exec node "$1" Desk', 'sh', resolve('.agents/skills/done-done-verify-pockit/features/computersLab.mjs')], {
-            env: { ...process.env, PAIR_KIND: 'native', LAB_SOCK: join(resolve(opts.machine ?? EVIDENCE), 'desk.sock') }, stdio: ['ignore', 'pipe', 'pipe'],
+            env: { ...process.env, PAIR_KIND: 'native', LAB_SOCK: join(resolve(opts.machine ?? process.env.MUXR_SSH_LAB_ROOT), 'desk.sock') }, stdio: ['ignore', 'pipe', 'pipe'],
         });
         desk.stdout.on('data', (chunk) => { deskOutput += chunk; }); // pairing offer stays private
         desk.stderr.on('data', (chunk) => appendFileSync(join(EVIDENCE, 'desk.log'), chunk));
@@ -259,8 +259,8 @@ try {
     writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: opts.upstream ? `fresh release APK on an owned 390 dp emulator, a real Boat machine through the lab's key proxy to ${opts.upstream}` : 'fresh release APK on an owned 390 dp emulator, Boat lab with its stand-in computer (sshd + muxr in a namespace)',
-        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else in muxr'],
-        result: 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
+        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else until Home connects', ...(opts['switch-route'] ? ['pair Desk', 'switch back to the cloud in Settings', 'force-stop and relaunch muxr'] : [])],
+        result: opts['switch-route'] ? 'Home reconnected to the cloud computer over its retained SSH route after switching to Desk and back, then after relaunch; no SSH credential was re-entered' : 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
     }, null, 2));
 } finally {
     if (desk && desk.exitCode === null) {
