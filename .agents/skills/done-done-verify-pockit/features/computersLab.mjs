@@ -23,7 +23,7 @@ const panes = Number(process.env.LAB_PANES ?? 4);
 const agents = Number(process.env.LAB_AGENTS ?? 4);
 const socketPath = process.env.LAB_SOCK ?? `/tmp/muxr-computers-lab-${label}.sock`;
 
-const stack = await startFakeStack({ transport: 'loopback', panes, agents, titleChurnHz: 0 });
+const stack = await startFakeStack({ transport: 'loopback', panes, agents, titleChurnHz: 0, terminalBytesPerSecond: Number(process.env.LAB_TERMINAL_BPS ?? 4096) });
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const online = () => stack.hostLog().includes('link relay: online');
 for (let i = 0; i < 200 && !online(); i += 1) await sleep(200);

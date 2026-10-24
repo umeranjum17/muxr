@@ -200,10 +200,11 @@ let emulator;
 let recorder;
 let desk;
 let before;
+const createdFile = join(EVIDENCE, 'boat-created.json');
 let created = 0;
 try {
     // --size-only creates nothing, so it needs only the lab's sign-in, no stand-in computer behind it.
-    const labEnv = opts.upstream ? { BOAT_LAB_UPSTREAM: opts.upstream, BOAT_LAB_KEY_FILE: resolve(opts['key-file']) } : opts.machine ? { BOAT_LAB_SSH: resolve(opts.machine) } : {};
+    const labEnv = opts.upstream ? { BOAT_LAB_UPSTREAM: opts.upstream, BOAT_LAB_KEY_FILE: resolve(opts['key-file']), BOAT_LAB_CREATED_FILE: createdFile } : opts.machine ? { BOAT_LAB_SSH: resolve(opts.machine) } : {};
     lab = spawn(process.execPath, ['.agents/skills/done-done-verify-pockit/features/boatSignInLab.mjs', opts.port], {
         env: { ...process.env, ...labEnv }, stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -231,6 +232,7 @@ try {
         say(`view: ${dp} dp, font ${font}, ${theme}`);
     };
     // The account link is the same at every view; a narrow view starts once the account is linked.
+    await sh('wm size 1080x2376');
     await view(390, '1.0', 'light');
     await sh('settings put global heads_up_notifications_enabled 0').catch(() => undefined);
     await adb(['reverse', `tcp:${opts.port}`, `tcp:${opts.port}`]);
@@ -309,6 +311,7 @@ try {
     if (opts.upstream) {
         before = await machineIds();
         say(`machines on the account before Create: ${before.size}`);
+        if (opts['switch-route'] && before.size > 0) throw new Error('SSH-return qualification needs an empty Boat account; existing machines are untouched');
     }
     await tap('Create cloud computer', (v) => v === 'Create cloud computer');
     created = Date.now();
@@ -345,9 +348,12 @@ try {
     await shot('07-home-connected');
     say(`PASS: Home connected ${Math.round((Date.now() - created) / 1000)} s after Create, over SSH, no browser opened; steps seen: ${[...seen].join(', ')}`);
     if (opts['switch-route']) {
+        const header = (await screen()).find((node) => node.desc.endsWith('. Show computer details'));
+        const cloudName = header?.desc.slice(0, -'. Show computer details'.length);
+        if (!cloudName) throw new Error('Could not read the cloud computer name from Home');
         let deskOutput = '';
         desk = spawn('unshare', ['-Ur', '--uts', '--', 'sh', '-c', 'hostname Umer-Desk; exec node "$1" Desk', 'sh', resolve('.agents/skills/done-done-verify-pockit/features/computersLab.mjs')], {
-            env: { ...process.env, PAIR_KIND: 'native', LAB_SOCK: join(resolve(opts.machine ?? process.env.MUXR_SSH_LAB_ROOT), 'desk.sock') }, stdio: ['ignore', 'pipe', 'pipe'],
+            env: { ...process.env, PAIR_KIND: 'native', LAB_TERMINAL_BPS: '0', LAB_SOCK: join(resolve(opts.machine ?? process.env.MUXR_SSH_LAB_ROOT), 'desk.sock') }, stdio: ['ignore', 'pipe', 'pipe'],
         });
         desk.stdout.on('data', (chunk) => { deskOutput += chunk; }); // pairing offer stays private
         desk.stderr.on('data', (chunk) => appendFileSync(join(EVIDENCE, 'desk.log'), chunk));
@@ -373,14 +379,32 @@ try {
         };
         await computers();
         await shot('08b-cloud-checked-on-pick');
-        await tap('Cloud computer row', (v) => v === 'muxr-cloud');
+        for (const cell of opts.views?.split(',') ?? []) {
+            const [dp, font, theme] = cell.split(':');
+            await view(dp, font, theme);
+            await sh(`am force-stop ${PKG}`);
+            await bringMuxrBack();
+            await waitFor('Desk after view relaunch', (found) => find(found, (v) => v === 'Umer-Desk') !== undefined && find(found, (v) => v === 'connected') !== undefined);
+            await computers();
+            await sleep(3500);
+            await waitFor('Checked on pick after resizing', (found) => find(found, (v) => v.includes('Checked when you pick it')) !== undefined);
+            await shot(`08c-computers-${dp}-${font}-${theme}`);
+        }
+        if (opts.views) {
+            await view(opts.dp, opts.font, opts.theme);
+            await sh(`am force-stop ${PKG}`);
+            await bringMuxrBack();
+            await waitFor('Desk after restoring view', (found) => find(found, (v) => v === 'Umer-Desk') !== undefined && find(found, (v) => v === 'connected') !== undefined);
+            await computers();
+        }
+        await tap('Cloud computer row', (v) => v === cloudName);
         await tap('Switch back to cloud', (v) => v === 'Switch');
         await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://' -n ${activity}`);
-        await waitFor('Cloud connected again', (found) => find(found, (v) => v === 'muxr-cloud') !== undefined && find(found, (v) => v === 'connected') !== undefined, 180);
+        await waitFor('Cloud connected again', (found) => find(found, (v) => v === cloudName) !== undefined && find(found, (v) => v === 'connected') !== undefined, 180);
         await shot('09-cloud-reconnected');
         await sh(`am force-stop ${PKG}`);
         await bringMuxrBack();
-        await waitFor('Cloud connected after relaunch', (found) => find(found, (v) => v === 'muxr-cloud') !== undefined && find(found, (v) => v === 'connected') !== undefined, 180);
+        await waitFor('Cloud connected after relaunch', (found) => find(found, (v) => v === cloudName) !== undefined && find(found, (v) => v === 'connected') !== undefined, 180);
         await shot('10-cloud-after-relaunch');
         say('PASS: cloud → Desk → cloud and process relaunch reconnected over the saved SSH route');
     }
@@ -410,18 +434,23 @@ try {
     }
     if (recorder) await stopRecording().catch((error) => say(`recording pull failed: ${error.message}`));
     recorder?.kill();
-    // A real machine bills while it lives: remove every one this run created and read the account back.
+    // A concurrent run may create a foreign machine: account-list deltas are not ownership.
     if (before) {
         try {
+            const owned = new Set(JSON.parse(readFileSync(createdFile, 'utf8')));
             for (const ref of await account.list()) {
-                if (before.has(ref.id)) continue;
+                if (!owned.has(ref.id)) continue;
                 await account.remove(ref, ref.id);
                 say('removed the machine this run created');
             }
-            const left = [...await machineIds()].filter((id) => !before.has(id));
-            say(left.length === 0 ? 'no machine from this run is left on the account' : `STILL ON THE ACCOUNT: ${left.length} machine(s) from this run`);
+            const left = await machineIds();
+            const remainingOwned = [...left].filter((id) => owned.has(id)).length;
+            writeFileSync(join(EVIDENCE, 'boat-cleanup.json'), JSON.stringify({ createdCount: owned.size, remainingOwned, remainingAccount: left.size, elapsedSeconds: created ? (Date.now() - created) / 1000 : 0, upperBoundUsdAtDefaultRate: created ? 0.036 * (Date.now() - created) / 3_600_000 : 0 }, null, 2));
+            say(`Boat readback: ${remainingOwned} owned machine(s), ${left.size} total machine(s) remain`);
+            if (remainingOwned > 0 || (opts['switch-route'] && left.size > 0)) process.exitCode = 1;
         } catch (error) {
             say(`MACHINE REMOVAL FAILED: ${error.message}`);
+            process.exitCode = 1;
         }
     }
     if (emulator) await emulator.stop().catch((error) => say(`emulator stop failed: ${error.message}`));
