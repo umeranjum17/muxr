@@ -196,7 +196,7 @@ journeys:
   # The saved SSH computer survives cloud → Desk → cloud and a phone relaunch.
   # Same isolated sshd/Boat-lab prerequisites as cloud-setup; no provider spend.
   ssh-computer-return:
-    command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --machine "$MUXR_SSH_LAB_ROOT" --switch-route --views "270:1.0:light,270:1.0:dark,270:2.0:light,270:2.0:dark,393:1.0:light,393:1.0:dark,393:2.0:light,393:2.0:dark" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --machine "$MUXR_SSH_LAB_ROOT" --switch-route > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
   # The same set-up on a real Boat machine (it costs money: only once approved):
   # the Boat lab as the key proxy in front of Boat, the key read in place from

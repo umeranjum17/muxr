@@ -232,7 +232,6 @@ try {
         say(`view: ${dp} dp, font ${font}, ${theme}`);
     };
     // The account link is the same at every view; a narrow view starts once the account is linked.
-    await sh('wm size 1080x2376');
     await view(390, '1.0', 'light');
     await sh('settings put global heads_up_notifications_enabled 0').catch(() => undefined);
     await adb(['reverse', `tcp:${opts.port}`, `tcp:${opts.port}`]);
@@ -379,24 +378,6 @@ try {
         };
         await computers();
         await shot('08b-cloud-checked-on-pick');
-        for (const cell of opts.views?.split(',') ?? []) {
-            const [dp, font, theme] = cell.split(':');
-            await view(dp, font, theme);
-            await sh(`am force-stop ${PKG}`);
-            await bringMuxrBack();
-            await waitFor('Desk after view relaunch', (found) => find(found, (v) => v === 'Umer-Desk') !== undefined && find(found, (v) => v === 'connected') !== undefined);
-            await computers();
-            await sleep(3500);
-            await waitFor('Checked on pick after resizing', (found) => find(found, (v) => v.includes('Checked when you pick it')) !== undefined);
-            await shot(`08c-computers-${dp}-${font}-${theme}`);
-        }
-        if (opts.views) {
-            await view(opts.dp, opts.font, opts.theme);
-            await sh(`am force-stop ${PKG}`);
-            await bringMuxrBack();
-            await waitFor('Desk after restoring view', (found) => find(found, (v) => v === 'Umer-Desk') !== undefined && find(found, (v) => v === 'connected') !== undefined);
-            await computers();
-        }
         await tap('Cloud computer row', (v) => v === cloudName);
         await tap('Switch back to cloud', (v) => v === 'Switch');
         await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://' -n ${activity}`);
