@@ -42,6 +42,11 @@ Preconditions:
 - **Name the tab.** `node scripts/cli.mjs name --tab 'done-done-verify-pockit'`
   exits `0`, `herdr --session <yours> tab list` shows the label, and
   `workspace list` is unchanged.
+- **Lead workspace keeps its label (host, no phone).** `done-done run workspace-name-host`
+  (`HERDR_LAB_HELPER` set, after `yarn build`): a lane alone in workspace
+  `2ndmate-muxr` runs the real `muxr name --workspace boat-live-cli`; `gate.log`
+  shows the workspace still `2ndmate-muxr`, the lane's tab `boat-live-cli`, and
+  `herdr.tree` carrying a path-labelled workspace beside Herdr's `firstmate`.
 - **Shared workspace (phone).** `node .agents/skills/done-done-verify-pockit/features/workspaceNameLab.mjs <apk> <evidence> <labRoot> <cliRepo> [taskTitlesPlugin]`
   (release APK from `node perf/buildPrApk.mjs <out>`, `yarn build`,
   `HERDR_LAB_HELPER` set, under the emulator lock). Workspace `umer-desk` holds
