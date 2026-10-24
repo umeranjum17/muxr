@@ -46,6 +46,14 @@ journeys:
   pane-account-host:
     command: node .agents/skills/done-done-verify-pockit/features/paneAccountHostLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m
+  # Self-naming on the host, no phone: a lane alone in the lead's workspace
+  # runs the real `muxr name --workspace`; the workspace keeps its label, only
+  # the lane's own tab is named, and herdr.tree carries a path-labelled
+  # workspace as Herdr has it. Writes gate.log and steps.json. Needs `yarn
+  # build` and HERDR_LAB_HELPER.
+  workspace-name-host:
+    command: node .agents/skills/done-done-verify-pockit/features/workspaceNameHostLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 10m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A
