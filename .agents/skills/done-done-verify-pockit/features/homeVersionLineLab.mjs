@@ -90,7 +90,7 @@ const toEnd = async () => {
     for (let i = 0; i < 12; i += 1) {
         await swipeUp();
         const xml = await dump();
-        if (xml === last) return;
+        if (i >= 2 && xml === last) return;
         last = xml;
     }
 };
