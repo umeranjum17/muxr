@@ -123,6 +123,14 @@ journeys:
   home-version-line:
     command: node .agents/skills/done-done-verify-pockit/features/homeVersionLineLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # The same version line and Settings row in the installed PWA
+  # (home-version-line.md): phone widths 360/390/445/270 and font 2.0, desktop
+  # 1280/1440, dark and light. MUXR_LAB_WEB is a lab web export of this commit
+  # (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export, optionally with a
+  # MUXR_RELEASE_VERSION pre-release identity).
+  home-version-line-pwa:
+    command: scripts/diagnostics/application/withPrivateXvfb.sh bash .agents/skills/done-done-verify-pockit/features/homeVersionLinePwaCells.sh "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # Home with the internet up and the Tailscale path to the computer gone
   # (home-tailscale-off.md): the pairing offer names this desktop's Tailscale
   # address, forwarded to the lab relay; closing the forwarder must bring

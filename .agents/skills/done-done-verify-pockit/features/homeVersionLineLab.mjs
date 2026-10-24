@@ -94,13 +94,20 @@ const toEnd = async () => {
         last = xml;
     }
 };
-// Until the pattern is on screen, for a row above a list's end.
-const scrollUntil = async (pattern) => {
-    for (let i = 0; i < 12; i += 1) {
-        if (pattern.test(await dump())) return true;
-        await swipeUp();
+// Steps the list until the node the pattern names sits whole between the header
+// and the navigation bar (a 1080x2376 frame), for a row above a list's end.
+const scrollIntoView = async (pattern) => {
+    for (let i = 0; i < 24; i += 1) {
+        const node = [...(await dump()).matchAll(/<node\s[^>]*>/g)].map((m) => m[0]).find((n) => pattern.test(n));
+        if (node === undefined) { await adb('shell', 'input', 'swipe', '540', '1400', '540', '700', '700'); await sleep(1200); continue; }
+        const [, , y1, , y2] = node.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/).map(Number);
+        if (y1 >= 330 && y2 <= 2180) return true;
+        // Too low: lift it by what it overhangs; too high: bring it back down.
+        const lift = y2 > 2180 ? Math.min(900, Math.max(250, y2 - 1900)) : -Math.min(900, Math.max(250, 600 - y1));
+        await adb('shell', 'input', 'swipe', '540', String(1500), '540', String(1500 - lift), '900');
+        await sleep(1200);
     }
-    return pattern.test(await dump());
+    return false;
 };
 const toTop = async () => { for (let i = 0; i < 4; i += 1) { await adb('shell', 'input', 'swipe', '540', '300', '540', '1500', '600'); await sleep(700); } };
 const relaunch = async () => {
@@ -146,7 +153,7 @@ const captureState = async (state, expected) => {
             await toTop();
             if (!await tap(/content-desc="Settings"/)) { defects.push(`${state}: no Settings button on Home`); continue; }
             await sleep(2500);
-            const row = await scrollUntil(new RegExp(`text="${escape(expected)}`)) && await waitFor((xml) => /text="Version"/.test(xml), 6);
+            const row = await scrollIntoView(new RegExp(`text="${escape(expected)}`)) && /text="Version"/.test(await dump());
             if (!row) defects.push(`${state} ${dp}/${font}/${theme}: Settings Version row never read "${expected}"`);
             cell(dir, `settings-version-${state}-${dp}-${font}-${theme}`, false);
         }

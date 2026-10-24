@@ -49,10 +49,13 @@ production release build, so it reads as stable).
   (build output, never tracked; the host walks up from its compiled file to
   the first manifest) and deletes it when it ends. A typeless manifest makes
   Node warn and the host self-checks fail.
-- Channel labels on the PWA: `MUXR_RELEASE_VERSION=<version>-nightly.1.1 yarn
-  web:export` bakes a nightly identity into the web build (the base must equal
-  the package version); serve `apps/mobile/dist`, pair through `/pair` (as
-  `home-quota-row.md`), then capture at 393 and 270 wide, dark and light.
+- PWA: `homeVersionLinePwaCells.sh <web export> <out>` (journey
+  `home-version-line-pwa`) pairs a standalone `--app` window through
+  `__MUXR_LAB_PAIR__` and captures Home's foot and the Settings row at phone
+  widths 360/390/445/270, 270 and 393 at font 2.0, and desktop 1280/1440, dark
+  and light. Export with `EXPO_PUBLIC_MUXR_LAB_PAIR=1`; add
+  `MUXR_RELEASE_VERSION=<version>-nightly.1.1` to prove a channel label (the
+  base must equal the package version).
 - Pass: the line reads both versions at the foot in every cell, never above
   the first Home section, no clipped or overlapped text at 270 dp font 2.0;
   the hint appears only against the older host; Settings > Connection opens
