@@ -32,6 +32,8 @@ const defects = [];
 
 const emu = await bootOwnedEmulator({ name: 'mxversions', avdHome: process.env.MUXR_LAB_AVD_HOME, launcher: ['nice', '-n', '10'], extraArgs: ['-no-snapshot-load'] });
 note(`emulator ${emu.serial} pid ${emu.pid}`);
+// Before any stack starts: its adb reverse must name this emulator, never another attached device.
+setAndroidSerial(emu.serial);
 const adbOnce = (...args) => exec('adb', ['-s', emu.serial, ...args], { timeout: 600_000, maxBuffer: 32 * 1024 * 1024 });
 // A loaded emulator drops an occasional shell call (exit 255); one retry rides it out.
 const adb = (...args) => adbOnce(...args).catch(async () => { await sleep(3000); return adbOnce(...args); });
@@ -114,22 +116,9 @@ const pairFresh = async () => {
     await adb('shell', 'pm', 'clear', PKG);
     stack = await startFakeStack({ panes: 2, agents: 1 });
     note(`lab stack: relay ${stack.relayPort}, host pid ${stack.pids.host}, relay pid ${stack.pids.relay}`);
-    setAndroidSerial(emu.serial);
     for (const args of [['svc', 'power', 'stayon', 'true'], ['input', 'keyevent', 'KEYCODE_WAKEUP'], ['wm', 'dismiss-keyguard']]) await adb('shell', ...args).catch(() => undefined);
-    // The first launch after a data clear can miss its offer; a fresh offer on a warm app pairs.
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-        if (await pairOnce()) return true;
-        note(`pairing attempt ${attempt} never reached Home`);
-        await adb('shell', 'am', 'force-stop', PKG);
-    }
-    return false;
-};
-const pairOnce = async () => {
     const pairing = await stack.mintPairing();
     const link = /^(muxr|https?):/.test(pairing.code) ? pairing.code : `muxr://pair#${pairing.code}`;
-    // A cold start straight from the link can drop it; the link goes to a running app.
-    await adb('shell', 'am', 'start', '-n', `${PKG}/.MainActivity`);
-    await sleep(10000);
     await adb('shell', `am start -n ${PKG}/.MainActivity -a android.intent.action.VIEW -d '${link}'`);
     const tapped = await tap(/(text|content-desc)="Pair"[^>]*clickable="true"|clickable="true"[^>]*(text|content-desc)="Pair"|text="Pair"/, 60);
     note(`tapped Pair: ${tapped}`);
