@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "version": "0.2.11",
+  "releaseApk": {
+    "name": "muxr-0.2.11-394.apk",
+    "sha256": "46ef0ebe2526be84fd71e6f671cad8e50bcbc20dce27a486219ed1f1a0472da3",
+    "checks": {
+      "signature": "pass",
+      "manifest": "pass",
+      "nativeLibs": "pass",
+      "version": "pass",
+      "code": "pass",
+      "source": "pass"
+    }
+  },
+  "journeyApk": {
+    "name": "twin-0.2.11.apk",
+    "sha256": "f0dcdedd4ea395afb862fd6549068287cfe09466b9c9a531a16fb45972dac0d3",
+    "abi": "x86_64",
+    "commit": "ab4355d1eee65582e9f6fb3b41f9fc007dde8b17",
+    "sourceSha256": "6f693ab07638335d5e56cdeae8d39309ecce7abd198adb1b00fe14529a6a24cd",
+    "builtBy": "unknown"
+  },
+  "passed": true
+}

@@ -17,7 +17,7 @@ const commit = (repo, message) => {
 
 const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
-const receipt = (head, tree, capture, journey, result) => ({
+const receipt = (head, tree, capture, journey, records) => ({
     schema: 2,
     repo: 'pockit',
     head,
@@ -25,7 +25,7 @@ const receipt = (head, tree, capture, journey, result) => ({
     claim: 'the phone attaches to the host and stays attached while the panes churn',
     result: 'pass',
     at: new Date().toISOString(),
-    files: [{ path: capture.path, sha256: capture.sha256 }, ...(result ? [{ path: '<evidence root>/run-1/release-build.json', sha256: sha(result) }] : [])],
+    files: [{ path: capture.path, sha256: capture.sha256 }, ...records.map((record, index) => ({ path: `<evidence root>/run-1/record-${index}.json`, sha256: sha(record) }))],
     runs: [{ run_id: 'run-1', journey, command: 'node scripts/diagnostics/application/checkPhoneAttach.mjs' }],
     judge: {
         route: 'claude-code',
@@ -36,10 +36,10 @@ const receipt = (head, tree, capture, journey, result) => ({
 });
 
 // What the emulator journey writes for the build it ran.
-const journeyResult = (build) => `${JSON.stringify({
+const journeyResult = (build, timings = { attachMs: 3100, scrollMs: 2400 }) => `${JSON.stringify({
     schema: 1, journey: 'phone-attach', version: build.version, build: { apk: build.apk, package: build.package },
     result: 'pass', steps: { pair: 'pass', attach: 'pass', send: 'pass', scroll: 'pass', usage: 'pass', 'one-host': 'pass' },
-    hosts: 1, timings: { attachMs: 3100, scrollMs: 2400 },
+    hosts: 1, timings,
 }, null, 2)}\n`;
 
 it('covers a release, and publishes it as npm latest once the captain names it, only while the receipt proves the code and the exact build the release ships', () => {
@@ -62,11 +62,14 @@ it('covers a release, and publishes it as npm latest once the captain names it, 
         const manifest = (source) => ({ release: { channel: 'stable', version: '0.2.11' }, source: { commit: source },
             artifacts: [{ name: 'muxr-0.2.11-60.apk', sha256: build.apk }, { name: 'trymuxr-cli-0.2.11.tgz', sha256: build.package }] });
         const publishable = (source, tarballSha256, captainTested = '0.2.11') => acceptStable({ version: '0.2.11', manifest: manifest(source), taggedCommit: source, tarballSha256, captainTested, repo, receiptsRef: 'HEAD' });
-        const land = (journey, result, message) => {
+        // The receipt cites the journey result; the x86_64 twin's APK check lands beside it.
+        const land = (journey, result, message, apkCheck) => {
+            rmSync(join(repo, '.done-done-receipts', 'builds'), { recursive: true, force: true });
             mkdirSync(join(repo, '.done-done-receipts', 'builds'), { recursive: true });
-            writeFileSync(join(repo, '.done-done-receipts', `${head}.json`), `${JSON.stringify(receipt(head, tree, cited, journey, result), null, 2)}\n`);
+            const records = [result].filter(Boolean);
+            writeFileSync(join(repo, '.done-done-receipts', `${head}.json`), `${JSON.stringify(receipt(head, tree, cited, journey, records), null, 2)}\n`);
             if (result) writeFileSync(join(repo, '.done-done-receipts', 'builds', '0.2.11.json'), result);
-            else rmSync(join(repo, '.done-done-receipts', 'builds'), { recursive: true, force: true });
+            if (apkCheck) writeFileSync(join(repo, '.done-done-receipts', 'builds', '0.2.11.release-apk.json'), apkCheck);
             return commit(repo, message);
         };
 
@@ -95,6 +98,37 @@ it('covers a release, and publishes it as npm latest once the captain names it, 
         expect(publishable(release, build.package, '').reason).toContain('only from a release.yml run started by hand with captain_tested');
         // A tarball packed again after the tag is not the build the journey ran: it is not published.
         expect(publishable(release, sha('a tarball packed after the tag')).reason).toContain('is not the v0.2.11 tarball the journey tests');
+
+        // The arm64-only stable APK cannot run on an x86_64 emulator, so the
+        // journey may run an x86_64 APK built from the tagged commit, standing
+        // for the release only through a cited check of the released APK.
+        const twinApk = sha('the x86_64 apk built from the tagged commit');
+        const twin = { ...build, apk: twinApk };
+        const apkCheck = ({ checks = {}, commit: built = head } = {}) => `${JSON.stringify({
+            schema: 1, version: '0.2.11',
+            releaseApk: { name: 'muxr-0.2.11-60.apk', sha256: build.apk, checks: { signature: 'pass', manifest: 'pass', nativeLibs: 'pass', version: 'pass', code: 'pass', source: 'pass', ...checks } },
+            journeyApk: { name: 'app-release.apk', sha256: twinApk, abi: 'x86_64', commit: built },
+        }, null, 2)}\n`;
+        const tagged = { ...build, commit: head };
+        const twinFault = (record) => checkJourneyReceipt({ repo, commit: head, receiptsRef: land('phone-attach', journeyResult(twin), 'the twin journey', record), build: tagged }).reason;
+        expect(twinFault(undefined)).toContain(`it ran apk ${twinApk.slice(0, 12)}, not this release's ${build.apk.slice(0, 12)}`);
+        expect(twinFault(apkCheck({ checks: { code: 'fail' } }))).toContain('the released apk did not pass code');
+        expect(twinFault(apkCheck({ checks: { signature: 'fail' } }))).toContain('the released apk did not pass signature');
+        expect(twinFault(apkCheck({ commit: sha('another commit').slice(0, 40) }))).toContain('its journey apk was built from');
+        expect(twinFault(apkCheck())).toBeUndefined();
+        // The tag points at the proved commit: the twin's receipt makes it publishable, still only on the captain's word.
+        const accept = (captainTested) => acceptStable({ version: '0.2.11', manifest: manifest(head), taggedCommit: head, tarballSha256: build.package, captainTested, repo, receiptsRef: 'HEAD' });
+        expect(accept('0.2.11')).toEqual({ ok: true, proof: `.done-done-receipts/${head}.json` });
+        expect(accept('').reason).toContain('only from a release.yml run started by hand with captain_tested');
+        // An emulator under load is slow: the twin's times are reported, labelled, and never refuse it.
+        const loaded = { attachMs: 37542, scrollMs: 14742 };
+        const slowTwin = checkJourneyReceipt({ repo, commit: head, receiptsRef: land('phone-attach', journeyResult(twin, loaded), 'a slow twin journey', apkCheck()), build: tagged });
+        expect(slowTwin.reason).toBeUndefined();
+        expect(slowTwin.timings).toEqual({ basis: 'emulator-under-load, informational', ...loaded });
+        // The same times on the release's own APK, a phone run, are over budget: refused.
+        const slowPhone = checkJourneyReceipt({ repo, commit: head, receiptsRef: land('phone-attach', journeyResult(build, loaded), 'a slow phone journey'), build: tagged });
+        expect(slowPhone.reason).toContain('its attachMs of 37542 is over the 23000 budget');
+        land('phone-attach', journeyResult(build), 'the exact-build journey again');
 
         // The same receipt does not cover a rebuilt tarball under the same version.
         const rebuilt = checkJourneyReceipt({ repo, commit: release, receiptsRef: 'HEAD', build: { ...build, package: sha('a rebuilt tarball') } });

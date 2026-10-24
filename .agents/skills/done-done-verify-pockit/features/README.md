@@ -254,10 +254,10 @@ rules, with no H2 sections.
   plus a link-to-consent recording.
 - [Start a cloud computer](./cloud-computer-onboarding.md) — native first-run
   entry → one checklist → Boat account link → size and price → create, install,
-  tailnet and pair with no QR → Home; PWA explains setup is in the phone app.
+  SSH (no tailnet) and pair with no QR → Home; PWA explains setup is in the phone app.
   Machine creation costs money: only with approved cost; no second Boat claim
-  (account link runs against the `boatSignInLab.mjs` Boat stand-in; the
-  Tailscale sign-in page opening by itself runs as the `cloud-tailnet` journey).
+  (account link runs against the `boatSignInLab.mjs` Boat stand-in; the whole
+  set-up over SSH to Home runs as the `cloud-setup` journey with a stand-in computer).
 - [Read the whole install command on the native first run](./first-run-install-command.md) —
   unpaired release APK at 393/270 dp, font 1.0/2.0, both themes: the command
   wraps inside the screen (uiautomator bounds, no sideways scroller) and Copy
@@ -416,6 +416,11 @@ rules, with no H2 sections.
   release APK over the fake stack (`keyRowLab.mjs`): every key and the
   quick-actions control measure 48 dp in the dump, with the control clear of
   the tabs, at 390 and 270 dp, light and dark, and 2x text.
+- [A sent prompt says it is on its way, then that it arrived](./send-feedback.md) —
+  release APK over a guarded real-Herdr lab with a stub-backed Claude Code
+  (`sendFeedbackNativeLab.mjs`): Sending, Sent, a refused send's Not sent and
+  retry, recorded at 390 dp; `sendLatencyLab.mjs` times tap-to-confirm and
+  tap-to-echo p50/p95 over the lab link.
 - [Answer an agent's folder-trust question in one tap](./agent-trust-answers.md) —
   release APK and PWA over a guarded real-Herdr lab with a real, untrusted
   Claude Code: unnumbered choices as chips, timed trust step before/after, and

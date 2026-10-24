@@ -1,0 +1,97 @@
+{
+  "schema": 2,
+  "repo": "pockit",
+  "head": "dcacd13a43de181d861735e26b7a8cfad9cb0e53",
+  "tree": "d3265849ab422fbc719feeda24ea279ffa15619f",
+  "claim": "the 0.2.12 release app on the phone types a command at the agent and prints its output, scrolls its history back and forward, opens Usage and comes back to the agent, and its run passed every step with one host alive",
+  "result": "pass",
+  "at": "2026-10-23T16:40:30.393Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T162619Z-dcacd13a-b73731/04-typed-command-and-output.png",
+      "sha256": "562a4ae1d7829b94de9d23a79e75ea0bf2d04852087e0a7e26444a2464fe8cc6"
+    },
+    {
+      "path": "<evidence root>/20261023T162619Z-dcacd13a-b73731/05-scrolled-back.png",
+      "sha256": "4c22620957666253cfea2da11fa181c1cbb0065561717da6b7ff7790f2741022"
+    },
+    {
+      "path": "<evidence root>/20261023T162619Z-dcacd13a-b73731/06-scrolled-to-latest.png",
+      "sha256": "38f31ad45ae325ee8e97845711a677873b08959614de4cc91ddacd7e167b0b9d"
+    },
+    {
+      "path": "<evidence root>/20261023T162619Z-dcacd13a-b73731/07-back-from-usage.png",
+      "sha256": "4be0cd1d98b409626c974d2a61aea91bd13e55adf88b72c64254961efe589da0"
+    },
+    {
+      "path": "<evidence root>/20261023T162619Z-dcacd13a-b73731/release-build.json",
+      "sha256": "a101e4bdf49eced9170de553f3e6870d5388ff479ca28a858e60d26ab4d57ab1"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T162619Z-dcacd13a-b73731",
+      "commit": "dcacd13a43de181d861735e26b7a8cfad9cb0e53",
+      "journey": "phone-attach",
+      "command": "node scripts/diagnostics/application/checkPhoneAttach.mjs",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "0.2.12"
+        },
+        "start": "the release app already installed on the phone, restarted, with a lab computer running two agent panes that the phone is not yet paired to",
+        "steps": [
+          "pair the phone to the lab computer",
+          "open an agent",
+          "close agent panes and attach again through pane churn",
+          "type a command at the agent",
+          "scroll its history back and forward fast",
+          "open Usage and come back",
+          "count the hosts alive"
+        ],
+        "result": "the phone attached after every round of pane churn, the typed command printed its output on a clean screen, the history scrolled back and forward, Usage opened and closed, and one host stayed alive"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T162619Z-dcacd13a-b73731/04-typed-command-and-output.png",
+        "sha256": "562a4ae1d7829b94de9d23a79e75ea0bf2d04852087e0a7e26444a2464fe8cc6",
+        "verdict": "pass",
+        "seen": "Read the terminal: 3 lines. Quotes: \"echo lab-typed-73964\" typed at the agent, then \"lab agent got: echo lab-typed-73964\" printed. Covers part 0 (types a command and prints its output). Status shows \"Done\". Usage and scrolling are not visible here."
+      },
+      {
+        "path": "<evidence root>/20261023T162619Z-dcacd13a-b73731/05-scrolled-back.png",
+        "sha256": "4c22620957666253cfea2da11fa181c1cbb0065561717da6b7ff7790f2741022",
+        "verdict": "pass",
+        "seen": "Read about 42 history lines, rows 316 through 357, each \"row N of the lab agent's history\". A \"Latest\" button appears at the bottom, which means the view is scrolled back up in history. Covers part 1 (scrolling back)."
+      },
+      {
+        "path": "<evidence root>/20261023T162619Z-dcacd13a-b73731/06-scrolled-to-latest.png",
+        "sha256": "38f31ad45ae325ee8e97845711a677873b08959614de4cc91ddacd7e167b0b9d",
+        "verdict": "pass",
+        "seen": "Read about 41 history lines, rows 360 through 400, ending with \"row 400 of the lab agent's history\" at the bottom. No Latest button is shown, so the view is at the newest end. Covers part 1 (scrolling forward)."
+      },
+      {
+        "path": "<evidence root>/20261023T162619Z-dcacd13a-b73731/07-back-from-usage.png",
+        "sha256": "4be0cd1d98b409626c974d2a61aea91bd13e55adf88b72c64254961efe589da0",
+        "verdict": "pass",
+        "seen": "Read about 41 history lines, rows 360 through 400, ending with \"row 400 of the lab agent's history\". Same content as capture_2 without the cursor. Covers part 1 (scroll forward to the end)."
+      },
+      {
+        "path": "<evidence root>/20261023T162619Z-dcacd13a-b73731/release-build.json",
+        "sha256": "a101e4bdf49eced9170de553f3e6870d5388ff479ca28a858e60d26ab4d57ab1",
+        "verdict": "pass",
+        "seen": "Read the full JSON, 1 record. \"result\": \"pass\"; steps are pair, attach, send, scroll, usage, and one-host, all \"pass\"; \"hosts\": 1. Covers part 2 (usage step recorded as pass) and part 3 (result pass, one host). No screenshot shows the Usage screen itself, so that part rests on this self-reported record."
+      }
+    ]
+  }
+}
