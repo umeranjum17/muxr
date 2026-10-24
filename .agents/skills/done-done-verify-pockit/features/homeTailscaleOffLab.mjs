@@ -70,6 +70,11 @@ const cell = (dir, name) => {
     writeFileSync(join(dir, `${name}.check.txt`), report);
     note(`captured ${name}: ${report.split('\n').filter((r) => r.startsWith('DEFECT')).length} defect leads`);
 };
+// A density or theme change recreates the activity, which redials and probes
+// again before its card returns: each shot waits for its own words first.
+const settle = async (name, expect) => {
+    if (await waitFor(expect, 150) === undefined) defects.push(`the card did not come back at ${name}`);
+};
 const view = async (dp, density, font, theme) => {
     await adb('shell', 'wm', 'size', '1080x2376');
     await adb('shell', 'wm', 'density', density);
@@ -126,7 +131,11 @@ try {
     const dir = join(evidence, 'native');
     mkdirSync(dir, { recursive: true });
     for (const [dp, density, font] of [['390', '443', '1.0'], ['270', '640', '1.3']]) {
-        for (const theme of ['light', 'dark']) cell(dir, `home-tailscale-off-${await view(dp, density, font, theme)}`);
+        for (const theme of ['light', 'dark']) {
+            const name = `home-tailscale-off-${await view(dp, density, font, theme)}`;
+            await settle(name, (xml) => TAILSCALE_OFF.test(xml) && /Open Tailscale/.test(xml));
+            cell(dir, name);
+        }
     }
     await view('390', '443', '1.0', 'dark');
     const card = await dump();
@@ -145,10 +154,9 @@ try {
     if (recovery === undefined) defects.push('the recovery card never said Tailscale is off');
     if (recovery !== undefined && NO_NETWORK.test(recovery)) defects.push('the recovery card blamed the device network while it was online');
     for (const [dp, density, font, theme] of [['390', '443', '1.0', 'light'], ['390', '443', '1.0', 'dark'], ['270', '640', '1.3', 'dark']]) {
-        // A density or theme change recreates the activity, which redials before the card returns.
-        const name = await view(dp, density, font, theme);
-        if (await waitFor((xml) => TAILSCALE_OFF.test(xml) && /Retry connection/.test(xml), 150) === undefined) defects.push(`the recovery card did not come back at ${name}`);
-        cell(dir, `home-recovery-tailscale-off-${name}`);
+        const name = `home-recovery-tailscale-off-${await view(dp, density, font, theme)}`;
+        await settle(name, (xml) => TAILSCALE_OFF.test(xml) && /Retry connection/.test(xml));
+        cell(dir, name);
     }
 
     // Now the internet goes too: only now may Home blame this device's network.
@@ -156,7 +164,9 @@ try {
     const offline = await waitFor((xml) => /You're offline/.test(xml) && NO_NETWORK.test(xml), 90);
     note(`airplane mode: Home says "You're offline" / "This device has no network": ${offline !== undefined}`);
     if (offline === undefined) defects.push('Home never said the device is offline with airplane mode on');
-    cell(dir, `home-offline-${await view('390', '443', '1.0', 'dark')}`);
+    const offlineName = `home-offline-${await view('390', '443', '1.0', 'dark')}`;
+    await settle(offlineName, (xml) => /You're offline/.test(xml) && NO_NETWORK.test(xml));
+    cell(dir, offlineName);
     await adb('shell', 'cmd', 'connectivity', 'airplane-mode', 'disable');
 
     const steps = JSON.stringify({
