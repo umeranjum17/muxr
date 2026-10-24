@@ -110,6 +110,9 @@ export function herdrAvailability(configured = env('HERDR_BIN')) {
     return candidates.some((candidate) => executable(candidate) !== undefined) ? 'outdated' : 'missing';
 }
 
+/** What the host prints, and the phone means by `outdated`, when Herdr is older than muxr supports. */
+export const HERDR_OUTDATED = `Herdr is out of date: muxr needs Herdr ${MIN_HERDR.join('.')} or newer. Run \`herdr update\`, then restart Herdr.`;
+
 /** The HERDR_BIN a service unit or LaunchAgent pins for the host, undecoded for the path itself. */
 function unitHerdrBin(content) {
     const systemd = content.match(/^Environment=HERDR_BIN=(?:"([^"]+)"|(\S+))$/m);

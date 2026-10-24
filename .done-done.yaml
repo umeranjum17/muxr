@@ -99,6 +99,14 @@ journeys:
   board-alert:
     command: node .agents/skills/done-done-verify-pockit/features/boardAlertLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # Home's out-of-date Herdr card on Android for an old Herdr server still
+  # running after the binary was updated (home-herdr-missing.md,
+  # old-server-signal): the fake stack answers protocol 21, then 22, and Home
+  # recovers with no tap. Runs by hand under the shared emulator lock;
+  # MUXR_LAB_APK is a release build of this commit.
+  home-herdr-outdated:
+    command: node .agents/skills/done-done-verify-pockit/features/homeHerdrOutdatedLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # The pane switcher on Android: the release app on an owned emulator, paired
   # to the fake stack (three tabs), opened from an agent's pane counter at
   # 390 dp light and dark and 270 dp (pane-switcher.md). Runs by hand under the

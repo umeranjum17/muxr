@@ -70,7 +70,7 @@ export function connectionStatusSubtitle(input: {
             return input.herdrMissing
                 ? 'Relay connected; Herdr is missing on the computer. See Home for how to install it.'
                 : input.herdrOutdated
-                    ? 'Relay connected; Herdr on the computer is out of date. See Home for how to install it.'
+                    ? 'Relay connected; Herdr on the computer is out of date. See Home for how to update it.'
                     : 'Relay connected; the agent runtime is not answering. See Home for the restart command.';
         }
         return 'Relay connected; the computer answered the last check.';

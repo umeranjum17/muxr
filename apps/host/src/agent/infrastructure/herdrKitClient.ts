@@ -18,6 +18,7 @@ import { homedir } from 'node:os';
 import { delimiter, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { HerdrKit } from '@byokit/herdr';
+import { HERDR_OUTDATED } from '../../../../../scripts/setup/infrastructure/herdr.mjs';
 
 /** The only shape the session source needs from a socket caller. */
 export interface HerdrCaller {
@@ -52,6 +53,8 @@ const REFRESH_WEDGED_MS = 20_000;
 export class KitHerdrClient implements HerdrCaller {
     /** Live event-socket state, surfaced on `herdr.tree` so the phone can tell a dead herdr from a quiet one. */
     connected = false;
+    /** The running Herdr server speaks an older protocol than muxr: the binary may already be updated while the old server keeps running. */
+    outdated = false;
     readonly kit: HerdrKit;
     private reconnectTimer: NodeJS.Timeout | undefined;
     private closed = false;
@@ -123,6 +126,10 @@ export class KitHerdrClient implements HerdrCaller {
         return /socket unavailable|socket closed|request timed out|ECONNREFUSED|ENOENT|EACCES|connect E|not connected/i.test(message);
     }
 
+    private static isOutdatedError(error: unknown): boolean {
+        return /protocol mismatch/.test(error instanceof Error ? error.message : String(error));
+    }
+
     /**
      * One kit start. The kit already pings with its own backoff, which absorbs
      * the host and herdr booting together; a second backoff here would keep the
@@ -133,6 +140,14 @@ export class KitHerdrClient implements HerdrCaller {
             await this.kit.start();
             this.connected = true;
         } catch (cause) {
+            // An old server stays up until someone restarts it, so keep checking and clear once it answers current.
+            if (KitHerdrClient.isOutdatedError(cause)) {
+                this.outdated = true;
+                this.down = true;
+                this.outage = true;
+                this.scheduleReconnect();
+                throw new Error(HERDR_OUTDATED, { cause });
+            }
             if (!KitHerdrClient.isDownError(cause)) throw cause;
             // Staying up matters more than starting clean: the reconnect loop keeps
             // retrying and onReconnect resubscribes when herdr comes back.
@@ -227,13 +242,16 @@ export class KitHerdrClient implements HerdrCaller {
                         process.stderr.write(`herdr server reachable again at ${this.socketPath}\n`);
                     }
                     this.connected = true;
+                    this.outdated = false;
                     this.recover();
                 })
                 .catch((cause: unknown) => {
-                    if (!this.down) {
+                    const outdated = KitHerdrClient.isOutdatedError(cause);
+                    if (!this.down || outdated !== this.outdated) {
                         this.down = true;
-                        process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
+                        process.stderr.write(`${outdated ? HERDR_OUTDATED : cause instanceof Error ? cause.message : String(cause)}\n`);
                     }
+                    this.outdated = outdated;
                     this.scheduleReconnect();
                 });
         }, 1000);

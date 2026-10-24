@@ -24,7 +24,7 @@ import { setupEmptyState } from '@/commercialization';
 import { RoundButton } from '@/components/RoundButton';
 import { ActionButton } from '@/components/ActionButton';
 import { withAlpha } from '@/components/ui';
-import { useHomeNeedsYouIds, useHomePendingIds, useLocalSettingMutable, useSocketStatus } from '@/catalog/store';
+import { useHerdrMissing, useHerdrOutdated, useHomeNeedsYouIds, useHomePendingIds, useLocalSettingMutable, useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
 import { unavailableFeedback } from '@/utils/web/deviceOffline';
 import { hasAgent } from '../domain/herdTree';
@@ -165,7 +165,12 @@ export const HerdView = React.memo(({
     React.useEffect(() => {
         setRuntimeStalledSince((since) => runtimeOffline ? since ?? Date.now() : null);
     }, [runtimeOffline]);
-    const runtimeBusy = runtimeOffline;
+    // A Herdr that is absent or older than muxr supports never answers on its
+    // own: Home says so and how to fix it instead of waiting as if busy.
+    const herdrMissing = useHerdrMissing();
+    const herdrOutdated = useHerdrOutdated();
+    const herdrBroken = runtimeOffline && (herdrMissing || herdrOutdated);
+    const runtimeBusy = runtimeOffline && !herdrBroken;
     // The link is still retrying with nothing wrong reported: a slow host, not a failure.
     const busySince = runtimeBusy ? runtimeStalledSince ?? Date.now() : connection.mode === 'hosted' && hasPairedGrant === true
         && socketStatus.status === 'connecting' && socketStatus.error === null ? socketStatus.connectingSince : null;
@@ -177,7 +182,7 @@ export const HerdView = React.memo(({
     React.useEffect(() => {
         if (socketStatus.status === 'connected' && error === null && !runtimeOffline) setRetryFailed(false);
     }, [error, runtimeOffline, socketStatus.status]);
-    const needsRecovery = hostOffline || (!runtimeOffline && (retrying || retryFailed));
+    const needsRecovery = hostOffline || herdrBroken || (!runtimeOffline && (retrying || retryFailed));
     // The header must hear link-down separately from recovery: a dead agent
     // runtime keeps the link up, so the header stays truthful while the card
     // below carries the runtime message. Both derive from the same store read.

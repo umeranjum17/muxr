@@ -10,7 +10,10 @@ Which step leads depends on how that computer was set up: a computer the
 desktop app owns leads with its window's Install Herdr; a command-line
 computer leads with the terminal command. The other step stays visible,
 second. A Herdr older than muxr supports is not a restart either: Home titles
-"Herdr is out of date on your computer" with the same install lead.
+"Herdr is out of date on your computer" and offers `herdr update`, and the
+host log says "Herdr is out of date: muxr needs Herdr 0.9.1 or newer. Run
+`herdr update`, then restart Herdr." That covers an old binary and an old
+server still running after `herdr update` replaced the binary.
 
 ## Sub-features
 
@@ -24,13 +27,23 @@ explicit `HERDR_BIN`, else the binary the service pins, PATH,
   supports (0.9.1) rides the same reply as `outdated: true`, never `missing`:
   an explicit `HERDR_BIN` pointing at an old binary counts as outdated rather
   than silently skipped, so the phone cannot fall back to the restart card.
+- `old-server-signal` a Herdr server still running at a protocol below the
+  one muxr speaks (22) also reads `outdated: true`, even when the binary on
+  disk is already current: the kit's ping refuses it (`herdr: protocol
+  mismatch`), the host logs the plain out-of-date line once, and keeps
+  retrying, so a restart onto the update clears the card with no host restart.
+  Before, the host logged only `herdr: protocol mismatch`, stopped retrying,
+  and Home showed the generic "Agent runtime unavailable" restart card.
 - `recipe-copy` the reply also carries `desktopApp: true` when the desktop app
   spawned that host (`MUXR_DESKTOP_APP=1`). The phone leads with the Install
-  Herdr step on a desktop-app computer and with `muxr doctor` on a
-  command-line computer; the other step stays visible, second.
+  Herdr step on a desktop-app computer and with the terminal command on a
+  command-line computer (`muxr doctor` when missing; for out of date, "muxr
+  needs Herdr 0.9.1 or newer. Run this in a terminal there, then restart
+  Herdr:" with `herdr update`); the other step stays visible, second.
 - `phone-card` Home's recovery card titles "Herdr is missing on your computer"
   (or "Herdr is out of date on your computer"), leads with the step that fits
-  the computer, and offers `muxr doctor` with a copy button;
+  the computer, and offers `muxr doctor` (`herdr update` when out of date)
+  with a copy button;
   Settings → Connection reads "Herdr is missing on the computer" (or
   "…is out of date…") with the same install pointer.
 - `desktop-install` the window's Install Herdr fetches the pinned Herdr release
@@ -90,6 +103,15 @@ layout or styles change.
    window and read the card in the installed-PWA window at 270 wide.
 6. Before/after: the origin/main AppImage on the same lab shows Ready to pair
    on the window and "Agent runtime unavailable … muxr daemon restart" on Home.
+
+Old server, no window: `homeHerdrOutdatedLab.mjs <apk> <evidenceDir>` (the
+`home-herdr-outdated` journey) runs the fake stack with its Herdr answering
+protocol 21 while its binary reports 0.9.1, pairs a release APK on an owned
+emulator, captures Home at 270 dp font 1.3 and 393 dp font 1.0, dark and
+light, at rest and at the end, checks the host log line, then flips the fake
+to protocol 22 through its `lab.protocol` method and waits for Home to drop
+the card with no tap. Run it once with a host built from origin/main for the
+before shot: the generic restart card, and no recovery after the flip.
 
 ## Gotchas
 

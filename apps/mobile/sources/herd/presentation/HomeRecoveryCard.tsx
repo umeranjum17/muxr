@@ -16,8 +16,10 @@ import { useHerdrDesktopApp, useHerdrMissing, useHerdrOutdated } from '@/catalog
 import { useDeviceOffline } from '@/utils/web/deviceOffline';
 
 const HOST_RESTART_COMMAND = 'muxr daemon restart';
-// Doctor finds the missing or old Herdr and offers to install and start it.
+// Doctor finds a missing Herdr and offers to install and start it.
 const HERDR_INSTALL_COMMAND = 'muxr doctor';
+/** An old Herdr is fixed by Herdr's own update; doctor only reports it. */
+const HERDR_UPDATE_COMMAND = 'herdr update';
 
 /**
  * Herdr's two steps, led by the one that fits the way that computer was set
@@ -34,7 +36,7 @@ function herdrCopy(outdated: boolean, desktopApp: boolean): { lead: string; term
         };
     }
     return {
-        lead: 'Run this in a terminal there:',
+        lead: outdated ? 'muxr needs Herdr 0.9.1 or newer. Run this in a terminal there, then restart Herdr:' : 'Run this in a terminal there:',
         alternative: 'Or open the muxr app on that computer and choose Install Herdr.',
     };
 }
@@ -95,7 +97,7 @@ export function HomeRecoveryCard({
     const herdrBroken = herdrMissing || herdrOutdated;
     const herdrDesktopApp = useHerdrDesktopApp();
     const copy = herdrBroken ? herdrCopy(herdrOutdated, herdrDesktopApp) : undefined;
-    const command = herdrBroken ? HERDR_INSTALL_COMMAND : HOST_RESTART_COMMAND;
+    const command = herdrOutdated ? HERDR_UPDATE_COMMAND : herdrMissing ? HERDR_INSTALL_COMMAND : HOST_RESTART_COMMAND;
     const publicBaseUrl = loadAppConfig().publicBaseUrl;
     const appDownload = Platform.OS === 'ios'
         ? 'https://testflight.apple.com/join/aJSbs8pN'
@@ -125,7 +127,7 @@ export function HomeRecoveryCard({
                 <Text selectable style={styles.command}>{command}</Text>
                 <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={herdrBroken ? 'Copy Herdr install command' : 'Copy host restart command'}
+                    accessibilityLabel={herdrOutdated ? 'Copy Herdr update command' : herdrMissing ? 'Copy Herdr install command' : 'Copy host restart command'}
                     hitSlop={10}
                     style={styles.copy}
                     onPress={() => void Clipboard.setStringAsync(command)
