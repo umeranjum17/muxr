@@ -18,7 +18,7 @@ export async function configureSelfHost(args) {
         const url = new URL(advertise.url);
         if (url.protocol !== 'ws:') throw new Error('--configure-only serves plain ws:// on the tailnet address; use --advertise ws://<name>:<port>');
         if (Number(url.port || 80) !== port) throw new Error('the ws:// advertise port must match --port (default 8792)');
-        // --loopback: Tailscale Serve forwards the tailnet port to loopback (a BYOKit cloud computer), so there may be no tailnet address to bind.
+        // --loopback: only loopback is bound. Tailscale Serve may forward a tailnet port to it, or the phone reaches it over SSH (a BYOKit cloud computer, on no tailnet).
         const loopback = args.includes('--loopback');
         if (loopback && !/^[a-z0-9-]+(\.[a-z0-9-]+)*\.ts\.net$/i.test(url.hostname)) throw new Error('--loopback needs --advertise ws://<machine>.<tailnet>.ts.net:<port>');
         const bindHost = loopback ? '127.0.0.1' : isIP(url.hostname) ? url.hostname : (await lookup(url.hostname, { family: 4 })).address;
