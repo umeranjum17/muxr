@@ -112,6 +112,47 @@ const focused = async () => (await sh('dumpsys window displays')).match(/mCurren
 let activity = '';
 const bringMuxrBack = async () => { await sh(`am start -n ${activity}`); await sleep(2000); };
 
+// Read the existing Connection UI, never fill or save a field during the return proof.
+async function sshDetails(prefix) {
+    say('open Connection settings read-only');
+    await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://settings/connection' -n ${activity}`);
+    await waitFor('SSH transport summary', (nodes) => find(nodes, (v) => v.startsWith('Goes through your SSH connection.')) !== undefined);
+    const scrollTo = async (test) => {
+        for (let i = 0; i < 20; i += 1) {
+            const nodes = await screen();
+            const node = find(nodes, test);
+            if (node && node.box[1] > 280 && node.box[3] < 1100) return nodes;
+            await sh('input swipe 540 1600 540 1050 350');
+            await sleep(500);
+        }
+        throw new Error('Saved SSH detail did not become visible');
+    };
+    const target = await scrollTo((v) => v === 'SSH host');
+    const account = Object.fromEntries(['SSH host', 'SSH username', 'SSH port', 'Relay port on the host'].map((label) => [label, target.find((node) => node.desc === label)?.text]));
+    if (Object.values(account).some((value) => !value)) throw new Error('Saved SSH target fields are missing');
+    await shot(`${prefix}-target`);
+    const keyNodes = await scrollTo((v) => v.startsWith('Saved private key on this device'));
+    const key = find(keyNodes, (v) => v.startsWith('Saved private key on this device'))?.text;
+    if (!key) throw new Error('Saved device-key fingerprint is missing');
+    await shot(`${prefix}-key`);
+    say(`read-only SSH details: ${JSON.stringify(account)}; ${key}`);
+    await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://' -n ${activity}`);
+    await waitFor('Home after reading SSH details', (nodes) => find(nodes, (v) => v === 'connected') !== undefined);
+    return JSON.stringify({ account, key });
+}
+
+// A labelled full-frame sequence, not a new product screen. Original PNGs and video remain beside it.
+async function evidenceBoard(name, panels, columns) {
+    for (const [file, label] of panels) writeFileSync(join(EVIDENCE, `${file}-caption.txt`), `${label}\nActual native capture: ${file}.png`);
+    const filters = panels.map(([file], i) => `[${i}:v]scale=400:-2,pad=iw:ih+70:0:70:color=0x111111,drawtext=font=Sans:textfile='${join(EVIDENCE, `${file}-caption.txt`)}':fontcolor=white:fontsize=14:x=8:y=10[p${i}]`);
+    const layout = panels.map((_, i) => `${i % columns ? 'w0' : '0'}_${Math.floor(i / columns) ? 'h0' : '0'}`).join('|');
+    // Three columns are used only for the single-row launch sequence.
+    const positions = columns === 3 ? '0_0|w0_0|w0+w1_0' : layout;
+    filters.push(`${panels.map((_, i) => `[p${i}]`).join('')}xstack=inputs=${panels.length}:layout=${positions}[out]`);
+    await exec('ffmpeg', ['-y', ...panels.flatMap(([file]) => ['-i', join(EVIDENCE, `${file}.png`)]), '-filter_complex_threads', '1', '-filter_complex', filters.join(';'), '-map', '[out]', '-frames:v', '1', '-threads', '1', join(EVIDENCE, `${name}.png`)], { timeout: 60_000, maxBuffer: 8 << 20 });
+    say(`full-frame evidence sequence ${name}.png`);
+}
+
 // Where Boat's xfce session draws on the host's 1920x1080 screen (read off the real run of 24 Oct 2026): the dock's web
 // browser, which opens Chromium with its address bar focused, and GitHub's sign-in field in that first window.
 const DESKTOP = { width: 1920, height: 1080, browser: [983, 1055], loginField: [482, 391] };
@@ -354,6 +395,7 @@ try {
         const header = (await screen()).find((node) => node.desc.endsWith('. Show computer details'));
         const cloudName = header?.desc.slice(0, -'. Show computer details'.length);
         if (!cloudName) throw new Error('Could not read the cloud computer name from Home');
+        const originalSsh = await sshDetails('07');
         let deskOutput = '';
         desk = spawn('unshare', ['-Ur', '--uts', '--', 'sh', '-c', 'hostname Umer-Desk; exec node "$1" Desk', 'sh', resolve('.agents/skills/done-done-verify-pockit/features/computersLab.mjs')], {
             env: { ...process.env, PAIR_KIND: 'native', LAB_TERMINAL_BPS: '0', LAB_SOCK: join(resolve(opts.machine ?? process.env.MUXR_SSH_LAB_ROOT), 'desk.sock') }, stdio: ['ignore', 'pipe', 'pipe'],
@@ -387,17 +429,35 @@ try {
         await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://' -n ${activity}`);
         await waitFor('Cloud connected again', (found) => find(found, (v) => v === cloudName) !== undefined && find(found, (v) => v === 'connected') !== undefined, 180);
         await shot('09-cloud-reconnected');
+        if (await sshDetails('09') !== originalSsh) throw new Error('Saved SSH host or key fingerprint changed across Desk');
+        await evidenceBoard('retained-ssh-route', [
+            ['07-target', 'Before Desk: saved SSH target'], ['09-target', 'After return: same SSH target'],
+            ['07-key', 'Before Desk: saved device key'], ['09-key', 'After return: same saved key'],
+        ], 2);
+        const oldPid = (await sh(`pidof ${PKG}`)).trim();
         await sh(`am force-stop ${PKG}`);
-        await bringMuxrBack();
+        if ((await sh(`pidof ${PKG} || true`)).trim()) throw new Error('muxr did not stop before cold launch');
+        await sh('input keyevent KEYCODE_HOME');
+        await shot('10a-stopped');
+        say(`cold launch: old process ${oldPid} is gone; starting the app; no SSH input follows`);
+        await sh(`am start -n ${activity}`);
+        await shot('10b-app-start');
         await waitFor('Cloud connected after relaunch', (found) => find(found, (v) => v === cloudName) !== undefined && find(found, (v) => v === 'connected') !== undefined, 180);
         await shot('10-cloud-after-relaunch');
-        say('PASS: cloud → Desk → cloud and process relaunch reconnected over the saved SSH route');
+        const newPid = (await sh(`pidof ${PKG}`)).trim();
+        if (!newPid || newPid === oldPid) throw new Error('Cold launch did not produce a new app process');
+        say(`cold launch: new process ${newPid} connected with no SSH entry`);
+        await evidenceBoard('cold-launch-sequence', [
+            ['10a-stopped', '1. Force-stopped: no app process'], ['10b-app-start', '2. App start: no SSH entry'],
+            ['10-cloud-after-relaunch', '3. New process: cloud connected'],
+        ], 3);
+        say('PASS: cloud → Desk → cloud retained the visible SSH host and saved key; a new process reconnected with no SSH entry');
     }
     if (!seen.has('05-private-connection')) throw new Error('the Private connection step was never shown');
     writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: opts.upstream ? `fresh release APK on an owned 390 dp emulator, a real Boat machine through the lab's key proxy to ${opts.upstream}` : 'fresh release APK on an owned 390 dp emulator, Boat lab with its stand-in computer (sshd + muxr in a namespace)',
-        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else until Home connects', ...(opts['switch-route'] ? ['pair Desk', 'open Desk agent → Pane actions → Computers; cloud says Checked when you pick it', 'pick the cloud and confirm Switch', 'force-stop and relaunch muxr'] : [])],
+        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else until Home connects', ...(opts['switch-route'] ? ['pair Desk', 'open Desk agent → Pane actions → Computers; cloud says Checked when you pick it', 'pick the cloud and confirm Switch', 'read Connection settings without editing: same SSH host and saved key fingerprint before and after Desk', 'force-stop: confirm the old app process is gone and capture the launcher', 'launch muxr and capture app start then connected in one recording, with no SSH input and a new process id'] : [])],
         result: opts['switch-route'] ? 'Home reconnected to the cloud computer over its retained SSH route after switching to Desk and back, then after relaunch; no SSH credential was re-entered' : 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
     }, null, 2));
     if (opts.screen) await screenPhase();
