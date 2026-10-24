@@ -58,7 +58,7 @@ Preconditions:
   font 2.0 light and dark) read `umer-desk` and `solo` as workspaces. The scene
   also holds a workspace labelled `/tmp/fmws.XXXX/firstmate` beside one Herdr
   labelled `firstmate` in that folder: Home reads the path label, never
-  `firstmate 2`.
+  `firstmate 2`. `spaces-393-1.0-light` is Home scrolled to those two rows.
   The same run carries a lead in an unlabelled tab, agent `firstmate-addons`,
   titled with Claude's doorbell topic: its row reads `Firstmate addons` over
   `claude · Idle`, and the `fm-crewhouse` lead, titled by the task-titles

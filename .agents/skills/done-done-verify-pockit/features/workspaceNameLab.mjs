@@ -260,6 +260,8 @@ try {
         if (screen === 'panes') sh(`am start -W -a android.intent.action.VIEW -d 'muxr:///panes' -n ${activity}`);
         await waitFor(/umer-desk/, 60).catch(() => log(`${name}: names not seen`));
         await sleep(2500);
+        // The Spaces list runs under the composer on a short screen: scroll it so the path-labelled space shows.
+        if (screen === 'spaces') { sh('input swipe 540 1700 540 500 700'); await sleep(2000); }
         const xml = dump();
         for (const word of [mainFolder, 'firstmate 2', 'solo-task', 'umer-desk', 'ssh-ed25519', 'Firstmate addons', 'Firstmate operational inbox', 'claude · firstmate-addons', 'Show the SSH key fingerprint', 'Fix the flaky pairing retry', 'pi · fix-flaky-pairing']) if (xml.includes(word)) shown.add(`${name}:${word}`);
         try {
@@ -277,6 +279,10 @@ try {
         sh(`cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
         for (const screen of ['home', 'panes']) await capture(`${screen}-${width}-${font}-${theme}`, screen);
     }
+    if (emu) {
+        sh('wm density 440'); sh('settings put system font_scale 1.0'); sh('cmd uimode night no');
+        await capture('spaces-393-1.0-light', 'spaces');
+    }
     log(`phone shows: ${[...shown].sort().join(', ') || 'none of the watched words'}`);
     // done-done's step record: what this run drove and what the captured screens held.
     const version = sh(`dumpsys package ${PKG} | grep -m1 versionName`).trim().replace(/^versionName=/, '');
@@ -285,7 +291,7 @@ try {
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
         target: { version: `muxr ${version} release APK built from ${commit}` },
         start: `a fresh install of muxr on ${phone ? 'the test phone' : 'an emulator'}, and a lab Herdr whose shared workspace ${labels[0]} holds lanes that each self-named their workspace, the last one ssh-ed25519, a lone lane that self-named in workspace solo, and a workspace labelled with the path of a folder named firstmate beside one Herdr named firstmate`,
-        steps: ['Install muxr and open it', 'Pair it with the lab computer from a pairing link', 'Dismiss the notification prompt', 'Open Home', 'Open Panes'],
+        steps: ['Install muxr and open it', 'Pair it with the lab computer from a pairing link', 'Dismiss the notification prompt', 'Open Home', 'Open Panes', 'Scroll Home to the path-labelled space'],
         result: `the captured screens show: ${[...shown].sort().join(', ') || 'none of the watched words'}`,
     }, null, 2)}\n`);
     finished = true;
