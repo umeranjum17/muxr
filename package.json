@@ -34,7 +34,7 @@
         "desktop:build:linux": "yarn build && node apps/desktop/scripts/build.mjs --package"
     },
     "devDependencies": {
-        "@types/node": "^22.10.0",
+        "@types/node": "^26.6.5",
         "@types/ws": "^8.5.13",
         "esbuild": "^0.28.1",
         "patch-package": "^8.0.1",
