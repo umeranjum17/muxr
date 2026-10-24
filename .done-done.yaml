@@ -200,6 +200,12 @@ journeys:
   cloud-boat:
     command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --upstream "${BOAT_LIVE_API:-https://boat.dev/api/v1}" --key-file "$BOAT_LIVE_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # The same real run going on to the screen for sign-ins (cloud-computer-onboarding,
+  # screen-for-sign-ins, step 9): Computer's Set it up for me on the new machine,
+  # then Firefox on a sign-in page tapped and typed into; the machine is removed.
+  cloud-boat-screen:
+    command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --upstream "${BOAT_LIVE_API:-https://boat.dev/api/v1}" --key-file "$BOAT_LIVE_KEY_FILE" --screen --hold "${CLOUD_LAB_HOLD:-0}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 60m
   # A Claude account is added from the phone end to end: Accounts, Open Claude
   # sign-in, the code sent from the sign-in tab's composer, Name this account
   # (see the add-account feature). Runs by hand under the emulator lock with

@@ -6,9 +6,13 @@
 // Needs a provisioned Herdr lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION). With --upstream and --key-file it is the real run
 // instead (it costs money: only once approved): the lab is the key proxy in front of that Boat API, so the phone creates
 // a real machine with the lab's key only, and the journey removes every machine the run created and reads the account
-// back. Run from the repo root:
+// back. --screen then goes on to the screen for sign-ins: a shell, Computer, the no-screen card's Set it up for me, the
+// installed desktop, Firefox from its dock and a sign-in page with a field tapped and typed into (no sign-in is sent).
+// --hold <s> keeps the machine and the emulator after a failure until <evidence>/release exists or the hold ends (never
+// past 50 minutes after Create), so `--attach <serial>` can run the screen part again on the same phone. Run from the repo root:
 //   node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk <apk> --evidence <dir> --avd-home <dir> --port <boat lab port>
-//     (--machine <short dir> | --upstream <api base> --key-file <path>) [--dp 390|270] [--font 1.0|2.0] [--theme light|dark]
+//     (--machine <short dir> | --upstream <api base> --key-file <path>) [--dp 390|270] [--font 1.0|2.0] [--theme light|dark] [--screen [--hold <s>]]
+//   node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --attach <serial> --evidence <dir>
 import { execFile, spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -21,9 +25,10 @@ const { values: opts } = parseArgs({ options: {
     apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' }, port: { type: 'string' }, machine: { type: 'string' },
     dp: { type: 'string', default: '390' }, font: { type: 'string', default: '1.0' }, theme: { type: 'string', default: 'light' },
     upstream: { type: 'string' }, 'key-file': { type: 'string' },
+    screen: { type: 'boolean', default: false }, hold: { type: 'string', default: '0' }, attach: { type: 'string' },
 } });
-if (!opts.apk || !opts.evidence || !opts['avd-home'] || !opts.port) throw new Error('--apk, --evidence, --avd-home and --port are required');
-if (opts.upstream ? !opts['key-file'] || opts.machine : !opts.machine) throw new Error('give --machine, or --upstream with --key-file');
+if (!opts.evidence || (!opts.attach && (!opts.apk || !opts['avd-home'] || !opts.port))) throw new Error('--apk, --evidence, --avd-home and --port are required (or --attach and --evidence)');
+if (!opts.attach && (opts.upstream ? !opts['key-file'] || opts.machine : !opts.machine)) throw new Error('give --machine, or --upstream with --key-file');
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
 mkdirSync(EVIDENCE, { recursive: true });
@@ -96,6 +101,85 @@ const focused = async () => (await sh('dumpsys window displays')).match(/mCurren
 let activity = '';
 const bringMuxrBack = async () => { await sh(`am start -n ${activity}`); await sleep(2000); };
 
+// Where a fresh xfce session draws on the host's 1920x1080 screen: its dock's web browser, Firefox's first window
+// (its Welcome dialog's Continue, its address bar) and GitHub's sign-in field, as a stock Ubuntu 24.04 install shows them.
+const DESKTOP = { width: 1920, height: 1080, browser: [983, 1055], welcomeContinue: [640, 353], addressBar: [650, 92], loginField: [640, 320] };
+const SIGN_IN_PAGE = 'github.com/login';
+
+/** Computer on a computer with no screen: Set it up for me, then a browser sign-in page tapped and typed into. */
+async function screenPhase() {
+    say('screen: open a shell, then Computer');
+    await tap('the agent picker', (v) => /^Choose agent|^Agent:|, selected agent/.test(v), 60);
+    await tap('Shell', (v) => v === 'Shell' || v.startsWith('Shell,'), 30);
+    await tap('Start Shell', (v) => v === 'Start Shell without a prompt', 30);
+    await tap('Pane actions', (v) => v === 'Pane actions', 120);
+    // The stand-in computer shares this host's /tmp/.X11-unix, so its Computer would look at the owner's displays.
+    if (opts.machine) {
+        await waitFor('Computer in the pane actions', (found) => find(found, (v) => v === 'Computer') !== undefined, 30);
+        await shot('08-pane-actions');
+        say('stand-in: stopping before Computer, which only a real cloud computer may open');
+        return;
+    }
+    await tap('Computer', (v) => v === 'Computer', 30);
+    const card = await waitFor('the Computer screen', (found) => find(found, (v) => v === 'Set it up for me' || v === 'Tap to control' || v === "Couldn't open this computer") !== undefined, 120);
+    if (!find(card, (v) => v === 'Set it up for me')) { await shot('08-computer-without-card'); throw new Error(`Computer did not offer Set it up for me: ${card.filter((n) => n.text).map((n) => n.text).join(' | ')}`); }
+    await sleep(1500);
+    await shot('08-no-screen-card');
+    await tap('Set it up for me', (v) => v === 'Set it up for me');
+    await waitFor('Adding a screen', (found) => find(found, (v) => v === 'Adding a screen…') !== undefined, 30);
+    await shot('09-adding-screen');
+    const started = Date.now();
+    const after = await waitFor('the desktop or a failure', (found) => find(found, (v) => v === 'Tap to control' || v === 'Set it up for me') !== undefined, 900);
+    if (!find(after, (v) => v === 'Tap to control')) { await shot('10-screen-failed'); throw new Error(`the screen did not install: ${after.filter((n) => n.text).map((n) => n.text).join(' | ')}`); }
+    say(`screen: installed and the desktop is live ${Math.round((Date.now() - started) / 1000)} s after Set it up for me`);
+    await sleep(8000); // the session draws its panel and dock a moment after the picture starts
+    await shot('10-desktop');
+    await tap('Tap to control', (v) => v === 'Tap to control');
+    // Touch maps through the picture, which the view letterboxes to the desktop's shape.
+    const view = find(await screen(), (v) => v.endsWith(' desktop'));
+    if (!view) throw new Error('the desktop view is missing');
+    const [l, t, r, b] = view.box;
+    const scale = Math.min((r - l) / DESKTOP.width, (b - t) / DESKTOP.height);
+    const left = l + ((r - l) - DESKTOP.width * scale) / 2;
+    const top = t + ((b - t) - DESKTOP.height * scale) / 2;
+    const at = async (what, [x, y]) => {
+        say(`desktop tap ${what}`);
+        await sh(`input tap ${Math.round(left + x * scale)} ${Math.round(top + y * scale)}`);
+    };
+    const type = async (text) => {
+        await tap('Keyboard', (v) => v === 'Keyboard');
+        for (const chunk of text.match(/.{1,6}/g)) { await sh(`input text '${chunk}'`); await sleep(400); }
+    };
+    await at('the web browser in the dock', DESKTOP.browser);
+    await sleep(30_000);
+    await shot('11-firefox');
+    await at('Continue on Firefox\'s welcome', DESKTOP.welcomeContinue);
+    await sleep(5000);
+    await at('the address bar', DESKTOP.addressBar);
+    await type(SIGN_IN_PAGE);
+    await sh('input keyevent KEYCODE_ENTER');
+    await sleep(2000);
+    await tap('Hide keyboard', (v) => v === 'Hide keyboard');
+    await sleep(15_000);
+    await shot('12-sign-in-page');
+    await at('the username field', DESKTOP.loginField);
+    await sleep(1500);
+    await type('umer@example.com');
+    await sleep(3000);
+    await shot('13-typed-into-the-field');
+    await tap('Hide keyboard', (v) => v === 'Hide keyboard');
+    await sleep(2000);
+    await shot('14-sign-in-page-filled');
+    say('PASS: the screen for sign-ins showed a browser sign-in page that took a tap and typing (nothing was sent)');
+}
+
+if (opts.attach) {
+    serial = opts.attach;
+    activity = (await sh(`cmd package resolve-activity --brief ${PKG}`)).trim().split('\n').pop();
+    await screenPhase();
+    process.exit(0);
+}
+
 // The journey reaches Boat only through the lab, with the phone's own lab key, so it never holds the real one.
 const account = boat({ baseUrl: `http://127.0.0.1:${opts.port}/api/v1`, label: 'Boat', prices: [], key: async () => 'boat-claimed-key' });
 const machineIds = async () => new Set((await account.list()).map((ref) => ref.id));
@@ -104,6 +188,7 @@ let lab;
 let emulator;
 let recorder;
 let before;
+let created = 0;
 try {
     const labEnv = opts.upstream ? { BOAT_LAB_UPSTREAM: opts.upstream, BOAT_LAB_KEY_FILE: resolve(opts['key-file']) } : { BOAT_LAB_SSH: resolve(opts.machine) };
     lab = spawn(process.execPath, ['.agents/skills/done-done-verify-pockit/features/boatSignInLab.mjs', opts.port], {
@@ -184,7 +269,7 @@ try {
         say(`machines on the account before Create: ${before.size}`);
     }
     await tap('Create cloud computer', (v) => v === 'Create cloud computer');
-    const created = Date.now();
+    created = Date.now();
     say('from here the journey taps nothing in muxr; no browser may open');
     // Each set-up step's words, in order, as the checklist shows them.
     const STEPS = [
@@ -224,6 +309,16 @@ try {
         steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else in muxr'],
         result: 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
     }, null, 2));
+    if (opts.screen) await screenPhase();
+} catch (error) {
+    say(`FAIL: ${error.message}`);
+    process.exitCode = 1;
+    // A held run keeps the phone and the machine for a fix and `--attach`, but never lets a real machine bill past 50 minutes.
+    const until = Math.min(Date.now() + Number(opts.hold) * 1000, created > 0 ? created + 50 * 60_000 : Infinity);
+    if (Date.now() < until) say(`holding the phone ${serial} and the machine until ${new Date(until).toISOString()} or ${join(EVIDENCE, 'release')}`);
+    while (Date.now() < until) {
+        try { readFileSync(join(EVIDENCE, 'release')); say('released'); break; } catch { await sleep(5000); }
+    }
 } finally {
     if (recorder) await stopRecording().catch((error) => say(`recording pull failed: ${error.message}`));
     recorder?.kill();

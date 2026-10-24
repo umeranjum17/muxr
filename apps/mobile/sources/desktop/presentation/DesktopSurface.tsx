@@ -16,7 +16,6 @@ import { ui } from '@/components/ui';
 import { sync } from '@/catalog';
 import { useLocalSettingMutable, useMachine } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
-import { addBoatScreen, isBoatComputer } from '@/cloud';
 import { hapticsSelection } from '@/components/haptics';
 import { claimDesktopRequest, peekDesktopRequest, previewDocks, requestDesktop } from '../request';
 import { createDesktopSignaling } from '../application/desktopSignaling';
@@ -48,6 +47,14 @@ const ABOVE_KEYS = 8;
 const PICTURE_GAP = 8;
 
 type DesktopPermission = 'view' | 'control' | 'clipboard';
+type ScreenSetup = { running: true } | { error: string } | null;
+
+/** The no-screen card on a Boat computer: the offer, the install under way, or why it failed (with the command to run instead). */
+function describeScreenSetup(setup: ScreenSetup) {
+    if (setup === null) return { title: desktopCopy.noScreenTitle, detail: desktopCopy.noScreenBoatBody, spinner: false, action: desktopCopy.addScreenAction };
+    if ('running' in setup) return { title: desktopCopy.addingScreenTitle, detail: desktopCopy.addingScreenBody, spinner: true };
+    return { title: desktopCopy.noScreenTitle, detail: setup.error, command: desktopCopy.noScreenCommand, spinner: false, action: desktopCopy.addScreenAction };
+}
 type Menu = 'clipboard' | 'help' | 'more';
 
 /** What each gesture does, for the help the header's "?" opens. */
@@ -307,12 +314,15 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     }, [connect]);
 
     // A Boat computer this phone set up can be given its screen from here; any other computer gets the command.
+    // The cloud kit loads only for that check, so Computer on any other computer never carries it.
     const [boatComputer, setBoatComputer] = React.useState(false);
-    React.useEffect(() => { void isBoatComputer(getCachedConnectionSettings().machineId).then(setBoatComputer, () => undefined); }, []);
-    const [screenSetup, setScreenSetup] = React.useState<{ running: true } | { error: string } | null>(null);
+    React.useEffect(() => {
+        void import('@/cloud').then((cloud) => cloud.isBoatComputer(getCachedConnectionSettings().machineId)).then(setBoatComputer, () => undefined);
+    }, []);
+    const [screenSetup, setScreenSetup] = React.useState<ScreenSetup>(null);
     const addScreen = React.useCallback(() => {
         setScreenSetup({ running: true });
-        addBoatScreen().then(() => {
+        import('@/cloud').then((cloud) => cloud.addBoatScreen()).then(() => {
             setScreenSetup(null);
             retry();
         }, (cause: unknown) => setScreenSetup({ error: cause instanceof Error ? cause.message : String(cause) }));
@@ -570,11 +580,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     const status: { title: string; detail?: string; command?: string; spinner: boolean; action?: string } = previewStatus !== null
         ? { ...previewStatus, action: previewStatus.action?.label }
         : offerScreen
-            ? screenSetup !== null && 'running' in screenSetup
-                ? { title: desktopCopy.addingScreenTitle, detail: desktopCopy.addingScreenBody, spinner: true }
-                : screenSetup !== null
-                    ? { title: desktopCopy.noScreenTitle, detail: screenSetup.error, command: desktopCopy.noScreenCommand, spinner: false, action: desktopCopy.addScreenAction }
-                    : { title: desktopCopy.noScreenTitle, detail: desktopCopy.noScreenBoatBody, spinner: false, action: desktopCopy.addScreenAction }
+            ? describeScreenSetup(screenSetup)
         : started
             ? { ...described, action: described.canRetry ? 'Try again' : undefined }
             : { title: desktopCopy.stoppedTitle, detail: desktopCopy.stoppedBody, command: undefined, spinner: false, action: desktopCopy.startAction };
