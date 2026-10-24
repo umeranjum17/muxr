@@ -64,3 +64,5 @@ Flow test: `scripts/release/checkJourneyReceipt.spec.mjs` (no result, another AP
 - Captures skip any screen with the computer's own name; `MUXR_LAB_MACHINE_NAME` keeps the real hostname off the phone.
 - Release path only: no visual surface changes; visual check: n/a (no UI change).
 - Twin on a loaded emulator (23 Oct, load 40-70): first attach 36.8-37.5 s, scroll 14.7 s; a fresh install also raises System UI ANR and notification-permission dialogs over the app (answer Wait, `pm grant ... POST_NOTIFICATIONS`).
+- Attach timing only: `PHONE_ATTACH_STOP_AFTER=send` ends the run after the typed command prints. Its release-build.json says `partial`, which the release receipt check refuses. Use it while the Usage step fails on main at 270 dp (task mx-fix-usage-row-270dp: Usage sits under the Pane actions menu's Stop agent footer).
+- The pair.sock client must stay open until the host's `result`: closing it after `yes` rolls back a phone that has not proved its key yet ("This pairing didn't finish on your computer").

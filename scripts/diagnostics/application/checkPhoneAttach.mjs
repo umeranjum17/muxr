@@ -39,6 +39,10 @@
  *   PHONE_SERIAL=a4b93ea2 DONE_DONE_EVIDENCE_ROOT=<dir> PHONE_ATTACH_ROOT=<short scratch> \
  *     PHONE_APK=<release apk> PHONE_PACKAGE=<release tarball> \
  *     node scripts/diagnostics/application/checkPhoneAttach.mjs
+ *
+ * PHONE_ATTACH_STOP_AFTER=send ends the run once the typed command printed:
+ * a timing run for the attach that skips scroll, Usage and the host count.
+ * Its release-build.json says `partial`, which no release gate accepts.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -54,6 +58,7 @@ if (serial !== 'a4b93ea2' && !/^emulator-\d+$/.test(serial ?? '')) throw new Err
 const apk = process.env.PHONE_APK || undefined;
 const tarball = process.env.PHONE_PACKAGE || undefined;
 const rounds = Number(process.env.PHONE_ATTACH_ROUNDS ?? 18);
+const stopAfterSend = process.env.PHONE_ATTACH_STOP_AFTER === 'send';
 const { linkHerdrLab } = await import(join(repo, 'scripts/diagnostics/application/linkHerdrLab.mjs'));
 const PKG = 'com.trymuxr.app';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -420,65 +425,68 @@ try {
     if (!surface(dump())) throw new Error('the screen was not clean after typing');
     steps.send = 'pass';
     log(`typed "echo ${word}" and a pane printed it`);
+    if (stopAfterSend) verdict = `partial: attached through ${rounds} churn rounds and typed output shown; scroll, Usage and the host count not run`;
+    else {
 
-    // Scroll the agent's history back and forward fast, the way a thumb does.
-    // Each direction is timed from the first fling until the phone shows it
-    // arrived: Latest offered once back in history, gone once at the newest output.
-    // The whole input_method dump runs past a megabyte on some phones: only the one flag leaves the device.
-    if (sh('dumpsys input_method | grep -q mInputShown=true && echo shown || echo hidden').trim() === 'shown') { sh('input keyevent KEYCODE_BACK'); await sleep(1000); }
-    lab.herdr(['pane', 'send-text', keep.pane_id, 'rows\n']);
-    await sleep(5000);
-    const [width, height] = /(\d+)x(\d+)/.exec(sh('wm size').split('\n').filter(Boolean).pop()).slice(1).map(Number);
-    const fling = (from, to) => sh(`input swipe ${width >> 1} ${Math.round(height * from)} ${width >> 1} ${Math.round(height * to)} 60`);
-    const LATEST = /content-desc="Jump to latest output/;
-    const scrollUntil = async (from, to, arrived) => {
-        const since = Date.now();
-        for (let burst = 0; burst < 6; burst += 1) {
-            for (let flick = 0; flick < 3; flick += 1) fling(from, to);
-            for (let look = 0; look < 3; look += 1) if (arrived(dump())) return Date.now() - since;
+        // Scroll the agent's history back and forward fast, the way a thumb does.
+        // Each direction is timed from the first fling until the phone shows it
+        // arrived: Latest offered once back in history, gone once at the newest output.
+        // The whole input_method dump runs past a megabyte on some phones: only the one flag leaves the device.
+        if (sh('dumpsys input_method | grep -q mInputShown=true && echo shown || echo hidden').trim() === 'shown') { sh('input keyevent KEYCODE_BACK'); await sleep(1000); }
+        lab.herdr(['pane', 'send-text', keep.pane_id, 'rows\n']);
+        await sleep(5000);
+        const [width, height] = /(\d+)x(\d+)/.exec(sh('wm size').split('\n').filter(Boolean).pop()).slice(1).map(Number);
+        const fling = (from, to) => sh(`input swipe ${width >> 1} ${Math.round(height * from)} ${width >> 1} ${Math.round(height * to)} 60`);
+        const LATEST = /content-desc="Jump to latest output/;
+        const scrollUntil = async (from, to, arrived) => {
+            const since = Date.now();
+            for (let burst = 0; burst < 6; burst += 1) {
+                for (let flick = 0; flick < 3; flick += 1) fling(from, to);
+                for (let look = 0; look < 3; look += 1) if (arrived(dump())) return Date.now() - since;
+            }
+            return undefined;
+        };
+        const back = await scrollUntil(0.3, 0.7, (xml) => LATEST.test(xml) && xml.includes('Terminal surface'));
+        log(back === undefined ? 'scrolling back never left the newest output' : `scrolled back into history in ${back} ms`);
+        if (back === undefined) throw new Error('scrolling back never left the newest output');
+        shot('05-scrolled-back');
+        const forward = await scrollUntil(0.7, 0.3, (xml) => !LATEST.test(xml) && surface(xml));
+        log(forward === undefined ? 'scrolling forward never reached the newest output' : `scrolled forward to the newest output in ${forward} ms`);
+        if (forward === undefined) throw new Error('scrolling forward never reached the newest output');
+        timings.scrollMs = Math.max(back, forward);
+        steps.scroll = 'pass';
+        shot('06-scrolled-to-latest');
+
+        // Usage, and back to the agent. The Usage read starts the host's ledger
+        // child, which in 0.2.8 booted a second host instead of counting.
+        await tapNode(/^Pane actions/, 30);
+        await sleep(1000);
+        await tapNode(/^Usage$/, 30);
+        let onUsage = false;
+        for (let second = 0; second < 30 && !onUsage; second += 1) {
+            const xml = dump();
+            onUsage = !xml.includes('Terminal surface') && /(?:text|content-desc)="Usage"/.test(xml);
+            if (!onUsage) await sleep(1000);
         }
-        return undefined;
-    };
-    const back = await scrollUntil(0.3, 0.7, (xml) => LATEST.test(xml) && xml.includes('Terminal surface'));
-    log(back === undefined ? 'scrolling back never left the newest output' : `scrolled back into history in ${back} ms`);
-    if (back === undefined) throw new Error('scrolling back never left the newest output');
-    shot('05-scrolled-back');
-    const forward = await scrollUntil(0.7, 0.3, (xml) => !LATEST.test(xml) && surface(xml));
-    log(forward === undefined ? 'scrolling forward never reached the newest output' : `scrolled forward to the newest output in ${forward} ms`);
-    if (forward === undefined) throw new Error('scrolling forward never reached the newest output');
-    timings.scrollMs = Math.max(back, forward);
-    steps.scroll = 'pass';
-    shot('06-scrolled-to-latest');
+        if (!onUsage) throw new Error('Usage never opened');
+        log('Usage open');
+        await sleep(10_000);
+        sh('input keyevent KEYCODE_BACK');
+        let backOnAgent = false;
+        for (let second = 0; second < 30 && !backOnAgent; second += 1) {
+            backOnAgent = surface(dump());
+            if (!backOnAgent) await sleep(1000);
+        }
+        if (!backOnAgent) throw new Error('coming back from Usage never showed the agent again');
+        steps.usage = 'pass';
+        shot('07-back-from-usage');
 
-    // Usage, and back to the agent. The Usage read starts the host's ledger
-    // child, which in 0.2.8 booted a second host instead of counting.
-    await tapNode(/^Pane actions/, 30);
-    await sleep(1000);
-    await tapNode(/^Usage$/, 30);
-    let onUsage = false;
-    for (let second = 0; second < 30 && !onUsage; second += 1) {
-        const xml = dump();
-        onUsage = !xml.includes('Terminal surface') && /(?:text|content-desc)="Usage"/.test(xml);
-        if (!onUsage) await sleep(1000);
+        hosts = hostsAlive();
+        log(`hosts alive: ${hosts}`);
+        if (hosts !== 1) throw new Error(`${hosts} hosts alive after Usage, not exactly one`);
+        steps['one-host'] = 'pass';
+        verdict = `pass: attached through ${rounds} churn rounds, typed output shown, scrolled back and forward, Usage and back, one host`;
     }
-    if (!onUsage) throw new Error('Usage never opened');
-    log('Usage open');
-    await sleep(10_000);
-    sh('input keyevent KEYCODE_BACK');
-    let backOnAgent = false;
-    for (let second = 0; second < 30 && !backOnAgent; second += 1) {
-        backOnAgent = surface(dump());
-        if (!backOnAgent) await sleep(1000);
-    }
-    if (!backOnAgent) throw new Error('coming back from Usage never showed the agent again');
-    steps.usage = 'pass';
-    shot('07-back-from-usage');
-
-    hosts = hostsAlive();
-    log(`hosts alive: ${hosts}`);
-    if (hosts !== 1) throw new Error(`${hosts} hosts alive after Usage, not exactly one`);
-    steps['one-host'] = 'pass';
-    verdict = `pass: attached through ${rounds} churn rounds, typed output shown, scrolled back and forward, Usage and back, one host`;
 } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     if (verdict === 'not reached') verdict = `fail: ${cause}`;
@@ -495,15 +503,16 @@ try {
     writeFileSync(join(evidence, 'release-build.json'), `${JSON.stringify({
         schema: 1, journey: RELEASE_JOURNEY, version,
         build: { apk: apkDigest, package: tarball === undefined ? null : sha256(tarball) },
-        result: verdict.startsWith('pass') && version === installed ? 'pass' : 'fail', steps, hosts: hosts ?? null, timings,
+        result: verdict.startsWith('partial') ? 'partial' : verdict.startsWith('pass') && version === installed ? 'pass' : 'fail', steps, hosts: hosts ?? null, timings,
     }, null, 2)}\n`);
     // done-done's step record: what a user did and what they saw, from the verdict this run reached.
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
         target: { version: installed },
         start: `${apk === undefined ? 'the release app already installed on the phone, restarted' : 'the release app freshly installed on the phone'}, with a lab computer running two agent panes that the phone is not yet paired to`,
         steps: ['pair the phone to the lab computer', 'open an agent and time its first attach, from the tap to the host\'s new terminal stream', 'close agent panes and attach again through pane churn', 'type a command at the agent',
-            'scroll its history back and forward fast', 'open Usage and come back', 'count the hosts alive'],
-        result: verdict.startsWith('pass') ? `the first attach took ${timings.attachMs} ms from the tap to the host's new terminal stream, the phone attached after every round of pane churn, the typed command printed its output on a clean screen, the history scrolled back and forward, Usage opened and closed, and one host stayed alive` : verdict,
+            ...(stopAfterSend ? [] : ['scroll its history back and forward fast', 'open Usage and come back', 'count the hosts alive'])],
+        result: verdict.startsWith('partial') ? `the first attach took ${timings.attachMs} ms from the tap to the host's new terminal stream, the phone attached after every round of pane churn, and the typed command printed its output on a clean screen; scrolling, Usage and the host count were not run`
+            : verdict.startsWith('pass') ? `the first attach took ${timings.attachMs} ms from the tap to the host's new terminal stream, the phone attached after every round of pane churn, the typed command printed its output on a clean screen, the history scrolled back and forward, Usage opened and closed, and one host stayed alive` : verdict,
     }, null, 2)}\n`);
     if (lab) writeFileSync(join(evidence, 'host.log'), lab.hostOutput()
         .replace(/pairing string[^\n]*/g, '<pairing>').replace(/muxr:\/\/pair#\S*/g, '<offer>'));
