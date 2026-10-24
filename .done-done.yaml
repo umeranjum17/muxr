@@ -115,6 +115,14 @@ journeys:
   home-herdr-outdated:
     command: node .agents/skills/done-done-verify-pockit/features/homeHerdrOutdatedLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # Home's version line and Settings > About on Android (home-version-line.md):
+  # the fake stack first on this checkout's version, then announcing 0.2.10;
+  # the foot of Home and the Version row read both versions and the mismatch
+  # hint. Runs by hand under the shared emulator lock; MUXR_LAB_APK is a
+  # release build of this commit.
+  home-version-line:
+    command: node .agents/skills/done-done-verify-pockit/features/homeVersionLineLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # Home with the internet up and the Tailscale path to the computer gone
   # (home-tailscale-off.md): the pairing offer names this desktop's Tailscale
   # address, forwarded to the lab relay; closing the forwarder must bring
