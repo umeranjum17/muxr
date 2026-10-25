@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
-index b9c118e..f1d3cac 100644
+index b9c118e..a0ab7b5 100644
 --- a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
 +++ b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
 @@ -18,7 +18,8 @@
@@ -59,7 +59,7 @@ index b9c118e..f1d3cac 100644
  };
  
  void writePtyCallback(GhosttyTerminal, void* userdata, const uint8_t* data, size_t len) {
-@@ -225,6 +243,161 @@ uint32_t appendUtf16(uint32_t cp, uint16_t* out, uint32_t used, uint32_t cap) {
+@@ -225,6 +243,166 @@ uint32_t appendUtf16(uint32_t cp, uint16_t* out, uint32_t used, uint32_t cap) {
    return 2;
  }
  
@@ -179,19 +179,24 @@ index b9c118e..f1d3cac 100644
 +
 +// Rows of a whole content area that moved off in one frame: [cur]'s footer
 +// (the rows at the bottom that did not change, an agent's prompt box and
-+// status) held while every row above it changed, so nothing is left to line
-+// up, yet the area above it is new output. Returns 0 for anything else.
++// status) held while the area above it is new output, so no row lines up at a
++// shift. A line wraps on a narrow grid and its tail repeats down the screen, so
++// one stray row can still match in place where the area moved; weigh the rows
++// that changed against the rows that held instead of letting one row veto the
++// move. A frame that shares so little of the area moved it by more than the
++// screen holds, so the whole area is what left. Returns 0 for anything else.
 +int areaMoved(const std::vector<std::string>& prev, const std::vector<std::string>& cur) {
 +  int top = static_cast<int>(std::min(prev.size(), cur.size()));
 +  bool footer = false;
 +  for (; top > 0 && prev[top - 1] == cur[top - 1]; top--) footer = footer || !prev[top - 1].empty();
 +  if (!footer) return 0;
-+  bool content = false;
++  int moved = 0, held = 0;
 +  for (int i = 0; i < top; i++) {
-+    if (!prev[i].empty() && prev[i] == cur[i]) return 0;
-+    content = content || !prev[i].empty();
++    if (prev[i].empty()) continue;
++    if (prev[i] == cur[i]) held++;
++    else moved++;
 +  }
-+  return content ? top : 0;
++  return moved > held ? top : 0;
 +}
 +
 +// Repaints the mirror's screen as the live one, after pushing [pushRows] of its
@@ -221,7 +226,7 @@ index b9c118e..f1d3cac 100644
  }  // namespace
  
  extern "C" {
-@@ -507,6 +680,14 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -507,6 +685,14 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
      rowHeader[1] = selResult == GHOSTTY_SUCCESS ? selection.start_x : -1;
      rowHeader[2] = selResult == GHOSTTY_SUCCESS ? selection.end_x : -1;
  
@@ -236,7 +241,7 @@ index b9c118e..f1d3cac 100644
      if (ghostty_render_state_row_get(session->rowIter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS,
                                       &session->cells) != GHOSTTY_SUCCESS) {
        return -1;
-@@ -534,6 +715,10 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -534,6 +720,10 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
          flags |= kFlagSpacer;
        }
  
@@ -247,7 +252,7 @@ index b9c118e..f1d3cac 100644
        bool hasStyling = false;
        ghostty_render_state_row_cells_get(session->cells,
                                           GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING,
-@@ -628,6 +813,86 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
+@@ -628,6 +818,86 @@ Java_expo_modules_libghostty_GhosttyVt_nativeSnapshot(
    return rowCount;
  }
  
@@ -334,7 +339,7 @@ index b9c118e..f1d3cac 100644
  JNIEXPORT jboolean JNICALL
  Java_expo_modules_libghostty_GhosttyVt_nativeSelectWord(
      JNIEnv*, jobject, jlong handle, jint col, jint row) {
-@@ -826,4 +1091,60 @@ Java_expo_modules_libghostty_GhosttyVt_nativeEncodeKey(
+@@ -826,4 +1096,60 @@ Java_expo_modules_libghostty_GhosttyVt_nativeEncodeKey(
    return outArray;
  }
  
