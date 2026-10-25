@@ -71,5 +71,43 @@ for cell in 270:2.0:594 360:1.0:800 390:1.0:844 445:1.0:900 1280:1.0:900 1440:1.
     echo "$pwaEnd" | grep -E "^(DEFECT|clean|FAIL)" | sed 's/^/scrolled: /' | cut -c1-200
   done
 done
+# The conversation state of the same screen: the first agent opened at the phone
+# width and at the narrow/largest-text cell, at rest and scrolled to the pair
+# card, so the sample transcript and its way back are covered too.
+conversation='(() => {
+  document.querySelector("[role=button][aria-label^=\"zulu-2\"]").click();
+  return "opened";
+})()'
+back='(() => { document.querySelector("[role=button][aria-label=\"Back to all demo agents\"]").click(); return "back"; })()'
+for cell in 270:2.0:594 390:1.0:844; do
+  w=${cell%%:*}; rest=${cell#*:}; f=${rest%%:*}; h=${rest##*:}
+  vw=$(awk "BEGIN{print int($w/$f)}"); vh=$(awk "BEGIN{print int($h/$f)}"); dpr=$(awk "BEGIN{print 2*$f}")
+  view="${vw}x${vh}x${dpr},mobile,touch"
+  for theme in light dark; do
+    name="demo-conversation-$w-$f-$theme"
+    chrome-devtools-axi emulate --viewport "$view" --color-scheme $theme >/dev/null 2>&1
+    chrome-devtools-axi eval "location.reload()" >/dev/null 2>&1
+    for _ in $(seq 1 30); do
+      [ -n "$(chrome-devtools-axi eval 'document.body.innerText.trim().length > 0 ? "drawn" : ""' 2>/dev/null | grep -o drawn)" ] && break
+      sleep 1
+    done
+    sleep 3
+    chrome-devtools-axi emulate --viewport "$view" --color-scheme $theme >/dev/null 2>&1; sleep 2
+    chrome-devtools-axi eval "$conversation" >/dev/null 2>&1; sleep 2
+    said=$(chrome-devtools-axi eval "document.body.innerText.includes('Safari loops on the sign-in redirect')" 2>&1 | head -1)
+    case "$said" in *true*) ;; *) echo "FAIL $name facts: no sample transcript"; failures=$((failures + 1));; esac
+    chrome-devtools-axi screenshot "$out/$name.png" >/dev/null 2>&1
+    pwa=$(node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name.png" "$name" 2>&1)
+    chrome-devtools-axi eval "$toEnd" >/dev/null 2>&1; sleep 1
+    chrome-devtools-axi screenshot "$out/$name-scrolled.png" >/dev/null 2>&1
+    pwaEnd=$(node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name-scrolled.png" "$name-scrolled" 2>&1)
+    echo "$pwa" > "$out/$name.check.txt"; echo "$pwaEnd" > "$out/$name-scrolled.check.txt"
+    printf '%s' "$pwa" | grep -q '^clean' || failures=$((failures + 1))
+    printf '%s' "$pwaEnd" | grep -q '^clean' || failures=$((failures + 1))
+    echo "$pwa" | grep -E "^(DEFECT|clean|FAIL)" | cut -c1-200
+    echo "$pwaEnd" | grep -E "^(DEFECT|clean|FAIL)" | sed 's/^/scrolled: /' | cut -c1-200
+    chrome-devtools-axi eval "$back" >/dev/null 2>&1; sleep 1
+  done
+done
 echo "cells: $((failures)) failing check(s)"
 [ "$failures" -eq 0 ] || exit 1

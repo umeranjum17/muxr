@@ -32,7 +32,7 @@ export const DEMO_AGENTS: readonly DemoAgent[] = [
         avatarId: 'zulu-2-agent',
         provider: 'Claude Code',
         providerKind: 'claude',
-        model: 'Sonnet 4.5',
+        model: 'Sonnet 5.5',
         state: 'working',
         task: 'Fixing the sign-in redirect',
         turns: [
@@ -48,7 +48,7 @@ export const DEMO_AGENTS: readonly DemoAgent[] = [
         avatarId: 'kestrel-agent',
         provider: 'Codex',
         providerKind: 'codex',
-        model: 'GPT-5 Codex',
+        model: 'GPT-6 Sol',
         state: 'needs-you',
         task: 'Approving the users migration',
         turns: [

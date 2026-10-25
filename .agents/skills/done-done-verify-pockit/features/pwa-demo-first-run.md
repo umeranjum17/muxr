@@ -11,9 +11,10 @@ the demo is replaced by the real Home the moment a pairing completes.
 
 - `sample-data-banner`: a "Sample data" pill and the demo computer name sit
   above the herd, so the page never reads as a connected machine.
-- `sample-herd`: `zulu-2` (working · fixing the sign-in redirect), `kestrel`
-  (needs you · approving the users migration), `ember` (idle · flaky-test
-  sweep finished), each with provider, model and status, in that order.
+- `sample-herd`: `zulu-2` (Claude Code · Sonnet 5.5, working · fixing the
+  sign-in redirect), `kestrel` (Codex · GPT-6 Sol, needs you · approving the
+  users migration), `ember` (Pi · Pi 2, idle · flaky-test sweep finished), each
+  with provider, model and status, in that order.
 - `sample-conversation`: tapping an agent replaces the herd with that agent's
   conversation (your turns as bubbles on the right, the agent's as plain text)
   and an **All agents** way back. The content is fixed seed text.
