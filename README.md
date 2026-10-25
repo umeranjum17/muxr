@@ -64,12 +64,13 @@ muxr is built on [Herdr](https://herdr.dev), the workspace manager for coding ag
 ## What you get
 
 <p align="center">
-  <a href="docs/readme/pair-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/pair-night.webp" /><img src="docs/readme/pair-day.webp" width="45%" alt="Connect: muxr’s browser pairing steps, with a command to run on your computer and a button to paste its browser link" /></picture></a>
-  <a href="docs/readme/terminal-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/terminal-night.webp" /><img src="docs/readme/terminal-day.webp" width="45%" alt="Check the build: a real checkout test passing in the live terminal, with workspace tabs and thumb-sized terminal keys below" /></picture></a>
-</p>
-<p align="center">
-  <a href="docs/readme/agent-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/agent-night.webp" /><img src="docs/readme/agent-day.webp" width="45%" alt="Pick up the thread: a demo agent session with a checkout-review draft, ready for a follow-up" /></picture></a>
-  <a href="docs/readme/files-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/files-night.webp" /><img src="docs/readme/files-day.webp" width="45%" alt="Look at the code: the little-shop checkout file opened from the workspace’s Files view" /></picture></a>
+  <picture>
+    <source media="(max-width: 520px) and (prefers-color-scheme: dark)" srcset="docs/readme/steps-phone-dark.webp" />
+    <source media="(max-width: 520px)" srcset="docs/readme/steps-phone-light.webp" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/steps-wide-dark.webp" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/readme/steps-wide-light.webp" />
+    <img src="docs/readme/steps-wide-light.webp" width="880" alt="Four steps in the real app: pair with a two-word check, the agent’s ask with its answers on Home, its live terminal run, and the finished work reported back" />
+  </picture>
 </p>
 
 <p align="center">
