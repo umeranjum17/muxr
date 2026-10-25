@@ -36,10 +36,11 @@
 
 ## Three commands to your first agent
 
-```bash
-npm install -g --ignore-scripts @trymuxr/cli@latest   # Node 22+ on Linux, macOS or WSL
-muxr                                                  # guided setup, ends with a one-use QR
-muxr pair                                             # any time you want another phone
+```sh
+npm i -g --ignore-scripts \
+  @trymuxr/cli@latest
+muxr
+muxr pair
 ```
 
 Install the app on your phone, scan the computer's QR (or paste the pairing link) and compare the two words. Setup picks how your phone reaches the computer, installs [Herdr](https://herdr.dev) if it is missing, and changes nothing until you press Enter on that plan.
@@ -48,27 +49,27 @@ Install the app on your phone, scan the computer's QR (or paste the pairing link
 
 ## Why muxr
 
-Five ways people answer an agent without muxr, and what each one costs:
+Answering an agent is not the hard part. Reaching it is.
 
-| What you have been doing | What it costs you | With muxr |
-| --- | --- | --- |
-| **Leaving the laptop open** and checking it when you think of it | An agent that has been waiting on one answer, unseen — or a tab you never opened again | The ask arrives as a notification; one tap answers it in the same terminal |
-| **A plain terminal over SSH** on the phone | Raw text, no idea which agent is stuck, and an approval prompt becomes a typing puzzle | The herd, the asks and the answers first; the terminal with phone keys is one tap behind them |
-| **A hosted cloud dev box** | Your code, keys and plan sign-ins move to someone else's machine, usually for a monthly fee | Everything runs on your computers, self-hosted; the relay only forwards encrypted frames |
-| **Mirroring the desktop to the phone** | A whole desktop shrunk onto a 6-inch screen, with the latency and battery cost of video | The terminal and the agent's state at your own font size, not a picture of your monitor |
-| **Asking the agent to keep you posted in chat** | You lose the terminal, the scrollback and the diff, so you come back to re-read everything | The real terminal session is the only session; nothing is forked, nothing to re-read |
+| How you answer an agent today | With muxr |
+| --- | --- |
+| Leave the laptop open, check it when you think of it | The ask arrives as a notification |
+| A plain terminal over SSH on the phone | The agents and their asks first, one tap to answer |
+| A hosted cloud dev box, usually paid by the month | Your own computers, self-hosted, end-to-end encrypted |
+| Mirror the whole desktop to the phone | The terminal at your font size, not a video of your monitor |
+| Keep up with the agent in a chat app | The same session, with its scrollback and diffs |
 
 muxr is built on [Herdr](https://herdr.dev), the workspace manager for coding agents, and any agent you run in a Herdr pane is visible here.
 
 ## What you get
 
 <p align="center">
-  <a href="docs/readme/pair-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/pair-night.webp" /><img src="docs/readme/pair-day.webp" width="270" alt="Connect: muxr’s browser pairing steps, with a command to run on your computer and a button to paste its browser link" /></picture></a>
-  <a href="docs/readme/terminal-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/terminal-night.webp" /><img src="docs/readme/terminal-day.webp" width="270" alt="Check the build: a real checkout test passing in the live terminal, with workspace tabs and thumb-sized terminal keys below" /></picture></a>
+  <a href="docs/readme/pair-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/pair-night.webp" /><img src="docs/readme/pair-day.webp" width="45%" alt="Connect: muxr’s browser pairing steps, with a command to run on your computer and a button to paste its browser link" /></picture></a>
+  <a href="docs/readme/terminal-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/terminal-night.webp" /><img src="docs/readme/terminal-day.webp" width="45%" alt="Check the build: a real checkout test passing in the live terminal, with workspace tabs and thumb-sized terminal keys below" /></picture></a>
 </p>
 <p align="center">
-  <a href="docs/readme/agent-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/agent-night.webp" /><img src="docs/readme/agent-day.webp" width="270" alt="Pick up the thread: a demo agent session with a checkout-review draft, ready for a follow-up" /></picture></a>
-  <a href="docs/readme/files-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/files-night.webp" /><img src="docs/readme/files-day.webp" width="270" alt="Look at the code: the little-shop checkout file opened from the workspace’s Files view" /></picture></a>
+  <a href="docs/readme/agent-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/agent-night.webp" /><img src="docs/readme/agent-day.webp" width="45%" alt="Pick up the thread: a demo agent session with a checkout-review draft, ready for a follow-up" /></picture></a>
+  <a href="docs/readme/files-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/files-night.webp" /><img src="docs/readme/files-day.webp" width="45%" alt="Look at the code: the little-shop checkout file opened from the workspace’s Files view" /></picture></a>
 </p>
 
 <p align="center">
