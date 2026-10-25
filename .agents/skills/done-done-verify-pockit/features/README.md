@@ -443,7 +443,8 @@ rules, with no H2 sections.
 - [Answer an agent's folder-trust question in one tap](./agent-trust-answers.md) —
   release APK and PWA over a guarded real-Herdr lab with a real, untrusted
   Claude Code: unnumbered choices as chips, timed trust step before/after, and
-  Home and New agent sharing the last start folder.
+  Home and New agent sharing the last start folder, a start in `~` included,
+  which survives a relaunch while a later setup save wins again.
 - [Answer an OpenCode permission prompt in one tap](./opencode-permission-answers.md) —
   release APK and PWA over a guarded real-Herdr lab with a real OpenCode:
   Allow once / Allow always / Reject as chips at a cut-off phone row, each tap
