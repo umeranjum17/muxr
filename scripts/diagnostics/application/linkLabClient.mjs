@@ -11,7 +11,16 @@ const PER_LOAD_POINT_MS = 3_000;
 const MAX_WAIT_MS = 180_000;
 const ADB_CALL_MS = 5_000;
 const ADB_PROBE_MS = 1_000;
-const ROUTE_WAIT_MS = 90_000;
+/**
+ * A native pairing code lasts about two minutes, so a device has that long to
+ * approve it. Each wait below may use that whole window on its own clock: the
+ * route wait, because an adb transport coming back after a server restart is
+ * setup and not a failure — cutting it short at 90 s failed pairings that were
+ * still inside the window — and then the approval proof, counted from the
+ * hand-over, so a route that spends most of the window cannot report a valid
+ * approval as an expiry.
+ */
+const APPROVAL_WINDOW_MS = 120_000;
 const execFileAsync = promisify(execFile);
 
 export function linkWaitMs(load = loadavg()[0]) {
@@ -64,7 +73,7 @@ export async function forwardLabRelayTo(serial, offerText, deadline) {
     const ports = parseOffer(offerText, 0).urls.map((url) => new URL(url))
         .filter((url) => LOOPBACK.has(url.hostname)).map((url) => url.port);
     if (ports.length === 0) return [];
-    const routeDeadline = Math.min(deadline, Date.now() + ROUTE_WAIT_MS);
+    const routeDeadline = Math.min(deadline, Date.now() + APPROVAL_WINDOW_MS);
     let last = 'no answer yet';
     let fatal;
     await until(async () => {
@@ -130,9 +139,6 @@ export async function linkLabClient(socketPath, onEvent, deadline = Date.now() +
     }
 }
 
-/** A native code lasts about two minutes, so a device has that long to approve it. */
-const APPROVAL_WAIT_MS = 120_000;
-
 /**
  * The computer side for a device this client does not run itself, such as the
  * Android app pairing from a lab offer. Only the first offer goes to
@@ -141,11 +147,15 @@ const APPROVAL_WAIT_MS = 120_000;
  * computer's approval is answered yes; the host's
  * result resolves with the device record it approved once that device has
  * proven itself on the link.
+ *
+ * The wait splits in two windows so neither starves the other: `presentOffer`
+ * and its route get the window from this call, then the device gets the whole
+ * window again from the hand-over to approve and prove itself.
  */
-export async function approveLabOffer(socketPath, presentOffer, deadline = Date.now() + APPROVAL_WAIT_MS) {
+export async function approveLabOffer(socketPath, presentOffer, deadline = Date.now() + APPROVAL_WINDOW_MS) {
     const socket = createConnection(socketPath);
     let text = '';
-    let offered = false;
+    let offer;
     let result;
     let error;
     const fail = (cause) => { error = cause instanceof Error ? cause.message : String(cause); };
@@ -157,7 +167,7 @@ export async function approveLabOffer(socketPath, presentOffer, deadline = Date.
             // A line that cannot be handled ends this pairing rather than the process, so the caller's cleanup still runs.
             try {
                 const event = JSON.parse(line);
-                if (event.offer && !offered) { offered = true; void Promise.resolve(presentOffer(event.offer.text, deadline)).catch(fail); }
+                if (event.offer && offer === undefined) offer = event.offer.text;
                 if (event.approval) socket.write(`${JSON.stringify({ yes: true })}\n`);
                 if (event.result) result = event.result;
                 if (event.error) error = event.error;
@@ -169,7 +179,9 @@ export async function approveLabOffer(socketPath, presentOffer, deadline = Date.
     try {
         await connected;
         socket.write(`${JSON.stringify({ intent: { kind: 'native', authority: 'control', personal: false }, lab: true })}\n`);
-        return await until(() => { if (error) throw new Error(error); return result; }, 'approved device pairing', deadline);
+        await until(() => { if (error) throw new Error(error); return offer; }, 'link offer', deadline);
+        await presentOffer(offer, deadline);
+        return await until(() => { if (error) throw new Error(error); return result; }, 'approved device pairing', Date.now() + APPROVAL_WINDOW_MS);
     } finally {
         socket.destroy();
     }
