@@ -134,8 +134,11 @@ export const en = {
             disk: 'Disk',
             load: 'load',
             up: 'up',
-            healthy: 'Healthy',
-            busy: 'Busy',
+            herdWaiting: 'An agent is waiting for your answer. Open it to reply.',
+            herdStopped: 'An agent stopped. Open it to see what happened.',
+            herdWorking: 'An agent is working. Nothing needed from you.',
+            herdReady: 'An agent is ready for your next message.',
+            herdNone: 'No agents are running. Start one below.',
         },
     },
 

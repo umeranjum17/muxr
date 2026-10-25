@@ -44,6 +44,7 @@ import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
 import { realtimeMachineSwitchGuard } from '@/conversation/session';
 import { herdrPaneForSession, navigateToSession } from '@/herd';
+import { useHomeAgentLine } from '../application/useHomeAgentLine';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
@@ -492,11 +493,14 @@ export const MainView = React.memo(({ liveCardBadge }: {
     }, []);
 
     const permanentRecovery = !['host', 'runtime'].includes(recoveryMode(socketStatus.error, false));
+    // Home's one plain sentence about the herd, shared by the phone's strip and
+    // the split view's.
+    const agentLine = useHomeAgentLine();
     // While the link is down the strip can only show stale host figures, so it
     // stays off until the computer answers; the recovery card below already
     // speaks. (RightNowCard itself is untouched.)
     const homeHeader = <>
-        {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} />}
+        {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} agentLine={agentLine} />}
         <HomeWebInstallInvite />
     </>;
 
@@ -536,7 +540,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
                     ) : splitBusy && splitBusySince !== null ? <BusyConnectingCard since={splitBusySince} computer={splitMachineName || 'Your computer'} /> : null}
                     {/* The same order as the phone: plans and machine first, then Live,
                         then what to start. */}
-                    {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} />}
+                    {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} agentLine={agentLine} />}
                     <HomeWebInstallInvite />
                     {!splitRecovering && !splitBusy
                         ? <LiveTerminalsRow showZeroState={!splitEmpty} cardBadge={liveCardBadge} /> : null}

@@ -1,14 +1,32 @@
-# Read plan limits on the Home card
+# Read plan limits and what the herd is doing on the Home card
 
 The Home card's first line shows each connected plan's mark, then every limit
 as window then share left with a space (`5h 100% left`, `7d 0% left`, `Month 11% left`).
 Items never shrink or end in `…`; when the line runs out they wrap between
-whole items. The rest of the Right now card is frozen and must look the same.
+whole items. The card's quiet second line says what the herd is doing, in one
+plain sentence per state -- an agent working, an agent waiting for an answer,
+an agent stopped, an agent ready, or nothing running -- and never the machine's
+own one-word state (`Healthy`, `Busy`), which read as the agent's and told
+nobody whether anything waited on them. Nothing else about the card changes:
+same layout, size, colours and position.
 
 ## Sub-features
 
 - `quota-order` window first, then value, spaced; `Monthly` reads `Month`.
 - `quota-wrap` many limits at font 2.0 / 270dp wrap at item boundaries.
+- `herd-working` one agent at work reads `An agent is working. Nothing needed from you.`
+- `herd-waiting` an agent holding a request or blocked by an approval reads
+  `An agent is waiting for your answer. Open it to reply.`
+- `herd-stopped` a failed or unreachable agent reads
+  `An agent stopped. Open it to see what happened.`
+- `herd-ready` an idle or finished agent reads
+  `An agent is ready for your next message.`
+- `herd-none` no agents at all reads `No agents are running. Start one below.`
+  (a bare shell pane is not an agent).
+- `herd-urgency` with several agents, one waiting outranks one at work, and one
+  stopped outranks one at work.
+- `herd-unloaded` before the host has sent its herd the quiet line is empty: a
+  herd that has not arrived is not an empty one.
 
 ## How to get to it (user POV)
 
@@ -40,9 +58,32 @@ Preconditions:
   to `<host data>/pair.sock` (answer `{"yes":true}` to its approval). Type the
   offer into `/pair` as `https://<any>/pair#byokit-link:…` and press Enter;
   capture at 393 and 270 wide, dark and light.
+- The herd sentence is driven through `homeHerdSentenceNative.mjs`, which
+  starts `herdSentenceLab.mjs` (a loopback-or-adb fake-Herdr stack with one
+  agent), pairs the phone, and holds the agent's lifecycle with the lab-only
+  `lab.set_agent_status` method (`pane.close` for the empty case):
+
+  ```sh
+  flock -o -w 1800 /tmp/fm-muxr-emulator.lock timeout 1800 \
+    bash <task>/nativeJourney.sh <out>/app-release.apk <out>/visual/native/candidate
+  ```
+
+  It covers the working state at 360, 390, 445 and 270 dp (light and dark) and
+  at 270 dp with font 2.0, and every other state at 390 dp light and 270 dp
+  font 2.0 dark, and runs `visualCheck.mjs` on each cell.
+- PWA: `EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export`, then
+  `scripts/diagnostics/application/withPrivateXvfb.sh bash
+  .agents/skills/done-done-verify-pockit/features/homeHerdSentencePwaCells.sh
+  apps/mobile/dist <out>/visual/pwa/candidate` -- the installed PWA (standalone
+  `--app` window) paired through `window.__MUXR_LAB_PAIR__`, the same states and
+  cells plus desktop 1280/1440, each read back as text and run through
+  `visualCheck.mjs pwa-check`.
+- The refresh control still sits at the end of that line and still opens its
+  throttle/refresh states.
 - Pass: every item reads `window value left` with spaces, no `…` on any item,
-  wrapped rows break between items, and the rest of the card (the Healthy or
-  Busy word, refresh control) matches the before build.
+  wrapped rows break between items, the quiet line carries the exact sentence
+  for the state the herd is in (and never `Healthy`/`Busy`), and every cell's
+  `visualCheck` line is `clean`.
 
 ## Gotchas
 

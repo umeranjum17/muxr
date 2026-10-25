@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
-import type { UsageActivityDay, UsageNow, UsageReport } from '@trymuxr/contract';
+import type { AgentLifecycle, HerdrTreeWorkspace, UsageActivityDay, UsageNow, UsageReport } from '@trymuxr/contract';
 import { FRESH_MS, lastKnownPlan, noteAsked, rememberShown, shownUsage, withNow, withReport } from './freshnessWindow';
 
 /**
@@ -115,6 +115,10 @@ const { useUsageNow } = await import('./useUsageNow');
 const { RightNowCard } = await import('../presentation/RightNowCard');
 const { ScreenLimits } = await import('../presentation/ScreenLimits');
 const { UsageScreen } = await import('../presentation/UsageScreen');
+// The herd's own derivation, not a stand-in: Home's sentence comes from these.
+const { agentSummary, agentSummaryLine, herdPanes } = await import('@/herd/model');
+const { selectLiveTerminalCards } = await import('@/herd/live');
+const { en } = await import('@/text/_default');
 
 const VITALS = { memoryUsed: 8, memoryTotal: 16, load1: 1.2, uptimeSeconds: 90_000 };
 /** What the host sends while its usage cache is cold: the figures it already
@@ -171,9 +175,9 @@ function mount() {
  *  next test's store write. */
 const mounted: any[] = [];
 
-function renderCard() {
+function renderCard(props: { agentLine?: string } = {}) {
     let renderer: any;
-    TestRenderer.act(() => { renderer = TestRenderer.create(<RightNowCard />); });
+    TestRenderer.act(() => { renderer = TestRenderer.create(<RightNowCard {...props} />); });
     mounted.push(renderer!);
     return renderer!;
 }
@@ -1924,5 +1928,84 @@ describe('the usage screen read path', () => {
         await tick();
         expect(flatText(plain)).toContain('Input 40K');
         expect(flatText(plain)).not.toContain('Other');
+    });
+});
+
+/**
+ * What the herd is doing, said on the card itself.
+ *
+ * The card used to end with the machine's own state as one word -- Healthy, or
+ * Busy -- and Busy named the computer's memory and load while reading as the
+ * agent's. A person could not tell whether work was going on, whether anything
+ * waited for them, or whether an agent had stopped, so they opened the app to
+ * find out. These are the four states they meet, driven from a Herdr tree the
+ * way Home gets one, and the sentence each one earns.
+ */
+describe('the herd, said on the Home card', () => {
+    /** One workspace holding the given agents, as Herdr publishes it. */
+    const herd = (agents: { status: AgentLifecycle }[]): HerdrTreeWorkspace[] => [{
+        workspaceId: 'home', focused: true, agentStatus: 'idle',
+        tabs: [{
+            tabId: 'home-tab', focused: true, agentStatus: 'idle',
+            panes: agents.map((agent, index) => ({
+                paneId: `pane-${index}`, tabId: 'home-tab', sessionId: `agent-${index}`,
+                focused: index === 0, agentStatus: agent.status, promptable: true, agentKind: 'pi',
+            })),
+        }],
+    }];
+
+    /** The one state Home's own derivation reaches from that tree. */
+    const summaryOf = (agents: { status: AgentLifecycle }[]) => {
+        const workspaces = herd(agents);
+        const sessions = workspaces[0]!.tabs[0]!.panes
+            .map((pane) => ({ id: pane.sessionId!, updatedAt: 0, metadata: null, presence: 'online' as const }));
+        return agentSummary(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces)));
+    };
+
+    it('says what is happening in a sentence, in every state a person meets', async () => {
+        request.mockResolvedValue(collected());
+        const cases: [{ status: AgentLifecycle }[], string, string][] = [
+            [[{ status: 'working' }], 'working', 'plugins.rightNow.herdWorking'],
+            [[{ status: 'blocked' }], 'waiting', 'plugins.rightNow.herdWaiting'],
+            [[{ status: 'failed' }], 'stopped', 'plugins.rightNow.herdStopped'],
+            [[{ status: 'idle' }], 'ready', 'plugins.rightNow.herdReady'],
+            [[], 'none', 'plugins.rightNow.herdNone'],
+            // One agent waiting outranks one that is only at work.
+            [[{ status: 'working' }, { status: 'blocked' }], 'waiting', 'plugins.rightNow.herdWaiting'],
+        ];
+        for (const [agents, state, line] of cases) {
+            expect(summaryOf(agents)).toBe(state);
+            const card = renderCard({ agentLine: agentSummaryLine(summaryOf(agents)) });
+            await tick();
+            expect(flatText(card)).toContain(line);
+            // The words are spoken too: a reader on a screen reader hears the
+            // same answer on the strip's own control.
+            const strip = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
+                && node.props?.onLongPress !== undefined)[0];
+            expect(strip.props.accessibilityLabel).toContain(line);
+        }
+    });
+
+    it('says a whole sentence, and never falls back to a bare status word', () => {
+        // The copy itself: a person reading Home is told what is happening and
+        // what they can do, so each line is a sentence and none of them is the
+        // old one-word machine state.
+        for (const line of [en.plugins.rightNow.herdWorking, en.plugins.rightNow.herdWaiting,
+            en.plugins.rightNow.herdStopped, en.plugins.rightNow.herdReady, en.plugins.rightNow.herdNone]) {
+            expect(line.split(' ').length).toBeGreaterThan(3);
+            expect(line).toMatch(/^[A-Z].*\.$/);
+            expect(['Healthy', 'Busy']).not.toContain(line);
+        }
+    });
+
+    it('leaves the strip empty until the host has said what it holds', async () => {
+        // A herd that has not arrived is not an empty one: no line at all
+        // until the answer lands, rather than "nothing is running" as a guess.
+        request.mockResolvedValue(collected());
+        const card = renderCard();
+        await tick();
+        for (const key of ['herdWorking', 'herdWaiting', 'herdStopped', 'herdReady', 'herdNone'] as const) {
+            expect(flatText(card)).not.toContain(`plugins.rightNow.${key}`);
+        }
     });
 });

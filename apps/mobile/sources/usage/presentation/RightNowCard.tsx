@@ -13,7 +13,7 @@ import { VERDICT_KEYS, verdictTone } from './ScreenLimits';
 import { t } from '@/text';
 import { compactAge } from '@/utils/compactAge';
 import { useUsageNow } from '../application/useUsageNow';
-import { limitPlans, vitalsFacts, type LimitCell, type LimitFigure, type LimitPlan } from '../domain/usageModel';
+import { limitPlans, type LimitCell, type LimitFigure, type LimitPlan } from '../domain/usageModel';
 
 /** The strip refreshes itself on a slow cadence while someone is looking at it,
  *  so a few minutes behind is normal here and says nothing. Past this the age
@@ -32,19 +32,24 @@ const CONTROL = 20;
 /**
  * The top of Home as one quiet strip above Live: each connected plan's mark
  * beside its limits in caption-sized figures, wrapping only when the phone is
- * narrow, then one line of the machine's own figures. It is a glance, not a
+ * narrow, then one line saying what the herd is doing. It is a glance, not a
  * section: no heading and no card, so Live stays the first thing on Home. A
  * tap opens Usage, a long press reveals full limit names until the next tap,
  * and a small refresh control ends the quiet line. The host's typed usage.now
  * method serves it without a plugin.
  */
-export function RightNowCard({ linkDown = false }: { linkDown?: boolean }) {
+export function RightNowCard({ linkDown = false, agentLine }: { linkDown?: boolean; agentLine?: string }) {
     const { theme } = useUnistyles();
     const router = useRouter();
     const [namesVisible, setNamesVisible] = React.useState(false);
     // The strip paints one of three states and has no fourth: figures it holds,
     // a wait it is in, or a failure with the way back.
     const { display, failed, refreshing, throttledSeconds, refresh } = useUsageNow();
+    // What the herd is doing, in plain words, from Home: the machine's own load
+    // used to stand here as one word ("Busy"), which read as the agent's state
+    // and told nobody whether anything was waiting on them. The machine's
+    // figures stay a tap on the computer's name (see hostVitalsDetails).
+    const facts = agentLine === undefined ? [] : [agentLine];
     const open = () => router.push('/usage');
     const caption = { color: theme.colors.textSecondary, fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE } as const;
     // A failure read while the link was down is about the link, not usage:
@@ -69,7 +74,7 @@ export function RightNowCard({ linkDown = false }: { linkDown?: boolean }) {
                 </View>
                 {display.reason !== '' && <Text numberOfLines={2} style={caption}>{display.reason}</Text>}
             </View>}
-            facts={vitalsFigures(display.vitals)} />;
+            facts={facts} />;
     }
 
     const status = freshness(display.status === 'waiting' ? undefined : display.figures, failed && !linkDown, refreshing, throttledSeconds);
@@ -90,7 +95,7 @@ export function RightNowCard({ linkDown = false }: { linkDown?: boolean }) {
         return <View>
             <Strip onPress={open} label={`${t('plugins.rightNow.collecting')}. ${t('plugins.rightNow.opensUsage')}`}
                 line={<Text style={caption}>{t('plugins.rightNow.collecting')}</Text>}
-                note={note} facts={vitalsFigures(display.vitals)} withControl />
+                note={note} facts={facts} withControl />
             {control}
         </View>;
     }
@@ -110,7 +115,7 @@ export function RightNowCard({ linkDown = false }: { linkDown?: boolean }) {
         </Text>;
     return <View>
         <Strip onPress={() => { if (namesVisible) setNamesVisible(false); else open(); }} onLongPress={() => setNamesVisible(true)}
-            label={cardAccessibilityLabel(payload)} line={line} note={note} facts={quietLine(payload)}
+            label={cardAccessibilityLabel(payload, facts)} line={line} note={note} facts={facts}
             dot={limit === undefined || verdict === 'unknown' ? undefined : toneColor(theme, verdictTone(verdict))} withControl />
         {control}
     </View>;
@@ -246,38 +251,20 @@ function planSummary(plan: LimitPlan): string {
     return t('plugins.rightNow.planRemaining', { plan: plan.provider.plan ?? plan.provider.label, remainings: remainings.join(', ') });
 }
 
-/** The quiet line, in caption size: a machine at 80% memory is a machine at
- *  work, not a warning. A refresh note, when there is one, leads it. */
+/** The quiet line, in caption size: what the herd is doing, said in one plain
+ *  sentence, with the note about a failed refresh ahead of it when there is one.
+ *  It wraps like any other text: a sentence is not a figure, and gluing its
+ *  words together left no break point in a narrow phone. */
 function FactsLine({ note, parts }: { note?: React.ReactNode; parts: string[] }) {
     const { theme } = useUnistyles();
-    // A fact is one unbreakable thing and the separator belongs to the fact
-    // before it, so a line can only ever break after a dot. Left to ordinary
-    // spaces the line broke inside "load 5.8" and started the next line with a
-    // stranded "·".
-    const line = parts.map((part) => part.replace(/ /g, '\u00a0')).join('\u00a0· ');
+    const line = parts.join(' · ');
     return (
         <Text style={{ color: withAlpha(theme.colors.textSecondary, 0.75), fontSize: 11, lineHeight: 15 }}>
             {note}
-            {note !== undefined && line !== '' && '\u00a0· '}
+            {note !== undefined && line !== '' && ' · '}
             {line}
         </Text>
     );
-}
-
-/** The quiet line: the machine's own figures, and only those. How old the
- *  limit figures are is not a machine fact, and sharing this line with them
- *  is what wrapped a lone fragment onto a second row; the refresh control
- *  owns it now, since it is the control that acts on it. */
-function quietLine(payload: UsageFigures): string[] {
-    return vitalsFigures(payload.vitals);
-}
-
-/** The machine's state as one plain word. The figures behind it are a tap on
- *  the computer's name (see hostVitalsDetails), not a server line here. */
-function vitalsFigures(vitals: UsageFigures['vitals']): string[] {
-    const facts = vitals === undefined ? undefined : vitalsFacts(vitals);
-    if (facts?.state === undefined) return [];
-    return [t(facts.state === 'busy' ? 'plugins.rightNow.busy' : 'plugins.rightNow.healthy')];
 }
 
 /** The age of the limit figures, once it is old enough to be worth saying. */
@@ -295,7 +282,7 @@ function emptyLine(payload: UsageFigures): string {
 
 /** One sentence for the reader; the dots are decorative. How fresh the figures
  *  are, and what to do about it, is the refresh control's own button to announce. */
-function cardAccessibilityLabel(payload: UsageFigures): string {
+function cardAccessibilityLabel(payload: UsageFigures, facts: readonly string[]): string {
     const parts: string[] = [t('plugins.rightNow.title')];
     const plans = connectedPlans(payload);
     if (plans !== undefined) {
@@ -309,8 +296,7 @@ function cardAccessibilityLabel(payload: UsageFigures): string {
     } else {
         parts.push(emptyLine(payload));
     }
-    const quiet = quietLine(payload);
-    if (quiet.length > 0) parts.push(quiet.join(', '));
+    if (facts.length > 0) parts.push(facts.join(', '));
     parts.push(t('plugins.rightNow.opensUsage'));
     return parts.join('. ');
 }
