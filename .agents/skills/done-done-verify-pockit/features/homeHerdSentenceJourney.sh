@@ -41,7 +41,7 @@ writeFileSync(join(out, 'sentence-proof.txt'), [
     ...pwaLines,
     '',
     `summary: ${phone.length} phone cells and ${pwa.length} PWA cells; the sentence for that state was on screen in every one, and "Healthy" and "Busy" in none.`,
-    'The layout leads the Visual check records for some cells are Home\'s own and pre-exist on main (header spacing, the floating composer over a long list, the space name\'s ellipsis). They are listed in each half\'s layout-leads.txt and disclosed in the pull request; the before/ comparison in the task\'s evidence folder shows the same leads on main.',
+    'The layout leads the Visual check records for some cells are Home\'s own and pre-exist on main (header spacing, the floating composer over a long list, the space name\'s ellipsis). They are printed above and disclosed in the pull request; the before/ comparison in the task\'s evidence folder shows the same leads on main.',
 ].join('\n') + '\n');
 writeFileSync(join(out, 'steps.json'), JSON.stringify({
     target: { version: `muxr release APK ${revision}` },

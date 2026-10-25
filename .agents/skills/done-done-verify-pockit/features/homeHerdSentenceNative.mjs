@@ -7,7 +7,7 @@
 // sentence is on screen before it shoots.
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -32,7 +32,7 @@ const SERIAL = emu.serial;
 // Before any stack starts: its adb reverse must name this emulator, never another attached device.
 setAndroidSerial(SERIAL);
 const journal = [];
-const note = (line) => { journal.push(line); console.log(line); writeFileSync(join(OUT, 'journey.log'), `${journal.join('\n')}\n`); };
+const note = (line) => { journal.push(line); console.log(line); };
 note(`emulator ${SERIAL} pid ${emu.pid}, APK revision ${revision}`);
 // A throw anywhere below must not leave the emulator holding a fleet slot: the
 // graceful stop runs at the end, this one runs on any exit path.
@@ -145,7 +145,7 @@ const results = [];
 // over the list). Kept in one file for the self-review: the claim this run
 // proves is the sentence, and the screenshots carry the layout.
 const leads = [];
-writeFileSync(`${OUT}/layout-leads.txt`, 'Home layout leads, recorded for the self-review. Every one of them is Home\'s own and pre-exists on main (the header\'s status sits 2dp under its title by design, the floating composer covers the last line of a long list, the strip\'s accessibility node covers its own refresh control). None is part of this claim.\n');
+note("layout leads below are Home's own and pre-exist on main: the header's status sits 2dp under its title by design, the floating composer covers the last line of a long list, the strip's accessibility node covers its own refresh control. None is part of this claim.");
 try {
     adbOnce('install', '-r', APK);
 } catch {
@@ -203,10 +203,6 @@ for (const state of ['working', 'waiting', 'stopped', 'ready', 'none']) {
         await relaunch();
         await waitFor(`${state} on Home at ${cell.w}dp`, () => ready(state), 90_000);
         const name = `home-herd-${state}-${cell.w}-${cell.font}-${cell.theme}`;
-        // The Visual leads stay in each cell's .check.txt for the self-review:
-        // Home's header and composer carry leads of their own on main (the
-        // header's status sits 2dp under its title by design), so only this
-        // journey's own checks fail the run.
         // The pull behind the Visual check can drop on a loaded emulator, and
         // the check then dies before writing the cell's dump: retry the cell's
         // capture rather than losing the run to one adb hiccup.
@@ -218,14 +214,14 @@ for (const state of ['working', 'waiting', 'stopped', 'ready', 'none']) {
             await sleep(2_000);
         }
         const cellLeads = report.split('\n').filter((row) => row.startsWith('DEFECT'));
-        if (cellLeads.length > 0) appendFileSync(`${OUT}/layout-leads.txt`, `${name}:\n  ${cellLeads.join('\n  ')}\n`);
+        for (const lead of cellLeads) note(`  ${lead}`);
         const saved = readFileSync(`${OUT}/${name}.xml`, 'utf8');
         const onScreen = new RegExp(SENTENCE[state].replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s')).test(saved);
         const word = /text="(Healthy|Busy)"/.test(saved);
         results.push({ cell: name, state, sentence: SENTENCE[state], sentenceOnScreen: onScreen, machineWord: word });
         if (!onScreen) throw new Error(`${name}: the sentence is not on screen`);
         if (word) throw new Error(`${name}: the old machine word is still on screen`);
-        console.log(`${name}: sentence present, ${cellLeads.length} layout leads${word ? ', OLD WORD STILL THERE' : ''}`);
+        console.log(`${name}: state=${state} sentence="${SENTENCE[state]}" on_screen=yes "Healthy"/"Busy"=absent${cellLeads.length > 0 ? ` layout-leads=${cellLeads.length}` : ''}`);
     }
 }
 

@@ -86,10 +86,9 @@ Preconditions:
   A `visualCheck` lead fails the cell only when it names the card's own line:
   Home's header (its status sits 2dp under its title), the composer over the
   list and the strip's own refresh control carry leads of their own on main.
-  Both halves write those leads once, into `layout-leads.txt` for the
-  self-review, instead of a per-cell verdict file — the claim a run proves is
-  the sentence, and `sentence-proof.txt` records it per cell with whether
-  `Healthy`/`Busy` appeared. The 270 dp cells carry the same leads as a
+  Neither half writes a verdict file: the leads are printed with the run's
+  stdout, and `sentence-proof.txt` records the claim per cell — the sentence
+  that was on screen and that `Healthy`/`Busy` never appeared. The 270 dp cells carry the same leads as a
   `CELL_FILTER='^270'` run against main (`OUT_PREFIX=before-` writes the
   comparison set beside them).
 

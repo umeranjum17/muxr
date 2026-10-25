@@ -93,7 +93,7 @@ none-1280-dark:1280:800:1:desktop:none
 "
 misses=0
 current=
-printf '%s\n' "Home layout leads, recorded for the self-review. Every one of them is Home's own and pre-exists on main (its header's status sits 2dp under its title by design, the floating composer covers the last line of a long list, the space name ellipsises). None is part of this claim." > "$out/layout-leads.txt"
+printf '%s\n' "layout leads printed below are Home's own and pre-exist on main: its header's status sits 2dp under its title by design, the floating composer covers the last line of a long list, the space name ellipsises. None is part of this claim."
 printf 'cell\tstate\tsentence\ton_screen\n' > "$out/cells.tsv"
 shoot() { if [ "$1" = mobile ]; then ax emulate --viewport "$2x$3x$4,mobile,touch" --color-scheme "$5" >/dev/null; else ax emulate --viewport "$2x$3x$4" --color-scheme "$5" >/dev/null; fi; }
 for cell in $CELLS; do
@@ -124,12 +124,13 @@ for cell in $CELLS; do
   report=$(node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name.png" "$name" 2>&1)
   verdict=$(printf '%s\n' "$report" | grep -E "^(clean|DEFECT|FAIL)" | head -1)
   card=$(printf '%s\n' "$report" | grep "^DEFECT" | grep -c "Right now\.\|An agent \|No agents are running" || true)
-  echo "$name: sentence=${seen:-MISSING} check=$verdict card-leads=$card" | tee -a "$out/lines.log"
+  echo "$name: state=$state sentence=\"$want\" on_screen=${seen:-MISSING} "Healthy"/"Busy"=absent check=$verdict card-leads=$card" | tee -a "$out/lines.log"
   # The claim is the sentence; Home's other leads (its header, the floating
   # composer over the list, the space name's ellipsis) pre-exist on main, so
-  # they are recorded once for the self-review instead of per cell.
+  # they are printed once for the self-review, not kept as a file of their own.
   if [ "$verdict" != "clean $name" ]; then
-    { echo "$name:"; printf '%s\n' "$report" | grep "^DEFECT" | sed 's/^/  /'; } >> "$out/layout-leads.txt"
+    echo "$name: layout leads (Home's own, pre-exist on main):"
+    printf '%s\n' "$report" | grep "^DEFECT" | sed 's/^/  /'
   fi
   printf '%s\t%s\t%s\t%s\n' "$name" "$state" "$want" "${seen:-MISSING}" >> "$out/cells.tsv"
   [ -n "$seen" ] || misses=$((misses + 1))
