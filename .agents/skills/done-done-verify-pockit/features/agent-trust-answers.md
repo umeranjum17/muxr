@@ -11,7 +11,9 @@ agent started in on that computer, else the folder desktop setup chose there
 (see the README), else `~`. A start in the home folder counts as its own choice:
 the phone remembers `~` per computer and resolves it on the host, so a later
 relaunch starts there again. A folder desktop setup saves after that start wins
-back, so the remembered start never hides setup's choice.
+back, so the remembered start never hides setup's choice. A start also uses up
+the folder picked in the dock, so the next Start resolves from the remembered
+start and setup's folder again instead of a pick that has already been used.
 
 ## Sub-features
 
