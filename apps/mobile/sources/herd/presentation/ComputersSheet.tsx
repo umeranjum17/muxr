@@ -12,7 +12,7 @@
  */
 
 import * as React from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, View, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
@@ -120,8 +120,9 @@ function displayName(grant: StoredHostedGrant, liveName: string | undefined): st
     return 'Paired computer';
 }
 
-export function ComputerRows({ rows, onPick, loadingId }: { rows: ComputerRow[]; onPick: (row: ComputerRow) => void; loadingId?: string }): React.JSX.Element {
+export function ComputerRows({ rows, onPick, loadingId, wrapNames = false }: { rows: ComputerRow[]; onPick: (row: ComputerRow) => void; loadingId?: string; wrapNames?: boolean }): React.JSX.Element {
     const { theme } = useUnistyles();
+    const narrow = useWindowDimensions().width < 200;
     return (
         <ItemGroup title="Your computers" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
             {rows.map((row) => {
@@ -131,7 +132,8 @@ export function ComputerRows({ rows, onPick, loadingId }: { rows: ComputerRow[];
                     .filter((part): part is string => Boolean(part)).join(' • ');
                 const selectable = (row.state === 'online' || row.state === 'ssh') && !row.inUse && row.grant !== undefined && row.disabledReason === undefined;
                 return (
-                    <Item key={row.id} title={row.name}
+                    <Item key={row.id} title={row.name} titleLines={wrapNames ? 0 : undefined}
+                        style={wrapNames && narrow ? { flexDirection: 'column', alignItems: 'stretch' } : undefined}
                         titleStyle={{ color: theme.colors.text }} subtitleStyle={{ color: theme.colors.textSecondary }}
                         subtitle={subtitle} subtitleLines={0}
                         icon={<View style={row.state !== 'online' ? { opacity: 0.5 } : undefined}>
@@ -294,7 +296,7 @@ export function ComputersSheet({ visible, sessionId, agentKind, agentName, onClo
                 </ItemGroup>
             )}
 
-            <ComputerRows rows={rows} onPick={requestSwitch} loadingId={switching ?? undefined} />
+            <ComputerRows rows={rows} onPick={requestSwitch} loadingId={switching ?? undefined} wrapNames={sessionId === undefined} />
 
             <ItemGroup title="Add a computer" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
                 <Item

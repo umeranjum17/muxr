@@ -652,7 +652,9 @@ export const HomeDock = React.memo(({
     // Absent unless the agent's provider has two or more accounts.
     const accountLine = useAccountLine(agentType);
     const hasPrompt = prompt.trim().length > 0 || selectedAttachments.length > 0;
-    const compact = useWindowDimensions().width < 330;
+    const { width, fontScale } = useWindowDimensions();
+    const compact = width < 330;
+    const wrapComputer = fontScale > 1.3 || width < 270;
     const catalogReady = hostAgentKinds !== null && catalogMachineId === connectionMachineId && socketStatus.status === 'connected';
     const computerName = selectedMachine?.metadata?.displayName?.trim() || 'This computer';
     const canSubmit = !isSubmitting && hasPrompt && catalogReady;
@@ -840,7 +842,7 @@ export const HomeDock = React.memo(({
     };
 
     const environmentRows: SettingsRow[] = [
-        { page: 'computer', label: 'COMPUTER', value: computerName, detail: socketStatus.status === 'connected' ? 'Online' : 'Not connected', icon: 'desktop-outline' },
+        { page: 'computer', label: 'COMPUTER', value: computerName, detail: socketStatus.status === 'connected' ? 'Online' : 'Not connected', icon: 'desktop-outline', stacked: wrapComputer },
         { page: 'agent', label: 'AGENT', value: currentAgent.name, detail: catalogError ?? installPhase ?? currentAgent.description, icon: 'hardware-chip-outline' },
         ...(accountLine === null ? [] : [{ page: 'account', label: 'ACCOUNT', value: accountLine.value, detail: accountLine.detail, icon: 'person-circle-outline' as const, stacked: true }]),
         { page: 'project', label: 'PROJECT', value: currentProject?.name ?? '~', icon: 'folder-outline' },
@@ -867,7 +869,7 @@ export const HomeDock = React.memo(({
         >
             <BubblePressable
                 onPress={() => setOpenSheet(row.page as EnvironmentSetting)}
-                style={styles.focusConfigRow}
+                style={[styles.focusConfigRow, row.page === 'computer' && width < 200 && { flexDirection: 'column', alignItems: 'stretch' }]}
                 accessibilityRole="button"
                 accessibilityLabel={row.label}
             >
