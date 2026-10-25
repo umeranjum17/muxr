@@ -34,7 +34,10 @@ export function createWorld({
     const emptyCount = Math.max(0, Number(emptyPanes) || 0);
     const workspace = {
         workspace_id: 'w1',
-        label: cwd,
+        // A real workspace is named after its folder, and a lab's folder is a
+        // scratch path: naming it after the path put /tmp/muxr-perf-… on every
+        // Home capture, where the space's chip is read back as clipped text.
+        label: basenameLabel(cwd),
         focused: true,
         worktree: {
             repo_key: 'fake-herdr',
