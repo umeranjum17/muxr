@@ -5,8 +5,7 @@
 
 <p align="center">
   <strong>When an agent needs you, answer from your phone.</strong><br />
-  muxr shows which agent is waiting and what it asks, then lets you answer it in the <em>same</em> live terminal.<br />
-  Your code, sign-ins and model subscriptions stay on your computers.
+  muxr shows which agent is waiting and what it asks, then lets you answer it in the <em>same</em> live terminal. Your code, sign-ins and model subscriptions stay on your computers.
 </p>
 
 <p align="center">
