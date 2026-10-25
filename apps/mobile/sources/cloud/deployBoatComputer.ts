@@ -1,4 +1,5 @@
 import { boat, machine, MachineError, setup, words, type HostRecipe, type MachineRef, type MachineStore, type Price, type Provider } from '@byokit/cloud';
+import { Platform } from 'react-native';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { generateSshLoginKey, sshFingerprint } from '@/connection/sshPublicKey';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/pairing/secrets';
@@ -99,7 +100,7 @@ async function addScreen(provider: Provider, ref: MachineRef): Promise<void> {
 
 /** A saved cloud computer suppresses the dock's create offer, including during setup. */
 export async function hasBoatComputer(): Promise<boolean> {
-    return Boolean((await loadRecord())?.ref);
+    return Platform.OS !== 'web' && Boolean((await loadRecord())?.ref);
 }
 
 /** Whether the computer this phone is connected to is the Boat computer it set up. */
