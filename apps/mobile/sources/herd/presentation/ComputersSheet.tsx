@@ -122,9 +122,11 @@ function displayName(grant: StoredHostedGrant, liveName: string | undefined): st
 
 export function ComputerRows({ rows, onPick, loadingId, wrapNames = false }: { rows: ComputerRow[]; onPick: (row: ComputerRow) => void; loadingId?: string; wrapNames?: boolean }): React.JSX.Element {
     const { theme } = useUnistyles();
-    const narrow = useWindowDimensions().width < 200;
+    const { width, fontScale } = useWindowDimensions();
+    const narrow = width < 200;
+    const wrapHeading = wrapNames && width / fontScale < 200;
     return (
-        <ItemGroup title="Your computers" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
+        <ItemGroup title="Your computers" titleStyle={{ color: theme.colors.groupped.sectionTitle }} headerStyle={wrapHeading ? { paddingHorizontal: 12 } : undefined}>
             {rows.map((row) => {
                 const availability = row.checking ? 'Checking…' : STATE_LABEL[row.state];
                 const reason = row.checking ? undefined : [stateReason(row.state, row.inUse), row.disabledReason].filter(Boolean).join(' ');
@@ -160,6 +162,9 @@ export function ComputersSheet({ visible, sessionId, agentKind, agentName, onClo
     const liveMachines = useAllMachines({ includeOffline: true });
     const session = useSession(sessionId ?? '');
     const [hasCloud, setHasCloud] = React.useState(false);
+    const { width, fontScale } = useWindowDimensions();
+    const wrapAddCopy = sessionId === undefined && width / fontScale < 200;
+    const addCopyStyle = wrapAddCopy ? { flexDirection: 'column' as const, alignItems: 'stretch' as const, paddingHorizontal: 8 } : undefined;
     const [readiness, setReadiness] = React.useState<Record<string, string>>({});
     const [grants, setGrants] = React.useState<StoredHostedGrant[]>([]);
     const [probes, setProbes] = React.useState<Record<string, boolean | 'ssh'>>({});
@@ -298,9 +303,10 @@ export function ComputersSheet({ visible, sessionId, agentKind, agentName, onClo
 
             <ComputerRows rows={rows} onPick={requestSwitch} loadingId={switching ?? undefined} wrapNames={sessionId === undefined} />
 
-            <ItemGroup title="Add a computer" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
+            <ItemGroup title="Add a computer" titleStyle={{ color: theme.colors.groupped.sectionTitle }} headerStyle={wrapAddCopy ? { paddingHorizontal: 12 } : undefined}>
                 <Item
                     title="Pair a computer"
+                    style={addCopyStyle}
                     titleStyle={{ color: theme.colors.text }}
                     subtitle="Install muxr on it, then pair"
                     titleLines={0}
@@ -312,6 +318,7 @@ export function ComputersSheet({ visible, sessionId, agentKind, agentName, onClo
                 />
                 {(sessionId !== undefined || !hasCloud) && <Item
                     title={sessionId === undefined ? 'Create a cloud computer' : 'Add a cloud computer'}
+                    style={addCopyStyle}
                     titleStyle={{ color: theme.colors.text }}
                     subtitle={Platform.OS === 'web' ? 'Set up from the muxr phone app' : 'Boat · from $0.036 an hour'}
                     titleLines={0}

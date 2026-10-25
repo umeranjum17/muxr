@@ -1200,6 +1200,7 @@ export const HomeDock = React.memo(({
                         visible={openSheet === 'project'}
                         title="Project"
                         options={projectOptions}
+                        optionTitleLines={2}
                         selectedKey={currentProject?.key}
                         onSelect={(project) => setPath(project.key)}
                         onClose={() => setOpenSheet(null)}
