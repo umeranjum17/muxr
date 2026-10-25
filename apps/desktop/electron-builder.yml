@@ -29,6 +29,17 @@ asar: false
 # Native modules are shipped as Node-API prebuilds; nothing needs compiling.
 npmRebuild: false
 
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  notarize: false
+  artifactName: muxr-${version}-mac-${arch}.${ext}
+
 linux:
   target:
     - AppImage

@@ -52,6 +52,9 @@ rules, with no H2 sections.
   AppImage: link and QR on the phone, `/desktop` download, real scan of the
   desktop's QR, timed tap-to-paired, and a 270dp font 2.0 unreachable-relay
   failure that recovers with Try again; absent on web/PWA.
+- [Install the macOS desktop host and pair a terminal client](./macos-desktop-app.md) —
+  arm64 DMG install and live terminal in a paired private PWA; separate ad-hoc
+  packaging from Developer ID signing, API notarization and stapled trust proof.
 - [Pair the phone from the installable desktop app](./linux-desktop-app.md) —
   a Linux AppImage wrapping the relay and host (the `/desktop` page names the
   FUSE 2 fallback, `--appimage-extract-and-run`): launch→Ready timing with and
