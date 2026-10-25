@@ -44,7 +44,8 @@ import { LinkFirstClient } from '../../apps/mobile/sources/pairing/infrastructur
 // The machine's own HOME, so `muxr connect` writes its service definition there
 // (service commands stay off, with explicit fake-manager admission for HOME)
 // and never near the desk's muxr.service.
-const root = mkdtempSync(join(tmpdir(), 'muxr-link-shared-relay-'));
+// Leave room for the runner's scratch prefix and pair.sock.<pid> (107 bytes).
+const root = mkdtempSync(join(tmpdir(), 'mx-shr-'));
 const home = join(root, '.muxr');
 mkdirSync(home, { mode: 0o700 });
 process.env.MUXR_HOME = home;
@@ -133,7 +134,7 @@ describe('a shared-relay machine joins the link through the owner enrolment', ()
         const joined = new Promise<number | null>((resolve) => connect.once('exit', resolve));
         await until(() => (existsSync(join(home, 'selfhost.json')) || connect.exitCode !== null ? true : undefined), 'connect writes the machine state');
         startMachine();
-        expect(await joined, connect.output()).toBe(0);
+        expect(await joined, `${connect.output()}\nhost: ${host?.output()}`).toBe(0);
         const state = readSelfhostState();
         expect(state).toMatchObject({ relayLocation: 'remote', relayUrl: relayUrl(), connectionMode: 'remote' });
         expect(state.mintSecret).toBeUndefined();
