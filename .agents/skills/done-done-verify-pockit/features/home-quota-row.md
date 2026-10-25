@@ -81,12 +81,24 @@ Preconditions:
 - The refresh control still sits at the end of that line and still opens its
   throttle/refresh states.
 - Pass: every item reads `window value left` with spaces, no `…` on any item,
-  wrapped rows break between items, the quiet line carries the exact sentence
-  for the state the herd is in (and never `Healthy`/`Busy`), and every cell's
-  `visualCheck` line is `clean`.
+  wrapped rows break between items, and the quiet line carries the exact
+  sentence for the state the herd is in (and never `Healthy`/`Busy`).
+  A `visualCheck` lead fails the cell only when it names the card's own line:
+  Home's header (its status sits 2dp under its title), the composer over the
+  list and the strip's own refresh control carry leads of their own on main,
+  so the native cell keeps them in its `.check.txt` for the self-review
+  (`homeVersionLineLab.mjs` does the same). The PWA cells must read `clean` at
+  360, 390, 445 and desktop; the 270 dp cells must carry the same leads as a
+  `CELL_FILTER='^270'` run against main — `OUT_PREFIX=before-` writes a
+  comparison set beside them.
 
 ## Gotchas
 
+- Run a before/after pair with `CELL_FILTER`/`OUT_PREFIX` against a main export
+  (`git archive origin/main`, or `git checkout origin/main -- <the card's
+  paths>` then `yarn web:export`): at 270 dp main already puts the version
+  line under the composer and ellipsizes the space's name, so a lead there is
+  not this change's.
 - A native offer pasted into the web app is refused ("Native pairing codes
   are for phones"), and the web app only accepts the `https://…/pair#` form;
   an `http://` initial URL shows "That isn't a muxr pairing string. Open

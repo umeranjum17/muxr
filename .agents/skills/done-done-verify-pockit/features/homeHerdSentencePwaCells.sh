@@ -6,6 +6,8 @@
 # to carry the exact sentence (and never the old Healthy/Busy word) and run
 # through pwa-check. Exit 1 on any miss.
 #   scripts/diagnostics/application/withPrivateXvfb.sh bash <this> <web export dir> <out dir>
+# Optional CELL_FILTER (a shell case pattern on the cell name) and OUT_PREFIX
+# narrow a comparison run to the cells it needs.
 # The export must carry the lab hook (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export).
 set -u
 wt=$PWD
@@ -94,6 +96,9 @@ current=
 shoot() { if [ "$1" = mobile ]; then ax emulate --viewport "$2x$3x$4,mobile,touch" --color-scheme "$5" >/dev/null; else ax emulate --viewport "$2x$3x$4" --color-scheme "$5" >/dev/null; fi; }
 for cell in $CELLS; do
   IFS=: read -r nm w h dpr kind state <<<"$cell"
+  # CELL_FILTER (an extended regex) and OUT_PREFIX let a comparison run take
+  # only the cells it needs.
+  if [ -n "${CELL_FILTER:-}" ] && ! [[ $nm =~ $CELL_FILTER ]]; then continue; fi
   theme=light; case "$nm" in *dark) theme=dark ;; esac
   if [ "$state" != "$current" ]; then
     echo "1 $(herdr "$state")" >&3
@@ -111,7 +116,7 @@ for cell in $CELLS; do
     sleep 1
   done
   shoot "$kind" "$w" "$h" "$dpr" "$theme"; sleep 3
-  name="home-herd-$nm"
+  name="home-herd-${OUT_PREFIX:-}$nm"
   ax screenshot "$out/$name.png" >/dev/null
   text=$(ax eval "document.body.innerText.replace(/\\n/g, ' | ')" | head -1)
   node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name.png" "$name" >"$out/$name.check.txt" 2>&1
