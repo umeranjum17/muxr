@@ -50,6 +50,7 @@ export function OptionSheet({
     title,
     options: models,
     selectedKey,
+    optionTitleLines = 1,
     onSelect,
     onClose,
     emptyText,
@@ -74,6 +75,8 @@ export function OptionSheet({
     /** Content height before the sheet cap is applied. */
     virtualizedBodyHeight?: number;
     selectedKey?: string | null;
+    /** Cap long project paths without forcing agent/model options to wrap. */
+    optionTitleLines?: number;
     onSelect: (option: ModelMode) => void;
     onClose: () => void;
     emptyText?: string;
@@ -198,7 +201,7 @@ export function OptionSheet({
                     />
                 )}
                 <View style={styles.rowCopy}>
-                    <Text style={styles.rowTitle} numberOfLines={1}>{model.name}</Text>
+                    <Text style={styles.rowTitle} numberOfLines={optionTitleLines} ellipsizeMode="tail">{model.name}</Text>
                     {!!model.description && (
                         <Text style={styles.rowSubtitle} numberOfLines={2}>{model.description}</Text>
                     )}

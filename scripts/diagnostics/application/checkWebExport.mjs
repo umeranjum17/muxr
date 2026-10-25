@@ -197,7 +197,9 @@ if (!existsSync(distIndex)) {
     // The demo-first landing an unpaired browser gets (sample herd, one conversation, pair card) measures 1,786,323 B in CI.
     // Home's herd sentence (five lines about an agent's state, in ten languages) and the code that picks one measure
     // 1,789,458 B in CI, 3,549 B over the same export with the sentences out.
-    const USABLE_GZIP_CEILING = 1790500;
+    // The Computer row's eager code adds 2,247 B over that main export,
+    // measuring 1,791,705 B on the merge; keep about 1 kB of headroom.
+    const USABLE_GZIP_CEILING = 1792800;
     check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,

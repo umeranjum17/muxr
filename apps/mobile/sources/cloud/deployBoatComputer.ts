@@ -1,4 +1,5 @@
 import { boat, machine, MachineError, setup, words, type HostRecipe, type MachineRef, type MachineStore, type Price, type Provider } from '@byokit/cloud';
+import { Platform } from 'react-native';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { generateSshLoginKey, sshFingerprint } from '@/connection/sshPublicKey';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '@/pairing/secrets';
@@ -95,6 +96,11 @@ async function addScreen(provider: Provider, ref: MachineRef): Promise<void> {
     const done = await provider.exec(ref, ADD_SCREEN, { root: true, timeoutMs: SCREEN_TIMEOUT_MS });
     if (done.timedOut) throw new Error('Adding the screen took longer than 15 minutes on your Boat computer. Try again.');
     if (done.code !== 0) throw new Error(`The screen did not install on your Boat computer: ${(done.stderr.trim() || done.stdout.trim()).slice(-300)}`);
+}
+
+/** A saved cloud computer suppresses the dock's create offer, including during setup. */
+export async function hasBoatComputer(): Promise<boolean> {
+    return Platform.OS !== 'web' && Boolean((await loadRecord())?.ref);
 }
 
 /** Whether the computer this phone is connected to is the Boat computer it set up. */

@@ -226,6 +226,8 @@ rules, with no H2 sections.
   the spinner giving way to a check mark naming the computer, at 360dp/270dp font 1.3
   and 393/270 px, dark and light.
 - [Pick which computer an agent runs on](./computers-sheet.md) —
+  Home's new-agent dock starts with COMPUTER; picking a paired computer reloads
+  its agent/project/worktree lists, never falls back, and offers cloud creation;
   two-host lab (distinct UTS hostnames) driven on a release APK and the lab PWA:
   the pane menu's one Computers row opens the sheet: View screen, each paired
   computer with its Online/Asleep/Offline state and the one in use, and the

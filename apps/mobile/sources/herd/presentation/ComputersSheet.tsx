@@ -12,7 +12,7 @@
  */
 
 import * as React from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, View, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
@@ -28,6 +28,9 @@ import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
 import { realtimeMachineSwitchGuard } from '@/conversation/session';
 import { Modal } from '@/modal';
 import { ActionSheet } from '@/modal/components/ActionSheet';
+import { hasBoatComputer } from '@/cloud';
+import { sync } from '@/catalog/sync';
+import { resolveAgentCatalog } from '@/catalog';
 
 /** Plain states a row can show. "Not paired" is a computer the app is
  * connected to that this phone keeps no pairing for. */
@@ -41,6 +44,7 @@ export interface ComputerRow {
     checking: boolean;
     grant?: StoredHostedGrant;
     disabledReason?: string;
+    readiness?: string;
 }
 
 const STATE_LABEL: Record<ComputerState, string> = {
@@ -87,14 +91,25 @@ function stateColor(state: ComputerState, theme: ReturnType<typeof useUnistyles>
 /** A fresh liveness check that does not touch the app's active connection: open
  * the pairing's own link and see whether the host answers. Resolves true when
  * the link opens, false when it goes stale or does not answer in time. */
-async function probeComputer(grant: StoredHostedGrant): Promise<boolean | 'ssh'> {
+async function probeComputer(grant: StoredHostedGrant, agentKind?: string, agentName = 'Agent'): Promise<{ state: boolean | 'ssh'; readiness?: string }> {
+    let client;
+    let reached = false;
     try {
-        const client = await openPairedMachine(grant);
-        client.close();
-        return true;
+        if (grant.machineId !== getCachedConnectionSettings().machineId) client = await openPairedMachine(grant);
+        reached = true;
+        if (agentKind === undefined || agentKind === 'shell') return { state: true };
+        const catalog = await (client ?? sync).request('herdr.agentKinds', {});
+        const agent = resolveAgentCatalog(catalog).options.find((entry) => entry.kind === agentKind);
+        let readiness = `${agentName} installed`;
+        if (agent === undefined || agent.availability !== 'installed') readiness = `${agentName} not installed: install`;
+        else if (agent.signedIn === 'no') readiness = `${agentName} signed out: sign in`;
+        else if (agent.signedIn === 'yes') readiness = `${agentName} ready`;
+        return { state: true, readiness };
     } catch (cause) {
-        return cause instanceof SshComputerNeedsActivation ? 'ssh' : false;
-    }
+        if (cause instanceof SshComputerNeedsActivation) return { state: 'ssh' };
+        if (reached) return { state: true, readiness: `Could not check ${agentName}: ${cause instanceof Error ? cause.message : String(cause)}` };
+        return { state: false };
+    } finally { client?.close(); }
 }
 
 function displayName(grant: StoredHostedGrant, liveName: string | undefined): string {
@@ -105,18 +120,22 @@ function displayName(grant: StoredHostedGrant, liveName: string | undefined): st
     return 'Paired computer';
 }
 
-export function ComputerRows({ rows, onPick, loadingId }: { rows: ComputerRow[]; onPick: (row: ComputerRow) => void; loadingId?: string }): React.JSX.Element {
+export function ComputerRows({ rows, onPick, loadingId, wrapNames = false }: { rows: ComputerRow[]; onPick: (row: ComputerRow) => void; loadingId?: string; wrapNames?: boolean }): React.JSX.Element {
     const { theme } = useUnistyles();
+    const { width, fontScale } = useWindowDimensions();
+    const narrow = width < 200;
+    const wrapHeading = wrapNames && width / fontScale < 200;
     return (
-        <ItemGroup title="Your computers" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
+        <ItemGroup title="Your computers" titleStyle={{ color: theme.colors.groupped.sectionTitle }} headerStyle={wrapHeading ? { paddingHorizontal: 12 } : undefined}>
             {rows.map((row) => {
                 const availability = row.checking ? 'Checking…' : STATE_LABEL[row.state];
                 const reason = row.checking ? undefined : [stateReason(row.state, row.inUse), row.disabledReason].filter(Boolean).join(' ');
-                const subtitle = [availability, row.inUse ? 'In use' : undefined, reason]
+                const subtitle = [availability, row.inUse ? 'In use' : undefined, row.readiness, reason]
                     .filter((part): part is string => Boolean(part)).join(' • ');
                 const selectable = (row.state === 'online' || row.state === 'ssh') && !row.inUse && row.grant !== undefined && row.disabledReason === undefined;
                 return (
-                    <Item key={row.id} title={row.name}
+                    <Item key={row.id} title={row.name} titleLines={wrapNames ? 0 : undefined}
+                        style={wrapNames && narrow ? { flexDirection: 'column', alignItems: 'stretch' } : undefined}
                         titleStyle={{ color: theme.colors.text }} subtitleStyle={{ color: theme.colors.textSecondary }}
                         subtitle={subtitle} subtitleLines={0}
                         icon={<View style={row.state !== 'online' ? { opacity: 0.5 } : undefined}>
@@ -125,7 +144,7 @@ export function ComputerRows({ rows, onPick, loadingId }: { rows: ComputerRow[];
                         rightElement={row.inUse ? <Ionicons name="checkmark-circle" size={25} color={theme.colors.status.connected} /> : undefined}
                         loading={row.checking || loadingId === row.id} showChevron={false}
                         onPress={selectable ? () => onPick(row) : undefined}
-                        accessibilityLabel={`${row.name}. ${availability}${row.inUse ? '. In use' : ''}${reason === undefined ? '' : `. ${reason}`}`}
+                        accessibilityLabel={[row.name, availability, row.inUse ? 'In use' : undefined, row.readiness, reason].filter(Boolean).join('. ')}
                     />
                 );
             })}
@@ -135,13 +154,18 @@ export function ComputerRows({ rows, onPick, loadingId }: { rows: ComputerRow[];
 
 /** `onViewScreen` is given only where the connected computer's screen can be
  * opened (the desktop view is available and this phone controls the pane). */
-export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { visible: boolean; sessionId: string; onClose: () => void; onViewScreen?: () => void }): React.JSX.Element {
+export function ComputersSheet({ visible, sessionId, agentKind, agentName, onClose, onViewScreen, onLeave }: { visible: boolean; sessionId?: string; agentKind?: string; agentName?: string; onClose: () => void; onViewScreen?: () => void; onLeave?: () => void }): React.JSX.Element {
     const { theme } = useUnistyles();
     const router = useRouter();
     const auth = useAuth();
     const socketStatus = useSocketStatus();
     const liveMachines = useAllMachines({ includeOffline: true });
-    const session = useSession(sessionId);
+    const session = useSession(sessionId ?? '');
+    const [hasCloud, setHasCloud] = React.useState(false);
+    const { width, fontScale } = useWindowDimensions();
+    const wrapAddCopy = sessionId === undefined && width / fontScale < 200;
+    const addCopyStyle = wrapAddCopy ? { flexDirection: 'column' as const, alignItems: 'stretch' as const, paddingHorizontal: 8 } : undefined;
+    const [readiness, setReadiness] = React.useState<Record<string, string>>({});
     const [grants, setGrants] = React.useState<StoredHostedGrant[]>([]);
     const [probes, setProbes] = React.useState<Record<string, boolean | 'ssh'>>({});
     const [switching, setSwitching] = React.useState<string | null>(null);
@@ -166,19 +190,27 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
         if (!visible || switching !== null) return;
         let cancelled = false;
         setProbes({});
+        setReadiness({});
+        void hasBoatComputer().then((exists) => { if (!cancelled) setHasCloud(exists); }).catch((cause) => {
+            if (!cancelled) Modal.alert('Could not check your cloud computer', cause instanceof Error ? cause.message : String(cause));
+        });
         void listPairedGrants().then((all) => {
             if (cancelled) return;
             setGrants(all);
-            for (const grant of all.filter((entry) => entry.machineId !== activeMachineId)) {
-                void probeComputer(grant)
-                    .then((online) => { if (!cancelled) setProbes((current) => ({ ...current, [grant.machineId]: online })); });
+            for (const grant of all) {
+                if (grant.machineId === activeMachineId && agentKind === undefined) continue;
+                void probeComputer(grant, agentKind, agentName).then((result) => {
+                    if (cancelled) return;
+                    setProbes((current) => ({ ...current, [grant.machineId]: result.state }));
+                    if (result.readiness !== undefined) setReadiness((current) => ({ ...current, [grant.machineId]: result.readiness! }));
+                });
             }
         }).catch((cause) => {
             if (cancelled) return;
             Modal.alert('Could not load computers', cause instanceof Error ? cause.message : String(cause));
         });
         return () => { cancelled = true; };
-    }, [visible, activeMachineId, switching]);
+    }, [visible, activeMachineId, switching, agentKind, agentName]);
 
     const rows = React.useMemo<ComputerRow[]>(() => {
         const liveById = new Map(liveMachines.map((machine) => [machine.id, machine]));
@@ -195,6 +227,7 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
                 inUse: grant.machineId === agentMachineId,
                 checking: !isActive && probed === undefined,
                 grant,
+                readiness: readiness[grant.machineId],
                 disabledReason: state === 'ssh' && !sshTunnelAvailable() ? 'Open this computer in the muxr phone app.' : undefined,
             });
         }
@@ -212,7 +245,7 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
             });
         }
         return next;
-    }, [effectiveActiveId, agentMachineId, grants, liveMachines, probes, effectiveConnected]);
+    }, [effectiveActiveId, agentMachineId, grants, liveMachines, probes, effectiveConnected, readiness]);
 
     // Tapping another online computer asks first, through the app's own dialog
     // rather than the stock OS alert, whose caps'd buttons and system chrome
@@ -232,6 +265,8 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
         setSwitchSnapshot({ from: getCachedConnectionSettings().machineId, connected: socketStatus.status === 'connected' });
         setSwitching(row.id);
         try {
+            const reachable = await probeComputer(grant);
+            if (reachable.state === false) throw new Error(`Couldn't reach ${row.name}. Nothing was started.`);
             const activated = await pairMachine({ grant, endVoiceIfPinned: voiceActive });
             if (!activated.ok) throw new Error(activated.reason === 'failed' ? activated.message : 'Realtime voice is still pinned to another computer');
             await auth.login(activated.credential, activated.secretKey);
@@ -239,13 +274,14 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
             // The agent on the computer just left stays where it was; the
             // stack holds one agent over Home, so back lands on the newly
             // connected computer's agents.
-            router.back();
+            if (sessionId !== undefined) router.back();
         } catch (cause) {
             Modal.alert('Could not switch computer', cause instanceof Error ? cause.message : String(cause));
+        } finally {
             setSwitching(null);
             setSwitchSnapshot(null);
         }
-    }, [auth, confirm, onClose, router, socketStatus.status]);
+    }, [auth, confirm, onClose, router, socketStatus.status, sessionId]);
 
     const body = (
         <View>
@@ -265,31 +301,33 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
                 </ItemGroup>
             )}
 
-            <ComputerRows rows={rows} onPick={requestSwitch} loadingId={switching ?? undefined} />
+            <ComputerRows rows={rows} onPick={requestSwitch} loadingId={switching ?? undefined} wrapNames={sessionId === undefined} />
 
-            <ItemGroup title="Add a computer" titleStyle={{ color: theme.colors.groupped.sectionTitle }}>
+            <ItemGroup title="Add a computer" titleStyle={{ color: theme.colors.groupped.sectionTitle }} headerStyle={wrapAddCopy ? { paddingHorizontal: 12 } : undefined}>
                 <Item
                     title="Pair a computer"
+                    style={addCopyStyle}
                     titleStyle={{ color: theme.colors.text }}
                     subtitle="Install muxr on it, then pair"
                     titleLines={0}
                     subtitleLines={0}
                     subtitleStyle={{ color: theme.colors.textSecondary }}
                     showChevron
-                    onPress={() => { onClose(); router.push('/add-computer'); }}
+                    onPress={() => { onClose(); onLeave?.(); router.push('/add-computer'); }}
                     icon={<Ionicons name="add-circle-outline" size={29} color={theme.colors.textSecondary} />}
                 />
-                <Item
-                    title="Add a cloud computer"
+                {(sessionId !== undefined || !hasCloud) && <Item
+                    title={sessionId === undefined ? 'Create a cloud computer' : 'Add a cloud computer'}
+                    style={addCopyStyle}
                     titleStyle={{ color: theme.colors.text }}
                     subtitle={Platform.OS === 'web' ? 'Set up from the muxr phone app' : 'Boat · from $0.036 an hour'}
                     titleLines={0}
                     subtitleLines={0}
                     subtitleStyle={{ color: theme.colors.textSecondary }}
                     showChevron
-                    onPress={() => { onClose(); router.push('/cloud-computer'); }}
+                    onPress={() => { onClose(); onLeave?.(); router.push('/cloud-computer'); }}
                     icon={<Ionicons name="cloud-outline" size={29} color={theme.colors.textSecondary} />}
-                />
+                />}
             </ItemGroup>
         </View>
     );
@@ -298,11 +336,11 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
     // is set to; the scope sits here, in this sheet's own render, so the rows
     // it mounts on its own state (the pairing read, the liveness probes) read
     // it too instead of the phone's theme.
-    return (
-        <ScopedTheme name="dark">
+    const content = (
+        <>
             <OptionSheet
                 visible={visible}
-                title="Computers"
+                title={sessionId === undefined ? 'Start on' : 'Computers'}
                 options={[]}
                 onSelect={() => undefined}
                 onClose={onClose}
@@ -326,6 +364,7 @@ export function ComputersSheet({ visible, sessionId, onClose, onViewScreen }: { 
                     onConfirm={(value) => { if (value) { void doSwitch(); } else { setConfirm(null); } }}
                 />
             )}
-        </ScopedTheme>
+        </>
     );
+    return sessionId === undefined ? content : <ScopedTheme name="dark">{content}</ScopedTheme>;
 }
