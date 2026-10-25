@@ -490,12 +490,16 @@ export const HomeDock = React.memo(({
     onSubmit,
     onStartBlank,
     isSubmitting,
+    focusModeVisible,
+    onFocusModeChange,
 }: {
     prompt: string;
     onPromptChange: (prompt: string) => void;
     onSubmit: () => Promise<boolean>;
     onStartBlank: () => Promise<boolean>;
     isSubmitting: boolean;
+    focusModeVisible: boolean;
+    onFocusModeChange: (visible: boolean) => void;
 }) => {
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
@@ -503,9 +507,8 @@ export const HomeDock = React.memo(({
     const inputRef = React.useRef<TextInput>(null);
     const focusedInputRef = React.useRef<TextInput>(null);
     const focusAnimationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    const focusPresentation = useSharedValue(0);
-    const [isFocused, setIsFocused] = React.useState(false);
-    const [focusModeVisible, setFocusModeVisible] = React.useState(false);
+    const focusPresentation = useSharedValue(focusModeVisible ? 1 : 0);
+    const [isFocused, setIsFocused] = React.useState(focusModeVisible);
     const [openSheet, setOpenSheet] = React.useState<EnvironmentSetting | null>(null);
     const promptRef = React.useRef(prompt);
     promptRef.current = prompt;
@@ -784,7 +787,7 @@ export const HomeDock = React.memo(({
         }
         focusPresentation.value = 0;
         setIsFocused(true);
-        setFocusModeVisible(true);
+        onFocusModeChange(true);
         focusAnimationTimerRef.current = setTimeout(() => {
             focusPresentation.value = withTiming(1, {
                 duration: 340,
@@ -792,12 +795,12 @@ export const HomeDock = React.memo(({
             });
             focusAnimationTimerRef.current = null;
         }, 16);
-    }, [focusPresentation]);
+    }, [focusPresentation, onFocusModeChange]);
 
     const finishCloseFocusMode = React.useCallback(() => {
         setIsFocused(false);
-        setFocusModeVisible(false);
-    }, []);
+        onFocusModeChange(false);
+    }, [onFocusModeChange]);
 
     const closeFocusMode = React.useCallback(() => {
         if (focusAnimationTimerRef.current) {
@@ -972,14 +975,14 @@ export const HomeDock = React.memo(({
 
     const submitFromFocusMode = () => {
         if (!canSubmit) return;
-        setFocusModeVisible(false);
+        onFocusModeChange(false);
         setIsFocused(false);
         void submit();
     };
 
     const startBlankSession = () => {
         if (isSubmitting || !catalogReady) return;
-        setFocusModeVisible(false);
+        onFocusModeChange(false);
         setIsFocused(false);
         void onStartBlank();
     };

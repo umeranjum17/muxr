@@ -430,6 +430,8 @@ export const MainView = React.memo(({ liveCardBadge }: {
     const [searchActive, setSearchActive] = React.useState(false);
     const homePrompt = useNewSessionDraft((state) => state.input);
     const setHomePrompt = useNewSessionDraft((state) => state.setInput);
+    // The permission/recovery gate remounts the dock while switching computers.
+    const [dockFocusVisible, setDockFocusVisible] = React.useState(false);
     const [phoneHomeRecovering, setPhoneHomeRecovering] = React.useState(false);
     const [phoneLinkDown, setPhoneLinkDown] = React.useState(false);
     const handlePhoneRecoveryChange = React.useCallback((active: boolean, linkDown: boolean) => {
@@ -610,6 +612,8 @@ export const MainView = React.memo(({ liveCardBadge }: {
                         onSubmit={handleHomePromptSubmit}
                         onStartBlank={handleStartBlankSession}
                         isSubmitting={isStartingHomeSession}
+                        focusModeVisible={dockFocusVisible}
+                        onFocusModeChange={setDockFocusVisible}
                     />
                 )}
             </View>

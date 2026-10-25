@@ -95,6 +95,11 @@ import { HomeDock } from './HomeDock';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
 import { loadNewSessionDraft } from '@/catalog';
 
+function DockHarness({ available = true, ...props }: Omit<React.ComponentProps<typeof HomeDock>, 'focusModeVisible' | 'onFocusModeChange'> & { available?: boolean }) {
+    const [focusModeVisible, onFocusModeChange] = React.useState(false);
+    return available ? <HomeDock {...props} focusModeVisible={focusModeVisible} onFocusModeChange={onFocusModeChange} /> : null;
+}
+
 it('reevaluates automatic Shell on readiness refresh while preserving explicit choices', async () => {
     useNewSessionDraft.getState().setAgentType('codex');
     socketStatus.status = 'connected';
@@ -103,7 +108,7 @@ it('reevaluates automatic Shell on readiness refresh while preserving explicit c
         { kind: 'codex', availability: 'installed', signedIn: 'no' },
     ];
     let screen: any;
-    const render = () => <HomeDock prompt="" onPromptChange={vi.fn()} onSubmit={async () => true} onStartBlank={async () => true} isSubmitting={false} />;
+    const render = (available = true) => <DockHarness available={available} prompt="" onPromptChange={vi.fn()} onSubmit={async () => true} onStartBlank={async () => true} isSubmitting={false} />;
     const checkAgain = () => screen.root.findAll((node: any) => node.type === 'Pressable'
         && node.findAll((child: any) => child.type === 'Text' && child.props.children === 'Check again').length > 0)[0].props.onPress();
     try {
@@ -155,6 +160,14 @@ it('reevaluates automatic Shell on readiness refresh while preserving explicit c
         expect(screen.root.findByType('ComputersSheet').props.visible).toBe(true);
         expect(screen.root.findByType('ComputersSheet').props.agentKind).toBe('claude');
         TestRenderer.act(() => screen.root.findByType('ComputersSheet').props.onClose());
+        const entry = screen.root.findAll((node: any) => node.props.onPress && node.props.style?.justifyContent === 'center')[0];
+        TestRenderer.act(() => entry.props.onPress());
+        expect(screen.root.findByType('Modal').props.visible).toBe(true);
+        TestRenderer.act(() => screen.update(render(false)));
+        expect(screen.root.findAllByType('Modal')).toHaveLength(0);
+        await TestRenderer.act(async () => screen.update(render()));
+        expect(screen.root.findByType('Modal').props.visible).toBe(true);
+        expect(screen.root.findByType('ComputersSheet').props.visible).toBe(false);
 
         TestRenderer.act(() => { screen.root.findAllByType('OptionSheet').find((node: any) => node.props.title === 'Agent').props.onSelect({ key: 'shell' }); });
         await TestRenderer.act(async () => { checkAgain(); });
@@ -178,7 +191,7 @@ it('keeps the short-screen composer below Back and makes Start reachable by scro
     try {
         let screen: any;
         TestRenderer.act(() => { screen = TestRenderer.create(
-            <HomeDock prompt="" onPromptChange={vi.fn()} onSubmit={async () => true} onStartBlank={async () => true} isSubmitting={false} />,
+            <DockHarness prompt="" onPromptChange={vi.fn()} onSubmit={async () => true} onStartBlank={async () => true} isSubmitting={false} />,
             { createNodeMock: (node: any) => node.type === 'ScrollView' ? { scrollToEnd } : null },
         ); });
         const entry = screen.root.findAll((node: any) => node.props.onPress && node.props.style?.justifyContent === 'center')[0];
