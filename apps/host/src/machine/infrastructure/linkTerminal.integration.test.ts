@@ -81,6 +81,7 @@ process.stdin.on('data', (chunk) => {
         } else if (frame.type === 'terminal.scroll') {
             appendFileSync(wheelLog, frame.direction + ' ' + Date.now() + '\\n');
             if (ownsScroll) {
+                appendFileSync(${JSON.stringify(join(dir, 'viewport.log'))}, frame.lines + '\\n');
                 const state = JSON.parse(readFileSync(scrollFile, 'utf8'));
                 state.offsetFromBottom += state.burst;
                 state.burst = 0;
@@ -222,6 +223,55 @@ setInterval(() => {}, 1000);
         expect(results).toContainEqual({ type: 'terminal.bottom-state', requestId: 'burst-bottom', state: 'catching-up' });
         expect(results).toContainEqual({ type: 'terminal.bottom-state', requestId: 'burst-bottom', state: 'complete' });
         expect(readFileSync(join(dir, 'wheel.log'), 'utf8').trim().split('\n')).toHaveLength(2);
+    });
+
+    it('walks a Herdr-owned viewport a screen at a time so the phone keeps every row', { timeout: 15_000 }, async () => {
+        // A pane whose scrollback Herdr owns (a shell): Herdr answers each scroll
+        // with one repainted screen, so a fling sent as one jump leaves the rows
+        // between two screens in Herdr and never on the phone. The host walks the
+        // viewport instead, a step the screen can hold, one repaint per step.
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-viewport-'));
+        cleanups.push(() => removeTestScratch(dir));
+        const scrollFile = join(dir, 'scroll.json');
+        writeFileSync(scrollFile, JSON.stringify({ offsetFromBottom: 0, maxOffsetFromBottom: 400, burst: 0 }));
+        const manager = new TerminalManager({
+            resolvePane: async () => 'pane-1',
+            focusSession: async () => undefined,
+            readPaneScroll: async () => JSON.parse(readFileSync(scrollFile, 'utf8')),
+            openTerminal: openTerminalFor(writeFakeHerdr(dir, true)),
+        });
+        cleanups.push(() => manager.closeAll());
+        let input!: (line: string) => void;
+        const frames: Array<{ type?: string; bytes?: string }> = [];
+        const socket = {
+            isOpen: true,
+            send: (line: string) => { frames.push(JSON.parse(line)); },
+            onLine: (listener: (line: string) => void) => { input = listener; return () => undefined; },
+            onEnd: () => () => undefined,
+            close: () => undefined,
+        };
+        // The reference phone's narrow grid: 5 rows, so a step is 2 rows.
+        await manager.attach({ sessionId: 's1', channel: 'viewport', cols: 20, rows: 5, socket });
+        await waitForScreen(frames);
+
+        // One fling back through 40 rows, the way the app's scroll gate sends it.
+        input(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 40, column: 10, row: 2 }));
+        const steps = (): number[] => (existsSync(join(dir, 'viewport.log'))
+            ? readFileSync(join(dir, 'viewport.log'), 'utf8').split('\n').filter(Boolean).map(Number)
+            : []);
+        const painted = (): number => frames.filter((frame) => frame.type === 'terminal.frame'
+            && Buffer.from(frame.bytes ?? '', 'base64').toString().startsWith('OFFSET')).length;
+        const deadline = Date.now() + 10_000;
+        while ((steps().reduce((sum, step) => sum + step, 0) < 40) && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+
+        // Every row of the fling was walked, no step moved more than the screen
+        // can carry, and each step waited for its repaint to reach the phone: the
+        // phone has one screen per step, so the rows between two of them arrived.
+        expect(steps().reduce((sum, step) => sum + step, 0)).toBe(40);
+        expect(Math.max(...steps())).toBeLessThanOrEqual(2);
+        expect(painted()).toBeGreaterThanOrEqual(steps().length);
     });
 
     it('keeps a streaming full-screen program under the finger and finishes Latest at its live edge', { timeout: 20_000 }, async () => {
