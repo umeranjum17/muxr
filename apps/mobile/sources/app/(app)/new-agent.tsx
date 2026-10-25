@@ -368,6 +368,7 @@ export default function NewAgentScreen() {
                 kinds,
                 squad,
                 worktree,
+                setupFolder: machine?.metadata?.defaultStartFolder,
             });
             if (result.cancelled) {
                 setError(undefined);

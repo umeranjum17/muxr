@@ -8,7 +8,10 @@ row to the tapped one and presses Enter, so trusting the folder never depends
 on finding the down key, and Enter alone (which exits) is never the answer.
 Both start points (Home's Start and New agent) begin in the last folder an
 agent started in on that computer, else the folder desktop setup chose there
-(see the README), else `~`.
+(see the README), else `~`. A start in the home folder counts as its own choice:
+the phone remembers `~` per computer and resolves it on the host, so a later
+relaunch starts there again. A folder desktop setup saves after that start wins
+back, so the remembered start never hides setup's choice.
 
 ## Sub-features
 
@@ -22,6 +25,8 @@ agent started in on that computer, else the folder desktop setup chose there
   the number.
 - An agent started from New agent in a folder makes Home's next Start use that
   folder, and a folder picked on Home is what New agent opens on next.
+- A start in the home folder (`~`) is remembered the same way and survives a
+  relaunch; a folder desktop setup saves afterwards takes over again.
 
 ## How to get to it (user POV)
 
@@ -61,6 +66,10 @@ again; no sign-in is needed, the question comes before it.
    band at 393 and 270 px, light and dark, and tap `Yes, I trust this folder`.
 5. Start folder: start once from New agent in `~/notes-app`; Home's Start now
    reads `notes-app` and its agent's pane cwd (`agent list`) is that folder.
+   Then start once from Home in the home folder (`~`): the agent's pane cwd is
+   the lab home, and after a relaunch Home's Start still reads `~`. Save another
+   folder in desktop setup and Home's Start follows it on the next refresh,
+   because a fresh setup choice outranks the remembered start.
 
 ## Gotchas
 

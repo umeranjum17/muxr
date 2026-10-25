@@ -162,7 +162,7 @@ interactive walkthrough (`muxr config check` validates a hand edit).
 | `machineName` | Friendly name shown for this computer. Unset means setup state, then hostname. |
 | `dataDir` | Absolute path to host data. Unset means `$MUXR_HOME/host`. |
 | `hostHttpPort` | Integer 1-65535. Unset means 8793. |
-| `defaultStartFolder` | Folder a phone's first agent starts in, when that phone has no folder remembered for this computer: an absolute path, or `~`. Unset means `~`. |
+| `defaultStartFolder` | Folder a phone's first agent starts in, when that phone has no folder remembered for this computer: an absolute path, or `~`. Unset means `~`. A phone remembers the folder it last started an agent in there (a start in `~` included); a folder saved here after that start takes over again. |
 
 Absent or partial is normal: every missing key falls back. Malformed is
 fatal and loud: the host prints the file path and the offending key and

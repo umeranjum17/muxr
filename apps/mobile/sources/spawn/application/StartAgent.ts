@@ -14,6 +14,8 @@ export type StartAgentCommand = {
     squad: boolean;
     worktree: boolean;
     createCwd?: boolean;
+    /** The host's setup folder now, so a remembered start records where setup stood. */
+    setupFolder?: string;
 };
 
 export type StartAgentResult =
@@ -42,7 +44,7 @@ export async function startAgent(command: StartAgentCommand): Promise<StartAgent
             };
         }
         const settings = getCachedConnectionSettings();
-        await saveConnectionSettings(rememberSessionCwd(settings, settings.machineId, command.directory));
+        await saveConnectionSettings(rememberSessionCwd(settings, settings.machineId, command.directory, command.setupFolder));
         await refreshUntilSessionVisible(snapshot.info.id);
         return { ok: true, agentRoute: snapshot.info.id };
     } catch (caught: unknown) {
