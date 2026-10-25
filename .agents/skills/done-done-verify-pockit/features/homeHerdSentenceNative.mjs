@@ -212,6 +212,8 @@ for (const state of ['working', 'waiting', 'stopped', 'ready', 'none']) {
             if (attempt === 3) throw new Error(`${name}: the Visual check wrote no dump after 3 attempts:\n${report.slice(-1500)}`);
             await sleep(2_000);
         }
+        // The judge reads this file, so it says what this cell proves.
+        report += `sentence on screen: ${SENTENCE[state]}\nthe old machine word (Healthy/Busy) on screen: no\n`;
         writeFileSync(`${OUT}/${name}.check.txt`, report);
         const leads = report.split('\n').filter((row) => row.startsWith('DEFECT'));
         const saved = readFileSync(`${OUT}/${name}.xml`, 'utf8');
