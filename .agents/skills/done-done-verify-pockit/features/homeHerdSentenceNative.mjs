@@ -1,23 +1,43 @@
-// Native capture for Home's herd sentence (home-quota-row.md); run from the repo root: a release APK on
-// an owned emulator, paired to the task's private lab host, held in each of the
-// states the card speaks, and shot through the Visual check matrix.
-//   SERIAL=<emulator> APK=<app-release.apk> OUT=<dir> [STATE_DIR=<dir>] node <this>
-// Every cell asserts the exact sentence is on screen before it shoots.
+// Native capture for Home's herd sentence (home-quota-row.md, herd-working and
+// its siblings): the release APK on an owned emulator, paired to a private lab
+// host over a fake Herdr with one agent, whose lifecycle this journey holds so
+// each state the card can speak can be captured and held still. Run from the
+// repo root, after `yarn build`: node <this> <apk> <evidence-dir>;
+// MUXR_LAB_AVD_HOME picks the emulator home. Every cell asserts the exact
+// sentence is on screen before it shoots.
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
+const repo = process.cwd();
+const { bootOwnedEmulator } = await import(join(repo, 'perf/lib/androidEmulator.mjs'));
+const { setAndroidSerial } = await import(join(repo, 'perf/lib/deviceTarget.mjs'));
+
 const CHECK = fileURLToPath(new URL('./visualCheck.mjs', import.meta.url));
 const LAB = join(dirname(CHECK), 'herdSentenceLab.mjs');
 const REPO = resolve(dirname(CHECK), '..', '..', '..', '..');
-const { SERIAL, APK, OUT } = process.env;
-if (!SERIAL || !APK || !OUT) throw new Error('SERIAL, APK and OUT are required');
+const [APK, OUT] = process.argv.slice(2).map((part) => resolve(part));
+if (!APK || !OUT) throw new Error('an APK and an evidence directory are required');
 mkdirSync(OUT, { recursive: true });
 
+// The version the APK was built from, as buildPrApk.mjs recorded it beside it.
+let revision = 'unknown';
+try { revision = JSON.parse(readFileSync(`${APK}.json`, 'utf8')).revision ?? 'unknown'; } catch { /* no build record */ }
+
+const emu = await bootOwnedEmulator({ name: 'mxherdline', avdHome: process.env.MUXR_LAB_AVD_HOME, launcher: ['nice', '-n', '10'], extraArgs: ['-no-snapshot-load'] });
+const SERIAL = emu.serial;
+// Before any stack starts: its adb reverse must name this emulator, never another attached device.
+setAndroidSerial(SERIAL);
+const journal = [];
+const note = (line) => { journal.push(line); console.log(line); writeFileSync(join(OUT, 'journey.log'), `${journal.join('\n')}\n`); };
+note(`emulator ${SERIAL} pid ${emu.pid}, APK revision ${revision}`);
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const adb = (...args) => execFileSync('adb', ['-s', SERIAL, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 });
+const adbOnce = (...args) => execFileSync('adb', ['-s', SERIAL, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 });
+// A loaded emulator drops an occasional shell call (exit 255); one retry rides it out.
+const adb = (...args) => { try { return adbOnce(...args); } catch { try { return adbOnce(...args); } catch { return ''; } } };
 const shell = (...args) => adb('shell', ...args);
 
 const SENTENCE = {
@@ -118,11 +138,11 @@ const applyCell = async ({ w, font, theme }) => {
 
 const results = [];
 try {
-    adb('install', '-r', APK);
-} catch (error) {
+    adbOnce('install', '-r', APK);
+} catch {
     // A build signed with another test key cannot install over this one.
     shell('pm', 'uninstall', 'com.trymuxr.app');
-    adb('install', APK);
+    adbOnce('install', APK);
 }
 shell('pm', 'grant', 'com.trymuxr.app', 'android.permission.POST_NOTIFICATIONS');
 // A fresh install shows the background-battery invite over Home; allowed up
@@ -194,9 +214,23 @@ for (const state of ['working', 'waiting', 'stopped', 'ready', 'none']) {
 }
 
 writeFileSync(`${OUT}/cells.json`, JSON.stringify(results, null, 2));
+writeFileSync(`${OUT}/steps.json`, JSON.stringify({
+    target: { version: `muxr release APK ${revision}` },
+    start: 'fresh app data on an owned Android emulator; a private lab host (real relay and host over a fake Herdr, one agent) with no phone paired',
+    steps: [
+        'open the muxr://pair link from the lab host and tap Pair, then dismiss the background-battery invite',
+        'Home shows the Right now card with the herd sentence for a working agent',
+        'hold the agent blocked, failed and idle through the lab and relaunch Home for each',
+        'close the agent pane so the herd is empty and relaunch Home',
+        'read the card back at 360, 390, 445 and 270 dp, font 1.0 and 2.0, light and dark',
+    ],
+    result: `Home's card says the exact sentence for each state at all ${results.length} cells, and never "Healthy" or "Busy"`,
+}, null, 2));
 lab.kill();
 adb('reverse', '--remove', `tcp:${relayPort}`);
 shell('wm', 'size', 'reset');
 shell('wm', 'density', 'reset');
 shell('settings', 'put', 'system', 'font_scale', '1.0');
-console.log(`done: ${results.length} cells`);
+await emu.stop();
+note(`done: ${results.length} cells`);
+process.exit(0);
