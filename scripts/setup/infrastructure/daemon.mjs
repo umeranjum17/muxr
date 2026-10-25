@@ -1,10 +1,9 @@
 import { parseDaemonMode, parseDaemonModeArg } from '../domain/dist/index.js';
 import { existsSync, readFileSync, realpathSync, renameSync, rmSync, statSync, lstatSync } from 'node:fs';
 import { userInfo } from 'node:os';
-import { dirname, isAbsolute, join, delimiter, resolve } from 'node:path';
+import { dirname, isAbsolute, join, delimiter } from 'node:path';
 import { createConnection } from 'node:net';
 import {
-    defaultStateDir,
     env,
     error,
     flagValue,
@@ -13,6 +12,7 @@ import {
     platform,
     print,
     serviceManagerRun,
+    scopedHomeRefusal,
     saveManifest,
     stateDir,
     systemdArg,
@@ -23,16 +23,6 @@ import {
 } from './runtime.mjs';
 import { ensureHerdrServer, herdrBin } from './herdr.mjs';
 import { cleanupManagedIngress, readSelfhostState, selfhostRelayHealthy, stopOwnedSelfhostRelay } from './selfhost.mjs';
-
-// A CLI scoped to a non-default MUXR_HOME must never touch the owner's
-// service: no per-MUXR_HOME service unit exists (installing one is out of
-// scope), so every service decision point refuses instead of falling back
-// to the default muxr.service. Returns undefined for the default home.
-export function scopedHomeRefusal() {
-    const override = env('MUXR_HOME');
-    if (override === undefined || resolve(override) === resolve(defaultStateDir())) return undefined;
-    return `MUXR_HOME=${resolve(override)} is not the default ${resolve(defaultStateDir())}; service commands scoped to a non-default MUXR_HOME never touch muxr.service`;
-}
 
 export function daemonDefinition(mode) {
     const scopeRefusal = scopedHomeRefusal();
@@ -227,6 +217,8 @@ export async function runDaemon(args = []) {
     const force = args.includes('--force');
     const manifest = loadManifest();
     try {
+        const refusal = scopedHomeRefusal();
+        if (refusal !== undefined && (action === 'install' || action === 'uninstall')) throw new Error(`refusing service ${action}: ${refusal}`);
         if (action === 'install') {
             const definition = daemonDefinition(mode);
             const existed = existsSync(definition.path);

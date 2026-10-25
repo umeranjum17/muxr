@@ -23,6 +23,7 @@ import {
     publicRelayUrl,
     run,
     serviceManagerRun,
+    scopedHomeRefusal,
     stateDir,
     validMachineCrypto,
 } from '../infrastructure/runtime.mjs';
@@ -45,7 +46,6 @@ import {
     daemonMode,
     runDaemon,
     daemonState,
-    scopedHomeRefusal,
     serviceCommand,
 } from '../infrastructure/daemon.mjs';
 import {
