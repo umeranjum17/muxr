@@ -16,6 +16,7 @@ vi.mock('react-native-mmkv', () => ({
     }(),
 }));
 const socketStatus = vi.hoisted(() => ({ status: 'disconnected' as string }));
+const connection = vi.hoisted(() => ({ machineId: undefined as string | undefined }));
 const catalogResult = vi.hoisted(() => ({ options: [] as Array<{ kind: string; availability: string; signedIn: string }> }));
 const theme = vi.hoisted(() => ({ colors: {
     glass: { border: '#333', backgroundStrong: '#222', backgroundSubtle: '#222' },
@@ -59,7 +60,8 @@ vi.mock('@/terminal/ui', () => ({ AgentInputAttachmentStrip: () => null }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('@/components/layout', () => ({ layout: { maxWidth: 600 } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
-vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: null }) }));
+vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => connection }));
+vi.mock('@/herd/ui', () => ({ ComputersSheet: 'ComputersSheet' }));
 vi.mock('@/conversation/ui', () => ({ RealtimeTalkButton: () => null }));
 vi.mock('@/plans', () => ({ useAccountLine: () => null }));
 vi.mock('@/plans/ui', () => ({ AccountSheet: () => null }));
@@ -135,6 +137,25 @@ it('reevaluates automatic Shell on readiness refresh while preserving explicit c
         await TestRenderer.act(async () => { checkAgain(); });
         expect(useNewSessionDraft.getState().agentType).toBe('codex');
 
+        // A computer switch does not need a disconnected render to invalidate
+        // the old catalog or its project/worktree draft.
+        TestRenderer.act(() => {
+            useNewSessionDraft.getState().setPath('~/desk-project');
+            useNewSessionDraft.getState().setSessionType('worktree');
+            useNewSessionDraft.getState().setWorktreeKey('desk-branch');
+        });
+        connection.machineId = 'laptop';
+        catalogResult.options = [{ kind: 'claude', availability: 'installed', signedIn: 'yes' }];
+        await TestRenderer.act(async () => { screen.update(render()); });
+        expect(useNewSessionDraft.getState()).toMatchObject({
+            selectedMachineId: 'laptop', selectedPath: null, worktreeKey: null, sessionType: 'simple', agentType: 'claude',
+        });
+        const computer = screen.root.findAll((node: any) => node.props.accessibilityLabel === 'COMPUTER')[0];
+        TestRenderer.act(() => computer.props.onPress());
+        expect(screen.root.findByType('ComputersSheet').props.visible).toBe(true);
+        expect(screen.root.findByType('ComputersSheet').props.agentKind).toBe('claude');
+        TestRenderer.act(() => screen.root.findByType('ComputersSheet').props.onClose());
+
         TestRenderer.act(() => { screen.root.findAllByType('OptionSheet').find((node: any) => node.props.title === 'Agent').props.onSelect({ key: 'shell' }); });
         await TestRenderer.act(async () => { checkAgain(); });
         expect(useNewSessionDraft.getState().agentType).toBe('shell');
@@ -145,6 +166,7 @@ it('reevaluates automatic Shell on readiness refresh while preserving explicit c
     } finally {
         if (screen) TestRenderer.act(() => { screen.unmount(); });
         socketStatus.status = 'disconnected';
+        connection.machineId = undefined;
         useNewSessionDraft.setState({ agentType: 'pi', preferredAgentType: 'pi', agentTypeExplicit: false, input: '' });
         values.clear();
     }

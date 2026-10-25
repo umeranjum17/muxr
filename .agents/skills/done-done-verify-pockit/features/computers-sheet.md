@@ -79,6 +79,30 @@ PWA (browser build with the lab flag, over `serveWebExport.mjs`):
 3. Open an agent → `…` → **Computers**; drive the same switch, Offline and Asleep
    steps above. Capture at 393 and 270 px.
 
+## Start a new agent on a chosen computer
+
+Home → prompt entry → **COMPUTER**, the first dock row, opens **Start on** using
+these same computer rows. This is not a move: switching leaves existing agents
+where they run. Confirm an online paired computer; the dock remains open and
+loads its AGENT, PROJECT and WORKTREE choices. The button names that computer.
+Select a project/worktree before switching and require both selections to reset;
+start once and read the destination's own session list (not the source's) to
+prove routing. Stop the inactive lab host, reopen COMPUTER, and require Offline
+with no selectable row; a failure after a successful probe must say nothing was
+started, never launch on the old computer. With no saved cloud computer the
+sheet offers **Create a cloud computer**, opening the existing cloud screen.
+An inactive SSH computer keeps its checked-on-pick state; PWA explains that it
+needs the phone app. Readiness is reported only from that computer's catalog.
+
+Run this dock journey against private hosts from `linkHerdrLab.mjs` through the
+guarded Herdr helper, with `MUXR_HOME` under the task's short private socket
+root. Capture dock and picker on native at 360/390/445 dp, light/dark, plus the
+Visual check's 270 dp largest-text cases. Repeat in an installed PWA, also at
+1280/1440 px. Capture a switch recording and inspect every frame; do not reuse
+pairings or an installed app's state. Extend `HomeDock.spec.tsx`'s existing
+readiness journey when changing catalog invalidation; remove its machine-id
+dependency deliberately and require the switch assertion to fail.
+
 ## Gotchas
 
 - The sheet is a dark surface over the session (like the pane overview) and forces

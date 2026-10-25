@@ -1,1 +1,1 @@
-export { addBoatScreen, isBoatComputer } from './deployBoatComputer';
+export { addBoatScreen, hasBoatComputer, isBoatComputer } from './deployBoatComputer';

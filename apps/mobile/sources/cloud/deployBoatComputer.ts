@@ -97,6 +97,11 @@ async function addScreen(provider: Provider, ref: MachineRef): Promise<void> {
     if (done.code !== 0) throw new Error(`The screen did not install on your Boat computer: ${(done.stderr.trim() || done.stdout.trim()).slice(-300)}`);
 }
 
+/** A saved cloud computer suppresses the dock's create offer, including during setup. */
+export async function hasBoatComputer(): Promise<boolean> {
+    return Boolean((await loadRecord())?.ref);
+}
+
 /** Whether the computer this phone is connected to is the Boat computer it set up. */
 export async function isBoatComputer(machineId: string | undefined): Promise<boolean> {
     return machineId !== undefined && machineId !== '' && (await getNativeSecret(PAIRED_KEY)) === machineId;

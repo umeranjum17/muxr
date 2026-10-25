@@ -38,6 +38,7 @@ import { sync } from '@/catalog/sync';
 import { resolveAgentCatalog, type AgentCatalogOption } from '@/catalog';
 import { useAccountLine } from '@/plans';
 import { AccountSheet } from '@/plans/ui';
+import { ComputersSheet } from '@/herd/ui';
 import {
     applyWorktreeSelection,
     currentDockAgent,
@@ -53,7 +54,7 @@ import {
 
 export const MOBILE_HOME_DOCK_CONTENT_INSET = 108;
 
-type EnvironmentSetting = 'project' | 'worktree' | 'agent' | 'account';
+type EnvironmentSetting = 'computer' | 'project' | 'worktree' | 'agent' | 'account';
 
 const styles = StyleSheet.create((theme) => ({
     keyboardFollower: {
@@ -264,11 +265,14 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
-        height: 52,
+        minHeight: 52,
+        padding: 12,
         borderRadius: 18,
         backgroundColor: theme.colors.fab.background,
     },
     startRowText: {
+        flexShrink: 1,
+        textAlign: 'center',
         color: theme.colors.fab.icon,
         fontSize: 15,
         fontWeight: '600',
@@ -530,6 +534,8 @@ export const HomeDock = React.memo(({
     const setWorktreeKey = useNewSessionDraft((state) => state.setWorktreeKey);
     const socketStatus = useSocketStatus();
     const [hostAgentKinds, setHostAgentKinds] = React.useState<AgentCatalogOption[] | null>(null);
+    const [catalogMachineId, setCatalogMachineId] = React.useState<string>();
+    const [catalogError, setCatalogError] = React.useState<string>();
     const [showMoreAgents, setShowMoreAgents] = React.useState(false);
     const [catalogCheck, setCatalogCheck] = React.useState(0);
     const agentSelectionInitialized = React.useRef(false);
@@ -549,8 +555,9 @@ export const HomeDock = React.memo(({
     React.useEffect(() => {
         if (connectionMachineId && connectionMachineId !== useNewSessionDraft.getState().selectedMachineId) {
             setMachineId(connectionMachineId);
+            setSessionType('simple');
         }
-    }, [connectionMachineId, setMachineId, socketStatus.status]);
+    }, [connectionMachineId, setMachineId, setSessionType, socketStatus.status]);
 
     React.useEffect(() => {
         const path = selectedPath?.trim();
@@ -605,12 +612,14 @@ export const HomeDock = React.memo(({
     React.useEffect(() => {
         let cancelled = false;
         setHostAgentKinds(null);
+        setCatalogError(undefined);
 
         if (socketStatus.status !== 'connected') return () => { cancelled = true; };
         void sync.request('herdr.agentKinds', { refresh: catalogCheck > 0 }).then((result) => {
             if (cancelled) return;
             const resolved = resolveAgentCatalog(result);
             setHostAgentKinds(resolved.options);
+            setCatalogMachineId(connectionMachineId);
             const activeAgent = useNewSessionDraft.getState().agentType;
             const activeAvailable = activeAgent === 'shell' || resolved.options.some((option) => option.kind === activeAgent && option.availability === 'installed');
             const activeIsAutomaticShell = activeAgent === 'shell' && automaticShell.current;
@@ -623,13 +632,14 @@ export const HomeDock = React.memo(({
             const preferred = defaultAgentKind(resolved.options, savedAgent.current);
             automaticShell.current = preferred === null;
             setDefaultAgentType((preferred ?? 'shell') as NewSessionAgentType);
-        }).catch(() => {
+        }).catch((cause) => {
             if (!cancelled) {
                 setHostAgentKinds(null);
+                setCatalogError(cause instanceof Error ? cause.message : String(cause));
             }
         });
         return () => { cancelled = true; };
-    }, [socketStatus.status, catalogCheck, setDefaultAgentType]);
+    }, [socketStatus.status, catalogCheck, setDefaultAgentType, connectionMachineId]);
     // A fresh array each render re-renders the option list forever.
     const availableAgents = React.useMemo(
         () => visibleDockAgents(hostAgentKinds),
@@ -640,7 +650,8 @@ export const HomeDock = React.memo(({
     const accountLine = useAccountLine(agentType);
     const hasPrompt = prompt.trim().length > 0 || selectedAttachments.length > 0;
     const compact = useWindowDimensions().width < 330;
-    const catalogReady = hostAgentKinds !== null && socketStatus.status === 'connected';
+    const catalogReady = hostAgentKinds !== null && catalogMachineId === connectionMachineId && socketStatus.status === 'connected';
+    const computerName = selectedMachine?.metadata?.displayName?.trim() || 'This computer';
     const canSubmit = !isSubmitting && hasPrompt && catalogReady;
     // The chosen agent's CLI installs on first start: say what the computer is
     // doing while the start request runs instead of an unnamed spinner.
@@ -826,7 +837,8 @@ export const HomeDock = React.memo(({
     };
 
     const environmentRows: SettingsRow[] = [
-        { page: 'agent', label: 'AGENT', value: currentAgent.name, detail: installPhase ?? currentAgent.description, icon: 'hardware-chip-outline' },
+        { page: 'computer', label: 'COMPUTER', value: computerName, detail: socketStatus.status === 'connected' ? 'Online' : 'Not connected', icon: 'desktop-outline' },
+        { page: 'agent', label: 'AGENT', value: currentAgent.name, detail: catalogError ?? installPhase ?? currentAgent.description, icon: 'hardware-chip-outline' },
         ...(accountLine === null ? [] : [{ page: 'account', label: 'ACCOUNT', value: accountLine.value, detail: accountLine.detail, icon: 'person-circle-outline' as const, stacked: true }]),
         { page: 'project', label: 'PROJECT', value: currentProject?.name ?? '~', icon: 'folder-outline' },
         { page: 'worktree', label: 'WORKTREE', value: currentWorktree?.name ?? 'No worktree', icon: 'git-branch-outline' },
@@ -1141,7 +1153,7 @@ export const HomeDock = React.memo(({
                                             accessibilityLabel={`Start ${currentAgent.name} without a prompt`}
                                         >
                                             <Ionicons name="play" size={16} color={theme.colors.fab.icon} />
-                                            <Text style={styles.startRowText}>{installPhase ?? `Start ${currentAgent.name}`}</Text>
+                                            <Text style={styles.startRowText}>{installPhase ?? `Start on ${computerName}`}</Text>
                                         </BubblePressable>
                                     </FocusConfigRevealRow>
                                 </View>
@@ -1155,6 +1167,13 @@ export const HomeDock = React.memo(({
                         </ScrollView>
                     </Animated.View>
 
+                    <ComputersSheet
+                        visible={openSheet === 'computer'}
+                        agentKind={agentType}
+                        agentName={currentAgent.name}
+                        onClose={() => setOpenSheet(null)}
+                        onLeave={closeFocusMode}
+                    />
                     <OptionSheet
                         visible={openSheet === 'agent'}
                         title="Agent"

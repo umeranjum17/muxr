@@ -1,7 +1,7 @@
 /**
  * Home dock environment: which Agent, project path, and Worktree the
  * next spawn will use. The dock view renders these options; this module decides
- * what they are. Machine comes from the header connection, not the dock.
+ * what they are. The dock's Computer picker switches the active connection.
  */
 
 import type { Session } from '@/catalog';
