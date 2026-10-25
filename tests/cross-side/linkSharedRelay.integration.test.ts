@@ -42,7 +42,8 @@ import { pairOverLink, type StoredHostedGrant } from '../../apps/mobile/sources/
 import { LinkFirstClient } from '../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
 
 // The machine's own HOME, so `muxr connect` writes its service definition there
-// (service commands stay off) and never near the desk's muxr.service.
+// (service commands stay off, with explicit fake-manager admission for HOME)
+// and never near the desk's muxr.service.
 const root = mkdtempSync(join(tmpdir(), 'muxr-link-shared-relay-'));
 const home = join(root, '.muxr');
 mkdirSync(home, { mode: 0o700 });
@@ -50,7 +51,7 @@ process.env.MUXR_HOME = home;
 const children = new Set<ChildProcess>();
 
 function launch(args: string[], extra: NodeJS.ProcessEnv = {}): ChildProcess & { output: () => string } {
-    const env: NodeJS.ProcessEnv = { ...process.env, HOME: root, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1', ...extra };
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: root, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1', MUXR_TEST_FAKE_SERVICE_MANAGERS: '1', ...extra };
     for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'DATA_DIR']) delete env[`MUXR_${key}`];
     if (extra.MUXR_RELAY_PORT === undefined) delete env.MUXR_RELAY_PORT;
     if (extra.MUXR_MODE === undefined) delete env.MUXR_MODE;
