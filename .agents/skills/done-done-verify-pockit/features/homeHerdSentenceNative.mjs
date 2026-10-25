@@ -6,7 +6,7 @@
 // MUXR_LAB_AVD_HOME picks the emulator home. Every cell asserts the exact
 // sentence is on screen before it shoots.
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -198,9 +198,16 @@ for (const state of ['working', 'waiting', 'stopped', 'ready', 'none']) {
         // Home's header and composer carry leads of their own on main (the
         // header's status sits 2dp under its title by design), so only this
         // journey's own checks fail the run.
-        let report;
-        try { report = execFileSync(process.execPath, [CHECK, SERIAL, OUT, name], { cwd: REPO, encoding: 'utf8' }); }
-        catch (cause) { report = `${cause.stdout ?? ''}${cause.stderr ?? ''}`; }
+        // The pull behind the Visual check can drop on a loaded emulator, and
+        // the check then dies before writing the cell's dump: retry the cell's
+        // capture rather than losing the run to one adb hiccup.
+        let report = '';
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+            try { report = execFileSync(process.execPath, [CHECK, SERIAL, OUT, name], { cwd: REPO, encoding: 'utf8' }); } catch (cause) { report = `${cause.stdout ?? ''}${cause.stderr ?? ''}`; }
+            if (existsSync(`${OUT}/${name}.xml`)) break;
+            if (attempt === 3) throw new Error(`${name}: the Visual check wrote no dump after 3 attempts:\n${report.slice(-1500)}`);
+            await sleep(2_000);
+        }
         writeFileSync(`${OUT}/${name}.check.txt`, report);
         const leads = report.split('\n').filter((row) => row.startsWith('DEFECT'));
         const saved = readFileSync(`${OUT}/${name}.xml`, 'utf8');
