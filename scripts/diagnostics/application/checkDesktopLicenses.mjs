@@ -39,7 +39,8 @@ function fail(message) {
     process.exit(1);
 }
 
-const appRoot = join(distRoot, 'resources', 'app');
+const mac = distRoot.endsWith('.app');
+const appRoot = mac ? join(distRoot, 'Contents', 'Resources', 'app') : join(distRoot, 'resources', 'app');
 const inventoryPath = join(appRoot, 'THIRD_PARTY_LICENSES.json');
 if (!existsSync(inventoryPath)) fail(`license audit: AppImage inventory missing (looked for ${inventoryPath})`);
 
@@ -67,7 +68,8 @@ if (!inventory.dependencies.some((dependency) => dependency.name === 'electron')
 // Electron's own notices ship at the AppImage root beside the muxr binary;
 // the inventory covers Chromium through them, never a hand-written list.
 for (const notice of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) {
-    if (!existsSync(join(distRoot, notice))) fail(`license audit: ${notice} missing beside the AppImage binary`);
+    const shippedNotice = mac ? join(appRoot, 'dist', notice === 'LICENSE.electron.txt' ? 'LICENSE' : notice) : join(distRoot, notice);
+    if (!existsSync(shippedNotice)) fail(`license audit: ${notice} missing from the desktop package`);
 }
 const licenseDir = join(appRoot, 'LICENSES', 'npm');
 for (const dependency of inventory.dependencies) {

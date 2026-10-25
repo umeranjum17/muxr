@@ -31,7 +31,9 @@
         "pack": "yarn build && yarn web:export && node scripts/release/application/pack.mjs",
         "pack:smoke": "yarn build && yarn web:export && node scripts/diagnostics/application/checkHostTestScratch.mjs -- node scripts/diagnostics/application/checkPackageSmoke.mjs",
         "desktop:dev": "yarn workspace @muxr/desktop start",
-        "desktop:build:linux": "yarn build && node apps/desktop/scripts/build.mjs --package"
+        "desktop:build:linux": "yarn build && node apps/desktop/scripts/build.mjs --package",
+        "desktop:build:mac": "yarn build && node apps/desktop/scripts/build.mjs --package --mac",
+        "desktop:release:mac": "node apps/desktop/scripts/releaseMac.mjs"
     },
     "devDependencies": {
         "@types/node": "^22.10.0",

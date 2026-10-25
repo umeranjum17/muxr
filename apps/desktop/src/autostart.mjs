@@ -5,6 +5,7 @@
  * runs as an AppImage, `$APPIMAGE` names the file to launch, because the mounted
  * `process.execPath` changes every run.
  */
+import { app } from 'electron';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -19,10 +20,15 @@ export function autostartPath() {
 }
 
 export function autostartInstalled() {
+    if (process.platform === 'darwin') return app.getLoginItemSettings().openAtLogin;
     return existsSync(autostartPath());
 }
 
 export function setAutostart(enabled, { execPath, appImage }) {
+    if (process.platform === 'darwin') {
+        app.setLoginItemSettings({ openAtLogin: enabled });
+        return;
+    }
     const path = autostartPath();
     if (!enabled) {
         rmSync(path, { force: true });

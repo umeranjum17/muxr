@@ -12,12 +12,17 @@ import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { desktopLicenseInventory } from '../../../scripts/release/application/desktopLicenseInventory.mjs';
 import { runtimeDependencies } from '../../../scripts/release/application/runtimeDependencies.mjs';
 
 const appDir = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const root = join(appDir, '..', '..');
 const dist = join(appDir, 'dist');
+const mac = process.argv.includes('--mac');
+const developerId = process.argv.includes('--developer-id');
+if (mac && process.platform !== 'darwin') throw new Error('Build the macOS DMG on a Mac.');
+if (developerId && !mac) throw new Error('--developer-id requires --mac.');
 
 const desktopPackage = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'));
 
@@ -51,20 +56,30 @@ try {
 } catch (error) { failure('desktop license inventory', error); }
 process.stdout.write(`desktop build: bundled host, relay, voice, main and preload; license audit passed for ${dependencies.length} dependencies -> THIRD_PARTY_LICENSES.json\n`);
 
-// 4. Package the AppImage. No publish, no upload, ever.
+// 4. Package locally. Only the explicit Developer ID release enables Apple's
+// notarization; ordinary builds are ad-hoc and must never be distributed as trusted.
 if (process.argv.includes('--package')) {
     try {
         cpSync(join(root, 'LICENSES'), join(appDir, 'LICENSES'), { recursive: true });
-        execFileSync('yarn', ['electron-builder', '--linux', 'AppImage', '--publish', 'never'], {
+        let target = ['--linux', 'AppImage'];
+        if (mac) {
+            const electron = dirname(createRequire(import.meta.url).resolve('electron/package.json'));
+            for (const notice of ['LICENSE', 'LICENSES.chromium.html']) {
+                cpSync(join(electron, 'dist', notice), join(dist, notice));
+            }
+            target = ['--mac', 'dmg', '--arm64', '--config.mac.notarize=false', '--config.mac.identity=-'];
+            if (developerId) target = ['--mac', 'dmg', '--arm64', '--config.forceCodeSigning=true', '--config.mac.notarize=true', '--config.dmg.sign=true'];
+        }
+        execFileSync('yarn', ['electron-builder', ...target, '--publish', 'never'], {
             cwd: appDir,
             stdio: 'inherit',
             env: process.env,
         });
     } catch (error) { failure('electron-builder', error); }
-    process.stdout.write('desktop build: AppImage written to apps/desktop/release/\n');
+    process.stdout.write(`desktop build: ${mac ? 'arm64 DMG' : 'AppImage'} written to apps/desktop/release/\n`);
     // The gate checks the packaged layout itself, so a missing inventory or
     // notice in the artifact fails the build, not only the staged copy.
     try {
-        execFileSync(process.execPath, [join(root, 'scripts', 'diagnostics', 'application', 'checkDesktopLicenses.mjs'), join(appDir, 'release', 'linux-unpacked')], { stdio: 'inherit' });
+        execFileSync(process.execPath, [join(root, 'scripts', 'diagnostics', 'application', 'checkDesktopLicenses.mjs'), mac ? join(appDir, 'release', 'mac-arm64', 'muxr.app') : join(appDir, 'release', 'linux-unpacked')], { stdio: 'inherit' });
     } catch (error) { failure('packaged license gate', error); }
 }
