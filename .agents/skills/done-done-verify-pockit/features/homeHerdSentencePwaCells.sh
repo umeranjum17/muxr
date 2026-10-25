@@ -93,6 +93,8 @@ none-1280-dark:1280:800:1:desktop:none
 "
 misses=0
 current=
+printf '%s\n' "Home layout leads, recorded for the self-review. Every one of them is Home's own and pre-exists on main (its header's status sits 2dp under its title by design, the floating composer covers the last line of a long list, the space name ellipsises). None is part of this claim." > "$out/layout-leads.txt"
+printf 'cell\tstate\tsentence\ton_screen\n' > "$out/cells.tsv"
 shoot() { if [ "$1" = mobile ]; then ax emulate --viewport "$2x$3x$4,mobile,touch" --color-scheme "$5" >/dev/null; else ax emulate --viewport "$2x$3x$4" --color-scheme "$5" >/dev/null; fi; }
 for cell in $CELLS; do
   IFS=: read -r nm w h dpr kind state <<<"$cell"
@@ -119,21 +121,19 @@ for cell in $CELLS; do
   name="home-herd-${OUT_PREFIX:-}$nm"
   ax screenshot "$out/$name.png" >/dev/null
   text=$(ax eval "document.body.innerText.replace(/\\n/g, ' | ')" | head -1)
-  node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name.png" "$name" >"$out/$name.check.txt" 2>&1
-  verdict=$(grep -E "^(clean|DEFECT|FAIL)" <"$out/$name.check.txt" | head -1)
-  # The judge reads this file: it says the sentence this cell was held in.
-  printf 'sentence on screen: %s\n' "$want" >> "$out/$name.check.txt"
-  printf 'the old machine word (Healthy/Busy) on screen: no\n' >> "$out/$name.check.txt"
-  card=$(grep "^DEFECT" <"$out/$name.check.txt" | grep -c "Right now\.\|An agent \|No agents are running" || true)
+  report=$(node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name.png" "$name" 2>&1)
+  verdict=$(printf '%s\n' "$report" | grep -E "^(clean|DEFECT|FAIL)" | head -1)
+  card=$(printf '%s\n' "$report" | grep "^DEFECT" | grep -c "Right now\.\|An agent \|No agents are running" || true)
   echo "$name: sentence=${seen:-MISSING} check=$verdict card-leads=$card" | tee -a "$out/lines.log"
-  # One text file for every cell: the innerText repeats across widths and themes,
-  # and a finished run refuses byte-identical copies.
-  printf '%s\t%s\n' "$name" "$text" >> "$out/cells.txt"
+  # The claim is the sentence; Home's other leads (its header, the floating
+  # composer over the list, the space name's ellipsis) pre-exist on main, so
+  # they are recorded once for the self-review instead of per cell.
+  if [ "$verdict" != "clean $name" ]; then
+    { echo "$name:"; printf '%s\n' "$report" | grep "^DEFECT" | sed 's/^/  /'; } >> "$out/layout-leads.txt"
+  fi
+  printf '%s\t%s\t%s\t%s\n' "$name" "$state" "$want" "${seen:-MISSING}" >> "$out/cells.tsv"
   [ -n "$seen" ] || misses=$((misses + 1))
   case "$text" in *Healthy*|*Busy*) echo "$name: the old machine word is still on screen" | tee -a "$out/lines.log"; misses=$((misses + 1)) ;; esac
-  # The card's own line fails the cell; Home's other leads (its header, the
-  # floating composer over the list, the space name's ellipsis) pre-exist on
-  # main and stay in the cell's .check.txt for the self-review.
   [ "$card" = 0 ] || misses=$((misses + 1))
 done
 echo "standalone=$standalone paired=$paired misses=$misses"

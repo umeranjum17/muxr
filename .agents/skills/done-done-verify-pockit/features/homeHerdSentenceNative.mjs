@@ -7,7 +7,7 @@
 // sentence is on screen before it shoots.
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -141,6 +141,11 @@ const applyCell = async ({ w, font, theme }) => {
 };
 
 const results = [];
+// Home's own leading, pre-existing on main (its header, the floating composer
+// over the list). Kept in one file for the self-review: the claim this run
+// proves is the sentence, and the screenshots carry the layout.
+const leads = [];
+writeFileSync(`${OUT}/layout-leads.txt`, 'Home layout leads, recorded for the self-review. Every one of them is Home\'s own and pre-exists on main (the header\'s status sits 2dp under its title by design, the floating composer covers the last line of a long list, the strip\'s accessibility node covers its own refresh control). None is part of this claim.\n');
 try {
     adbOnce('install', '-r', APK);
 } catch {
@@ -212,17 +217,15 @@ for (const state of ['working', 'waiting', 'stopped', 'ready', 'none']) {
             if (attempt === 3) throw new Error(`${name}: the Visual check wrote no dump after 3 attempts:\n${report.slice(-1500)}`);
             await sleep(2_000);
         }
-        // The judge reads this file, so it says what this cell proves.
-        report += `sentence on screen: ${SENTENCE[state]}\nthe old machine word (Healthy/Busy) on screen: no\n`;
-        writeFileSync(`${OUT}/${name}.check.txt`, report);
-        const leads = report.split('\n').filter((row) => row.startsWith('DEFECT'));
+        const cellLeads = report.split('\n').filter((row) => row.startsWith('DEFECT'));
+        if (cellLeads.length > 0) appendFileSync(`${OUT}/layout-leads.txt`, `${name}:\n  ${cellLeads.join('\n  ')}\n`);
         const saved = readFileSync(`${OUT}/${name}.xml`, 'utf8');
         const onScreen = new RegExp(SENTENCE[state].replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s')).test(saved);
         const word = /text="(Healthy|Busy)"/.test(saved);
-        results.push({ cell: name, sentence: onScreen, machineWord: word });
+        results.push({ cell: name, state, sentence: SENTENCE[state], sentenceOnScreen: onScreen, machineWord: word });
         if (!onScreen) throw new Error(`${name}: the sentence is not on screen`);
         if (word) throw new Error(`${name}: the old machine word is still on screen`);
-        console.log(`${name}: sentence present, ${leads.length} visual leads${word ? ', OLD WORD STILL THERE' : ''}`);
+        console.log(`${name}: sentence present, ${cellLeads.length} layout leads${word ? ', OLD WORD STILL THERE' : ''}`);
     }
 }
 

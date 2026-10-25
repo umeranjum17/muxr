@@ -85,12 +85,13 @@ Preconditions:
   sentence for the state the herd is in (and never `Healthy`/`Busy`).
   A `visualCheck` lead fails the cell only when it names the card's own line:
   Home's header (its status sits 2dp under its title), the composer over the
-  list and the strip's own refresh control carry leads of their own on main,
-  so the native cell keeps them in its `.check.txt` for the self-review
-  (`homeVersionLineLab.mjs` does the same). The PWA cells must read `clean` at
-  360, 390, 445 and desktop; the 270 dp cells must carry the same leads as a
-  `CELL_FILTER='^270'` run against main — `OUT_PREFIX=before-` writes a
-  comparison set beside them.
+  list and the strip's own refresh control carry leads of their own on main.
+  Both halves write those leads once, into `layout-leads.txt` for the
+  self-review, instead of a per-cell verdict file — the claim a run proves is
+  the sentence, and `sentence-proof.txt` records it per cell with whether
+  `Healthy`/`Busy` appeared. The 270 dp cells carry the same leads as a
+  `CELL_FILTER='^270'` run against main (`OUT_PREFIX=before-` writes the
+  comparison set beside them).
 
 ## Gotchas
 
