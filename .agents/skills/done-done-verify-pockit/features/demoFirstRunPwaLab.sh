@@ -51,5 +51,20 @@ if [ -f "$out/demo-first-run.mp4" ]; then
 else
   clip=1
 fi
+version=$(node -p "require('./package.json').version")
+cat > "$out/steps.json" <<JSON
+{
+  "target": {"version": "$version"},
+  "start": "a fresh browser profile with no computer paired",
+  "steps": [
+    "open the web export in the app window at 390 dp, dark",
+    "read the demo: the Sample data pill, Umer's MacBook Pro and zulu-2, kestrel and ember in order",
+    "open the first agent's sample conversation and scroll it",
+    "go back to all demo agents",
+    "tap Pair your own computer"
+  ],
+  "result": "the real /pair screen: Securely pair this device, its pairing code field and Connect"
+}
+JSON
 echo "cells exit $cells, clip exit $clip"
 [ "$cells" -eq 0 ] && [ "$clip" -eq 0 ]
