@@ -109,5 +109,36 @@ for cell in 270:2.0:594 390:1.0:844; do
     chrome-devtools-axi eval "$back" >/dev/null 2>&1; sleep 1
   done
 done
+# The screen the demo's last step opens: the real /pair, shot as its own
+# capture at the phone width in both themes, so "the pair step opens the real
+# pairing screen" is shown rather than inferred from the clip's last frames.
+toPair='(() => {
+  document.querySelector("[role=button][aria-label=\"Pair your own computer\"]").click();
+  return "pairing";
+})()'
+for theme in light dark; do
+  name="pair-screen-390-1.0-$theme"
+  chrome-devtools-axi emulate --viewport 390x844x2,mobile,touch --color-scheme $theme >/dev/null 2>&1
+  chrome-devtools-axi eval "location.assign('/')" >/dev/null 2>&1
+  for _ in $(seq 1 30); do
+    [ -n "$(chrome-devtools-axi eval 'document.body.innerText.trim().length > 0 ? "drawn" : ""' 2>/dev/null | grep -o drawn)" ] && break
+    sleep 1
+  done
+  chrome-devtools-axi emulate --viewport 390x844x2,mobile,touch --color-scheme $theme >/dev/null 2>&1; sleep 2
+  chrome-devtools-axi eval "$toPair" >/dev/null 2>&1
+  for _ in $(seq 1 30); do
+    [ -n "$(chrome-devtools-axi eval "location.pathname === '/pair' ? 'pair' : ''" 2>/dev/null | grep -o pair)" ] && break
+    sleep 1
+  done
+  sleep 2
+  chrome-devtools-axi emulate --viewport 390x844x2,mobile,touch --color-scheme $theme >/dev/null 2>&1; sleep 1
+  shown=$(chrome-devtools-axi eval "location.pathname + ' | ' + document.body.innerText.replace(/\\s+/g, ' ').slice(0, 80)" 2>&1 | head -1)
+  case "$shown" in */pair*pair*) ;; *) echo "FAIL $name facts: not the pair screen ($shown)"; failures=$((failures + 1));; esac
+  chrome-devtools-axi screenshot "$out/$name.png" >/dev/null 2>&1
+  pwa=$(node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name.png" "$name" 2>&1)
+  echo "$pwa" > "$out/$name.check.txt"
+  printf '%s' "$pwa" | grep -q '^clean' || failures=$((failures + 1))
+  echo "$pwa" | grep -E "^(DEFECT|clean|FAIL)" | cut -c1-200
+done
 echo "cells: $((failures)) failing check(s)"
 [ "$failures" -eq 0 ] || exit 1
