@@ -131,6 +131,15 @@ journeys:
   home-version-line-pwa:
     command: scripts/diagnostics/application/withPrivateXvfb.sh bash .agents/skills/done-done-verify-pockit/features/homeVersionLinePwaCells.sh "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # The first screen an unpaired browser gets (pwa-demo-first-run.md): no grant
+  # in a fresh profile, so the sample herd, one sample conversation and the pair
+  # step into the real /pair are what opens - at 270 dp/text 2.0 and
+  # 360/390/445/1280/1440 dp, light and dark, at rest and scrolled, plus a
+  # sampled first-open-to-pair clip. MUXR_LAB_WEB is a web export of this commit
+  # (`yarn web:export`); nothing pairs, so no relay or host is involved.
+  demo-first-run-pwa:
+    command: scripts/diagnostics/application/withPrivateXvfb.sh bash .agents/skills/done-done-verify-pockit/features/demoFirstRunPwaLab.sh "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # Home with the internet up and the Tailscale path to the computer gone
   # (home-tailscale-off.md): the pairing offer names this desktop's Tailscale
   # address, forwarded to the lab relay; closing the forwarder must bring

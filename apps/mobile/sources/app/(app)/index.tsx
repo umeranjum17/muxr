@@ -1,8 +1,9 @@
 import { useAuth } from '@/account/ui';
-import { ScrollView, View } from 'react-native';
+import { Platform, ScrollView, View } from 'react-native';
 import * as React from 'react';
 import { StyleSheet } from 'react-native-unistyles';
 import { MainView, FirstRunConnection } from '@/herd/ui';
+import { DemoHome } from '@/demo/ui';
 import { HomeWebInstallInvite } from '@/herd/presentation/HomeFirstRunCards';
 import { LiveCardEmptyBadge } from '@/plans/ui';
 import { Header } from '@/components/navigation/Header';
@@ -35,6 +36,19 @@ function NotAuthenticated() {
             Modal.alert('Pairing paused', error instanceof Error ? error.message : String(error));
         }).finally(() => { pairing.current = false; });
     }, [auth]);
+
+    // A browser with no computer paired gets the sample herd first, so a
+    // visitor can see what muxr does before setting anything up; its last
+    // step is the same pairing screen everyone else uses.
+    if (Platform.OS === 'web') {
+        return (
+            <View style={styles.screen}>
+                <Header title="Demo" headerShadowVisible={false} />
+                <DemoHome footer={<HomeWebInstallInvite />} />
+                <SystemBarBackdrop edge="bottom" />
+            </View>
+        );
+    }
 
     return (
         <View style={styles.screen}>

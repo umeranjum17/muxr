@@ -256,6 +256,12 @@ rules, with no H2 sections.
   a Tailscale-address offer whose first dial fails: one sentence naming this phone (no Tailscale
   address here) or the computer, on main and candidate release APKs at 393/270 dp both themes, a
   root-staged tun for the Tailscale-on case, the good case over this desktop's tailnet address, and the PWA.
+- [Try muxr with sample agents before you pair](./pwa-demo-first-run.md) —
+  unpaired installed PWA opens on the demo: the "Sample data" pill and Umer's
+  MacBook Pro, three sample agents in order, a sample conversation and the
+  **Pair your own computer** step into `/pair`; 270 dp at text 2.0 plus
+  360/390/445/1280/1440, light and dark, at rest and scrolled, DOM facts and a
+  sampled first-open-to-pair clip. Native is unchanged.
 - [Land on the first-run link-first shell](./first-run-browser-steps.md) —
   unpaired release APK and installed PWA: Tailscale and desktop-app steps, then ready-link field → Connect →
   existing consent, active cloud-computer entry, unchanged native SSH login and
