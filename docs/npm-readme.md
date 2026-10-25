@@ -1,6 +1,6 @@
 # muxr
 
-**Every coding agent, on your phone.** [Website](https://trymuxr.com) · [GitHub](https://github.com/umeranjum17/muxr) · [Quickstart](https://trymuxr.com/docs/quickstart) · [Android APK](https://trymuxr.com/downloads/stable/android) · [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN)
+**When an agent needs you, answer from your phone.** [Website](https://trymuxr.com) · [GitHub](https://github.com/umeranjum17/muxr) · [Quickstart](https://trymuxr.com/docs/quickstart) · [Android APK](https://trymuxr.com/downloads/stable/android) · [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN)
 
 The `@trymuxr/cli` package installs the complete self-hosted CLI, relay, host bridge, and web client.
 

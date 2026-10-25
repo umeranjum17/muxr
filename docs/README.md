@@ -5,6 +5,7 @@ Start here, then follow one path.
 ## Use it
 
 - [README](../README.md) — `npm install -g --ignore-scripts @trymuxr/cli`, then interactive `muxr`
+- [Install options](INSTALL.md) — nightly channel, Linux desktop app, store testing, checksums, pairing and routes
 - [Self-hosting](SELF-HOSTING.md) — own relay, pairing, Tailscale/tunnels, Docker
 - [Native Android build](NATIVE-BUILD.md) — local EAS APK; Expo Go will not work
 - [Voice setup](VOICE-SETUP.md) — provider-neutral realtime voice, provider setup, dictation, platform bounds
