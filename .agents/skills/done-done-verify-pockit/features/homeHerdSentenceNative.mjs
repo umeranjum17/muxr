@@ -33,6 +33,9 @@ setAndroidSerial(SERIAL);
 const journal = [];
 const note = (line) => { journal.push(line); console.log(line); writeFileSync(join(OUT, 'journey.log'), `${journal.join('\n')}\n`); };
 note(`emulator ${SERIAL} pid ${emu.pid}, APK revision ${revision}`);
+// A throw anywhere below must not leave the emulator holding a fleet slot: the
+// graceful stop runs at the end, this one runs on any exit path.
+process.on('exit', () => { try { execFileSync('adb', ['-s', SERIAL, 'emu', 'kill'], { stdio: 'ignore', timeout: 30_000 }); } catch { /* already gone */ } });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const adbOnce = (...args) => execFileSync('adb', ['-s', SERIAL, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 });
