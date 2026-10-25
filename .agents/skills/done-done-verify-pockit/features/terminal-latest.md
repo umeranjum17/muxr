@@ -110,12 +110,17 @@ transcript (`Jump to bottom` on screen) through Herdr, about 6 lines per
   left 100-line holes (`MARK-977..984` then `MARK-1154`). At 270 dp (33
   columns) each line wraps and a frame moves ~20 of the 23 content rows, so two
   frames share one line plus its wrapped tails, or nothing but the footer: the
-  copy then kept 10 of 1200 rows. A run around one anchor lines that up, and a
-  frame whose footer held while every row above it changed pushes that whole
-  area. Only output that moves
-  more than a whole screen within one ~100 ms Herdr tick never reaches the phone, and the
-  host sees the same frames, so it cannot fill that either. Count rows across
-  the whole screen, not from the top row alone.
+  copy then kept 10 of 1200 rows. A run around one anchor lines that up. When a
+  frame moves more rows than the screen holds, no row can line up at a shift, so
+  the copy weighs the area above the footer it can still see: when more of that
+  area changed than held, the whole area moved off and is pushed
+  (`MARK-1031 -> 1034` was one stray wrapped tail vetoing that push;
+  `MARK-1158 -> 1171` and `MARK-988 -> 1001` were whole screens it dropped).
+  What a Herdr frame never carried cannot be filled by anything on the phone or
+  the host: a frame that moves more rows than its screen holds loses the rows in
+  between, which at 33 columns and `STUB_LPS=100` is a row or two under load, so
+  a walk can still show one truncated line. Count rows across the whole screen,
+  not from the top row alone.
 - An emulator presents 2-4 frames a second for any app here: compare fps and
   settle against a reference app on the same emulator, never against 60 fps.
 - On iOS, a `muxr://` link opened by the system goes to whichever muxr app

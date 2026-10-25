@@ -20,7 +20,22 @@ LINES=${LINES:-400}; LPS=${STUB_LPS:-15}; WALK=${WALK:-0}; DENSITY=${DENSITY:-}
 D=$(mktemp -d); trap 'rm -rf -- "$D"' EXIT; mkfifo "$D/in"
 a() { adb -s "$SER" "$@" </dev/null; }
 t0=$(date +%s%3N); log() { echo "$(( $(date +%s%3N) - t0 )) $*" | tee -a "$E/proof.log"; }
-marks() { tesseract "$1" - --psm 6 2>/dev/null | grep -o 'MARK-[0-9]*'; }
+# Ids tesseract read off a screen. An id outside MARK-1..LINES cannot be one the
+# pane printed (it reads MARK-1000 as MARK-10080), so it takes the id its two
+# neighbours name, which only exists when they differ by two; an id it cannot
+# place is dropped. A row that is really missing still shows as a break in the
+# numbers, because no unreadable id sits where it should have been.
+marks() {
+    tesseract "$1" - --psm 6 2>/dev/null | grep -o 'MARK-[0-9]*' | sed 's/MARK-//' | awk -v n="$LINES" '
+        { v[NR] = $1 + 0 }
+        END {
+            for (i = 1; i <= NR; i++) {
+                if (v[i] >= 1 && v[i] <= n) { print "MARK-" v[i]; continue }
+                p = (i > 1) ? v[i-1] : 0; q = (i < NR) ? v[i+1] : 0
+                if (p >= 1 && p <= n && q >= 1 && q <= n && q == p + 2) print "MARK-" (p + 1)
+            }
+        }'
+}
 # A screen's MARK range, its row count and every break in its numbers.
 shot() {
     a exec-out screencap -p > "$E/$1.png"; local m; m=$(marks "$E/$1.png")
