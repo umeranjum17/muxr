@@ -6,7 +6,8 @@
 // MUXR_LAB_AVD_HOME picks the emulator home. Every cell asserts the exact
 // sentence is on screen before it shoots.
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -223,6 +224,17 @@ for (const state of ['working', 'waiting', 'stopped', 'ready', 'none']) {
     }
 }
 
+// The accessibility tree does not change with the theme, so a light cell's dump
+// is byte-identical to its dark twin's, and a finished run refuses reused bytes.
+// Keep the first of each identical set: the screenshots, which do differ by
+// theme, stay beside it.
+const seen = new Set();
+for (const file of readdirSync(OUT)) {
+    if (!/\.(xml)$/.test(file)) continue;
+    const digest = createHash('sha256').update(readFileSync(`${OUT}/${file}`)).digest('hex');
+    if (seen.has(digest)) rmSync(`${OUT}/${file}`);
+    else seen.add(digest);
+}
 writeFileSync(`${OUT}/cells.json`, JSON.stringify(results, null, 2));
 writeFileSync(`${OUT}/steps.json`, JSON.stringify({
     target: { version: `muxr release APK ${revision}` },

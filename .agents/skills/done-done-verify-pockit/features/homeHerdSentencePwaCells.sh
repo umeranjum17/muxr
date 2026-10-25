@@ -123,7 +123,9 @@ for cell in $CELLS; do
   verdict=$(grep -E "^(clean|DEFECT|FAIL)" <"$out/$name.check.txt" | head -1)
   card=$(grep -c "Right now\.\|An agent \|No agents are running" <"$out/$name.check.txt" || true)
   echo "$name: sentence=${seen:-MISSING} check=$verdict card-leads=$card" | tee -a "$out/lines.log"
-  printf '%s\n' "$text" >"$out/$name.text.txt"
+  # One text file for every cell: the innerText repeats across widths and themes,
+  # and a finished run refuses byte-identical copies.
+  printf '%s\t%s\n' "$name" "$text" >> "$out/cells.txt"
   [ -n "$seen" ] || misses=$((misses + 1))
   case "$text" in *Healthy*|*Busy*) echo "$name: the old machine word is still on screen" | tee -a "$out/lines.log"; misses=$((misses + 1)) ;; esac
   # The card's own line fails the cell; Home's other leads (its header, the
