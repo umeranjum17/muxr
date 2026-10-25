@@ -69,8 +69,9 @@ muxr is built on [Herdr](https://herdr.dev), the workspace manager for coding ag
     <source media="(max-width: 520px)" srcset="docs/readme/steps-phone-light.webp" />
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/steps-wide-dark.webp" />
     <source media="(prefers-color-scheme: light)" srcset="docs/readme/steps-wide-light.webp" />
-    <img src="docs/readme/steps-wide-light.webp" width="880" alt="Four steps in the real app: pair with a two-word check, the agent’s ask with its answers on Home, its live terminal run, and the finished work reported back" />
-  </picture>
+    <img src="docs/readme/steps-wide-light.webp" width="880" alt="Four steps in the real app: pair your computer, see the agent’s ask on Home, answer in its live terminal, and see the finished work reported back" />
+  </picture><br />
+  <sub>Real app, demo checkout task and sample machine vitals.</sub>
 </p>
 
 <p align="center">
