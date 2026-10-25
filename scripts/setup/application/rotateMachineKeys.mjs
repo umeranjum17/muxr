@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { hostId } from '@byokit/pair';
-import { error, flagValue, machineIdentity, print, run } from '../infrastructure/runtime.mjs';
+import { error, flagValue, machineIdentity, print, run, scopedHomeRefusal } from '../infrastructure/runtime.mjs';
 import { readSelfhostState, selfhostControlBase, selfhostCredential, selfhostRelayHealthy, writeSelfhostState } from '../infrastructure/selfhost.mjs';
-import { daemonState, runDaemon, scopedHomeRefusal } from '../infrastructure/daemon.mjs';
+import { daemonState, runDaemon } from '../infrastructure/daemon.mjs';
 import { hostEntry } from '../infrastructure/paths.mjs';
 import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
 

@@ -88,7 +88,9 @@ rules, with no H2 sections.
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
 - [Keep a source-build host off the real muxr home](./host-home-guard.md) —
-  built host under a throwaway HOME, refused without MUXR_HOME, runs with one.
+  built host under a throwaway HOME, refused without MUXR_HOME, runs with one;
+  scoped CLI install/start, phone repair, doctor and foreground up cannot
+  mutate the owner's service (disposable homes and fake service managers).
 - [Keep one host per machine key](./one-host-per-machine-key.md) —
   Usage refreshes on the shipped bundle start no second host; a replaced host
   stays up and takes the link back; `muxr up` exits 1 when its restart budget is spent.

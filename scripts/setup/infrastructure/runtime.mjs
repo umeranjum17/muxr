@@ -172,8 +172,17 @@ function overriddenHomeRefusal() {
     return `HOME=${resolve(home())} is not the user's real home ${resolve(passwdHome)}; service commands under an overridden HOME never touch the real muxr.service`;
 }
 
+// No per-home service unit exists: every manager entry shares this refusal.
+export function scopedHomeRefusal() {
+    const override = env('MUXR_HOME');
+    if (override !== undefined && resolve(override) !== resolve(defaultStateDir())) {
+        return `MUXR_HOME=${resolve(override)} is not the default ${resolve(defaultStateDir())}; service commands scoped to a non-default MUXR_HOME never touch muxr.service`;
+    }
+    return overriddenHomeRefusal();
+}
+
 export function serviceManagerRun(command, args, options) {
-    const refusal = overriddenHomeRefusal();
+    const refusal = scopedHomeRefusal();
     if (refusal !== undefined) return { ok: false, status: 1, stdout: '', stderr: refusal, errorCode: undefined, refused: true };
     return run(command, args, options);
 }

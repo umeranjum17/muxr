@@ -131,6 +131,14 @@ const WHEEL_READ_MS = 20;
 const WHEEL_STILL_MS = 500;
 const WHEEL_END_MISSES = 2;
 const MAX_WHEEL_SHIFT = 40;
+/**
+ * A Herdr-owned viewport moves in steps a screen can hold, and the next step
+ * waits for the last one's repaint to reach the phone: Herdr repaints one screen
+ * per scroll, so a jump of more rows than the screen carries nothing that lines
+ * up with the screen before it, and the rows between never arrive at all. Half a
+ * viewport leaves the phone enough of the last screen to place the next one.
+ */
+const VIEWPORT_STEP_WAIT_MS = 400;
 
 /**
  * A program that keeps repainting never goes still at its live edge, so
@@ -301,6 +309,13 @@ export class TerminalManager {
         let bottomRunning = false;
         // Rows still owed to a program's wheel, positive toward 'up'.
         let wheelRows = 0;
+        // Rows still owed to a Herdr-owned viewport, positive toward 'up', and
+        // where the finger was when it asked for them.
+        let viewportRows = 0;
+        let viewportAt: Pick<ScrollInput, 'column' | 'row'> = {};
+        let viewportStepping = false;
+        /** Frames forwarded to the phone, so a step can wait for its repaint. */
+        let framesPumped = 0;
         let wheelReachedEnd = false;
         let wheelAt: Pick<ScrollInput, 'column' | 'row'> = {};
         let paintedAt = 0;
@@ -393,6 +408,7 @@ export class TerminalManager {
                     const requestId = input.requestId;
                     bottomRunning = true;
                     wheelRows = 0;
+                    viewportRows = 0;
                     const generation = bottomGeneration;
                     void goToBottom(generation, requestId).catch(() => {
                         if (!finished && bottomGeneration === generation && this.authorized(attachment)) this.sendResult(socket, params.channel, { type: 'terminal.bottom-state', requestId, state: 'catching-up' });
@@ -406,13 +422,24 @@ export class TerminalManager {
                     // A key goes to the program at its live edge; the rest of a
                     // fling must not carry it back up afterwards.
                     wheelRows = 0;
+                    viewportRows = 0;
                     session.send(text);
                     return;
                 }
                 if (attachment.herdrOwnsScroll === true) {
                     // Herdr holds this pane's scrollback: the scroll moves its
-                    // viewport, never a program's wheel.
-                    session.send(text);
+                    // viewport, never a program's wheel. Walk it a screen at a
+                    // time so every row it passes reaches the phone.
+                    const lines = Number(scroll.lines);
+                    if ((scroll.direction === 'up' || scroll.direction === 'down') && Number.isInteger(lines) && lines > 0) {
+                        const rows = scroll.direction === 'up' ? lines : -lines;
+                        const owed = Math.sign(viewportRows) === -Math.sign(rows) ? rows : viewportRows + rows;
+                        viewportRows = Math.max(-MAX_WHEEL_ROWS, Math.min(MAX_WHEEL_ROWS, owed));
+                        viewportAt = { column: scroll.column, row: scroll.row };
+                        stepViewport();
+                    } else {
+                        viewportRows = 0;
+                    }
                     this.scheduleScrollState(attachment);
                     return;
                 }
@@ -460,6 +487,44 @@ export class TerminalManager {
         const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
         const readScreen = async (): Promise<string | undefined> =>
             this.options.readPaneText?.(attachment.paneId).catch(() => undefined);
+        /**
+         * Pays the rows owed to a Herdr-owned viewport in steps it repaints one
+         * screen per, waiting for each repaint to reach the phone. A step no
+         * repaint answered moved nothing (the end of the scrollback), so the
+         * rest of the gesture goes with it.
+         */
+        const stepViewport = (): void => {
+            if (viewportStepping || viewportRows === 0) return;
+            viewportStepping = true;
+            void (async () => {
+                try {
+                    while (!finished && !childExited && viewportRows !== 0) {
+                        const up = viewportRows > 0;
+                        const lines = Math.min(Math.abs(viewportRows), Math.max(1, Math.floor(attachment.rows / 2)));
+                        const painted = framesPumped;
+                        session.send(JSON.stringify({ type: 'terminal.scroll', direction: up ? 'up' : 'down', lines, ...viewportAt }));
+                        viewportRows = up ? viewportRows - lines : viewportRows + lines;
+                        if (!await waitForFrame(painted)) {
+                            viewportRows = 0;
+                            return;
+                        }
+                    }
+                } finally {
+                    viewportStepping = false;
+                }
+            })().catch((error) => {
+                onInputError(error instanceof Error ? error : new Error(String(error)));
+            }).finally(() => this.scheduleScrollState(attachment));
+        };
+        /** Resolves true once a frame after [since] reached the phone, false if none did inside the budget. */
+        const waitForFrame = async (since: number): Promise<boolean> => {
+            const deadline = Date.now() + VIEWPORT_STEP_WAIT_MS;
+            while (framesPumped === since) {
+                if (finished || childExited || Date.now() >= deadline) return false;
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            return true;
+        };
         /** Rows a burst of n reports should move, from what bursts moved before. */
         const burstRows = (n: number): number | undefined => {
             const response = attachment.wheelResponse;
@@ -670,6 +735,7 @@ export class TerminalManager {
                     if (line === undefined) break;
                     if (line.trim().length === 0) continue;
                     await this.sendToPhone(attachment, line);
+                    if (line.includes('"terminal.frame"')) framesPumped++;
                     if (finished) return;
                     if (attachment.scrollOffsetFromBottom > 0) this.scheduleScrollState(attachment);
                     // Only a real full repaint is the initial screen. A closed record

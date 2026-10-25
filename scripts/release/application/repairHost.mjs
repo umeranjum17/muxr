@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, lstatSync, realpathSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { stateDir } from '../../setup/index.mjs';
+import { scopedHomeRefusal, stateDir } from '../../setup/index.mjs';
 import { releaseVersion } from '../domain/channel.mjs';
 
 export const releaseCompatibility = Object.freeze({ protocol: 1, state: 1 });
@@ -110,7 +110,12 @@ function reconcile(path, plan) {
     }
     return plan;
 }
+function refuseScopedRepair() {
+    const refusal = scopedHomeRefusal();
+    if (refusal !== undefined) throw new Error(`refusing host repair: ${refusal}`);
+}
 export async function repairHost(request) {
+    refuseScopedRepair();
     if (!request || typeof request.owner !== 'string' || !request.owner || request.owner.length > 256) throw new Error('Authenticated device required.');
     if (request.action === 'status') { const { path, plan } = loadPlan(request.planId, request.owner); return publicResult(reconcile(path, plan)); }
     if (request.action === 'plan') {
@@ -155,6 +160,7 @@ export async function repairHost(request) {
     return publicResult(plan);
 }
 async function worker(jobPath) {
+    refuseScopedRepair();
     const lock = dirname(jobPath), job = read(jobPath);
     const update = (status, message) => { job.status = status; job.message = message; save(job.path, job); };
     const snapshot = () => {
@@ -193,5 +199,6 @@ async function worker(jobPath) {
     finally { rmSync(lock, { recursive: true, force: true }); }
 }
 if (process.argv[2] === '--worker') {
-    try { await worker(process.argv[3]); } catch { process.exitCode = 1; }
+    try { await worker(process.argv[3]); }
+    catch (cause) { process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`); process.exitCode = 1; }
 }

@@ -77,7 +77,11 @@ emulator and writes each screen's visible `MARK-n` range to `proof.log`. With
 little under a screen per drag, records the walk to `walk.mp4`, and logs every
 break in a screen's `MARK-n` numbers as `gap MARK-a -> MARK-b`: none may show.
 `DENSITY` sets the width: run it at `640` (the 270 dp reference phone) and
-`420` (411 dp). At 270 dp the grid is taller than its box, so the first rows of
+`420` (411 dp). `KIND=shell` walks a shell pane instead, whose scrollback Herdr
+owns: the host, not the phone's copy, is what moves the view there, so it is the
+journey that shows a viewport walked a screen at a time (open it from Panes; Home
+lists agents, and a bare shell is a terminal). `WALK=0` does the drag, fling and
+Latest set instead and records the fling to `fling.mp4`. At 270 dp the grid is taller than its box, so the first rows of
 a drag pan it to its top rows and the rest walks the phone-side copy. Before
 that fix a panned terminal kept no copy: the drag scrolled Claude's own
 transcript (`Jump to bottom` on screen) through Herdr, about 6 lines per

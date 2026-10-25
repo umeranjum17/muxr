@@ -123,6 +123,18 @@ journeys:
   home-version-line:
     command: node .agents/skills/done-done-verify-pockit/features/homeVersionLineLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # Home's Right now card saying what the herd is doing (home-quota-row.md,
+  # herd-working and its siblings): the release APK on an owned emulator, paired
+  # to a private lab host over a fake Herdr with one agent whose lifecycle the
+  # journey holds — working, waiting, stopped, ready and nothing at 360/390/445/
+  # 270 dp, font 1.0 and 2.0, light and dark — then the installed PWA at the same
+  # widths and on desktop 1280/1440. Runs by hand under the shared emulator lock;
+  # MUXR_LAB_APK is a release build of this commit, MUXR_LAB_WEB a lab web export
+  # of it (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export), MUXR_LAB_AVD_HOME a
+  # task-owned emulator home.
+  home-herd-sentence:
+    command: bash .agents/skills/done-done-verify-pockit/features/homeHerdSentenceJourney.sh "$MUXR_LAB_APK" "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 60m
   # The same version line and Settings row in the installed PWA
   # (home-version-line.md): phone widths 360/390/445/270 and font 2.0, desktop
   # 1280/1440, dark and light. MUXR_LAB_WEB is a lab web export of this commit
