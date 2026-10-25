@@ -195,7 +195,9 @@ if (!existsSync(distIndex)) {
     // The Boat screen for sign-ins (its install step, the set-up switch, the Computer offer) adds about 1,050 B in CI's
     // measure (1,782,048 B on its head before Home's card), so about 1,783,110 B together.
     // The demo-first landing an unpaired browser gets (sample herd, one conversation, pair card) measures 1,786,323 B in CI.
-    const USABLE_GZIP_CEILING = 1787400;
+    // The Computer row's eager code adds 2,247 B over main's 1,789,458 B CI export,
+    // measuring 1,791,705 B on the merge; keep about 1 kB of headroom.
+    const USABLE_GZIP_CEILING = 1792800;
     check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,
