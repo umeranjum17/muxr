@@ -27,6 +27,23 @@ The owner-default refusal and the packaged start are covered by the flow test
 in `apps/host/src/config.test.ts` (passwd home pinned to a nonexistent path);
 live runs never name the real home.
 
+## Service-manager scope
+
+The CLI also refuses service mutations when `MUXR_HOME` differs from
+`HOME/.muxr`, or `HOME` differs from the account's real home. The refusal
+names the resolved home. Foreground `muxr up` remains available, but cannot
+repair or start a managed service in that scope.
+
+Run `npx vitest run scripts/setup/infrastructure/daemon.spec.mjs`: one flow
+installs/starts with a fake manager in a disposable default home, then proves
+scoped daemon actions, phone-repair entry/worker, accepted doctor repair,
+raw manager/bootstrap calls and foreground `up` leave the manager log and
+service definitions unchanged. The fake-manager flag bypasses only the
+account-HOME comparison, never the `MUXR_HOME` guard. No real registry is used.
+`node scripts/setup/serviceScope.selfcheck.mjs` covers scoped pairing;
+`node scripts/diagnostics/application/checkPackageSmoke.mjs` additionally
+checks default-home packaged phone alignment, rollback and launchd startup.
+
 ## Gotchas
 
 Abort if any host log names `ws://127.0.0.1:8792`. No screenshots apply.

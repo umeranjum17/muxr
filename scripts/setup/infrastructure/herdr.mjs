@@ -29,6 +29,7 @@ import {
     removeManaged,
     run,
     serviceManagerRun,
+    scopedHomeRefusal,
     saveManifest,
     stateDir,
     xml,
@@ -378,6 +379,8 @@ export function repairHerdrServiceUnits(binary, dryRun) {
             print(`  would repair ${unitPath}: pinned herdr ${pinned} no longer exists`);
             continue;
         }
+        const refusal = scopedHomeRefusal();
+        if (refusal !== undefined) throw new Error(`refusing service repair: ${refusal}`);
         const content = readFileSync(unitPath, 'utf8');
         const execLine = content.match(/^ExecStart=.*$/m)?.[0]?.trim() ?? pinned;
         const updated = content.includes('ExecStart=')
