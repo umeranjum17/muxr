@@ -45,10 +45,12 @@ run('codesign', ['-dv', '--verbose=4', app]);
 run('xcrun', ['stapler', 'validate', app]);
 run('spctl', ['--assess', '--type', 'execute', '-vv', app]);
 // Notarize and staple the outer download too, not just the enclosed app.
-const submitted = JSON.parse(run('xcrun', ['notarytool', 'submit', dmg,
-    '--key', env.APPLE_API_KEY, '--key-id', env.APPLE_API_KEY_ID,
-    '--issuer', env.APPLE_API_ISSUER, '--wait', '--output-format', 'json']));
-if (submitted.status !== 'Accepted') throw new Error(`Apple rejected the DMG: ${submitted.status}. Inspect the notarytool submission log.`);
+const apiAuth = ['--key', env.APPLE_API_KEY, '--key-id', env.APPLE_API_KEY_ID, '--issuer', env.APPLE_API_ISSUER];
+const submitted = JSON.parse(run('xcrun', ['notarytool', 'submit', dmg, ...apiAuth, '--wait', '--output-format', 'json']));
+if (submitted.status !== 'Accepted') {
+    if (submitted.id) run('xcrun', ['notarytool', 'log', submitted.id, ...apiAuth]);
+    throw new Error(`Apple rejected the DMG: ${submitted.status}. See the submission log above.`);
+}
 run('xcrun', ['stapler', 'staple', dmg]);
 run('xcrun', ['stapler', 'validate', dmg]);
 run('spctl', ['--assess', '--type', 'open', '--context', 'context:primary-signature', '-vv', dmg]);
