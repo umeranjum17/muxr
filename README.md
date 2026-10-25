@@ -5,7 +5,7 @@
 
 <p align="center">
   <strong>When an agent needs you, answer from your phone.</strong><br />
-  muxr shows which agent is waiting and what it asks. One tap answers it in the same live terminal.
+  muxr shows which agent is waiting and what it asks, then lets you answer it in the <em>same</em> live terminal. Your code, sign-ins and model subscriptions stay on your computers.
 </p>
 
 <p align="center">
@@ -22,19 +22,55 @@
 
 <p align="center">
   <a href="https://trymuxr.com/downloads/stable/android"><strong>Get it for Android</strong></a> ·
-  <a href="https://testflight.apple.com/join/aJSbs8pN"><strong>Join iOS TestFlight</strong></a> ·
-  <a href="#get-going"><strong>Get going ↓</strong></a>
+  <a href="https://testflight.apple.com/join/aJSbs8pN"><strong>iOS TestFlight</strong></a> ·
+  <a href="#three-commands-to-your-first-agent"><strong>Quick start ↓</strong></a> ·
+  <a href="https://trymuxr.com/docs"><strong>Docs</strong></a>
 </p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@trymuxr/cli"><img alt="npm version" src="https://img.shields.io/npm/v/@trymuxr/cli?style=flat&label=npm" /></a>
+  <a href="https://www.npmjs.com/package/@trymuxr/cli"><img alt="npm downloads per week" src="https://img.shields.io/npm/dw/@trymuxr/cli?style=flat&label=downloads" /></a>
   <a href="https://github.com/umeranjum17/muxr/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/umeranjum17/muxr/ci.yml?style=flat&branch=main" /></a>
   <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat" /></a>
 </p>
 
-## A little less waiting at your desk
+## Three commands to your first agent
 
-An agent can work for a while, then need one answer to keep going. muxr brings that moment to your phone: see who needs you, open the **same live terminal**, and answer with one tap or a follow-up, without starting over.
+```sh
+npm i -g --ignore-scripts \
+  @trymuxr/cli@latest
+muxr
+muxr pair
+```
+
+Install the app on your phone, scan the computer's QR (or paste the pairing link) and compare the two words. Setup picks how your phone reaches the computer, installs [Herdr](https://herdr.dev) if it is missing, and changes nothing until you press Enter on that plan.
+
+**Nightly builds, the Linux desktop app, browser access, checksums and remote routes: [install options →](docs/INSTALL.md).**
+
+## Why muxr
+
+Answering an agent is not the hard part. Reaching it is.
+
+| How you answer an agent today | With muxr |
+| --- | --- |
+| Leave the laptop open, check it when you think of it | The ask arrives as a notification |
+| A plain terminal over SSH on the phone | The agents and their asks first, one tap to answer |
+| A hosted cloud dev box, usually paid by the month | Your own computers, self-hosted, end-to-end encrypted |
+| Mirror the whole desktop to the phone | The terminal at your font size, not a video of your monitor |
+| Keep up with the agent in a chat app | The same session, with its scrollback and diffs |
+
+muxr is built on [Herdr](https://herdr.dev), the workspace manager for coding agents, and any agent you run in a Herdr pane is visible here.
+
+## What you get
+
+<p align="center">
+  <a href="docs/readme/pair-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/pair-night.webp" /><img src="docs/readme/pair-day.webp" width="45%" alt="Connect: muxr’s browser pairing steps, with a command to run on your computer and a button to paste its browser link" /></picture></a>
+  <a href="docs/readme/terminal-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/terminal-night.webp" /><img src="docs/readme/terminal-day.webp" width="45%" alt="Check the build: a real checkout test passing in the live terminal, with workspace tabs and thumb-sized terminal keys below" /></picture></a>
+</p>
+<p align="center">
+  <a href="docs/readme/agent-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/agent-night.webp" /><img src="docs/readme/agent-day.webp" width="45%" alt="Pick up the thread: a demo agent session with a checkout-review draft, ready for a follow-up" /></picture></a>
+  <a href="docs/readme/files-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/files-night.webp" /><img src="docs/readme/files-day.webp" width="45%" alt="Look at the code: the little-shop checkout file opened from the workspace’s Files view" /></picture></a>
+</p>
 
 <p align="center">
   <picture>
@@ -42,75 +78,40 @@ An agent can work for a while, then need one answer to keep going. muxr brings t
     <source media="(prefers-color-scheme: light)" srcset="docs/readme/answer-day.webp" />
     <img src="docs/readme/answer-day.gif" width="300" alt="A short loop of the real app: the agent waiting under Needs you, a tap on Yes, proceed in its live terminal, the push runs, and Home shows it idle with the card gone" />
   </picture><br />
-  <sub>A real recording. The quiet waits are shortened.</sub>
+  <sub>A real recording, end to end. The quiet waits are shortened.</sub>
 </p>
 
-Your agents, code, sign-ins and model subscriptions stay on your computers. Terminal traffic, prompts and files are end-to-end encrypted.
-
-## A few taps from start to shipped
-
-<p align="center">
-  <a href="docs/readme/pair-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/pair-night.webp" /><img src="docs/readme/pair-day.webp" width="270" alt="Connect: muxr’s browser pairing steps, with a command to run on your computer and a button to paste its browser link" /></picture></a>
-  <a href="docs/readme/terminal-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/terminal-night.webp" /><img src="docs/readme/terminal-day.webp" width="270" alt="Check the build: a real checkout test passing in the live terminal, with workspace tabs and thumb-sized terminal keys below" /></picture></a>
-</p>
-<p align="center">
-  <a href="docs/readme/agent-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/agent-night.webp" /><img src="docs/readme/agent-day.webp" width="270" alt="Pick up the thread: a demo agent session with a checkout-review draft, ready for a follow-up" /></picture></a>
-  <a href="docs/readme/files-day.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/files-night.webp" /><img src="docs/readme/files-day.webp" width="270" alt="Look at the code: the little-shop checkout file opened from the workspace’s Files view" /></picture></a>
-</p>
-
-<sub>Fresh web-app captures with seed data. Tap a screenshot to look closer; the native apps have their own terminal renderer.</sub>
-
-## Get going
-
-### 1. Set up your computer
-
-You need **Node.js 22 or newer**, Linux, macOS or WSL, and a coding-agent CLI installed and signed in on that computer.
-
-Run in an interactive terminal:
-
-```bash
-npm install -g --ignore-scripts @trymuxr/cli@latest
-muxr
-```
-
-**Trying the newest nightly build?** Its phone app and computer side must be the same version: install the computer side with `npm install -g --ignore-scripts @trymuxr/cli@nightly`, then get the [nightly Android APK](https://trymuxr.com/downloads/nightly/android).
-
-muxr opens guided setup on a new computer and installs [Herdr](https://herdr.dev) if needed. Choose how your phone reaches it—including a route that works away from home—with the short plan shown under the routes; Enter applies it.
-
-**Prefer a desktop app?** On Linux the same setup runs in one window: it asks for your project folder (preselecting a recently modified Git repo it finds, if any), starts the host, installs Herdr if it is missing, starts at login, can keep the computer awake, and pairs with your phone by QR or by two words. Build the AppImage with `yarn desktop:build:linux`, then run `apps/desktop/release/muxr-*.AppImage`. A computer without FUSE 2 runs it only as `./apps/desktop/release/muxr-*.AppImage --appimage-extract-and-run`, which has to be passed on every launch, so start at login needs FUSE 2; the [download page](https://trymuxr.com/desktop) names the package to install. From the phone app, **Add your computer** sends a link and QR to the desktop download (Linux for now; the signed Mac build follows).
-
-### 2. Get the phone app
-
-[Android APK](https://trymuxr.com/downloads/stable/android) · [Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN)
-
-Store testing access depends on review and tester availability. [All downloads and checksums →](https://trymuxr.com/downloads)
-
-Open the APK on your phone to install it; Android may first ask you to allow installs from your browser or files app. Every release, with its APK and checksums, is on the [releases page](https://github.com/umeranjum17/muxr/releases).
-
-### 3. Pair and take a look
-
-In the app, paste the private link or pairing code your computer shows and tap **Connect**, or tap **Scan the QR** where your phone offers it and scan the computer’s one-use QR. Compare the two matching words, then approve on your computer. Home opens with your agents ready to visit. To pair another phone later, run `muxr pair` on your computer for a fresh code.
-
-**Prefer a browser?** Enable browser access during setup, then run `muxr pair --browser` on your computer and open its link. That control link lasts eight hours. You can add the web app to your Home Screen too.
-
-[Step-by-step quickstart →](https://trymuxr.com/docs/quickstart) · [Routes and self-hosting →](docs/SELF-HOSTING.md)
-
-## Small screen. Plenty of room to work.
-
-- **See the whole herd.** Agents grouped by workspace and computer, with live terminal previews and alerts when one needs you or finishes.
-- **Keep the real terminal.** Scrollback, sticky modifier keys, reorderable controls, workspace tabs and pane switching. On supported approval prompts, tap a numbered answer.
-- **Start something new.** Launch installed agents, shells and worktrees. Send prompt attachments or pick up an existing session.
-- **Look before you ship.** Browse files, inspect diffs and download artifacts—with progress and resume after a lost connection.
+- **See the whole herd.** Agents grouped by workspace and computer, with live terminal previews and an alert when one needs you or finishes.
+- **Keep the real terminal.** Scrollback, sticky modifier keys and workspace tabs; on supported approval prompts, a numbered answer is one tap.
+- **Start something new.** Launch installed agents, shells and worktrees, or pick up an existing session and attach a prompt.
+- **Look before you ship.** Browse files, read diffs and download artifacts, with progress and resume after a lost connection.
 - **Say it instead.** On-device prompt dictation in the native app, plus native realtime voice. [Voice setup →](docs/VOICE-SETUP.md)
-- **Make it feel like yours.** Light and dark themes, terminal text sizes, gestures and notifications. Use Android, iOS or the self-hosted web app.
+- **Watch what it costs.** Usage per provider and tab: token trends, top models and the limits each plan reports.
+- **Make it feel like yours.** Light and dark themes, terminal text sizes, gestures and notifications, on Android, iOS or the self-hosted web app.
 
-[What’s new →](https://github.com/umeranjum17/muxr/releases) · [Privacy and trust →](https://trymuxr.com/docs/privacy)
+## Proof, and how to check it
+
+No customer logos to borrow and no quotes to invent, so here is what you can check for yourself:
+
+- **Every build can be checked before you install it.** The [download page](https://trymuxr.com/downloads) publishes each APK with its SHA-256 ([stable](https://trymuxr.com/downloads/stable/checksums) · [nightly](https://trymuxr.com/downloads/nightly/checksums)), and each [release](https://github.com/umeranjum17/muxr/releases) carries the binary's `signer.txt` and `native-provenance.json`.
+- **The suite that gates the release is in the repo.** `yarn run check` starts a real relay and host, drives live Herdr conformance, and runs the flow suite CI runs; the CI badge above is that lane's result on `main`.
+- **Releases are frequent and dated by GitHub,** not by us — the [releases page](https://github.com/umeranjum17/muxr/releases) is the full record, nightlies included.
+- **The encryption is written down.** [The relay only routes encrypted frames](docs/ARCHITECTURE.md#what-the-relay-does); pairing, approval and device revocation happen on your machines, and a revoked device loses its link.
+- **The pictures are the product.** Every capture here is the real app against a real agent run in a demo repo; the loop above is an unedited recording with only the quiet waits shortened.
+
+## Your computers stay yours
+
+The computer side is Apache-2.0 and self-hosted: one `muxr` install on your machine, a relay that can run beside it or on your own server, and a phone app that pairs to it. Nothing about your agents, prompts or files is sent to us. [Self-hosting →](docs/SELF-HOSTING.md) · [Privacy →](https://trymuxr.com/docs/privacy) · [Report a bug →](https://github.com/umeranjum17/muxr/issues)
+
+## Known limits
+
+- The Android and iOS apps ship through store testing channels, so access can wait on review or tester capacity; the [direct APK](https://trymuxr.com/downloads/stable/android) does not.
+- A nightly CLI and a nightly phone app must be the same night; a stable phone pairs with a stable CLI.
+- The Linux desktop app is an AppImage, and start-at-login needs FUSE 2. [Install options →](docs/INSTALL.md)
 
 ## Build with us
 
-[Vision](VISION.md) says who muxr is for, where it is going and what comes next. [Contributing](CONTRIBUTING.md) has the local setup and checks. [Architecture](docs/ARCHITECTURE.md) explains how the pieces fit; [releasing](docs/RELEASING.md) covers stable and nightly channels.
-
-[Report a bug](https://github.com/umeranjum17/muxr/issues) · [Website](https://trymuxr.com) · [Self-hosting](docs/SELF-HOSTING.md)
+[Vision](VISION.md) says who muxr is for and what comes next. [Contributing](CONTRIBUTING.md) has the local setup and the checks. [Architecture](docs/ARCHITECTURE.md) explains how the pieces fit; [releasing](docs/RELEASING.md) covers the stable and nightly channels.
 
 ## License
 
