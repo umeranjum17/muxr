@@ -630,6 +630,8 @@ describe('session sync flow', () => {
         await startWith([machine], null);
         // The person explicitly starts an agent in their home folder.
         await startWith([machine], '~');
+        // The start uses up that pick: it is remembered, not left standing in front of setup.
+        expect(useNewSessionDraft.getState().selectedPath).toBeNull();
         // Next launch: the home start they chose is remembered, not setup's folder.
         await startWith([machine], null);
         // Desktop setup then saves another folder: that fresh choice wins over the remembered start.

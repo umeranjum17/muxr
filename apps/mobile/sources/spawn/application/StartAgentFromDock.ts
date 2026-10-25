@@ -117,6 +117,9 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
         return { ok: false, reason: 'needs-directory', directory: result.directory, message: result.directory };
     }
     await saveConnectionSettings(rememberSessionCwd(getCachedConnectionSettings(), machine.id, command.directory, machine.metadata?.defaultStartFolder));
+    // The Dock's pick was this start's folder, and the start is remembered now.
+    // Keeping the pick would stare past a folder desktop setup saves later.
+    useNewSessionDraft.getState().setPath(null);
 
     // machineSpawnNewSession already refreshed until the session was listed.
     // The host holds the first prompt until the agent takes it, which is
