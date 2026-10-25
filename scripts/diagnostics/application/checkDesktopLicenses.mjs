@@ -68,7 +68,8 @@ if (!inventory.dependencies.some((dependency) => dependency.name === 'electron')
 // Electron's own notices ship at the AppImage root beside the muxr binary;
 // the inventory covers Chromium through them, never a hand-written list.
 for (const notice of ['LICENSE.electron.txt', 'LICENSES.chromium.html']) {
-    const shippedNotice = mac ? join(appRoot, 'dist', notice === 'LICENSE.electron.txt' ? 'LICENSE' : notice) : join(distRoot, notice);
+    const macNotice = notice === 'LICENSE.electron.txt' ? 'LICENSE' : notice;
+    const shippedNotice = mac ? join(appRoot, 'dist', macNotice) : join(distRoot, notice);
     if (!existsSync(shippedNotice)) fail(`license audit: ${notice} missing from the desktop package`);
 }
 const licenseDir = join(appRoot, 'LICENSES', 'npm');
