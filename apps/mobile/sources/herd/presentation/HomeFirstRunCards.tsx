@@ -87,6 +87,7 @@ export function FirstAgentCard() {
             kinds: [kind],
             squad: false,
             worktree: false,
+            setupFolder: machine?.metadata?.defaultStartFolder,
         });
         if (result.error === undefined) return;
         setStartFailed(true);

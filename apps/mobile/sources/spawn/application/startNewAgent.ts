@@ -57,6 +57,8 @@ export async function startNewAgent(input: {
     kinds: readonly string[];
     squad: boolean;
     worktree: boolean;
+    /** The host's setup folder now, so a remembered start records where setup stood. */
+    setupFolder?: string;
 }): Promise<{ error?: string; cancelled?: boolean }> {
     let createCwd = false;
     for (;;) {

@@ -27,6 +27,12 @@ export interface ConnectionSettings {
     /** Android-only route override; the relay and E2EE grant stay unchanged. */
     ssh?: SshTarget;
     lastSessionCwdByMachine: Record<string, string>;
+    /**
+     * The setup folder (`defaultStartFolder`) that was current when a start was
+     * remembered for that machine; '' when setup had chosen none yet. A start
+     * remembered before setup saved a folder never shadows that choice.
+     */
+    startFolderSetupByMachine: Record<string, string>;
     recentSessionCwds: string[];
 }
 
@@ -59,6 +65,7 @@ export const DEFAULT_CONNECTION: ConnectionSettings = {
     machineId: buildEnv('MACHINE_ID') ?? '',
     token: '',
     lastSessionCwdByMachine: {},
+    startFolderSetupByMachine: {},
     recentSessionCwds: [],
 };
 
@@ -103,6 +110,14 @@ function parseLastSessionCwds(value: unknown): Record<string, string> {
     );
 }
 
+/** Where each machine's setup folder stood when a start was remembered; '' means none. */
+function parseStartFolderSetups(value: unknown): Record<string, string> {
+    if (typeof value !== 'object' || value === null) return {};
+    return Object.fromEntries(
+        Object.entries(value).filter(([machineId, folder]) => machineId !== '' && typeof folder === 'string') as [string, string][],
+    );
+}
+
 function parseSettings(raw: string): ConnectionSettings {
     const parsed = JSON.parse(raw) as Partial<ConnectionSettings>;
     const recent = Array.isArray(parsed.recentSessionCwds)
@@ -119,6 +134,7 @@ function parseSettings(raw: string): ConnectionSettings {
         ...(ssh === undefined ? {} : { ssh }),
         token: '',
         lastSessionCwdByMachine: parseLastSessionCwds(parsed.lastSessionCwdByMachine),
+        startFolderSetupByMachine: parseStartFolderSetups(parsed.startFolderSetupByMachine),
         ...(parsed.selfhost === true ? { selfhost: true } : {}),
         recentSessionCwds: recent.slice(0, MAX_RECENT_CWDS),
     };
@@ -198,9 +214,27 @@ export async function saveConnectionSettings(settings: ConnectionSettings): Prom
     memoryCache = settings;
 }
 
-export function rememberSessionCwd(settings: ConnectionSettings, machineId: string, cwd: string): ConnectionSettings {
+/**
+ * Remember where an agent was started on this machine, with the setup folder
+ * that was current at the time (`setupFolder`). `~` is a real choice the person
+ * made, so it is kept; the host resolves it, so no home path is stored here.
+ */
+export function rememberSessionCwd(
+    settings: ConnectionSettings,
+    machineId: string,
+    cwd: string,
+    setupFolder?: string,
+): ConnectionSettings {
     const trimmed = cwd.trim();
-    if (trimmed.length === 0 || trimmed === '~') return settings;
-    const recent = [trimmed, ...settings.recentSessionCwds.filter((entry) => entry !== trimmed)].slice(0, MAX_RECENT_CWDS);
-    return { ...settings, lastSessionCwdByMachine: { ...settings.lastSessionCwdByMachine, [machineId]: trimmed }, recentSessionCwds: recent };
+    if (trimmed.length === 0) return settings;
+    // The recent list names real folders; `~` is the machine's own home, not one.
+    const recent = trimmed === '~'
+        ? settings.recentSessionCwds
+        : [trimmed, ...settings.recentSessionCwds.filter((entry) => entry !== trimmed)].slice(0, MAX_RECENT_CWDS);
+    return {
+        ...settings,
+        lastSessionCwdByMachine: { ...settings.lastSessionCwdByMachine, [machineId]: trimmed },
+        startFolderSetupByMachine: { ...settings.startFolderSetupByMachine, [machineId]: setupFolder?.trim() ?? '' },
+        recentSessionCwds: recent,
+    };
 }
