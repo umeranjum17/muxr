@@ -124,7 +124,7 @@ for cell in $CELLS; do
   # The judge reads this file: it says the sentence this cell was held in.
   printf 'sentence on screen: %s\n' "$want" >> "$out/$name.check.txt"
   printf 'the old machine word (Healthy/Busy) on screen: no\n' >> "$out/$name.check.txt"
-  card=$(grep -c "Right now\.\|An agent \|No agents are running" <"$out/$name.check.txt" || true)
+  card=$(grep "^DEFECT" <"$out/$name.check.txt" | grep -c "Right now\.\|An agent \|No agents are running" || true)
   echo "$name: sentence=${seen:-MISSING} check=$verdict card-leads=$card" | tee -a "$out/lines.log"
   # One text file for every cell: the innerText repeats across widths and themes,
   # and a finished run refuses byte-identical copies.
