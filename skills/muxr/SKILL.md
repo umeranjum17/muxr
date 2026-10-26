@@ -79,20 +79,28 @@ agent runs on. muxr never picks or switches an account for you, so run these
 only when the user asks. They need the muxr host running.
 
 ```sh
-muxr accounts                      # each account: name, email, plan, 5-hour and 7-day % left with reset times
+muxr accounts list [--json]         # signed-in accounts: stable id, name, 5-hour and 7-day % left + resets
 muxr accounts panes                # each running agent and the account (name + email) it uses
 muxr accounts start work --cwd ~/repo   # new Claude agent on the account named "work" (or its email)
 muxr accounts move zulu-2 work     # carry agent zulu-2's conversation onto "work", in a new pane
+muxr pane account [--pane P] [--json]   # this pane's account; otherwise HERDR_PANE_ID
+muxr pane move-to-account work [--pane P]   # host-owned handoff; safe to call from the moving agent
 ```
 
-- `<account>` is a name or email exactly as `muxr accounts` prints it; `<agent>`
+- `<account>` is an id, name or email exactly as `muxr accounts list` prints it; `<agent>`
   is a name or pane id from `muxr accounts panes`. Add `--json` to list or panes
   for scripts.
 - Check `muxr accounts` first and say which account you are using and why: an
   account at 0% left in a window cannot work until that window resets.
-- A move closes the original pane and resumes the same conversation in a new
-  one, so do not move your own pane mid-task unless the user asked.
-- Fewer than two signed-in Claude accounts: the command says so; signing in is
+- A move closes the original pane: **the pane id changes**, but the same
+  conversation resumes with its launch flags (including `--model` and
+  `--dangerously-skip-permissions`). `pane move-to-account` returns after the
+  host accepts it, not after relaunch. Finish your turn: the host waits up to
+  five minutes for idle/done and completes the move even after the caller exits.
+  Only one move runs at a time; a pane without a conversation cannot move.
+  Do not move your own pane unless the user asked.
+- Listing needs only one sign-in; moving needs two signed-in Claude accounts
+  of the same provider. When one is missing, the command says so; signing in is
   done in the muxr app, never by an agent.
 
 ## Self-naming

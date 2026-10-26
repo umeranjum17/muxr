@@ -45,7 +45,7 @@ import { dumpDiagnostics, readDiagnostics } from './diagnostics/index.mjs';
 import { runMuxrConfig } from './setup/presentation/configInit.mjs';
 import { updateCli } from './release/index.mjs';
 import { nameAgent } from './naming/client.mjs';
-import { accounts } from './accounts/client.mjs';
+import { accounts, pane } from './accounts/client.mjs';
 import { previewStatus } from './preview/client.mjs';
 import { previewClaim, previewRelease } from './preview/claim.mjs';
 import { share } from './terminal/share.mjs';
@@ -98,6 +98,7 @@ Agent instructions
   muxr preview status [--json]    check whether the phone is driving this pane's emulator or simulator
   muxr preview claim <udid>       offer this pane's booted iOS simulator to the phone (release to stop)
   muxr accounts [list|panes|start|move] list Claude accounts with quota left, see which one each agent uses, start or move an agent onto one
+  muxr pane account|move-to-account inspect or move this pane's account (host-owned handoff)
   muxr share <path>               save a file to this pane's Shared Artifacts timeline [--title T versions an .html page in place]
   muxr artifacts [status|prune]   show what Shared Artifacts retention removed, or clear old history
 
@@ -113,7 +114,8 @@ const COMMAND_HELP = {
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n\nSync Herdr lifecycle integrations only. Agent skills and prompt files are never changed.\n`,
     name: `muxr name [--tab LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]\n\nName the current Herdr tab and pane through the Herdr CLI; no muxr host is needed.\nIt never renames a workspace, and a tab shared with other panes keeps its name.\nThe pane identity comes from HERDR_PANE_ID; names and metadata are passed verbatim within bounds.\n`,
     preview: `muxr preview status [--json]\nmuxr preview claim <simulator-udid>\nmuxr preview release\n\nstatus asks whether the phone is driving this pane's emulator or simulator right now.\nPrints human while a person holds control (pause device input), none otherwise.\nclaim offers a booted iOS simulator (macOS host) as this pane's preview; release withdraws it.\nThe pane identity comes from HERDR_PANE_ID; a pane can only read its own lease or claim for itself.\n`,
-    accounts: `muxr accounts [list] [--json]\nmuxr accounts panes [--json]\nmuxr accounts start <account> [--cwd <dir>] [--label <text>]\nmuxr accounts move <agent> <account>\n\nManage your signed-in Claude accounts by hand; muxr never picks or switches one for you. list shows each account's name, email and what is left in its 5-hour and 7-day windows with reset times. panes shows which account each running agent uses. start launches a new Claude agent on the named account. move carries a running agent's conversation onto the named account in a new pane. <account> is a name or email from list; <agent> is a name or pane from panes. Needs the muxr host running and at least two signed-in Claude accounts.\n`,
+    accounts: `muxr accounts [list] [--json]\nmuxr accounts panes [--json]\nmuxr accounts start <account> [--cwd <dir>] [--label <text>]\nmuxr accounts move <agent> <account>\n\nManage your signed-in Claude accounts by hand; muxr never picks or switches one for you. list shows each account's stable id, name, email and what is left in its 5-hour and 7-day windows with reset times. panes shows which account each running agent uses. start launches a new Claude agent on the named account. move carries a running agent's conversation onto the named account in a new pane. <account> is an id, name or email from list; <agent> is a name or pane from panes. Needs the muxr host running and at least two signed-in Claude accounts.\n`,
+    pane: `muxr pane account [--pane <P>] [--json]\nmuxr pane move-to-account <account> [--pane <P>] [--json]\n\nUses HERDR_PANE_ID when --pane is omitted. account reports the running agent's account, or says when none is recorded. move-to-account asks the host to wait for idle/done (up to 5 minutes), then resume the same conversation in a new pane with its launch flags preserved. The pane id changes. The command returns after handoff, not relaunch. <account> is an id, name or email from muxr accounts list; two signed-in Claude accounts are required to move.\n`,
     share: `muxr share <path> [--title <title>] [--pane <pane-id>]\n\nSave a file to the given pane's durable Shared Artifacts timeline.\nUses HERDR_PANE_ID when --pane is omitted. Name collisions get a numeric suffix.\nAn .html page is stored with its local images inlined; sharing the same --title\nagain adds a new version of that page (muxr skill artifact-pages).\n`,
     artifacts: `muxr artifacts [status]\nmuxr artifacts prune [--dry-run] [--yes]\n\nThe host sweeps Shared Artifacts daily and never touches files that predate retention.\nstatus prints the policy and the last sweep's removals. prune applies the same policy\nto the history that was already there: it deletes files, so it shows the plan first\nand --yes skips the question.\n`,
     pair: `muxr pair [--handoff|--browser|--browser-view|--browser-personal]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), an eight-hour view-only browser link (--browser-view), or a 30-day control link for a browser only you use (--browser-personal).\n\n--handoff pairs a phone without a terminal, using the running host and the current directory as the kit workDir. It atomically writes a private JSON file (at most 64 KB) to .byokit/outbox/muxr-pair-<random>.json:\n  {"version":1,"offer":"<pairing string>","expiresAt":<unix milliseconds>,"wordsFile":"muxr-pair-<random>.words"}\nThe phone reads the offer, dials it over your tailnet, then uses kit deliver to write the two words it sees as UTF-8 text to .byokit/inbox/<wordsFile> (0600, at most 64 KB). Only matching words approve. Wrong words, cancellation, or a two-minute timeout refuse pairing. Both files are removed when pairing ends; refreshed offers replace the same outbox file. Never log or share either file. Browser flags cannot be combined with --handoff.\nHandoff works only on a computer with no paired device yet (first-device setup of a headless cloud computer); once a phone is paired it refuses, and no Wayland screen-share grant applies.\n`,
@@ -487,6 +489,10 @@ async function dispatch(command, args = []) {
     if (command === 'share') {
         try { share(args); return process.exitCode ?? 0; }
         catch (error) { process.stderr.write(`muxr share: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
+    }
+    if (command === 'pane') {
+        try { return await pane(args); }
+        catch (error) { process.stderr.write(`muxr pane: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
     }
     if (command === 'accounts') {
         try { return await accounts(args); }

@@ -110,6 +110,8 @@ export interface PlanMoveOptions {
     provider: string;
     folder: string;
     launchEnv: { set: Record<string, string>; unset: string[] };
+    /** Host-owned self-moves wait for the calling turn to finish. */
+    waitForIdle?: boolean;
     resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[];
 }
 
