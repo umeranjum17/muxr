@@ -1,6 +1,34 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.16",
+            "title": "Move a conversation to another Claude account",
+            "summary": "Since 0.2.15: agents can move their own conversation between signed-in Claude accounts from the terminal, and lab launches refuse an unsafe Claude launcher.",
+            "features": [
+                {
+                    "title": "Switch Claude accounts from the terminal",
+                    "detail": "An agent can see its current Claude account, list signed-in accounts and their available quota, and move its own conversation to another account without reaching for the phone. The conversation continues with the same model and permission settings."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Safer lab launches",
+                    "detail": "A lab run refuses a missing or misplaced Claude launcher target before starting, and keeps the installed launcher from updating itself during the run."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Checks",
+                    "status": "not-run",
+                    "detail": "Not accepted on a device. The captain's own phone test is still required before stable publication."
+                }
+            ],
+            "knownLimits": [
+                "Moving a conversation opens a replacement pane; the original pane does not stay open.",
+                "Only Claude conversations can be moved between signed-in accounts."
+            ]
+        },
+        {
             "appVersion": "0.2.15",
             "title": "Home says when Tailscale is off",
             "summary": "Since 0.2.14: Home no longer says there is no network when the phone is online but Tailscale is off.",
