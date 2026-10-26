@@ -1,15 +1,31 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { loadavg } from 'node:os';
-import { join } from 'node:path';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs';
+import { homedir, loadavg } from 'node:os';
+import { delimiter, dirname, join, resolve, sep } from 'node:path';
+import { resolveAgentBinary } from '@byokit/herdr';
 import { machineIdentity } from '../../setup/index.mjs';
 import { approveLabOffer, linkLabClient, linkWaitMs } from './linkLabClient.mjs';
 import { waitForRelay } from './waitForRelay.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// With `presentOffer`, an external device (an Android app) pairs from the offer it is handed, and the lab answers the computer's approval; the result is `approved`, not a link.
+/** Only launcher metadata is read. A dangling or escaped target refuses before provisioning. */
+export function assertNativeClaudeLauncher(home = homedir()) {
+    const launcher = join(home, '.local', 'bin', 'claude');
+    let info;
+    try { info = lstatSync(launcher); } catch (error) { if (error.code === 'ENOENT') return undefined; throw error; }
+    const expected = join(home, '.local', 'share', 'claude', 'versions');
+    let target = info.isSymbolicLink() ? resolve(dirname(launcher), readlinkSync(launcher)) : launcher;
+    try { target = realpathSync(launcher); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (!target.startsWith(expected + sep) || !existsSync(target)) {
+        throw new Error(`Claude launcher target ${target} is unavailable or outside expected directory ${expected}; repair the installed launcher before a native lab.`);
+    }
+    return { launcher, target };
+}
+
+// With `presentOffer`, an external device pairs; the result is `approved`, not a link.
 export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {}, presentOffer) {
+    const native = assertNativeClaudeLauncher();
     const helper = process.env.HERDR_LAB_HELPER;
     if (!helper) throw new Error('HERDR_LAB_HELPER is not set: point it at a Herdr lab helper script to run the lab link.');
     const session = process.env.HERDR_LAB_SESSION ?? execFileSync(helper, ['name', label], { encoding: 'utf8' }).trim();
@@ -22,6 +38,17 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
         .map((name) => `export ${name}=${JSON.stringify(process.env[name])}\n`).join('');
     writeFileSync(wrapper, `#!/bin/sh\n${keep}exec ${JSON.stringify(helper)} run ${JSON.stringify(session)} "$@"\n`);
     chmodSync(wrapper, 0o700);
+    // A native CLI must not inherit Herdr's disposable HOME/XDG or update the shared launcher.
+    // Stand-ins earlier on PATH stay untouched. The host forwards this PATH into every lab pane.
+    let path = hostEnv.PATH ?? process.env.PATH;
+    const selected = resolveAgentBinary('claude', { path: (path ?? '').split(delimiter) }).path;
+    if (native && selected && realpathSync(selected) === native.target) {
+        const bin = join(root, 'native-bin');
+        mkdirSync(bin, { recursive: true });
+        const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
+        writeFileSync(join(bin, 'claude'), `#!/bin/bash\nexport HOME=${quote(homedir())}\nunset XDG_DATA_HOME XDG_CONFIG_HOME XDG_CACHE_HOME XDG_STATE_HOME\nexport DISABLE_AUTOUPDATER=1\nexec -a ${quote(native.launcher)} ${quote(native.target)} "$@"\n`, { mode: 0o700 });
+        path = `${bin}${delimiter}${path}`;
+    }
     const home = join(root, 'muxr');
     mkdirSync(home, { recursive: true });
     const relayDir = join(root, 'relay');
@@ -29,13 +56,13 @@ export async function linkHerdrLab(root, label, onEvent, beforeHost, hostEnv = {
     // A home of its own: on the real one the lab host read the person's agent accounts for plan usage.
     const labHome = join(root, 'home');
     mkdirSync(labHome, { recursive: true });
-    const env = { ...process.env, HOME: labHome, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1',
+    const env = { ...process.env, HOME: labHome, PATH: path, DISABLE_AUTOUPDATER: '1', MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1',
         HERDR_BIN: wrapper, HERDR_BIN_PATH: wrapper, HERDR_SOCKET_PATH: status.server.socket,
         HERDR_SESSION: session };
     for (const key of ['MUXR_RELAY_URL', 'MUXR_RELAY_TOKEN', 'MUXR_MACHINE_ID', 'MUXR_RELAY_AUTH', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME',
         'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME']) delete env[key];
     // Only what the caller hands over on purpose, such as a lab-only sign-in.
-    Object.assign(env, hostEnv);
+    Object.assign(env, hostEnv, { PATH: path, DISABLE_AUTOUPDATER: '1' });
     const children = [];
     const start = (args, extra = {}) => {
         const child = spawn(process.execPath, args, { env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });

@@ -20,7 +20,8 @@ function fakeHerdr(dir: string, cwd: string) {
             agent: 'claude',
             name: 'ram',
             agent_status: 'idle',
-            interactive_ready: true,
+            interactive_ready: true, terminal_id: 'terminal-1', state_change_seq: 1,
+            argv: ['claude', '--dangerously-skip-permissions', '--model', 'sonnet', '--session-id', 'claude-1'],
             agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
         },
     ];
@@ -103,7 +104,9 @@ function fakeHerdr(dir: string, cwd: string) {
                         break;
                     }
                     case 'pane.process_info':
-                        reply = { id, result: { process_info: { shell_pid: 1, foreground_processes: [{ pid: 1, name: 'sh' }] } } };
+                        reply = { id, result: { process_info: { shell_pid: 1, foreground_processes: agents.some((agent) => agent.pane_id === p.pane_id)
+                            ? [{ pid: 2, name: 'claude', argv: agents.find((agent) => agent.pane_id === p.pane_id)?.argv }]
+                            : [{ pid: 1, name: 'sh' }] } } };
                         break;
                     case 'pane.send_text': {
                         const live = agents.some((agent) => agent.pane_id === p.pane_id);
@@ -173,7 +176,8 @@ function fakeHerdr(dir: string, cwd: string) {
                             name: p.name,
                             agent: p.kind,
                             agent_status: 'idle',
-                            interactive_ready: true,
+                            interactive_ready: true, terminal_id: `terminal-${p.pane_id}`, state_change_seq: 1,
+                            argv: ['claude', ...args],
                             agent_session: { source: 'herdr', agent: p.kind, kind, value },
                         };
                         agents.push(agent);
@@ -228,7 +232,7 @@ function moveOn(source: Awaited<ReturnType<typeof createHerdrSessionSource>>, ho
     const move = source.movePlanAccount;
     if (!move) throw new Error('plan-account moves are not implemented');
     const kit = cliAccounts({ stateDir: join(home, 'plans'), bins: {}, env: { HOME: home, PATH: '/usr/bin:/bin' } });
-    return (options: { sessionId: string; provider: string; folder: string }) => move.call(source, {
+    return (options: { sessionId: string; provider: string; folder: string; waitForIdle?: boolean }) => move.call(source, {
         ...options, launchEnv: { set: { CLAUDE_CONFIG_DIR: options.folder }, unset: ['ANTHROPIC_API_KEY'] },
         resumeArgs: kit.resumeArgs,
     });
@@ -283,7 +287,9 @@ describe('a plan-account move', () => {
             expect((await source.open({ sessionId })).info.id).toBe(sessionId);
 
             herdr.state.raceNextSwap = true;
-            const moved = await moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude' });
+            herdr.agents[0]!.agent_status = 'working';
+            herdr.state.nextWait = async () => { herdr.agents[0]!.agent_status = 'idle'; };
+            const moved = await moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude', waitForIdle: true });
             expect(moved.sessionId).toBe(sessionId);
             const paneEnv = herdr.panes.find((pane) => pane.pane_id === 'p3')?.env as Record<string, string> | undefined;
             expect(paneEnv).toMatchObject({ DISPLAY: ':42' });
@@ -291,7 +297,9 @@ describe('a plan-account move', () => {
             expect(paneEnv?.MUXR_AGENT_CAPABILITIES).toContain("that desktop's browser");
             expect(paneEnv?.MUXR_AGENT_CAPABILITIES).not.toContain('own screen');
             expect(herdr.agents).toHaveLength(1);
-            expect(herdr.agents[0]).toMatchObject({ pane_id: 'p3', agent_session: original?.agent_session });
+            expect(herdr.agents[0]).toMatchObject({ pane_id: 'p3', agent_session: original?.agent_session,
+                argv: ['claude', '--dangerously-skip-permissions', '--model', 'sonnet', '--resume', 'claude-1'] });
+            expect(herdr.calls.some((call) => call.method === 'agent.wait' && call.detail === 'p1')).toBe(true);
             const started = herdr.calls.findIndex((call) => call.method === 'agent.start' && call.detail === 'p3');
             const confirmed = herdr.calls.findIndex((call) => call.method === 'agent.wait' && call.detail === 'p3');
             const closed = herdr.calls.findIndex((call) => call.method === 'pane.close' && call.detail === 'p1');

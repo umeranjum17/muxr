@@ -8,7 +8,7 @@
 
 /** One sign-in to a provider plan an agent can run on. */
 export interface PlanAccount {
-    /** Opaque handle for `session.start.planAccount` and `plans.move`; never displayed. */
+    /** Opaque handle for launches and moves; CLI scripts may display it, phone labels never do. */
     id: string;
     /** The provider the sign-in belongs to: `claude` or `codex` in v1. */
     provider: string;

@@ -567,9 +567,9 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(params.refresh === undefined ? {} : { refresh: params.refresh }),
         }),
         'usage.now': (params) => usageNow(process.env, { ...(params.refresh === undefined ? {} : { refresh: params.refresh }) }),
-        'plans.list': async () => {
-            const listed = await listPlans(process.env);
-            lastPlans = listed.providers;
+        'plans.list': async (params) => {
+            const listed = await listPlans(process.env, {}, params);
+            lastPlans = listed.providers.filter((provider) => provider.provider === 'opencode' || provider.accounts.length >= 2);
             return listed;
         },
         'plans.acknowledgeAutoTerms': async () => acknowledgeAutoTerms(process.env),
@@ -585,6 +585,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 throw Object.assign(new Error('Another move is in progress.'), { code: 'plan-move-in-progress' });
             }
             planMoveInProgress = true;
+            let handedOff = false;
             try {
                 const selected = resolvePlanRecord(process.env, params.accountId);
                 if (selected.provider === 'opencode') {
@@ -601,36 +602,50 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                         { code: 'host-contract-mismatch' },
                     );
                 }
+                if (params.handoff) {
+                    const session = (await source.list({ fresh: true })).find((candidate) => candidate.id === params.sessionId);
+                    if (session?.agentKind !== selected.provider) throw new Error('That account belongs to another provider.');
+                    if (await source.conversation?.(params.sessionId) === undefined) throw new Error('The agent has no conversation to move yet. Wait for it to start, then try again.');
+                    const listed = await listPlans(process.env);
+                    const signedIn = listed.providers.find((provider) => provider.provider === selected.provider)?.accounts.filter((account) => account.signedIn) ?? [];
+                    if (signedIn.length < 2) throw new Error('Fewer than two accounts are signed in; sign in a second one before moving.');
+                }
                 const launchEnv = await planLaunchEnv(process.env, record);
                 if (record.found) {
                     if (record.provider === 'claude') launchEnv.set.CLAUDE_CONFIG_DIR = record.folder;
                     else launchEnv.set.CODEX_HOME = record.folder;
                 }
-                try {
-                    const moved = await source.movePlanAccount({
-                        sessionId: params.sessionId,
-                        provider: record.provider,
-                        folder: record.folder,
-                        launchEnv,
-                        resumeArgs: (kind, ref) => planAccounts(process.env).resumeArgs(kind, ref),
-                    });
-                    await rememberPane(await planPaneOf(moved.sessionId), record.id);
-                    return moved;
-                } catch (error) {
-                    const exposed = error as { code?: unknown; paneId?: unknown };
-                    if (typeof exposed.paneId === 'string') {
-                        await rememberPane(exposed.paneId, record.id);
-                    }
-                    if ((error as { code?: unknown }).code === 'plan-move-start-failed') {
-                        const name = record.name.trim() === '' ? PLAN_LABELS[record.provider] : record.name;
-                        throw Object.assign(new Error(`Couldn't start on ${name}. The original conversation is still running. Try again.`), {
-                            code: 'plan-move-start-failed',
+                const move = source.movePlanAccount.bind(source);
+                handedOff = true;
+                const moving = (async () => {
+                    try {
+                        const moved = await move({
+                            sessionId: params.sessionId, provider: record.provider, folder: record.folder, launchEnv,
+                            ...(params.handoff ? { waitForIdle: true } : {}),
+                            resumeArgs: (kind, ref) => planAccounts(process.env).resumeArgs(kind, ref),
                         });
+                        await rememberPane(await planPaneOf(moved.sessionId), record.id);
+                        return moved;
+                    } catch (error) {
+                        const exposed = error as { code?: unknown; paneId?: unknown };
+                        if (typeof exposed.paneId === 'string') await rememberPane(exposed.paneId, record.id);
+                        if (exposed.code === 'plan-move-start-failed') {
+                            const name = record.name.trim() === '' ? PLAN_LABELS[record.provider] : record.name;
+                            throw Object.assign(new Error(`Couldn't start on ${name}. The original conversation is still running. Try again.`), { code: 'plan-move-start-failed' });
+                        }
+                        throw error;
+                    } finally {
+                        planMoveInProgress = false;
                     }
-                    throw error;
+                })();
+                if (params.handoff) {
+                    void moving.catch((error: unknown) => process.stderr.write(`Account move failed: ${sanitizeRequestErrorMessage(error instanceof Error ? error.message : String(error))}\n`));
+                    return { sessionId: params.sessionId, handoff: true as const };
                 }
-            } finally {
-                planMoveInProgress = false;
+                return await moving;
+            } catch (error) {
+                if (!handedOff) planMoveInProgress = false;
+                throw error;
             }
         },
         'plans.add': async (params) => {

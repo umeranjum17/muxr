@@ -901,8 +901,8 @@ export interface RequestMap extends PeerRequestMap {
     // `PlanAccount`). Providers with fewer than two known accounts are omitted
     // from the list. An older host has no handler
     // and answers host-contract-mismatch, which the app treats as no accounts.
-    /** Every provider with two or more known sign-ins, with room hints when read. `autoTermsNote` is the one-time Auto note the app shows until acknowledged. */
-    'plans.list': { params: Record<string, never>; result: { providers: PlanProviderAccounts[]; autoTermsAcknowledged: boolean; autoTermsNote: string } };
+    /** Providers with room hints. `includeSingle` also lists a lone sign-in for the local CLI. `autoTermsNote` is the one-time Auto note the app shows until acknowledged. */
+    'plans.list': { params: { includeSingle?: boolean }; result: { providers: PlanProviderAccounts[]; autoTermsAcknowledged: boolean; autoTermsNote: string } };
     /** Record that the one-time Auto terms note was shown, so it never repeats on this host. */
     'plans.acknowledgeAutoTerms': { params: Record<string, never>; result: { acknowledged: true } };
     /** Rename one known account. The name is the person's own words, never a number. */
@@ -919,8 +919,10 @@ export interface RequestMap extends PeerRequestMap {
      * which is the same session when its route rebinds and the new one otherwise.
      * Only one move may run on a host at a time, through account association
      * persistence; concurrent requests fail with `plan-move-in-progress`.
+     * `handoff` acknowledges host ownership before relaunch, waiting up to five
+     * minutes for idle/done; failures are reported in the host journal.
      */
-    'plans.move': { params: { sessionId: string; accountId: string }; result: { sessionId: string } };
+    'plans.move': { params: { sessionId: string; accountId: string; handoff?: boolean }; result: { sessionId: string; handoff?: true } };
     /**
      * Open the provider's own sign-in in a new tab: a fresh managed folder for
      * a new account, or the account's own folder to sign in again (a found

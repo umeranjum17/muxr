@@ -12,7 +12,7 @@ import { execFile } from 'node:child_process';
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
 import { mkdir, open, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { HERDR_OUTDATED, findHerdrBin, herdrAvailability } from '../../../../../scripts/setup/infrastructure/herdr.mjs';
 import type {
@@ -145,6 +145,9 @@ function paneEnvironment(): Record<string, string> {
     );
     const browser = desktop.screen ? `${DESKTOP_BROWSER}${HEADED_BROWSER}` : HEADLESS_BROWSER;
     return {
+        // Lab shells inherit Herdr's disposable XDG dirs. Route native Claude through
+        // the lab's normal-HOME/XDG wrapper, and forbid updates in the pane itself too.
+        ...(process.env.HERDR_SESSION ? { PATH: process.env.PATH ?? '', DISABLE_AUTOUPDATER: '1' } : {}),
         MUXR_AGENT_CAPABILITIES: `${browser}${ARTIFACT_GUIDANCE}`,
         ...desktopEnv,
         ...(desktop.x11Display === undefined ? {} : { DISPLAY: desktop.x11Display }),
@@ -2888,11 +2891,32 @@ export async function createHerdrSessionSource(
             catch {
                 throw Object.assign(new Error('This conversation cannot move to that account.'), { code: 'plan-move-unsupported' });
             }
+            if (kind === 'claude') {
+                const { process_info } = await client.kit.call('pane.process_info', { pane_id: record.paneId });
+                const argv = process_info.foreground_processes?.map((process) => process.argv).find((argv) =>
+                    argv?.some((arg) => /^claude(?:\.exe)?$/.test(basename(arg)) || arg.endsWith('/@anthropic-ai/claude-code/cli.js')));
+                if (argv === undefined || argv === null) throw new Error("Cannot read this Claude pane's launch arguments; leaving it unchanged.");
+                const executable = argv.findIndex((arg) => /^claude(?:\.exe)?$/.test(basename(arg)) || arg.endsWith('/@anthropic-ai/claude-code/cli.js'));
+                const flags: string[] = [];
+                for (let i = executable + 1; i < argv.length; i += 1) {
+                    const arg = argv[i]!;
+                    if (['--resume', '-r', '--session-id'].includes(arg)) { if (argv[i + 1] && !argv[i + 1]!.startsWith('-')) i += 1; continue; }
+                    if (arg === '--continue' || arg === '-c' || /^(--resume|--session-id)=/.test(arg)) continue;
+                    flags.push(arg);
+                }
+                args = [...flags, ...args];
+            }
+            const live = (await client.kit.call('agent.get', { target: record.paneId })).agent;
+            const whenBusy = moveOptions.waitForIdle ? {
+                busy: 'wait' as const, waitMs: 300_000,
+                confirmed: { session: conversation.value, terminalId: live.terminal_id },
+            } : undefined;
             let staged: string | undefined;
             const name = record.agent?.name ?? undefined;
             let tagged: Promise<void> | undefined;
             const moved = await client.kit.move({
                 paneId: record.paneId, kind: moveOptions.provider, args,
+                ...(whenBusy === undefined ? {} : { whenBusy }),
                 set: { ...paneEnvironment(), ...moveOptions.launchEnv.set },
                 unset: moveOptions.launchEnv.unset,
                 onStaged: (paneId) => {

@@ -44,13 +44,13 @@ function ask(type, params = {}) {
     });
 }
 
-async function claudeAccounts() {
-    const { providers } = await ask('plans.list');
-    const claude = providers.find((provider) => provider.provider === 'claude');
-    if (claude === undefined) {
+async function claudeAccounts(requireChoice = false) {
+    const { providers } = await ask('plans.list', { includeSingle: true });
+    const accounts = providers.find((provider) => provider.provider === 'claude')?.accounts.filter((account) => account.signedIn) ?? [];
+    if (requireChoice && accounts.length < 2) {
         throw new Error('fewer than two Claude accounts are signed in; sign in a second one in the muxr app first');
     }
-    return claude.accounts;
+    return accounts;
 }
 
 function accountLabel(account) {
@@ -60,10 +60,10 @@ function accountLabel(account) {
 /** An account by its name or email, exactly as `muxr accounts` prints them. Never "auto". */
 function pickAccount(accounts, wanted) {
     const key = wanted.trim().toLowerCase();
-    const matches = accounts.filter((account) => account.name.toLowerCase() === key || account.email?.toLowerCase() === key);
+    const matches = accounts.filter((account) => account.id === wanted || account.name.toLowerCase() === key || account.email?.toLowerCase() === key);
     if (matches.length === 1) return matches[0];
     const names = accounts.map(accountLabel).join(', ');
-    throw new Error(matches.length === 0 ? `no Claude account named "${wanted}"; signed in: ${names}` : `"${wanted}" matches more than one account; use the email: ${names}`);
+    throw new Error(matches.length === 0 ? `no account named "${wanted}"; available: ${names}` : `"${wanted}" matches more than one account; use its account id: ${names}`);
 }
 
 function reset(epochSec) {
@@ -77,7 +77,7 @@ function reset(epochSec) {
 }
 
 function accountLines(account) {
-    const head = `${accountLabel(account)}${account.plan === undefined ? '' : ` · ${account.plan}`}${account.signedIn ? '' : ' · signed out'}`;
+    const head = `${account.id} · ${accountLabel(account)}${account.plan === undefined ? '' : ` · ${account.plan}`}${account.signedIn ? '' : ' · signed out'}`;
     if (!account.signedIn) return [head];
     const windows = account.windows ?? [];
     if (windows.length === 0) return [head, '    quota: not readable right now'];
@@ -86,7 +86,7 @@ function accountLines(account) {
 
 async function list(args) {
     const accounts = await claudeAccounts();
-    if (args.json) { process.stdout.write(`${JSON.stringify({ accounts: accounts.map(({ id: _id, ...rest }) => rest) })}\n`); return 0; }
+    if (args.json) { process.stdout.write(`${JSON.stringify({ accounts })}\n`); return 0; }
     process.stdout.write(`Claude accounts (${accounts.length})\n${accounts.flatMap((account) => accountLines(account).map((line) => `  ${line}`)).join('\n')}\n`);
     return 0;
 }
@@ -123,7 +123,7 @@ function findAgent(rows, wanted) {
 }
 
 async function start(args) {
-    const accounts = await claudeAccounts();
+    const accounts = await claudeAccounts(true);
     const account = pickAccount(accounts, args.positional[0] ?? (() => { throw new Error(USAGE); })());
     const result = await ask('session.start', {
         cwd: resolve(args.cwd ?? process.cwd()), kind: 'claude', planAccount: account.id, ...(args.label === undefined ? {} : { label: args.label }),
@@ -136,10 +136,48 @@ async function start(args) {
 async function move(args) {
     const [agentName, accountName] = args.positional;
     if (agentName === undefined || accountName === undefined) throw new Error(USAGE);
-    const account = pickAccount(await claudeAccounts(), accountName);
+    const account = pickAccount(await claudeAccounts(true), accountName);
     const agent = findAgent(await agentRows(), agentName);
     await ask('plans.move', { sessionId: agent.id, accountId: account.id });
     process.stdout.write(`Moved ${agent.agentName ?? agentName} to ${accountLabel(account)}. Its conversation continues in a new pane.\n`);
+    return 0;
+}
+
+const PANE_USAGE = 'usage: muxr pane account [--pane <P>] [--json]\n       muxr pane move-to-account <account> [--pane <P>] [--json]';
+
+export async function pane(argv) {
+    const [sub, ...rest] = argv;
+    const args = parse(rest);
+    if (!['account', 'move-to-account'].includes(sub) || args.positional.length !== (sub === 'account' ? 0 : 1)) throw new Error(PANE_USAGE);
+    const paneId = args.pane ?? process.env.HERDR_PANE_ID;
+    if (!paneId?.trim()) throw new Error('no pane selected; use --pane <P> or run inside a Herdr pane');
+    const sessions = await ask('session.list');
+    const agent = sessions.find((session) => session.paneId === paneId && session.agentKind && session.agentKind !== 'shell');
+    if (agent === undefined) {
+        if (sub !== 'account') throw new Error(`pane ${paneId} has no running agent`);
+        process.stdout.write(args.json ? `${JSON.stringify({ pane: paneId, account: null, status: 'no-agent' })}\n` : `Pane ${paneId} has no running agent.\n`);
+        return 0;
+    }
+    if (sub === 'account') {
+        const { accountId } = await ask('plans.agent', { sessionId: agent.id });
+        const { providers } = await ask('plans.list', { includeSingle: true });
+        const account = providers.flatMap((provider) => provider.accounts).find((account) => account.id === accountId);
+        const shown = { pane: paneId, sessionId: agent.id, account: account ?? null, status: account === undefined ? 'no-recorded-account' : 'running' };
+        process.stdout.write(args.json ? `${JSON.stringify(shown)}\n` : account === undefined
+            ? `Pane ${paneId} has no recorded account.\n` : `${paneId} · ${account.id} · ${accountLabel(account)}\n`);
+        return 0;
+    }
+    const { providers } = await ask('plans.list', { includeSingle: true });
+    const account = pickAccount(providers.flatMap((provider) => provider.accounts), args.positional[0]);
+    if (agent.agentKind !== account.provider) throw new Error('that account belongs to another provider');
+    if (account.provider !== 'claude') throw new Error('pane move-to-account supports Claude accounts only');
+    if (!account.signedIn) throw new Error('sign in to that account before moving');
+    if (providers.find((provider) => provider.provider === 'claude').accounts.filter((account) => account.signedIn).length < 2) {
+        throw new Error('fewer than two Claude accounts are signed in; sign in a second one before moving');
+    }
+    const result = await ask('plans.move', { sessionId: agent.id, accountId: account.id, handoff: true });
+    process.stdout.write(args.json ? `${JSON.stringify(result)}\n`
+        : `Move accepted by the host for ${paneId} to ${accountLabel(account)}. Waiting for idle/done (up to 5 minutes); finish this turn. The same conversation resumes in a new pane; the host completes the move after this command exits.\n`);
     return 0;
 }
 
@@ -148,7 +186,7 @@ function parse(argv) {
     for (let i = 0; i < argv.length; i += 1) {
         const arg = argv[i];
         if (arg === '--json') args.json = true;
-        else if (arg === '--cwd' || arg === '--label') {
+        else if (arg === '--cwd' || arg === '--label' || arg === '--pane') {
             const value = argv[i + 1];
             if (value === undefined || value.startsWith('--')) throw new Error(`${arg} needs a value`);
             args[arg.slice(2)] = value;

@@ -120,7 +120,7 @@ function selection(reads: Awaited<ReturnType<typeof providerRooms>>, account: st
     return resolveSelection(candidates, {}, { account }, (candidate) => candidate.room, Date.now());
 }
 
-export async function listPlans(env: NodeJS.ProcessEnv = process.env, deps: PlansDeps = {}): Promise<{
+export async function listPlans(env: NodeJS.ProcessEnv = process.env, deps: PlansDeps = {}, options: { includeSingle?: boolean } = {}): Promise<{
     providers: PlanProviderAccounts[]; autoTermsAcknowledged: boolean; autoTermsNote: string;
 }> {
     // Register default rows before any managed writes, retaining their original ordering.
@@ -129,7 +129,7 @@ export async function listPlans(env: NodeJS.ProcessEnv = process.env, deps: Plan
     const managed = await kit.list();
     const reads = await Promise.all(PLAN_PROVIDERS.map(async (provider): Promise<PlanProviderAccounts | undefined> => {
         const rooms = await providerRooms(provider, env, deps, managed);
-        if (rooms.length < minimumRooms(provider)) return undefined;
+        if (rooms.length < (options.includeSingle ? 1 : minimumRooms(provider))) return undefined;
         const pick = selection(rooms, 'auto');
         return { provider, label: PLAN_LABELS[provider], accounts: rooms.map((read) => read.account),
             auto: pick.ok ? { accountId: pick.account.id, reason: pick.reason } : { reason: pick.reason } };
