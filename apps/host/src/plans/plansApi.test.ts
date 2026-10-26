@@ -116,6 +116,7 @@ function addedCodex(name: string): string {
 it('hides the feature with one account and lists two with names and emails', async () => {
     foundClaude();
     expect(await listPlans(env)).toEqual({ providers: [], autoTermsAcknowledged: false, autoTermsNote: AUTO_TERMS_NOTE });
+    expect((await listPlans(env, {}, { includeSingle: true })).providers[0]?.accounts).toMatchObject([{ id: 'found-claude', signedIn: true }]);
 
     const second = addedClaude('work');
     savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);

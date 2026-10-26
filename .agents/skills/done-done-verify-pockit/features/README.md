@@ -352,7 +352,9 @@ rules, with no H2 sections.
 - [Manage Claude accounts by hand from the CLI](./accounts-cli.md) — real lab
   Herdr and host with two stand-in Claude accounts: `muxr accounts` lists them
   with 5-hour and 7-day quota, starts an agent, shows each agent's account and
-  moves one, and refuses `auto`.
+  moves one, and refuses `auto`. The real-account self-move recipe covers
+  `pane account` and host-owned `pane move-to-account`, including preserved
+  flags/session, A→B→A and the issuing CLI exiting before relaunch.
 - [Move a conversation to another account](./plan-move.md) — release APK on
   an emulator over a real lab Herdr and host with two stand-in Claude accounts:
   the same conversation moves A to B and back, recorded.

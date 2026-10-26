@@ -145,6 +145,9 @@ function paneEnvironment(): Record<string, string> {
     );
     const browser = desktop.screen ? `${DESKTOP_BROWSER}${HEADED_BROWSER}` : HEADLESS_BROWSER;
     return {
+        // Lab shells inherit Herdr's disposable XDG dirs. Route native Claude through
+        // the lab's normal-HOME/XDG wrapper, and forbid updates in the pane itself too.
+        ...(process.env.HERDR_SESSION ? { PATH: process.env.PATH ?? '', DISABLE_AUTOUPDATER: '1' } : {}),
         MUXR_AGENT_CAPABILITIES: `${browser}${ARTIFACT_GUIDANCE}`,
         ...desktopEnv,
         ...(desktop.x11Display === undefined ? {} : { DISPLAY: desktop.x11Display }),

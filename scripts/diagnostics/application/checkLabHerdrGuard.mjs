@@ -6,12 +6,14 @@
  * for the default and the lab session; no real Herdr is touched.
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startFakeHerdr } from '../../../perf/fake-herdr/server.mjs';
 import { waitForRelay } from './waitForRelay.mjs';
 import { linkLabClient, requestLab } from './linkLabClient.mjs';
+import { assertNativeClaudeLauncher, linkHerdrLab } from './linkHerdrLab.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'muxr-lab-guard-'));
@@ -49,6 +51,29 @@ async function stop(child) {
 }
 
 try {
+    // One real-filesystem safety journey: the valid installed target passes,
+    // retargeting into lab data refuses before any Herdr provisioning can run.
+    const nativeHome = join(root, 'native');
+    const versions = join(nativeHome, '.local', 'share', 'claude', 'versions');
+    const launcher = join(nativeHome, '.local', 'bin', 'claude');
+    mkdirSync(versions, { recursive: true });
+    mkdirSync(join(nativeHome, '.local', 'bin'), { recursive: true });
+    const stable = join(versions, 'test-version');
+    writeFileSync(stable, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+    symlinkSync(stable, launcher);
+    assert.equal(assertNativeClaudeLauncher(nativeHome).target, stable);
+    unlinkSync(launcher);
+    const escaped = join(root, 'lab-data', 'claude');
+    symlinkSync(escaped, launcher); // dangling targets must fail too
+    const savedHome = process.env.HOME;
+    process.env.HOME = nativeHome;
+    try {
+        await assert.rejects(linkHerdrLab(join(root, 'never-provisioned'), 'bad-launcher'), error => error.message.includes(escaped) && error.message.includes(versions));
+        assert.equal(existsSync(join(root, 'never-provisioned')), false);
+    } finally {
+        if (savedHome === undefined) delete process.env.HOME;
+        else process.env.HOME = savedHome;
+    }
     // Keep the default socket at its implicit HOME path. The named socket is
     // supplied by session list, so flatten its fixture path below the Unix limit.
     const desk = await startFakeHerdr({ dir: join(root, 'home', '.config', 'herdr'), titleChurnHz: 0 });

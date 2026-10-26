@@ -569,7 +569,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'usage.now': (params) => usageNow(process.env, { ...(params.refresh === undefined ? {} : { refresh: params.refresh }) }),
         'plans.list': async (params) => {
             const listed = await listPlans(process.env, {}, params);
-            lastPlans = listed.providers;
+            lastPlans = listed.providers.filter((provider) => provider.provider === 'opencode' || provider.accounts.length >= 2);
             return listed;
         },
         'plans.acknowledgeAutoTerms': async () => acknowledgeAutoTerms(process.env),
