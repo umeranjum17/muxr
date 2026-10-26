@@ -25,7 +25,7 @@ program's wheel.
 - `latest-pill` once scrolled back, the pill reads `Latest` (accessibility label `Jump to latest output`); none in Codex, whose `Back to bottom` is esc on the key row.
 - `latest-reach` tapping it lands on the newest line, and the pill goes away.
 - `latest-streaming` the same while the agent is still printing: the pane lands on the live edge and keeps following new lines; the pill does not stay on `Still catching up`.
-- `latest-local` (Android, Claude Code) a drag back through output the phone already showed moves with the finger at the display rate; a fling covers hundreds of rows and stops at the oldest row the phone holds; output printed at 100 lines a second walks back with no holes, at 270 dp (after the grid pans to its top) as at 411 dp.
+- `latest-local` (Android, Claude Code) a drag back through output the phone already showed moves with the finger at the display rate; a fling covers hundreds of rows and stops at the oldest row the phone holds; at 270 dp it walks the received output after the grid pans to its top, but cannot recover rows a host frame never carried.
 - `latest-split` all of the above with the app in half of a split screen (iPad Split View, Android split screen).
 
 ## How to get to it (user POV)
@@ -74,8 +74,15 @@ a `stream` a few seconds before the drag covers it while Claude prints.
 `.done-done.yaml` for its env) drives `terminalScrollLocalLab.sh` on an owned
 emulator and writes each screen's visible `MARK-n` range to `proof.log`. With
 `LINES=1200 STUB_LPS=100 WALK=30` it instead walks back through the history a
-little under a screen per drag, records the walk to `walk.mp4`, and logs every
-break in a screen's `MARK-n` numbers as `gap MARK-a -> MARK-b`: none may show.
+little under a screen per drag and records the walk to `walk.mp4`. At 270 dp,
+that is 30 stepped drags with 11-12 visible MARK rows per screen in the retained
+walks, not thirty rows per drag. `proof.log` records each screen's actual row
+count and compares every adjacent MARK number, logging each break on its own
+`gap MARK-a -> MARK-b` line with the screen name. Report the gaps the run
+actually shows, including repeated observations of the same gap; no gap line
+means none was detected in those screens, not that all 1200 rows were seen.
+Out-of-range OCR ids are not pane output; the reader drops them unless their
+two valid neighbours uniquely identify the misread row.
 `DENSITY` sets the width: run it at `640` (the 270 dp reference phone) and
 `420` (411 dp). `KIND=shell` walks a shell pane instead, whose scrollback Herdr
 owns: the host, not the phone's copy, is what moves the view there, so it is the
@@ -104,9 +111,9 @@ transcript (`Jump to bottom` on screen) through Herdr, about 6 lines per
   the time the finger lifted, then crawled on for seconds; while Claude printed
   it did not leave the live edge until the finger had stopped. Latest turned
   the wheel and stopped 17-23 rows short of the newest line.
-- Every row Herdr paints reaches the phone: each of its frames is one
-  synchronized update, and at `STUB_LPS=100` consecutive frames still share
-  rows. The phone-side copy finds how far the screen moved by comparing
+- Each delivered Herdr frame is one synchronized update; it is not a guarantee
+  that every row the pane printed reached the phone. The phone-side copy
+  finds how far the screen moved by comparing
   screens, so it compares after every frame, also when the app combined several
   into one write, and only rows that changed in place vote: a row that appears
   once on both screens, and the unbroken run of matching rows around it. A
@@ -122,9 +129,10 @@ transcript (`Jump to bottom` on screen) through Herdr, about 6 lines per
   `MARK-1158 -> 1171` and `MARK-988 -> 1001` were whole screens it dropped).
   What a Herdr frame never carried cannot be filled by anything on the phone or
   the host: a frame that moves more rows than its screen holds loses the rows in
-  between, which at 33 columns and `STUB_LPS=100` is a row or two under load, so
-  a walk can still show one truncated line. Count rows across the whole screen,
-  not from the top row alone.
+  between. At 270 dp (33 columns) and `STUB_LPS=100`, two or three of the 1200
+  rows can still be missing where a host frame outran the screen; those rows
+  never reached the phone. A walk can also show a truncated line. Count and
+  compare rows across the whole screen, not from the top row alone.
 - An emulator presents 2-4 frames a second for any app here: compare fps and
   settle against a reference app on the same emulator, never against 60 fps.
 - On iOS, a `muxr://` link opened by the system goes to whichever muxr app

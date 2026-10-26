@@ -5,8 +5,9 @@
 # lines/s while attached. Saves the live edge, a stepped 400 px drag back, a
 # fling back and Latest, and writes each screen's visible MARK range to
 # proof.log. WALK=n instead walks back through the history in n stepped drags
-# of under a screen each, at 411 dp, and logs every break in the MARK numbers a screen
-# shows (`gap MARK-a -> MARK-b`), the hole check, recorded to walk.mp4.
+# of under a screen each and records walk.mp4. At 270 dp, 30 drags have shown
+# 11-12 MARK rows per screen, not 30 rows per drag. proof.log records each
+# screen's count and each within-screen break as `gap MARK-a -> MARK-b`.
 # DENSITY sets the width first: 640 on a 1080 px screen is the 270 dp reference
 # phone, where the grid is taller than its box and a drag pans it before the
 # history moves.
@@ -19,7 +20,7 @@
 # lab (HERDR_LAB_HELPER, HERDR_LAB_SESSION, HERDR_LAB_PREPROVISIONED=1).
 # Needs adb and tesseract.
 set -u
-APK=$1; E=$2; SER=${MUXR_LAB_SERIAL:?}; REPO=$PWD
+APK=$1; E=$2; SER=${MUXR_LAB_SERIAL:?}
 LINES=${LINES:-400}; LPS=${STUB_LPS:-15}; WALK=${WALK:-0}; DENSITY=${DENSITY:-}; KIND=${KIND:-claude}
 D=$(mktemp -d); trap 'rm -rf -- "$D"' EXIT; mkfifo "$D/in"
 a() { adb -s "$SER" "$@" </dev/null; }
@@ -43,7 +44,11 @@ marks() {
 # A screen's MARK range, its row count and every break in its numbers.
 shot() {
     a exec-out screencap -p > "$E/$1.png"; local m; m=$(marks "$E/$1.png")
-    log "$1 $(echo "$m" | sed -n '1p;$p' | tr '\n' ' ')rows=$(echo "$m" | grep -c .)$(echo "$m" | tr -dc '0-9\n' | awk 'NR>1 && $1!=p+1 {printf " gap MARK-%d -> MARK-%d", p, $1} {p=$1}')"
+    log "$1 $(echo "$m" | sed -n '1p;$p' | tr '\n' ' ')rows=$(echo "$m" | grep -c .)"
+    # Compare every adjacent MARK on this screen, not just its range endpoints.
+    while IFS= read -r gap; do log "$gap ($1)"; done < <(
+        printf '%s\n' "$m" | awk -F- 'NF==2 {if (seen && $2!=p+1) printf "gap MARK-%d -> MARK-%d\n", p, $2; p=$2; seen=1}'
+    )
 }
 # Centre of the first node whose text or content-desc matches $1, empty if none.
 find_node() {
@@ -64,7 +69,7 @@ mkdir -p "$E"
 [ -n "$DENSITY" ] && { a shell wm density "$DENSITY"; trap 'a shell wm density reset; rm -rf -- "$D"' EXIT; sleep 10; }
 a uninstall com.trymuxr.app >/dev/null 2>&1; a install "$APK" | tail -1
 a shell pm grant com.trymuxr.app android.permission.POST_NOTIFICATIONS 2>/dev/null
-log "installed $(basename "$APK") on $SER"
+log "installed $(basename "$APK") on $SER sha256=$(sha256sum "$APK" | cut -d ' ' -f1)"
 SERIAL=$SER EVIDENCE=$D KINDS=$KIND LINES=$LINES STUB_LPS=$LPS \
     node --input-type=module -e "$(< .agents/skills/done-done-verify-pockit/features/terminalLatestLab.mjs)" < "$D/in" > "$D/lab.log" 2>&1 &
 LAB=$!; exec 3> "$D/in"
@@ -104,8 +109,8 @@ WAIT=$(( STARTED + TOTAL + 7 - $(date +%s) )); [ "$WAIT" -lt 5 ] && WAIT=5
 log "waiting ${WAIT}s for the output to finish"; sleep "$WAIT"
 shot live-edge
 if [ "$WALK" -gt 0 ]; then
-    # Each drag moves the view less than a screen, so consecutive screens share
-    # rows and a hole shows up inside one of them. The walk is recorded to walk.mp4.
+    # Each drag is intended to move less than a screen so an overlap can expose
+    # a missing row. The captures, not that intention, establish what was seen.
     adb -s "$SER" shell screenrecord --time-limit 180 /sdcard/walk.mp4 </dev/null & REC=$!
     for i in $(seq 1 "$WALK"); do
         a shell 'input motionevent DOWN 300 600; y=600; while [ $y -lt 1400 ]; do y=$((y+20)); input motionevent MOVE 300 $y; done; input motionevent UP 300 1400'
@@ -127,8 +132,8 @@ shot after-latest
 log "pill after latest: $(find_node 'Jump to latest' | grep -c .)"
 quit; log "lab $(tail -1 "$D/lab.log")"
 cat > "$E/steps.json" <<JSON
-{"target": {"version": "muxr Android release $(node -p "require('$REPO/package.json').version")+$(git rev-parse --short HEAD)"},
+{"target": {"version": "muxr Android release APK sha256 $(sha256sum "$APK" | cut -d ' ' -f1); harness $(git rev-parse HEAD)"},
  "start": "Fresh install, paired to a private lab host with one fullscreen $KIND pane; the pane prints MARK-1..$LINES ($([ "$KIND" = shell ] && echo "a shell loop, one line every 60 ms" || echo "at $LPS lines/s")) while the phone is attached",
  "steps": ["Open the $KIND pane from Home", "Wait for the output to finish (live edge)", $([ "$WALK" -gt 0 ] && echo "\"Walk back through the history in $WALK stepped 800 px drags\"" || echo '"Drag back slowly 400 px", "Fling back"'), "Tap Latest"],
- "result": "$([ "$WALK" -gt 0 ] && echo "Each drag walks the view back through the history: every screen shows consecutive MARK rows overlapping the screen before, and proof.log logs any break in the numbers as a gap line; Latest returns to the newest output (MARK-$LINES) with the pill gone" || echo "The drag moves the view about as far as the finger, the fling keeps going back through consecutive rows with Latest shown, and Latest returns to the newest output (MARK-$LINES) with the pill gone")"}
+ "result": "$([ "$WALK" -gt 0 ] && echo "Captured $WALK stepped drags; proof.log records the visible MARK range and row count per screen and $(grep -c ' gap MARK-' "$E/proof.log") within-screen gap reports (repeated screens may report the same gap). These screens do not establish coverage of all $LINES rows. At 270 dp, two or three rows of 1200 can still be missing when a host frame outran the screen; those rows never reached the phone. after-latest.png and proof.log record the Latest result" || echo "The drag moves the view about as far as the finger, the fling keeps going back through consecutive rows with Latest shown, and Latest returns to the newest output (MARK-$LINES) with the pill gone")"}
 JSON
