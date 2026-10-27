@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createConnection, createServer } from 'node:net';
 import { chmodSync, existsSync, lstatSync, renameSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -117,6 +117,9 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
         let burned = false;
         let configure;
         let lab = false;
+        // A phone opening this computer's pairing link: the relay passes its
+        // secret on, and holding it is the owner's consent, so no prompt.
+        let viaLink;
         const configured = new Promise((resolve) => { configure = resolve; });
         let input = '';
         socket.on('data', (chunk) => {
@@ -133,6 +136,10 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
                         const intent = pairingIntent(raw);
                         if (raw.authority !== intent.authority || raw.personal !== intent.personal) throw new Error('invalid pairing intent');
                         lab = answer.lab === true;
+                        if (answer.link !== undefined) {
+                            if (typeof answer.link !== 'string' || intent.kind !== 'native' || intent.authority !== 'control' || lab) throw new Error('invalid pairing link');
+                            viaLink = answer.link;
+                        }
                         configure(intent);
                         configure = undefined;
                     } else if (typeof answer.yes === 'boolean') {
@@ -153,6 +160,7 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
         // prompt closes, the phone is refused as expired, and a yes that comes
         // later is no longer awaited, so it grants nothing.
         const confirm = async (request, { signal: ranOut }) => {
+            if (viaLink !== undefined) { burned = true; return !ranOut.aborted; }
             const yes = await new Promise((resolve) => {
                 approve = resolve;
                 send({ approval: { name: request.name, words: request.words } });
@@ -169,6 +177,7 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
             try {
                 const intent = await Promise.race([configured, aborted(controller.signal)]);
                 if (intent === undefined) return;
+                if (viaLink !== undefined && !pairLinkMatches(viaLink)) throw new Error('This pairing link no longer works. On your computer run muxr link for the current one.');
                 if (lab && herdrSession === 'default') throw new Error('refusing lab pairing: this host serves the live default Herdr session; restart it with HERDR_SESSION set to the lab session');
                 session.kind = intent.kind;
                 session.handle = (req, grant) => servePairing(state, req, grant, claims, done, intent,
@@ -221,6 +230,15 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl, her
         await new Promise((resolve) => server.close(resolve));
         if (existsSync(socketPath) && lstatSync(socketPath).isSocket()) unlinkSync(socketPath);
     } };
+}
+
+/** Whether `secret` is this computer's current pairing link (pairLink.mjs), compared in constant time. */
+function pairLinkMatches(secret) {
+    const current = readSelfhostState()?.machine?.crypto?.pairLink;
+    if (typeof current !== 'string') return false;
+    const want = Buffer.from(current);
+    const got = Buffer.from(secret);
+    return want.length === got.length && timingSafeEqual(want, got);
 }
 
 export async function pairOnRunningHost(socketPath, approve = showApproval, signal, intent = pairingIntent({ kind: 'native' }), presentOffer) {

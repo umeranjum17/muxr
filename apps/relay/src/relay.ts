@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createPublicKey, randomBytes, verify } from 'node:crypto';
 import { hostname } from 'node:os';
 import { openLinkRelay } from './routing/index.js';
-import { MachineAuthority, enrollmentProofMessage, mintIceServers, readTurnConfig, secureEqual } from './admission/index.js';
+import { MachineAuthority, PAIR_LINK_PAGE, enrollmentProofMessage, mintIceServers, readTurnConfig, redeemPairLink, secureEqual } from './admission/index.js';
 import { clientIp, loadRelayConfig, type RelayConfig } from './config.js';
 import { readJsonBody, writeJson, writeJsonError } from './httpJson.js';
 import { awaitPersistChain, readPrivateFile, writeJsonFileAtomic } from './platform/persist.js';
@@ -150,6 +150,22 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             if (req.method === 'GET' && url.pathname === '/ready') {
                 const ready = options.readyCheck === undefined || await options.readyCheck();
                 writeJson(res, ready ? 200 : 503, { ok: ready }); return;
+            }
+            // This computer's pairing link (pairLink.ts): the page, and the app's redeem call.
+            if (url.pathname === '/join' && (req.method === 'GET' || req.method === 'HEAD')) {
+                res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
+                    'content-security-policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" });
+                res.end(req.method === 'HEAD' ? undefined : PAIR_LINK_PAGE); return;
+            }
+            if (url.pathname === '/join' && req.method === 'POST') {
+                if (limited(req, 10)) { writeJsonError(res, 429, 'too many requests'); return; }
+                const body = await readJsonBody(req).catch(() => undefined) as Record<string, unknown> | undefined;
+                const secret = typeof body?.secret === 'string' ? body.secret : '';
+                if (!/^[A-Za-z0-9_-]{43}$/.test(secret)) { writeJsonError(res, 400, 'This link is cut off. On your computer run muxr link and copy all of it.'); return; }
+                const redeemed = await redeemPairLink(config.pairSocket, secret);
+                if (!redeemed.ok) { writeJsonError(res, redeemed.status, redeemed.error); return; }
+                res.setHeader('cache-control', 'no-store');
+                writeJson(res, 200, { offer: redeemed.offer }); return;
             }
             if ((req.method === 'GET' || req.method === 'HEAD') && await serveWeb(url.pathname, req.method === 'HEAD', res)) return;
             if (url.pathname === '/v1/selfhost/enrollments' && req.method === 'POST') {

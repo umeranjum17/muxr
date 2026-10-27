@@ -1,7 +1,7 @@
 import { probeDiscoveredRelay } from '../infrastructure/linkGrant';
 import { cachedGrant, clearGrants, deleteGrant, loadGrants, storeGrant } from '../infrastructure/grantStore';
-import { PairingNeedsNewCode } from '../domain/pairingString';
-import { assertSupportedOffer, pairingDeviceName, tailscaleUnreachableHere } from '../infrastructure/pairingPlatform';
+import { computerLinkFrom, computerLinkName, PairingNeedsNewCode } from '../domain/pairingString';
+import { assertSupportedOffer, pairingDeviceKind, pairingDeviceName, tailscaleUnreachableHere } from '../infrastructure/pairingPlatform';
 import {
     type DeviceGrant,
     type KeyPair,
@@ -18,7 +18,7 @@ import { clearPairingSecrets, deletePendingPair, readPendingPair, writePendingPa
 import { forgetSshCredential, forgetSshTarget, getCachedConnectionSettings, loadConnectionSettingsAsync, savedSshTarget, saveConnectionSettings } from '@/connection';
 import { restoreConnection } from './restoreConnection';
 
-export { CUTOFF_PAIRING_CODE, decidePairingInput, EXPIRED_PAIRING_CODE, hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, LEGACY_PAIRING_CODE, linkOfferExpired, looksLikeLinkOffer, NOT_A_PAIRING_STRING, PairingNeedsNewCode, type PairingInputDecision, prepareHostedPairingInput } from '../domain/pairingString';
+export { computerLinkFrom, CUTOFF_PAIRING_CODE, decidePairingInput, EXPIRED_PAIRING_CODE, hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, LEGACY_PAIRING_CODE, linkOfferExpired, looksLikeLinkOffer, NOT_A_PAIRING_STRING, PairingNeedsNewCode, type PairingInputDecision, prepareHostedPairingInput } from '../domain/pairingString';
 
 export interface StoredHostedGrant extends DeviceGrant {
     deviceKey: KeyPair;
@@ -119,9 +119,35 @@ export async function pairOverLink(scanned: string, options: { onWords?: (words:
     return completeLinkPairing(pending, { ...options, mode: 'claim' });
 }
 
+/**
+ * Trade a computer's pairing link (`muxr link`) for a fresh offer: the relay
+ * at the link's address hands the secret to that computer, which answers with
+ * an offer it approves by itself. The offer then pairs like any other.
+ */
+export async function redeemComputerLink(link: string): Promise<string> {
+    const url = new URL(link);
+    const computer = computerLinkName(link) ?? 'your computer';
+    if (pairingDeviceKind() === 'browser') throw new PairingNeedsNewCode('This link pairs the muxr phone app. For this browser, run muxr pair --browser on the computer.');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    let response: Response;
+    try {
+        response = await fetch(`${url.origin}/join`, { method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ secret: url.hash.slice(1) }), signal: controller.signal });
+    } catch {
+        throw new Error(await tailscaleUnreachableHere(computer));
+    } finally { clearTimeout(timer); }
+    const body = await response.json().catch(() => undefined) as { offer?: unknown; error?: unknown } | undefined;
+    if (response.ok && typeof body?.offer === 'string') return body.offer;
+    const reason = typeof body?.error === 'string' ? body.error : `${computer} answered ${response.status}. Update muxr there, then open the link again.`;
+    // A replaced or cut-off link never works again; anything else may on a retry.
+    if (response.status === 403 || response.status === 400 || response.status === 404) throw new PairingNeedsNewCode(reason);
+    throw new Error(reason);
+}
+
 /** The pairing machine display name for consent, parsed for display only; the pairing itself re-validates. */
 export async function linkPairMachineName(scanned: string): Promise<string | undefined> {
-    return linkOfferName(scanned);
+    return computerLinkFrom(scanned) === undefined ? linkOfferName(scanned) : computerLinkName(scanned);
 }
 
 async function resumePendingLinkPairing(pending: PendingLinkPair): Promise<StoredHostedGrant | undefined> {

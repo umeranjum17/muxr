@@ -10,7 +10,7 @@ Confirm the host and relay are running on the paired computer, then run the pair
 
 ## Pairing expired
 
-Run `muxr pair` again. Pair claims are single-use and expire after five minutes.
+On a Tailscale route, open the link from `muxr link` again; it does not expire. A link that says it no longer works was replaced (a device was revoked): run `muxr link` for the current one. A one-use code from `muxr pair --code` expires after five minutes; run it again.
 
 ## Connection is blocked
 

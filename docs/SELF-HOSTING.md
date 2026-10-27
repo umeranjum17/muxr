@@ -91,7 +91,7 @@ Before applying Serve, the wizard checks that it is available and not already ow
 
 Direct SSH is an Android and iOS native alternative to Tailscale, not a replacement for it. Set it up either way:
 
-- **While pairing:** choose **Connect over SSH** on the pairing screen, enter the machine's SSH details, and paste the offer from `muxr pair`. muxr opens the SSH forward before dialing the pairing link even if the advertised relay URL is unreachable from the phone. Compare the confirmation words and approve on the computer. If the offer expires, run `muxr pair` again.
+- **While pairing:** choose **Connect over SSH** on the pairing screen, enter the machine's SSH details, and paste the offer from `muxr pair --code`. muxr opens the SSH forward before dialing the pairing link even if the advertised relay URL is unreachable from the phone. Compare the confirmation words and approve on the computer. If the offer expires, run `muxr pair --code` again.
 - **After pairing:** open **Settings → Connection & updates → Direct SSH** and save the SSH details.
 
 Either way, enter the machine's SSH host, SSH username and port, and the relay port as seen from the machine's loopback (normally `8792`). Choose either a password or an OpenSSH private key; credentials stay in the device secure store and are never written to muxr settings, logs, or the repository. A newly entered credential is checked with a separate SSH sign-in before pairing or replacing a saved credential, even when a tunnel to that host is already open. A rejected credential leaves the live tunnel alone. Use an RSA or ECDSA host key and login key for a route that works on both platforms. Android also accepts Ed25519 login and host keys; check iOS before relying on Ed25519.

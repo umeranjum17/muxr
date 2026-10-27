@@ -81,9 +81,12 @@ data plane; the relay routes ciphertext it cannot read.
 
 ## Pairing
 
-- Native pairing is single-use and expires in two minutes. QR and manual entry
-  use the same short relay-qualified string. Run `muxr pair` anytime for a
-  fresh QR.
+- On a Tailscale route, `muxr pair` and `muxr setup` print the computer's one
+  pairing link (`muxr link`): the phone opens it and pairs in one tap, with no
+  approval here. It stays the same, so treat it as a secret; revoking a device
+  replaces it.
+- `muxr pair --code` (and every non-tailnet route) is single-use and expires in
+  two minutes. QR and manual entry use the same short relay-qualified string.
 - Pairing needs the person at this computer's terminal. A non-TTY `muxr pair`
   or `muxr setup` (an agent or script) never approves — it exits 2 saying the
   pairing needs the person. Ask them to run `muxr pair` themselves, then

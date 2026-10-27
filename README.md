@@ -41,10 +41,10 @@
 npm i -g --ignore-scripts \
   @trymuxr/cli@latest
 muxr
-muxr pair
+muxr link
 ```
 
-Install the app on your phone, scan the computer's QR (or paste the pairing link) and compare the two words. Setup picks how your phone reaches the computer, installs [Herdr](https://herdr.dev) if it is missing, and changes nothing until you press Enter on that plan.
+Install the app on your phone, then open the link `muxr link` prints on it (or scan its QR): with Tailscale on both, the app pairs in one tap, no code to type. Off a tailnet, `muxr pair --code` shows a one-use QR and two words to compare. Setup picks how your phone reaches the computer, installs [Herdr](https://herdr.dev) if it is missing, and changes nothing until you press Enter on that plan.
 
 **Nightly builds, the Linux desktop app, browser access, checksums and remote routes: [install options →](docs/INSTALL.md).**
 

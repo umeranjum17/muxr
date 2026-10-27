@@ -7,8 +7,8 @@ import * as Device from 'expo-device';
 import { Linking, Platform } from 'react-native';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
-import { linkPairMachineName, pairOverLink } from './linkPairing';
-import { decidePairingInput, hostedPairingDuration, linkOfferRole, looksLikePairingLink } from '../domain/pairingString';
+import { linkPairMachineName, pairOverLink, redeemComputerLink } from './linkPairing';
+import { computerLinkFrom, decidePairingInput, hostedPairingDuration, linkOfferRole, looksLikePairingLink } from '../domain/pairingString';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
 import { deliverScannedPairingLink } from './deliverScannedPairing';
@@ -79,8 +79,9 @@ export function pairLinkConsent(scanned: string, machineName: string): ConsentLi
     const command = device === 'browser'
         ? (role === 'view' ? 'muxr pair --browser-view' : 'muxr pair --browser')
         : undefined;
+    const fromLink = computerLinkFrom(scanned) !== undefined;
     const safety: ConsentLine = command === undefined
-        ? { text: 'Only continue if you just started pairing in muxr on that computer.' }
+        ? { text: fromLink ? 'Only continue if this link came from your own computer.' : 'Only continue if you just started pairing in muxr on that computer.' }
         : { text: 'Only continue if you just ran this on that computer:', command };
     return [{ text: can }, { text: lasts }, safety];
 }
@@ -106,7 +107,9 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
         confirmation,
     );
     if (!approved) return false;
-    const grant = await pairOverLink(scanned, {
+    // A computer's link is redeemed only now, so its one-time offer is fresh.
+    const offer = computerLinkFrom(scanned) === undefined ? scanned : await redeemComputerLink(scanned);
+    const grant = await pairOverLink(offer, {
         tunnelPort: options.tunnelPort,
         onWords: (words) => {
             options.onWords?.(words);

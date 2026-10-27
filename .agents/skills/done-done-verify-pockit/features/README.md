@@ -212,6 +212,10 @@ rules, with no H2 sections.
   mismatch/deadline/cancellation cleanup, and missing-setup startup in a container.
 - [Scan a pairing QR from the terminal](./pairing-qr.md) —
   `muxr pair` at normal/narrow widths and inside an isolated Herdr terminal.
+- [Pair a phone from one link](./pair-one-link.md) —
+  `muxr link`'s stable tailnet link: install-and-continue page in a browser,
+  one-tap pairing in the installed app (opened or pasted), link kept across
+  restarts and refused after a revoke.
 - [Paste an http pairing link](./pair-http-link.md) —
   the plain-http wrapper a ws:// relay prints (`muxr pair --browser` on a LAN
   self-host or lab) pastes into the Pair form and reaches consent on the PWA,

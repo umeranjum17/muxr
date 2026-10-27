@@ -18,11 +18,16 @@ export async function revokeDevice(args = []) {
             const target = position >= 0 ? devices[position] : named.length === 1 ? named[0] : undefined;
             if (target === undefined) throw new Error(named.length > 1 ? 'device name is ambiguous; use its list number' : 'device not found');
             state.machine.crypto.devices = state.machine.crypto.devices.filter((device) => device.deviceId !== target.deviceId);
+            // The removed device may still hold the pairing link: retire it, so
+            // it cannot pair again. `muxr link` makes the next one.
+            const hadLink = typeof state.machine.crypto.pairLink === 'string';
+            delete state.machine.crypto.pairLink;
             writeSelfhostState(state);
             // The running link watches this durable record and revokes the grant,
             // socket and push registration; while it is offline, trust checks fail
             // closed and it reconciles the record before admitting a device.
             print(`  ✓ revoked ${target.name || 'phone'}`);
+            if (hadLink) print('  ✓ the old pairing link no longer pairs; run `muxr link` for a new one');
         });
         return 0;
     } catch (cause) {

@@ -8,7 +8,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
-import { decidePairingInput, linkPairMachineName, looksLikeLinkOffer, PairingNeedsNewCode } from '@/pairing/e2ee';
+import { computerLinkFrom, decidePairingInput, linkPairMachineName, looksLikeLinkOffer, PairingNeedsNewCode } from '@/pairing/e2ee';
 import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScannerAvailable, usePairQrScanner, resolvePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { confirmSshFingerprint } from '@/connection/ui';
@@ -21,7 +21,7 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 
 // A cut-off or wrong-case offer still reaches review, which says why it cannot pair.
-const carriesPairingOffer = (raw: string) => looksLikeLinkOffer(raw) || /byokit-link:/i.test(raw) || raw.includes('pair=');
+const carriesPairingOffer = (raw: string) => looksLikeLinkOffer(raw) || computerLinkFrom(raw) !== undefined || /byokit-link:/i.test(raw) || raw.includes('pair=');
 
 // The success state is real, not a flash: it holds long enough to read before Home replaces it.
 const PAIR_SUCCESS_HOLD_MS = 500;
@@ -32,7 +32,7 @@ type PairState =
     | { phase: 'error'; message: string; url?: string; machineName?: string };
 
 const SSH_PAIRING_STEPS = [
-    'On the computer, run muxr pair — it prints a one-time link offer.',
+    'On the computer, run muxr pair --code — it prints a one-time link offer.',
     'Fill in the SSH details; muxr opens the tunnel to that machine.',
     'Paste the offer below — pairing runs through the tunnel.',
 ] as const;
@@ -402,14 +402,14 @@ export default function PairScreen() {
                                     ))}
                                 </View>
                                 <View style={styles.commandRow}>
-                                    <Text style={styles.command} selectable>muxr pair</Text>
+                                    <Text style={styles.command} selectable>muxr pair --code</Text>
                                     <Pressable
                                         accessibilityRole="button"
                                         accessibilityLabel={commandCopied ? t('pairing.copied') : t('pairing.copy')}
                                         hitSlop={10}
                                         style={styles.copyButton}
                                         onPress={() => {
-                                            void Clipboard.setStringAsync('muxr pair').then(() => {
+                                            void Clipboard.setStringAsync('muxr pair --code').then(() => {
                                                 setCommandCopied(true);
                                                 setTimeout(() => setCommandCopied(false), 2000);
                                             }).catch(() => Modal.alert('Copy failed', 'Please try again.'));
@@ -446,7 +446,7 @@ export default function PairScreen() {
                         )}
                         {showField && (
                             <>
-                                <WordWrappingText fontSize={14} style={styles.inputLabel}>{browser ? 'Pairing code' : sshRoute ? 'Pairing string from muxr pair' : canScan ? 'Or paste the pairing string' : 'Paste the pairing string'}</WordWrappingText>
+                                <WordWrappingText fontSize={14} style={styles.inputLabel}>{browser ? 'Pairing code' : sshRoute ? 'Pairing string from muxr pair --code' : canScan ? 'Or paste the pairing string' : 'Paste the pairing string'}</WordWrappingText>
                                 <TextInput
                                     accessibilityLabel="Pairing string"
                                     testID={sshRoute ? "ssh-pairing-offer" : undefined}

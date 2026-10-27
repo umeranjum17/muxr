@@ -6,7 +6,8 @@
  * real `linkPair` (its own pairing host, approval on the computer), and the
  * phone runs the real `pairOverLink` against the real relay and self-host
  * host. Pair two phones and a second machine, restart everything from disk,
- * then revoke one phone. Nothing here may need a re-pair except the revoked
+ * then revoke one phone. The iPhone pairs the desk from its one stable link
+ * (`muxr link`) instead. Nothing here may need a re-pair except the revoked
  * phone, and every phone drives sessions over the machine's link with no
  * relay credential at all.
  */
@@ -118,6 +119,27 @@ class Machine {
     async stop(): Promise<void> {
         await stop(this.host);
         await stop(this.relay);
+    }
+
+    /**
+     * `muxr link`, the way it prints on a tailnet route. The lab relay listens
+     * on loopback, so the route is named as a tailnet address only while the
+     * command runs, and the phone dials the printed link at 127.0.0.1 (what
+     * MagicDNS resolves to on this computer).
+     */
+    async pairLink(): Promise<string> {
+        const file = join(this.home, 'selfhost.json');
+        const saved = readFileSync(file, 'utf8');
+        writeFileSync(file, saved.replace(`ws://127.0.0.1:${this.port}`, `ws://desk.tail0.ts.net:${this.port}`), { mode: 0o600 });
+        try {
+            const printed = await this.run(['link']);
+            const link = /http:\/\/desk\.tail0\.ts\.net:\d+\/join#[A-Za-z0-9_-]{43}/.exec(printed)?.[0];
+            if (link === undefined) throw new Error(`muxr link printed no link: ${printed}`);
+            return link.replace('desk.tail0.ts.net', '127.0.0.1');
+        } finally {
+            const current = JSON.parse(readFileSync(file, 'utf8'));
+            writeFileSync(file, `${JSON.stringify({ ...current, relayUrl: JSON.parse(saved).relayUrl }, null, 2)}\n`, { mode: 0o600 });
+        }
     }
 
     cli(args: string[]): ChildProcess & { output: () => string } {
@@ -272,7 +294,11 @@ describe('paired devices across pairing, restarts and revoke', () => {
         const androidDesk = await (await launchApp(android)).loadHostedGrant(desk.id);
         expect(androidDesk).toMatchObject({ machineId: desk.id, authority: 'control', source: 'selfhost', machineName: 'Desk' });
         expect(androidDesk?.relayUrl).toBe(`ws://127.0.0.1:${desk.port}`);
-        const iphoneDesk = await pairPhone(iphone, desk);
+        // The iPhone pairs the desk from its one link: no code, no words and
+        // nobody approving at the computer.
+        const deskLink = await desk.pairLink();
+        let app = await launchApp(iphone);
+        const iphoneDesk = await app.pairOverLink(await app.redeemComputerLink(deskLink));
         expect(iphoneDesk).toMatchObject({ machineId: desk.id, authority: 'control' });
         await pairPhone(iphone, laptop);
         const listed = await desk.run(['devices', 'list']);
@@ -281,7 +307,7 @@ describe('paired devices across pairing, restarts and revoke', () => {
 
         // Both phones drive the desk over its link, and the iPhone drives
         // both machines.
-        let app = await launchApp(android);
+        app = await launchApp(android);
         let androidLink = await app.open(desk);
         const started = await androidLink.link.request('session.start', { type: 'session.start', requestId: 'r1', params: { cwd: desk.home } }) as {
             type: string; ok: boolean; data?: { info?: { id?: string } };
@@ -300,9 +326,11 @@ describe('paired devices across pairing, restarts and revoke', () => {
         }
 
         // Restart both computers from disk and relaunch the apps: the stored
-        // grants still open every machine, with no pairing step anywhere.
+        // grants still open every machine, with no pairing step anywhere, and
+        // the desk prints the same link.
         await Promise.all([desk.stop(), laptop.stop()]);
         await Promise.all([desk.start(), laptop.start()]);
+        expect(await desk.pairLink()).toBe(deskLink);
         app = await launchApp(android);
         androidLink = await app.open(desk);
         await androidLink.link.request('client.hello', { type: 'client.hello', clientId: 'android' });
@@ -327,6 +355,10 @@ describe('paired devices across pairing, restarts and revoke', () => {
                 return undefined;
             }
         }, 'surviving phone keeps answering after the revoke', 30_000);
+        // The revoked phone may still hold the desk's link, so that link no
+        // longer pairs; `muxr link` prints a new one.
+        await expect((await launchApp(android)).redeemComputerLink(deskLink)).rejects.toThrow(/no longer works/);
+        expect(await desk.pairLink()).not.toBe(deskLink);
         androidLink.link.stop();
         iphoneLink.link.stop();
     }, 180_000);

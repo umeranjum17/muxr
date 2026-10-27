@@ -1,4 +1,5 @@
 import * as React from 'react';
+import * as Clipboard from 'expo-clipboard';
 import { Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -61,6 +62,15 @@ export function FirstRunConnection() {
     const connectLink = React.useCallback(() => {
         void processPairLink(linkValue.trim());
     }, [processPairLink, linkValue]);
+    // An empty field makes the button Paste a link: the computer's link from
+    // `muxr link`, copied on this device, pairs from one tap.
+    const pasteLink = React.useCallback(() => {
+        void Clipboard.getStringAsync().then((text) => {
+            setLinkValue(text);
+            void processPairLink(text.trim());
+        }, () => undefined);
+    }, [processPairLink]);
+    const empty = linkValue.trim() === '';
 
     return (
         <View style={styles.section}>
@@ -117,11 +127,11 @@ export function FirstRunConnection() {
                     onChangeText={setLinkValue}
                     onSubmitEditing={connectLink}
                 />
-                <ActionButton title="Connect" icon={compact ? undefined : 'link-outline'} wrap onPress={connectLink} />
+                <ActionButton title={empty && !browser ? 'Paste a link' : 'Connect'} icon={compact ? undefined : 'link-outline'} wrap onPress={empty && !browser ? pasteLink : connectLink} />
                 {canScan ? (
                     <>
                         <ActionButton variant="secondary" title="Scan the QR" icon={compact ? undefined : 'qr-code-outline'} wrap onPress={() => { void scanPairQr(); }} />
-                        <Text style={styles.hint}>Or scan its QR in the app. You’ll compare two words before access is granted.</Text>
+                        <Text style={styles.hint}>Copy the link muxr link shows on your computer, or scan its QR.</Text>
                     </>
                 ) : (
                     <Text style={styles.hint}>{browser
