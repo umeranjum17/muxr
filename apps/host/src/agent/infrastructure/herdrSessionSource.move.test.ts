@@ -275,7 +275,8 @@ describe('a plan-account move', () => {
                 expect(timeoutMs).toBeGreaterThan(0);
                 expect(timeoutMs).toBeLessThanOrEqual(150);
                 expect(herdr.splits).toHaveLength(0);
-                await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+                // Only pace the fixture's refusal; the forwarded deadline is asserted above.
+                await new Promise((resolve) => setTimeout(resolve, 10));
                 throw new Error('idle deadline');
             };
             await expect(moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude', waitForIdleMs: 150 }))
