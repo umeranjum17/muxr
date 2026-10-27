@@ -131,7 +131,7 @@ export function FirstRunConnection() {
                 {canScan ? (
                     <>
                         <ActionButton variant="secondary" title="Scan the QR" icon={compact ? undefined : 'qr-code-outline'} wrap onPress={() => { void scanPairQr(); }} />
-                        <Text style={styles.hint}>Copy the link muxr link shows on your computer, or scan its QR.</Text>
+                        <Text style={styles.hint}>On your computer, run muxr link. Copy the link it shows, or scan its QR.</Text>
                     </>
                 ) : (
                     <Text style={styles.hint}>{browser
