@@ -52,5 +52,9 @@ desktop's own tailnet address through its NAT, so a release APK on a
 task-owned AVD can be driven with
 `am start -n com.trymuxr.app/.MainActivity -a android.intent.action.VIEW -d 'muxr://join?to=<encoded link>'`
 (always give the explicit component). Capture the consent screen, tap Pair, then
-capture Home. Open the link itself in Chromium (`chrome-devtools-axi`) at phone
+capture Home. `pairOneLinkLab.mjs` (beside this file) drives the whole native
+journey on its own AVD: install page in Chrome before install, first screen
+and consent at 270/411 dp in both themes, Open in muxr → one Pair tap → Home,
+revoke → old link refused, new link pairs. The lab host is `--fake` with no
+agents, so Home is proven by `connected`, not an agent card. Open the link itself in Chromium (`chrome-devtools-axi`) at phone
 and desktop widths, light and dark, to capture the install page.
