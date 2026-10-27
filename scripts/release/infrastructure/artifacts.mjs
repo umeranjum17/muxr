@@ -33,8 +33,8 @@ export function packedMetadata(path) {
     return metadata;
 }
 
-export function readReleaseManifest(directory) {
-    const path = artifactPath(directory, 'release-manifest.json');
+export function readReleaseManifest(directory, name = 'release-manifest.json') {
+    const path = artifactPath(directory, name);
     if (lstatSync(path).size > 1024 * 1024) throw new Error('Release manifest is too large');
     return JSON.parse(readFileSync(path, 'utf8'));
 }

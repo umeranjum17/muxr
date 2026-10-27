@@ -52,7 +52,7 @@ node scripts/release/presentation/changelog.mjs check    --version 0.1.27-nightl
      -f source_commit="$BRANCH_SHA" -f channel=nightly -f version=
    ```
 
-4. A candidate never publishes to npm. npm publication is `release.yml` on `main`: merging a version bump publishes it (see [Shared contract and crypto packages](#shared-contract-and-crypto-packages) for what it does not publish). `ci.yml` never runs on a merge to main — it starts on pull requests and by manual dispatch — so it is not a release prerequisite. After this merges, cherry-picking only the workflow commit(s) onto the existing `release/0.2.0` branch is authorized so it can run the new flow; the `v0.2.0` tag stays at `fa0b780c`.
+4. A candidate run never publishes to npm. npm publication is `release.yml`: a main version bump uses the checkout version; an already-sealed nightly uses the explicit [nightly-tag dispatch](#publish-an-already-sealed-nightly) below (see [Shared contract and crypto packages](#shared-contract-and-crypto-packages) for what it does not publish). `ci.yml` never runs on a merge to main — it starts on pull requests and by manual dispatch — so it is not a release prerequisite. After this merges, cherry-picking only the workflow commit(s) onto the existing `release/0.2.0` branch is authorized so it can run the new flow; the `v0.2.0` tag stays at `fa0b780c`.
 
 An automatic nightly version takes its base from the release branch name (`release/0.2.1` builds `0.2.1-nightly.N.M`), and is still rejected unless it sorts above the published stable, so a nightly can never sort under a stable promoted meanwhile. An explicit nightly or stable version whose base does not match the branch name is rejected, and a candidate whose published-channel state cannot be read fails rather than guessing a version that might sort too low.
 
@@ -65,6 +65,28 @@ Every successful candidate attaches a signed ARM64 APK/AAB, a Linux AppImage, np
 Beta and dev are retired. Their npm dist-tags are frozen at their last releases and no longer move, and their GitHub releases stay exactly as published. Moving an existing beta or dev installation over is a one-time `npm install -g --ignore-scripts @trymuxr/cli@nightly`: an older binary's updater may refuse a `-nightly` version, so it will not carry itself across.
 
 Build numbers are reserved through the `release-build-numbers` Git branch. Fast-forward-only updates serialize concurrent reservations; failed builds and retries consume numbers permanently. Never reset/delete this ledger or use git commit count as versionCode. The legacy manual Android builder accepts an explicit number for maintenance only: reserve through the same ledger first. The candidate workflow does that automatically.
+
+### Publish an already-sealed nightly
+
+Run the current workflow from `main`, naming the retained candidate tag (not `--ref` that old tag, whose package.json may still be stable):
+
+```bash
+gh workflow run release.yml --ref main \
+  -f nightly_tag=v0.2.16-nightly.41.1 -f version=0.2.16-nightly.41.1
+```
+
+`version` is optional on this path; when supplied it must match the tag exactly. This skips rebuilding and the stable gate entirely. It reads that tag's own `release-manifest.json` and `npm-manifest.json`, verifies the tag commit, both manifest identities, their matching artifact records and the tarball's bytes and package version, then publishes only that sealed tarball to npm `nightly` with provenance. It never changes the root package version, `latest`, or the candidate assets. Stable tags, retired channel tags and any disagreement fail the run, rather than succeeding without publishing. The candidate run itself still never publishes.
+
+Before publication, the nightly must still sort above the published stable (the same ordering check as candidate selection) and cannot move `nightly` backwards. If the exact version is already published with identical bytes, retry is a clean no-op, even after another version advanced the channel; it never moves a dist-tag. Different published bytes fail. The existing stable publication and captain-tested gate are unchanged.
+
+Read-only plan against downloaded candidate assets (including both manifests and every artifact in `npm-manifest.json`):
+
+```bash
+node scripts/release/presentation/nightlyDecision.mjs \
+  --tag v0.2.16-nightly.41.1 --version 0.2.16-nightly.41.1 --directory /path/to/assets
+```
+
+This prints the resolved version, tarball, integrity, dist-tag and whether publication is needed; it never publishes. It reads registry metadata unless `--registry-state <json-file>` supplies offline `{ "tags": { "latest": "0.2.15", "nightly": "0.1.29-nightly.13.1" } }` (optionally `integrity` for an already-published version). The local tag must be fetched so its commit can be checked.
 
 ### Desktop engine packages come first
 

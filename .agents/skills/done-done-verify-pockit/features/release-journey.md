@@ -12,6 +12,7 @@ scroll against the budgets in `scripts/release/domain/releaseJourney.mjs`.
 - `x86_64-twin` on an emulator the journey runs the APK `journey-apk.yml` builds clean from the release tag; `checkReleaseApk.mjs` checks the released arm64 APK's signature, manifest, native libraries, version, its JS bundle and dex against the twin's, and the twin's source against the sealed release, and writes `.done-done-receipts/builds/<v>.release-apk.json` with both digests. The gate takes another APK digest only through that committed record, whose twin digest must be the one the cited result ran.
 - `exact-build` the journey records the sha256 of the APK it installed and the tarball its host ran from in `release-build.json`; the gate compares them with the release's sealed manifest and refuses any other build of the same version.
 - `promote-latest` npm `latest` moves only when the captain runs `release.yml` by hand with `captain_tested` and the version after his own phone test, and `scripts/release/presentation/acceptStable.mjs` accepts the exact tarball it packed against the receipt; it then publishes straight under `latest` through trusted publishing, no npm login or token. A push never publishes a stable version. The script never publishes, so it is also the dry run.
+- `sealed-nightly` `release.yml --ref main -f nightly_tag=v<VERSION> [-f version=<VERSION>]` publishes the already-sealed tarball to npm `nightly` with provenance, never rebuilding or using main's package version; mismatched identities fail and an identical published version is a no-op.
 - `stable-apk` `release.yml`'s stable promote runs `checkJourneyReceipt.mjs --tag v<v>` before GitHub Latest and the catalog.
 - `one-host` after Usage, the processes in the lab host's own tree that hold a link to the lab relay number exactly one (0.2.8 booted a second host from the Usage ledger child).
 - `budgets` on a phone run, attach and scroll times over budget fail the gate, not the journey: the journey records what it measured. A twin run's times never gate (`TWIN_BUDGETS`); `checkJourneyReceipt.mjs` prints them labelled `emulator-under-load, informational`, and the owner's phone test is the timing gate.
@@ -52,6 +53,17 @@ Twin gate journey: `TWIN_APK=<twin apk> done-done run release-twin-gate` (`relea
 Gate journey: `done-done run release-latest-gate` (`releaseLatestGateLab.mjs`) runs release.yml's own `accepted` step command on the newest stable GitHub release's real manifest and tarball, with a stand-in receipt in a scratch clone, as a push and as hand runs; `gate.log` shows the publish step running only for the hand run naming the tested version with the receipt. It publishes nothing.
 
 Flow test: `scripts/release/checkJourneyReceipt.spec.mjs` (no result, another APK, a rebuilt tarball, matching build, the x86_64 twin with no, a failed or another commit's APK check and with a passing one, a slow twin accepted with labelled times and the same times refused on a phone run, and `acceptStable` refusing a push with no captain-tested version and a tarball packed after the tag).
+
+### Sealed nightly plan (no registry writes, no native build)
+
+Preconditions: a fetched nightly tag and its retained `release-manifest.json`, `npm-manifest.json` and every file the npm manifest records in a private assets directory. Download with `gh release download v<VERSION> --pattern <name> --dir <assets>` for each file. No baseline stack or Herdr session is needed for this release-only command.
+
+1. Run `node scripts/release/presentation/nightlyDecision.mjs --tag v<VERSION> --version <VERSION> --directory <assets>` inside a `done-done run -- <command...>`, retaining stdout and exit status. It reads npm metadata only and must print the exact version, tarball, `channel: nightly`, `distTag: nightly`, and `Would publish ... under npm nightly with provenance`.
+2. Repeat with `--version <stable version>` and require non-zero plus `Requested version does not match the nightly tag`. A stable `--tag` also fails, before any download.
+3. For a fully offline retry, supply `--registry-state <file>` containing the plan's `integrity` and `tags`; expect `needed: false`, no publication and no dist-tag movement, even if the tags now name newer versions.
+4. Run `npx vitest run scripts/release/nightlyPublication.spec.mjs --root .`: the real filesystem/seal/tarball flow also refuses wrong tag commits, changed bytes and nightly versions below the published stable. This is supplementary coverage, not live publication proof.
+
+Actual trusted publication needs the maintainer dispatch above; this plan proves resolution, not npm OIDC acceptance or a registry write. Never dispatch a real publication merely to validate this path.
 
 ## Gotchas
 

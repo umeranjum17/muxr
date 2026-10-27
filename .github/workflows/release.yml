@@ -26,7 +26,11 @@ on:
         type: boolean
         default: false
       version:
-        description: The stable version the captain tested, such as 0.2.11
+        description: The stable version tested, or optional exact version matching nightly_tag
+        type: string
+        default: ''
+      nightly_tag:
+        description: Already-sealed nightly tag to publish unchanged to npm nightly (run from main)
         type: string
         default: ''
 
@@ -48,6 +52,8 @@ jobs:
       needed: ${{ steps.release.outputs.needed }}
       version: ${{ steps.release.outputs.version }}
       channel: ${{ steps.release.outputs.channel }}
+      commit: ${{ steps.release.outputs.commit }}
+      run_id: ${{ steps.release.outputs.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -57,15 +63,28 @@ jobs:
           node-version: 24
           cache: yarn
       - run: npm install --global npm@11.6.2
-      - run: yarn install --frozen-lockfile --non-interactive
-      - run: yarn build
+      - if: inputs.nightly_tag == ''
+        run: yarn install --frozen-lockfile --non-interactive
+      - if: inputs.nightly_tag == ''
+        run: yarn build
       - name: Full suite (typecheck, flows, e2e, package smoke, architecture)
+        if: inputs.nightly_tag == ''
         run: yarn run check
       - id: release
-        name: Decide whether this version is unpublished, or confirm it is published
-        run: node scripts/release/presentation/releaseDecision.mjs
+        name: Resolve a sealed nightly, or decide whether the checkout version is unpublished
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_TAG: ${{ inputs.nightly_tag }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$NIGHTLY_TAG" ]; then
+            [ "$GITHUB_REF" = refs/heads/main ] || { echo 'Dispatch nightly_tag from main, not from the old tag tree' >&2; exit 1; }
+            node scripts/release/presentation/nightlyDecision.mjs --tag "$NIGHTLY_TAG" --version "$REQUESTED_VERSION" --directory "$RUNNER_TEMP/package" --download
+          else
+            node scripts/release/presentation/releaseDecision.mjs
+          fi
       - name: Pack and check the installed package
-        if: steps.release.outputs.needed == 'true'
+        if: steps.release.outputs.needed == 'true' && inputs.nightly_tag == ''
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
@@ -80,7 +99,7 @@ jobs:
           # The installed CLI reports the version about to be published.
           test "$(HOME="$RUNNER_TEMP/release-home" node "$cli" version)" = "$VERSION"
       - name: Seal the packed tarball as the release candidate
-        if: steps.release.outputs.needed == 'true'
+        if: steps.release.outputs.needed == 'true' && inputs.nightly_tag == ''
         env:
           VERSION: ${{ steps.release.outputs.version }}
           CHANNEL: ${{ steps.release.outputs.channel }}
@@ -115,10 +134,11 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GITHUB_RELEASE_TAG: v${{ needs.build.outputs.version }}
-      RELEASE_COMMIT: ${{ github.sha }}
+      RELEASE_COMMIT: ${{ needs.build.outputs.commit || github.sha }}
       RELEASE_VERSION: ${{ needs.build.outputs.version }}
       RELEASE_CHANNEL: ${{ needs.build.outputs.channel }}
-      BUILD_RUN_ID: ${{ github.run_id }}
+      BUILD_RUN_ID: ${{ needs.build.outputs.run_id || github.run_id }}
+      NIGHTLY_TAG: ${{ inputs.nightly_tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -159,7 +179,10 @@ jobs:
         env:
           NEEDED: ${{ needs.build.outputs.needed }}
         run: |
-          if [ "$RELEASE_CHANNEL" != stable ] || [ "$(npm view @trymuxr/cli dist-tags.latest)" = "$RELEASE_VERSION" ]; then
+          if [ -n "$NIGHTLY_TAG" ] && [ "$NEEDED" != true ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "$RELEASE_VERSION already published with identical bytes; no publication or tag movement." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$RELEASE_CHANNEL" != stable ] || [ "$(npm view @trymuxr/cli dist-tags.latest)" = "$RELEASE_VERSION" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"

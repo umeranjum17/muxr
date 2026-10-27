@@ -55,6 +55,7 @@ Dictation and the terminal key row are product code in the phone app, not host u
 | Capability | Use case | Adapters |
 |---|---|---|
 | Pack the npm CLI | `scripts/release/application/pack.mjs` | `yarn pack` |
+| Resolve a sealed nightly for npm publication | `resolveNightly` | `nightlyDecision.mjs`, `release.yml` nightly-tag dispatch |
 | Update the installed CLI | `updateCli` | `muxr update` |
 | Dump redacted diagnostics | `dumpDiagnostics` | `muxr diagnostics` |
 

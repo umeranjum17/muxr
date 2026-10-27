@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { verifyRelease } from './verifyRelease.mjs';
 import { channelTags, compareVersions, releaseVersion } from '../domain/channel.mjs';
 import { desktopHostOfTarball, requireDesktopEngine } from './requireDesktopEngine.mjs';
 import { requireLinkProtocol } from './requireLinkProtocol.mjs';
+import { resolveNightly } from './resolveNightly.mjs';
 
 const spec = (version) => `@trymuxr/cli@${version}`;
 
@@ -54,10 +55,31 @@ export async function confirmPublished(version) {
     if (channel !== 'stable') await tagAtLeast(version, channelTags[channel]);
 }
 
+export function npmPublicationState(version) {
+    const value = npm(['view', spec(version), 'dist.integrity', '--json'], true);
+    const tags = JSON.parse(npm(['view', '@trymuxr/cli', 'dist-tags', '--json']));
+    let integrity = value === undefined ? undefined : JSON.parse(value);
+    if (Array.isArray(integrity)) [integrity] = integrity;
+    return { integrity, tags: Array.isArray(tags) ? tags[0] : tags };
+}
+
 export async function publishNpm() {
-    const { RUNNER_TEMP, RELEASE_COMMIT, RELEASE_VERSION, RELEASE_CHANNEL, BUILD_RUN_ID } = process.env;
+    const { RUNNER_TEMP, RELEASE_COMMIT, RELEASE_VERSION, RELEASE_CHANNEL, BUILD_RUN_ID, NIGHTLY_TAG } = process.env;
     const directory = join(RUNNER_TEMP, 'package');
-    const manifest = await verifyRelease({ directory, commit: RELEASE_COMMIT, version: RELEASE_VERSION, channel: RELEASE_CHANNEL, runId: BUILD_RUN_ID });
+    let manifest;
+    if (NIGHTLY_TAG) {
+        if (RELEASE_CHANNEL !== 'nightly') throw new Error('A nightly tag can only publish to nightly');
+        const taggedCommit = execFileSync('git', ['rev-parse', '--verify', `refs/tags/${NIGHTLY_TAG}^{commit}`], { encoding: 'utf8' }).trim();
+        if (taggedCommit !== RELEASE_COMMIT) throw new Error('Nightly tag no longer matches the resolved candidate commit');
+        const plan = await resolveNightly({ directory, tag: NIGHTLY_TAG, requestedVersion: RELEASE_VERSION, commit: RELEASE_COMMIT, registry: npmPublicationState(RELEASE_VERSION) });
+        if (!plan.needed) {
+            process.stdout.write(`${spec(RELEASE_VERSION)} already published with identical bytes; no tags moved.\n`);
+            return;
+        }
+        manifest = plan.manifest;
+    } else {
+        manifest = await verifyRelease({ directory, commit: RELEASE_COMMIT, version: RELEASE_VERSION, channel: RELEASE_CHANNEL, runId: BUILD_RUN_ID });
+    }
     const packages = manifest.artifacts.filter((item) => item.name.endsWith('.tgz'));
     if (packages.length !== 1) throw new Error('Exactly one tested npm tarball is required');
     const path = join(directory, packages[0].name);
