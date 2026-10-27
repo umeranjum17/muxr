@@ -139,6 +139,11 @@ describe('which account a launch carries', () => {
         const failure = Object.assign(new Error('Original conversation still running'), { code: 'plan-move-start-failed' });
         request.mockRejectedValueOnce(failure);
         await expect(moveAgent('original', 'pa_work')).rejects.toMatchObject({ code: 'plan-move-start-failed' });
+        expect(request.mock.lastCall).toEqual(['plans.move', { sessionId: 'original', accountId: 'pa_work', waitForIdleMs: 120_000 }, 240_000]);
+        const warning = 'The conversation moved, but its account could not be refreshed. Reconnect before trying another move.';
+        request.mockResolvedValueOnce({ sessionId: 'replacement', warning });
+        request.mockRejectedValueOnce(new Error('readiness failed after commit'));
+        await expect(moveAgent('original', 'pa_work')).resolves.toEqual({ sessionId: 'replacement', warning });
 
         // A host without plans.list answers an error: every launch is today's.
         connection.machineId = 'computer-c';

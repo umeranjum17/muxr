@@ -650,7 +650,7 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
                 },
             } as unknown as SessionSource;
             const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
-            const moving = dispatch({ type: 'plans.move', requestId: 'm1', params: { sessionId: 's1', accountId: 'pa_w' } });
+            const moving = dispatch({ type: 'plans.move', requestId: 'm1', params: { sessionId: 's1', accountId: 'pa_w', waitForIdleMs: 120_000 } });
             await moveStarting;
             expect(await dispatch({ type: 'plans.move', requestId: 'overlap', params: { sessionId: 'other-agent', accountId: 'pa_w' } }))
                 .toMatchObject({ ok: false, code: 'plan-move-in-progress', error: 'Another move is in progress.' });
@@ -661,12 +661,23 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             finishPersistence();
             expect(await moving).toMatchObject({ ok: true, data: { sessionId: 's2' } });
             expect(moves).toHaveLength(1);
-            expect(moves[0]).toMatchObject({ sessionId: 's1', provider: 'codex' });
+            expect(moves[0]).toMatchObject({ sessionId: 's1', provider: 'codex', waitForIdleMs: expect.any(Number) });
+            expect((moves[0] as { waitForIdleMs: number }).waitForIdleMs).toBeLessThanOrEqual(120_000);
             expect(await dispatch({ type: 'plans.agent', requestId: 'current', params: { sessionId: 's2' } }))
                 .toMatchObject({ ok: true, data: { accountId: 'pa_w' } });
             expect(await dispatch({ type: 'plans.move', requestId: 'next', params: { sessionId: 's2', accountId: 'pa_w' } }))
                 .toMatchObject({ ok: true });
             expect(moves).toHaveLength(2);
+
+            const afterCommit = {
+                async movePlanAccount() { return { sessionId: 's2', paneId: 'w1:p2' }; },
+                async list() { throw new Error('readiness check failed after the move'); },
+            } as unknown as SessionSource;
+            const { dispatch: dispatchAfterCommit } = createRequestDispatcher({ source: afterCommit, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+            expect(await dispatchAfterCommit({ type: 'plans.move', requestId: 'warning', params: { sessionId: 's1', accountId: 'pa_w', waitForIdleMs: 120_000 } }))
+                .toMatchObject({ ok: true, data: { sessionId: 's2', warning: expect.stringMatching(/moved.*account could not be refreshed.*Reconnect/) } });
+            expect(await dispatchAfterCommit({ type: 'plans.move', requestId: 'invalid-wait', params: { sessionId: 's1', accountId: 'pa_w', waitForIdleMs: 240_000 } }))
+                .toMatchObject({ ok: false });
 
             const failing = {
                 async movePlanAccount() {

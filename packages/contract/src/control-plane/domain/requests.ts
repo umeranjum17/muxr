@@ -921,8 +921,11 @@ export interface RequestMap extends PeerRequestMap {
      * persistence; concurrent requests fail with `plan-move-in-progress`.
      * `handoff` acknowledges host ownership before relaunch, waiting up to five
      * minutes for idle/done; failures are reported in the host journal.
+     * Phone callers opt into `waitForIdleMs` (1–120000): leave the rest of
+     * their 240s request for verification and rollback. A completed move can
+     * carry a separate `warning` when refreshing its status fails.
      */
-    'plans.move': { params: { sessionId: string; accountId: string; handoff?: boolean }; result: { sessionId: string; handoff?: true } };
+    'plans.move': { params: { sessionId: string; accountId: string; handoff?: boolean; waitForIdleMs?: number }; result: { sessionId: string; handoff?: true; warning?: string } };
     /**
      * Open the provider's own sign-in in a new tab: a fresh managed folder for
      * a new account, or the account's own folder to sign in again (a found

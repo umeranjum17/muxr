@@ -16,6 +16,7 @@
  * a Tailscale address that does not answer naming which end to fix.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -668,12 +669,11 @@ describe('native pairing over the byokit link', () => {
     });
 
     it('exits 2 asking for the person when a non-TTY caller runs muxr pair', async () => {
-        // launch() gives the child no TTY, the way an AI agent or script does.
-        const startedAt = Date.now();
+        // Wait for process close (including drained output), not host scheduling.
+        // Refusal must precede every offer, not merely beat a wall-clock cutoff.
         const child = launch([cliMain, 'pair']);
-        const code = await new Promise<number | null>((resolve) => child.once('exit', (c) => resolve(c)));
-        const elapsedMs = Date.now() - startedAt;
-        expect(elapsedMs).toBeLessThan(10_000);
+        const [code] = await once(child, 'close');
+        expect(offersOn(child.output())).toEqual([]);
         expect(code).toBe(2);
         expect(child.output().trim()).toBe('Pairing needs you at this computer\'s terminal: run `muxr pair` yourself');
     });
@@ -920,12 +920,12 @@ describe('native pairing over the byokit link', () => {
         // or script runs it. Companion to the `muxr pair` non-TTY test.
         // Depends on the shared guard: red until it lands.
         const before = readFileSync(join(home, 'selfhost.json'), 'utf8');
-        const startedAt = Date.now();
         const child = launch([cliMain, 'self-host', '--port', String(port), '--advertise', `ws://127.0.0.1:${port}`]);
-        const code = await new Promise<number | null>((resolve) => child.once('exit', (c) => resolve(c)));
-        const elapsedMs = Date.now() - startedAt;
         try {
-            expect(elapsedMs).toBeLessThan(10_000);
+            // Setup may start a relay first. Its terminal condition is the
+            // non-TTY refusal, with no offer published for a phone to answer.
+            const [code] = await once(child, 'close');
+            expect(offersOn(child.output())).toEqual([]);
             expect(code).toBe(2);
             const lines = child.output().trim().split('\n');
             expect(lines[lines.length - 1]).toBe('Pairing needs you at this computer\'s terminal: run `muxr pair` yourself');
