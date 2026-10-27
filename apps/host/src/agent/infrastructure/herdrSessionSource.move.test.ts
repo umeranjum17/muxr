@@ -25,7 +25,7 @@ function fakeHerdr(dir: string, cwd: string) {
             agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
         },
     ];
-    const state = { nextWait: undefined as (() => Promise<void>) | undefined, failNextStart: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), loseCloseAckFor: new Set<string>(), raceNextSwap: false, readRacesClose: false };
+    const state = { nextWait: undefined as ((timeoutMs: number) => Promise<void>) | undefined, failNextStart: false, failReadAfterClose: false, failReads: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), loseCloseAckFor: new Set<string>(), raceNextSwap: false, readRacesClose: false };
     const heldReads: Array<() => void> = [];
     const calls: Array<{ method: string; detail: string }> = [];
     const splits: Array<{ target: unknown; env: unknown }> = [];
@@ -61,6 +61,10 @@ function fakeHerdr(dir: string, cwd: string) {
                         reply = { id, result: { protocol: 22 } };
                         break;
                     case 'session.snapshot': {
+                        if (state.failReads) {
+                            socket.end(`${JSON.stringify({ id, error: { code: 'not_ready', message: 'snapshot not ready after move' } })}\n`);
+                            continue;
+                        }
                         const read = `${JSON.stringify({ id, result: { snapshot: structuredClone({ workspaces, tabs, panes, agents }) } })}\n`;
                         // A tree read taken just before a pane closes lands after the close.
                         if (state.readRacesClose) {
@@ -132,6 +136,7 @@ function fakeHerdr(dir: string, cwd: string) {
                     }
                     case 'pane.close': {
                         calls.push({ method, detail: String(p.pane_id) });
+                        if (state.failReadAfterClose) state.failReads = true;
                         if (state.failCloseFor.delete(String(p.pane_id))) {
                             reply = { id, error: { code: 'close_failed', message: 'pane.close failed' } };
                             break;
@@ -193,7 +198,7 @@ function fakeHerdr(dir: string, cwd: string) {
                         const wait = state.nextWait;
                         if (wait !== undefined) {
                             state.nextWait = undefined;
-                            void wait().then(
+                            void wait(Number(p.timeout_ms)).then(
                                 () => socket.end(`${JSON.stringify({ id, result: { agent } })}\n`),
                                 () => socket.end(`${JSON.stringify({ id, error: { code: 'not_ready', message: 'agent not ready' } })}\n`),
                             );
@@ -232,7 +237,7 @@ function moveOn(source: Awaited<ReturnType<typeof createHerdrSessionSource>>, ho
     const move = source.movePlanAccount;
     if (!move) throw new Error('plan-account moves are not implemented');
     const kit = cliAccounts({ stateDir: join(home, 'plans'), bins: {}, env: { HOME: home, PATH: '/usr/bin:/bin' } });
-    return (options: { sessionId: string; provider: string; folder: string; waitForIdle?: boolean }) => move.call(source, {
+    return (options: { sessionId: string; provider: string; folder: string; waitForIdleMs?: number }) => move.call(source, {
         ...options, launchEnv: { set: { CLAUDE_CONFIG_DIR: options.folder }, unset: ['ANTHROPIC_API_KEY'] },
         resumeArgs: kit.resumeArgs,
     });
@@ -261,6 +266,20 @@ describe('a plan-account move', () => {
                 { id: 'personal', provider: 'claude', name: 'Personal', folder: '/new/claude', found: false },
             ]);
             rememberPlanPane(env, 'p1', 'work', ['p1']);
+            // The phone opts into a bounded wait. No replacement exists while it is busy,
+            // and expiry is an actionable refusal, not the old generic busy sentence.
+            herdr.agents[0]!.agent_status = 'working';
+            herdr.state.nextWait = async (timeoutMs) => {
+                expect(timeoutMs).toBeGreaterThan(0);
+                expect(timeoutMs).toBeLessThanOrEqual(150);
+                expect(herdr.splits).toHaveLength(0);
+                await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+                throw new Error('idle deadline');
+            };
+            await expect(moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude', waitForIdleMs: 150 }))
+                .rejects.toMatchObject({ code: 'plan-move-busy-timeout', message: expect.stringMatching(/still working.*try again/i) });
+            expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p1']);
+            herdr.agents[0]!.agent_status = 'idle';
             let entered!: () => void;
             const waiting = new Promise<void>((resolve) => { entered = resolve; });
             let failReady!: () => void;
@@ -288,8 +307,12 @@ describe('a plan-account move', () => {
 
             herdr.state.raceNextSwap = true;
             herdr.agents[0]!.agent_status = 'working';
-            herdr.state.nextWait = async () => { herdr.agents[0]!.agent_status = 'idle'; };
-            const moved = await moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude', waitForIdle: true });
+            herdr.state.nextWait = async () => {
+                expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p1']);
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                herdr.agents[0]!.agent_status = 'idle';
+            };
+            const moved = await moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude', waitForIdleMs: 2000 });
             expect(moved.sessionId).toBe(sessionId);
             const paneEnv = herdr.panes.find((pane) => pane.pane_id === 'p3')?.env as Record<string, string> | undefined;
             expect(paneEnv).toMatchObject({ DISPLAY: ':42' });
@@ -323,6 +346,14 @@ describe('a plan-account move', () => {
             expect(herdr.agents).toHaveLength(1);
             expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p5']);
             expect((await source.open({ sessionId })).info.paneId).toBe('p5');
+
+            herdr.state.failReadAfterClose = true;
+            const committed = await moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/another/claude' });
+            expect(committed).toMatchObject({ sessionId, paneId: 'p6', warning: expect.stringMatching(/moved.*could not refresh.*Reconnect/) });
+            expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p6']);
+            herdr.state.failReadAfterClose = herdr.state.failReads = false;
+            await source.refreshHerdr();
+            expect((await source.open({ sessionId })).info.paneId).toBe('p6');
         } finally {
             vi.unstubAllEnvs();
             await source.dispose();

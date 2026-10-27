@@ -581,6 +581,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return removed;
         }),
         'plans.move': async (params) => {
+            const startedAt = Date.now();
+            if (params.waitForIdleMs !== undefined && (!Number.isSafeInteger(params.waitForIdleMs) || params.waitForIdleMs < 1 || params.waitForIdleMs > 120_000)) {
+                throw new Error('Choose a wait between one millisecond and two minutes, then try again.');
+            }
             if (planMoveInProgress) {
                 throw Object.assign(new Error('Another move is in progress.'), { code: 'plan-move-in-progress' });
             }
@@ -619,13 +623,21 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 handedOff = true;
                 const moving = (async () => {
                     try {
+                        let waitForIdleMs = params.waitForIdleMs;
+                        if (params.handoff) waitForIdleMs = 300_000;
+                        else if (waitForIdleMs !== undefined) waitForIdleMs = Math.max(1, waitForIdleMs - (Date.now() - startedAt));
                         const moved = await move({
                             sessionId: params.sessionId, provider: record.provider, folder: record.folder, launchEnv,
-                            ...(params.handoff ? { waitForIdle: true } : {}),
+                            ...(waitForIdleMs === undefined ? {} : { waitForIdleMs }),
                             resumeArgs: (kind, ref) => planAccounts(process.env).resumeArgs(kind, ref),
                         });
-                        await rememberPane(await planPaneOf(moved.sessionId), record.id);
-                        return moved;
+                        try {
+                            await rememberPane(moved.paneId ?? await planPaneOf(moved.sessionId), record.id);
+                        } catch {
+                            // This read/persistence is after commit, not a failed move or a safe retry.
+                            return { sessionId: moved.sessionId, warning: moved.warning ?? 'The conversation moved, but its account could not be refreshed. Reconnect before trying another move.' };
+                        }
+                        return { sessionId: moved.sessionId, ...(moved.warning === undefined ? {} : { warning: moved.warning }) };
                     } catch (error) {
                         const exposed = error as { code?: unknown; paneId?: unknown };
                         if (typeof exposed.paneId === 'string') await rememberPane(exposed.paneId, record.id);

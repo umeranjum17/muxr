@@ -132,8 +132,8 @@ export function MoveSheet() {
         if (moving.working) {
             const go = await Modal.confirm(
                 `${agentName} is still working`,
-                'Moving stops the current step. The conversation carries on from there.',
-                { cancelText: 'Wait', confirmText: `Move to ${target.name}` },
+                'The move waits up to two minutes for this step to finish. Nothing moves while it is working.',
+                { cancelText: 'Not now', confirmText: `Move when idle` },
             );
             if (!go || !samePlanConnection(moving.connection)) return;
         }
@@ -144,6 +144,7 @@ export function MoveSheet() {
             close();
             if (result.sessionId !== moving.sessionId) navigateToSession(router, result.sessionId);
             showNotice(`Moved to ${target.name}`, `Same conversation${current ? ` · ${current.name} is free again` : ''}`);
+            if (result.warning !== undefined) Modal.alert(`Moved to ${target.name}`, result.warning);
         } catch (error) {
             if (!samePlanConnection(moving.connection)) return;
             setBusy(false);

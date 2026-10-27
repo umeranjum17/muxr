@@ -110,8 +110,8 @@ export interface PlanMoveOptions {
     provider: string;
     folder: string;
     launchEnv: { set: Record<string, string>; unset: string[] };
-    /** Host-owned self-moves wait for the calling turn to finish. */
-    waitForIdle?: boolean;
+    /** Bounded idle admission; CLI handoffs can wait longer than phone requests. */
+    waitForIdleMs?: number;
     resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[];
 }
 
@@ -241,7 +241,7 @@ export interface SessionSource {
         reason?: string;
     }>;
     stop(sessionId: string, options: SessionStopOptions): Promise<CloseResult>;
-    movePlanAccount?(options: PlanMoveOptions): Promise<{ sessionId: string }>;
+    movePlanAccount?(options: PlanMoveOptions): Promise<{ sessionId: string; paneId?: string; warning?: string }>;
     /** False while the agent has no conversation for `movePlanAccount` to carry yet. */
     canMovePlanAccount?(sessionId: string): Promise<boolean>;
     /** The harness conversation Herdr published for this agent, which the chat view reads; absent until the agent has one. */

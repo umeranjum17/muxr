@@ -361,7 +361,10 @@ rules, with no H2 sections.
   flags/session, A→B→A and the issuing CLI exiting before relaunch.
 - [Move a conversation to another account](./plan-move.md) — release APK on
   an emulator over a real lab Herdr and host with two stand-in Claude accounts:
-  the same conversation moves A to B and back, recorded.
+  the same conversation moves A to B and back, recorded; a real-shell
+  verification failure rolls back. The existing fake-Herdr move flow proves
+  bounded busy waits and explicit expiry; committed moves keep refresh warnings
+  separate from failure.
 - [Add a Claude account from the phone](./add-account.md) — release APK on
   an emulator over a real lab Herdr and host with a stand-in Claude sign-in:
   the code is sent once from the sign-in tab, the tab closes and the add ends

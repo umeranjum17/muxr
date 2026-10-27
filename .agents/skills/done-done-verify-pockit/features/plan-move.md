@@ -14,6 +14,13 @@ and the host records the new account for it. The kit owns the move
 - `plan-move-there` A to B: the chip names B, the pane runs on B's sign-in
   and shows the conversation so far.
 - `plan-move-back` B to A: the same, back again.
+- `plan-move-busy` Phone requests send `waitForIdleMs: 120000` within their
+  existing 240-second request; expiry says it is still working and to finish
+  the step before trying again. No replacement is staged until idle.
+- `plan-move-warning` A committed replacement stays a successful move when
+  readiness/account refresh fails, with a separate reconnect warning.
+- `plan-move-rollback` A real shell that fails environment verification loses
+  only the staged pane; the original and complete pane inventory survive.
 
 ## How to get to it (user POV)
 
@@ -22,6 +29,9 @@ and the host records the new account for it. The kit owns the move
 
 ## Driving it on a lab Herdr
 
+- Set `HERDR_LAB_SESSION` with `"$HERDR_LAB_HELPER" name <task>` and install
+  the parent shell's guarded EXIT cleanup before the drive provisions it.
+  Every stand-in report also goes through that helper, never ambient Herdr.
 - `yarn build`, a release APK from `node perf/buildPrApk.mjs <out>`, and a
   Herdr lab helper in `HERDR_LAB_HELPER` (see `linkHerdrLab.mjs`); take the
   emulator lock as in `../SKILL.md`.
@@ -32,7 +42,10 @@ and the host records the new account for it. The kit owns the move
   Claude accounts through the accounts kit (`Account A`, `Account B`), starts a
   stand-in Claude on A, pairs the APK, records the screen and moves A to B and
   B to A from the phone. Pass `-` for `<apk>` to move through `plans.move`
-  from the lab link with no phone.
+  from the lab link with no phone. Both modes also run a real-shell negative
+  control: the production move is asked to verify HOME absent while the shell
+  has HOME. It must return `plan-move-env-mismatch`, close the staged pane and
+  preserve the original pane inventory (`verification-rollback.txt`).
 - Pass: `journey.log` ends `PASS`; each `*-on-account-*.png` shows the pane
   saying which account it runs on (`umer.a@` / `umer.b@example.com`) with
   `Resumed this conversation:` and the earlier turns under it;
@@ -45,6 +58,24 @@ and the host records the new account for it. The kit owns the move
   serve the export (`lab-browser-pairing.md`), pair with `window.__MUXR_LAB_PAIR__`,
   open the agent at 390 px: the header chip reads `Account A`; Pane actions › Move to
   another account › Move to Account B; the chip then reads `Account B`.
+
+## Busy and post-commit proof by layer
+
+Run `npx vitest run apps/host/src/agent/infrastructure/herdrSessionSource.move.test.ts
+apps/host/src/requests/application/createRequestDispatcher.test.ts`, then
+`npx vitest run sources/plans/plansLaunch.integration.spec.ts --config vitest.config.ts`
+from `apps/mobile` for the phone boundary. The existing flow drives the real
+source and pinned kit over a fake Herdr socket: working → bounded wait →
+explicit timeout with no split; working → idle → verified replacement; failed
+replacement → original retained; successful move → failed snapshot → success
+with warning. The dispatcher proves the phone budget reaches the source,
+rejects oversized waits and keeps post-commit account refresh errors separate.
+
+Use fake Herdr for the **busy path only**: the lab stand-in's reported working
+state is overridden to idle by real Herdr, so it cannot honestly prove this
+admission path. Do not label a real idle lab move as busy-path evidence.
+Native/PWA captures prove the real move sheet, account transition and warning
+presentation, not busy-state admission.
 
 ## Gotchas
 

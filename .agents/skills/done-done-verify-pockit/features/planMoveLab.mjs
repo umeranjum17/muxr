@@ -13,6 +13,9 @@ import { createConnection } from 'node:net';
 import { dirname, join } from 'node:path';
 
 const [apk, evidence, root] = process.argv.slice(2);
+const helper = process.env.HERDR_LAB_HELPER;
+const labSession = process.env.HERDR_LAB_SESSION;
+if (!helper || !labSession || labSession === 'default') throw new Error('A guarded named Herdr lab is required.');
 const repo = process.cwd();
 const { bootOwnedEmulator } = await import(join(repo, 'perf/lib/androidEmulator.mjs'));
 const { linkHerdrLab } = await import(join(repo, 'scripts/diagnostics/application/linkHerdrLab.mjs'));
@@ -51,11 +54,12 @@ id=""; [ "$1" = --resume ] && id="$2"
 email=$(sed -n 's/.*"email":"\\([^"]*\\)".*/\\1/p' "$dir/lab-account.json" 2>/dev/null)
 mkdir -p "$lab/conversations"; convo="$lab/conversations/$id.log"
 seq() { date +%s%N; }
-report() { herdr pane report-agent --source herdr:claude --agent claude --state "$1" --seq "$(seq)" "$HERDR_PANE_ID" >/dev/null 2>&1; }
+herdr_lab() { ${JSON.stringify(helper)} run ${JSON.stringify(labSession)} "$@"; }
+report() { herdr_lab pane report-agent --source herdr:claude --agent claude --state "$1" --seq "$(seq)" "$HERDR_PANE_ID" >/dev/null 2>&1; }
 printf '\\033[2J\\033[H'
 echo "Claude Code (lab stand-in) on \${email:-no account}"
 [ -f "$convo" ] && { echo "Resumed this conversation:"; cat "$convo"; }
-( sleep 2; herdr pane report-agent-session --source herdr:claude --agent claude --seq "$(seq)" --agent-session-id "$id" "$HERDR_PANE_ID" >/dev/null 2>&1; report idle ) &
+( sleep 2; herdr_lab pane report-agent-session --source herdr:claude --agent claude --seq "$(seq)" --agent-session-id "$id" "$HERDR_PANE_ID" >/dev/null 2>&1; report idle ) &
 printf '> '
 while IFS= read -r line; do
   report working
@@ -109,6 +113,35 @@ const addAccount = async (name) => {
 };
 const screen = (pane) => herdr('pane', 'read', pane, '--source', 'recent-unwrapped', '--lines', '30');
 const paneOf = async (sessionId) => (await ask('session.open', { sessionId })).info.paneId;
+// Deliberately ask verification to prove HOME absent in a real shell that has HOME.
+// Same production move/kit transaction, no mocked split, verification, or rollback.
+const verifyRollback = async (sessionId, accountId) => {
+    const { createHerdrSessionSource } = await import(join(repo, 'apps/host/dist/agent/infrastructure/herdrSessionSource.js'));
+    const { planAccounts, resolvePlanRecord } = await import(join(repo, 'apps/host/dist/plans/planAccounts.js'));
+    const source = await createHerdrSessionSource({ socketPath: lab.env.HERDR_SOCKET_PATH, herdrBin: lab.wrapper,
+        dataDir: join(root, 'rollback'), artifactsDir: join(root, 'rollback-artifacts'), hostHttpPort: 0 });
+    try {
+        await source.refreshHerdr();
+        const pane = await paneOf(sessionId);
+        const local = (await source.list()).find((row) => row.paneId === pane);
+        const panes = async () => (await source.herdrTree()).workspaces.flatMap((w) => w.tabs.flatMap((t) => t.panes.map((p) => p.paneId))).sort();
+        const before = await panes();
+        const target = resolvePlanRecord(lab.env, accountId);
+        let refused = false;
+        try {
+            await source.movePlanAccount({ sessionId: local.id, provider: 'claude', folder: target.folder,
+                launchEnv: { set: { CLAUDE_CONFIG_DIR: target.folder }, unset: ['HOME'] },
+                resumeArgs: planAccounts(lab.env).resumeArgs });
+        } catch (error) {
+            log(`verification outcome: ${error.code}: ${error.message}`);
+            if (error.code !== 'plan-move-env-mismatch') throw error;
+            refused = true;
+        }
+        if (!refused || JSON.stringify(before) !== JSON.stringify(await panes()) || await paneOf(sessionId) !== pane) throw new Error('verification did not roll back closed');
+        writeFileSync(join(evidence, 'verification-rollback.txt'), `Rejected absent-HOME verification; original pane and complete pane inventory unchanged.\n${screen(pane)}`);
+        log('PASS: real shell verification failure rolled back; source and pane inventory unchanged');
+    } finally { await source.dispose(); }
+};
 // Herdr settles a freshly started agent once (idle, unknown, idle) a few seconds after launch;
 // a move started inside that window is refused as changed. Wait until it holds still.
 const settled = async (sessionId) => {
@@ -148,7 +181,7 @@ try {
     }
     if (apk === '-') {
         for (const [to, id, letter] of [['Account B', b, 'b'], ['Account A', a, 'a']]) {
-            await ask('plans.move', { sessionId, accountId: id });
+            await ask('plans.move', { sessionId, accountId: id, waitForIdleMs: 120_000 });
             await settled(sessionId);
             const pane = await paneOf(sessionId);
             herdr('pane', 'send-text', pane, `Still here on ${to}?\n`);
@@ -159,6 +192,7 @@ try {
             if ((await ask('plans.agent', { sessionId })).accountId !== id) throw new Error(`the host does not record ${to}`);
             log(`moved to ${to}`);
         }
+        await verifyRollback(sessionId, b);
         log('PASS: conversation moved A -> B -> A (host only)');
         throw Object.assign(new Error('host-only run finished'), { done: true });
     }
@@ -258,6 +292,7 @@ try {
         current = (await ask('session.open', { sessionId: current })).info.id;
         log(`moved to ${to}; host and pane agree`);
     }
+    await verifyRollback(current, b);
     // done-done's step record: what this run drove and what the captures show.
     const version = sh(`dumpsys package ${PKG} | grep -m1 versionName`).trim().replace(/^versionName=/, '');
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({

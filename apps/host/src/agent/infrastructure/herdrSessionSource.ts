@@ -2876,7 +2876,8 @@ export async function createHerdrSessionSource(
         },
 
         /** The kit owns the move transaction; muxr owns hidden staging and session routes. */
-        async movePlanAccount(moveOptions: PlanMoveOptions): Promise<{ sessionId: string }> {
+        async movePlanAccount(moveOptions: PlanMoveOptions): Promise<{ sessionId: string; paneId?: string; warning?: string }> {
+            const startedAt = Date.now();
             const record = await resolvePane(moveOptions.sessionId);
             const conversation = conversationToMove(record.agent);
             if (conversation === undefined) {
@@ -2907,10 +2908,10 @@ export async function createHerdrSessionSource(
                 args = [...flags, ...args];
             }
             const live = (await client.kit.call('agent.get', { target: record.paneId })).agent;
-            const whenBusy = moveOptions.waitForIdle ? {
-                busy: 'wait' as const, waitMs: 300_000,
+            const whenBusy = moveOptions.waitForIdleMs === undefined ? undefined : {
+                busy: 'wait' as const, waitMs: Math.max(1, moveOptions.waitForIdleMs - (Date.now() - startedAt)),
                 confirmed: { session: conversation.value, terminalId: live.terminal_id },
-            } : undefined;
+            };
             let staged: string | undefined;
             const name = record.agent?.name ?? undefined;
             let tagged: Promise<void> | undefined;
@@ -2937,10 +2938,19 @@ export async function createHerdrSessionSource(
                     stagedMovePanes.delete(staged);
                 }
                 await tagged;
+            });
+            let warning: string | undefined;
+            try {
                 await refreshSnapshot();
                 emitAllStates();
-            });
+            } catch {
+                // A readiness read cannot undo a committed replacement or hide a rollback error.
+                warning = 'The conversation moved, but this computer could not refresh its status. Reconnect to see it.';
+            }
             if (!moved.ok) {
+                if (moved.code === 'busy' && whenBusy !== undefined) {
+                    throw Object.assign(new Error('The conversation is still working, so it was not moved. Let this step finish, then try again.'), { code: 'plan-move-busy-timeout' });
+                }
                 const replacement = moved.live !== undefined && moved.live !== record.paneId;
                 if (replacement && panesById.has(record.paneId)) {
                     throw Object.assign(new Error('The move did not finish. An extra copy is open; you can close it from its pane.'), {
@@ -2959,7 +2969,8 @@ export async function createHerdrSessionSource(
                 });
             }
             const found = bindListedPane(moved.paneId);
-            if (found === undefined) throw new Error('The moved conversation could not be listed.');
+            if (found === undefined) return { sessionId: record.sessionId, paneId: moved.paneId,
+                warning: warning ?? 'The conversation moved, but this computer could not list it yet. Reconnect to see it.' };
             if (found.sessionId !== record.sessionId) forgetClosedSession(record.sessionId, record.paneId);
             const named = (async () => {
                 if (name !== undefined) await renameInHerdr(client, 'agent', moved.paneId, name);
@@ -2967,7 +2978,7 @@ export async function createHerdrSessionSource(
                 emitAllStates();
             })().catch(() => undefined);
             await Promise.race([named, sleep(8_000)]);
-            return { sessionId: found.sessionId };
+            return { sessionId: found.sessionId, paneId: moved.paneId, ...(warning === undefined ? {} : { warning }) };
         },
 
         async paneRead(readOptions: {
