@@ -269,7 +269,9 @@ describe('a plan-account move', () => {
             // The phone opts into a bounded wait. No replacement exists while it is busy,
             // and expiry is an actionable refusal, not the old generic busy sentence.
             herdr.agents[0]!.agent_status = 'working';
+            let busyWaitEntered = false;
             herdr.state.nextWait = async (timeoutMs) => {
+                busyWaitEntered = true;
                 expect(timeoutMs).toBeGreaterThan(0);
                 expect(timeoutMs).toBeLessThanOrEqual(150);
                 expect(herdr.splits).toHaveLength(0);
@@ -278,6 +280,7 @@ describe('a plan-account move', () => {
             };
             await expect(moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude', waitForIdleMs: 150 }))
                 .rejects.toMatchObject({ code: 'plan-move-busy-timeout', message: expect.stringMatching(/still working.*try again/i) });
+            expect(busyWaitEntered).toBe(true);
             expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p1']);
             herdr.agents[0]!.agent_status = 'idle';
             let entered!: () => void;

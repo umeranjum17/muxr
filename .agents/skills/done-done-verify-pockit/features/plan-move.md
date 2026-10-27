@@ -63,8 +63,8 @@ and the host records the new account for it. The kit owns the move
 
 Run `npx vitest run apps/host/src/agent/infrastructure/herdrSessionSource.move.test.ts
 apps/host/src/requests/application/createRequestDispatcher.test.ts`, then
-`npx vitest run sources/plans/plansLaunch.integration.spec.ts --config vitest.config.ts`
-from `apps/mobile` for the phone boundary. The existing flow drives the real
+`npx vitest run apps/mobile/sources/plans/plansLaunch.integration.spec.ts --config apps/mobile/vitest.config.ts`
+from the repo root for the phone boundary. The existing flow drives the real
 source and pinned kit over a fake Herdr socket: working → bounded wait →
 explicit timeout with no split; working → idle → verified replacement; failed
 replacement → original retained; successful move → failed snapshot → success
@@ -74,8 +74,11 @@ rejects oversized waits and keeps post-commit account refresh errors separate.
 Use fake Herdr for the **busy path only**: the lab stand-in's reported working
 state is overridden to idle by real Herdr, so it cannot honestly prove this
 admission path. Do not label a real idle lab move as busy-path evidence.
-Native/PWA captures prove the real move sheet, account transition and warning
-presentation, not busy-state admission.
+Native/PWA captures prove the real idle-move sheet and account transition,
+not busy-state admission. The busy confirmation and timeout are covered by
+integration, not by an app pointed at the live default session. Post-commit
+refresh warnings are likewise checked through the source, dispatcher and phone
+API flows; do not label idle-move screenshots as warning-dialog proof.
 
 ## Gotchas
 

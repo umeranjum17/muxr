@@ -252,7 +252,7 @@ try {
     await waitFor(/Plan the release notes|move-demo/, 90);
     offering?.destroy();
 
-    recorder = spawn('adb', ['-s', serial, 'shell', 'screenrecord', '--time-limit', '170', '/sdcard/move.mp4'], { stdio: 'ignore' });
+    recorder = spawn('adb', ['-s', serial, 'shell', 'screenrecord --time-limit 170 /sdcard/move.mp4 & p=$!; echo "$p" > /sdcard/move-recorder.pid; wait "$p"'], { stdio: 'ignore' });
     sh(`am start -W -a android.intent.action.VIEW -d 'muxr:///session/${encodeURIComponent(sessionId)}' -n ${activity}`);
     // The terminal draws natively, so its text never reaches the UI dump: the header's account
     // chip shows the phone's side, and the pane's own screen is read through Herdr below.
@@ -310,7 +310,10 @@ try {
     }
 } finally {
     if (recorder !== undefined && emu !== undefined) {
-        try { execFileSync('adb', ['-s', emu.serial, 'shell', 'pkill', '-INT', 'screenrecord']); } catch { /* already stopped */ }
+        try {
+            const pid = execFileSync('adb', ['-s', emu.serial, 'shell', 'cat', '/sdcard/move-recorder.pid'], { encoding: 'utf8' }).trim();
+            if (/^[1-9][0-9]*$/.test(pid)) execFileSync('adb', ['-s', emu.serial, 'shell', 'kill', '-INT', pid]);
+        } catch { /* this run's recorder already stopped */ }
         await sleep(3000);
         try { execFileSync('adb', ['-s', emu.serial, 'pull', '/sdcard/move.mp4', join(evidence, 'move-a-b-a.mp4')]); } catch { log('no recording pulled'); }
     }
