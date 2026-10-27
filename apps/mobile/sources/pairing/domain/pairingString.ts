@@ -60,11 +60,38 @@ export function tailscaleUnreachableMessage(computer: string, device: string, on
     return `Can't reach ${computer}. Is it awake and is Tailscale connected on this ${device} and the computer?`;
 }
 
+/**
+ * A computer's one pairing link (`muxr link`): `http(s)://<address>/join#<secret>`,
+ * pasted as is or opened through the app scheme as `muxr://join?to=<that link>`.
+ * Returns the link itself; the secret stays in its fragment until pairing
+ * redeems it for an offer (`redeemComputerLink`).
+ */
+export function computerLinkFrom(value: string): string | undefined {
+    const input = value.replace(/\s+/g, '');
+    let url: URL;
+    try { url = new URL(input); } catch { return undefined; }
+    if (['muxr:', 'muxr-dev:', 'muxr-preview:'].includes(url.protocol) && url.hostname === 'join') {
+        const to = url.searchParams.get('to');
+        return to === null || /^muxr/i.test(to) ? undefined : computerLinkFrom(to);
+    }
+    const web = url.protocol === 'http:' || url.protocol === 'https:';
+    if (!web || url.hostname === '' || url.pathname !== '/join' || url.search || url.username || url.password) return undefined;
+    return /^#[A-Za-z0-9_-]{43}$/.test(url.hash) ? input : undefined;
+}
+
+/** What to call the computer before pairing: its tailnet name's first label, or nothing for a bare address. */
+export function computerLinkName(link: string): string | undefined {
+    const host = new URL(link).hostname;
+    return /^[0-9.]+$|^\[/.test(host) ? undefined : host.split('.')[0];
+}
+
 function isLinkOffer(value: string): boolean {
     return LINK_OFFER.test(value) || (isCompactOfferText(value) && readOffer(value) !== undefined);
 }
 
 export const LEGACY_PAIRING_CODE = 'This code came from muxr 0.2.0 or older. On the computer run npm i -g @trymuxr/cli@latest, then muxr pair.';
+
+export const CUT_OFF_COMPUTER_LINK = 'This link is cut off. On your computer run muxr link and copy all of it.';
 
 export const CUTOFF_PAIRING_CODE = 'This string is cut off. Copy all of it, or scan the QR.';
 
@@ -98,6 +125,9 @@ export type PairingInputDecision
  */
 export function decidePairingInput(value: string): PairingInputDecision {
     const compact = value.replace(/\s+/g, '');
+    const computer = computerLinkFrom(compact);
+    if (computer !== undefined) return { ok: true, offer: computer, link: computer };
+    if (/\/join#/.test(compact)) return { ok: false, message: CUT_OFF_COMPUTER_LINK, expired: false };
     // A deep link or pasted link wraps the offer in a URL; the terms are read
     // from the inner offer, while `link` keeps the wrapper for the HTTPS
     // browser form the web guard accepts.
@@ -156,7 +186,7 @@ export function looksLikeLinkOffer(value: string): boolean {
 }
 
 export function looksLikePairingLink(value: string): boolean {
-    return looksLikeLinkOffer(value) || PAIR_LINK.test(value);
+    return looksLikeLinkOffer(value) || computerLinkFrom(value) !== undefined || PAIR_LINK.test(value);
 }
 
 export function pairingSearchParams(url: string): URLSearchParams {

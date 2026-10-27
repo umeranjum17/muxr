@@ -1,10 +1,12 @@
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export interface RelayConfig {
     port: number;
     host: string;
     dataDir: string;
+    /** The host's owner-only pairing socket on this computer, where a pairing link is redeemed. */
+    pairSocket: string;
     advertiseMdns: boolean;
     mdnsMachineId?: string;
     mdnsRelayUrl?: string;
@@ -31,10 +33,13 @@ export function loadRelayConfig(overrides: Partial<RelayConfig> = {}): RelayConf
     const mdnsRelayUrl = overrides.mdnsRelayUrl ?? readEnv('MUXR_RELAY_MDNS_RELAY');
     const mdnsConnectionMode = overrides.mdnsConnectionMode ?? readEnv('MUXR_RELAY_MDNS_MODE');
     const mdnsName = overrides.mdnsName ?? readEnv('MUXR_RELAY_MDNS_NAME');
+    const dataDir = overrides.dataDir ?? readEnv('MUXR_RELAY_DATA_DIR') ?? join(homedir(), '.muxr', 'relay');
     return {
         port: overrides.port ?? port,
         host: overrides.host ?? readEnv('MUXR_RELAY_HOST') ?? '127.0.0.1',
-        dataDir: overrides.dataDir ?? readEnv('MUXR_RELAY_DATA_DIR') ?? join(homedir(), '.muxr', 'relay'),
+        dataDir,
+        // The host keeps its data beside the relay's (`<muxr home>/host`).
+        pairSocket: overrides.pairSocket ?? readEnv('MUXR_PAIR_SOCKET') ?? join(dirname(dataDir), 'host', 'pair.sock'),
         advertiseMdns: overrides.advertiseMdns ?? readBool('MUXR_RELAY_MDNS', true),
         ...(mdnsMachineId === undefined ? {} : { mdnsMachineId }),
         ...(mdnsRelayUrl === undefined ? {} : { mdnsRelayUrl }),

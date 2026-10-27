@@ -86,7 +86,7 @@ In the app, paste the private link or pairing code your computer shows and tap
 computer's one-use QR. Compare the two matching words, then approve on your
 computer. Home opens with your agents ready to visit.
 
-To pair another phone later, run `muxr pair` on your computer for a fresh code.
+On a Tailscale route, pair any phone later from the same link: run `muxr link` on your computer, open the link on the phone (or tap **Paste a link** in the app) and tap **Pair**. The link stays the same and paired phones do not expire; keep it private. Revoking a device replaces it. Off a tailnet, run `muxr pair --code` for a fresh one-use code.
 
 ### In a browser
 

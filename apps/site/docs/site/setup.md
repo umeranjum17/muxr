@@ -109,7 +109,7 @@ The wizard ends with health checks and a sanitized summary:
 muxr setup checks passed.
 ```
 
-Then it draws a **one-use, five-minute pairing QR** in the terminal. The QR is a bootstrap, not your data: keys are generated on both devices, the exchange is encrypted, and everything after syncs over E2EE. If it expires, run `muxr pair` for a fresh one.
+On a Tailscale route it then prints this computer's **one pairing link** and its QR: open it on the phone and tap Pair. The link stays the same (run `muxr link` to see it again); keep it private. On other routes it draws a **one-use, five-minute pairing QR** in the terminal. The QR is a bootstrap, not your data: keys are generated on both devices, the exchange is encrypted, and everything after syncs over E2EE. If it expires, run `muxr pair` for a fresh one.
 
 The summary shows endpoints and health. It never prints credentials, keys, machine secrets, or internal IDs.
 

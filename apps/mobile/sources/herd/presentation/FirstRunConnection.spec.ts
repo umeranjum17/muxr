@@ -7,6 +7,7 @@ const routerPush = vi.fn();
 const scanQr = vi.fn(async () => undefined);
 const dismissScanner = vi.fn(async () => undefined);
 const pairingAlert = vi.fn();
+let clipboardText = '';
 let scanOnScanned: ((event: { data: string }) => void) | undefined;
 
 const theme = vi.hoisted(() => ({
@@ -69,7 +70,7 @@ vi.mock('@/pairing/infrastructure/pairingPlatform', () => ({
 vi.mock('@/connection', () => ({ sshTunnelAvailable: () => platformOs === 'android' }));
 vi.mock('@/modal', () => ({ Modal: { alert: (...args: unknown[]) => pairingAlert(...args) } }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: vi.fn() }));
-vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => true) }));
+vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => true), getStringAsync: async () => clipboardText }));
 vi.mock('@/catalog', () => ({ loadAppConfig: () => ({ publicBaseUrl: 'https://trymuxr.example' }) }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 
@@ -143,10 +144,26 @@ describe('link-first connect shell', () => {
             expect(text).not.toContain('`');
             expect(text).not.toContain('byokit-link');
         }
-        // An empty Connect never routes: the same alert a bad scan shows.
-        press(renderer.root, 'Connect');
+        // An empty field pastes: nothing on the clipboard never routes, the same alert a bad scan shows.
+        press(renderer.root, 'Paste a link');
         await TestRenderer.act(async () => {});
         expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', "That isn't a muxr pairing string. Open muxr on your computer, or run muxr pair, for a new one.");
+        expect(routerPush).not.toHaveBeenCalled();
+        pairingAlert.mockClear();
+        // The computer's one link (`muxr link`) on the clipboard opens the pair screen in one tap.
+        typeLink(renderer.root, '');
+        clipboardText = `http://desk.tail1234.ts.net:8792/join#${'a'.repeat(43)}`;
+        press(renderer.root, 'Paste a link');
+        await TestRenderer.act(async () => {});
+        expect(pairingAlert).not.toHaveBeenCalled();
+        expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: clipboardText } });
+        routerPush.mockClear();
+        // Cut short, it says so instead of pairing.
+        typeLink(renderer.root, '');
+        clipboardText = `http://desk.tail1234.ts.net:8792/join#${'a'.repeat(20)}`;
+        press(renderer.root, 'Paste a link');
+        await TestRenderer.act(async () => {});
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('cut off'));
         expect(routerPush).not.toHaveBeenCalled();
         pairingAlert.mockClear();
         // A legacy code names the old version, like a scan does.

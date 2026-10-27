@@ -25,6 +25,7 @@ import {
     listMachines,
     manageMachines,
     pairDevice,
+    pairLink,
     panePackManagingThisCli,
     approveScreenSharing,
     prompt,
@@ -73,7 +74,8 @@ Get started
   muxr doctor                    check the complete local setup
   muxr diagnostics               show bounded redacted host history for agents
   muxr report                    prepare a local redacted bug report draft
-  muxr pair [--handoff|--browser|--browser-view|--browser-personal] pair a phone or browser
+  muxr link [--new]              show this computer's pairing link: open it on a phone to pair
+  muxr pair [--code|--handoff|--browser|--browser-view|--browser-personal] pair a phone or browser
   muxr desktop setup             approve screen sharing once, so your phone opens this computer without asking
   muxr connect --enrollment ...  connect this agent machine to a shared relay
   muxr shared-relay              host an always-on relay for other machines
@@ -118,7 +120,8 @@ const COMMAND_HELP = {
     pane: `muxr pane account [--pane <P>] [--json]\nmuxr pane move-to-account <account> [--pane <P>] [--json]\n\nUses HERDR_PANE_ID when --pane is omitted. account reports the running agent's account, or says when none is recorded. move-to-account asks the host to wait for idle/done (up to 5 minutes), then resume the same conversation in a new pane with its launch flags preserved. The pane id changes. The command returns after handoff, not relaunch. <account> is an id, name or email from muxr accounts list; two signed-in Claude accounts are required to move.\n`,
     share: `muxr share <path> [--title <title>] [--pane <pane-id>]\n\nSave a file to the given pane's durable Shared Artifacts timeline.\nUses HERDR_PANE_ID when --pane is omitted. Name collisions get a numeric suffix.\nAn .html page is stored with its local images inlined; sharing the same --title\nagain adds a new version of that page (muxr skill artifact-pages).\n`,
     artifacts: `muxr artifacts [status]\nmuxr artifacts prune [--dry-run] [--yes]\n\nThe host sweeps Shared Artifacts daily and never touches files that predate retention.\nstatus prints the policy and the last sweep's removals. prune applies the same policy\nto the history that was already there: it deletes files, so it shows the plan first\nand --yes skips the question.\n`,
-    pair: `muxr pair [--handoff|--browser|--browser-view|--browser-personal]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), an eight-hour view-only browser link (--browser-view), or a 30-day control link for a browser only you use (--browser-personal).\n\n--handoff pairs a phone without a terminal, using the running host and the current directory as the kit workDir. It atomically writes a private JSON file (at most 64 KB) to .byokit/outbox/muxr-pair-<random>.json:\n  {"version":1,"offer":"<pairing string>","expiresAt":<unix milliseconds>,"wordsFile":"muxr-pair-<random>.words"}\nThe phone reads the offer, dials it over your tailnet, then uses kit deliver to write the two words it sees as UTF-8 text to .byokit/inbox/<wordsFile> (0600, at most 64 KB). Only matching words approve. Wrong words, cancellation, or a two-minute timeout refuse pairing. Both files are removed when pairing ends; refreshed offers replace the same outbox file. Never log or share either file. Browser flags cannot be combined with --handoff.\nHandoff works only on a computer with no paired device yet (first-device setup of a headless cloud computer); once a phone is paired it refuses, and no Wayland screen-share grant applies.\n`,
+    link: `muxr link [--new]\n\nShow this computer's one pairing link and its QR. Open it on a phone with Tailscale on: with muxr installed it opens the app and pairs in one tap (no code or words); without it, the page says how to install, and the same link finishes afterwards. The link stays the same across restarts and paired phones do not expire. It is a secret: anyone on your tailnet who has it can pair. --new replaces it; revoking a device or rotating the machine keys also replaces it. Only a tailnet route has a link.\n`,
+    pair: `muxr pair [--code|--handoff|--browser|--browser-view|--browser-personal]\n\nOn a tailnet route, show this computer's pairing link (as \`muxr link\`). --code instead creates a two-minute native QR/string you approve here after comparing two words (the only form off a tailnet), an eight-hour control-browser link (--browser), an eight-hour view-only browser link (--browser-view), or a 30-day control link for a browser only you use (--browser-personal).\n\n--handoff pairs a phone without a terminal, using the running host and the current directory as the kit workDir. It atomically writes a private JSON file (at most 64 KB) to .byokit/outbox/muxr-pair-<random>.json:\n  {"version":1,"offer":"<pairing string>","expiresAt":<unix milliseconds>,"wordsFile":"muxr-pair-<random>.words"}\nThe phone reads the offer, dials it over your tailnet, then uses kit deliver to write the two words it sees as UTF-8 text to .byokit/inbox/<wordsFile> (0600, at most 64 KB). Only matching words approve. Wrong words, cancellation, or a two-minute timeout refuse pairing. Both files are removed when pairing ends; refreshed offers replace the same outbox file. Never log or share either file. Browser flags cannot be combined with --handoff.\nHandoff works only on a computer with no paired device yet (first-device setup of a headless cloud computer); once a phone is paired it refuses, and no Wayland screen-share grant applies.\n`,
     desktop: `muxr desktop setup\n\nOn a Wayland desktop, show the screen-sharing prompt here and save the approval, so the phone opens this computer without anyone at the screen. \`muxr setup\` and \`muxr pair\` do this once; run it again if the phone starts asking.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     diagnostics: `muxr diagnostics\n\nPrint seven days of bounded redacted host, client, relay, collaboration, and broker history as JSON. No prompts, terminal output, paths, secrets, or internal ids are recorded.\n`,
@@ -515,6 +518,7 @@ async function dispatch(command, args = []) {
         process.stderr.write('usage: muxr preview status [--json] | claim <simulator-udid> | release\n');
         return 1;
     }
+    if (command === 'link') return pairLink(args);
     if (command === 'pair') return pairDevice(args, { select, enableBrowserHosting, applyMachineSetup });
     if (command === 'desktop') {
         if (args[0] === 'setup') return approveScreenSharing({ force: true });
@@ -558,7 +562,7 @@ async function advancedMenu() {
 async function devicesMenu() {
     for (;;) {
         const choice = await select('Phones and browsers', [
-            { value: 'pair', title: 'Pair a phone', description: 'show a two-minute QR and short pairing string' },
+            { value: 'pair', title: 'Pair a phone', description: "show this computer's pairing link and QR" },
             { value: 'pair-browser', title: 'Pair a control browser', description: 'full terminal and agent control for eight hours' },
             { value: 'pair-browser-view', title: 'Pair a view-only browser', description: 'watch for eight hours; cannot type, click or run anything' },
             { value: 'list', title: 'List paired devices', description: 'names and pairing dates' },

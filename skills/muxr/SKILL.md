@@ -165,8 +165,10 @@ way to clear older history, and it shows the plan before deleting.
 
 ## Global pitfalls
 
-- Pairing QRs and enrollment strings are single-use. Never reuse one; run
-  `muxr pair` again for a fresh code.
+- Pairing QRs from `muxr pair --code` and enrollment strings are single-use;
+  run it again for a fresh code. On a Tailscale route `muxr link` prints the
+  computer's one stable pairing link instead; it is a secret, never paste it
+  anywhere but to the person.
 - Herdr wait commands have no default timeout and can block forever — always
   pass `--timeout MS`.
 - muxr state lives under `~/.muxr` unless `MUXR_HOME` is set; check it before

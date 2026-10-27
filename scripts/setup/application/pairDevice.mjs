@@ -5,11 +5,15 @@ import { daemonDefinition } from '../infrastructure/daemon.mjs';
 import { approveScreenSharing } from './approveScreenSharing.mjs';
 import { linkPair } from './linkPair.mjs';
 import { pairHandoff } from './pairHandoff.mjs';
+import { pairLinkBase, pairLink } from './pairLink.mjs';
 import { readSelfhostState, selfhostControlBase, selfhostCredential, selfhostRelayHealthy } from '../infrastructure/selfhost.mjs';
 import { cliVersion, hostServiceVersion } from './inspectSetup.mjs';
 import { browserHostingReady, repairSelfhostRelay } from '../infrastructure/selfhostRelay.mjs';
 
-export async function mintDeviceGrant(state, kind = 'native', authority = 'control', personal = false, handoff = false) {
+export async function mintDeviceGrant(state, kind = 'native', authority = 'control', personal = false, handoff = false, code = false) {
+    // A phone on a tailnet route pairs from this computer's one stable link;
+    // the two-minute code stays for every other route and for `--code`.
+    if (kind === 'native' && !handoff && !code && pairLinkBase(state?.relayUrl) !== undefined) return pairLink();
     const record = handoff
         ? await pairHandoff(state)
         : await linkPair(state, { intent: pairingIntent({ kind, authority, personal }) });
@@ -109,7 +113,7 @@ export async function pairDevice(args = [], deps = {}) {
             healthy = await selfhostRelayHealthy(state);
         }
         if (!healthy) throw new Error('the relay could not restart; run `muxr doctor` for the exact failing check');
-        const paired = await mintDeviceGrant(state, pair.kind, pair.authority, pair.personal, handoff);
+        const paired = await mintDeviceGrant(state, pair.kind, pair.authority, pair.personal, handoff, args.includes('--code'));
         // The person pairing is at this computer, which is the only place the
         // desktop's screen-sharing prompt can be answered.
         if (paired === 0 && !handoff) await approveScreenSharing({ pairingDone: true });

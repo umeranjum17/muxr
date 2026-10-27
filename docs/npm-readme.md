@@ -23,7 +23,7 @@ First run:
 2. Run `muxr` in a terminal. It checks the computer and guides you through the [connection route picker](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone); see the [CLI startup guidance](https://github.com/umeranjum17/muxr#install) for first-time and later launches.
 3. Check the short plan under the route, press Enter to apply it, then scan the one-use QR from the phone app.
 
-Nothing changes before you press Enter on a route. Setup then verifies the connection and managed services without printing credentials. Run `muxr pair` anytime for a fresh QR.
+Nothing changes before you press Enter on a route. Setup then verifies the connection and managed services without printing credentials. On a Tailscale route, `muxr link` prints this computer's one pairing link anytime: open it on a phone and pair in one tap.
 
 The maintenance menu can host a supervised shared relay on a VPS, create one-use machine enrollments, or connect a local Herdr host using only a machine-scoped credential.
 
@@ -39,7 +39,8 @@ muxr skill collaboration       # load one focused reference on demand
 muxr doctor                    # current setup health and checked repairs
 muxr diagnostics               # bounded redacted host/client history for agents
 muxr report > muxr-report.md   # local redacted issue draft; never submits
-muxr pair                      # pair another phone
+muxr link                      # this computer's one pairing link: open it on a phone
+muxr pair --code               # pair a phone with a one-use code and two words
 muxr pair --browser            # pair an 8-hour control browser
 muxr pair --browser-view       # pair an 8-hour view-only browser
 muxr pair --browser-personal   # pair a 30-day control browser only you use
