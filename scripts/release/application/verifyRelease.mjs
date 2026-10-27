@@ -3,10 +3,10 @@ import { distribution } from '../domain/channel.mjs';
 import { artifactPath, digestFile, packedMetadata, readReleaseManifest } from '../infrastructure/artifacts.mjs';
 
 /** Verification is read-only. Registry/store writes belong to promotion jobs. */
-export async function verifyRelease({ directory, commit, version, channel, runId, runAttempt }) {
+export async function verifyRelease({ directory, commit, version, channel, runId, runAttempt, manifestName }) {
     if (!/^[0-9a-f]{40}$/.test(commit ?? '')) throw new Error('An exact expected source commit is required');
     const expected = distribution(version, channel);
-    const manifest = readReleaseManifest(directory);
+    const manifest = readReleaseManifest(directory, manifestName);
     if (manifest.schema !== 1 || manifest.source?.commit !== commit || manifest.source?.dirty !== false
         || !/^[0-9a-f]{40}$/.test(manifest.source?.tree ?? '') || manifest.release?.version !== expected.version
         || manifest.release?.channel !== expected.channel || manifest.release?.distTag !== expected.distTag
