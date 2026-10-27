@@ -8,7 +8,7 @@
 // With `web` for <apk> it leaves the lab up for a browser: it writes a browser pairing link to
 // <labRoot>/browser-link.txt and runs until <labRoot>/stop exists (drive the PWA meanwhile).
 import { execFileSync, spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { dirname, join } from 'node:path';
 
@@ -161,7 +161,7 @@ try {
         session = labSession;
         run(['workspace', 'create', '--cwd', folder, '--label', 'muxr', '--no-focus']);
     });
-    log(`lab host up on relay port ${lab.port}, herdr ${session}`);
+    log(`lab host up on relay port ${lab.port}, herdr ${session}; child PIDs ${lab.pids().join(', ')}`);
     const a = await addAccount('Account A');
     const b = await addAccount('Account B');
     const started = await ask('session.start', { cwd: folder, kind: 'claude', planAccount: a, label: 'move-demo' });
@@ -202,7 +202,7 @@ try {
         systemImage: 'system-images;android-35;google_apis;x86_64', launcher: ['nice', '-n', '10'],
     });
     const serial = emu.serial;
-    log(`emulator ${serial}`);
+    log(`emulator ${serial}; owned PID ${emu.pid}`);
     const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], { encoding: 'utf8', timeout: 120_000 });
     const sh = (cmd) => adb('shell', cmd);
     const dump = () => { sh('uiautomator dump /sdcard/d.xml >/dev/null'); return adb('exec-out', 'cat', '/sdcard/d.xml'); };
@@ -260,13 +260,38 @@ try {
     await sleep(1500);
     shot('1-on-account-a');
     let current = sessionId;
-    for (const [to, letter, step] of [['Account B', 'b', '2'], ['Account A', 'a', '3']]) {
+    const moves = [['Account B', 'b', '2'], ['Account A', 'a', '3']];
+    if (process.env.MUXR_LAB_MOVE_MATRIX === '1') {
+        for (const density of [640, 440]) for (const font of [1, 2]) for (const night of ['no', 'yes']) {
+            const letter = moves.length % 2 === 0 ? 'b' : 'a';
+            moves.push([`Account ${letter.toUpperCase()}`, letter, `warning-${density === 640 ? 270 : 393}-${font}-${night === 'yes' ? 'dark' : 'light'}`, { density, font, night }]);
+        }
+    }
+    for (const [to, letter, step, cell] of moves) {
+        if (cell) {
+            sh(`wm density ${cell.density}`); sh(`settings put system font_scale ${cell.font}`); sh(`cmd uimode night ${cell.night}`);
+            sh(`am force-stop ${PKG}`);
+            sh(`am start -W -a android.intent.action.VIEW -d 'muxr:///session/${encodeURIComponent(current)}' -n ${activity}`);
+            await waitFor(/Pane actions/, 60);
+        }
         await settled(current);
         await tapText(/^Pane actions/);
         await tapText(/^Move to another account/);
         await sleep(1500);
         shot(`${step}a-move-sheet-to-${letter}`);
+        const warningProbe = cell !== undefined || (process.env.MUXR_LAB_MOVE_WARNING === '1' && letter === 'a');
+        const associations = join(lab.env.MUXR_HOME, 'plans', 'agent-panes-v1.json');
+        if (warningProbe) chmodSync(associations, 0o400);
         await tapText(new RegExp(`^Move to ${to}$`));
+        if (warningProbe) {
+            try {
+                await waitFor(new RegExp(`text="Moved to ${to}"`), 120);
+                const capture = `${step}b-moved-with-refresh-warning`;
+                execFileSync(process.execPath, [join(repo, '.agents/skills/done-done-verify-pockit/features/visualCheck.mjs'), serial, evidence, capture], { stdio: 'inherit' });
+                if (!dump().includes('Reconnect before trying another move.')) throw new Error('the completed move did not expose its refresh warning');
+                await tapText(/^OK$/);
+            } finally { chmodSync(associations, 0o600); }
+        }
         // The "Moved to" notice shows only on the Accounts screen; here the sheet closes and the
         // header chip names the new account. A failed move opens "Couldn't move" instead.
         for (const deadline = Date.now() + 120_000; ; await sleep(2000)) {
@@ -299,7 +324,7 @@ try {
         target: { version: `muxr ${version} release APK on an emulator` },
         start: 'a fresh install of muxr paired to a lab computer on a private Herdr, with a stand-in Claude conversation running on Account A and Account B also signed in',
         steps: ['Open the agent', 'Pane actions, Move to another account, Move to Account B', 'Type a turn on Account B', 'Pane actions, Move to another account, Move to Account A', 'Type a turn on Account A'],
-        result: 'the same conversation moves to the other account and back from the phone, in two parts labelled exactly "there" and "back". Part "there": 2d-turn-on-b.png shows the header chip reading Account B and the pane signed in as umer.b@example.com with "Resumed this conversation:" and the turn from Account A above the new turn. Part "back": 3d-turn-on-a.png shows the header chip reading Account A and the pane signed in as umer.a@example.com with both earlier turns above the new one. 1-on-account-a.png is the start on Account A',
+        result: 'the same conversation moves to the other account and back from the phone, in two parts labelled exactly "there" and "back". Part "there": 2d-turn-on-b.png shows the header chip reading Account B and the pane signed in as umer.b@example.com with "Resumed this conversation:" and the turn from Account A above the new turn. Part "back": 3d-turn-on-a.png shows the header chip reading Account A and the pane signed in as umer.a@example.com with both earlier turns above the new one. 1-on-account-a.png is the start on Account A' + (process.env.MUXR_LAB_MOVE_WARNING === '1' ? '. 3b-moved-with-refresh-warning.png shows a completed move to Account A with a separate reconnect warning after the lab account-association file was made read-only; it never says the move failed.' : ''),
     }, null, 2)}\n`);
     log('PASS: conversation moved A -> B -> A');
 } catch (error) {

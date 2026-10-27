@@ -46,6 +46,13 @@ and the host records the new account for it. The kit owns the move
   control: the production move is asked to verify HOME absent while the shell
   has HOME. It must return `plan-move-env-mismatch`, close the staged pane and
   preserve the original pane inventory (`verification-rollback.txt`).
+- `MUXR_LAB_MOVE_WARNING=1` makes the lab's account-association file read-only
+  for the move back. The real phone must say **Moved to Account A**, separately
+  show the reconnect warning, and still resume the conversation on A. The file's
+  permission is restored after the capture (`3b-moved-with-refresh-warning.png`).
+  `MUXR_LAB_MOVE_MATRIX=1` repeats that real post-commit failure at 270/393 dp,
+  font 1.0/2.0, light/dark, relaunching per cell; `warning-*-moved-with-refresh-warning`
+  frames and the Visual check cover the warning, not simulated busy admission.
 - Pass: `journey.log` ends `PASS`; each `*-on-account-*.png` shows the pane
   saying which account it runs on (`umer.a@` / `umer.b@example.com`) with
   `Resumed this conversation:` and the earlier turns under it;
@@ -78,7 +85,8 @@ Native/PWA captures prove the real idle-move sheet and account transition,
 not busy-state admission. The busy confirmation and timeout are covered by
 integration, not by an app pointed at the live default session. Post-commit
 refresh warnings are likewise checked through the source, dispatcher and phone
-API flows; do not label idle-move screenshots as warning-dialog proof.
+API flows; use the explicit read-only-file probe above for real warning-dialog
+captures, never label ordinary idle-move screenshots as warning-dialog proof.
 
 ## Gotchas
 
