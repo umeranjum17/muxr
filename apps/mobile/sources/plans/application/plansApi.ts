@@ -65,8 +65,7 @@ export function agentAccount(sessionId: string, connection = planConnection()): 
 
 export async function moveAgent(sessionId: string, accountId: string, connection = planConnection()): Promise<{ sessionId: string; warning?: string }> {
     const result = await requestPlan(connection, 'plans.move', { sessionId, accountId, waitForIdleMs: 120_000 }, 240_000);
-    await refreshPlans(connection);
-    assertPlanConnection(connection);
+    void refreshPlans(connection);
     return result;
 }
 

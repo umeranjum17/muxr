@@ -148,8 +148,7 @@ export function MoveSheet() {
         } catch (error) {
             if (!samePlanConnection(moving.connection)) return;
             setBusy(false);
-            const said = planFailure(error);
-            Modal.alert(`Couldn't move to ${target.name}`, `${said}${current ? ` The conversation is still on ${current.name}.` : ''}`);
+            Modal.alert(`Couldn't move to ${target.name}`, planFailure(error));
         }
     };
 
