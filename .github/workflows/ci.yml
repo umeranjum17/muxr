@@ -13,6 +13,7 @@ name: ci
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -37,6 +38,7 @@ jobs:
   # protection once it is green (change this block and protection together,
   # per the header above).
   fast:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -94,6 +96,7 @@ jobs:
           npx -y done-done-axi@0.3.0 check --outcome "the pull-request fast lane passes on this commit" ~/.done-done/evidence/pockit/*/*.log --claim-id "$CLAIM_ID" "${TRUSTED_REF_ARGS[@]}"
 
   suite:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
