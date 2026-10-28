@@ -925,6 +925,9 @@ describe('session sync flow', () => {
         const relaunchGap = homeTerminalSections(blockedHome, [], [], [oldDone], new Set(), 100);
         expect(relaunchGap.entries).toHaveLength(1);
         expect(relaunchGap.entries[0].section).toBe('needs-you');
+        const departed = homeTerminalSections(relaunchGap, [], [], [oldDone], new Set(), 1_600);
+        expect(departed.entries.map((entry) => entry.section)).toEqual(['ready']);
+        expect(departed.settlesAt).toBeUndefined();
         const relaunchedTree = canonicalTree('working');
         const replacement = relaunchedTree[0].tabs[0].panes[0];
         replacement.sessionId = 'replacement-route';

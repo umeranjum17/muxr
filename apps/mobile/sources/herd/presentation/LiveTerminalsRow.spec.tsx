@@ -42,7 +42,8 @@ vi.mock('expo-localization', () => ({ getLocales: () => [{ languageCode: 'en' }]
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: () => undefined, dismissTo: () => undefined }) }));
 vi.mock('@/catalog/store', () => ({
-    storage: { getState: () => ({ herdrWorkspaces: [] }) },
+    storage: Object.assign((selector: (state: { activeMachineId: string; herdrWorkspaces: HerdrTreeWorkspace[] }) => unknown) =>
+        selector({ activeMachineId: 'lab-machine', herdrWorkspaces: [] }), { getState: () => ({ herdrWorkspaces: [] }) }),
     useHomeHerd: () => ({ sessions: [], workspaces: herd.workspaces, loaded: true, stale: false }),
     useHomeNeedsYouIds: () => needsYouSessionIds(herd.workspaces, []),
     useLifecycleEvents: () => herd.events,

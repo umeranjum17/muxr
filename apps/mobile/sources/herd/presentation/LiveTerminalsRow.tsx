@@ -170,7 +170,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
     );
 });
 
-export const LiveTerminalsRow = React.memo(({
+const MachineLiveTerminalsRow = React.memo(({
     showZeroState = true,
     cardBadge,
 }: {
@@ -402,4 +402,10 @@ export const LiveTerminalsRow = React.memo(({
             />
         </View>
     );
+});
+
+// Transient card identity, dwell and preview memory belong to one computer.
+export const LiveTerminalsRow = React.memo((props: React.ComponentProps<typeof MachineLiveTerminalsRow>) => {
+    const machineId = storage((state) => state.activeMachineId);
+    return <MachineLiveTerminalsRow key={machineId} {...props} />;
 });

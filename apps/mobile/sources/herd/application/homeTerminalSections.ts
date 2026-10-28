@@ -96,7 +96,7 @@ export function homeTerminalSections(
         const key = before?.key ?? activity.sessionId;
         if (used.has(key)) continue;
         used.add(key);
-        candidates.push({ ...before, key, activity, routes: before?.routes ?? [activity.sessionId], section: activity.status === 'done' ? 'ready' : 'failed' });
+        candidates.push({ ...before, key, activity, routes: before?.routes ?? [activity.sessionId], pending: undefined, section: activity.status === 'done' ? 'ready' : 'failed' });
     }
     const entries: HomeTerminalEntry[] = [];
     let settlesAt: number | undefined;
