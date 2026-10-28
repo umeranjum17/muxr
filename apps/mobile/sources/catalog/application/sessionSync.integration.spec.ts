@@ -938,7 +938,10 @@ describe('session sync flow', () => {
             return homeTerminalSections(before, selectLiveTerminalCards([], herdPanes([], relaunchedTree)),
                 relaunchedTree, events, new Set(), now);
         };
-        const starting = project(relaunchGap, 'working', 200);
+        // The request subscription can outlive the old tree pane for a tick.
+        // That request-only row must keep the agent's identity for its replacement.
+        const requestOnlyGap = homeTerminalSections(blockedHome, [], [], [], new Set(), 100, [blockedHome.entries[0].activity!]);
+        const starting = project(requestOnlyGap, 'working', 200);
         expect(starting.entries).toHaveLength(1);
         expect(starting.entries[0]).toMatchObject({ key: blockedHome.entries[0].key, section: 'needs-you', card: { id: 'replacement-route' } });
         const flap = project(starting, 'blocked', 800);

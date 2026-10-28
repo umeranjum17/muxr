@@ -80,8 +80,11 @@ export function homeTerminalSections(
     for (const activity of requests) {
         if (candidates.some((entry) => entry.routes.includes(activity.sessionId)
             || (activity.agentName !== undefined && entry.card?.agentName === activity.agentName && entry.card.agentKind === activity.agentKind))) continue;
-        used.add(activity.sessionId);
-        candidates.push({ key: activity.sessionId, activity, routes: [activity.sessionId], section: 'needs-you' });
+        // A request can outlive its tree pane; keep the replacement identity.
+        const before = previous.entries.find((entry) => entry.routes.includes(activity.sessionId));
+        const key = before?.key ?? activity.sessionId;
+        used.add(key);
+        candidates.push({ ...before, key, activity, routes: before?.routes ?? [activity.sessionId], pending: undefined, section: 'needs-you' });
     }
     for (const activity of unseen) {
         // A present generation owns its history; an old done never competes
