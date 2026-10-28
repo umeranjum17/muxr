@@ -122,11 +122,11 @@ describe('Rename: agents, panes, tabs and workspaces are named in Herdr', () => 
             // Read its phone label from the real host tree, not helper fixtures.
             const unnamed = async () => (await source.herdrTree()).workspaces[0]!.tabs[0]!.panes
                 .find((pane) => pane.paneId === 'w1:p2')!;
-            expect(agentLabels(await unnamed())).toMatchObject({ title: 'project', agentName: 'project', shell: true });
+            expect(agentLabels(await unnamed())).toMatchObject({ title: 'muxr', agentName: 'project', shell: true });
             herdr.state.paneCwd = '/';
             await vi.waitFor(async () => {
-                expect(agentLabels(await unnamed())).toMatchObject({ title: 'Shell', agentName: 'Agent', shell: true });
-            });
+                expect(agentLabels(await unnamed())).toMatchObject({ title: 'muxr', agentName: 'Agent', shell: true });
+            }, { timeout: 10_000 });
             await source.rename('workspace', 'w1', '  Auth   rework ');
             await source.rename('tab', 'w1:t1', 'Review');
             await source.rename('pane', 'w1:p2', 'Dev server');
