@@ -123,6 +123,10 @@ it('lists every agent the needs-you count counts until it is answered', async ()
     await TestRenderer.act(async () => {
         renderer.update(<LiveTerminalsRow showZeroState={false} />);
     });
+    // Home holds a brief flip before moving a row; the authoritative count
+    // can update immediately, but no second Home row is introduced meanwhile.
+    expect(needsYouRows(renderer)).toHaveLength(2);
+    await TestRenderer.act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_600)); });
     expect(needsYouRows(renderer)).toEqual(['Write the release notes']);
     expect(needsYouRows(renderer)).toHaveLength(needsYouSessionIds(herd.workspaces, []).size);
     expect(rowLabels(renderer, /Could not start/)).toEqual(['Deploy the preview']);

@@ -7,7 +7,7 @@ that has live output still shows its terminal picture, unchanged.
 ## Sub-features
 
 - `live-empty-no-output` a pane that has not printed anything yet: the placeholder and the line.
-- `live-empty-output-ended` a pane whose output has ended (its read goes empty): the same placeholder.
+- `live-empty-output-ended` a populated Home pane whose read goes empty: its last frame stays until nonempty output replaces it (see `home-agent-relaunch.md`). Other preview surfaces keep their existing empty-frame policy.
 - `live-live-control` a pane with output: the terminal text, exactly as before.
 
 ## How to get to it (user POV)
@@ -33,9 +33,10 @@ Preconditions:
 - Capture the Home Live strip at 360dp and 270dp, light and dark, before the
   fix (base) and after (branch), for both empty states, plus one live-output
   control. Force a fresh read after `emptyAfterMs` by reloading the page.
-- Pass: both empty states show the calm placeholder with the line, the line
-  wraps inside the card with nothing clipped or overlapping, and a pane with
-  output shows its terminal text unchanged.
+- Pass: a never-populated Home pane shows the calm placeholder with the line,
+  wrapping with nothing clipped or overlapping; a previously populated Home
+  pane holds its last frame through an empty read, and a live-output control
+  shows its terminal text unchanged.
 
 ## Gotchas
 

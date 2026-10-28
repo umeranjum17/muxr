@@ -18,9 +18,10 @@ import {
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
+import { EMPTY_HOME_TERMINAL_SECTIONS, homeTerminalSections } from '../application/homeTerminalSections';
 import { agentLabels, agentWhoLine, herdrPaneForSession, isShellLabels, liveCardState } from '../domain/agentPresentation';
 import { showPaneActions } from '../application/renameInHerdr';
-import { agentNeedsYou, displayedAgentStatus, needsYouActivityRows, unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
+import { agentNeedsYou, displayedAgentStatus, needsYouActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import type { AgentLifecycle, LifecycleEvent } from '@trymuxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { SectionLabel } from '@/components/ui';
@@ -141,7 +142,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
             ]}
         >
             <View style={stylesheet.cardBody}>
-                <TerminalPreview sessionId={card.id} paused={paused} live={live} dimmed={!live && !unseenDone} emptyState />
+                <TerminalPreview sessionId={card.id} paused={paused} live={live} dimmed={!live && !unseenDone} emptyState retainLastFrame />
             </View>
             <View style={stylesheet.cardFooter}>
                 <View style={stylesheet.titleRow}>
@@ -198,22 +199,39 @@ export const LiveTerminalsRow = React.memo(({
         offset: cardInterval * index,
         index,
     }), [cardInterval]);
-    // The same agents the Spaces count and the badge count: a row leaves when
-    // its agent stops needing you, never because its card was glanced at.
-    const needsYou = useHomeNeedsYouIds();
     const panes = React.useMemo(
         () => herdPanes(sessions, workspaces),
         [sessions, workspaces],
     );
-    const candidateCards = React.useMemo(
-        () => selectLiveTerminalCards(sessions, panes),
-        [panes, sessions],
-    );
+    const sourceCards = React.useMemo(() => selectLiveTerminalCards(sessions, panes), [panes, sessions]);
+    const currentNeedsYou = useHomeNeedsYouIds();
+    const requests = React.useMemo(() => needsYouActivityRows(currentNeedsYou, panes, lifecycleEvents), [currentNeedsYou, panes, lifecycleEvents]);
+    const sectionState = React.useRef(EMPTY_HOME_TERMINAL_SECTIONS);
+    const [sectionTick, setSectionTick] = React.useState(0);
+    const sections = React.useMemo(() => {
+        sectionState.current = homeTerminalSections(sectionState.current, sourceCards, workspaces,
+            lifecycleEvents, ready ? seenEventIds : new Set(lifecycleEvents.map((event) => event.eventId)), Date.now(), requests);
+        return sectionState.current;
+    }, [sourceCards, workspaces, lifecycleEvents, ready, seenEventIds, sectionTick, requests]);
+    React.useEffect(() => {
+        if (sections.settlesAt === undefined) return;
+        const timer = setTimeout(() => setSectionTick((tick) => tick + 1), Math.max(0, sections.settlesAt - Date.now()));
+        return () => clearTimeout(timer);
+    }, [sections]);
+    const candidateCards = React.useMemo(() => sections.entries.flatMap((entry) => entry.card === undefined ? [] : [entry.card]), [sections]);
+    const liveIds = React.useMemo(() => new Set(sections.entries.flatMap((entry) =>
+        entry.section === 'live' && entry.card !== undefined ? [entry.card.id] : [])), [sections]);
+    const cardKeys = new Map(sections.entries.map((entry) => [entry.card?.id, entry.key]));
+    const needsYouRows = sections.entries.flatMap((entry) => entry.section === 'needs-you' && entry.activity ? [entry.activity] : []);
+    const readyRows = sections.entries.flatMap((entry) => entry.section === 'ready' && entry.activity ? [entry.activity] : []);
+    const departedRows = sections.entries.flatMap((entry) => loaded && entry.section === 'failed' && entry.activity ? [entry.activity] : []);
+    const needsYou = new Set(needsYouRows.map((row) => row.sessionId));
+    const readySessionIds = new Set(readyRows.map((row) => row.sessionId));
     // Bumped when a deferred reorder or a working agent's dwell comes due.
     const [orderTick, setOrderTick] = React.useState(0);
     const bumpOrder = React.useCallback(() => setOrderTick((tick) => tick + 1), []);
     // orderTick only asks for the arrangement to be read again at a new time.
-    const cards = React.useMemo(() => sharedLiveTerminalCards(candidateCards), [candidateCards, orderTick]);
+    const cards = React.useMemo(() => sharedLiveTerminalCards(candidateCards).filter((card) => liveIds.has(card.id)), [candidateCards, liveIds, orderTick]);
     React.useEffect(() => subscribeLiveTerminalOrder(bumpOrder), [bumpOrder]);
     React.useEffect(() => {
         const settlesAt = sharedLiveTerminalOrderSettlesAt();
@@ -240,13 +258,6 @@ export const LiveTerminalsRow = React.memo(({
         clearTimeout(graceTimerRef.current);
         releaseHoldRef.current?.();
     }, []);
-    const liveTitles = React.useMemo(() => {
-        const titles = new Map<string, string>();
-        for (const pane of panes) {
-            if (pane.taskTitle !== undefined && pane.taskTitle !== '') titles.set(pane.id, pane.taskTitle);
-        }
-        return titles;
-    }, [panes]);
     // Ages are read against a minute that ticks, so a card that says
     // "Working · 4m" does not stay at 4m while nothing else changes.
     const [minute, setMinute] = React.useState(Date.now);
@@ -254,43 +265,6 @@ export const LiveTerminalsRow = React.memo(({
         const timer = setInterval(() => setMinute(Date.now()), 60_000);
         return () => clearInterval(timer);
     }, []);
-    // An event keeps the name the agent had then; a rename since should read here too.
-    const liveNames = React.useMemo(
-        () => new Map(panes.flatMap((pane) => pane.agentName ? [[pane.id, pane.agentName] as const] : [])),
-        [panes],
-    );
-    const unseenRows = React.useCallback((wanted: (row: RecentActivityRow) => boolean) => {
-        if (!ready) return [];
-        return unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles, wanted)
-            .map((row) => ({ ...row, agentName: liveNames.get(row.sessionId) ?? row.agentName }));
-    }, [lifecycleEvents, liveNames, liveTitles, ready, seenEventIds]);
-    const needsYouRows = React.useMemo(
-        () => needsYouActivityRows(needsYou, panes, lifecycleEvents),
-        [lifecycleEvents, needsYou, panes],
-    );
-    // A failure whose agent has left the tree (could not start) has no status
-    // left to read, so it stays an unseen notice until opened. Until the tree
-    // loads every agent looks gone, so no failure reads as departed yet.
-    const paneIds = React.useMemo(() => new Set(panes.map((pane) => pane.id)), [panes]);
-    const departedRows = React.useMemo(
-        () => loaded
-            ? unseenRows((row) => row.status === 'failed' && !paneIds.has(row.sessionId) && !needsYou.has(row.sessionId))
-            : [],
-        [loaded, needsYou, paneIds, unseenRows],
-    );
-    // Done is an outcome, not activity: it gets its own READY · UNSEEN tier and
-    // clears when the agent is opened (TerminalRoute acks), never by the card
-    // scrolling past on Home.
-    const readyRows = React.useMemo(
-        () => unseenRows((row) => row.status === 'done'),
-        [unseenRows],
-    );
-    // The card highlight set IS the tier, so a card and the tier can never
-    // disagree about which finished outcomes are still unopened.
-    const readySessionIds = React.useMemo(
-        () => new Set(readyRows.map((row) => row.sessionId)),
-        [readyRows],
-    );
 
     const attentionIndex = cards.findIndex((card) => liveTerminalBucket(card.agentStatus, card.pendingRequest) === 'attention');
     const commitVisibleIndex = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -385,7 +359,7 @@ export const LiveTerminalsRow = React.memo(({
                 <Animated.FlatList
                     ref={scrollRef}
                     data={cards}
-                    keyExtractor={(card) => card.id}
+                    keyExtractor={(card) => cardKeys.get(card.id) ?? card.id}
                     renderItem={renderCard}
                     getItemLayout={getItemLayout}
                     onScrollToIndexFailed={handleScrollToIndexFailed}

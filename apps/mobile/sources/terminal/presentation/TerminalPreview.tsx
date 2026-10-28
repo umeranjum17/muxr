@@ -17,7 +17,7 @@ import { sync } from '@/catalog/sync';
 import { withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { beginPaneSnapshotRead, rememberPaneSnapshot } from '../application/paneSnapshots';
+import { beginPaneSnapshotRead, rememberPaneSnapshot, usePaneSnapshot } from '../application/paneSnapshots';
 
 // ponytail: fixed interval, no backoff. Make it adaptive if tile counts grow
 // enough that the polling itself shows up in host CPU.
@@ -56,9 +56,14 @@ export const TerminalPreview = React.memo((props: {
     /** The Live card asks for an honest empty state when there is no frame;
      *  small pane-grid tiles keep the plain terminal-dark ground. */
     emptyState?: boolean;
+    /** Home keeps its last picture while a replacement pane has no frame yet. */
+    retainLastFrame?: boolean;
 }) => {
     const { theme } = useUnistyles();
-    const [text, setText] = React.useState('');
+    const snapshot = usePaneSnapshot(props.retainLastFrame ? props.sessionId : undefined);
+    const [text, setText] = React.useState(() => tail(snapshot ?? '', props.maxLines ?? MAX_LINES, props.nonEmpty === true));
+    const heldText = React.useRef(text);
+    heldText.current = text;
     // What the tile knows about its text: it starts not knowing, becomes ready
     // or empty on the first answer, and a later failure keeps whatever it last
     // held so a pane that goes quiet does not lose its frame.
@@ -84,6 +89,7 @@ export const TerminalPreview = React.memo((props: {
                 .request('pane.read', { sessionId: props.sessionId, source: 'visible' })
                 .then((result) => {
                     if (!alive) return;
+                    if (props.retainLastFrame && heldText.current !== '' && result.text.trim() === '') return;
                     const next = tail(rememberPaneSnapshot(props.sessionId, result.text, order), maxLines, nonEmpty);
                     setText(next);
                     setPhase(next === '' ? 'empty' : 'ready');
@@ -124,7 +130,7 @@ export const TerminalPreview = React.memo((props: {
             stop();
             subscription.remove();
         };
-    }, [props.live, props.paused, props.sessionId, maxLines, nonEmpty]);
+    }, [props.live, props.paused, props.sessionId, props.retainLastFrame, maxLines, nonEmpty]);
 
     // No frame to show: a black tile with nothing in it reads as broken, so an
     // honest empty state stands in -- a calm surface, and once the read has

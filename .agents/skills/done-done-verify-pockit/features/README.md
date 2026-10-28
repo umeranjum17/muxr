@@ -152,6 +152,9 @@ rules, with no H2 sections.
   clean still transcribe, on a clean install and over old data. Status and
   evidence: see the feature doc.
 
+- [Keep one Home row and its last preview through relaunch](./home-agent-relaunch.md) —
+  real named-Herdr pane replacement, 1.5-second section dwell, old-outcome
+  suppression, native recording and themed native/standalone PWA frames.
 - [Name agents on Home by kind and task, never a launch id](./home-agent-labels.md) —
   paired lab PWA over a real-Herdr lab with an unnamed Codex and pi agent: the
   `Ready · unseen` rows read the kind/task and never a `pp_*` id, and an agent
