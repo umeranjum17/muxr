@@ -1,7 +1,8 @@
 name: release
 
-# A release is a merged version bump. Every push to main runs the full suite;
-# when the root package.json version is not yet on npm, the build job packs
+# A release is a merged version bump. PRs own the full suite; main only does
+# release work the PR cannot. Manual releases retain their own suite check.
+# When the root package.json version is not yet on npm, the build job packs
 # @trymuxr/cli, checks the installed package and seals it. Only the publish job
 # holds id-token: write, and it installs no project dependencies: it publishes
 # the sealed tarball through npm trusted publishing (OIDC). No npm token exists
@@ -19,6 +20,21 @@ name: release
 on:
   push:
     branches: [main]
+    # Match the PR scope's docs/evidence exclusions. Keep product-read README
+    # and SKILL files included, even inside an otherwise excluded directory.
+    # This workflow is not a required PR check, so it can be filtered outright.
+    paths:
+      - '**'
+      - '!**/*.md'
+      - '!**/*.mdx'
+      - '!docs/**'
+      - '!data/**'
+      - '!screenshots/**'
+      - '!LICENSE'
+      - '!NOTICE'
+      - '!TRADEMARK'
+      - '**/README.md'
+      - '**/SKILL.md'
   workflow_dispatch:
     inputs:
       captain_tested:
@@ -67,8 +83,8 @@ jobs:
         run: yarn install --frozen-lockfile --non-interactive
       - if: inputs.nightly_tag == ''
         run: yarn build
-      - name: Full suite (typecheck, flows, e2e, package smoke, architecture)
-        if: inputs.nightly_tag == ''
+      - name: Full suite for a manual release (PRs already checked a main push)
+        if: github.event_name == 'workflow_dispatch' && inputs.nightly_tag == ''
         run: yarn run check
       - id: release
         name: Resolve a sealed nightly, or decide whether the checkout version is unpublished

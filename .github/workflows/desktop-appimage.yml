@@ -8,17 +8,16 @@ name: desktop-appimage
 #
 # `yarn desktop:build:linux` is the exact local path (apps/desktop/scripts/build.mjs)
 # and it already audits the shipped licenses and runs electron-builder with
-# `--publish never`, so nothing here can publish even if it wanted to. A push to
-# main keeps a fresh artifact beside the source that produced it; a pull request
-# builds the same AppImage before it can land; workflow_dispatch rebuilds on demand.
+# `--publish never`, so nothing here can publish even if it wanted to. A ready
+# pull request builds the AppImage before it can land; workflow_dispatch rebuilds
+# main on demand, without duplicating the pull request's build after every merge.
 # A documentation- or evidence-only pull request skips the pack build but still
 # reports success: scripts/diagnostics/application/scopeDocsOnly.mjs owns that
 # rule, fail-open, with README.md/SKILL.md treated as non-docs.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -30,14 +29,15 @@ concurrency:
 
 jobs:
   appimage:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The scope guard below diffs the pull request against its merge base,
-          # which a depth-1 checkout cannot compute. A push or workflow_dispatch
-          # run has no base sha, so the rule is fail-open there: it builds.
+          # which a depth-1 checkout cannot compute. A workflow_dispatch run
+          # has no base sha, so the rule is fail-open there: it builds.
           fetch-depth: 0
       # A documentation- or evidence-only change cannot produce this artifact.
       # The job still runs and reports success so it stays a check; its
