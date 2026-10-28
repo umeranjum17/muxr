@@ -1,0 +1,936 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
+import TestRenderer from 'react-test-renderer';
+import { DICTATION_UNDO_MS, useDictation } from '@/utils/dictation';
+import { wakeAndReport } from '@/watch/wakeAndReport';
+import { useAgentStopReports } from '@/watch/agentStopReports';
+import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession, useRealtimeMuted } from '@/conversation/session';
+
+const mocks = vi.hoisted(() => ({
+    sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number; metadata?: unknown }>,
+    tree: [] as Array<Record<string, unknown>>,
+    viewingSessionId: null as string | null,
+    vadStandbyEnabled: false,
+    applyLocalSettings: vi.fn(),
+    modalAlert: vi.fn(),
+    permission: vi.fn(),
+    showDenied: vi.fn(),
+    dictationModel: 'multilingual',
+    dictationLanguage: 'fr' as string | null,
+    liveAudio: { init: vi.fn(), start: vi.fn(), stop: vi.fn(), on: vi.fn() },
+    // A stand-in for whisper.cpp: it hears one word per half second of
+    // speech, plus a guess at a word cut off mid-way that differs on every
+    // reading.
+    transcribe: vi.fn((data: ArrayBuffer, options: object) => {
+        const samples = new Int16Array(data);
+        const spoken = samples.filter((sample) => sample !== 0).length;
+        const finalReading = 'prompt' in options && typeof options.prompt === 'string' && options.prompt.includes('muxr, Herdr');
+        const guess = samples.at(-1) && !finalReading ? [['hm', 'uh', 'er'][mocks.transcribe.mock.calls.length % 3]] : [];
+        const result = [...WORDS.slice(0, Math.floor(spoken / 8000)), ...guess].join(' ');
+        return {
+            stop: vi.fn(async () => undefined),
+            promise: Promise.resolve({ result: ` ${result}`, segments: [{ t0: 0, t1: samples.length / 160, text: ` ${result}` }], isAborted: false }),
+        };
+    }),
+    releases: vi.fn(),
+    startRealtimeSession: vi.fn(),
+    startVoiceService: vi.fn(),
+    setVoiceNetworkActive: vi.fn(),
+    stopVoiceService: vi.fn(),
+    setVoiceGeneration: vi.fn(),
+    notificationAction: null as ((action: 'start' | 'stop' | 'mute', desiredMuted?: boolean, generation?: string) => void) | null,
+    addVoiceNotificationActionListener: vi.fn((listener: (action: 'start' | 'stop' | 'mute', desiredMuted?: boolean, generation?: string) => void) => {
+        mocks.notificationAction = listener;
+        return { remove: () => undefined };
+    }),
+    syncRequest: vi.fn(),
+    voiceReports: () => mocks.syncRequest.mock.calls.filter((call) => call[0] === 'voice.report'),
+    voicePending: [] as Array<Record<string, unknown> & { identity: string; attempts: number; readyAt: number }>,
+    voiceDelivered: [] as string[],
+    admit: undefined as undefined | ((identity: string) => string | undefined),
+    lifecycleEvents: [] as Array<Record<string, unknown> & { eventId: string }>,
+    prebaselineLifecycleEvents: [] as Array<Record<string, unknown> & { eventId: string }>,
+    lifecycleCatalogInitialized: true,
+    lifecycleCatalogAvailable: true,
+    storageListeners: new Set<(state: Record<string, unknown>, previous: Record<string, unknown>) => void>(),
+}));
+
+vi.mock('react-native', () => ({ Platform: { OS: 'android' }, AppState: { addEventListener: vi.fn() } }));
+// The level is a reanimated shared value so chunks never re-render the screen;
+// here it only needs to be a readable holder.
+vi.mock('react-native-reanimated', () => ({ useSharedValue: (initial: number) => ({ value: initial }) }));
+vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
+const WORDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
+vi.mock('whisper.rn', () => ({ initWhisper: vi.fn(async () => ({ transcribeData: mocks.transcribe, release: mocks.releases })) }));
+vi.mock('@/utils/dictationModels', () => ({ BUNDLED_DICTATION_MODEL_ID: 'base', getInstalledDictationModelUri: () => null }));
+vi.mock('@/utils/dictationModelFiles', () => ({ getBundledDictationModelUri: async () => 'file:///bundled-dictation.bin' }));
+// No Silero gate here: the stand-in whisper hears every take ungated, as before the VAD model.
+vi.mock('@/utils/dictationVadModel', () => ({ getDictationVadModelUri: async () => null }));
+vi.mock('@/catalog/application/persistence', () => ({ loadLocalSettings: () => ({
+    dictationModel: mocks.dictationModel,
+    dictationLanguage: mocks.dictationLanguage,
+    dictationWordReplacements: [{ from: 'four', to: '4' }],
+}) }));
+vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.syncRequest } }));
+vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: '' }) }));
+vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
+vi.mock('@/watch/store', () => ({
+    sanitizePersistedVoiceReport: (report: Record<string, unknown>) => report,
+}));
+vi.mock('@/catalog/store', () => ({
+    storage: {
+    subscribe: vi.fn((listener: (state: Record<string, unknown>, previous: Record<string, unknown>) => void) => {
+        mocks.storageListeners.add(listener);
+        return () => mocks.storageListeners.delete(listener);
+    }),
+    getState: () => ({
+        sessions: mocks.sessions,
+        herdrWorkspaces: mocks.tree,
+        homeSnapshot: null,
+        currentViewingSessionId: mocks.viewingSessionId,
+        localSettings: { vadStandbyEnabled: mocks.vadStandbyEnabled },
+        applyLocalSettings: (patch: { vadStandbyEnabled?: boolean }) => {
+            if (patch.vadStandbyEnabled !== undefined) mocks.vadStandbyEnabled = patch.vadStandbyEnabled;
+            mocks.applyLocalSettings(patch);
+        },
+        voicePendingReports: mocks.voicePending,
+        voiceDeliveredReportIds: mocks.voiceDelivered,
+        voiceReportScope: 'scope-a',
+        voiceReportScopeGeneration: 1,
+        lifecycleEvents: mocks.lifecycleEvents,
+        prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents,
+        lifecycleCatalogInitialized: mocks.lifecycleCatalogInitialized,
+        lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable,
+        admitVoiceReport: (report: Record<string, unknown> & { identity: string; attempts: number; readyAt: number }) => {
+            const forced = mocks.admit?.(report.identity); if (forced !== undefined) return forced;
+            if (mocks.voiceDelivered.includes(report.identity)) return 'delivered';
+            if (mocks.voicePending.some((entry) => entry.identity === report.identity)) return 'pending';
+            mocks.voicePending = [...mocks.voicePending, report];
+            return 'admitted';
+        },
+        updateVoiceReportRetry: (identity: string, attempts: number, readyAt: number) => {
+            mocks.voicePending = mocks.voicePending.map((entry) => entry.identity === identity ? { ...entry, attempts, readyAt } : entry);
+        },
+        deliverVoiceReport: (identity: string) => {
+            mocks.voicePending = mocks.voicePending.filter((entry) => entry.identity !== identity);
+            mocks.voiceDelivered = [...mocks.voiceDelivered, identity];
+        },
+        discardVoiceReport: (identity: string) => {
+            mocks.voicePending = mocks.voicePending.filter((entry) => entry.identity !== identity);
+        },
+    }),
+} }));
+vi.mock('@/utils/microphonePermissions', () => ({
+    requestMicrophonePermission: mocks.permission,
+    showMicrophonePermissionDeniedAlert: mocks.showDenied,
+}));
+vi.mock('../conversation/application/realtimeSession', () => ({ startRealtimeSession: mocks.startRealtimeSession }));
+vi.mock('@/../modules/voice-overlay', () => ({
+    startVoiceService: mocks.startVoiceService,
+    setVoiceNetworkActive: mocks.setVoiceNetworkActive,
+    routeVoiceAudio: vi.fn(() => true),
+    releaseVoiceAudio: vi.fn(),
+    stopVoiceService: mocks.stopVoiceService,
+    setVoiceGeneration: mocks.setVoiceGeneration,
+    addVoiceNotificationActionListener: mocks.addVoiceNotificationActionListener,
+}));
+vi.mock('expo-crypto', () => ({ randomUUID: () => `token-${++uuidSeed}` }));
+
+let uuidSeed = 0;
+const act = TestRenderer.act;
+let api: ReturnType<typeof useDictation> | null = null;
+let renderer: ReturnType<typeof TestRenderer.create> | null = null;
+let appended: string[] = [];
+let base = 'hello';
+let onData: ((chunk: string) => void) | undefined;
+
+function Harness() {
+    api = useDictation(() => base, (text) => appended.push(text));
+    return null;
+}
+
+function PluginHarness() {
+    useAgentStopReports();
+    return null;
+}
+
+/** What the mic button and the Live Activity both read. */
+let mutedNow = false;
+function MutedHarness() {
+    mutedNow = useRealtimeMuted();
+    return null;
+}
+
+async function renderDictation() {
+    await act(async () => {
+        renderer = TestRenderer.create(React.createElement(Harness));
+    });
+    return api!;
+}
+
+beforeEach(() => {
+    vi.useFakeTimers();
+    appended = [];
+    base = 'hello';
+    onData = undefined;
+    mocks.vadStandbyEnabled = false;
+    mocks.sessions = {
+        'session-a': { id: 'session-a', activeAt: 1, updatedAt: 1 },
+        'session-b': { id: 'session-b', activeAt: 2, updatedAt: 2 },
+    };
+    mocks.tree = [];
+    mocks.viewingSessionId = null;
+    mocks.permission.mockResolvedValue({ granted: true, canAskAgain: true });
+    mocks.dictationModel = 'multilingual';
+    mocks.dictationLanguage = 'fr';
+    mocks.liveAudio.init.mockResolvedValue(true);
+    mocks.liveAudio.start.mockResolvedValue(true);
+    mocks.liveAudio.stop.mockResolvedValue(true);
+    mocks.liveAudio.on.mockImplementation((_event: string, listener: (chunk: string) => void) => { onData = listener; });
+    mocks.startVoiceService.mockReturnValue(true);
+    registerRealtimeNotificationStart(async () => {
+        const target = await resolveRealtimeTarget();
+        if (target !== null) startRealtimeSession(target);
+    });
+    // Realtime voice reporting is a product request now, not a plugin call.
+    mocks.syncRequest.mockImplementation(async (method: string) => method === 'voice.report'
+        ? { say: 'The agent finished.' }
+        : { text: 'unused' });
+    mocks.voicePending = [];
+    mocks.voiceDelivered = [];
+    mocks.lifecycleEvents = [];
+    mocks.prebaselineLifecycleEvents = [];
+    mocks.lifecycleCatalogInitialized = true;
+    mocks.lifecycleCatalogAvailable = true;
+    mutedNow = false;
+    vi.clearAllMocks();
+});
+
+afterEach(() => {
+    stopRealtimeSession();
+    releaseDictation();
+    act(() => renderer?.unmount());
+    renderer = null;
+    vi.useRealTimers();
+});
+
+describe('on-device dictation flow', () => {
+    it('shows words while the speaker talks and has the transcript ready on stop', async () => {
+        const speech = Buffer.alloc(2560, 0x11).toString('base64');
+        const silence = Buffer.alloc(2560).toString('base64');
+        const say = async (seconds: number, chunk = speech) => {
+            for (let i = 0; i < seconds * 12.5; i++) {
+                onData?.(chunk);
+                await vi.advanceTimersByTimeAsync(80);
+            }
+        };
+
+        const dictation = await renderDictation();
+        await act(async () => { dictation.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(micOwners()).toEqual(['dictation']);
+        expect(mocks.liveAudio.init).toHaveBeenCalledWith(expect.objectContaining({ sampleRate: 16_000, channels: 1, bitsPerSample: 16 }));
+
+        // Words reach the draft while the speaker is still going. They only
+        // ever grow, and a half-heard word the next reading disagrees with
+        // never shows.
+        await act(async () => { await say(34); });
+        const heard = appended.slice();
+        expect(heard.length).toBeGreaterThan(1);
+        heard.reduce((previous, next) => {
+            expect(next.startsWith(previous)).toBe(true);
+            return next;
+        }, 'hello');
+        expect(heard.join(' ')).not.toMatch(/\b(hm|uh|er)\b/);
+        const liveCalls = mocks.transcribe.mock.calls.slice();
+        expect(liveCalls.length).toBeGreaterThan(2);
+        expect(liveCalls.every(([data, options]) => 'audioCtx' in options && (options as { audioCtx: number }).audioCtx === 0)).toBe(true);
+
+        // BYOKit rereads the complete recording at stop, with the muxr vocabulary.
+        // User replacements apply to the final transcript.
+        await act(async () => { await say(1.5, silence); });
+        const readings = mocks.transcribe.mock.calls.length;
+        expect(mocks.transcribe.mock.calls.at(-1)![1]).toHaveProperty('audioCtx');
+        let settleNativeStop!: () => void;
+        mocks.liveAudio.stop.mockReturnValueOnce(new Promise<void>((resolve) => { settleNativeStop = resolve; }));
+        await act(async () => {
+            api!.toggle();
+            await Promise.resolve();
+            onData?.(speech);
+            settleNativeStop();
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.transcribe).toHaveBeenCalledTimes(readings + 2);
+        expect(mocks.transcribe.mock.calls.at(-1)![1]).toHaveProperty('audioCtx', 0);
+        expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en', beamSize: 5 });
+        expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(444 * 2_560 - 25 * 32_000 + 2_560);
+        expect(appended.at(-1)).toBe('hello one two three 4 five six seven eight');
+        expect(api!.live).toBe('');
+        expect(api!.transcribing).toBe(false);
+        expect(micOwners()).toEqual([]);
+        // Per-turn context reaches the real decode prompt: the focused agent,
+        // its task, the repo and the draft, inside the ~224-token budget.
+        mocks.sessions = {
+            'session-a': {
+                id: 'session-a', activeAt: 1, updatedAt: 1,
+                metadata: {
+                    summary: { text: 'Repair Crewhouse login with OpenClaw' },
+                    path: '/home/user/pockit',
+                    workspaceLabel: 'pockit',
+                    worktree: { repo: 'pockit', branch: 'main', path: '/home/user/pockit' },
+                },
+            },
+            'session-b': { id: 'session-b', activeAt: 2, updatedAt: 2 },
+        };
+        mocks.viewingSessionId = 'session-a';
+        mocks.tree = [{
+            workspaceId: 'w', label: 'pockit', focused: true, agentStatus: 'working',
+            worktree: { repo: 'pockit' },
+            tabs: [{
+                tabId: 't', label: 'Claude Code', focused: true, agentStatus: 'working',
+                panes: [{
+                    paneId: 'p', tabId: 't', label: 'Fix 127 failures in 42 files',
+                    focused: true, agentStatus: 'working', sessionId: 'session-a',
+                    agentName: 'pp_9f2c41ab77', taskTitle: 'Help Pi debug', promptable: true,
+                }],
+            }],
+        }];
+        base = 'ask ChatGPT about';
+        await act(async () => { api!.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        await act(async () => { await say(2); });
+        await act(async () => { await say(1.5, silence); });
+        await act(async () => { api!.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        const biased = (mocks.transcribe.mock.calls.at(-1)![1] as { prompt: string }).prompt;
+        for (const name of ['muxr', 'Herdr', 'Crewhouse', 'OpenClaw', 'ChatGPT', 'Claude Code', 'Pi', 'pockit', 'Fix failures in files', 'Help Pi debug']) {
+            expect(biased).toContain(name);
+        }
+        // Pane ids and task counts steer nothing, so neither reaches the prompt.
+        expect(biased).not.toContain('pp_9f2c41ab77');
+        expect(biased).not.toMatch(/127|42/);
+        expect(biased.length).toBeLessThanOrEqual(1400);
+        expect(appended.at(-1)).toMatch(/^ask ChatGPT about/);
+        base = 'hello';
+
+        // Cancelling takes the live words back out of the draft.
+        appended = [];
+        await act(async () => { api!.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        await act(async () => { await say(3); });
+        expect(appended.at(-1)).not.toBe('hello');
+        await act(async () => { api!.cancel(); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(appended.at(-1)).toBe('hello');
+        expect(api!.recording).toBe(false);
+        expect(micOwners()).toEqual([]);
+
+        // A stop that registers twice lands its second tap on cancel inside
+        // the double-tap window, mid-reading. The words leave the draft, but
+        // the reading finishes underneath and Undo puts all of it back.
+        const stopTwice = async () => {
+            await act(async () => { api!.toggle(); });
+            await vi.advanceTimersByTimeAsync(0);
+            await act(async () => { await say(3); });
+            await act(async () => { api!.toggle(); });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(api!.transcribing).toBe(true);
+            await act(async () => { await vi.advanceTimersByTimeAsync(150); api!.cancel(); });
+            expect(api!.discarded).toBe(true);
+            expect(appended.at(-1)).toBe('hello');
+            await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+            expect(api!.transcribing).toBe(false);
+            expect(appended.at(-1)).toBe('hello');
+        };
+        // A real reading takes a while; the second tap comes well inside it.
+        const quick = mocks.transcribe.getMockImplementation()!;
+        mocks.transcribe.mockImplementation((data, options) => {
+            const reading = quick(data, options);
+            return { ...reading, promise: new Promise((resolve) => setTimeout(() => resolve(reading.promise), 600)) };
+        });
+        await stopTwice();
+        await act(async () => { api!.undoCancel(); });
+        expect(api!.discarded).toBe(false);
+        expect(appended.at(-1)).toMatch(/^hello one two three 4 five six\b/);
+
+        // Left alone, the cancel stands once the window closes.
+        await stopTwice();
+        await act(async () => { await vi.advanceTimersByTimeAsync(DICTATION_UNDO_MS); });
+        expect(api!.discarded).toBe(false);
+        await act(async () => { api!.undoCancel(); });
+        expect(appended.at(-1)).toBe('hello');
+        expect(micOwners()).toEqual([]);
+        mocks.transcribe.mockImplementation(quick);
+    });
+
+    it('moves the level for quiet far-field speech and rests on true silence', async () => {
+        // A phone mic puts arm's-length speech near −45 dBFS: ~0.005 normalised
+        // RMS, which the kit reports as ~0.02. The old linear read drew that as
+        // a 4.2 dp bar, so the meter froze exactly when the speaker was quiet.
+        const quiet = (amplitude: number) => Buffer.from(new Int16Array(1280).fill(amplitude).buffer).toString('base64');
+        const silence = Buffer.alloc(2560).toString('base64');
+
+        const dictation = await renderDictation();
+        await act(async () => { dictation.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+
+        let loudest = 0;
+        let quietest = 1;
+        // Speech arrives in bursts: a −45 dBFS frame, then the gap between words.
+        for (let i = 0; i < 30; i++) {
+            onData?.(quiet(i % 2 === 0 ? 164 : 30));
+            await vi.advanceTimersByTimeAsync(80);
+            loudest = Math.max(loudest, dictation.level.value);
+            quietest = Math.min(quietest, dictation.level.value);
+        }
+        expect(loudest).toBeGreaterThan(0.25); // clears the frozen 4 dp base
+        expect(loudest - quietest).toBeGreaterThan(0.2); // follows the words
+
+        for (let i = 0; i < 6; i++) {
+            onData?.(silence);
+            await vi.advanceTimersByTimeAsync(80);
+        }
+        expect(dictation.level.value).toBe(0); // true silence stays flat
+        await act(async () => { dictation.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+    });
+
+    it('starts notification Talk on the pane last used on the phone, not a stale desk focus', async () => {
+        const tree = {
+            workspaces: [
+                { focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'session-a', focused: true, agentStatus: 'idle' }] }] },
+                { focused: false, tabs: [{ focused: true, panes: [{ sessionId: 'session-b', focused: true, agentStatus: 'working' }] }] },
+            ],
+        };
+        mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
+            ? tree
+            : method === 'session.list' ? [{ id: 'session-a' }, { id: 'session-b' }] : { text: 'unused' });
+        const setMuted = vi.fn();
+        mocks.startRealtimeSession.mockReturnValue({ stop: vi.fn(), setMuted, speak: vi.fn() });
+        await expect(resolveRealtimeTarget()).resolves.toEqual({ machineId: '', sessionId: 'session-b' });
+
+        mocks.notificationAction?.('start');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startVoiceService).toHaveBeenCalledOnce();
+        expect(mocks.startRealtimeSession).toHaveBeenCalledOnce();
+
+        act(() => { renderer = TestRenderer.create(React.createElement(MutedHarness)); });
+
+        // Android's legacy action carries no state, so it stays a toggle.
+        act(() => { mocks.notificationAction?.('mute'); });
+        expect(setMuted).toHaveBeenLastCalledWith(true);
+        expect(mutedNow).toBe(true);
+        act(() => { mocks.notificationAction?.('mute'); });
+        expect(setMuted).toHaveBeenLastCalledWith(false);
+        expect(mutedNow).toBe(false);
+
+        // The Live Activity sends the state its control was showing. Pressing a
+        // stale mute twice must settle on muted, never flip back to an open mic.
+        act(() => { mocks.notificationAction?.('mute', true); });
+        act(() => { mocks.notificationAction?.('mute', true); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true]]);
+        expect(mutedNow).toBe(true);
+
+        act(() => { mocks.notificationAction?.('mute', false); });
+        act(() => { mocks.notificationAction?.('mute', false); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false]]);
+        expect(mutedNow).toBe(false);
+
+        // A supplied generation names the call the control was shown for. The
+        // running call's token acts; an empty or foreign one is rejected before
+        // any action, and a legacy event without the field still acts.
+        const token = mocks.setVoiceGeneration.mock.calls.at(-1)?.[0] as string;
+        expect(token).not.toBe('');
+        act(() => { mocks.notificationAction?.('mute', true, token); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false], [true]]);
+        act(() => { mocks.notificationAction?.('mute', false, 'a-foreign-token'); });
+        act(() => { mocks.notificationAction?.('mute', false, ''); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false], [true]]);
+        act(() => { mocks.notificationAction?.('mute', false, token); });
+        expect(setMuted.mock.calls).toEqual([[true], [false], [true], [false], [true], [false]]);
+
+        // After teardown the control is stale: neither form may reopen the
+        // microphone or leave a mute flag armed for the next call.
+        act(() => { mocks.notificationAction?.('stop'); });
+        act(() => { mocks.notificationAction?.('stop'); });
+        expect(micOwners()).toEqual([]);
+        act(() => { mocks.notificationAction?.('mute', true); });
+        expect(mutedNow).toBe(false);
+        act(() => { mocks.notificationAction?.('mute'); });
+        expect(mutedNow).toBe(false);
+        expect(setMuted).toHaveBeenCalledTimes(6);
+
+        // No call is running, so the current token is empty. A control still
+        // showing the ended call must not be able to start a new one.
+        act(() => { mocks.notificationAction?.('start', undefined, ''); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startRealtimeSession).toHaveBeenCalledOnce();
+
+        // Only an explicit start talks; an action this build does not know must
+        // not fall through and open a session.
+        const raw = mocks.notificationAction as ((action: string) => void) | null;
+        act(() => { raw?.('snooze'); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startVoiceService).toHaveBeenCalledOnce();
+        expect(mocks.startRealtimeSession).toHaveBeenCalledOnce();
+        expect(micOwners()).toEqual([]);
+
+        // A stop and a start that React coalesces into one render still rotate
+        // the token, so an event queued against the ended call cannot act on the
+        // one now running.
+        mocks.setVoiceGeneration.mockClear();
+        expect(startRealtimeSession('session-a')).toBe(true);
+        const older = mocks.setVoiceGeneration.mock.calls.at(-1)?.[0] as string;
+        act(() => {
+            stopRealtimeSession();
+            expect(startRealtimeSession('session-b')).toBe(true);
+        });
+        const newer = mocks.setVoiceGeneration.mock.calls.at(-1)?.[0] as string;
+        expect(mocks.setVoiceGeneration.mock.calls.map((call) => call[0])).toEqual([older, '', newer]);
+        expect(newer).not.toBe(older);
+
+        const settled = setMuted.mock.calls.length;
+        act(() => { mocks.notificationAction?.('mute', true, older); });
+        act(() => { mocks.notificationAction?.('stop', undefined, older); });
+        expect(setMuted).toHaveBeenCalledTimes(settled);
+        expect(micOwners()).toEqual(['realtime']);
+        act(() => { mocks.notificationAction?.('mute', true, newer); });
+        expect(setMuted).toHaveBeenCalledTimes(settled + 1);
+    });
+
+    it('keeps a newer historical route out of notification voice targeting', async () => {
+        mocks.sessions = {
+            'live-session': { id: 'live-session', activeAt: 1, updatedAt: 1 },
+            'historical-session': { id: 'historical-session', activeAt: 99, updatedAt: 99 },
+        };
+        mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
+            ? { workspaces: [{ focused: true, tabs: [{ focused: true, panes: [{ sessionId: 'live-session', focused: true, agentStatus: 'idle' }] }] }] }
+            : method === 'session.list' ? [{ id: 'live-session' }] : { text: 'unused' });
+
+        await expect(resolveRealtimeTarget()).resolves.toEqual({ machineId: '', sessionId: 'live-session' });
+        mocks.syncRequest.mockRejectedValue(new Error('fresh route unavailable'));
+        await expect(resolveRealtimeTarget()).resolves.toBeNull();
+        mocks.syncRequest.mockImplementation(async (method: string) => method === 'herdr.tree'
+            ? { workspaces: [{ tabs: [{ panes: [null] }] }] }
+            : [{ id: 'live-session' }]);
+        await expect(resolveRealtimeTarget()).resolves.toBeNull();
+    });
+
+    it('keeps live-session standby enabled and arms it once realtime ends', async () => {
+        const live = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        mocks.startRealtimeSession.mockReturnValue(live);
+        startRealtimeSession('session-a');
+        const provider = mocks.startRealtimeSession.mock.calls[0]![0] as {
+            onStatus: (status: 'disconnected', detail?: string) => void;
+        };
+
+        await expect(configureVadStandby(true)).resolves.toBe(true);
+        await expect(retryVadStandby()).resolves.toBe(false);
+        await expect(retryVadStandby()).resolves.toBe(false);
+        expect(mocks.vadStandbyEnabled).toBe(true);
+        expect(mocks.applyLocalSettings).not.toHaveBeenCalledWith({ vadStandbyEnabled: false });
+
+        provider.onStatus('disconnected', 'ended');
+        await vi.waitFor(() => expect(mocks.liveAudio.start).toHaveBeenCalledOnce());
+        expect(mocks.vadStandbyEnabled).toBe(true);
+        expect(mocks.setVoiceNetworkActive).toHaveBeenLastCalledWith(false);
+
+        // A mute requested while VAD arming still gates the start must reach the
+        // transport that opens afterwards, not stop at the JS flag.
+        const arming = retryVadStandby();
+        expect(startRealtimeSession('session-a')).toBe(true);
+        mocks.notificationAction?.('mute', true);
+        expect(live.setMuted).not.toHaveBeenCalled();
+        await arming;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(live.setMuted).toHaveBeenCalledWith(true);
+        stopRealtimeSession();
+
+        await expect(configureVadStandby(false)).resolves.toBe(true);
+        expect(mocks.vadStandbyEnabled).toBe(false);
+        mocks.startVoiceService.mockReturnValue(false);
+        await expect(configureVadStandby(true)).resolves.toBe(false);
+        expect(mocks.vadStandbyEnabled).toBe(false);
+    });
+
+    it('retains and serializes prioritized reports until delivery, then sleeps after drain', async () => {
+        const first = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        const failed = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        const rearmed = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        const reporting = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        mocks.startRealtimeSession
+            .mockReturnValueOnce(first)
+            .mockReturnValueOnce(failed)
+            .mockReturnValueOnce(rearmed)
+            .mockReturnValueOnce(reporting);
+        let failFirst!: (error: Error) => void;
+        let failVoiceReport = true;
+        mocks.syncRequest.mockImplementation(async (method: string, input: { displayName: string; status: string }) => {
+            if (method !== 'voice.report') return { text: 'unused' };
+            if (failVoiceReport) {
+                failVoiceReport = false;
+                return new Promise((_resolve, reject) => { failFirst = reject; });
+            }
+            return { say: `${input.displayName}: ${input.status}` };
+        });
+
+        startRealtimeSession('session-a');
+        expect(realtimeWatchTarget()).toBe('session-a');
+        const provider = mocks.startRealtimeSession.mock.calls[0]![0] as {
+            onStatus: (status: 'disconnected', detail?: string) => void;
+        };
+        provider.onStatus('disconnected', 'ended');
+
+        expect(micOwners()).toEqual([]);
+        expect(mocks.stopVoiceService).toHaveBeenCalledOnce();
+        expect(realtimeWatchTarget()).toBe('session-a');
+
+        await expect(Promise.all(['timeout', 'error', 'unknown'].map((status) => wakeAndReport({sessionId: status, from: 'working', status, agentName: 'Noah', taskTitle: 'Invalid settlement', eventId: `event:${status}`,})))).rejects.toThrow('Invalid voice report');
+        expect(mocks.voicePending).toEqual([]);
+
+        const rejectTail = vi.fn(async () => {
+            expect(mocks.voicePending.some((entry) => entry.identity === 'event:three')).toBe(true);
+            throw new Error('tail unavailable');
+        });
+        const reportsDone = Promise.all([
+            wakeAndReport({sessionId: 'one', from: 'working', status: 'done', agentName: 'Alex', taskTitle: 'Ship one', eventId: 'event:one'}),
+            wakeAndReport({sessionId: 'two', from: 'working', status: 'done', agentName: 'Bea', taskTitle: 'Ship two', eventId: 'event:two'}),
+            wakeAndReport({sessionId: 'three', from: 'working', status: 'blocked', agentName: 'Cara', taskTitle: 'Unblock three', eventId: 'event:three', loadTail: rejectTail}),
+            wakeAndReport({sessionId: 'one', from: 'working', status: 'done', agentName: 'Alex', taskTitle: 'Ship one', eventId: 'event:one'}),
+        ]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(2);
+        expect(mocks.startRealtimeSession.mock.calls[1]![0]).toMatchObject({ target: { sessionId: 'three' } });
+        expect(mocks.voiceReports()).toHaveLength(1);
+        expect(mocks.voiceReports()[0]![1]).toEqual({
+            displayName: 'Cara', taskTitle: 'Unblock three', status: 'blocked', outcome: 'blocked',
+        });
+        expect(rejectTail).toHaveBeenCalledOnce();
+        expect(failed.speak).not.toHaveBeenCalled();
+
+        stopRealtimeSession();
+        failFirst(new Error('provider unavailable'));
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(2);
+        expect(mocks.voiceReports()).toHaveLength(1);
+
+        // A later legitimate watch activation resumes retained work without resubmission.
+        startRealtimeSession('session-a');
+        const rearmProvider = mocks.startRealtimeSession.mock.calls[2]![0] as {
+            onStatus: (status: 'connected' | 'thinking' | 'speaking' | 'disconnected', detail?: string) => void;
+        };
+        rearmProvider.onStatus('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(3);
+        expect(mocks.voiceReports()).toHaveLength(2);
+
+        expect(rearmed.speak).toHaveBeenLastCalledWith('Cara: blocked');
+        // Thinking then connected is a complete no-audio response.
+        rearmProvider.onStatus('thinking');
+        rearmProvider.onStatus('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(rearmed.speak).toHaveBeenLastCalledWith('Alex: done');
+
+        rearmProvider.onStatus('speaking');
+        rearmProvider.onStatus('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(rearmed.speak).toHaveBeenLastCalledWith('Bea: done');
+
+        rearmProvider.onStatus('speaking');
+        rearmProvider.onStatus('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        await reportsDone;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.voiceReports().map((call) => (call[1] as { displayName: string }).displayName)).toEqual(['Cara', 'Cara', 'Alex', 'Bea']);
+        expect(rearmed.speak.mock.calls.map((call) => call[0])).toEqual(['Cara: blocked', 'Alex: done', 'Bea: done']);
+        expect(rearmed.stop).not.toHaveBeenCalled();
+        cancelRealtimeReportWait(realtimeGeneration());
+        expect(rearmed.stop).not.toHaveBeenCalled();
+
+        // Once that user-owned conversation ends, a new cold report owns one final sleep.
+        rearmProvider.onStatus('disconnected', 'ended');
+        const finalReport = wakeAndReport({sessionId: 'four', from: 'working', status: 'failed', agentName: 'Dana', taskTitle: 'Repair four', eventId: 'event:four'});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.startRealtimeSession).toHaveBeenCalledTimes(4);
+        expect(mocks.startRealtimeSession.mock.calls[3]![0]).toMatchObject({ target: { sessionId: 'four' } });
+        const reportProvider = mocks.startRealtimeSession.mock.calls[3]![0] as {
+            onStatus: (status: 'connected' | 'thinking') => void;
+        };
+        reportProvider.onStatus('connected');
+        reportProvider.onStatus('thinking');
+        reportProvider.onStatus('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        await finalReport;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(reporting.stop).toHaveBeenCalledOnce();
+        expect(micOwners()).toEqual([]);
+        expect(realtimeWatchTarget()).toBe('four');
+
+        stopRealtimeSession();
+        expect(realtimeWatchTarget()).toBeNull();
+
+        // The agent-stop reporter retries a full report queue even after the event leaves the bounded catalog,
+        // tries an invalid report once, and after a catalog reset re-reports a stop still in flight exactly once.
+        mocks.startRealtimeSession.mockReturnValue({ stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() });
+        startRealtimeSession('session-a');
+        let movedPrevious: Record<string, unknown> = {};
+        const notifyMoved = () => {
+            const movedState = { lifecycleEvents: mocks.lifecycleEvents, prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents, sessions: mocks.sessions,
+                lifecycleCatalogInitialized: true, lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable, voicePendingReports: mocks.voicePending, voiceReportScopeGeneration: 1 };
+            for (const listener of mocks.storageListeners) listener(movedState, movedPrevious);
+            movedPrevious = movedState;
+        };
+        act(() => { renderer = TestRenderer.create(React.createElement(PluginHarness)); });
+        const movedWorking = { eventId: 'moved-working', sessionId: 'session-a', state: 'working', agentName: 'Wren', taskTitle: 'Prove the move' };
+        mocks.lifecycleEvents = [movedWorking];
+        notifyMoved();
+        const admits: string[] = [];
+        const attempts = (id: string) => admits.filter((seen) => seen === id).length;
+        mocks.admit = (id) => {
+            admits.push(id);
+            if (id === 'stop-invalid') return 'invalid';
+            if (id === 'stop-deferred') return 'admitted';
+            return attempts(id) === 1 ? 'full' : 'delivered';
+        };
+        const bWorking = { ...movedWorking, eventId: 'b-working', sessionId: 'session-b' };
+        mocks.lifecycleEvents = [{ ...bWorking, eventId: 'stop-invalid', state: 'failed' }, { ...bWorking, eventId: 'b-again' }, { ...bWorking, eventId: 'stop-full', state: 'done' }, bWorking, movedWorking];
+        notifyMoved();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(admits).toEqual(['stop-full', 'stop-invalid']);
+        mocks.lifecycleEvents = [...Array.from({ length: 50 }, (_, index) => ({ ...movedWorking, eventId: `newer-${index}`, sessionId: `newer-${index}` })), movedWorking];
+        notifyMoved();
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(attempts('stop-full')).toBe(2);
+        expect(attempts('stop-invalid')).toBe(1);
+        expect(mocks.voicePending).toEqual([]);
+        const deferred = { ...movedWorking, eventId: 'stop-deferred', state: 'done' };
+        mocks.lifecycleEvents = [deferred, movedWorking];
+        notifyMoved();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(attempts('stop-deferred')).toBe(1);
+        mocks.lifecycleCatalogAvailable = false;
+        notifyMoved();
+        mocks.prebaselineLifecycleEvents = [deferred];
+        mocks.lifecycleCatalogAvailable = true;
+        notifyMoved();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(attempts('stop-deferred')).toBe(2);
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(attempts('stop-deferred')).toBe(2);
+        expect(admits).toEqual(['stop-full', 'stop-invalid', 'stop-full', 'stop-deferred', 'stop-deferred']);
+        mocks.admit = undefined;
+        stopRealtimeSession();
+        act(() => { renderer?.unmount(); });
+        renderer = null;
+    });
+
+    it('speaks an agent-stop report only while realtime watching is active', async () => {
+        let previous: Record<string, unknown> = {};
+        const notifyObserver = () => {
+            const observerState = {
+                lifecycleEvents: mocks.lifecycleEvents,
+                prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents,
+                sessions: mocks.sessions,
+                lifecycleCatalogInitialized: mocks.lifecycleCatalogInitialized,
+                lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable,
+                voicePendingReports: mocks.voicePending,
+                voiceReportScopeGeneration: 1,
+            };
+            for (const listener of mocks.storageListeners) listener(observerState, previous);
+            previous = observerState;
+        };
+        act(() => { renderer = TestRenderer.create(React.createElement(PluginHarness)); });
+        const working = { eventId: 'settle-working', sessionId: 'session-a', state: 'working', agentName: 'Nia', taskTitle: 'Ship the report' };
+        const settled = (eventId: string) => ({ ...working, eventId, state: 'done' });
+        const reported = (eventId: string) => mocks.voicePending.some((entry) => entry.identity === eventId)
+            || mocks.voiceDelivered.includes(eventId);
+
+        mocks.lifecycleEvents = [working];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        mocks.lifecycleEvents = [settled('settle-idle-done'), working];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(reported('settle-idle-done')).toBe(false);
+
+        startRealtimeSession('session-a');
+        const activeWorking = { ...working, eventId: 'settle-active-working' };
+        mocks.lifecycleEvents = [activeWorking];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        mocks.lifecycleEvents = [settled('settle-active-done'), activeWorking];
+        notifyObserver();
+        // Reported when the event lands, not on the next 1.5 s interval tick.
+        await vi.advanceTimersByTimeAsync(0);
+        expect(reported('settle-active-done')).toBe(true);
+        // done→idle after the report is not a second stop.
+        mocks.lifecycleEvents = [{ ...working, eventId: 'settle-active-idle', state: 'idle' }, settled('settle-active-done'), activeWorking];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(reported('settle-active-idle')).toBe(false);
+    });
+
+    it('explains unavailable microphone input, keeps safe error detail and retries only on request', async () => {
+        mocks.liveAudio.start.mockRejectedValueOnce(new Error('AudioQueueStart failed (NSOSStatusErrorDomain -66628). file:///private/test.wav token=fixture-secret'));
+        const dictation = await renderDictation();
+        await act(async () => { dictation.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+
+        const [title, message, buttons] = mocks.modalAlert.mock.calls[0]!;
+        expect(title).toBe('Dictation failed');
+        expect(message).toBe('Microphone not available. Check the microphone, then try again.\n\nDetails: AudioQueueStart failed (NSOSStatusErrorDomain -66628). [path hidden] token: [redacted]');
+        expect(micOwners()).toEqual([]);
+        expect(api!.recording).toBe(false);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(mocks.liveAudio.start).toHaveBeenCalledOnce();
+
+        const retry = buttons.find((button: { text: string }) => button.text === 'Retry');
+        await act(async () => { retry.onPress(); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.liveAudio.start).toHaveBeenCalledTimes(2);
+        expect(api!.recording).toBe(true);
+        expect(micOwners()).toEqual(['dictation']);
+        expect(appended).toEqual([]);
+    });
+
+    it('explains a failed audio session activation the same way', async () => {
+        mocks.liveAudio.start.mockRejectedValueOnce(new Error('AVAudioSession setActive failed (AVFAudioDomain 17001).'));
+        const dictation = await renderDictation();
+        await act(async () => { dictation.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+
+        const [title, message, buttons] = mocks.modalAlert.mock.calls[0]!;
+        expect(title).toBe('Dictation failed');
+        expect(message).toBe('Microphone not available. Check the microphone, then try again.\n\nDetails: AVAudioSession setActive failed (AVFAudioDomain 17001).');
+        expect(buttons.find((button: { text: string }) => button.text === 'Retry')).toBeTruthy();
+    });
+
+    it('does not claim the mic when permission is denied and blocks Realtime while dictating', async () => {
+        mocks.permission.mockResolvedValue({ granted: false, canAskAgain: false });
+        const dictation = await renderDictation();
+        await act(async () => { dictation.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.showDenied).toHaveBeenCalledWith(false);
+        expect(micOwners()).toEqual([]);
+
+        mocks.permission.mockResolvedValue({ granted: true, canAskAgain: true });
+        await act(async () => { dictation.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        startRealtimeSession('session-a');
+        expect(mocks.startRealtimeSession).not.toHaveBeenCalled();
+        expect(micOwners()).toEqual(['dictation']);
+    });
+
+    it('coalesces duplicate taps into one local transcription', async () => {
+        const dictation = await renderDictation();
+        await act(async () => {
+            dictation.toggle();
+            dictation.toggle();
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.liveAudio.start).toHaveBeenCalledOnce();
+
+        onData?.(Buffer.alloc(2560).toString('base64'));
+        await vi.advanceTimersByTimeAsync(500);
+        await act(async () => {
+            api!.toggle();
+            api!.toggle();
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.liveAudio.stop).toHaveBeenCalledOnce();
+        expect(api!.transcribing).toBe(false);
+    });
+
+    it('never lets whisper non-speech labels reach the draft, on insert or on Undo', async () => {
+        // The 127 fixture: an unsent baseline that a noise-only reading must
+        // neither append labels to nor restore, on either the direct-insert or
+        // the Cancel-then-Undo path.
+        base = 'QA fixture 127 undo unsent';
+        appended = [];
+        const prior = mocks.transcribe.getMockImplementation()!;
+        const noise = '(wind howling) [wind] [inaudible] ♪♪';
+        const mixed = 'the wind is cold (see notes) [wind] [Inaudible]';
+        // One final reading per phase below: noise-only insert, noise-only
+        // Undo, then a mixed reading whose real words and legitimate
+        // parenthetical must survive the sanitise.
+        const finalReadings = [noise, noise, mixed];
+        let finalIndex = 0;
+        // Inject the phase's final reading and hold it in flight for 600ms so a
+        // Cancel pressed right after stop lands inside it. Live readings keep
+        // the kit's normal words and resolve as usual.
+        const finalText = (out: { result: string; segments: { t0: number; t1: number; text: string }[]; isAborted: boolean }) => {
+            const text = finalReadings[finalIndex++]!;
+            return { ...out, result: text, segments: [{ t0: 0, t1: 0, text }] };
+        };
+        mocks.transcribe.mockImplementation((data, options) => {
+            const reading = prior(data, options);
+            const prompt = (options as { prompt?: string }).prompt;
+            const final = typeof prompt === 'string' && prompt.includes('muxr, Herdr');
+            if (!final) return reading;
+            const promise: Promise<{ result: string; segments: { t0: number; t1: number; text: string }[]; isAborted: boolean }> =
+                reading.promise.then(finalText).then((value) => new Promise<{ result: string; segments: { t0: number; t1: number; text: string }[]; isAborted: boolean }>((resolve) => { setTimeout(() => resolve(value), 600); }));
+            return { ...reading, promise };
+        });
+        const speech = Buffer.alloc(2560, 0x11).toString('base64');
+        const say = async (seconds: number) => {
+            for (let i = 0; i < seconds * 12.5; i++) {
+                onData?.(speech);
+                await vi.advanceTimersByTimeAsync(80);
+            }
+        };
+
+        await renderDictation();
+        // Start and speak enough for live readings to seed the draft.
+        const begin = async () => {
+            await act(async () => { api!.toggle(); });
+            await vi.advanceTimersByTimeAsync(0);
+            await act(async () => { await say(3); });
+        };
+        // Stop, let the in-flight final start, then Cancel inside the reading
+        // and settle it so the reading lands in the discard.
+        const cancelAndSettle = async () => {
+            await act(async () => { api!.toggle(); });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(api!.transcribing).toBe(true);
+            await act(async () => { await vi.advanceTimersByTimeAsync(150); api!.cancel(); });
+            expect(api!.discarded).toBe(true);
+            expect(appended.at(-1)).toBe(base);
+            // The final holds 600ms after stop; leave margin for the stop-
+            // wake and the whole-take reread round-trip.
+            await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+            expect(api!.transcribing).toBe(false);
+        };
+
+        // A noise-only final reading appends nothing and leaves the untouched
+        // baseline without a stray separator.
+        await begin();
+        await act(async () => { api!.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+        expect(api!.transcribing).toBe(false);
+        expect(appended.at(-1)).toBe(base);
+        expect(appended.join('\n')).not.toMatch(/\(wind howling\)|\[wind\]/);
+
+        // The 127 defect: Cancel takes the words out, the reading keeps going,
+        // and Undo restores the reading with its labels already dropped - here
+        // none, so the baseline stays exactly as it was.
+        appended = [];
+        await begin();
+        await cancelAndSettle();
+        await act(async () => { api!.undoCancel(); });
+        expect(api!.discarded).toBe(false);
+        expect(appended.at(-1)).toBe(base);
+        expect(appended.join('\n')).not.toMatch(/\(wind howling\)|\[wind\]/);
+
+        // A mixed reading restored through Undo drops the label but keeps the
+        // real words and the legitimate parenthetical.
+        appended = [];
+        await begin();
+        await cancelAndSettle();
+        await act(async () => { api!.undoCancel(); });
+        expect(api!.discarded).toBe(false);
+        expect(appended.at(-1)).toBe('QA fixture 127 undo unsent the wind is cold (see notes)');
+
+        mocks.transcribe.mockImplementation(prior);
+    });
+});

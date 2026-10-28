@@ -1,0 +1,477 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const harness = vi.hoisted(() => {
+    const sessionReplaceFlags: boolean[] = [];
+    const sessions: Record<string, { id: string; taskTitle?: string }> = {};
+    return {
+        connection: {
+            mode: 'hosted' as const,
+            relayUrl: 'ws://relay.test',
+            machineId: '',
+            token: '',
+            lastSessionCwdByMachine: {},
+            recentSessionCwds: [] as string[],
+        },
+        grant: undefined as { machineId: string; relayUrl: string } | undefined,
+        clientOptions: [] as Array<{ grant?: unknown; token?: string; onTicketRejected?: () => void }>,
+        clients: [] as Array<{ status: string; fire: (status: string) => void }>,
+        clientConnects: 0,
+        clientCloses: 0,
+        blockNextMachines: false,
+        blockNextSessions: false,
+        blockNextTree: false,
+        blockedTree: undefined as Promise<void> | undefined,
+        treeRequestStarted: false,
+        blockedSessions: undefined as Promise<void> | undefined,
+        sessionsRequestStarted: false,
+        treeResponses: [] as Array<{ workspaces: Array<{ workspaceId: string; tabs: [] }> }>,
+        sessionsLoaded: false,
+        blockedMachines: undefined as Promise<void> | undefined,
+        blockedMachinesStarted: false,
+        blockedMachinesFinished: false,
+        machineSnapshots: [] as string[],
+        socketStatus: 'disconnected',
+        socketError: null as string | null,
+        herdrRuntime: undefined as boolean | undefined,
+        ready: false,
+        machineReplaceFlags: [] as boolean[],
+        sessionReplaceFlags,
+        lifecycleScopes: [] as string[],
+        lifecycleAuthorities: [] as string[],
+        lifecycleCatalogError: Object.assign(new Error('older host'), { code: 'host-contract-mismatch' }) as Error & { code?: string },
+        sessions,
+        eventListeners: [] as Array<(sessionId: string, event: { type: string; session?: { id: string; taskTitle?: string } }) => void>,
+        // Raw host pushes (a config notice, not a session event).
+        frameListeners: [] as Array<(frame: unknown) => void>,
+        machineFolders: [] as Array<string | undefined>,
+        // What the host's machines.list reports as the setup-chosen start folder.
+        machineStartFolder: undefined as string | undefined,
+        applySessions: vi.fn((next: Array<{ id: string; taskTitle?: string }>, replace = false) => {
+            sessionReplaceFlags.push(replace);
+            if (replace) {
+                for (const id of Object.keys(sessions)) delete sessions[id];
+            }
+            for (const session of next) sessions[session.id] = session;
+        }),
+    };
+});
+
+vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => '0.2.0' }));
+vi.mock('expo-crypto', () => ({ randomUUID: () => 'login-device' }));
+vi.mock('expo-device', () => ({ isDevice: true }));
+vi.mock('expo-secure-store', () => ({
+    getItemAsync: async () => null,
+    setItemAsync: async () => undefined,
+    deleteItemAsync: async () => undefined,
+}));
+vi.mock('expo-notifications', () => ({ scheduleNotificationAsync: vi.fn(), setNotificationCategoryAsync: vi.fn(async () => undefined) }));
+vi.mock('react-native', () => ({ AppState: { currentState: 'active' }, Platform: { OS: 'android' } }));
+vi.mock('@/modal', () => ({ Modal: {} }));
+vi.mock('@/herd', () => ({ getSessionName: () => 'session' }));
+vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('../../catalog/application/persistence', () => ({ saveHomeSnapshot: vi.fn(), hasLegacySpacePins: () => false }));
+vi.mock('@/connection', () => ({
+    DEFAULT_CONNECTION: { ...harness.connection },
+    getCachedConnectionSettings: () => harness.connection,
+    loadConnectionSettingsAsync: async () => harness.connection,
+}));
+vi.mock('@/pairing/e2ee', () => ({
+    getCachedHostedGrant: () => harness.grant,
+    loadHostedGrant: async () => harness.grant,
+    refreshHostedGrant: async () => harness.grant,
+}));
+
+// A stored machine link grant.
+vi.mock('@/pairing/infrastructure/linkGrant', () => ({
+    deriveLinkGrant: (grant: { machineId: string; relayUrl: string } | undefined) => {
+        if (grant === undefined) return undefined;
+        return {
+            v: 1 as const,
+            secretKey: grant.machineId,
+            host: 'bWFjaGluZUJveEtleQ',
+            hostName: 'Desk',
+            urls: [`${grant.relayUrl}/link/v1/cloud`],
+            device: { id: '', name: 'Phone', role: 'control' as const },
+        };
+    },
+}));
+
+vi.mock('@byokit/pair', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@byokit/pair')>();
+    class FakeDeviceLink {
+        private static instances: FakeDeviceLink[] = [];
+        private listeners: Array<(s: string) => void> = [];
+        private internalState = 'closed';
+        get status(): string { return this.internalState; }
+        set status(value: string) {
+            this.internalState = value;
+            for (const listener of this.listeners) listener(value);
+        }
+        constructor(public grant: unknown, public o: { onStatus?: (s: string) => void; onEvent?: (e: unknown) => void; onError?: (e: unknown) => void } = {}) {
+            FakeDeviceLink.instances.push(this);
+            harness.clients.push(this);
+            harness.clientOptions.push({ grant: this.grant });
+            // Link frames arrive as `{ type: 'session.event', sessionId, event }`;
+            // bridge them so tests drive events the way the old client delivered them.
+            harness.eventListeners.push((sessionId: string, event: unknown) => {
+                this.o.onEvent?.({ type: 'session.event', sessionId, event });
+            });
+            harness.frameListeners.push((frame: unknown) => { this.o.onEvent?.(frame); });
+            // byokit DeviceLink dials in its constructor; mirror that here.
+            harness.clientConnects += 1;
+            this.fire('connecting');
+            queueMicrotask(() => this.fire('online'));
+        }
+        connect() {
+            this.fire('connecting');
+            queueMicrotask(() => this.fire('online'));
+        }
+        stop() {
+            harness.clientCloses += 1;
+            this.fire('closed');
+        }
+        fire(status: string) {
+            this.internalState = status as never;
+            this.o.onStatus?.(status);
+            for (const listener of this.listeners) listener(status);
+        }
+        onStatus(listener: (s: string) => void) { this.listeners.push(listener); return () => undefined; }
+        onEvent(listener: (e: unknown) => void) { return this.o.onEvent?.(listener) ?? (() => undefined); }
+        onError() { return () => undefined; }
+        async request(op: string) {
+            return { type: 'result', ok: true, data: await FakeDeviceLink.respond(op, this) };
+        }
+        private static async respond(op: string, link: FakeDeviceLink) {
+            if (op === 'machines.list') {
+                if (harness.blockNextMachines) {
+                    harness.blockNextMachines = false;
+                    harness.blockedMachinesStarted = true;
+                    await harness.blockedMachines;
+                    harness.blockedMachinesFinished = true;
+                }
+                return [{ id: `client-${FakeDeviceLink.instances.indexOf(link)}`, ...(harness.machineStartFolder === undefined
+                    ? {}
+                    : { defaultStartFolder: harness.machineStartFolder }) }];
+            }
+            if (op === 'herdr.tree') {
+                if (harness.blockNextTree) {
+                    harness.blockNextTree = false;
+                    harness.treeRequestStarted = true;
+                    await harness.blockedTree;
+                }
+                return harness.treeResponses.shift() ?? { workspaces: [] };
+            }
+            if (op === 'session.list') {
+                if (harness.blockNextSessions) {
+                    harness.blockNextSessions = false;
+                    harness.sessionsRequestStarted = true;
+                    await harness.blockedSessions;
+                }
+                return [{ id: 'agent' }];
+            }
+            if (op === 'attention.catalog') return { revision: 0, entries: [] };
+            if (op === 'lifecycle.catalog') throw harness.lifecycleCatalogError;
+            return [];
+        }
+    }
+    return { ...actual, DeviceLink: FakeDeviceLink as never };
+});
+
+vi.mock('../../catalog/infrastructure/encryption/encryption', () => ({
+    Encryption: { create: async () => ({ anonID: 'account-device' }) },
+}));
+vi.mock('../../catalog/infrastructure/sessionMapping', () => ({
+    applyStatusToSession: (session: unknown) => session,
+    machineInfoToMachine: (machine: unknown) => machine,
+    sessionInfoToSession: (session: unknown) => session,
+}));
+vi.mock('../../catalog/application/storage', () => ({
+    storage: {
+        getState: () => ({
+            sessions: harness.sessions,
+            sessionsLoaded: harness.sessionsLoaded,
+            lifecycleEvents: [],
+            herdrWorkspaces: [],
+            setSocketStatus: (status: string) => { harness.socketStatus = status; },
+            setSocketError: (message: string | null) => { harness.socketError = message; },
+            setHerdrRuntime: (runtime: boolean | undefined) => { harness.herdrRuntime = runtime; },
+            applyMachines: (machines: unknown[], replace = false) => {
+                harness.machineReplaceFlags.push(replace);
+                const machine = machines[0] as { id?: string; defaultStartFolder?: string } | undefined;
+                if (machine?.id !== undefined) harness.machineSnapshots.push(machine.id);
+                harness.machineFolders.push(machine?.defaultStartFolder);
+            },
+            applySessions: harness.applySessions,
+            deleteSession: (sessionId: string) => { delete harness.sessions[sessionId]; },
+            applyHerdrTree: vi.fn(),
+            pruneSpacePins: vi.fn(),
+            setActiveMachine: vi.fn(),
+            applyHomeSnapshot: vi.fn(),
+            restoreHome: vi.fn(),
+            markSessionsLoaded: () => { harness.sessionsLoaded = true; },
+            applyAttentionCatalog: vi.fn(),
+            applyLifecycleCatalog: vi.fn(),
+            setLifecycleAuthority: (authority: string) => { harness.lifecycleAuthorities.push(authority); },
+            setLifecycleScope: (scope: string) => { harness.lifecycleScopes.push(scope); },
+            resetLifecycleCatalog: vi.fn(),
+            applyReady: () => { harness.ready = true; },
+        }),
+    },
+}));
+
+import { storage } from '../../catalog/application/storage';
+import { saveHomeSnapshot } from '../../catalog/application/persistence';
+import {
+    sync,
+    syncCreate,
+    syncReconnect,
+    syncResume,
+} from '@/catalog/sync';
+
+describe('link session sync flow', () => {
+    beforeEach(() => {
+        harness.connection.mode = 'hosted';
+        harness.connection.machineId = '';
+        harness.grant = undefined;
+        harness.clientOptions.length = 0;
+        harness.clients.length = 0;
+        harness.clientConnects = 0;
+        harness.clientCloses = 0;
+        harness.blockNextMachines = false;
+        harness.blockNextSessions = false;
+        harness.blockNextTree = false;
+        harness.blockedTree = undefined;
+        harness.treeRequestStarted = false;
+        harness.blockedSessions = undefined;
+        harness.sessionsRequestStarted = false;
+        harness.treeResponses.length = 0;
+        harness.sessionsLoaded = false;
+        vi.mocked(saveHomeSnapshot).mockClear();
+        harness.blockedMachines = undefined;
+        harness.blockedMachinesStarted = false;
+        harness.blockedMachinesFinished = false;
+        harness.machineSnapshots.length = 0;
+        harness.machineFolders.length = 0;
+        harness.machineStartFolder = undefined;
+        harness.frameListeners.length = 0;
+        harness.socketStatus = 'disconnected';
+        harness.socketError = null;
+        harness.ready = false;
+        harness.machineReplaceFlags.length = 0;
+        harness.sessionReplaceFlags.length = 0;
+        harness.lifecycleScopes.length = 0;
+        harness.lifecycleAuthorities.length = 0;
+        harness.lifecycleCatalogError = Object.assign(new Error('older host'), { code: 'host-contract-mismatch' });
+        harness.eventListeners.length = 0;
+        for (const id of Object.keys(harness.sessions)) delete harness.sessions[id];
+        harness.applySessions.mockClear();
+    });
+
+
+    it('saves a newer confirmed tree after a superseded catalog pass completes', async () => {
+        harness.connection.mode = 'hosted';
+        harness.connection.machineId = 'machine-a';
+        harness.grant = {
+            machineId: 'machine-a', relayUrl: 'ws://relay.test',
+            deviceKey: { publicKey: 'device-public', secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+            machineBoxPublicKey: 'bWFjaGluZS1ib3gta2V5LWJhc2U2NC0zMmJ5dGVzMjMyMQ',
+        } as never;
+        await syncCreate({ token: 'account', secret: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' });
+        await vi.waitFor(() => expect(harness.sessionsLoaded).toBe(true));
+        await sync.refreshSessions();
+        vi.mocked(saveHomeSnapshot).mockClear();
+
+        let releaseSessions!: () => void;
+        harness.blockedSessions = new Promise<void>((resolve) => { releaseSessions = resolve; });
+        harness.blockNextSessions = true;
+        const oldTree = { workspaces: [{ workspaceId: 'old', tabs: [] as [] }] };
+        const newTree = { workspaces: [{ workspaceId: 'new', tabs: [] as [] }] };
+        harness.treeResponses.push(oldTree, newTree);
+        const catalog = sync.refreshSessions();
+        await vi.waitFor(() => expect(harness.sessionsRequestStarted).toBe(true));
+        await sync.refreshHerdTree();
+        releaseSessions();
+        await catalog;
+        expect(vi.mocked(saveHomeSnapshot).mock.calls.at(-1)?.[1]).toEqual(newTree.workspaces);
+        expect(vi.mocked(saveHomeSnapshot).mock.calls.at(-1)?.[2]).toEqual([{ id: 'agent' }]);
+
+        // If the newer tree arrives after the catalog, its own confirmation saves Home.
+        vi.mocked(saveHomeSnapshot).mockClear();
+        harness.treeResponses.push(oldTree, newTree);
+        let releaseCatalog!: () => void;
+        let releaseTree!: () => void;
+        harness.blockedSessions = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+        harness.blockNextSessions = true;
+        harness.blockedTree = new Promise<void>((resolve) => { releaseTree = resolve; });
+        const lateCatalog = sync.refreshSessions();
+        await vi.waitFor(() => expect(harness.treeResponses.length).toBe(1));
+        harness.blockNextTree = true;
+        const newerTree = sync.refreshHerdTree();
+        await vi.waitFor(() => expect(harness.treeRequestStarted).toBe(true));
+        releaseCatalog();
+        await lateCatalog;
+        releaseTree();
+        await newerTree;
+        expect(vi.mocked(saveHomeSnapshot).mock.calls.at(-1)?.[1]).toEqual(newTree.workspaces);
+        expect(vi.mocked(saveHomeSnapshot).mock.calls.at(-1)?.[2]).toEqual([{ id: 'agent' }]);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it('names version, route and revoked pairing failures through the live link session', async () => {
+        harness.connection.machineId = 'machine-a';
+        harness.grant = { machineId: 'machine-a', relayUrl: 'ws://100.100.100.100', source: 'selfhost' } as never;
+        const health = vi.fn();
+        vi.stubGlobal('fetch', health);
+        const dial = async () => {
+            vi.useRealTimers();
+            await syncReconnect();
+            await vi.waitFor(() => expect(harness.socketStatus).toBe('connected'));
+            return harness.clients.at(-1)!;
+        };
+        // A busy host drops the link for a while; the phone keeps rechecking the
+        // relay but says only "connecting" for ten minutes, and explains after.
+        const busyHealth = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) }));
+        const offline = async () => {
+            const client = await dial();
+            const asked = health.mock.calls.length;
+            vi.useFakeTimers();
+            client.fire('offline');
+            vi.stubGlobal('fetch', busyHealth);
+            await vi.advanceTimersByTimeAsync(10 * 60_000 - 1);
+            expect(harness.socketError).toBeNull();
+            expect(busyHealth).toHaveBeenCalled();
+            expect(health).toHaveBeenCalledTimes(asked);
+            vi.stubGlobal('fetch', health);
+            await vi.advanceTimersByTimeAsync(1);
+        };
+
+        // A version skew on a merely offline link is a host coming back, not a
+        // permanent incompatibility: the phone keeps retrying instead of
+        // landing on the Update-needed card.
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
+        await offline();
+        await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach your computer"));
+        expect(harness.socketError).toContain('is not connected');
+        expect(harness.socketError).not.toContain('Update needed');
+        expect(harness.socketStatus).not.toBe('error');
+
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.1.9', linkProtocol: 1 }) });
+        await offline();
+        await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach your computer"));
+        expect(harness.socketError).toContain('is not connected');
+        expect(harness.socketError).not.toContain('Update needed');
+
+        // The same skew on a refused pairing genuinely explains the refusal.
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
+        (await dial()).fire('refused');
+        await vi.waitFor(() => expect(harness.socketError).toContain('computer runs muxr 0.2.1'));
+        expect(harness.socketStatus).toBe('error');
+
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.1.9', linkProtocol: 1 }) });
+        (await dial()).fire('refused');
+        await vi.waitFor(() => expect(harness.socketError).toContain('Update muxr on the computer'));
+
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, onlineMachines: 1 }) });
+        await offline();
+        await vi.waitFor(() => expect(harness.socketError).toContain('older muxr connection protocol'));
+
+        health.mockRejectedValueOnce(new Error('network unreachable'));
+        await offline();
+        await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach your computer"));
+        expect(harness.socketError).toContain('same private network');
+        expect(harness.socketError).not.toContain('Pair again:');
+
+        // The relay answering again while the host is still down replaces the
+        // earlier "can't reach" card at the next recheck, not only on reconnect.
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
+        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.waitFor(() => expect(harness.socketError).toContain('is not connected'));
+        expect(harness.socketError).not.toContain('same private network');
+
+        // A named computer on LAN asks about Wi-Fi; on Tailscale about Tailscale.
+        harness.grant = { machineId: 'machine-a', machineName: 'Umer', relayUrl: 'ws://192.168.1.20:8792', source: 'selfhost' } as never;
+        health.mockRejectedValueOnce(new Error('network unreachable'));
+        await offline();
+        await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach Umer"));
+        expect(harness.socketError).toContain('same Wi-Fi');
+
+        harness.grant = { machineId: 'machine-a', machineName: 'Umer', relayUrl: 'wss://machine.tailnet.ts.net', source: 'selfhost' } as never;
+        health.mockRejectedValueOnce(new Error('network unreachable'));
+        await offline();
+        await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach Umer"));
+        expect(harness.socketError).toContain('Tailscale');
+
+        (await dial()).fire('removed');
+        await vi.waitFor(() => expect(harness.socketError).toContain('Access removed:'));
+        expect(harness.socketStatus).toBe('error');
+    });
+
+    it('takes the folder setup saves after pairing on the pushed notice, without a resume', async () => {
+        harness.connection.mode = 'hosted';
+        harness.connection.machineId = 'machine-a';
+        harness.grant = {
+            machineId: 'machine-a', relayUrl: 'ws://relay.test',
+            deviceKey: { publicKey: 'device-public', secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+            machineBoxPublicKey: 'bWFjaGluZS1ib3gta2V5LWJhc2U2NC0zMmJ5dGVzMjMyMQ',
+        } as never;
+
+        // Paired before the folder card was answered: the catalog has no folder.
+        await syncReconnect();
+        await vi.waitFor(() => expect(harness.machineFolders.length).toBeGreaterThan(0));
+        expect(harness.machineFolders.at(-1)).toBeUndefined();
+
+        // Desktop setup answers the card; the host pushes the notice.
+        harness.machineStartFolder = '/mnt/work/project';
+        for (const listener of harness.frameListeners) listener({ type: 'machines.changed' });
+
+        // The phone refetches the catalog on its own: no resume, no reconnect.
+        await vi.waitFor(() => expect(harness.machineFolders.at(-1)).toBe('/mnt/work/project'));
+    });
+
+    it('merges inbound session.updated frames into one store write per 250 ms window', async () => {
+        harness.connection.mode = 'hosted';
+        harness.connection.machineId = 'machine-a';
+        harness.grant = {
+            machineId: 'machine-a', relayUrl: 'ws://relay.test',
+            deviceKey: { publicKey: 'device-public', secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+            machineBoxPublicKey: 'bWFjaGluZS1ib3gta2V5LWJhc2U2NC0zMmJ5dGVzMjMyMQ',
+        } as never;
+        harness.eventListeners.length = 0;
+        for (const id of Object.keys(harness.sessions)) delete harness.sessions[id];
+
+        await syncReconnect();
+        await vi.waitFor(() => expect(harness.eventListeners.length).toBeGreaterThan(0));
+
+        for (let index = 0; index < 30; index += 1) {
+            harness.sessions[`session-${index}`] = { id: `session-${index}` };
+        }
+        const applySessions = storage.getState().applySessions as unknown as ReturnType<typeof vi.fn>;
+        applySessions.mockClear();
+
+        vi.useFakeTimers();
+        const emit = (sessionId: string, event: { type: string; session?: { id: string; taskTitle?: string } }) => {
+            for (const listener of harness.eventListeners) listener(sessionId, event);
+        };
+
+        // Thirty sessions each publishing at once is the burst that used to cost
+        // one store write and one render per frame.
+        for (let index = 0; index < 30; index += 1) {
+            const id = `session-${index}`;
+            emit(id, { type: 'session.updated', session: { id, taskTitle: `task-${index}` } });
+            if (index === 2) emit('session-0', { type: 'session.removed' });
+            vi.advanceTimersByTime(1000 / 30);
+        }
+        vi.advanceTimersByTime(250);
+
+        expect(applySessions.mock.calls.length).toBeLessThanOrEqual(5);
+        expect(applySessions).toHaveBeenCalled();
+        expect(storage.getState().sessions['session-0']).toBeUndefined();
+        for (let index = 1; index < 30; index += 1) {
+            expect(storage.getState().sessions[`session-${index}`]?.id).toBe(`session-${index}`);
+        }
+    });
+});
