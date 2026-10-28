@@ -14,10 +14,11 @@ only when it stops needing you, never because its card was seen.
 
 ## Sub-features
 
-- The Needs you list has exactly as many rows as the Spaces header's needs-you
-  number and the badge, even after the first Live card has been on screen for
-  seconds; answering one agent drops the list, the card, the count and the
-  badge together. A failure whose agent left the tree (could not start) is not
+- After Home's 1.5-second section dwell, the Needs you list has as many rows
+  as the Spaces header's needs-you number and the badge. A needs-you agent is
+  not duplicated in Live or Ready. Answering updates the count and badge
+  immediately; its sole Home row moves once the new section settles (see
+  `home-agent-relaunch.md`). A failure whose agent left the tree (could not start) is not
   in that list: it sits in its own `Failed` tier until opened.
 
 - The Spaces header's needs-you number equals the favicon state (`favicon.svg`

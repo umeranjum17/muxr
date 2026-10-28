@@ -199,7 +199,11 @@ if (!existsSync(distIndex)) {
     // 1,789,458 B in CI, 3,549 B over the same export with the sentences out.
     // The Computer row's eager code adds 2,247 B over that main export,
     // measuring 1,791,705 B on the merge; keep about 1 kB of headroom.
-    const USABLE_GZIP_CEILING = 1792800;
+    // Home's exclusive agent rows, 1.5s dwell and retained preview measure
+    // 1,793,987 B here: 1,197 B over the same production export with its runtime
+    // fix out (1,792,790 B). The first Home snapshot needs this coordination;
+    // keep about 1 kB of headroom.
+    const USABLE_GZIP_CEILING = 1795000;
     check(`dist usable gzip ratchet (target 2,097,152 B, pinned at head)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk carries what Metro shares between two lazy
     // chunks; anything here loads before the first paint. After the terminal,
