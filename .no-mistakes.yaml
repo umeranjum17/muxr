@@ -1,31 +1,28 @@
 commands:
-  prepare: node scripts/diagnostics/application/prepareManagedValidation.mjs
-  test: yarn vitest run apps/mobile/sources/catalog/application/sessionSync.integration.spec.ts -t 'public-kit Pi consumer reconnect baseline'
+  prepare: node scripts/diagnostics/application/prepareManagedValidation.mjs && yarn build
+  test: yarn vitest run --root .
 test:
   instructions: |
-    Run only the tests for the parts this change touches, plus the one user
-    journey below. CI runs the full suite (`yarn run check`) on every pull
-    request; do not run it here as well.
+    Run commands.prepare, then commands.test once. This is the same retained
+    Vitest sweep that scripts/diagnostics/application/runSuite.mjs runs in CI;
+    do not run separate architecture or pairing copies of tests in that sweep.
+    The public-kit Pi consumer reconnect baseline is included unchanged.
+    Legacy tests whose deletion the constraints floor refuses remain in this
+    partial prune; do not silently exclude them or weaken the guard.
 
-    1. Changed parts. List them with `git diff --name-only origin/main...HEAD`.
-       - Source files: `yarn vitest related --run <changed source files>` runs
-         every vitest flow that imports them.
-       - A changed check script or self-check that
-         scripts/diagnostics/application/runSuite.mjs lists: run that one entry
-         as it is listed there (for example
-         `node scripts/diagnostics/application/checkHostTakeover.mjs`).
-       - A docs/evidence-only change (the rule in
-         scripts/diagnostics/application/scopeDocsOnly.mjs) has no changed-part
-         tests.
-    2. The one journey: the configured `commands.test` baseline
-       (sessionSync.integration.spec.ts, 'public-kit Pi consumer reconnect
-       baseline'). It runs a real public-kit encrypted link and the actual
-       mobile LinkFirstClient, catalog sync/store, activity acknowledgements
-       and TerminalRoute against explicit protocol fixtures. Native storage
-       and the terminal view are replaced at their platform boundaries. Run
-       `commands.prepare` first; do not substitute true, skipped
-       scripts/patches, injected dependencies or shared-cache symlinks. This
-       baseline is not weakened or replaced.
+    For changed standalone check scripts or self-checks listed by runSuite.mjs,
+    run that entry as listed there. CI runs the full suite (`yarn run check`)
+    on every pull request; do not repeat the full suite here as well.
+    A docs/evidence-only change (the scopeDocsOnly.mjs rule) needs no additional
+    changed-part tests.
+
+    The consumer reconnect journey runs a real public-kit encrypted link and
+    the actual mobile LinkFirstClient, catalog sync/store, activity
+    acknowledgements and TerminalRoute against explicit protocol fixtures.
+    Native storage and the terminal view are replaced at platform boundaries.
+    Do not substitute true, skipped scripts/patches, injected dependencies or
+    shared-cache symlinks. This baseline is not weakened or replaced, and
+    fixture tests do not replace native rendering or live backend validation.
 
     Keep private fixture keys, state, logs and dependencies ignored/outside
     commits. Any live Herdr run requires the allocated lab slot and

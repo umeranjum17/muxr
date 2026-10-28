@@ -8,6 +8,9 @@ import { createConnection } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_PEER_CAPABILITIES,
+    PEER_MUTATION_CLOCK_SKEW_MS,
+    PEER_MUTATION_MAX_TTL_MS,
+    PEER_MUTATION_TTL_MS,
     type ClientRequest,
     type PeerClientRequest,
     type PeerRequestParams,
@@ -850,9 +853,10 @@ describe('host peer collaboration flow', () => {
         const relay = await startRelay({ port: 0, config: { dataDir: join(root, 'relay') } });
         const sourceKeys = machineCrypto();
         const targetKeys = machineCrypto();
+        const now = Date.now();
         const source = new PeerRuntime({ dataDir: join(root, 'source-peer'), machineId: 'source-live',
             machineName: 'Source', platform: 'Linux', relayUrl: `ws://127.0.0.1:${relay.port}`,
-            crypto: sourceKeys.adapter, authority: new FakeAuthority() });
+            crypto: sourceKeys.adapter, authority: new FakeAuthority(), now: () => now });
         const target = new PeerRuntime({ dataDir: join(root, 'target-peer'), machineId: 'target-live',
             machineName: 'Target', platform: 'Linux', relayUrl: `ws://127.0.0.1:${relay.port}`,
             crypto: targetKeys.adapter, authority: new LinkPeerAuthority('selfhost', 'target-live') });
@@ -910,6 +914,19 @@ describe('host peer collaboration flow', () => {
             expect(attempts).toBeGreaterThanOrEqual(2);
             expect(diagnostics).toContainEqual(expect.objectContaining({ phase: 'link-connect', outcome: 'ok' }));
             expect(diagnostics).toContainEqual(expect.objectContaining({ phase: 'liveness-proof', outcome: 'ok' }));
+
+            // A slightly fast producer can prepare a real signed relationship,
+            // including the old exact-limit lifetime; excess replay time cannot.
+            const binding = { targetMachineId: 'target-live', targetMachineSigningPublicKey: machine.signingPublicKey };
+            for (const lifetime of [PEER_MUTATION_TTL_MS, PEER_MUTATION_MAX_TTL_MS]) {
+                await expect(call(source, 'peer.prepare', { ...binding,
+                    mutation: { operationId: `skew-safe-${lifetime}`, notValidAfter: now + 1_000 + lifetime },
+                })).resolves.toMatchObject({ preparationId: expect.any(String), descriptor: expect.any(String) });
+            }
+            await expect(call(source, 'peer.prepare', { ...binding,
+                mutation: { operationId: 'beyond-skew-allowance',
+                    notValidAfter: now + PEER_MUTATION_MAX_TTL_MS + PEER_MUTATION_CLOCK_SKEW_MS + 1 },
+            })).rejects.toMatchObject({ code: 'peer-mutation-invalid' });
         } finally {
             client?.close();
             endpoint?.close();

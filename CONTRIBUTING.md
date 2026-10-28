@@ -32,9 +32,9 @@ The unsupported local relay fixture lives in
 ## Verify before you push
 
 For managed validation, [.no-mistakes.yaml](.no-mistakes.yaml) owns the
-preparation command, focused consumer baseline and its qualification limits.
-Run its `commands.prepare` before `commands.test`; the fixture baseline does
-not replace the pull-request suite below or live backend validation.
+preparation command and the same retained Vitest sweep used by CI, including
+the public-kit consumer reconnect baseline. Run its `commands.prepare` before
+`commands.test`; protocol fixtures do not replace live backend validation.
 
 The automatic pull-request lane, and the full suite behind it:
 

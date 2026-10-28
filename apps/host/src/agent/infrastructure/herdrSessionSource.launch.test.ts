@@ -1419,12 +1419,32 @@ describe('OpenCode account isolation', () => {
 
             // A model the user set stands; the grant still joins it.
             const userConfig = join(env.HOME!, '.config', 'opencode', 'opencode.json');
+            expect(existsSync(dirname(userConfig))).toBe(false);
             mkdirSync(dirname(userConfig), { recursive: true });
             writeFileSync(userConfig, '{"model": "opencode-go/glm-flash-5.3"}');
             expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launch.set, planUnset: launch.unset })).toBe(true);
             expect(JSON.parse(tabEnvOf(2).OPENCODE_CONFIG_CONTENT!)).toEqual({ permission: { external_directory: { [attDir]: 'allow' } } });
             // No launch passes `--model`: OpenCode 2.x has no such flag and exits on it.
             for (const agent of herdr.agents) expect(agent).not.toHaveProperty('model');
+
+            // The same launch carries the user's own external-directory rule,
+            // not unrelated edit rules from either global or project config.
+            writeFileSync(userConfig, JSON.stringify({ model: 'x/y', permission: { edit: 'ask', external_directory: 'deny' } }));
+            writeFileSync(join(dir, 'repo', 'opencode.json'), JSON.stringify({ permission: { edit: { 'src/**': 'allow' } } }));
+            expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launch.set, planUnset: launch.unset })).toBe(true);
+            expect(JSON.parse(tabEnvOf(3).OPENCODE_CONFIG_CONTENT!)).toEqual({
+                permission: { external_directory: { '*': 'deny', [attDir]: 'allow' } },
+            });
+
+            // Existing inline config owns its contents; an unread global file
+            // must likewise not be silently replaced by our attachment rule.
+            expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode',
+                planEnv: { ...launch.set, OPENCODE_CONFIG_CONTENT: '{}' }, planUnset: launch.unset })).toBe(true);
+            expect(tabEnvOf(4).OPENCODE_CONFIG_CONTENT).toBe('{}');
+            rmSync(userConfig);
+            writeFileSync(join(dirname(userConfig), 'opencode.jsonc'), '{ // jsonc\n "permission": { "edit": "ask" } }');
+            expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launch.set, planUnset: launch.unset })).toBe(true);
+            expect(tabEnvOf(5)).not.toHaveProperty('OPENCODE_CONFIG_CONTENT');
         } finally {
             vi.unstubAllGlobals();
             for (const [key, value] of Object.entries(saved)) {

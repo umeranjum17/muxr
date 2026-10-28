@@ -11,6 +11,8 @@ vi.mock('@/catalog/store', async () => {
 
 import { openTerminal, type TerminalBottomState } from './OpenTerminal';
 import { storage } from '@/catalog/store';
+import { DEFAULT_FONT_INDEX, FONT_STEPS } from '../domain/fontSteps';
+import { MIN_TERMINAL_ROWS, terminalSurfaceHeight } from '../domain/terminalFloor';
 
 /** The phone-side pane really uses only link streams across attach, input and reconnect. */
 describe('terminal link cutover', () => {
@@ -45,7 +47,13 @@ describe('terminal link cutover', () => {
         });
         // A restored terminal route can open before its machine link is ready.
         mocks.openTerminalLink.mockRejectedValueOnce(new Error('link is not ready'));
-        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 80, rows: 24 } });
+        // The first attach uses the screen's real floor calculation even when
+        // the keyboard already leaves room for only seven drawn rows.
+        const drawnLine = FONT_STEPS[DEFAULT_FONT_INDEX]! * 1.2;
+        const surface = terminalSurfaceHeight({ boxHeight: 7 * drawnLine, cols: 80, fontIndex: DEFAULT_FONT_INDEX });
+        const rows = Math.floor(surface / drawnLine);
+        expect(rows).toBeGreaterThanOrEqual(MIN_TERMINAL_ROWS);
+        const channel = await openTerminal({ agentRoute: 'session', size: { cols: 80, rows } });
         const states: string[] = [];
         channel.onState((state) => states.push(state));
         expect(states).toEqual(['connecting']);
@@ -57,6 +65,7 @@ describe('terminal link cutover', () => {
         expect(mocks.openTerminalLink.mock.calls[0]![0].takeover).toBe(true);
         // The retry is still the person's open, so it still takes the pane over.
         expect(mocks.openTerminalLink.mock.calls[1]![0].takeover).toBe(true);
+        expect(mocks.openTerminalLink.mock.calls[1]![0].rows).toBe(rows);
         channel.sendText('hello');
         await vi.waitFor(() => expect(streams[0]!.write).toHaveBeenCalledWith(JSON.stringify({ type: 'terminal.input', text: 'hello' })));
         channel.scroll(30, { column: 10, row: 6 });
