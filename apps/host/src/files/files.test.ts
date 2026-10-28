@@ -38,7 +38,7 @@ const requests = createRequestDispatcher({ source: createFakeSessionSource(),
     domain: createAgentWatchStores({ dataDir: join(scratch, 'host') }), machineId: 'folder-chooser', hostVersion: 'test' });
 
 async function listDir(path: string | undefined): Promise<RequestResult<'machine.listDir'>> {
-    const result = await requests.dispatch({ type: 'machine.listDir', requestId: 'choose-folder', params: { path } });
+    const result = await requests.dispatch({ type: 'machine.listDir', requestId: 'choose-folder', params: path === undefined ? {} : { path } });
     if (!result.ok) throw new Error(result.error);
     return result.data as RequestResult<'machine.listDir'>;
 }
