@@ -14,6 +14,7 @@ import { agentLabels, agentWhoStateLine } from '../../herd/domain/agentPresentat
 import { terminalPaneCanSend } from '../../terminal/domain/promptAvailability';
 import { terminalPaneStatus } from '../../terminal/domain/terminalAgentStatus';
 import { unseenActivityRows } from '../../herd/domain/recentActivity';
+import { EMPTY_HOME_TERMINAL_SECTIONS, homeTerminalSections } from '../../herd/application/homeTerminalSections';
 import { loadLocalSettings, loadSpacePins, loadSpacesLayouts, migrateSpacePins } from './persistence';
 
 const request = vi.fn();
@@ -912,6 +913,47 @@ describe('session sync flow', () => {
 
         const blocked = stage('blocked');
         expect(HERD_STATUS_LABELS[blocked[0].agentStatus]).toBe('Needs you');
+        // Home must choose one owner, not draw the same agent in the strip and the tier.
+        const blockedHome = homeTerminalSections(EMPTY_HOME_TERMINAL_SECTIONS,
+            selectLiveTerminalCards([session], blocked), canonicalTree('blocked'), [], new Set(), 0);
+        expect(blockedHome.entries.map((entry) => [entry.section, entry.card?.id])).toEqual([['needs-you', session.id]]);
+        // Relaunch: the old route ends, its pane disappears, then the same named
+        // agent returns in a new pane/route with a changed title. Old unseen done
+        // must not compete, and brief working/blocked flips must not move it.
+        const oldDone = { eventId: 'old-done', sessionId: session.id, agentName: 'Maria', agentKind: 'pi',
+            taskTitle: 'Stabilizing realtime voice', state: 'done', reasonCode: 'agent-done', at: new Date(100).toISOString() } as LifecycleEvent;
+        const relaunchGap = homeTerminalSections(blockedHome, [], [], [oldDone], new Set(), 100);
+        expect(relaunchGap.entries).toHaveLength(1);
+        expect(relaunchGap.entries[0].section).toBe('needs-you');
+        const departed = homeTerminalSections(relaunchGap, [], [], [oldDone], new Set(), 1_600);
+        expect(departed.entries.map((entry) => entry.section)).toEqual(['ready']);
+        expect(departed.settlesAt).toBeUndefined();
+        const relaunchedTree = canonicalTree('working');
+        const replacement = relaunchedTree[0].tabs[0].panes[0];
+        replacement.sessionId = 'replacement-route';
+        replacement.paneId = 'replacement-pane';
+        replacement.taskTitle = 'Finish realtime voice';
+        const project = (before: typeof relaunchGap, status: AgentLifecycle, now: number, events = [oldDone]) => {
+            replacement.agentStatus = status;
+            return homeTerminalSections(before, selectLiveTerminalCards([], herdPanes([], relaunchedTree)),
+                relaunchedTree, events, new Set(), now);
+        };
+        // The request subscription can outlive the old tree pane for a tick.
+        // That request-only row must keep the agent's identity for its replacement.
+        const requestOnlyGap = homeTerminalSections(blockedHome, [], [], [], new Set(), 100, [blockedHome.entries[0].activity!]);
+        const starting = project(requestOnlyGap, 'working', 200);
+        expect(starting.entries).toHaveLength(1);
+        expect(starting.entries[0]).toMatchObject({ key: blockedHome.entries[0].key, section: 'needs-you', card: { id: 'replacement-route' } });
+        const flap = project(starting, 'blocked', 800);
+        const pending = project(flap, 'working', 900);
+        expect(project(pending, 'working', 2_399).entries[0].section).toBe('needs-you');
+        const stable = project(pending, 'working', 2_400);
+        expect(stable.entries.map((entry) => [entry.section, entry.card?.id])).toEqual([['live', 'replacement-route']]);
+        expect(stable.entries[0].card?.taskTitle).toBe('Finish realtime voice');
+        const newDone = { ...oldDone, sessionId: 'replacement-route', eventId: 'new-done', at: new Date(2_500).toISOString() };
+        const finishing = project(stable, 'done', 2_500, [newDone, oldDone]);
+        const finished = project(finishing, 'done', 4_000, [newDone, oldDone]);
+        expect(finished.entries.map((entry) => [entry.section, entry.activity?.sessionId])).toEqual([['ready', 'replacement-route']]);
         const blockedNotification = herdNotificationState(blocked, 'connected');
         expect(blockedNotification).toMatchObject({ mode: 'attention', count: 1, eventKey: `attention:${encodeURIComponent(session.id)}` });
 
