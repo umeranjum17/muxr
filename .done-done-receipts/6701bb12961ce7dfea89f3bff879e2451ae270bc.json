@@ -1,0 +1,100 @@
+{
+  "schema": 2,
+  "repo": "pockit",
+  "head": "6701bb12961ce7dfea89f3bff879e2451ae270bc",
+  "tree": "fc8998aa445e9cbfc073fa740d66673b69364fa2",
+  "claim": "the 0.2.16 release app on the phone types a command at the agent and prints its output, scrolls its history back and forward, opens Usage and comes back to the agent, and its run passed every step with one host alive",
+  "result": "pass",
+  "at": "2026-10-28T16:54:34.478Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261028T163955Z-6701bb12-7b0bf5/04-typed-command-and-output.png",
+      "sha256": "dbacce212daa36e87a44f7fa1a2f68553b612c6228a25c3dbda15138451b10e9"
+    },
+    {
+      "path": "<evidence root>/20261028T163955Z-6701bb12-7b0bf5/05-scrolled-back.png",
+      "sha256": "592f6190a353ee2bffd74dea865ab7a3ef54974f952bcd5248c2d4f052277c54"
+    },
+    {
+      "path": "<evidence root>/20261028T163955Z-6701bb12-7b0bf5/07-back-from-usage.png",
+      "sha256": "4bba2c9a05e852704c7d9963311cf9221f715b84aaefc2541debd4c20a79cfb3"
+    },
+    {
+      "path": "<evidence root>/20261028T163955Z-6701bb12-7b0bf5/release-build.json",
+      "sha256": "4149a11a5435d0321524919c5c8672550e1efac2bfd1cdbdc09f331f037f48d1"
+    },
+    {
+      "path": "<evidence root>/20261028T163955Z-6701bb12-7b0bf5/journey.log",
+      "sha256": "0c85e77f290b206790bd5eef3fe7dea85a9de03be09509ac7f1b13b99ac6de1c"
+    },
+    {
+      "path": "<evidence root>/20261028T163955Z-6701bb12-7b0bf5/phone-attach.mp4",
+      "sha256": "f27f302b70958cdd92a73e1862b79cac0a4a1331e9fade4458c120acfa3277c1"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261028T163955Z-6701bb12-7b0bf5",
+      "commit": "6701bb12961ce7dfea89f3bff879e2451ae270bc",
+      "journey": "phone-attach",
+      "command": "node scripts/diagnostics/application/checkPhoneAttach.mjs",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.2.16"
+        },
+        "start": "the release app already installed on the phone, restarted, with a lab computer running two agent panes that the phone is not yet paired to",
+        "steps": [
+          "pair the phone to the lab computer",
+          "open an agent and time its first attach, from the tap to the host's new terminal stream",
+          "close agent panes and attach again through pane churn",
+          "type a command at the agent",
+          "scroll its history back and forward fast",
+          "open Usage and come back",
+          "count the hosts alive"
+        ],
+        "result": "the first attach took 504 ms from the tap to the host's new terminal stream, the phone attached after every round of pane churn, the typed command printed its output on a clean screen, the history scrolled back and forward, Usage opened and closed, and one host stayed alive"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261028T163955Z-6701bb12-7b0bf5/04-typed-command-and-output.png",
+        "sha256": "dbacce212daa36e87a44f7fa1a2f68553b612c6228a25c3dbda15138451b10e9",
+        "verdict": "pass",
+        "seen": "The outcome says the app types a command at the agent and prints its output. The screenshot shows the terminal with the lines \"lab agent ready\", \"echo lab-typed-76010\", and \"lab agent got: echo lab-typed-76010\", and the prompt box is empty below them. The typed command and the agent's echoed output are both visible. The screenshot does not show scrolling, Usage, or host status, but the outcome's core claim matches what is visible, and no error or contradiction appears."
+      },
+      {
+        "path": "<evidence root>/20261028T163955Z-6701bb12-7b0bf5/05-scrolled-back.png",
+        "sha256": "592f6190a353ee2bffd74dea865ab7a3ef54974f952bcd5248c2d4f052277c54",
+        "verdict": "pass",
+        "seen": "The screenshot shows the Fix the login terminal scrolled back through history, with the lines \"row 298 of the lab agent's history\" through \"row 332 of the lab agent's history\" visible and a \"Latest\" button at the bottom, which fits the outcome's claim that history was scrolled back. It does not show the typed command, the Usage screen, or the return to the agent, so it only partly covers the outcome."
+      },
+      {
+        "path": "<evidence root>/20261028T163955Z-6701bb12-7b0bf5/07-back-from-usage.png",
+        "sha256": "4bba2c9a05e852704c7d9963311cf9221f715b84aaefc2541debd4c20a79cfb3",
+        "verdict": "pass",
+        "seen": "The bottom of the screen shows the agent's output with the header \"Fix the login ...\" and status \"Done\", and the last visible line is \"row 400 of the lab agent's history\", which fits the claimed scrollback of agent history. The capture is named back-from-usage, matching a return to the agent. The typed command and the Usage screen itself are not visible, so this is strong but not complete evidence."
+      },
+      {
+        "path": "<evidence root>/20261028T163955Z-6701bb12-7b0bf5/release-build.json",
+        "sha256": "4149a11a5435d0321524919c5c8672550e1efac2bfd1cdbdc09f331f037f48d1",
+        "verdict": "pass"
+      },
+      {
+        "path": "<evidence root>/20261028T163955Z-6701bb12-7b0bf5/journey.log",
+        "sha256": "0c85e77f290b206790bd5eef3fe7dea85a9de03be09509ac7f1b13b99ac6de1c",
+        "verdict": "pass",
+        "seen": "I read all 40 log entries. The outcome names one run, not several separately captured parts. It matches on: the installed app is versionName=0.2.16 (APK b3657e07...); the agent attached on each of the 18 churn rounds (for example 'round 15: attached in 12.0s' and 'every attach landed through 18 rounds'); 'typed \"echo lab-typed-76010\" and a pane printed it'; 'scrolled back into history in 2830 ms' and 'scrolled forward to the newest output in 3110 ms'; 'Usage open' followed by 'captured 07-back-from-usage'; 'hosts alive: 1'; and 'verdict: pass'. No entry contradicts the outcome. The lab-host name note and the video frame drop are operational details, not failures."
+      }
+    ]
+  }
+}

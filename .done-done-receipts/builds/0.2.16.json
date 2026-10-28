@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "journey": "phone-attach",
+  "version": "0.2.16",
+  "build": {
+    "apk": "b3657e0714d056ad79a39b58e2fd5d689de21d8526d87f4dd6f38a6350eab8a4",
+    "package": "ac3c1ea3dde31b637d9fc39a98c072346d76040143e3edc811a6f8d3b264e1f7"
+  },
+  "result": "pass",
+  "steps": {
+    "pair": "pass",
+    "attach": "pass",
+    "send": "pass",
+    "scroll": "pass",
+    "usage": "pass",
+    "one-host": "pass"
+  },
+  "hosts": 1,
+  "timings": {
+    "attachMs": 504,
+    "scrollMs": 3110
+  }
+}
