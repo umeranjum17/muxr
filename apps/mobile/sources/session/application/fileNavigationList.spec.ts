@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -81,6 +81,16 @@ describe('file and diff navigation', () => {
             expect(probe(otherFile, session)).toBe(join(root, 'other', 'repo', 'src'));
             expect(probe(join(root, 'other', 'repo', 'gone', 'file.ts'), session)).toBe(join(root, 'other', 'repo'));
             expect(gitDirectorySearchPaths('orphan.ts', session)).toEqual([session]);
+
+            // A file chosen in Files reaches the real shell probe, not just a
+            // string formatter. Neither quotes nor a substitution may execute.
+            const marker = join(session, 'should-not-run');
+            const hostileFolder = join(root, `it's "$(touch should-not-run)"`);
+            mkdirSync(hostileFolder);
+            const hostileFile = join(hostileFolder, 'notes.md');
+            writeFileSync(hostileFile, 'keep this file');
+            expect(probe(hostileFile, session)).toBe(hostileFolder);
+            expect(existsSync(marker)).toBe(false);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
@@ -156,5 +166,5 @@ describe('file and diff navigation', () => {
 });
 
 function probe(filePath: string, sessionPath: string): string {
-    return execFileSync('/bin/bash', ['-lc', gitDirectoryProbeCommand(filePath, sessionPath)], { encoding: 'utf8' });
+    return execFileSync('/bin/bash', ['-lc', gitDirectoryProbeCommand(filePath, sessionPath)], { encoding: 'utf8', cwd: sessionPath });
 }

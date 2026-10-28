@@ -2,9 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { createHerdrSessionSource } from './herdrSessionSource.js';
-import { createLifecycleStore } from './lifecycleStore.js';
+import { describe, expect, it, vi } from 'vitest';
+import { createHerdrSessionSource } from '../../apps/host/src/agent/infrastructure/herdrSessionSource.js';
+import { createLifecycleStore } from '../../apps/host/src/agent/infrastructure/lifecycleStore.js';
+import { agentHandle, agentLabels, renamedTo } from '@/herd/domain/agentPresentation';
 
 /**
  * Manual rename, through the real session source against a Herdr socket that
@@ -19,6 +20,7 @@ function fakeHerdr(dir: string) {
         tab: '1',
         paneLabel: undefined as string | undefined,
         agentName: 'alpha',
+        paneCwd: join(dir, 'project') + '///',
     };
     const calls: string[] = [];
     const server = createServer((socket: Socket) => {
@@ -51,7 +53,7 @@ function fakeHerdr(dir: string) {
                                 tabs: [{ tab_id: 'w1:t1', workspace_id: 'w1', label: state.tab }],
                                 panes: [
                                     { pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', cwd: dir },
-                                    { pane_id: 'w1:p2', tab_id: 'w1:t1', workspace_id: 'w1', cwd: dir, label: state.paneLabel },
+                                    { pane_id: 'w1:p2', tab_id: 'w1:t1', workspace_id: 'w1', cwd: state.paneCwd, label: state.paneLabel },
                                 ],
                                 agents: [{
                                     pane_id: 'w1:p1',
@@ -90,7 +92,7 @@ function fakeHerdr(dir: string) {
     });
     const socketPath = join(dir, 'herdr.sock');
     server.listen(socketPath);
-    return { socketPath, calls, close: () => server.close() };
+    return { socketPath, calls, state, close: () => server.close() };
 }
 
 describe('Rename: agents, panes, tabs and workspaces are named in Herdr', () => {
@@ -116,10 +118,29 @@ describe('Rename: agents, panes, tabs and workspaces are named in Herdr', () => 
             };
         };
         try {
+            // An unnamed pane arrives from Herdr before the person names it.
+            // Read its phone label from the real host tree, not helper fixtures.
+            const unnamed = async () => (await source.herdrTree()).workspaces[0]!.tabs[0]!.panes
+                .find((pane) => pane.paneId === 'w1:p2')!;
+            expect(agentLabels(await unnamed())).toMatchObject({ title: 'project', agentName: 'project', shell: true });
+            herdr.state.paneCwd = '/';
+            await vi.waitFor(async () => {
+                expect(agentLabels(await unnamed())).toMatchObject({ title: 'Shell', agentName: 'Agent', shell: true });
+            });
             await source.rename('workspace', 'w1', '  Auth   rework ');
             await source.rename('tab', 'w1:t1', 'Review');
             await source.rename('pane', 'w1:p2', 'Dev server');
-            await source.rename('agent', 'w1:p1', 'auth-fixer');
+            // The phone's rename sheet feeds the same source the host serves.
+            expect(agentHandle('Ünïcode_Bot 2')).toBe('ncode_bot-2');
+            await source.rename('agent', 'w1:p1', agentHandle('Auth Fixer!'));
+            const renamedCalls = herdr.calls.length;
+            for (const typed of [null, '   ', ' Review ']) {
+                const name = renamedTo(typed, 'Review');
+                expect(name).toBeNull();
+                if (name !== null) await source.rename('tab', 'w1:t1', name);
+            }
+            expect(herdr.calls).toHaveLength(renamedCalls);
+            expect(renamedTo(' Dev server ', 'Review')).toBe('Dev server');
             expect(herdr.calls).toEqual(['workspace.rename', 'tab.rename', 'pane.rename', 'agent.rename']);
             expect(await tree()).toEqual({ workspace: 'Auth rework', tab: 'Review', agent: 'auth-fixer', pane: 'Dev server' });
             // Still the one idle since before, now under its new name.
