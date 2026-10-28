@@ -921,7 +921,10 @@ describe('host peer collaboration flow', () => {
             for (const lifetime of [PEER_MUTATION_TTL_MS, PEER_MUTATION_MAX_TTL_MS]) {
                 await expect(call(source, 'peer.prepare', { ...binding,
                     mutation: { operationId: `skew-safe-${lifetime}`, notValidAfter: now + 1_000 + lifetime },
-                })).resolves.toMatchObject({ preparationId: expect.any(String), descriptor: expect.any(String) });
+                })).resolves.toMatchObject({ preparationId: expect.any(String), descriptor: {
+                    claims: { targetMachineId: 'target-live', targetMachineSigningPublicKey: machine.signingPublicKey },
+                    signature: expect.any(String),
+                } });
             }
             await expect(call(source, 'peer.prepare', { ...binding,
                 mutation: { operationId: 'beyond-skew-allowance',

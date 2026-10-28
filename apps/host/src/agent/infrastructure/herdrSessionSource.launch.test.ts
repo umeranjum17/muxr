@@ -1444,7 +1444,7 @@ describe('OpenCode account isolation', () => {
             rmSync(userConfig);
             writeFileSync(join(dirname(userConfig), 'opencode.jsonc'), '{ // jsonc\n "permission": { "edit": "ask" } }');
             expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode', planEnv: launch.set, planUnset: launch.unset })).toBe(true);
-            expect(tabEnvOf(5)).not.toHaveProperty('OPENCODE_CONFIG_CONTENT');
+            expect(JSON.parse(tabEnvOf(5).OPENCODE_CONFIG_CONTENT!)).toEqual({ model: 'opencode-go/muse-spark-1.3-contributor' });
         } finally {
             vi.unstubAllGlobals();
             for (const [key, value] of Object.entries(saved)) {
@@ -1498,6 +1498,14 @@ describe('OpenCode account isolation', () => {
             expect(allow(1)).toBe('allow'); // pane.split (phone New pane / split sheet)
             expect(allow(2)).toBe('allow'); // tab.create
             expect(allow(3)).toBeUndefined(); // a claude pane carries no OpenCode config
+
+            // Unlike a Go account, an ambient pane has no model to inject:
+            // unreadable user rules leave its entire config content alone.
+            const userConfig = join(dir, 'home', '.config', 'opencode', 'opencode.jsonc');
+            mkdirSync(dirname(userConfig), { recursive: true });
+            writeFileSync(userConfig, '{ // jsonc\n "permission": { "edit": "ask" } }');
+            expect('info' in await source.start({ cwd: join(dir, 'repo'), kind: 'opencode' })).toBe(true);
+            expect((herdr.tabs[4] as { env?: Record<string, string> }).env ?? {}).not.toHaveProperty('OPENCODE_CONFIG_CONTENT');
         } finally {
             for (const [name, value] of Object.entries(saved)) {
                 if (value === undefined) delete process.env[name];

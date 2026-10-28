@@ -1,5 +1,5 @@
 commands:
-  prepare: node scripts/diagnostics/application/prepareManagedValidation.mjs && yarn build
+  prepare: node scripts/diagnostics/application/prepareManagedValidation.mjs && yarn typecheck && yarn build
   test: yarn vitest run --root .
 test:
   instructions: |
