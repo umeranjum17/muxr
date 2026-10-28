@@ -47,19 +47,17 @@ const checks = [
     ['unit: service commands stay in their MUXR_HOME scope', 'node', ['scripts/setup/serviceScope.selfcheck.mjs']],
     ['security: development Herdr socket selection', 'node', ['scripts/diagnostics/application/checkDevHerdrSocket.mjs']],
     ['unit: setup wizard onboarding', 'node', ['--experimental-test-module-mocks', 'scripts/setup/presentation/setupWizard.selfcheck.mjs']],
-    ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
-    // The load-test flows carry their own generous per-test budgets; the step
-    // kill must stay well above them or it SIGKILLs a healthy run first.
-    ['unit: all vitest flows', 'npx', ['vitest', 'run', '--root', '.'], undefined, 300000],
+    // One root sweep owns the retained journeys and architecture policies.
+    // The deletion guard deliberately retains some legacy coverage.
+    // The load flows carry generous budgets; do not SIGKILL a healthy run.
+    ['tests: retained journeys and deletion-guard floor', 'npx', ['vitest', 'run', '--root', '.'], undefined, 300000],
     // The perf/lib tests are node:test, not vitest (perf/** is excluded from
     // the sweep above), so only this step runs them. The warm-probe flow's
     // served-bytes leg drives the host's Files product code, so it runs with
     // no add-on checkout.
     ['unit: perf gate (gesture metrics, warm-probe gates, node --test)', 'node', ['--test', 'perf/lib/gestureMetrics.test.mjs', 'perf/lib/surfaceProbe.test.mjs']],
-    ['policy: mobile architecture', 'npx', ['vitest', 'run', 'apps/mobile/sources/architecture.spec.ts', '--config', 'apps/mobile/vitest.config.ts']],
     ['policy: iOS project version matches app.config.js', 'node', ['scripts/diagnostics/application/checkIosVersion.mjs']],
     ['policy: store/direct mobile commerce builds', 'node', ['scripts/diagnostics/application/checkMobileCommerceBuilds.mjs']],
-    ['e2e: phone/browser pairing and shared relay over link', 'npx', ['vitest', 'run', 'tests/cross-side/linkPairing.integration.test.ts', 'tests/cross-side/linkSharedRelay.integration.test.ts']],
     ['e2e: multi-provider usage aggregation', 'node', ['scripts/diagnostics/application/checkUsageStatus.mjs']],
     ['e2e: tailscale ingress ownership', 'node', ['scripts/diagnostics/application/checkTailscaleIngress.mjs']],
     ['unit: selfhost state survives garbage JSON', 'node', ['scripts/diagnostics/application/checkSelfhostState.mjs']],
@@ -116,10 +114,8 @@ const FAST = new Set([
     'unit: setup domain (pairing/connection/crypto)',
     'unit: service commands stay in their MUXR_HOME scope',
     'security: development Herdr socket selection',
-    'unit: all vitest flows',
+    'tests: retained journeys and deletion-guard floor',
     'unit: perf gate (gesture metrics, warm-probe gates, node --test)',
-    'policy: host/relay architecture',
-    'policy: mobile architecture',
     'policy: iOS project version matches app.config.js',
     'policy: package architecture (module boundaries, domain purity, no nested ternaries)',
     'policy: tooling architecture (feature boundaries, layers, no nested ternaries)',

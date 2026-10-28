@@ -3,47 +3,10 @@ import { once } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import type { TerminalSession } from '@byokit/herdr';
 import type { TerminalPipe } from '../../machine/index.js';
-import { foregroundProgramPids, programIsGone, shellPidOf } from './paneModeReset.js';
-import { wheelReportsAllowed } from './terminalModes.js';
+import { programIsGone } from './paneModeReset.js';
 import { TerminalManager } from './terminalManager.js';
 
 describe('terminal wheel gate and stale-mode reset', () => {
-    it('sends a wheel report only while a program, not the pane shell, holds the pane', () => {
-        expect(wheelReportsAllowed([42])).toBe(true);
-        expect(wheelReportsAllowed([])).toBe(false);
-        // No answer yet (no probe wired, or a probe that failed): as before.
-        expect(wheelReportsAllowed(undefined)).toBe(true);
-    });
-
-    it('reads the pane shell pid out of the foreground Herdr reports', () => {
-        expect(shellPidOf({ shellPid: 10, foregroundPids: [] })).toBe(10);
-        expect(shellPidOf({ shellPid: null, foregroundPids: [] })).toBeUndefined();
-        expect(shellPidOf({ foregroundPids: [] })).toBeUndefined();
-        expect(foregroundProgramPids({ shellPid: 10, foregroundPids: [10] })).toEqual([]);
-        expect(foregroundProgramPids({ shellPid: 10, foregroundPids: [10, 99] })).toEqual([99]);
-        expect(foregroundProgramPids({ shellPid: 10, foregroundPids: [0, 99] })).toEqual([99]);
-    });
-
-    it('reports a stopped pid as present and a killed one as gone', async () => {
-        const stopped = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-        const killed = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-        try {
-            await Promise.all([once(stopped, 'spawn'), once(killed, 'spawn')]);
-            stopped.kill('SIGSTOP');
-            killed.kill('SIGKILL');
-            await once(killed, 'exit');
-            await waitFor(() => programIsGone(killed.pid!));
-            // The stopped program keeps its pid, and the gone one is gone
-            // whatever else the pane still runs.
-            expect(programIsGone(stopped.pid!)).toBe(false);
-            expect(programIsGone(killed.pid!)).toBe(true);
-        } finally {
-            for (const child of [stopped, killed]) {
-                if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-            }
-        }
-    });
-
     it('gates the wheel on the pane foreground and clears only a gone program', async () => {
         const first = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
         const second = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });

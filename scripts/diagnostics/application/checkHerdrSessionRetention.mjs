@@ -8,7 +8,7 @@ import { linkHerdrLab } from './linkHerdrLab.mjs';
 import { requestLab } from './linkLabClient.mjs';
 import { removeTestScratch } from './testScratchOwner.mjs';
 
-const root = mkdtempSync(join(tmpdir(), 'muxr-retained-sessions-'));
+const root = mkdtempSync(join(tmpdir(), 'muxr-retain-'));
 const countsPath = join(root, 'retained.json');
 const preload = join(root, 'count-retained.mjs');
 // A debugger tap, not a fake source: the real host creates, publishes and retires
