@@ -56,11 +56,12 @@ export const TerminalPreview = React.memo((props: {
     /** The Live card asks for an honest empty state when there is no frame;
      *  small pane-grid tiles keep the plain terminal-dark ground. */
     emptyState?: boolean;
-    /** Home keeps its last picture while a replacement pane has no frame yet. */
-    retainLastFrame?: boolean;
+    /** Home's presentation-only cache key survives section/pane replacement.
+     * Reads still use sessionId; this key never authorizes a request. */
+    retainLastFrame?: string;
 }) => {
     const { theme } = useUnistyles();
-    const snapshot = usePaneSnapshot(props.retainLastFrame ? props.sessionId : undefined);
+    const snapshot = usePaneSnapshot(props.retainLastFrame);
     const [text, setText] = React.useState(() => tail(snapshot ?? '', props.maxLines ?? MAX_LINES, props.nonEmpty === true));
     const heldText = React.useRef(text);
     heldText.current = text;
@@ -89,8 +90,10 @@ export const TerminalPreview = React.memo((props: {
                 .request('pane.read', { sessionId: props.sessionId, source: 'visible' })
                 .then((result) => {
                     if (!alive) return;
-                    if (props.retainLastFrame && heldText.current !== '' && result.text.trim() === '') return;
-                    const next = tail(rememberPaneSnapshot(props.sessionId, result.text, order), maxLines, nonEmpty);
+                    const frame = rememberPaneSnapshot(props.sessionId, result.text, order);
+                    if (props.retainLastFrame !== undefined && heldText.current !== '' && frame.trim() === '') return;
+                    if (props.retainLastFrame !== undefined && frame.trim() !== '') rememberPaneSnapshot(props.retainLastFrame, frame, order);
+                    const next = tail(frame, maxLines, nonEmpty);
                     setText(next);
                     setPhase(next === '' ? 'empty' : 'ready');
                     onStateRef.current?.(next === '' ? { kind: 'empty', at: Date.now() } : { kind: 'ready', at: Date.now() });

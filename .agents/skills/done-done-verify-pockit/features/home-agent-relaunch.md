@@ -5,7 +5,7 @@ Home assigns an agent to exactly one of Live, Needs you, Ready · unseen or Fail
 ## Sub-features
 
 - Working → blocked → working within 1.5 seconds never moves the row.
-- A sustained blocked state moves to Needs you once, not a second Live card.
+- A sustained blocked state moves to Needs you once, not a second Live card. Relaunch while that row is in Needs you: its first returned Live frame must already show the held picture, before the replacement produces output.
 - An unopened done outcome moves to Ready once; a later working/blocked state and a replacement generation suppress the old done notice.
 - Closing the old pane and opening its replacement holds one row through the short gap. The current route is always the navigation target; names only reconcile display identity.
 - A genuinely empty, never-populated preview still shows the existing empty placeholder. Other terminal surfaces retain their empty-frame policy.
@@ -30,3 +30,4 @@ Preconditions: built host/relay, candidate native release APK and web export; a 
 - Ready is an unseen outcome, not an independent copy of every done event. Current tree state supersedes historical notices for a present agent.
 - The 1.5-second grace is screen-local presentation state, not a new host lifecycle ledger. The Spaces/badge count remains immediate.
 - The agent pager keeps its existing shared order; only the Home section membership is debounced.
+- Needs you unmounts the Live preview. A stable React key alone cannot retain that component's text: Home's nonempty snapshot must outlive the card and its pane route, without surviving a computer switch.

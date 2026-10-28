@@ -9,6 +9,10 @@ const herd = vi.hoisted(() => ({
     workspaces: [] as HerdrTreeWorkspace[],
     events: [] as LifecycleEvent[],
     seen: ['pi-blocked'],
+    machineId: 'lab-machine',
+    frame: '',
+    readRoutes: [] as string[],
+    appStateListeners: [] as ((state: string) => void)[],
 }));
 
 vi.mock('react-native', () => ({
@@ -16,7 +20,10 @@ vi.mock('react-native', () => ({
     Text: 'Text',
     Pressable: 'Pressable',
     FlatList: 'FlatList',
-    AppState: { currentState: 'active', addEventListener: () => ({ remove: () => undefined }) },
+    AppState: { currentState: 'active', addEventListener: (_event: string, listener: (state: string) => void) => {
+        herd.appStateListeners.push(listener);
+        return { remove: () => { herd.appStateListeners = herd.appStateListeners.filter((held) => held !== listener); } };
+    } },
     useWindowDimensions: () => ({ height: 800, width: 400 }),
     StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 1 },
 }));
@@ -26,11 +33,16 @@ vi.mock('react-native-unistyles', () => ({
         colors: { text: '#111', textSecondary: '#666', surfaceHigh: '#fff', divider: '#ddd', status: { error: '#c00' }, groupped: { chevron: '#999' } },
     } }),
 }));
-vi.mock('react-native-reanimated', () => ({
-    default: { FlatList: 'FlatList' },
-    LinearTransition: { duration: () => ({ reduceMotion: () => undefined }) },
-    ReduceMotion: { System: 'system' },
-}));
+vi.mock('react-native-reanimated', async () => {
+    const { createElement, Fragment } = await import('react');
+    return {
+        default: { FlatList: (props: any) => createElement('FlatList', props,
+            props.data.map((item: unknown, index: number) => createElement(Fragment,
+                { key: props.keyExtractor(item) }, props.renderItem({ item, index })))) },
+        LinearTransition: { duration: () => ({ reduceMotion: () => undefined }) },
+        ReduceMotion: { System: 'system' },
+    };
+});
 vi.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
 vi.mock('@react-native-async-storage/async-storage', () => ({
     default: { getItem: async () => JSON.stringify(herd.seen), setItem: async () => undefined },
@@ -43,7 +55,7 @@ vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: () => undefined, dismissTo: () => undefined }) }));
 vi.mock('@/catalog/store', () => ({
     storage: Object.assign((selector: (state: { activeMachineId: string; herdrWorkspaces: HerdrTreeWorkspace[] }) => unknown) =>
-        selector({ activeMachineId: 'lab-machine', herdrWorkspaces: [] }), { getState: () => ({ herdrWorkspaces: [] }) }),
+        selector({ activeMachineId: herd.machineId, herdrWorkspaces: [] }), { getState: () => ({ herdrWorkspaces: [] }) }),
     useHomeHerd: () => ({ sessions: [], workspaces: herd.workspaces, loaded: true, stale: false }),
     useHomeNeedsYouIds: () => needsYouSessionIds(herd.workspaces, []),
     useLifecycleEvents: () => herd.events,
@@ -52,7 +64,11 @@ vi.mock('@/catalog/store', () => ({
 vi.mock('@/pairing', () => ({ useDeviceAuthority: () => ({ authority: 'control', loading: false }) }));
 vi.mock('../application/renameInHerdr', () => ({ showPaneActions: () => undefined }));
 vi.mock('@/components/AgentGlyph', () => ({ AgentGlyph: () => null }));
-vi.mock('@/terminal/ui', () => ({ TerminalPreview: () => null }));
+vi.mock('@/terminal/ui', () => import('../../terminal/presentation/TerminalPreview'));
+vi.mock('@/catalog/sync', () => ({ sync: { request: async (_method: string, input: { sessionId: string }) => {
+    herd.readRoutes.push(input.sessionId);
+    return { text: herd.frame };
+} } }));
 
 // These resolve the mocked modules, so they must stay below the vi.mock calls.
 import { LiveTerminalsRow } from './LiveTerminalsRow';
@@ -160,4 +176,49 @@ it('names a finished Codex and pi agent by kind, never a launch id', async () =>
     expect(titles.sort()).toEqual(['Codex', 'Pi']);
     expect(titles.join(' ')).not.toMatch(/pph?_/i);
     renderer.unmount();
+});
+
+
+it('carries the last frame through Needs you and a replacement route, but not another computer', async () => {
+    const tree = (sessionId: string, status: 'working' | 'blocked'): HerdrTreeWorkspace[] => [{
+        workspaceId: 'preview-workspace', focused: false, tabs: [{ tabId: 'preview-tab', focused: false, panes: [{
+            paneId: `pane-${sessionId}`, tabId: 'preview-tab', focused: false, sessionId,
+            agentName: 'preview-agent', agentKind: 'pi', label: 'Review the update', agentStatus: status, promptable: true,
+        }] }],
+    } as HerdrTreeWorkspace];
+    herd.events = [];
+    herd.machineId = 'preview-computer';
+    herd.frame = 'previous visible terminal frame';
+    herd.workspaces = tree('preview-old-route', 'working');
+    let renderer!: ReturnType<typeof TestRenderer.create>;
+    const text = () => (renderer.root as any).findAll((node: { type: unknown }) => node.type === 'Text')
+        .flatMap((node: { children: unknown[] }) => node.children.filter((child) => typeof child === 'string')).join('\n');
+    await TestRenderer.act(async () => { renderer = TestRenderer.create(<LiveTerminalsRow />); });
+    expect(text()).toContain(herd.frame);
+
+    herd.workspaces = tree('preview-old-route', 'blocked');
+    await TestRenderer.act(async () => { renderer.update(<LiveTerminalsRow showZeroState={false} />); });
+    await TestRenderer.act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_600)); });
+    expect(text()).toContain('Needs you');
+    expect(text()).not.toContain(herd.frame); // The real Live preview has unmounted.
+
+    herd.frame = '';
+    herd.workspaces = tree('preview-new-route', 'working');
+    await TestRenderer.act(async () => { renderer.update(<LiveTerminalsRow showZeroState />); });
+    await TestRenderer.act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_600)); });
+    expect(herd.readRoutes.at(-1)).toBe('preview-new-route'); // Reads still target the authorized current route.
+    expect(text()).toContain('previous visible terminal frame');
+    expect(text()).not.toContain('Nothing to show yet');
+
+    herd.frame = 'replacement terminal output';
+    await TestRenderer.act(async () => {
+        for (const listener of herd.appStateListeners) listener('background');
+        for (const listener of herd.appStateListeners) listener('active');
+    });
+    expect(text()).toContain(herd.frame);
+    herd.frame = '';
+    herd.machineId = 'another-preview-computer';
+    await TestRenderer.act(async () => { renderer.update(<LiveTerminalsRow showZeroState={false} />); });
+    expect(text()).not.toContain('replacement terminal output');
+    await TestRenderer.act(async () => { renderer.unmount(); });
 });

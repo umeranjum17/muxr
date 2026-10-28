@@ -96,6 +96,7 @@ export interface LiveCardBadgeInfo {
 
 interface CardProps {
     card: LiveTerminalOrderCard;
+    previewKey: string;
     events: readonly LifecycleEvent[];
     now: number;
     width: number;
@@ -111,7 +112,7 @@ function terminalIsLive(status: AgentLifecycle): boolean {
     return status === 'working' || status === 'starting' || status === 'blocked';
 }
 
-const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone, canRename, Badge }: CardProps) => {
+const LiveTerminalCard = React.memo(({ card, previewKey, events, now, width, height, paused, disconnected, unseenDone, canRename, Badge }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels(card);
@@ -142,7 +143,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
             ]}
         >
             <View style={stylesheet.cardBody}>
-                <TerminalPreview sessionId={card.id} paused={paused} live={live} dimmed={!live && !unseenDone} emptyState retainLastFrame />
+                <TerminalPreview sessionId={card.id} paused={paused} live={live} dimmed={!live && !unseenDone} emptyState retainLastFrame={previewKey} />
             </View>
             <View style={stylesheet.cardFooter}>
                 <View style={stylesheet.titleRow}>
@@ -180,6 +181,8 @@ const MachineLiveTerminalsRow = React.memo(({
 }) => {
     useUnistyles();
     const navigateToSession = useNavigateToSession();
+    // The frame outlives a Live card, not this computer's Home projection.
+    const previewScope = React.useId();
     const { sessions, workspaces, loaded, stale } = useHomeHerd();
     const lifecycleEvents = useLifecycleEvents();
     const { status: socketStatus } = useSocketStatus();
@@ -317,6 +320,7 @@ const MachineLiveTerminalsRow = React.memo(({
     const renderCard = ({ item: card, index }: { item: LiveTerminalOrderCard; index: number }) => (
         <LiveTerminalCard
             card={card}
+            previewKey={JSON.stringify(['home', previewScope, cardKeys.get(card.id) ?? card.id])}
             events={lifecycleEvents}
             now={minute}
             width={cardWidth}
