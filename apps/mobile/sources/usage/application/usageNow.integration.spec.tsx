@@ -273,7 +273,7 @@ describe('the Home card read path', () => {
         expect(request).toHaveBeenLastCalledWith('usage.now', { refresh: true }, expect.any(Number));
     });
 
-    
+
 
     it('recovers from a failed refresh in the background, without an alarm or a tap', async () => {
         request.mockResolvedValueOnce(collected()).mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
@@ -290,11 +290,11 @@ describe('the Home card read path', () => {
         expect(forcedReads()).toHaveLength(3);
     });
 
-    
+
 });
 
 describe('the usage screen read path', () => {
-    
+
 
     it('shows every plan\'s limits at once, in places a reader can learn, coloured only where little is left', async () => {
         // The host lists plans most urgent first and each plan's windows in its
@@ -402,7 +402,7 @@ describe('the usage screen read path', () => {
         expect(screenText(card)).not.toContain(longName);
     });
 
-    
+
 
     it('keeps one budget across surfaces, so a press on the other is refused', async () => {
         request.mockImplementation((method: string, params?: { provider?: string }) => (method === 'usage.now'
@@ -427,7 +427,7 @@ describe('the usage screen read path', () => {
         TestRenderer.act(() => { card.unmount(); });
     });
 
-    
+
 
     it('shows each route\'s cost for the span shown, marking a floor, and nothing for a route that could not be priced', async () => {
         // The figure beside a route's tokens belongs to the span on screen, a

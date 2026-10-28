@@ -48,7 +48,7 @@ const checks = [
     ['security: development Herdr socket selection', 'node', ['scripts/diagnostics/application/checkDevHerdrSocket.mjs']],
     ['unit: setup wizard onboarding', 'node', ['--experimental-test-module-mocks', 'scripts/setup/presentation/setupWizard.selfcheck.mjs']],
     // One root sweep owns the retained journeys and architecture policies.
-    // Guard-refused tests remain deliberately; see the partial-prune PR.
+    // The deletion guard deliberately retains some legacy coverage.
     // The load flows carry generous budgets; do not SIGKILL a healthy run.
     ['tests: retained journeys and deletion-guard floor', 'npx', ['vitest', 'run', '--root', '.'], undefined, 300000],
     // The perf/lib tests are node:test, not vitest (perf/** is excluded from

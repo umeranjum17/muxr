@@ -57,13 +57,13 @@ describe('plan account launch journey', () => {
             expect(planAccountForLaunch('claude')).toBe('auto');
             expect(planAccountForLaunch('codex')).toBeUndefined();
             expect(planAccountForLaunch('gemini')).toBeUndefined();
-            
+
             // A pick sticks, but a signed-out account is never launched on.
             usePlansStore.getState().choose('claude', 'found-claude');
             expect(planAccountForLaunch('claude')).toBe('found-claude');
             usePlansStore.getState().choose('claude', 'pa_side');
             expect(planAccountForLaunch('claude')).toBe('auto');
-            
+
             // Picked account signs out: back to Auto's pick, not a dead launch, but
             // never in silence. The dock names the pick, and Start asks first.
             usePlansStore.getState().choose('claude', 'pa_work');
@@ -74,7 +74,7 @@ describe('plan account launch journey', () => {
             expect(choiceLine(signedOut, 'pa_work')).toEqual({ value: 'Work is signed out', detail: 'Sign in, or use Personal' });
             expect(planLaunchQuestion('claude', 'auto')).toMatchObject({ title: 'Work is signed out', instead: { label: 'Use Personal', choice: 'auto' } });
             expect(planLaunchQuestion('claude', 'auto', true)).toBeUndefined();
-            
+
             // An account with no room left: Start offers the roomier one, or starts anyway.
             const room = (work: number, personal: number, reason = "Right now that's Personal") => ({ providers: [{
                 ...claude(),
@@ -107,14 +107,14 @@ describe('plan account launch journey', () => {
             request.mockResolvedValueOnce(room(0, 0, ''));
             await refreshPlans();
             expect(planLaunchQuestion('claude', 'auto')?.message).toBe("A Claude account refills first. An agent started now can't answer until then.");
-            
+
             // Auto off with nothing pickable chosen: the computer's own sign-in.
             usePlansStore.getState().setAutoOn(false);
             usePlansStore.getState().choose('claude', 'pa_side');
             request.mockResolvedValueOnce({ providers: [claude()] });
             await refreshPlans();
             expect(planAccountForLaunch('claude')).toBe('found-claude');
-            
+
             usePlansStore.getState().setAutoOn(true);
             const original = planConnection();
             let answerOld!: (value: unknown) => void;
@@ -146,14 +146,14 @@ describe('plan account launch journey', () => {
             request.mockResolvedValueOnce({ sessionId: 'replacement', warning });
             request.mockRejectedValueOnce(new Error('readiness failed after commit'));
             await expect(moveAgent('original', 'pa_work')).resolves.toEqual({ sessionId: 'replacement', warning });
-            
+
             // A host without plans.list answers an error: every launch is today's.
             connection.machineId = 'computer-c';
             planConnection();
             usePlansStore.getState().choose('claude', 'pa_work');
             request.mockRejectedValueOnce(new Error('link disconnected'));
             await expect(waitForPlanDiscovery('claude', planConnection())).rejects.toThrow('Could not check accounts');
-            
+
             request.mockRejectedValueOnce(Object.assign(new Error('host-contract-mismatch'), { code: 'host-contract-mismatch' }));
             await refreshPlans();
             expect(planAccountForLaunch('claude')).toBeUndefined();
