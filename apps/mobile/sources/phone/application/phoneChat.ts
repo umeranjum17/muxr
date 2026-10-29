@@ -22,7 +22,7 @@ const setTheme: PhoneTool = {
     replaySafe: true,
     run: async (args) => {
         const theme = String(args.theme);
-        if (!(theme in THEMES)) return 'That is not a theme. Use light, dark or system.';
+        if (!Object.prototype.hasOwnProperty.call(THEMES, theme)) return 'That is not a theme. Use light, dark or system.';
         setThemePreference(THEMES[theme as keyof typeof THEMES]);
         return `The app is now ${theme === 'system' ? 'following the phone' : theme}.`;
     },
