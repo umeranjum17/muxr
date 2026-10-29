@@ -267,7 +267,7 @@ journeys:
   # Runs by hand under the phone's keeper lock (fm-device-lock.sh) with
   # PHONE_SERIAL and PHONE_APK (package app.muxr.links1.dev).
   terminal-wrapped-link:
-    command: node .agents/skills/done-done-verify-pockit/features/terminalWrappedLinkLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    command: node .agents/skills/done-done-verify-pockit/features/terminalWrappedLinkLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > /dev/null 2>&1
     timeout: 30m
   # A Claude account is added from the phone end to end: Accounts, Open Claude
   # sign-in, the code sent from the sign-in tab's composer, Name this account
