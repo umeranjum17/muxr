@@ -51,7 +51,7 @@ export async function nativeAnswerLoopback({ startRelay, LinkEndpoint, answerAge
         await link.request('push.subscribe', { type: 'push.subscribe', requestId: 'register-answer', params: {
             token: 'ExponentPushToken[sealed-answer-fixture]', level: 'important', noticePublicKey: b64(notice.publicKey),
         } });
-        assert.equal(crypto.devices[0].noticePublicKey, b64(notice.publicKey));
+        assert.ok(crypto.devices[0].noticePublicKey === b64(notice.publicKey), 'the authenticated registration must persist the notice identity');
         const notify = async (eventId) => {
             const before = deliveries.length;
             endpoint.notifyAttention({ sessionId: 'origin-session', eventId, kind: 'blocked', machineId: 'answer-machine', agentName: 'Lab agent', question: 'Which path should I take?' });

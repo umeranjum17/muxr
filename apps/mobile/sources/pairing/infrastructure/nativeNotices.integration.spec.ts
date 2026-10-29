@@ -43,19 +43,19 @@ it('keeps one notice identity across distinct host pairings and removes revoked 
     const second = grant('second');
     await storeGrant(first);
     const installationKey = [...native.key];
-    expect(installationKey).toHaveLength(32);
-    expect(b64url(Uint8Array.from(installationKey))).not.toBe(first.deviceKey.secretKey);
+    expect(installationKey.length).toBe(32);
+    expect(b64url(Uint8Array.from(installationKey)) === first.deviceKey.secretKey).toBe(false);
     await storeGrant(second);
-    expect(native.key).toEqual(installationKey);
+    expect(b64url(Uint8Array.from(native.key)) === b64url(Uint8Array.from(installationKey))).toBe(true);
     expect(native.targets.map(({ host, relay }) => ({ host, relay }))).toEqual([
         { host: 'first', relay: 'https://relay.example' }, { host: 'second', relay: 'https://relay.example' },
     ]);
-    expect((await loadGrants()).first.deviceKey).toEqual(first.deviceKey);
+    expect(JSON.stringify((await loadGrants()).first.deviceKey) === JSON.stringify(first.deviceKey)).toBe(true);
     await deleteGrant('first');
     expect(native.targets.map(({ host }) => host)).toEqual(['second']);
-    expect(native.key).toEqual(installationKey);
+    expect(b64url(Uint8Array.from(native.key)) === b64url(Uint8Array.from(installationKey))).toBe(true);
     await clearGrants();
     expect(native.targets).toEqual([]);
-    expect(native.key).toEqual([]);
+    expect(native.key.length).toBe(0);
     expect(native.secrets.has('muxr.notice-key.v1')).toBe(false);
 });
