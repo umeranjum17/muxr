@@ -155,9 +155,9 @@ try {
         if (find(await screen(), (v) => v.startsWith('Take your time')) === undefined) break;
     }
     await waitFor('the turn running', has('Thinking…'), 30);
-    // Saved with the matrix: the ten-capture cap leaves room for the other six steps and two cells.
+    // A plain screenshot: the visual check takes longer than the stand-in's slow answer, which must still be unanswered at the kill.
     mkdirSync(join(MATRIX, 'flow'), { recursive: true });
-    await capture(join(MATRIX, 'flow'), '5-turn-running');
+    await screenshot(join(MATRIX, 'flow', '5-turn-running.png'));
     await sh(`am force-stop ${PKG}`);
     await launch(has('Continue your chat'));
     await capture(join(MATRIX, 'flow'), '6-reopened-card-continue');
