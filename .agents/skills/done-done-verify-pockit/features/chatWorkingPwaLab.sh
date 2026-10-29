@@ -62,7 +62,7 @@ await_label() { for _ in $(seq 20); do l=$(labels); if [ "${1:0:1}" = '!' ]; the
 QUESTION='────────────────\nRun rm -rf dist && pnpm build in /app/web? This deletes the existing dist folder, including the three files you edited by hand last week, and the build recreates it from source in about forty seconds.\n  1. Yes\n  2. Yes, and do not ask again for rm -rf dist commands in /app/web for the rest of this session\n  3. No, and tell Claude what to do differently'
 misses=0
 # A check judges every cited capture against the whole claim, so the cited folder holds only the frames this
-# run's claim is about (CHAT_WORK_CITE); the whole width/theme matrix stays in the matrix folder beside it.
+# run's claim is about (CHAT_WORK_CITE, at most 6 or 7: the judge takes ten files in all); the whole width/theme matrix stays in the matrix folder beside it.
 mx="${out%/}-matrix"; mkdir -p "$mx"
 for theme in ${CHAT_WORK_THEMES:-dark light}; do for cell in $CELLS; do
   IFS=: read -r nm w h dpr kind <<<"$cell"
@@ -74,27 +74,27 @@ for theme in ${CHAT_WORK_THEMES:-dark light}; do for cell in $CELLS; do
   ax eval "document.querySelector('[aria-label=\"Chat view\"]')?.click()" >/dev/null; sleep 4
   ok=1
   # 1. The helper's reply is its own card.
-  await_label '"Helper Audit cart shipping tests' || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$out/lines.log"; }
+  await_label '"Helper Audit cart shipping tests' || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$mx/lines.log"; }
   ax eval "[...document.querySelectorAll('[aria-label^=\"Helper \"]')].pop()?.scrollIntoView({block:'center'})" >/dev/null; sleep 1
   ax screenshot "$mx/helper-$nm-$theme.png" >/dev/null
   # 2. Working: the strip names the task and shows the pane's last two lines.
   lab "output \$ pnpm test cart --run\n✓ cart.shipping.spec.ts (4 tests) 212ms"; lab "status working Fix empty cart shipping"
-  await_label '"Working, Fix empty cart shipping' || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$out/lines.log"; }
-  ax eval "document.body.innerText.includes('cart.shipping.spec.ts (4 tests)')" | grep -q true || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$out/lines.log"; }
+  await_label '"Working, Fix empty cart shipping' || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$mx/lines.log"; }
+  ax eval "document.body.innerText.includes('cart.shipping.spec.ts (4 tests)')" | grep -q true || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$mx/lines.log"; }
   ax screenshot "$mx/working-$nm-$theme.png" >/dev/null
   # 3. The strip changes as the pane's lines do.
   lab "output \$ pnpm test cart.total --run\n✕ expected 50, received 0 at cart.total.spec.ts:18"
   for _ in $(seq 10); do ax eval "document.body.innerText.includes('expected 50, received 0')" | grep -q true && break; sleep 1; done
-  ax eval "document.body.innerText.includes('expected 50, received 0')" | grep -q true || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$out/lines.log"; }
+  ax eval "document.body.innerText.includes('expected 50, received 0')" | grep -q true || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$mx/lines.log"; }
   # 4. Blocked on a question: the choices are buttons in the chat.
   lab "output $QUESTION"; lab "status blocked Fix empty cart shipping"
-  await_label 'Answer Yes[^,A-Za-z]' || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$out/lines.log"; }
+  await_label 'Answer Yes[^,A-Za-z]' || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$mx/lines.log"; }
   ax screenshot "$mx/ask-$nm-$theme.png" >/dev/null
   # 5. Stopped with no output: the strip and the question are gone.
   lab "output "; lab "status idle Fix empty cart shipping"
-  await_label '!"Working,|"Answer ' || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$out/lines.log"; }
+  await_label '!"Working,|"Answer ' || { ok=0; echo "$nm-$theme missed at line $LINENO" | tee -a "$mx/lines.log"; }
   ax screenshot "$mx/stopped-$nm-$theme.png" >/dev/null
-  echo "$nm-$theme: ok=$ok" | tee -a "$out/lines.log"
+  echo "$nm-$theme: ok=$ok" | tee -a "$mx/lines.log"
   for shot in helper working ask stopped; do node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$mx/$shot-$nm-$theme.png" "$shot-$nm-$theme" >"$mx/$shot-$nm-$theme.check.txt" 2>&1; done
   [ "$ok" = 1 ] || misses=$((misses + 1))
 done; done
@@ -109,9 +109,9 @@ cp "$input" "$out/pane-input.jsonl" 2>/dev/null
 # Choice 2's number reached the pane through the terminal's own channel.
 answered=none
 grep -q '"source":"terminal.text".*"text":"2"' "$out/pane-input.jsonl" 2>/dev/null && answered=typed
-echo "answered: $answered" | tee -a "$out/lines.log"
+echo "answered: $answered" | tee -a "$mx/lines.log"
 [ "$answered" = typed ] || misses=$((misses + 1))
-for name in ${CHAT_WORK_CITE:-}; do cp "$mx/$name.png" "$out/"; cp "$mx/$name.check.txt" "$out/" 2>/dev/null || true; done
+for name in ${CHAT_WORK_CITE:-}; do cp "$mx/$name.png" "$out/"; done
 cat >"$out/steps.json" <<JSON
 {
   "target": { "version": "$(node -p "require('./package.json').version")" },
