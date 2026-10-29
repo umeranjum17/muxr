@@ -89,11 +89,11 @@ jobs:
           fi
           # The journey writes its output to the evidence log, so a red run
           # prints that log here before failing.
-          npx -y done-done-axi@0.3.0 run fast || {
+          npx -y done-done-axi@0.6.22 run fast || {
             tail -n 200 ~/.done-done/evidence/pockit/*/*.log >&2 2>/dev/null || true
             exit 1
           }
-          npx -y done-done-axi@0.3.0 check --outcome "the pull-request fast lane passes on this commit" ~/.done-done/evidence/pockit/*/*.log --claim-id "$CLAIM_ID" "${TRUSTED_REF_ARGS[@]}"
+          npx -y done-done-axi@0.6.22 check --outcome "the pull-request fast lane passes on this commit" ~/.done-done/evidence/pockit/*/*.log --claim-id "$CLAIM_ID" "${TRUSTED_REF_ARGS[@]}"
 
   suite:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
