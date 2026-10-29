@@ -153,7 +153,7 @@ function buildFault(receipt, result, apkCheck, build) {
 }
 
 /** A JSON record committed at a path, with its digest, or undefined. */
-function readRecord(repo, ref, path) {
+export function readRecord(repo, ref, path) {
     let bytes;
     try {
         bytes = execFileSync('git', ['show', `${ref}:${path}`], { cwd: repo, encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'] });

@@ -55,8 +55,13 @@ export function readReleaseMetadata({ repository, tag }) {
         prerelease: release.prerelease === true,
         id: release.id,
         name: release.name,
+        body: release.body ?? '',
         assets: release.assets.map((asset) => ({ name: asset.name, size: asset.size, digest: asset.digest ?? undefined })),
     };
+}
+
+export function setReleaseNotes({ repository, id, body }) {
+    return gh(repository, `releases/${id}`, 'PATCH', { body });
 }
 
 /** The commit a tag actually points at; asset names alone prove nothing. */

@@ -151,4 +151,78 @@ it('covers a release, and publishes it as npm latest once the captain names it, 
     } finally {
         rmSync(repo, { recursive: true, force: true });
     }
-});
+}, 30_000);
+
+it('publishes an owner-authorized release, labelled as untested, only while a committed record covers this exact build and the receipt still passes', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'muxr-owner-authorized-'));
+    try {
+        git(repo, ['init', '-q', '-b', 'main']);
+        git(repo, ['config', 'user.email', 'gate@example.test']);
+        git(repo, ['config', 'user.name', 'gate']);
+        mkdirSync(join(repo, 'evidence'), { recursive: true });
+        const capture = Buffer.from('a phone capture of an attached agent');
+        writeFileSync(join(repo, 'evidence', 'phone-attach.mp4'), capture);
+        writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ version: '0.2.11' }, null, 2)}\n`);
+        const head = commit(repo, 'the code the release ships');
+        const tree = git(repo, ['rev-parse', 'HEAD^{tree}']);
+        const cited = { path: 'evidence/phone-attach.mp4', sha256: sha(capture) };
+        const build = { version: '0.2.11', apk: sha('the release apk'), package: sha('the release tarball') };
+        const manifest = { release: { channel: 'stable', version: '0.2.11' }, source: { commit: head },
+            artifacts: [{ name: 'muxr-0.2.11-60.apk', sha256: build.apk }, { name: 'trymuxr-cli-0.2.11.tgz', sha256: build.package }] };
+        const receiptPath = `.done-done-receipts/${head}.json`;
+        const authorization = (overrides = {}) => ({
+            schema: 1, ownerTested: false, version: '0.2.11', commit: head, apk: build.apk, package: build.package,
+            words: 'I will test when you release so must release.', date: '2026-01-15T08:00:00Z', device: 'a4b93ea2', receipt: receiptPath, ...overrides,
+        });
+        const land = ({ journey = journeyResult(build), record, message }) => {
+            rmSync(join(repo, '.done-done-receipts'), { recursive: true, force: true });
+            mkdirSync(join(repo, '.done-done-receipts', 'builds'), { recursive: true });
+            writeFileSync(join(repo, receiptPath), `${JSON.stringify(receipt(head, tree, cited, 'phone-attach', [journey]), null, 2)}\n`);
+            writeFileSync(join(repo, '.done-done-receipts', 'builds', '0.2.11.json'), journey);
+            if (record !== undefined) writeFileSync(join(repo, '.done-done-receipts', 'builds', '0.2.11.owner-authorization.json'), typeof record === 'string' ? record : `${JSON.stringify(record, null, 2)}\n`);
+            commit(repo, message);
+        };
+        const accept = (ownerAuthorized = '0.2.11', captainTested = undefined) => acceptStable({ version: '0.2.11', manifest, taggedCommit: head, tarballSha256: build.package, captainTested, ownerAuthorized, repo, receiptsRef: 'HEAD' });
+
+        // A valid record: published, with the owner's words and date quoted and the build named untested.
+        land({ record: authorization(), message: 'receipt and owner authorization' });
+        const accepted = accept();
+        expect(accepted.reason).toBeUndefined();
+        expect(accepted.ok).toBe(true);
+        expect(accepted.authorization.notice).toContain('Owner-authorized, NOT owner-tested');
+        expect(accepted.authorization.notice).toContain('"I will test when you release so must release."');
+        expect(accepted.authorization.notice).toContain('2026-01-15T08:00:00Z');
+        // Naming the version captain-tested keeps its old meaning: no record needed, none reported.
+        expect(accept('', '0.2.11')).toEqual({ ok: true, proof: receiptPath });
+        // Neither path named: refused, and it says both ways through.
+        expect(accept('').reason).toContain('only from a release.yml run started by hand with captain_tested');
+
+        // Each fault is refused with the check that failed.
+        const faults = [
+            [authorization({ version: '0.2.12' }), 'it authorizes 0.2.12, not 0.2.11'],
+            [authorization({ commit: sha('x').slice(0, 40) }), 'it names commit'],
+            [authorization({ apk: sha('another apk') }), `it names apk ${sha('another apk').slice(0, 12)}`],
+            [authorization({ package: sha('another tarball') }), `it names package ${sha('another tarball').slice(0, 12)}`],
+            [authorization({ date: '2999-01-01T00:00:00Z' }), 'is in the future'],
+            [authorization({ date: 'yesterday' }), 'is not a UTC timestamp'],
+            [authorization({ ownerTested: true }), 'ownerTested is false'],
+            [authorization({ words: ' ' }), 'it holds no words'],
+            [authorization({ receipt: '.done-done-receipts/other.json' }), 'it cites receipt'],
+            ['{ not json', 'it is not an owner authorization'],
+        ];
+        for (const [record, reason] of faults) {
+            land({ record, message: 'a bad authorization' });
+            const refused = accept();
+            expect(refused.ok).toBe(false);
+            expect(refused.reason).toContain(reason);
+        }
+        land({ message: 'no authorization' });
+        expect(accept().reason).toContain('owner authorization: no record is committed at .done-done-receipts/builds/0.2.11.owner-authorization.json');
+
+        // An authorization never rescues a receipt that fails: the journey ran another APK.
+        land({ journey: journeyResult({ ...build, apk: sha('a local debug apk') }), record: authorization(), message: 'journey on another apk' });
+        expect(accept().reason).toContain('has no passing release journey on its exact build');
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+    }
+}, 30_000);

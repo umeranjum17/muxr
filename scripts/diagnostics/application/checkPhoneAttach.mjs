@@ -40,6 +40,10 @@
  *     PHONE_APK=<release apk> PHONE_PACKAGE=<release tarball> \
  *     node scripts/diagnostics/application/checkPhoneAttach.mjs
  *
+ * PHONE_PRESERVE_DEVICE=<serial> (the serial being driven) installs over the
+ * app instead of uninstalling it first, so a production device keeps its data;
+ * release-build.json records `install`: fresh, preserving or installed-app.
+ *
  * PHONE_ATTACH_STOP_AFTER=send ends the run once the typed command printed:
  * a timing run for the attach that skips scroll, Usage and the host count.
  * Its release-build.json says `partial`, which no release gate accepts.
@@ -250,6 +254,7 @@ const mintNativePairing = (socketPath) => new Promise((resolve, reject) => {
 let lab;
 let verdict = 'not reached';
 let installed = 'unknown';
+let installPath = 'unknown';
 // The host logs one line per terminal stream it really attached.
 const attaches = () => (lab?.hostOutput().match(/link: terminal stream attached/g) ?? []).length;
 
@@ -302,6 +307,7 @@ const openAgentAgain = async (what) => {
 
 // What the release gate reads: each step's result, the hosts alive at the end, and the timed steps.
 const { RELEASE_JOURNEY, RELEASE_STEPS } = await import(join(repo, 'scripts/release/domain/releaseJourney.mjs'));
+const { phoneInstallPlan } = await import(join(repo, 'scripts/diagnostics/application/phoneInstallPlan.mjs'));
 const steps = Object.fromEntries(RELEASE_STEPS.map((step) => [step, 'not reached']));
 const timings = {};
 let hosts;
@@ -343,11 +349,16 @@ try {
     }
     // The journey installs the exact release build, on a fresh app data dir:
     // an install over an existing app would keep a pairing to another computer.
+    // PHONE_PRESERVE_DEVICE=<serial> names a production device whose data must
+    // survive: it installs over the app without uninstalling (phoneInstallPlan).
     // PHONE_USE_INSTALLED=1 drives the app already on the phone as it is instead, and installs nothing.
     if (apk === undefined && process.env.PHONE_USE_INSTALLED !== '1') throw new Error('PHONE_APK must point at the release build to install (or PHONE_USE_INSTALLED=1 to drive the installed app)');
+    const plan = phoneInstallPlan({ serial, apk, preserveDevice: process.env.PHONE_PRESERVE_DEVICE, useInstalled: process.env.PHONE_USE_INSTALLED === '1' });
+    installPath = plan.install;
     if (apk !== undefined) {
-        try { adb('uninstall', PKG); } catch { /* the app was not installed yet */ }
-        adb('install', apk);
+        for (const [command, ...rest] of plan.calls) {
+            try { adb(command, ...rest); } catch (error) { if (command !== 'uninstall') throw error; /* the app was not installed yet */ }
+        }
         // A fresh install asks for notifications over Home, which hides the agent card.
         try { sh(`pm grant ${PKG} android.permission.POST_NOTIFICATIONS`); } catch { /* Android 12 and older ask nothing */ }
     }
@@ -555,14 +566,15 @@ try {
         if (version !== installed) log(`the app is ${installed} but the host is ${version}`);
     }
     writeFileSync(join(evidence, 'release-build.json'), `${JSON.stringify({
-        schema: 1, journey: RELEASE_JOURNEY, version,
+        schema: 1, journey: RELEASE_JOURNEY, version, install: installPath,
         build: { apk: apkDigest, package: tarball === undefined ? null : sha256(tarball) },
         result: verdict.startsWith('partial') ? 'partial' : verdict.startsWith('pass') && version === installed ? 'pass' : 'fail', steps, hosts: hosts ?? null, timings,
     }, null, 2)}\n`);
+    const installedAs = { 'installed-app': 'the release app already installed on the phone, restarted', preserving: 'the release app installed over the existing app on the phone, its data kept' }[installPath] ?? 'the release app freshly installed on the phone';
     // done-done's step record: what a user did and what they saw, from the verdict this run reached.
     writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
         target: { version: installed },
-        start: `${apk === undefined ? 'the release app already installed on the phone, restarted' : 'the release app freshly installed on the phone'}, with a lab computer running two agent panes that the phone is not yet paired to`,
+        start: `${installedAs}, with a lab computer running two agent panes that the phone is not yet paired to`,
         steps: ['pair the phone to the lab computer', 'open an agent and time its first attach, from the tap to the host\'s new terminal stream', 'close agent panes and attach again through pane churn', 'type a command at the agent',
             ...(stopAfterSend ? [] : ['scroll its history back and forward fast', 'open Usage and come back', 'count the hosts alive'])],
         result: verdict.startsWith('partial') ? `the first attach took ${timings.attachMs} ms from the tap to the host's new terminal stream, the phone attached after every round of pane churn, and the typed command printed its output on a clean screen; scrolling, Usage and the host count were not run`

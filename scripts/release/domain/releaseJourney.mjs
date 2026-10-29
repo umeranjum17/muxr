@@ -134,3 +134,45 @@ export function releaseBuild(manifest) {
     const digest = (suffix) => artifacts.find((item) => typeof item?.name === 'string' && item.name.endsWith(suffix))?.sha256;
     return { version, commit: manifest.source?.commit, apk: digest('.apk'), package: digest('.tgz') };
 }
+
+/**
+ * Where a release commits the owner's authorization to publish it. It is not
+ * a test result: it records that the owner asked for this build to ship
+ * before he could test it, and it never stands for his own phone test.
+ */
+export const ownerAuthorizationPath = (version) => `${RECEIPT_DIR}/builds/${version}.owner-authorization.json`;
+
+const COMMIT = /^[0-9a-f]{40}$/;
+
+/**
+ * Why an owner-authorization record does not cover `build` ({ version, commit,
+ * apk, package }) whose passing receipt is committed at `receiptPath`, or
+ * null. The record holds the owner's words verbatim, the UTC date, the keeper
+ * device and the receipt, and states `ownerTested: false`; a record that
+ * claims a test, or names any other build, is refused.
+ */
+export function ownerAuthorizationFault(record, build, receiptPath, now = Date.now()) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return 'it is not an owner authorization';
+    if (record.schema !== 1) return `its schema is ${record.schema}, not 1`;
+    if (record.ownerTested !== false) return 'it must say ownerTested is false: an authorization is never a captain test';
+    for (const field of ['words', 'device']) {
+        if (typeof record[field] !== 'string' || record[field].trim() === '') return `it holds no ${field}`;
+    }
+    if (typeof record.date !== 'string' || !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(record.date) || Number.isNaN(Date.parse(record.date))) {
+        return `its date ${record.date} is not a UTC timestamp such as 2026-10-29T08:00:00Z`;
+    }
+    if (Date.parse(record.date) > now + 60_000) return `its date ${record.date} is in the future`;
+    if (record.version !== build.version) return `it authorizes ${record.version}, not ${build.version}`;
+    if (!COMMIT.test(record.commit ?? '') || record.commit !== build.commit) return `it names commit ${String(record.commit).slice(0, 12)}, not this release's ${String(build.commit).slice(0, 12)}`;
+    for (const kind of ['apk', 'package']) {
+        if (!DIGEST.test(record[kind] ?? '')) return `its ${kind} digest is not a sha256`;
+        if (record[kind] !== build[kind]) return `it names ${kind} ${record[kind].slice(0, 12)}, not this release's ${String(build[kind]).slice(0, 12)}`;
+    }
+    if (record.receipt !== receiptPath) return `it cites receipt ${record.receipt}, not the passing receipt ${receiptPath}`;
+    return null;
+}
+
+/** The plain statement that a build is owner-authorized and not owner-tested, for the gate summary, release notes and publish log. */
+export function ownerAuthorizationNotice(record) {
+    return `Owner-authorized, NOT owner-tested: the owner has not yet tested this build on his own phone. On ${record.date} he said: "${record.words}". The phone-attach journey passed on keeper device ${record.device} (receipt ${record.receipt}).`;
+}
