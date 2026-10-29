@@ -33,3 +33,4 @@ export {
     voiceKeyClear,
     voiceReport,
 } from './application/voiceSettings';
+export { speakReply, spokenText } from './application/speakReply';

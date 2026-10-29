@@ -7,6 +7,7 @@ import { withAlpha } from '@/components/ui';
 import type { ChatState } from '../application/useChat';
 import { ChatImages } from './ChatImages';
 import { ChatSteps, DiffSheet } from './ChatSteps';
+import { ReplyActions } from './ReplyActions';
 
 export interface ChatPaneProps {
     sessionId: string;
@@ -18,8 +19,6 @@ export interface ChatPaneProps {
     /** What the agent is working on, from the same task title the header leads with. */
     task: string | undefined;
     statusColor: string;
-    /** The model the agent reports; absent when it has not said. */
-    model: string | undefined;
     ink: string;
     onOpenTerminal: () => void;
 }
@@ -54,6 +53,7 @@ function Message({ sessionId, message, live, ink, onFullDiff, onOpenTerminal }: 
             </View>}
             {message.images !== undefined && <View style={{ paddingVertical: 4 }}><ChatImages sessionId={sessionId} images={message.images} mine={false} /></View>}
             {message.tools !== undefined && <ChatSteps tools={message.tools} live={live} ink={ink} onFullDiff={onFullDiff} onOpenTerminal={onOpenTerminal} />}
+            {message.text !== '' && <ReplyActions sessionId={sessionId} markdown={message.text} />}
         </View>
     );
 }
@@ -97,7 +97,7 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
             <ScrollView
                 ref={list}
                 style={{ flex: 1 }}
-                contentContainerStyle={{ flexGrow: 1, width: '100%', maxWidth: 640, alignSelf: 'center', justifyContent: messages.length === 0 ? 'center' : 'flex-end', gap: 12, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8 }}
+                contentContainerStyle={{ flexGrow: 1, width: '100%', maxWidth: 740, alignSelf: 'center', justifyContent: messages.length === 0 ? 'center' : 'flex-end', gap: 12, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8 }}
                 keyboardShouldPersistTaps="handled"
                 onScroll={(event) => {
                     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -133,14 +133,6 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
                         </Text>
                     </View>
                 )}
-
-            {props.model !== undefined && (
-                <View style={{ flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 6 }}>
-                    <View accessible accessibilityLabel={`Model ${props.model}`} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surface }}>
-                        <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13 }}>{props.model}</Text>
-                    </View>
-                </View>
-            )}
 
             <DiffSheet tool={tool} onClose={() => setTool(null)} />
         </View>
