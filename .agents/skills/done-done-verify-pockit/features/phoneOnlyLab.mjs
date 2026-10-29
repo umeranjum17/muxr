@@ -19,7 +19,7 @@ const AUTH = 38911;
 const API = 38912;
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
-// One check judges at most 10 captures: the 8 steps and two reopened chats are cited from EVIDENCE;
+// One check judges at most 10 captures: seven of the eight steps and two reopened chats are cited from EVIDENCE;
 // the whole width/theme matrix is saved next to it.
 const MATRIX = `${EVIDENCE}-matrix`;
 const CITED_CELLS = ['390-light', '270-dark'];
@@ -151,7 +151,9 @@ try {
         if (find(await screen(), (v) => v.startsWith('Take your time')) === undefined) break;
     }
     await waitFor('the turn running', has('Thinking…'), 30);
-    await capture(flow, '5-turn-running');
+    // Saved with the matrix: the ten-capture cap leaves room for the other seven steps and two cells.
+    mkdirSync(join(MATRIX, 'flow'), { recursive: true });
+    await capture(join(MATRIX, 'flow'), '5-turn-running');
     await sh(`am force-stop ${PKG}`);
     await launch(has('Continue your chat'));
     await capture(flow, '6-reopened-card-continue');
