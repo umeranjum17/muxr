@@ -16,7 +16,7 @@ const ANSWERS = [
     { match: 'what can you do', text: 'I run on this phone. I can change how muxr looks: light, dark, or following your phone. Anything that needs a computer, I will tell you.' },
     { match: 'take your time', text: 'Here is a short one: why did the phone go to school? To get smarter.' },
 ];
-const SLOW_MS = 25_000;
+const SLOW_MS = 90_000;
 const sse = (event, data) => `event: ${event}\ndata: ${JSON.stringify({ type: event, ...data })}\n\n`;
 
 function said(body) {
@@ -43,6 +43,7 @@ export async function startPhoneStandIn({ authPort = 0, apiPort = 0, log = () =>
         let body = {};
         try { body = JSON.parse(raw.toString('utf8') || '{}'); } catch { /* not JSON: forward as is */ }
         const ask = req.url?.startsWith('/codex/responses') ? said(body) : undefined;
+        if (ask) log(`ask: ${ask.words.slice(0, 60)} tool=${ask.toolDone}`);
         const tools = Array.isArray(body.tools) ? body.tools.filter((t) => t?.type === 'function') : [];
         if (ask && !ask.toolDone && ask.words.includes('dark') && tools.some((t) => t.name === 'set_theme')) {
             const item = { type: 'function_call', call_id: 'call_theme', name: 'set_theme', arguments: JSON.stringify({ theme: 'dark' }) };
