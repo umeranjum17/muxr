@@ -62,7 +62,7 @@ await_label() { for _ in $(seq 20); do l=$(labels); if [ "${1:0:1}" = '!' ]; the
 QUESTION='────────────────\nRun rm -rf dist && pnpm build in /app/web? This deletes the existing dist folder, including the three files you edited by hand last week, and the build recreates it from source in about forty seconds.\n  1. Yes\n  2. Yes, and do not ask again for rm -rf dist commands in /app/web for the rest of this session\n  3. No, and tell Claude what to do differently'
 misses=0
 # A check judges every cited capture against the whole claim, so the cited folder holds only the frames this
-# run's claim is about (CHAT_WORK_CITE, at most 6 or 7: the judge takes ten files in all); the whole width/theme matrix stays in the matrix folder beside it.
+# run's claim is about (CHAT_WORK_CITE, the judge takes every file in the run folder as a capture, ten at most); the whole width/theme matrix stays in the matrix folder beside it.
 mx="${out%/}-matrix"; mkdir -p "$mx"
 for theme in ${CHAT_WORK_THEMES:-dark light}; do for cell in $CELLS; do
   IFS=: read -r nm w h dpr kind <<<"$cell"
@@ -105,10 +105,10 @@ await_label 'Answer Yes[^,A-Za-z]' || misses=$((misses + 1))
 ax eval "[...document.querySelectorAll('[aria-label^=\"Answer Yes, and\"]')][0]?.click()" >/dev/null; sleep 1
 ax screenshot "$mx/answered-390-dark.png" >/dev/null
 input=$(sed -n 's/^lab input: //p' "$root/lab.log" | head -1)
-cp "$input" "$out/pane-input.jsonl" 2>/dev/null
+cp "$input" "$mx/pane-input.jsonl" 2>/dev/null
 # Choice 2's number reached the pane through the terminal's own channel.
 answered=none
-grep -q '"source":"terminal.text".*"text":"2"' "$out/pane-input.jsonl" 2>/dev/null && answered=typed
+grep -q '"source":"terminal.text".*"text":"2"' "$mx/pane-input.jsonl" 2>/dev/null && answered=typed
 echo "answered: $answered" | tee -a "$mx/lines.log"
 [ "$answered" = typed ] || misses=$((misses + 1))
 for name in ${CHAT_WORK_CITE:-}; do cp "$mx/$name.png" "$out/"; done
