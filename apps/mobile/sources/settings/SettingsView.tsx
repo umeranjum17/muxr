@@ -6,6 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { SESSION_VIEW_CHOICES } from '@/chat';
 import { getCachedConnectionSettings } from '@/connection';
 import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/pairing/e2ee';
@@ -46,6 +47,7 @@ export const SettingsView = React.memo(function SettingsView({
     onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 }) {
     const { theme } = useUnistyles();
+    const compact = useCompactWindow();
     const router = useRouter();
     // Only a computer that can list accounts offers them.
     const accountsAvailable = usePlanAccountsAvailable();
@@ -348,7 +350,8 @@ export const SettingsView = React.memo(function SettingsView({
                     subtitle={Platform.OS === 'web' ? 'Set up from the muxr phone app' : 'Create a computer on Boat, then pair it with this device'}
                     titleLines={0}
                     subtitleLines={0}
-                    icon={<Ionicons name="cloud-outline" size={29} color={theme.colors.textSecondary} />}
+                    showChevron={!compact}
+                    icon={compact ? undefined : <Ionicons name="cloud-outline" size={29} color={theme.colors.textSecondary} />}
                     onPress={() => router.push('/cloud-computer')}
                 />
                 <Item
