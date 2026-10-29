@@ -27,8 +27,10 @@ an existing app capability (`set_theme`), and no shell or file access.
   under the emulator lock (`flock -o -w 600 /tmp/fm-muxr-emulator.lock`). It boots
   its own emulator, `pm clear`s the app and runs `phoneStandIn.mjs`, a stand-in
   for the ChatGPT BYOKit routes (device-code sign-in and the model API).
-- Pass: `journey.log` ends `RESULT done`; `flow/` holds the chat frames (steps 3, 4, 7, 8), two reopened chats are cited beside it, and the card, code, running-turn frames, log and the
-  360/390/445/270 dp light and dark matrix are saved in `<evidence>-matrix` (one check judges at most 10 captures).
+- Pass: `journey.log` (in `<evidence>-matrix`) ends `RESULT done`. The matrix folder holds every
+  step frame and the 360/390/445/270 dp light and dark chats; the evidence folder holds the one frame
+  `MUXR_LAB_CITE` names (`words`, `retried` or `light390`), because each frame is judged against the claim
+  and a multi-step claim leaves every single frame unsure. Verify once per frame with a claim only it shows.
 
 ## Gotchas
 

@@ -2,7 +2,7 @@
 // BYOKit stand-in, see phoneStandIn.mjs), read the plan words, send a message the agent
 // answers with its one tool, kill the app mid-turn, reopen and Try again. Then the
 // reopened chat at 360/390/445/270 dp, light and dark. Run from the repo root:
-//   node .agents/skills/done-done-verify-pockit/features/phoneOnlyLab.mjs --apk <apk> --evidence <dir> --avd-home <dir>
+//   node .agents/skills/done-done-verify-pockit/features/phoneOnlyLab.mjs --apk <apk> --evidence <dir> --avd-home <dir> [--cite words|retried|light390]
 // The APK must be built with EXPO_PUBLIC_MUXR_PHONE_AUTH_BASE=http://127.0.0.1:38911 and
 // EXPO_PUBLIC_MUXR_PHONE_API_BASE=http://127.0.0.1:38912 (the stand-in's ports).
 import { execFile } from 'node:child_process';
@@ -13,17 +13,18 @@ import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
 import { dumpUiXml } from '../../../../perf/lib/androidSignals.mjs';
 import { startPhoneStandIn } from './phoneStandIn.mjs';
 
-const { values: opts } = parseArgs({ options: { apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' } } });
+const { values: opts } = parseArgs({ options: { apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' }, cite: { type: 'string' } } });
 if (!opts.apk || !opts.evidence || !opts['avd-home']) throw new Error('--apk, --evidence and --avd-home are required');
 const AUTH = 38911;
 const API = 38912;
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
-// One check judges at most 10 captures and reads each against the whole claim, so EVIDENCE cites only the chat
-// frames (steps 3, 4, 7, 8 and two reopened chats); the card, code, running-turn frames, the log and the whole
-// width/theme matrix are saved next to it.
+// Every frame of the journey and the whole width/theme matrix are saved in MATRIX. A check judges each cited
+// capture against the whole claim, so EVIDENCE holds only the one frame (--cite) the run's claim is about.
 const MATRIX = `${EVIDENCE}-matrix`;
-const CITED_CELLS = ['390-light', '270-dark'];
+// --cite picks the one frame this run's claim is about; each frame is judged against a claim only it shows.
+const CITE = { words: 'flow/3-chat-account-words.png', retried: 'flow/8-retried-reply.png', light390: '390-light/chat-390-light.png' }[opts.cite ?? 'words'];
+if (!CITE) throw new Error('--cite is words, retried or light390');
 const CHECK = resolve('.agents/skills/done-done-verify-pockit/features/visualCheck.mjs');
 // 1080 px at density 480 is 360 dp, 443 is 390, 388 is 445 and 640 is the reference phone's 270.
 const CELLS = ['360', '390', '445', '270'].flatMap((width) => ['light', 'dark'].map((theme) => [width, theme]));
@@ -124,12 +125,11 @@ try {
     await adb(['install', opts.apk], 300_000);
     await sh('wm size 1080x2376; wm density 443; settings put system font_scale 1.0; cmd uimode night no');
     await sh(`pm clear ${PKG}`).catch(() => undefined);
-    const flow = join(EVIDENCE, 'flow');
+    const flow = join(MATRIX, 'flow');
     mkdirSync(flow, { recursive: true });
 
     await launch();
-    const early = join(MATRIX, 'flow');
-    mkdirSync(early, { recursive: true });
+    const early = flow;
     await capture(early, '1-first-run-card');
     await tapOn('the Just this phone card', (v) => v.startsWith('Just this phone'));
     await tapOn('Sign in with ChatGPT', (v) => v === 'Sign in with ChatGPT');
@@ -189,10 +189,10 @@ try {
         await tapOn('Continue your chat', (v) => v.startsWith('Continue your chat'));
         await waitFor('the chat', has('Uses your ChatGPT plan.'), 60);
         await capture(dir, `chat-${cell}`, true);
-        if (CITED_CELLS.includes(cell)) copyFileSync(join(dir, `chat-${cell}.png`), join(EVIDENCE, `chat-${cell}.png`));
     }
 
-    // The a11y dumps are not captures: move them beside the matrix so the cited folder holds only the ten frames.
+    copyFileSync(join(MATRIX, CITE), join(EVIDENCE, CITE.split('/').pop()));
+    // The a11y dumps are not captures: move them beside the matrix so the cited folder holds only the one frame.
     for (const file of readdirSync(EVIDENCE, { recursive: true }).filter((f) => f.endsWith('.xml'))) {
         const target = join(MATRIX, 'dumps', file);
         mkdirSync(dirname(target), { recursive: true });
