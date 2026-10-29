@@ -341,7 +341,8 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         paddingHorizontal: 12,
         minWidth: 0,
     },
-    titleBlock: { flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center' },
+    // Keep the title's intrinsic height: flex: 1 gives it a zero basis in the native column and clips wrapped lines.
+    titleBlock: { flexGrow: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center' },
     title: {
         ...Typography.default('semiBold'),
         fontSize: 16,

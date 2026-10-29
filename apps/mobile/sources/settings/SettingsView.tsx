@@ -344,6 +344,14 @@ export const SettingsView = React.memo(function SettingsView({
                     />
                 )}
                 <Item
+                    title="Add a cloud machine"
+                    subtitle={Platform.OS === 'web' ? 'Set up from the muxr phone app' : 'Create a computer on Boat, then pair it with this device'}
+                    titleLines={0}
+                    subtitleLines={0}
+                    icon={<Ionicons name="cloud-outline" size={29} color={theme.colors.textSecondary} />}
+                    onPress={() => router.push('/cloud-computer')}
+                />
+                <Item
                     title="Pair another machine"
                     subtitle="Open muxr on your computer, or run muxr pair, then scan the QR or paste its string"
                     icon={<Ionicons name="qr-code-outline" size={29} color="#007AFF" />}
