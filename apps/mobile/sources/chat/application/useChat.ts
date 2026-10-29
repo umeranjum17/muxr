@@ -14,9 +14,9 @@ export type ChatState =
     | { status: 'failed'; message: string; outdatedHost: boolean };
 
 /**
- * The agent's conversation while its chat is on screen. The host answers
+ * The agent's conversation while its screen is open. The host answers
  * `unchanged` until the log grows, so a quiet agent costs one tiny frame per
- * poll, and nothing is asked while the chat is hidden or the app is behind.
+ * poll, and nothing is asked while the screen is not focused or the app is behind.
  */
 export function useChat(sessionId: string, active: boolean): ChatState {
     const [state, setState] = React.useState<ChatState>({ status: 'loading' });
