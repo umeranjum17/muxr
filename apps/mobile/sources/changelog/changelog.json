@@ -1,6 +1,33 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.17",
+            "title": "Steadier agent cards on Home",
+            "summary": "Since 0.2.16: an agent keeps one Home card through a relaunch, and its last terminal picture stays visible when it returns to Live.",
+            "features": [],
+            "fixes": [
+                {
+                    "title": "One Home card per agent",
+                    "detail": "An agent moving between Live, Needs you and Ready no longer leaves an older card beside its current one, including when its task title changes or a pending request outlives its pane."
+                },
+                {
+                    "title": "Keep the last terminal picture",
+                    "detail": "When an agent returns to Live after Needs you or a replacement pane, Home keeps its last nonempty terminal picture until fresh output arrives. Pictures are kept separate for each computer."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Checks",
+                    "status": "not-run",
+                    "detail": "This release has not been accepted on a phone. The captain's own phone test is still required before stable publication."
+                }
+            ],
+            "knownLimits": [
+                "Home card transitions still use a brief settling delay; the Right now card and Spaces can update immediately.",
+                "The original physical-phone flashing report remains independently unverified."
+            ]
+        },
+        {
             "appVersion": "0.2.16",
             "title": "Move a conversation to another Claude account",
             "summary": "Since 0.2.15: agents can move their own conversation between signed-in Claude accounts from the terminal, and lab launches refuse an unsafe Claude launcher.",
