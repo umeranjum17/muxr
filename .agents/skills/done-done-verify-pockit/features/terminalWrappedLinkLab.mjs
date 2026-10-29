@@ -10,7 +10,7 @@
  *     node .agents/skills/done-done-verify-pockit/features/terminalWrappedLinkLab.mjs <evidence-dir>
  *
  * Run it under the phone's keeper lock, from the repo root after `yarn build`.
- * Writes shot-*.png, chrome-tabs.json, logcat.txt, events.json and done-done's
+ * Writes shot-*.png, chrome-tabs.json, events.json and done-done's
  * steps.json into <evidence-dir>.
  */
 import { execFile } from 'node:child_process';
@@ -154,8 +154,6 @@ try {
     writeFileSync(join(evidence, 'chrome-tabs.json'), `${JSON.stringify(tabs.map((tab) => ({ type: tab.type, title: tab.title, url: tab.url })), null, 2)}\n`);
     const opened = tabs.find((tab) => tab.url === URL_PRINTED || tab.url.startsWith(URL_PRINTED));
     note('chrome tab', { found: opened !== undefined, url: opened?.url });
-    const log = await adb('logcat', '-d', '-v', 'time');
-    writeFileSync(join(evidence, 'logcat.txt'), log.split('\n').filter((line) => /npmjs|ActivityTaskManager.*VIEW|CustomTabActivity/.test(line)).slice(-40).join('\n'));
     if (opened === undefined) throw new Error(`Chrome has no tab on the whole URL: ${tabs.map((tab) => tab.url).join(' | ')}`);
     note('pass', { expected: URL_PRINTED });
 } catch (error) {
