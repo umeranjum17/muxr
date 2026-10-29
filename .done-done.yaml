@@ -1,6 +1,46 @@
 # done-done project config. `done-done init` never overwrites this file.
 # The app name finds this repo's evidence and receipts from every checkout.
 app: "pockit"
+# Approved written requirements: supervisor inbox 003 (two doors), the
+# scoped slice-1 decision in inbox 004 (unchanged navigation), and the ticket's
+# existing Boat-flow requirement. Inbox 026 authorizes these retained captures.
+approved_requirements:
+  - kind: spec
+    name: native-connect-360-light
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    capture: connect-360-font1-light.png
+  - kind: spec
+    name: native-connect-360-dark
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    capture: connect-360-font1-dark.png
+  - kind: spec
+    name: native-connect-390-light
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    capture: connect-390-font1-light.png
+  - kind: spec
+    name: native-connect-390-dark
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    capture: connect-390-font1-dark.png
+  - kind: spec
+    name: pwa-connect-1280-light
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    capture: web-connect-1280-light.png
+  - kind: spec
+    name: pwa-connect-1280-dark
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    capture: web-connect-1280-dark.png
+  - kind: spec
+    name: pwa-demo-360-light
+    requirement: 'the main navigation unchanged after'
+    capture: web-demo-360-light.png
+  - kind: spec
+    name: pwa-demo-390-light
+    requirement: 'the main navigation unchanged after'
+    capture: web-demo-390-light.png
+  - kind: spec
+    name: native-boat-entry-390-light
+    requirement: 'the cloud-machine option reaching the existing Boat flow.'
+    capture: boat-entry-390-light.png
 # This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
 # agent: opencode
 
