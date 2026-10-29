@@ -13,13 +13,12 @@ import { ChoiceSheet, type Choice } from '@/components/ChoiceSheet';
 import { AvatarBrutalist } from '@/components/AvatarBrutalist';
 import { AvatarGradient } from '@/components/AvatarGradient';
 import { AvatarSkia } from '@/components/AvatarSkia';
-import { Appearance, Platform, StyleSheet, Text, View } from 'react-native';
-import * as SystemUI from 'expo-system-ui';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { Typography } from '@/constants/Typography';
 import { darkThemes, lightTheme, type DarkSurfaces, type Theme } from '@/theme';
+import { applyTheme, type ThemePreference } from '@/settings';
 import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 
-type ThemePreference = 'adaptive' | 'light' | 'dark';
 type AvatarStyle = 'pixelated' | 'gradient' | 'brutalist';
 
 const isAvatarStyle = (style: string): style is AvatarStyle =>
@@ -53,15 +52,6 @@ function ThemeTile({ palettes }: { palettes: readonly Theme['colors'][] }) {
             ))}
         </View>
     );
-}
-
-function applyTheme(next: ThemePreference, surfaces: DarkSurfaces): void {
-    UnistylesRuntime.setAdaptiveThemes(next === 'adaptive');
-    if (next !== 'adaptive') UnistylesRuntime.setTheme(next);
-    const dark = next === 'adaptive' ? Appearance.getColorScheme() === 'dark' : next === 'dark';
-    const color = dark ? darkThemes[surfaces].colors.groupped.background : lightTheme.colors.groupped.background;
-    UnistylesRuntime.setRootViewBackgroundColor(color);
-    void SystemUI.setBackgroundColorAsync(color);
 }
 
 /** Swaps the registered dark palette in place, so every screen repaints now. */

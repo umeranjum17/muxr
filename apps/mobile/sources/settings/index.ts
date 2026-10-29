@@ -5,3 +5,4 @@ export * from './NativeSettingsMenu.types';
 export * from './notificationSummary';
 export * from './SettingsView';
 export { openWebInstallGuide } from './WebInstallSupport';
+export { applyTheme, setThemePreference, type ThemePreference } from './applyTheme';

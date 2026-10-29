@@ -253,6 +253,13 @@ function DemoPairStep() {
                 wrap
                 onPress={() => router.push('/cloud-computer')}
             />
+            <ActionButton
+                title="Just this phone"
+                variant="secondary"
+                icon="phone-portrait-outline"
+                wrap
+                onPress={() => router.push('/phone')}
+            />
             <Text style={styles.pairHint}>
                 On your computer, run <Text style={styles.command}>muxr</Text> and paste the link it shows. Cloud setup is in the muxr phone app.
             </Text>
