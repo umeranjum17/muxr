@@ -102,7 +102,9 @@ done; done
 shoot mobile 390 844 3 dark; sleep 3
 lab "output $QUESTION"; lab "status blocked Fix empty cart shipping"
 await_label 'Answer Yes[^,A-Za-z]' || misses=$((misses + 1))
-ax eval "[...document.querySelectorAll('[aria-label^=\"Answer Yes, and\"]')][0]?.click()" >/dev/null; sleep 1
+ax eval "[...document.querySelectorAll('[aria-label^=\"Answer Yes, and\"]')][0]?.click()" >/dev/null
+# The agent takes the answer and its screen clears while it carries on.
+lab "output "; sleep 2
 ax screenshot "$mx/answered-390-dark.png" >/dev/null
 input=$(sed -n 's/^lab input: //p' "$root/lab.log" | head -1)
 cp "$input" "$mx/pane-input.jsonl" 2>/dev/null
