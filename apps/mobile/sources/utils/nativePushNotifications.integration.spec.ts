@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const persistence = vi.hoisted(() => ({
     token: 'ExpoPushToken[device]' as string | null,
     clear: vi.fn(),
+    provision: vi.fn(),
     client: { registerPush: vi.fn(), unregisterPush: vi.fn() },
 }));
 
@@ -16,7 +17,7 @@ vi.mock('@/catalog/application/persistence', () => ({
     saveRegisteredPushToken: (token: string) => { persistence.token = token; },
 }));
 vi.mock('@/utils/microphonePermissions', () => ({ requestNotificationPermission: async () => true }));
-vi.mock('@/pairing', () => ({ listPairedGrants: async () => [], nativeNoticeSecret: async () => undefined, syncNativeNotices: async () => undefined }));
+vi.mock('@/pairing', () => ({ listPairedGrants: async () => [], nativeNoticeSecret: async () => undefined, syncNativeNotices: async (grants: unknown[]) => persistence.provision(grants) }));
 vi.mock('@/catalog/store', () => ({
     storage: { getState: () => ({ localSettings: { lifecycleNotificationLevel: 'important' } }) },
 }));
@@ -27,6 +28,7 @@ describe('native lifecycle push registration over the session', () => {
     beforeEach(() => {
         persistence.token = 'ExpoPushToken[device]';
         persistence.clear.mockClear();
+        persistence.provision.mockClear();
         persistence.client.registerPush.mockReset();
         persistence.client.unregisterPush.mockReset().mockResolvedValue(true);
     });
@@ -51,6 +53,7 @@ describe('native lifecycle push registration over the session', () => {
         mutations.length = 0;
         const post = updateNativePushNotificationLevel('important');
         await vi.waitFor(() => expect(mutations).toEqual(['important']));
+        const provisionsBeforeLogout = persistence.provision.mock.calls.length;
         const logout = unregisterNativePushNotifications({ token: 'device-credential' } as never);
         const lateUpdate = updateNativePushNotificationLevel('all');
         await expect(post).resolves.toBe(true);
@@ -58,5 +61,7 @@ describe('native lifecycle push registration over the session', () => {
         await expect(lateUpdate).resolves.toBe(false);
         expect(mutations).toEqual(['important', 'logout']);
         expect(persistence.clear).toHaveBeenCalledOnce();
+        expect(persistence.provision).toHaveBeenCalledTimes(provisionsBeforeLogout + 1);
+        expect(persistence.provision).toHaveBeenLastCalledWith([]);
     });
 });

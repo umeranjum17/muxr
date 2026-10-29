@@ -159,6 +159,8 @@ export function unregisterNativePushNotifications(_credentials: AuthCredentials)
         pendingNotificationLevel = null;
         if (syncingNotificationLevel !== null) await syncingNotificationLevel;
         pendingNotificationLevel = null;
+        // Disable native replies before logout can clear credentials or fail in other cleanup.
+        await syncNativeNotices([]);
         if (loadRegisteredPushToken() === null) return;
         if (await activeSessionClient()?.unregisterPush().catch(() => false)) clearRegisteredPushToken();
     })().finally(() => { unregistering = null; });
