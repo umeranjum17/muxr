@@ -37,7 +37,6 @@ vi.mock('react-native', () => ({
     ScrollView: 'ScrollView',
     ActivityIndicator: 'ActivityIndicator',
 }));
-vi.mock('@/phone/ui', () => ({ JustThisPhoneCard: () => null }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: { create: (styles: (theme: unknown) => unknown) => styles(theme) },
     useUnistyles: () => ({ theme }),

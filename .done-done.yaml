@@ -312,12 +312,6 @@ journeys:
   first-run-steps:
     command: node .agents/skills/done-done-verify-pockit/features/firstRunStepsLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --ref "$MUXR_LAB_REF" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
-  # "Just this phone" on a fresh install: sign in to a BYOKit ChatGPT stand-in, chat,
-  # kill the app mid-turn, reopen and Try again. APK built with the stand-in's ports
-  # in EXPO_PUBLIC_MUXR_PHONE_AUTH_BASE / _API_BASE (see phoneOnlyLab.mjs).
-  phone-only:
-    command: node .agents/skills/done-done-verify-pockit/features/phoneOnlyLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --cite "${MUXR_LAB_CITE:-words}" > /dev/null 2>&1
-    timeout: 30m
   # A version bump on the built web export: the changelog entry validates for
   # package.json's version, checkWebExport passes, and the served export's
   # Settings screen reads that version at 390 px. Run after `yarn web:export`.

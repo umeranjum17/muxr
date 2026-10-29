@@ -66,10 +66,6 @@ export default function RootLayout() {
                 options={{ headerShown: true, headerTitle: 'Cloud computer' }}
             />
             <Stack.Screen
-                name="phone"
-                options={{ headerShown: true, headerTitle: 'Just this phone' }}
-            />
-            <Stack.Screen
                 name="notification"
                 options={{ headerShown: false }}
             />
