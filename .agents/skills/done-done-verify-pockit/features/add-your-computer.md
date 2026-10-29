@@ -12,7 +12,7 @@ terminal install.
 
 ## Sub-features
 
-- `entry-first-run` an unpaired native app's step 2, **Get muxr on your computer**, has **Get the desktop app**, which opens this screen; it sits after step 1 (Get Tailscale) and before the pair card.
+- `entry-first-run` the My computer door's Get ready step, card 2 **muxr on the computer**, has **Get the desktop app**, which opens this screen; it sits after card 1 (Tailscale on both ends) and before Next: pair.
 - `entry-settings` Settings → Machines has **Add your computer** above **Pair another machine**.
 - `link-and-qr` the screen shows the link's QR (dark on white in both themes), the link text, **Copy link** (with a "Link copied." line) and **Share link** (the system sheet).
 - `pair-step` step 3 is **Scan the computer’s QR** (or **Enter its pairing code** where the device can't scan), into the existing consent and two-word check.

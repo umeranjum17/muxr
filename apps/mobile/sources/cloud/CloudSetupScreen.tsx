@@ -13,6 +13,7 @@ import { getNativeSecret, setNativeSecret } from '@/pairing/secrets';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { Typography } from '@/constants/Typography';
 import { OnboardingStepHeader } from '@/components/OnboardingStepHeader';
+import { WordWrappingText } from '@/components/WordWrappingText';
 import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, pendingBoatSize, PRICE, type BoatSize, type DeployStep } from './deployBoatComputer';
 
 /**
@@ -188,7 +189,7 @@ export function CloudSetupScreen() {
     }, [email]);
 
     if (Platform.OS === 'web') {
-        return <View style={styles.webNotice}><Text style={styles.heading}>Your cloud computer</Text><Text style={styles.body}>Set up from the muxr phone app.</Text></View>;
+        return <View style={styles.webNotice}><WordWrappingText fontSize={24} lineHeight={30} style={styles.heading} accessibilityRole="header">Your cloud computer</WordWrappingText><Text style={styles.body}>Set up from the muxr phone app.</Text></View>;
     }
 
     const phase = deploy === undefined ? -1 : PHASES.findIndex((p) => p.steps.includes(deploy.step));

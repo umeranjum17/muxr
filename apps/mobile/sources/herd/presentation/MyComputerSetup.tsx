@@ -8,6 +8,8 @@ import { Typography } from '@/constants/Typography';
 import { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner } from '@/pairing';
 import { ActionButton } from '@/components/ActionButton';
 import { OnboardingStepHeader } from '@/components/OnboardingStepHeader';
+import { WordWrappingText } from '@/components/WordWrappingText';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { loadAppConfig } from '@/catalog';
 import { addComputerLink, setupEmptyState } from '@/commercialization';
 import { openExternalUrl } from '@/utils/openExternalUrl';
@@ -152,16 +154,27 @@ function PairStep() {
             <View style={styles.card}>
                 <Text style={styles.cardTitle}>Then check two words</Text>
                 <Text style={styles.hint}>The same two words show here and on your computer. If they match, approve on the computer.</Text>
-                <View style={styles.words}>
-                    <Text style={styles.word}>harbor</Text>
-                    <Text style={styles.word}>lantern</Text>
-                </View>
+                <ExampleWords />
                 <Text style={styles.example}>Example words</Text>
             </View>
             <StepCard title="Next · Start an agent" time="about 30 s">
                 <Text style={styles.hint}>Pairing lands you on Home. Start your first agent there and it opens in a terminal on your computer.</Text>
             </StepCard>
         </>
+    );
+}
+
+// In a narrow window the two words stack, each as wide as the card, and a
+// word wider than that scales down instead of breaking.
+function ExampleWords() {
+    const styles = stylesheet;
+    const compact = useCompactWindow();
+    return (
+        <View style={[styles.words, compact && styles.wordsStacked]}>
+            {['harbor', 'lantern'].map((word) => compact
+                ? <View key={word} style={styles.wordChip}><WordWrappingText fontSize={18} lineHeight={24} style={styles.wordText}>{word}</WordWrappingText></View>
+                : <Text key={word} style={[styles.wordChip, styles.wordText]}>{word}</Text>)}
+        </View>
     );
 }
 
@@ -200,15 +213,14 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     inputPlaceholder: { color: theme.colors.textSecondary },
     words: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 },
-    word: {
-        ...Typography.mono('semiBold'),
-        fontSize: 18,
-        color: theme.colors.text,
+    wordsStacked: { flexDirection: 'column', alignItems: 'stretch' },
+    wordChip: {
         backgroundColor: theme.colors.surfaceHighest,
         borderRadius: 8,
         paddingHorizontal: 12,
         paddingVertical: 6,
         overflow: 'hidden',
     },
+    wordText: { ...Typography.mono('semiBold'), fontSize: 18, textAlign: 'center', color: theme.colors.text },
     example: { ...Typography.mono(), fontSize: 11, textAlign: 'center', letterSpacing: 0.4, color: theme.colors.textSecondary },
 }));

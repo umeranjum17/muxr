@@ -6,6 +6,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { sshTunnelAvailable } from '@/connection';
 import { WordWrappingText } from '@/components/WordWrappingText';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { BOAT_FROM_PER_HOUR } from '@/cloud';
 
 /**
@@ -103,6 +104,9 @@ function Door(props: {
     onPress: () => void;
 }) {
     const styles = stylesheet;
+    // In a narrow window the icon and chevron would leave the title a few
+    // letters wide; it takes the whole row and keeps its words whole.
+    const compact = useCompactWindow();
     return (
         <Pressable
             accessibilityRole="button"
@@ -111,9 +115,11 @@ function Door(props: {
             onPress={props.onPress}
         >
             <View style={styles.doorHead}>
-                <View style={styles.doorIcon}><Ionicons name={props.icon} size={20} color={styles.doorTitle.color} /></View>
-                <Text style={styles.doorTitle}>{props.title}</Text>
-                <Ionicons name="chevron-forward" size={20} color={styles.doorMeta.color} />
+                {!compact && <View style={styles.doorIcon}><Ionicons name={props.icon} size={20} color={styles.doorTitle.color} /></View>}
+                <View style={styles.doorTitleBox}>
+                    <WordWrappingText fontSize={18} lineHeight={23} style={styles.doorTitle}>{props.title}</WordWrappingText>
+                </View>
+                {!compact && <Ionicons name="chevron-forward" size={20} color={styles.doorMeta.color} />}
             </View>
             <Text style={styles.doorWhat}>{props.what}</Text>
             {props.lines.map((line, index) => (
@@ -169,10 +175,9 @@ const stylesheet = StyleSheet.create((theme) => ({
         justifyContent: 'center',
         backgroundColor: theme.colors.surfaceHighest,
     },
+    doorTitleBox: { flex: 1, minWidth: 0 },
     doorTitle: {
         ...Typography.default('semiBold'),
-        flex: 1,
-        minWidth: 0,
         fontSize: 18,
         lineHeight: 23,
         color: theme.colors.text,
