@@ -412,7 +412,15 @@ try {
         [production.name, production.scheme, production.android.package, production.ios.bundleIdentifier, production.extra.app.publicBaseUrl],
         ['muxr', 'muxr', 'com.trymuxr.app', 'com.trymuxr.app', 'https://owner.invalid'],
     );
-    assert.equal(production.extra.eas, undefined, 'an old EAS project id leaked into production config');
+    // The published notice plugin records its signing target, not an EAS project id.
+    // Keep the whole object exact so stale project ids/other metadata still fail.
+    assert.deepEqual(production.extra.eas, {
+        build: { experimental: { ios: { appExtensions: [{
+            targetName: 'ByokitNoticeService',
+            bundleIdentifier: 'com.trymuxr.app.notices',
+            entitlements: { 'com.apple.security.application-groups': ['group.com.trymuxr.app.notices'] },
+        }] } } },
+    }, 'production EAS config must contain only the notice extension signing metadata');
     const unconfiguredProduction = run('npx', ['expo', 'config', '--json'], {
         cwd: join(root, 'apps', 'mobile'),
         env: { ...process.env, APP_ENV: 'production', MUXR_APP_ID_BASE: '', MUXR_PUBLIC_BASE_URL: '' },
