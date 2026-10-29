@@ -78,7 +78,7 @@ export function PhoneChat(props: {
                     <Turn key={turn.requestId} turn={turn} busy={props.busy} onTryAgain={props.onTryAgain} />
                 ))}
             </ScrollView>
-            <View style={[styles.composer, { paddingBottom: keyboard > 0 ? keyboard : Math.max(insets.bottom, 10) }]}>
+            <View style={[styles.composer, { paddingBottom: keyboard > 0 ? keyboard : Math.max(insets.bottom, 28) }]}>
                 <Text style={styles.account}>{props.account.words}</Text>
                 <View style={styles.row}>
                     <TextInput
