@@ -203,6 +203,7 @@ export default {
         },
         plugins: [
             "@byokit/statusbar",
+            "onnxruntime-react-native",
             withDevelopmentCleartext,
             withMinimalAudioManifest,
             require("./plugins/withEinkCompatibility.js"),

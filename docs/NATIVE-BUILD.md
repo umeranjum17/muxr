@@ -269,7 +269,7 @@ unzip -l "$APK" | awk '$4 ~ /^lib\// {split($4,p,"/"); print p[2]}' | sort -u
 ```
 
 Expect only `arm64-v8a`, a valid v2 signature, the bundled Whisper and Silero VAD
-models, and no Sherpa/ONNX wake-word assets.
+models, plus the pinned 2,327,524-byte Silero VAD 5.1 ONNX graph and ONNX Runtime React Native native libraries for voice standby. The graph adds 2.33 MB before APK compression; no Sherpa or wake-word assets are included.
 
 ## TLS requirement
 

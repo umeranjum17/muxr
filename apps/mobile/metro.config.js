@@ -11,7 +11,7 @@ config.watchFolders = [...(config.watchFolders ?? []), workspaceRoot];
 
 // Add support for .wasm files (required by Skia for all platforms)
 // Source: https://shopify.github.io/react-native-skia/docs/getting-started/installation/
-config.resolver.assetExts.push('wasm', 'bin');
+config.resolver.assetExts.push('wasm', 'bin', 'onnx');
 // Native builds create/delete transient directories while Metro is watching.
 // They are not JS inputs; exclude them so Fast Refresh survives a debug rebuild.
 // Also exclude caches/temp/native outputs. Keep JS dist/build packages and

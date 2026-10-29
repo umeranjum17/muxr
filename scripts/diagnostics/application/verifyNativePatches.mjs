@@ -76,6 +76,13 @@ const sileroModel = (() => {
         return Buffer.alloc(0);
     }
 })();
+const byokitVadModel = (() => {
+    try {
+        return readFileSync(new URL('apps/mobile/sources/assets/models/silero_vad_v5_1.onnx', root));
+    } catch {
+        return Buffer.alloc(0);
+    }
+})();
 // The iOS manifest is installed state too: an unreadable one fails its check
 // below instead of throwing past the repair hint.
 const iosPinOk = (() => {
@@ -202,6 +209,11 @@ const checks = [
         'on-device dictation bundles the verified Silero VAD model (ggml-silero-v6.2.0.bin)',
         sileroModel.length === 885_098 &&
             createHash('sha256').update(sileroModel).digest('hex') === '2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987',
+    ],
+    [
+        'standby bundles the pinned BYOKit Silero VAD 5.1 graph',
+        byokitVadModel.length === 2_327_524 &&
+            createHash('sha256').update(byokitVadModel).digest('hex') === '2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f',
     ],
     [
         // Without it every dictation prompt reaches whisper.cpp as freed memory.
