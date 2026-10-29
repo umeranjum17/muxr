@@ -260,6 +260,15 @@ journeys:
   cloud-screen-switch:
     command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --views 360:1.0:light,360:1.0:dark,390:1.0:light,390:1.0:dark,445:1.0:light,445:1.0:dark,270:1.0:light,270:2.0:light,270:2.0:dark --size-only > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # A link an agent hard-wrapped over several rows opens whole, on the real
+  # phone (terminal-wrapped-link.md): the lab dev-id release app, paired to the
+  # fake stack that prints one long npm URL with a real new line at every
+  # column, taps its last row, chooses Open and finds Chrome on the whole URL.
+  # Runs by hand under the phone's keeper lock (fm-device-lock.sh) with
+  # PHONE_SERIAL and PHONE_APK (package app.muxr.links1.dev).
+  terminal-wrapped-link:
+    command: node .agents/skills/done-done-verify-pockit/features/terminalWrappedLinkLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # A Claude account is added from the phone end to end: Accounts, Open Claude
   # sign-in, the code sent from the sign-in tab's composer, Name this account
   # (see the add-account feature). Runs by hand under the emulator lock with

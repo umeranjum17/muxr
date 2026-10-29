@@ -198,6 +198,54 @@ describe('terminal printed links open only as safe web URLs', () => {
         term.dispose();
     });
 
+    // An agent that wraps its own text (Claude Code) ends each row with a real
+    // new line at the column width, so the grid never flags the next row as a
+    // soft wrap and the URL used to open cut at the row edge.
+    it('joins a URL an agent hard-wrapped at the exact width, over three rows, and not a break that breaks the URL', async () => {
+        const open = async (cols: number, text: string) => {
+            const term = new xterm.Terminal({ cols, rows: 4 });
+            await new Promise<void>((resolve) => term.write(text, resolve));
+            const lineAt = (r: number) => term.buffer.active.getLine(r)!;
+            const rowAt = (r: number): TerminalLinkRow | undefined => {
+                const line = lineAt(r);
+                return line ? { text: line.translateToString(false), isWrapped: line.isWrapped } : undefined;
+            };
+            return { term, lineAt, rowAt };
+        };
+        const url = 'https://x.io/aaaa/bbcc/dddd/eeee/ffff/gghh?q=1';
+
+        const wrapped = await open(20, 'https://x.io/aaaa/bb\r\ncc/dddd/eeee/ffff/gg\r\nhh?q=1');
+        expect(wrapped.lineAt(1).isWrapped).toBe(false);
+        for (const [row, col] of [[0, 3], [1, 0], [1, 19], [2, 5]] as const) {
+            const tapped = plainLinkAtCell(wrapped.lineAt(row), 20, col, row, wrapped.rowAt);
+            expect(tapped).toBe(url);
+            // What opens is what was joined, whole.
+            const opened: string[] = [];
+            openTerminalLink(tapped!, async (u) => { opened.push(u); });
+            expect(opened).toEqual([url]);
+        }
+        // The underline spans the same three rows the tap resolves.
+        const rangesOf = (r: number) => joinedTerminalUrlRanges(wrapped.lineAt(r), 20, r, wrapped.rowAt);
+        expect([rangesOf(0), rangesOf(1), rangesOf(2)]).toEqual([
+            [{ start: 0, length: 20 }],
+            [{ start: 0, length: 20 }],
+            [{ start: 0, length: 6 }],
+        ]);
+        wrapped.term.dispose();
+
+        // A row that fills the width with a real new line after it, followed
+        // by text that cannot continue the URL (":44" + "3x" is no port), or
+        // by a blank-led line, is a genuine line break: nothing joins.
+        const broken = await open(22, 'https://example.com:44\r\n3x/path\r\n');
+        expect(plainLinkAtCell(broken.lineAt(0), 22, 3, 0, broken.rowAt)).toBe('https://example.com:44');
+        expect(plainLinkAtCell(broken.lineAt(1), 22, 1, 1, broken.rowAt)).toBeNull();
+        broken.term.dispose();
+        const spaced = await open(20, 'https://x.io/aaaa/bb\r\n  done');
+        expect(plainLinkAtCell(spaced.lineAt(0), 20, 3, 0, spaced.rowAt)).toBe('https://x.io/aaaa/bb');
+        expect(plainLinkAtCell(spaced.lineAt(1), 20, 3, 1, spaced.rowAt)).toBeNull();
+        spaced.term.dispose();
+    });
+
     // A printed link is whatever the agent wrote. The menu names it before
     // offering Copy, so a value no URL parser accepts has to render as text
     // rather than throw the card away before Copy is reachable.
