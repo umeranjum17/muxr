@@ -28,13 +28,14 @@ import * as Clipboard from 'expo-clipboard';
 import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionError, useSessionGitStatus, useSessions, useSocketStatus } from '@/catalog/store';
 import { sessionAbort, sessionStop } from '@/catalog/ops';
 import { agentHasChat, rememberPaneView, resolvePaneView, useChat } from '@/chat';
+import { ChatComposerCard, ChatSidePanel, ComposerMic, sidePanelWidth } from '@/chat/ui';
 import { ChatPane, ChatViewToggle } from '@/chat/ui';
 import { registerArtifactUpdateHandler, sync } from '@/catalog/sync';
 import { resolveMessageModeMeta, type DraftAttachment } from '@/catalog';
 import { recordAgentGate, recordTrackedRpc } from '@/catalog/diagnostics';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
-import { ComputersSheet, ContinueRow, ContinueSheet, PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
-import type { HerdrTreeTab } from '@trymuxr/contract';
+import { ComputersSheet, ContinueRow, ContinueSheet, PaneOverviewSheet, WorkspaceTreeSheet } from '@/herd/ui';
+import type { ChangesFile, HerdrTreeTab } from '@trymuxr/contract';
 import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { AgentPager } from './AgentPager';
 import { AgentGlyph } from '@/components/AgentGlyph';
@@ -95,6 +96,7 @@ import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
 import { agentCommands, destructiveCommand, type AgentCommand } from '../domain/agentCommands';
 import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
+import { sidebarWidth, useSplitViewLayout } from '@/utils/responsive';
 import { PREVIEW_DOCK, previewDocks, requestDesktop, type DesktopOrigin } from '@/desktop/request';
 import { PreviewChip, PreviewTooltip, previewIcon, usePreviewGate } from '@/desktop/preview';
 import { FindOutputSheet } from './FindOutputSheet';
@@ -209,6 +211,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // control doubles against it. Native never gets this narrow (its controls
     // keep their size; only text grows), so it keeps the full header and rail.
     const narrowChrome = windowWidth < NARROW_SHEET_WINDOW;
+    const splitView = useSplitViewLayout();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const isFocused = useIsFocused();
     const socketStatus = useSocketStatus();
@@ -281,14 +284,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const storedPane = herdrPaneForSession(workspaces, props.id);
     const gitStatus = useSessionGitStatus(props.id);
     const [changesCount, setChangesCount] = React.useState<number | null>(null);
+    const [changedFiles, setChangedFiles] = React.useState<readonly ChangesFile[]>([]);
     const [artifactsCount, setArtifactsCount] = React.useState<number | null>(null);
     // The count refetches on every lifecycle move, so the header pill follows
     // the agent's edits while the screen stays open — not only on refocus.
     useFocusEffect(React.useCallback(() => {
         let cancelled = false;
         changesList(props.id)
-            .then((badge) => { if (!cancelled) setChangesCount(badge.count); })
-            .catch(() => { if (!cancelled) setChangesCount(null); });
+            .then((badge) => { if (!cancelled) { setChangesCount(badge.count); setChangedFiles(badge.files); } })
+            .catch(() => { if (!cancelled) { setChangesCount(null); setChangedFiles([]); } });
         const unsubscribe = registerArtifactUpdateHandler((sessionId, event) => {
             if (!cancelled && sessionId === props.id) setArtifactsCount(event.total);
         });
@@ -802,11 +806,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [paneViews, setPaneViews] = useLocalSettingMutable('paneViews');
     const paneView = resolvePaneView({ agentKind: paneKind, own: paneViews[props.id], setting: sessionViewSetting, shortSide: Math.min(windowWidth, windowHeight) });
     const chatShown = paneView === 'chat';
+    // On a wide window the chat has the agent's project, changes, artifacts and usage beside it,
+    // once the column is still left its full reading width.
+    const sidePanelShown = chatShown && splitView && windowWidth - sidebarWidth(windowWidth) - sidePanelWidth(windowWidth) >= 700 && !previewDocked;
     const appTheme = useUnistyles().rt.themeName ?? 'dark';
     // Back names Home only where the title keeps its room beside it.
     const backWord = chatShown && windowWidth / fontScale >= 340;
     const choosePaneView = React.useCallback((view: 'chat' | 'terminal') => setPaneViews(rememberPaneView(paneViews, props.id, view)), [paneViews, props.id, setPaneViews]);
-    const chat = useChat(props.id, chatShown && isFocused);
+    // Read for every chat agent, whichever view is up, so a switch to the chat opens on the conversation as it is.
+    const chat = useChat(props.id, agentHasChat(paneKind) && isFocused);
     const latestShown = localBack > 0 || showJump || (hostHasScrollback === false && scrolledAway && !DRAWS_OWN_LATEST.has(paneKind ?? ''));
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (next) => setAppActive(next === 'active'));
@@ -1385,7 +1393,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const permission = permissionModeChip(session === null || session === undefined ? null : resolveMessageModeMeta(session).permissionMode);
     const linesAdded = gitStatus !== null && gitStatus.linesAdded > 0 ? `+${gitStatus.linesAdded}` : null;
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
-    const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
     const contextTitle = labels.title;
     const contextName = agentBesideName(labels);
     const identityKnown = currentPane !== undefined;
@@ -1414,7 +1421,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const railInk = chatShown ? theme.colors.header.background : theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'];
             // Settings can put away the pane tabs at one pane and the key row
             // altogether; the rail's top air stays with whatever row is first.
-            const showPaneTabs = treeLoaded && located !== undefined && (paneTabsSetting === 'always' || workspaceTabs.length > 1);
+            const showPaneTabs = !chatShown && treeLoaded && located !== undefined && (paneTabsSetting === 'always' || workspaceTabs.length > 1);
             // A pane the tree has not listed yet -- one just split off, or one
             // opened before the tree arrived -- keeps the tabs row's height
             // meanwhile. The row filling in later would shrink the grid the
@@ -1476,7 +1483,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 // sizes to content already, and there `numberOfLines` would cap
                 // the growth instead of seeding it.
                 {...(Platform.OS === 'web' ? { rows: 1 } as object : {})}
-                placeholder={chatShown ? (windowWidth < 340 ? 'Reply…' : `Reply to ${agentKindLabel(labels.agentKind) ?? 'the agent'}`) : windowWidth < 340 ? 'Prompt…' : 'Type a prompt…'}
+                placeholder={chatShown ? (windowWidth < 340 ? 'Reply…' : 'Reply or hold to talk') : windowWidth < 340 ? 'Prompt…' : 'Type a prompt…'}
                 placeholderTextColor={theme.colors.textSecondary}
                 // The rail keeps one height; at Android font scale 2.0 the field
                 // and its placeholder grew past it. Capped like the pane-tabs
@@ -1540,14 +1547,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // the empty state silently fell through to a disabled send. Third
             // party contributions keep their own row in the pane menu.
             const readyToSend = draft.trim() !== '' || attachedPaths.length > 0 || pendingAttachments.length > 0;
-            // A working agent in the chat view: the same circle stops it, the way the chat's own composer does.
-            const stopAction = railEnd(<Pressable onPress={() => { void sessionAbort(props.id).catch((error: unknown) => Modal.alert("Couldn't stop it", humanError(error).message)); }} accessibilityRole="button" accessibilityLabel="Stop"
-                style={({ pressed }) => ({ ...endCircle(pressed, theme.colors.accent), opacity: pressed ? 0.8 : 1 })}>
-                <Ionicons name="stop" size={16} color={theme.dark ? '#111111' : '#ffffff'} />
-            </Pressable>);
-            const trailingAction = !readyToSend && canControl && chatShown && paneLifecycle === 'working'
-                ? stopAction
-                : !readyToSend && canControl
+            const trailingAction = !readyToSend && canControl
                 ? railEnd(<View style={endCircle(false)}>
                     {/* The trailing circle is the rail's primary action, so its
                         mark is drawn in the text colour; the microphone inside
@@ -1555,6 +1555,39 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     <RealtimeTalkButton sessionId={props.id} accessibilityLabel="Talk to this session" size={RAIL_END} idleTint={theme.colors.text} />
                 </View>)
                 : sendAction;
+            // The chat's composer is one card: the field above, then + · the model
+            // chip · one mic · send · stop, all the same 36 dp circles. Send shows
+            // once there is something to send and Stop while the agent works, so
+            // the two sit side by side when a reply is typed over a running turn.
+            const CHAT_CONTROL = 36;
+            const chatCircle = (pressed: boolean, fill: string) => ({ width: CHAT_CONTROL, height: CHAT_CONTROL, borderRadius: CHAT_CONTROL / 2, alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: fill, opacity: pressed ? 0.7 : 1 });
+            const chatComposer = (
+                <View style={{ flexDirection: 'row', paddingHorizontal: 8, paddingTop: 4, paddingBottom: insets.bottom + 8 }}>
+                    <ChatComposerCard
+                        dictation={dictation}
+                        dictating={dictationActive}
+                        controlSize={CHAT_CONTROL}
+                        input={<View style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center' }}>{composerInput}{clearAction}</View>}
+                        attach={<Pressable onPress={attach} disabled={attaching} accessibilityRole="button" accessibilityLabel="Add attachment" accessibilityState={{ disabled: attaching }}
+                            style={({ pressed }) => chatCircle(pressed, withAlpha(theme.colors.text, 0.1))}>
+                            <Ionicons name={attaching ? 'hourglass-outline' : 'add'} size={20} color={theme.colors.textSecondary} />
+                        </Pressable>}
+                        reportedModel={labels.model}
+                        agentKind={paneKind}
+                        modelEnabled={canControl && channel !== undefined}
+                        onModelCommand={(command) => { sendCommand(command); choosePaneView('terminal'); }}
+                        mic={<ComposerMic sessionId={props.id} dictation={dictation} size={CHAT_CONTROL} />}
+                        send={readyToSend ? <Pressable onPress={sendPrompt} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }}
+                            style={({ pressed }) => chatCircle(pressed, canSend ? CHAT_SEND : withAlpha(theme.colors.text, 0.08))}>
+                            <Ionicons name="arrow-up" size={19} color={canSend ? '#ffffff' : theme.colors.textSecondary} />
+                        </Pressable> : null}
+                        stop={paneLifecycle === 'working' ? <Pressable onPress={() => { void sessionAbort(props.id).catch((error: unknown) => Modal.alert("Couldn't stop it", humanError(error).message)); }} accessibilityRole="button" accessibilityLabel="Stop"
+                            style={({ pressed }) => chatCircle(pressed, theme.colors.accent)}>
+                            <Ionicons name="stop" size={15} color={theme.dark ? '#111111' : '#ffffff'} />
+                        </Pressable> : null}
+                    />
+                </View>
+            );
             // Only what the channel can vouch for: 'live' means frames flow with
             // nothing known wrong, so it reads as connected, never as health; a known
             // timeout or lost route reads unconfirmed until the host answers again.
@@ -1619,7 +1652,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // above the IME, and it measures the gap below itself to do it, so a bar
             // that floats over it gets counted as empty space and lands on the output.
                 return (
-                <Animated.View collapsable={false} style={[{ flex: 1, backgroundColor: props.desktop ? '#000' : chatShown ? railInk : theme.colors.terminalChrome.canvas, paddingTop: insets.top, paddingRight: previewDocked ? PREVIEW_DOCK.width : 0 }, settledLayout]}>
+                <Animated.View collapsable={false} style={[{ flex: 1, backgroundColor: props.desktop ? '#000' : chatShown ? railInk : theme.colors.terminalChrome.canvas, paddingTop: insets.top, paddingRight: previewDocked ? PREVIEW_DOCK.width : sidePanelShown ? sidePanelWidth(windowWidth) : 0 }, settledLayout]}>
                     {watchingWorkingAgent && <ActiveAgentWakeLock />}
                     {/* The system bar follows the screen: light over the always-dark
                         terminal, where a light app theme drew its clock and battery
@@ -1639,7 +1672,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         onLayout={(event) => {
                             const bottom = event.nativeEvent.layout.y + event.nativeEvent.layout.height;
                             setHeaderRowBottom(bottom);
-                            if (!hasStatusRow) setHeaderBottom(bottom);
+                            setHeaderBottom(bottom);
                         }}
                         style={[{
                             flexDirection: 'row',
@@ -1692,28 +1725,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             </View>}
                             </View>
                         </Pressable>
-                        {identityKnown && !paneMissing && paneKind !== undefined && <ChatViewToggle view={paneView} chatAvailable={agentHasChat(paneKind)} onChange={choosePaneView} />}
+                        {identityKnown && !paneMissing && paneKind !== undefined && <ChatViewToggle view={paneView} chatAvailable={agentHasChat(paneKind)} labelled={!narrowChrome && windowWidth / fontScale >= 380} onChange={choosePaneView} />}
                         <PreviewChip preview={preview.shown} live={preview.live} openable={preview.openable} labelled={preview.openable && preview.tooltip.open} onPress={watchPreview} onLayout={setPreviewChipBox} />
-                        {/* Position in the tab and the way into the pane overview:
-                            borderless and tiny; loading shows as such, never as 0/0.
-                            At one pane it says nothing, and what the overview
-                            offers there (new pane, close) is on the rail and in ⋮.
-                            A narrow header leaves it to the title, which opens
-                            the same overview. */}
-                        {!narrowChrome && (!treeLoaded || located === undefined || paneTotal > 1) && <Pressable
-                            onPress={() => { setActionsOpen(false); setOverviewOpen(true); }}
-                            disabled={!treeLoaded || located === undefined}
-                            accessibilityRole="button"
-                            accessibilityLabel={treeLoaded && located !== undefined ? `Pane ${Math.max(paneIndex, 0) + 1} of ${Math.max(paneTotal, 1)}. Open panes.` : 'Panes loading'}
-                            accessibilityState={{ expanded: overviewOpen, disabled: !treeLoaded || located === undefined }}
-                            style={({ pressed }) => ({ minWidth: 32, minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 1, paddingHorizontal: 4, borderRadius: 999, opacity: pressed ? 0.6 : 1 })}
-                        >
-                            {/* The count is the affordance; a chevron beside it
-                                only made the header look like it carried a menu. */}
-                            {treeLoaded && located !== undefined
-                                ? <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', fontVariant: ['tabular-nums'] }}>{Math.max(paneIndex, 0) + 1}/{Math.max(paneTotal, 1)}</Text>
-                                : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
-                        </Pressable>}
                         {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel={`Pane actions${artifactsCount !== null && artifactsCount > 0 ? `, ${t('sessionArtifacts.title', { count: artifactsCount })}` : ''}`}
                             accessibilityState={{ expanded: actionsOpen }} hitSlop={12} style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                             <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
@@ -1728,30 +1741,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     {/* Occlusion does not hide native accessibility descendants.
                         The desktop covers everything here, header included, and
                         brings its own bar and back; hide the covered roots. */}
-                    {hasStatusRow && (
-                        <Pressable
-                            aria-hidden={desktopVisible}
-                            accessibilityElementsHidden={desktopVisible}
-                            importantForAccessibility={desktopVisible ? 'no-hide-descendants' : 'auto'}
-                            onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Review changes"
-                            disabled={branch === null}
-                            onPress={() => { if (branch !== null) router.push(`/session/${encodeURIComponent(props.id)}/changes`); }}
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 4, backgroundColor: railInk }}>
-                            {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
-                            <SessionMetaLine
-                                style={{ flex: 1 }}
-                                segments={[
-                                    { text: branch },
-                                    { text: linesAdded, color: theme.colors.gitAddedText },
-                                    { text: linesRemoved, color: theme.colors.gitRemovedText, attached: linesAdded !== null },
-                                    { text: permission?.label, ...(permission?.danger === true ? { color: theme.colors.permission.yolo } : {}) },
-                                ]}
-                            />
-                        </Pressable>
-                    )}
-
                     {Platform.OS === 'web' && !canControl && (
                         <View style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: theme.colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 12, textAlign: 'center' }}>
@@ -1833,7 +1822,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 needsYou={paneLifecycle === 'blocked'}
                                 task={contextTitle}
                                 statusColor={headerStatus.color}
-                                model={labels.model}
                                 ink={railInk}
                                 onOpenTerminal={() => choosePaneView('terminal')}
                             />
@@ -1866,6 +1854,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         agent printed under them. The row holds its height from
                         the first layout whatever it carries, so nothing in it
                         resizes the grid the terminal attached at. */}
+                    {/* The chat has no tabs row: its tabs are in the ⋮ menu. The row stays only
+                        while it carries a notice (Sending, Sent, a lost link). */}
+                    {(!chatShown || terminalNotice !== null) && (
                     <View style={{ height: PANE_TABS_HEIGHT, marginBottom: 4, flexDirection: 'row', alignItems: 'center' }}>
                         <View style={{ flex: 1, alignSelf: 'stretch' }}>
                         {showPaneTabs && (<>
@@ -1999,6 +1990,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             place, from the ring's overlay. */}
                         <View style={{ width: hasTools ? CONTROL_CLEARANCE : 8 }} />
                     </View>
+                    )}
 
                     {canControl && <View aria-hidden={desktopVisible}>
                         {/* The key strip stands down while dictation owns the footer
@@ -2022,6 +2014,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         rail cannot fit a field between the two circles, so
                         the field takes the first line and the circles,
                         microphone included, the second. */}
+                    {chatShown ? chatComposer : (
                     <View style={{ flexDirection: 'row', flexWrap: narrowChrome ? 'wrap' : 'nowrap', alignItems: 'flex-end', gap: 8, paddingHorizontal: 8, paddingTop: 4, paddingBottom: insets.bottom + 8 }}>
                         {!dictationActive && !narrowChrome && attachmentAction}
                         <View style={{
@@ -2053,6 +2046,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </View>}
                         {!dictationActive && !narrowChrome && trailingAction}
                     </View>
+                    )}
                     </View>}
                     </Animated.View>
 
@@ -2114,6 +2108,22 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         The desktop covers the header too, and draws the same header
                         line in its place. It runs to the bottom of the screen and
                         moves itself above the keyboard, with the keyboard. */}
+                    {sidePanelShown && (
+                        <View style={{ position: 'absolute', top: insets.top, right: 0, bottom: 0, width: sidePanelWidth(windowWidth) }}>
+                            <ChatSidePanel
+                                width={sidePanelWidth(windowWidth)}
+                                project={located?.workspace.label}
+                                who={agentWhoLine(labels)}
+                                tabCount={workspaceTabs.length}
+                                files={changedFiles}
+                                changesCount={changesCount}
+                                artifactsCount={artifactsCount}
+                                onOpenChanges={openChanges}
+                                onOpenArtifacts={() => router.push(`/session/${encodeURIComponent(props.id)}/artifacts`)}
+                                onOpenUsage={() => router.push('/usage')}
+                            />
+                        </View>
+                    )}
                     {(computerVisible || previewShown !== undefined) && <View style={{ position: 'absolute', top: insets.top, right: 0, bottom: 0, zIndex: 10, ...(previewDocked ? { width: PREVIEW_DOCK.width } : { left: 0 }), ...(previewShown === undefined ? { backgroundColor: '#000' } : {}) }}>
                         <React.Suspense fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="small" color={theme.colors.textSecondary} /></View>}>
                             <DesktopSurface
@@ -2175,6 +2185,28 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 elevation: 12,
                             }}>
                                 <FadingScrollView fadeInto={theme.colors.surface} style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="always">
+                                    {/* Where this pane sits, which branch it is on and which tabs its
+                                        workspace holds live here, not in the header. */}
+                                    {treeLoaded && located !== undefined && <Pressable onPress={() => { setActionsOpen(false); setOverviewOpen(true); }} accessibilityRole="button" accessibilityLabel={`Panes, ${Math.max(paneIndex, 0) + 1} of ${Math.max(paneTotal, 1)}`}
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Panes</Text>
+                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13, fontVariant: ['tabular-nums'] }}>{Math.max(paneIndex, 0) + 1}/{Math.max(paneTotal, 1)}</Text>
+                                    </Pressable>}
+                                    {branch !== null && <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/changes`); }} accessibilityRole="button" accessibilityLabel={`Branch ${branch}${linesAdded === null ? '' : `, ${linesAdded}`}${linesRemoved === null ? '' : ` ${linesRemoved}`}${permission === null ? '' : `, ${permission.label}`}. Review changes`}
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Text style={{ color: theme.colors.text, fontSize: 15 }}>Branch</Text>
+                                        <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                                            <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, fontFamily: 'IBMPlexMono-Regular' }}>{branch}</Text>
+                                            {linesAdded !== null && <Text style={{ color: theme.colors.gitAddedText, fontSize: 12 }}>{linesAdded}</Text>}
+                                            {linesRemoved !== null && <Text style={{ color: theme.colors.gitRemovedText, fontSize: 12 }}>{linesRemoved}</Text>}
+                                            {permission !== null && <Text style={{ color: permission.danger === true ? theme.colors.permission.yolo : theme.colors.textSecondary, fontSize: 12 }}>{permission.label}</Text>}
+                                        </View>
+                                    </Pressable>}
+                                    {treeLoaded && located !== undefined && workspaceTabs.length > 0 && <Pressable onPress={() => { setActionsOpen(false); setTreeOpen(true); }} accessibilityRole="button" accessibilityLabel={`Tabs, ${workspaceTabs.map((tab, index) => tabLabel(tab, index)).join(', ')}`}
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Text style={{ color: theme.colors.text, fontSize: 15 }}>Tabs</Text>
+                                        <Text numberOfLines={1} style={{ flex: 1, textAlign: 'right', color: theme.colors.textSecondary, fontSize: 13 }}>{workspaceTabs.map((tab, index) => tabLabel(tab, index)).join(', ')}</Text>
+                                    </Pressable>}
                                     <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Inspect</Text>
                                     <PaneActionsChangesRow count={changesCount} onPress={openChanges} />
                                     <Pressable onPress={() => { setActionsOpen(false); setFindOpen(true); }} accessibilityRole="button" accessibilityLabel="Find in output"

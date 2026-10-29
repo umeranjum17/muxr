@@ -49,6 +49,20 @@ screen. Codex, OpenCode and in-chat approvals are not part of it.
   fetches its bytes through `chat.image` (at most 2 MB, the artifact preview
   cap), once per id. A tap opens it full screen on black, pinch to zoom, with a
   close button. A gone or too-big image says so in the card.
+- `chat-switch-labelled` the header's switch reads `Chat | Terminal` as words
+  (two marks under 380 dp of text width) on every agent screen; the pane count,
+  branch and tabs left the header and live in the ⋮ menu as Panes `n/N`, Branch
+  and Tabs rows above Inspect.
+- `chat-composer-card` in chat the composer is one rounded card: field, attach,
+  a model-and-effort chip (what Herdr reports for the pane; a tap lists the
+  harness's `/model`, Pi also `/thinking`, and sends it then shows the terminal
+  where the harness's own picker answers), one mic (tap dictates, hold talks
+  live, release ends it), Send, and Stop while the agent works.
+- `chat-reply-actions` Copy sits under each assistant reply (Speak waits for its
+  own proof in the next slice).
+- `chat-side-panel` on a wide screen with the sidebar, the chat column is 740 dp
+  and a right panel shows the agent's project, changes, shared artifacts and
+  usage.
 - `chat-toggle` the header's chat/terminal pair switches per agent and is
   remembered; an agent without a chat (Codex, OpenCode, a shell) keeps the
   terminal and its chat button dimmed.
