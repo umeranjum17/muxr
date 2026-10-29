@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,6 +6,20 @@ import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import { sealRelease } from './application/sealRelease.mjs';
 import { resolveNightly } from './application/resolveNightly.mjs';
+
+it('admits a sealed stable from main or its exact tag, never another branch or tag', () => {
+    const cli = fileURLToPath(new URL('./presentation/stableDecision.mjs', import.meta.url));
+    const version = '0.2.18';
+    for (const ref of ['refs/heads/main', `refs/tags/v${version}`, 'refs/heads/release', 'refs/heads/v0.2.18', 'refs/tags/v0.2.17', 'refs/tags/v0.2.18-extra', '']) {
+        const result = spawnSync(process.execPath, [cli, '--version', version, '--requested-version', version, '--owner-authorized'], {
+            encoding: 'utf8', env: { ...process.env, GITHUB_REF: ref },
+        });
+        expect(result.status).toBe(1);
+        // Admitted refs reach the next real boundary, before any download or npm request.
+        const admitted = ref === 'refs/heads/main' || ref === `refs/tags/v${version}`;
+        expect(result.stderr).toContain(admitted ? '--directory is required' : 'Dispatch sealed_release from main or its matching release tag');
+    }
+});
 
 it('resolves the sealed nightly bytes, refuses conflicting identities, and retries a published version without moving tags', async () => {
     const root = mkdtempSync(join(tmpdir(), 'muxr-nightly-'));
