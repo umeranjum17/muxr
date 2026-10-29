@@ -19,6 +19,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { networkInterfaces, tmpdir } from 'node:os';
+import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
@@ -919,14 +920,23 @@ describe('native pairing over the byokit link', () => {
         // non-TTY guard. launch() gives the child no TTY, the way an AI agent
         // or script runs it. Companion to the `muxr pair` non-TTY test.
         // Depends on the shared guard: red until it lands.
+        // Another process can claim the outage test's released port. Keep it
+        // occupied so this check must own a fresh relay, not reuse that port.
+        const blocker = createServer((_req, res) => { res.writeHead(404); res.end(); });
+        await new Promise<void>((resolve, reject) => { blocker.once('error', reject); blocker.listen(port, '0.0.0.0', resolve); });
+        onTestFinished(() => new Promise<void>((resolve) => blocker.close(() => resolve())));
+        // The preceding outage test stopped its relay: own a fresh kernel-picked
+        // port here rather than letting setup reclaim that now-unowned port.
+        port = 0;
+        await startMachine();
         const before = readFileSync(join(home, 'selfhost.json'), 'utf8');
         const child = launch([cliMain, 'self-host', '--port', String(port), '--advertise', `ws://127.0.0.1:${port}`]);
         try {
-            // Setup may start a relay first. Its terminal condition is the
-            // non-TTY refusal, with no offer published for a phone to answer.
+            // Against this test's running relay, setup must reach the non-TTY
+            // refusal with no offer published for a phone to answer.
             const [code] = await once(child, 'close');
             expect(offersOn(child.output())).toEqual([]);
-            expect(code).toBe(2);
+            expect(code, child.output()).toBe(2);
             const lines = child.output().trim().split('\n');
             expect(lines[lines.length - 1]).toBe('Pairing needs you at this computer\'s terminal: run `muxr pair` yourself');
             expect(child.output()).not.toContain('byokit-link:');
