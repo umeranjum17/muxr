@@ -13,4 +13,3 @@ export function phoneAccounts() {
         apiBase,
     }, portable);
 }
-

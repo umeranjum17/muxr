@@ -5,7 +5,7 @@
 
 <p align="center">
   <strong>When an agent needs you, answer from your phone.</strong><br />
-  muxr shows which agent is waiting and what it asks, then lets you answer it in the <em>same</em> live terminal. Your code, sign-ins and model subscriptions stay on your computers.
+  muxr shows which agent is waiting and what it asks, then lets you answer it in the <em>same</em> live terminal. Your code and existing model subscriptions stay on your computers. If you have no computer, <strong>Just this phone</strong> lets you sign in to your own ChatGPT plan and talk to an agent running on your phone.
 </p>
 
 <p align="center">
