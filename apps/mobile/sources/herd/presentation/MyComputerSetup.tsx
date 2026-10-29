@@ -26,8 +26,8 @@ export function MyComputerSetup() {
     const styles = stylesheet;
     return (
         <ScrollView
-            style={styles.screen}
-            contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}
+            style={[styles.screen, { marginBottom: insets.bottom }]}
+            contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
         >
             <View style={styles.column}>
@@ -166,22 +166,28 @@ function PairStep() {
 }
 
 // In a narrow window the two words stack, each as wide as the card, and a
-// word wider than that scales down instead of breaking.
+// word wider than that scales down instead of breaking. The chip is a View:
+// a padded Text with a background drew taller than its layout at some
+// densities and ran under the line below.
 function ExampleWords() {
     const styles = stylesheet;
     const compact = useCompactWindow();
     return (
         <View style={[styles.words, compact && styles.wordsStacked]}>
-            {['harbor', 'lantern'].map((word) => compact
-                ? <View key={word} style={styles.wordChip}><WordWrappingText fontSize={18} lineHeight={24} style={styles.wordText}>{word}</WordWrappingText></View>
-                : <Text key={word} style={[styles.wordChip, styles.wordText]}>{word}</Text>)}
+            {['harbor', 'lantern'].map((word) => (
+                <View key={word} style={styles.wordChip}>
+                    {compact
+                        ? <WordWrappingText fontSize={18} lineHeight={24} style={styles.wordText}>{word}</WordWrappingText>
+                        : <Text style={styles.wordText}>{word}</Text>}
+                </View>
+            ))}
         </View>
     );
 }
 
 const stylesheet = StyleSheet.create((theme) => ({
     screen: { flex: 1 },
-    content: { flexGrow: 1, paddingTop: 18, paddingHorizontal: 16 },
+    content: { flexGrow: 1, paddingTop: 18, paddingBottom: 24, paddingHorizontal: 16 },
     column: { alignSelf: 'center', width: '100%', maxWidth: 440, gap: 16 },
     card: {
         width: '100%',
@@ -194,7 +200,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     cardHead: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', columnGap: 8, rowGap: 2 },
     cardTitle: { ...Typography.default('semiBold'), flexShrink: 1, fontSize: 15, lineHeight: 20, color: theme.colors.text },
-    cardTime: { ...Typography.mono(), fontSize: 12, color: theme.colors.textSecondary },
+    cardTime: { ...Typography.mono(), fontSize: 12, lineHeight: 16, color: theme.colors.textSecondary },
     hint: { ...Typography.default(), fontSize: 13, lineHeight: 18, color: theme.colors.textSecondary },
     command: { ...Typography.mono(), color: theme.colors.text },
     linkTarget: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
@@ -222,6 +228,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingVertical: 6,
         overflow: 'hidden',
     },
-    wordText: { ...Typography.mono('semiBold'), fontSize: 18, textAlign: 'center', color: theme.colors.text },
-    example: { ...Typography.mono(), fontSize: 11, textAlign: 'center', letterSpacing: 0.4, color: theme.colors.textSecondary },
+    wordText: { ...Typography.mono('semiBold'), fontSize: 18, lineHeight: 24, textAlign: 'center', color: theme.colors.text },
+    example: { ...Typography.mono(), fontSize: 11, lineHeight: 14, textAlign: 'center', letterSpacing: 0.4, color: theme.colors.textSecondary },
 }));

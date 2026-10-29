@@ -98,6 +98,14 @@ async function tapOn(what, test, seconds = 60) {
 }
 // A stepped drag scrolls; a slow `input swipe` reads as a long press.
 const drag = (from, to) => sh(`input motionevent DOWN 540 ${from}; y=${from}; while [ $y -gt ${to} ]; do y=$((y-40)); input motionevent MOVE 540 $y; done; input motionevent UP 540 ${to}`);
+// A narrow window can leave a door below the fold.
+async function scrollUntil(what, test) {
+    for (let i = 0; i < 6 && !shows(test)(await screen()); i += 1) {
+        await drag(1900, 900);
+        await sleep(1200);
+    }
+    await tapOn(what, test);
+}
 async function scrollToEnd() {
     let last = '';
     for (let i = 0; i < 8; i += 1) {
@@ -277,6 +285,8 @@ try {
             await sh(`wm size 1080x2376; wm density ${DENSITY[width]}; settings put system font_scale ${font}; cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
             await launchFresh();
             await both(dir, `doors-${cell}`);
+            // Scrolled to the end, a narrow window has the My computer door off screen.
+            await launchFresh();
             await tapOn('My computer', myComputer);
             await waitFor('Get ready', shows((v) => v === 'Get ready'));
             await both(dir, `mycomputer-1-ready-${cell}`);
@@ -284,7 +294,7 @@ try {
             await waitFor('Pair with your computer', shows((v) => v === 'Pair with your computer'));
             await both(dir, `mycomputer-2-pair-${cell}`);
             await launchFresh();
-            await tapOn('Cloud machine · Boat', cloud);
+            await scrollUntil('Cloud machine · Boat', cloud);
             await waitFor('Connect your Boat account', shows((v) => v === 'Connect your Boat account'));
             await both(dir, `boat-1-account-${cell}`);
         }
@@ -296,7 +306,7 @@ try {
             await sh(`wm size 2560x1600; wm density 320; settings put system font_scale 1.0; cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
             await launchFresh();
             await capture(dir, `doors-${cell}`);
-            await tapOn('Cloud machine · Boat', cloud);
+            await scrollUntil('Cloud machine · Boat', cloud);
             await waitFor('Connect your Boat account', shows((v) => v === 'Connect your Boat account'));
             await capture(dir, `boat-1-account-${cell}`);
         }
