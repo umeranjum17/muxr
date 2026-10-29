@@ -52,6 +52,10 @@ on:
         description: The stable version tested or owner-authorized, or optional exact version matching nightly_tag
         type: string
         default: ''
+      sealed_release:
+        description: Existing sealed stable version to publish unchanged as npm latest (run from main; set version and exactly one attestation)
+        type: string
+        default: ''
       nightly_tag:
         description: Already-sealed nightly tag to publish unchanged to npm nightly (run from main)
         type: string
@@ -86,28 +90,37 @@ jobs:
           node-version: 24
           cache: yarn
       - run: npm install --global npm@11.6.2
-      - if: inputs.nightly_tag == ''
+      - if: inputs.nightly_tag == '' && inputs.sealed_release == ''
         run: yarn install --frozen-lockfile --non-interactive
-      - if: inputs.nightly_tag == ''
+      - if: inputs.nightly_tag == '' && inputs.sealed_release == ''
         run: yarn build
       - name: Full suite for a manual release (PRs already checked a main push)
-        if: github.event_name == 'workflow_dispatch' && inputs.nightly_tag == ''
+        if: github.event_name == 'workflow_dispatch' && inputs.nightly_tag == '' && inputs.sealed_release == ''
         run: yarn run check
       - id: release
-        name: Resolve a sealed nightly, or decide whether the checkout version is unpublished
+        name: Resolve a sealed release, or decide whether the checkout version is unpublished
         env:
           GH_TOKEN: ${{ github.token }}
           NIGHTLY_TAG: ${{ inputs.nightly_tag }}
           REQUESTED_VERSION: ${{ inputs.version }}
+          SEALED_RELEASE: ${{ inputs.sealed_release }}
+          OWNER_AUTHORIZED: ${{ inputs.owner_authorized }}
+          CAPTAIN_TESTED: ${{ inputs.captain_tested }}
         run: |
-          if [ -n "$NIGHTLY_TAG" ]; then
+          set -euo pipefail
+          if [ -n "$SEALED_RELEASE" ]; then
+            flags=()
+            if [ "$OWNER_AUTHORIZED" = true ]; then flags+=(--owner-authorized); fi
+            if [ "$CAPTAIN_TESTED" = true ]; then flags+=(--captain-tested); fi
+            node scripts/release/presentation/stableDecision.mjs --version "$SEALED_RELEASE" --requested-version "$REQUESTED_VERSION" --nightly-tag "$NIGHTLY_TAG" "${flags[@]}" --directory "$RUNNER_TEMP/package" --download
+          elif [ -n "$NIGHTLY_TAG" ]; then
             [ "$GITHUB_REF" = refs/heads/main ] || { echo 'Dispatch nightly_tag from main, not from the old tag tree' >&2; exit 1; }
             node scripts/release/presentation/nightlyDecision.mjs --tag "$NIGHTLY_TAG" --version "$REQUESTED_VERSION" --directory "$RUNNER_TEMP/package" --download
           else
             node scripts/release/presentation/releaseDecision.mjs
           fi
       - name: Pack and check the installed package
-        if: steps.release.outputs.needed == 'true' && inputs.nightly_tag == ''
+        if: steps.release.outputs.needed == 'true' && inputs.nightly_tag == '' && inputs.sealed_release == ''
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
@@ -122,7 +135,7 @@ jobs:
           # The installed CLI reports the version about to be published.
           test "$(HOME="$RUNNER_TEMP/release-home" node "$cli" version)" = "$VERSION"
       - name: Seal the packed tarball as the release candidate
-        if: steps.release.outputs.needed == 'true' && inputs.nightly_tag == ''
+        if: steps.release.outputs.needed == 'true' && inputs.nightly_tag == '' && inputs.sealed_release == ''
         env:
           VERSION: ${{ steps.release.outputs.version }}
           CHANNEL: ${{ steps.release.outputs.channel }}
@@ -162,6 +175,7 @@ jobs:
       RELEASE_CHANNEL: ${{ needs.build.outputs.channel }}
       BUILD_RUN_ID: ${{ needs.build.outputs.run_id || github.run_id }}
       NIGHTLY_TAG: ${{ inputs.nightly_tag }}
+      SEALED_RELEASE: ${{ inputs.sealed_release }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

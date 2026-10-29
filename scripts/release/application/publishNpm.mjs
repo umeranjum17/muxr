@@ -7,6 +7,7 @@ import { channelTags, compareVersions, releaseVersion } from '../domain/channel.
 import { desktopHostOfTarball, requireDesktopEngine } from './requireDesktopEngine.mjs';
 import { requireLinkProtocol } from './requireLinkProtocol.mjs';
 import { resolveNightly } from './resolveNightly.mjs';
+import { resolveStable } from './resolveStable.mjs';
 
 const spec = (version) => `@trymuxr/cli@${version}`;
 
@@ -64,10 +65,16 @@ export function npmPublicationState(version) {
 }
 
 export async function publishNpm() {
-    const { RUNNER_TEMP, RELEASE_COMMIT, RELEASE_VERSION, RELEASE_CHANNEL, BUILD_RUN_ID, NIGHTLY_TAG } = process.env;
+    const { RUNNER_TEMP, RELEASE_COMMIT, RELEASE_VERSION, RELEASE_CHANNEL, BUILD_RUN_ID, NIGHTLY_TAG, SEALED_RELEASE } = process.env;
     const directory = join(RUNNER_TEMP, 'package');
     let manifest;
-    if (NIGHTLY_TAG) {
+    if (SEALED_RELEASE) {
+        if (NIGHTLY_TAG || RELEASE_CHANNEL !== 'stable' || SEALED_RELEASE !== RELEASE_VERSION) throw new Error('Sealed stable publication identity mismatch');
+        const taggedCommit = execFileSync('git', ['rev-parse', '--verify', `refs/tags/v${SEALED_RELEASE}^{commit}`], { encoding: 'utf8' }).trim();
+        if (taggedCommit !== RELEASE_COMMIT) throw new Error('Stable tag no longer matches the resolved candidate commit');
+        const plan = await resolveStable({ directory, version: RELEASE_VERSION, commit: RELEASE_COMMIT, registry: npmPublicationState(RELEASE_VERSION) });
+        manifest = plan.manifest;
+    } else if (NIGHTLY_TAG) {
         if (RELEASE_CHANNEL !== 'nightly') throw new Error('A nightly tag can only publish to nightly');
         const taggedCommit = execFileSync('git', ['rev-parse', '--verify', `refs/tags/${NIGHTLY_TAG}^{commit}`], { encoding: 'utf8' }).trim();
         if (taggedCommit !== RELEASE_COMMIT) throw new Error('Nightly tag no longer matches the resolved candidate commit');
