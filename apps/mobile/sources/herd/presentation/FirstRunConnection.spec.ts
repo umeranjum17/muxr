@@ -3,6 +3,7 @@ import React from 'react';
 import TestRenderer from 'react-test-renderer';
 
 let platformOs: 'android' | 'web' = 'android';
+let searchParams: { step?: string } = {};
 const routerPush = vi.fn();
 const scanQr = vi.fn(async () => undefined);
 const dismissScanner = vi.fn(async () => undefined);
@@ -29,7 +30,7 @@ vi.mock('react-native', () => ({
     Share: { share: vi.fn(async () => undefined) },
     Linking: { openURL: vi.fn(async () => undefined) },
     Platform: { get OS() { return platformOs; } },
-    useWindowDimensions: () => ({ fontScale: 1 }),
+    useWindowDimensions: () => ({ fontScale: 1, width: 390 }),
     View: 'View',
     Text: 'Text',
     TextInput: 'TextInput',
@@ -37,13 +38,14 @@ vi.mock('react-native', () => ({
     ScrollView: 'ScrollView',
     ActivityIndicator: 'ActivityIndicator',
 }));
-vi.mock('@/phone/ui', () => ({ JustThisPhoneCard: () => null }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
+vi.mock('@/cloud', () => ({ BOAT_FROM_PER_HOUR: 0.018 }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: { create: (styles: (theme: unknown) => unknown) => styles(theme) },
     useUnistyles: () => ({ theme }),
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
-vi.mock('expo-router', () => ({ useRouter: () => ({ push: routerPush }) }));
+vi.mock('expo-router', () => ({ useRouter: () => ({ push: routerPush }), useLocalSearchParams: () => searchParams }));
 vi.mock('@/pairing', async () => {
     const { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner } = await import('@/pairing/application/usePairing');
     return { pairingDeviceNoun, usePairQrScannerAvailable, useHostedPairing, usePairQrScanner };
@@ -76,6 +78,7 @@ vi.mock('@/catalog', () => ({ loadAppConfig: () => ({ publicBaseUrl: 'https://tr
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 
 import { FirstRunConnection } from './FirstRunConnection';
+import { MyComputerSetup } from './MyComputerSetup';
 import { offerText } from '@byokit/pair';
 
 function freshOffer(): string {
@@ -100,7 +103,7 @@ function buttons(root: any): any[] {
 }
 
 function press(root: any, label: string): void {
-    const target = buttons(root).find((node) => node.props.accessibilityLabel === label);
+    const target = buttons(root).find((node) => node.props.accessibilityLabel === label || node.props.accessibilityLabel?.startsWith(`${label}. `));
     if (target === undefined) throw new Error(`no button labelled ${label}`);
     TestRenderer.act(() => { target.props.onPress(); });
 }
@@ -110,36 +113,61 @@ function typeLink(root: any, value: string): void {
     TestRenderer.act(() => { field.props.onChangeText(value); });
 }
 
-describe('link-first connect shell', () => {
+describe('two-door first run', () => {
     beforeEach(() => {
         platformOs = 'android';
+        searchParams = {};
         routerPush.mockClear();
         scanQr.mockClear();
         dismissScanner.mockClear();
         pairingAlert.mockClear();
     });
 
-    it('leads with Tailscale then the desktop app, validates pasted input like a scan, keeps SSH and opens cloud setup', async () => {
+    it('offers two equal doors and SSH as a link, walks My computer from Get ready to Pair, and validates pasted input like a scan', async () => {
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
-        const visible = texts(renderer.root);
-        expect(visible).toContain('Your machine. No new account.');
-        expect(visible).toContain('Let’s connect');
-        expect(visible).toContain('Use the machine you already have.');
-        // Tailscale first, then muxr on the computer, then pairing.
-        const order = ['Get Tailscale', 'Get muxr on your computer', 'Pair with your computer'].map((title) => visible.indexOf(title));
+        let visible = texts(renderer.root);
+        expect(visible).toContain('Connect a machine');
+        // Each door says what it is, how long it takes, and what it needs or costs.
+        expect(visible).toContain('My computer');
+        expect(visible).toContain('About 4–5 min · about 1 min if muxr already runs');
+        expect(visible).toContain('Needs Tailscale on both ends');
+        expect(visible).toContain('Cloud machine · Boat');
+        expect(visible).toContain('About 4–6 min with a Boat account');
+        expect(visible).toContain('Paid to Boat, from $0.018 an hour');
+        expect(visible).toContain('Any server over SSH · 3–7 min');
+        expect(visible.some((text) => text.includes('phone'))).toBe(false);
+        press(renderer.root, 'My computer');
+        expect(routerPush).toHaveBeenCalledWith('/my-computer');
+        press(renderer.root, 'Cloud machine · Boat');
+        expect(routerPush).toHaveBeenCalledWith('/cloud-computer');
+        // SSH opens the existing SSH flow unchanged.
+        press(renderer.root, 'Any server over SSH. 3 to 7 minutes.');
+        expect(routerPush).toHaveBeenCalledWith('/pair?route=ssh');
+        routerPush.mockClear();
+        TestRenderer.act(() => { renderer.unmount(); });
+
+        // Get ready: Tailscale, then muxr on the computer, each with its time.
+        TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(MyComputerSetup)); });
+        visible = texts(renderer.root);
+        const order = ['Step 1 of 3', 'Get ready', '1 · Tailscale on both ends', 'about 2 min', '2 · muxr on the computer', 'about 1–2 min'].map((title) => visible.indexOf(title));
         expect(order.every((index, step) => index >= 0 && (step === 0 || index > order[step - 1]!))).toBe(true);
+        press(renderer.root, 'Get the desktop app. Open its download link on your computer.');
+        expect(routerPush).toHaveBeenCalledWith('/add-computer');
+        press(renderer.root, 'Next: pair');
+        expect(routerPush).toHaveBeenCalledWith({ pathname: '/my-computer', params: { step: 'pair' } });
+        routerPush.mockClear();
+        TestRenderer.act(() => { renderer.unmount(); });
+
+        searchParams = { step: 'pair' };
+        TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(MyComputerSetup)); });
+        visible = texts(renderer.root);
+        expect(visible).toContain('Step 2 of 3');
+        expect(visible).toContain('Pair with your computer');
         expect(visible).toContain('Private link or pairing code');
-        expect(visible).toContain('Other ways');
-        expect(visible).toContain('Cloud computer');
-        expect(visible).toContain('Boat · 2–5 min');
-        expect(visible).toContain('SSH login');
-        expect(visible).toContain('Any server · 3–7 min');
-        expect(visible).toContain('Encrypted after verified pairing');
-        expect(visible).toContain('Your infrastructure. No muxr-hosted relay.');
-        // The link field leads; the setup command stays one tap away under More ways.
+        expect(visible).toContain('Example words');
+        expect(visible).toContain('Next · Start an agent');
         expect(renderer.root.findByType('TextInput').props.placeholder).toBe('Paste link');
-        expect(visible.some((text) => text.includes('npm install'))).toBe(false);
         // No raw backticks or kit jargon in user-visible copy.
         for (const text of visible) {
             expect(text).not.toContain('`');
@@ -216,43 +244,27 @@ describe('link-first connect shell', () => {
         expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: whole } });
         expect(pairingAlert).not.toHaveBeenCalled();
         routerPush.mockClear();
-        // Step 2 hands the desktop app's link over on the Add your computer screen.
-        press(renderer.root, 'Get the desktop app. Open its download link on your computer.');
-        expect(routerPush).toHaveBeenCalledWith('/add-computer');
-        routerPush.mockClear();
-        // SSH login opens the existing SSH flow unchanged.
-        press(renderer.root, 'SSH login. Any server, 3 to 7 minutes.');
-        expect(routerPush).toHaveBeenCalledWith('/pair?route=ssh');
-        routerPush.mockClear();
-        // Cloud setup is an active first-run entry without changing the existing connect paths.
-        const cloud = buttons(renderer.root).find((node) => node.props.accessibilityLabel === 'Add a cloud computer. Boat.');
-        expect(cloud).toBeDefined();
-        expect(cloud.props.disabled).not.toBe(true);
-        press(renderer.root, 'Add a cloud computer. Boat.');
-        expect(routerPush).toHaveBeenCalledWith('/cloud-computer');
-        routerPush.mockClear();
-        // More ways holds the computer setup command and the fallback routes.
-        press(renderer.root, 'More ways and timing');
-        const expanded = texts(renderer.root);
-        expect(expanded).toContain('On your computer');
-        expect(expanded.some((text) => text.includes('Tailscale'))).toBe(true);
         TestRenderer.act(() => { renderer.unmount(); });
     });
 
-    it('browser leads with paste, hides scan and SSH, and shows the phone-app cloud instruction', async () => {
+    it('browser keeps both doors, points cloud setup at the phone app, and pairs by paste only', async () => {
         platformOs = 'web';
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
-        const visible = texts(renderer.root);
-        expect(visible).toContain('Get Tailscale');
-        expect(visible).toContain('Pair with your computer');
-        expect(visible.some((text) => text.includes('Paste the browser link from muxr on your computer.'))).toBe(true);
-        expect(visible.some((text) => text.includes('compare two words before access is granted'))).toBe(true);
-        expect(visible).toContain('Cloud computer');
-        expect(visible).toContain('Set up from the muxr phone app');
-        expect(visible).not.toContain('SSH login');
-        // A browser cannot pair with the desktop app, so step 2 points at the command.
+        let visible = texts(renderer.root);
+        expect(visible).toContain('My computer');
+        expect(visible).toContain('Cloud machine · Boat');
+        expect(visible).toContain('In a browser: set up from the muxr phone app');
+        expect(visible).not.toContain('Any server over SSH · 3–7 min');
+        TestRenderer.act(() => { renderer.unmount(); });
+        // A browser cannot pair with the desktop app, so Get ready points at the command.
+        TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(MyComputerSetup)); });
         expect(buttons(renderer.root).some((node) => node.props.accessibilityLabel?.startsWith('Get the desktop app'))).toBe(false);
+        TestRenderer.act(() => { renderer.unmount(); });
+        searchParams = { step: 'pair' };
+        TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(MyComputerSetup)); });
+        visible = texts(renderer.root);
+        expect(visible.some((text) => text.includes('Paste the browser link that muxr link shows on your computer.'))).toBe(true);
         expect(visible.some((text) => text.includes("can't scan"))).toBe(false);
         expect(buttons(renderer.root).some((node) => node.props.accessibilityLabel === 'Scan the QR')).toBe(false);
         const whole = freshOffer();
@@ -262,8 +274,6 @@ describe('link-first connect shell', () => {
         expect(pairingAlert).not.toHaveBeenCalled();
         expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: whole } });
         expect(scanQr).not.toHaveBeenCalled();
-        press(renderer.root, 'Cloud computer. Set up from the muxr phone app.');
-        expect(routerPush).toHaveBeenCalledWith('/cloud-computer');
         TestRenderer.act(() => { renderer.unmount(); });
     });
 });

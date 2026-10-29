@@ -12,11 +12,22 @@ import { pairLinkOffer } from '@/pairing';
 import { getNativeSecret, setNativeSecret } from '@/pairing/secrets';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { Typography } from '@/constants/Typography';
+import { OnboardingStepHeader } from '@/components/OnboardingStepHeader';
 import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, pendingBoatSize, PRICE, type BoatSize, type DeployStep } from './deployBoatComputer';
 
-const STEPS = ['Provider', 'Your Boat account', 'Size and price', 'Create', 'Put muxr on it', 'Private connection', 'Pair with this phone'];
+/**
+ * What the Create and pair step shows as it runs, one line per phase in order. The phase running now reads the
+ * deploy's own words; the screen phase shows only when that switch is on.
+ */
+const PHASES: { steps: DeployStep['step'][]; title: string; screenOnly?: boolean }[] = [
+    { steps: ['creating'], title: 'Creating your cloud computer on Boat.' },
+    { steps: ['starting'], title: 'Starting your cloud computer.' },
+    { steps: ['installing', 'configuring'], title: 'Installing muxr.' },
+    { steps: ['screen'], title: 'Adding a screen for sign-ins.', screenOnly: true },
+    { steps: ['connecting'], title: 'Connecting over a private SSH link.' },
+    { steps: ['pairing'], title: 'Pairing.' },
+];
 const SIZES: { id: BoatSize; title: string }[] = [{ id: 'small', title: 'Small · 2 CPUs, 4 GB' }, { id: 'default', title: 'Standard · 4 CPUs, 8 GB' }];
-const STEP_INDEX: Record<DeployStep['step'], number> = { creating: 3, starting: 3, installing: 4, configuring: 4, screen: 4, connecting: 5, pairing: 6 };
 const STEP_WORDS: Record<DeployStep['step'], string> = {
     creating: 'Creating your cloud computer on Boat.',
     starting: 'Starting your cloud computer.',
@@ -131,7 +142,8 @@ export function CloudSetupScreen() {
         deployRun = run;
         void settle(run);
     }, [size, screen, auth, settle]);
-    const current = deploy ? STEP_INDEX[deploy.step] : connected ? 2 : 1;
+    // Option A's three steps: the Boat account, the size, then create and pair.
+    const current = deploy ? 3 : connected ? 2 : 1;
 
     const connect = React.useCallback(async () => {
         const address = email.trim();
@@ -179,88 +191,84 @@ export function CloudSetupScreen() {
         return <View style={styles.webNotice}><Text style={styles.heading}>Your cloud computer</Text><Text style={styles.body}>Set up from the muxr phone app.</Text></View>;
     }
 
+    const phase = deploy === undefined ? -1 : PHASES.findIndex((p) => p.steps.includes(deploy.step));
     return (
         <ScrollView style={{ marginBottom: insets.bottom }} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-            <View style={styles.intro}>
-                <Text style={styles.heading}>Your cloud computer</Text>
-                <View style={styles.progress}><View style={[styles.progressFill, { width: `${Math.round(((current + 1) / STEPS.length) * 100)}%` }]} /></View>
-            </View>
-            <View style={styles.list}>
-                {STEPS.map((title, index) => {
-                    const done = index < current;
-                    const active = index === current;
-                    return (
-                        <View key={title} style={[styles.step, active && styles.activeStep]}>
-                            <View style={[styles.number, done && styles.doneNumber]}>
-                                {done ? <Ionicons name="checkmark" size={16} color={theme.colors.status.connected} /> : <Text style={styles.numberText}>{index + 1}</Text>}
-                            </View>
-                            <View style={styles.stepContent}>
-                                <View style={styles.stepHeading}>
-                                    <Text style={[styles.stepTitle, !active && !done && styles.todoTitle]}>{title}</Text>
-                                    {done && index < 3 && <Text style={styles.stepStatus}>{['Boat', 'Connected', SIZES.find((s) => s.id === size)?.title.split(' · ')[0]][index]}</Text>}
-                                </View>
-                                {index === 0 && <Text style={styles.detail}>Boat · Hetzner later</Text>}
-                                {active && index === 2 && (
-                                    <View style={styles.form}>
-                                        {SIZES.map((option) => (
-                                            <Pressable key={option.id} accessibilityRole="radio" accessibilityState={{ checked: size === option.id }} disabled={busy || sizeLocked} onPress={() => setSize(option.id)} style={[styles.size, size === option.id && styles.sizeChosen]}>
-                                                <Text style={styles.stepTitle}>{option.title}</Text>
-                                                <Text style={styles.detail}>{perHour(option.id)}</Text>
-                                            </Pressable>
-                                        ))}
-                                        <Pressable accessibilityRole="switch" accessibilityLabel="Add a screen for sign-ins" accessibilityState={{ checked: screen, disabled: busy }} disabled={busy} onPress={() => setScreen((on) => !on)} style={styles.size}>
-                                            <View style={switchBeside ? styles.option : styles.optionStacked}>
-                                                <Text style={[styles.stepTitle, switchBeside && styles.stepContent]}>Add a screen for sign-ins</Text>
-                                                <Switch value={screen} disabled={busy} onValueChange={setScreen} />
-                                            </View>
-                                            <Text style={styles.detail}>For a sign-in that needs a browser: see and use it in Computer. Adds a few minutes to set-up.</Text>
-                                        </Pressable>
-                                        <Text style={styles.detail}>{`Paid to Boat, not muxr. Free while asleep; Boat's plan is at least $${PRICE.planFloorPerMonth} a month. Prices checked ${checkedLabel(PRICE.checked)}.`}</Text>
-                                        {busy && <Text style={styles.detail}>Setup is still running.</Text>}
-                                        <ActionButton title="Create cloud computer" icon="cloud-outline" disabled={busy} onPress={() => { void create(); }} wrap />
-                                        {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-                                    </View>
-                                )}
-                                {active && deploy && (
-                                    <View style={styles.form}>
-                                        <View style={styles.waiting}>{busy && <ActivityIndicator />}<Text style={[styles.detail, styles.stepContent]}>{STEP_WORDS[deploy.step]}</Text></View>
-                                        {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-                                        {!busy && error && <ActionButton title="Try again" variant="secondary" onPress={() => { void create(); }} />}
-                                    </View>
-                                )}
-                                {active && index === 1 && (
-                                    <View style={styles.form}>
-                                        <Text style={styles.body}>Boat opens in your browser. Approve muxr there, then come back to this screen.</Text>
-                                        <TextInput
-                                            accessibilityLabel="Boat account email"
-                                            autoCapitalize="none"
-                                            autoCorrect={false}
-                                            keyboardType="email-address"
-                                            placeholder="Email address"
-                                            placeholderTextColor={theme.colors.textSecondary}
-                                            value={email}
-                                            onChangeText={setEmail}
-                                            style={styles.input}
-                                        />
-                                        {!url ? (
-                                            <ActionButton title="Connect Boat account" icon="link-outline" disabled={busy} onPress={() => { void connect(); }} wrap />
-                                        ) : (
-                                            <ActionButton title="Sign in to Boat" icon="link-outline" onPress={() => { void openExternalUrl(url, { freshPage: true }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />
-                                        )}
-                                        {url && code && <Text selectable style={styles.code}>Code · {code}</Text>}
-                                        {busy && <View style={styles.waiting}><ActivityIndicator /><Text style={styles.detail}>Waiting for Boat…</Text></View>}
-                                        {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-                                        {!busy && error && <ActionButton title="Try again" variant="secondary" onPress={() => { void connect(); }} />}
-                                        <Pressable accessibilityRole="link" onPress={() => { void openExternalUrl('https://boat.dev', { freshPage: true }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }}>
-                                            <Text style={styles.createAccount}>No Boat account? Create one</Text>
-                                        </Pressable>
-                                    </View>
-                                )}
-                            </View>
+            {current === 1 && (
+                <>
+                    <OnboardingStepHeader step={1} of={3} time="about 1 min" title="Connect your Boat account" subtitle="No Tailscale needed. Boat bills you; muxr doesn’t." />
+                    <View style={styles.card}>
+                        <Text style={styles.label}>Boat account email</Text>
+                        <TextInput
+                            accessibilityLabel="Boat account email"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            keyboardType="email-address"
+                            placeholder="Email address"
+                            placeholderTextColor={theme.colors.textSecondary}
+                            value={email}
+                            onChangeText={setEmail}
+                            style={styles.input}
+                        />
+                        {!url ? (
+                            <ActionButton title="Connect Boat account" icon="link-outline" disabled={busy} onPress={() => { void connect(); }} wrap />
+                        ) : (
+                            <ActionButton title="Sign in to Boat" icon="link-outline" onPress={() => { void openExternalUrl(url, { freshPage: true }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }} wrap />
+                        )}
+                        <Text style={styles.detail}>Boat opens in your browser. Type the code shown here, approve muxr there, then come back to this screen.</Text>
+                        {url && code && <Text selectable style={styles.code}>Code · {code}</Text>}
+                        {busy && <View style={styles.waiting}><ActivityIndicator /><Text style={styles.detail}>Waiting for Boat…</Text></View>}
+                        {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+                        {!busy && error && <ActionButton title="Try again" variant="secondary" onPress={() => { void connect(); }} />}
+                    </View>
+                    <Pressable accessibilityRole="link" onPress={() => { void openExternalUrl('https://boat.dev', { freshPage: true }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }}>
+                        <Text style={styles.createAccount}>No Boat account? Create one</Text>
+                    </Pressable>
+                </>
+            )}
+            {current === 2 && (
+                <>
+                    <OnboardingStepHeader step={2} of={3} time="about 15 s" title="Pick a size" subtitle="Boat account connected. Boat bills per second while it’s on." />
+                    {SIZES.map((option) => (
+                        <Pressable key={option.id} accessibilityRole="radio" accessibilityState={{ checked: size === option.id }} disabled={busy || sizeLocked} onPress={() => setSize(option.id)} style={[styles.size, size === option.id && styles.sizeChosen]}>
+                            <Text style={styles.stepTitle}>{option.title}</Text>
+                            <Text style={styles.detail}>{perHour(option.id)}</Text>
+                        </Pressable>
+                    ))}
+                    <Pressable accessibilityRole="switch" accessibilityLabel="Add a screen for sign-ins" accessibilityState={{ checked: screen, disabled: busy }} disabled={busy} onPress={() => setScreen((on) => !on)} style={styles.size}>
+                        <View style={switchBeside ? styles.option : styles.optionStacked}>
+                            <Text style={[styles.stepTitle, switchBeside && styles.grow]}>Add a screen for sign-ins</Text>
+                            <Switch value={screen} disabled={busy} onValueChange={setScreen} />
                         </View>
-                    );
-                })}
-            </View>
+                        <Text style={styles.detail}>For a sign-in that needs a browser: see and use it in Computer. Adds a few minutes, so leave it off for the fastest start.</Text>
+                    </Pressable>
+                    <Text style={styles.detail}>{`Paid to Boat, not muxr. Free while asleep; Boat's plan is at least $${PRICE.planFloorPerMonth} a month. Prices checked ${checkedLabel(PRICE.checked)}.`}</Text>
+                    {busy && <Text style={styles.detail}>Setup is still running.</Text>}
+                    <ActionButton title="Create cloud computer" icon="cloud-outline" disabled={busy} onPress={() => { void create(); }} wrap />
+                    {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+                </>
+            )}
+            {current === 3 && deploy && (
+                <>
+                    <OnboardingStepHeader step={3} of={3} time="usually 2–5 min" title="Create and pair" subtitle="muxr creates it, installs muxr, connects over a private SSH link and pairs. Keep this screen open." />
+                    <View style={styles.card}>
+                        {PHASES.filter((p) => !p.screenOnly || screen || deploy.step === 'screen').map((p) => {
+                            const index = PHASES.indexOf(p);
+                            const done = index < phase;
+                            const now = index === phase;
+                            return (
+                                <View key={p.title} style={styles.phase}>
+                                    {now && busy ? <ActivityIndicator /> : <Ionicons name={done ? 'checkmark' : 'ellipse-outline'} size={16} color={done ? theme.colors.status.connected : theme.colors.textSecondary} />}
+                                    <Text style={[styles.detail, styles.grow, (done || now) && styles.phaseOn]}>{now ? STEP_WORDS[deploy.step] : p.title}</Text>
+                                </View>
+                            );
+                        })}
+                    </View>
+                    {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+                    {!busy && error && <ActionButton title="Try again" variant="secondary" onPress={() => { void create(); }} />}
+                    <Text style={styles.detail}>Then you land on Home. Start an agent there, about 30 s, and it opens in a terminal on the cloud computer.</Text>
+                </>
+            )}
         </ScrollView>
     );
 }
@@ -268,25 +276,14 @@ export function CloudSetupScreen() {
 const styles = StyleSheet.create((theme) => ({
     content: { alignSelf: 'center', width: '100%', maxWidth: 440, paddingHorizontal: 16, paddingTop: 18, paddingBottom: 32, gap: 16 },
     webNotice: { flex: 1, padding: 24, gap: 12, justifyContent: 'center' },
-    intro: { gap: 8 },
     heading: { ...Typography.default('semiBold'), fontSize: 24, lineHeight: 30, color: theme.colors.text },
-    progress: { height: 4, borderRadius: 4, backgroundColor: theme.colors.divider, overflow: 'hidden' },
-    progressFill: { height: 4, borderRadius: 4, backgroundColor: theme.colors.accent },
-    list: { borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 14, overflow: 'hidden' },
-    step: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingHorizontal: 14, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: theme.colors.divider },
-    activeStep: { backgroundColor: theme.colors.surfaceHigh },
-    number: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHighest },
-    doneNumber: { backgroundColor: theme.colors.accentSubtle },
-    numberText: { ...Typography.default('semiBold'), fontSize: 12, color: theme.colors.textSecondary },
-    stepContent: { flex: 1, minWidth: 0, gap: 8 },
-    stepHeading: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 24 },
+    card: { borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 12, backgroundColor: theme.colors.surfaceHigh, padding: 14, gap: 10 },
+    label: { ...Typography.default('semiBold'), fontSize: 14, color: theme.colors.text },
+    grow: { flex: 1, minWidth: 0 },
     stepTitle: { ...Typography.default('semiBold'), flexShrink: 1, fontSize: 15, color: theme.colors.text },
-    todoTitle: { color: theme.colors.textSecondary },
-    stepStatus: { ...Typography.default(), fontSize: 13, color: theme.colors.textSecondary },
     detail: { ...Typography.default(), fontSize: 13, lineHeight: 18, color: theme.colors.textSecondary },
-    form: { gap: 10, paddingTop: 2 },
     body: { ...Typography.default(), fontSize: 14, lineHeight: 20, color: theme.colors.textSecondary },
-    input: { ...Typography.default(), minHeight: 50, borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 12, paddingHorizontal: 14, color: theme.colors.text, fontSize: 16 },
+    input: { ...Typography.default(), minHeight: 50, borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 12, paddingHorizontal: 14, color: theme.colors.text, backgroundColor: theme.colors.surfaceHighest, fontSize: 16 },
     code: { ...Typography.default('semiBold'), fontSize: 18, letterSpacing: 2, color: theme.colors.text, textAlign: 'center', padding: 8 },
     waiting: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     error: { ...Typography.default(), fontSize: 14, lineHeight: 20, color: theme.colors.status.disconnected },
@@ -294,5 +291,7 @@ const styles = StyleSheet.create((theme) => ({
     option: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     optionStacked: { alignItems: 'flex-start', gap: 8 },
     sizeChosen: { borderColor: theme.colors.accent, backgroundColor: theme.colors.surfaceHighest },
-    createAccount: { ...Typography.default('semiBold'), paddingVertical: 8, textAlign: 'center', color: theme.colors.textSecondary },
+    phase: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 22 },
+    phaseOn: { color: theme.colors.text },
+    createAccount: { ...Typography.default('semiBold'), paddingVertical: 12, textAlign: 'center', color: theme.colors.textSecondary },
 }));
