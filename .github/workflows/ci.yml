@@ -33,9 +33,9 @@ jobs:
   # reproducible in one local command. It deliberately does NOT build a package,
   # export the web app, drive an install, or touch a release artifact: it is
   # early feedback on a pull request, never a release trigger. The lane runs
-  # through done-done (run + check), so the merge gate consumes commit-tied
-  # proof instead of a bare log: pair this job with `suite` in branch
-  # protection once it is green (change this block and protection together,
+  # through done-done to record its code-check log; its exit code is the gate.
+  # This is a code check, not product proof. Keep this job paired with `suite`
+  # in branch protection (change this block and protection together,
   # per the header above).
   fast:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
@@ -64,7 +64,7 @@ jobs:
           cache: yarn
       - if: steps.scope.outputs.docs_only != 'true'
         run: yarn install --frozen-lockfile --non-interactive
-      - name: Fast lane as done-done proof (run, then check against this commit)
+      - name: Fast lane code checks (recorded by done-done)
         if: steps.scope.outputs.docs_only != 'true'
         env:
           # Detached HEAD names no claim, so pass the PR branch explicitly.
@@ -93,7 +93,6 @@ jobs:
             tail -n 200 ~/.done-done/evidence/pockit/*/*.log >&2 2>/dev/null || true
             exit 1
           }
-          npx -y done-done-axi@0.6.22 check --outcome "the pull-request fast lane passes on this commit" ~/.done-done/evidence/pockit/*/*.log --claim-id "$CLAIM_ID" "${TRUSTED_REF_ARGS[@]}"
 
   suite:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
