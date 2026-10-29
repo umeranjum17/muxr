@@ -4688,7 +4688,7 @@ buffer-indexof-polyfill@~1.0.0:
   resolved "https://registry.yarnpkg.com/buffer-indexof-polyfill/-/buffer-indexof-polyfill-1.0.2.tgz#d2732135c5999c64b277fcf9b1abe3498254729c"
   integrity sha512-I7wzHwA3t1/lwXQh+A5PbNvJxgfo5r3xulgpYDB5zckTu/Z9oUK9biouBKQUjEqzaz3HnAT6TYoovmE+GqSf7A==
 
-buffer@6.0.3:
+buffer@6.0.3, buffer@^6.0.3:
   version "6.0.3"
   resolved "https://registry.yarnpkg.com/buffer/-/buffer-6.0.3.tgz#2ace578459cc8fbe2a70aaa8f52ee63b6a74c6c6"
   integrity sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==
@@ -8865,6 +8865,19 @@ oniguruma-to-es@^4.3.4:
     oniguruma-parser "^0.12.2"
     regex "^6.1.0"
     regex-recursion "^6.0.2"
+
+onnxruntime-common@1.23.2:
+  version "1.23.2"
+  resolved "https://registry.yarnpkg.com/onnxruntime-common/-/onnxruntime-common-1.23.2.tgz#669892f8d2b7de273ac60a76151781a97d01ab49"
+  integrity sha512-5LFsC9Dukzp2WV6kNHYLNzp8sT6V02IubLCbzw2Xd6X5GOlr65gAX6xiJwyi2URJol/s71gaQLC5F2C25AAR2w==
+
+onnxruntime-react-native@1.23.2:
+  version "1.23.2"
+  resolved "https://registry.yarnpkg.com/onnxruntime-react-native/-/onnxruntime-react-native-1.23.2.tgz#034c3cb942ea18d2eb668e1dd6c5ab770c9b6cc7"
+  integrity sha512-PVSjR9QRQTzT/rpU5BMKi23PoEBhJ6G/THkA3u4XgzQ+mgYcLkmwlhhvgAzBM4F1mgaAThhMMiXEyd4tI8LLDw==
+  dependencies:
+    buffer "^6.0.3"
+    onnxruntime-common "1.23.2"
 
 open@^7.0.3, open@^7.4.2:
   version "7.4.2"
