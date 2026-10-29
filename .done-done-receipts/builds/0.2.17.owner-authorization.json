@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "ownerTested": false,
+  "words": "I will test when you release so must release",
+  "device": "a4b93ea2",
+  "date": "2026-10-29T06:19:38Z",
+  "version": "0.2.17",
+  "commit": "7118be29bff3a758daf991d24e31a26e37a79071",
+  "apk": "c26cc6ba65f6a9061adf1b11b167b5badf78b5fd822d5d88dc45bf0b8f1252f6",
+  "package": "a15eb8f9bd1713f7ef82aaf02676cf8189d1d1656b97dfbefa1351b480b32b82",
+  "receipt": ".done-done-receipts/7118be29bff3a758daf991d24e31a26e37a79071.json"
+}
