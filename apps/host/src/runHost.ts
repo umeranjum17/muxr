@@ -96,6 +96,7 @@ function validDevice(value: unknown): boolean {
     }
     if (device.dataKey !== undefined || device.capabilities !== undefined || device.allowedCwds !== undefined) return false;
     if (device.pushLevel !== undefined && parseLifecycleNotificationLevel(device.pushLevel) === undefined) return false;
+    if (device.noticePublicKey !== undefined && !validBase64(device.noticePublicKey, 32)) return false;
     return device.authority === undefined || device.authority === 'control' || device.authority === 'observe';
 }
 
@@ -626,12 +627,14 @@ async function main(): Promise<void> {
                         machineName,
                         crypto: selfhostAuth!.machine.crypto,
                         currentCrypto,
-                        savePushLevel: (deviceId, level) => {
+                        savePushLevel: (deviceId, level, noticePublicKey) => {
                             const state = readSelfhostAuth();
                             const device = state?.machine.crypto.devices.find((entry) => entry.deviceId === deviceId);
                             if (state === undefined || device === undefined) throw new Error('link: device no longer trusted');
                             if (level === undefined) delete device.pushLevel;
                             else device.pushLevel = level;
+                            if (noticePublicKey === undefined) delete device.noticePublicKey;
+                            else device.noticePublicKey = noticePublicKey;
                             writeSelfhostCrypto(selfhostFile(), state.machine.crypto);
                         },
                         // Pending relay unsubscribes persist here, so removing a

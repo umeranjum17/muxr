@@ -1,3 +1,4 @@
+import { syncNativeNotices } from './nativeNotices';
 import type { StoredHostedGrant } from '../application/linkPairing';
 import { grantRejectsDowngrade } from '../domain/hostedGrant';
 import { secretDelete, secretGet, secretSet, grantSecretNames } from './hostedSecretStore';
@@ -27,9 +28,11 @@ export async function loadGrants(): Promise<Record<string, StoredHostedGrant>> {
         const live = entries.filter((entry) => entry !== undefined);
         await secretSet(GRANTS_INDEX, JSON.stringify(live.map(([id]) => id)));
         cache = Object.fromEntries(live);
+        await syncNativeNotices(Object.values(cache));
         return cache;
     }
     cache = {};
+    await syncNativeNotices([]);
     return cache;
 }
 
@@ -45,6 +48,7 @@ export async function deleteGrant(machineId: string): Promise<StoredHostedGrant[
         secretDelete(grantKey(machineId)),
         secretSet(GRANTS_INDEX, JSON.stringify(Object.keys(all))),
     ]);
+    await syncNativeNotices(Object.values(all));
     return Object.values(all);
 }
 
@@ -55,6 +59,7 @@ export async function storeGrant(grant: StoredHostedGrant): Promise<void> {
     all[grant.machineId] = grant;
     await secretSet(grantKey(grant.machineId), JSON.stringify(grant));
     await secretSet(GRANTS_INDEX, JSON.stringify(Object.keys(all)));
+    await syncNativeNotices(Object.values(all));
 }
 
 export async function clearGrants(): Promise<void> {
@@ -64,4 +69,5 @@ export async function clearGrants(): Promise<void> {
         ...Object.keys(all).map((id) => secretDelete(grantKey(id))),
     ]);
     cache = undefined;
+    await syncNativeNotices([]);
 }

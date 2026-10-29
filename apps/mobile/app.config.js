@@ -203,6 +203,7 @@ export default {
         },
         plugins: [
             "@byokit/statusbar",
+            ["@byokit/push", { appGroup: `group.${bundleId}.notices`, androidService: false }],
             withDevelopmentCleartext,
             withMinimalAudioManifest,
             require("./plugins/withEinkCompatibility.js"),

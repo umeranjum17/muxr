@@ -25,14 +25,17 @@ export function isOpenableNotifyUrl(value: unknown): value is string {
     return host === 'localhost' || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host) || host.endsWith('.ts.net');
 }
 
-export function openLifecycleNotice(payload: unknown, grants: Iterable<{ machineId: string; deviceKey: { secretKey: string } }>): LifecycleNotice {
+export function openLifecycleNotice(payload: unknown, grants: Iterable<{ machineId: string; deviceKey: { secretKey: string } }>, noticeSecret?: string): LifecycleNotice {
     const fallback: LifecycleNotice = { title: 'Agent update', body: 'An agent has an update.', data: {} };
     const envelope = record(payload);
     const sealed = record(envelope?.data);
     if (sealed?.v !== 1 || typeof sealed.sealed !== 'string' || sealed.sealed.length > 2048) return fallback;
     for (const grant of grants) {
+      for (const secret of [noticeSecret, grant.deviceKey.secretKey]) {
+        if (secret === undefined) continue;
         try {
-            const opened = record(openNotice(sealed, decodeBase64(grant.deviceKey.secretKey)));
+            const key = decodeBase64(secret, 'base64url');
+            const opened = record(openNotice(sealed, key));
             const fields = record(opened?.data);
             if (typeof opened?.title !== 'string' || opened.title.length > 120 || typeof opened.body !== 'string' || opened.body.length > 400) continue;
             if (fields?.machineId !== grant.machineId || fields.presentationOwner !== 'relay-push') continue;
@@ -48,6 +51,7 @@ export function openLifecycleNotice(payload: unknown, grants: Iterable<{ machine
         } catch {
             continue;
         }
+      }
     }
     return fallback;
 }

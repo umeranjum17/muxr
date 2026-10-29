@@ -193,10 +193,10 @@ export function KernelNotifications() {
     }, [sendNative]);
 
     React.useEffect(() => {
-        if (Platform.OS === 'ios' && isAuthenticated && appActive) {
+        if (Platform.OS === 'ios' && isAuthenticated && appActive && status === 'connected') {
             void registerNativePushNotifications();
         }
-    }, [appActive, isAuthenticated]);
+    }, [appActive, isAuthenticated, status]);
 
     React.useEffect(() => {
         if (isAuthenticated && appActive && vadStandbyEnabled && sessionCount > 0) {

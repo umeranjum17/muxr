@@ -7,7 +7,7 @@ import { activeSessionClient } from '@/connection/sessionClientRef';
 import { clearRegisteredPushToken, loadRegisteredPushToken, saveRegisteredPushToken } from '@/catalog/application/persistence';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { storage } from '@/catalog/store';
-import { listPairedGrants } from '@/pairing';
+import { listPairedGrants, nativeNoticeSecret, syncNativeNotices } from '@/pairing';
 import { isSealedLifecyclePush, openLifecycleNotice } from './openLifecycleNotice';
 import { QUESTION_CATEGORY } from '@/watch/lifecycleAlert';
 
@@ -36,7 +36,8 @@ export function acknowledgeLifecyclePush(data: unknown): boolean {
 export async function openNativeLifecyclePush(data: unknown): Promise<Record<string, unknown>> {
     if (!isSealedLifecyclePush(data)) return data as Record<string, unknown>;
     const grants = await listPairedGrants().catch(() => []);
-    const notice = openLifecycleNotice(data, grants);
+    const secret = await nativeNoticeSecret().catch(() => undefined);
+    const notice = openLifecycleNotice(data, grants, secret);
     return { ...notice.data, data: notice.data };
 }
 
@@ -47,10 +48,16 @@ export async function receiveLifecyclePush(notification: Notifications.Notificat
         return;
     }
     const envelope = payload as Record<string, unknown>;
+    if (Platform.OS === 'ios') {
+        // The extension owns this alert and its one-use action token. Never replace it in JS.
+        acknowledgeLifecyclePush(await openNativeLifecyclePush(payload));
+        return;
+    }
     // Our own re-posted alert: already opened, the seal kept only for its tap.
     if (envelope.presented === true) return;
     const grants = await listPairedGrants().catch(() => []);
-    const notice = openLifecycleNotice(payload, grants);
+    const secret = await nativeNoticeSecret().catch(() => undefined);
+    const notice = openLifecycleNotice(payload, grants, secret);
     const opened = { ...notice.data, data: notice.data };
     if (!acknowledgeLifecyclePush(opened)) return;
     await Notifications.dismissNotificationAsync(notification.request.identifier);
@@ -68,7 +75,9 @@ export async function receiveLifecyclePush(notification: Notifications.Notificat
 }
 
 async function subscribeNativePush(token: string, level: LifecycleNotificationLevel): Promise<boolean> {
-    return activeSessionClient()?.registerPush(token, level).catch(() => false) ?? false;
+    const grants = await listPairedGrants();
+    const noticePublicKey = await syncNativeNotices(grants);
+    return activeSessionClient()?.registerPush(token, level, noticePublicKey).catch(() => false) ?? false;
 }
 
 function drainNotificationLevel(): Promise<boolean> {
@@ -133,7 +142,7 @@ export function registerNativePushNotifications(): Promise<boolean> {
         saveRegisteredPushToken(token);
         return await drainNotificationLevel();
     })().catch((error) => {
-        console.warn('[push] native registration failed', error);
+        console.warn('[push] native registration failed');
         return false;
     }).finally(() => { registering = null; });
     return registering;

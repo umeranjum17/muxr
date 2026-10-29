@@ -15,6 +15,11 @@
 		888D62E3BC394EFA907CB9E9 /* HerdActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D4E2E0C152E471097520138 /* HerdActivityAttributes.swift */; };
 		C1728846AED44059B5E6FE24 /* HerdLiveActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EF99DACDCF94695BA1B4EA5 /* HerdLiveActivityIntents.swift */; };
 		7B3CC6833AD548C790504C1E /* HerdLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923908E363FB4064BE019A8D /* HerdLiveActivityWidget.swift */; };
+		FEC4B9C6011C4D289B3845E4 /* ByokitNoticeService.appex in Copy Files */ = {isa = PBXBuildFile; fileRef = EDDFCDBBCAF14F6AAC37BB2F /* ByokitNoticeService.appex */; };
+		1E6BEBC122B142ED844B8AE7 /* NoticeKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E8FAFEAA460463A93E82C92 /* NoticeKeyStore.swift */; };
+		74C8732EB4884D44A6176449 /* NoticePayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EFE55FAF7E84F538706F8DC /* NoticePayload.swift */; };
+		4D7A265BFBEB4CDD8BEFF005 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5300670065C44BC89996AE18 /* NotificationService.swift */; };
+		A71AB8FC3A624D1EB17DB3F9 = {isa = PBXBuildFile; productRef = 2F2A69858E2348BFA498BEAE; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +35,10 @@
 		0D4E2E0C152E471097520138 /* HerdActivityAttributes.swift */ = {isa = PBXFileReference; name = "HerdActivityAttributes.swift"; path = "../modules/voice-overlay/ios/HerdActivityAttributes.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
 		1EF99DACDCF94695BA1B4EA5 /* HerdLiveActivityIntents.swift */ = {isa = PBXFileReference; name = "HerdLiveActivityIntents.swift"; path = "../modules/voice-overlay/ios/HerdLiveActivityIntents.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
 		923908E363FB4064BE019A8D /* HerdLiveActivityWidget.swift */ = {isa = PBXFileReference; name = "HerdLiveActivityWidget.swift"; path = "../widgets/HerdLiveActivity/HerdLiveActivityWidget.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
+		EDDFCDBBCAF14F6AAC37BB2F /* ByokitNoticeService.appex */ = {isa = PBXFileReference; name = "ByokitNoticeService.appex"; path = "ByokitNoticeService.appex"; sourceTree = BUILT_PRODUCTS_DIR; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; };
+		6E8FAFEAA460463A93E82C92 /* NoticeKeyStore.swift */ = {isa = PBXFileReference; name = "NoticeKeyStore.swift"; path = "ByokitNoticeService/NoticeKeyStore.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
+		8EFE55FAF7E84F538706F8DC /* NoticePayload.swift */ = {isa = PBXFileReference; name = "NoticePayload.swift"; path = "ByokitNoticeService/NoticePayload.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
+		5300670065C44BC89996AE18 /* NotificationService.swift */ = {isa = PBXFileReference; name = "NotificationService.swift"; path = "ByokitNoticeService/NotificationService.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,6 +53,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F4E96B8EBC62431F97334091 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A71AB8FC3A624D1EB17DB3F9 /* Clibsodium in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -97,6 +114,7 @@
 			children = (
 				13B07F961A680F5B00A75B9A /* muxr.app */,
 				E8D342FC42E94896B004B981 /* HerdLiveActivity.appex */,
+				EDDFCDBBCAF14F6AAC37BB2F /* ByokitNoticeService.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -135,11 +153,13 @@
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
 				4FBF77BF96DE4CB7870CCBB7 /* [Expo Dev Launcher] Strip Local Network Keys for Release */,
 				0E02B709D27B474FB60664E6 /* Copy Files */,
+				FF2A114F6AA1461B9991D200 /* Copy Files */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				7A3DA368A7D74650819AE9BA /* PBXTargetDependency */,
+				07FF853EECB14EB9BE1B11A5 /* PBXTargetDependency */,
 			);
 			name = muxr;
 			productName = muxr;
@@ -161,6 +181,25 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+		};
+		0B84EAF237214EA09506EA98 /* "ByokitNoticeService" */ = {
+			isa = PBXNativeTarget;
+			name = "ByokitNoticeService";
+			productName = "ByokitNoticeService";
+			productReference = EDDFCDBBCAF14F6AAC37BB2F;
+			productType = "com.apple.product-type.app-extension";
+			buildConfigurationList = 7792C2EF21E6420698825FA9;
+			buildPhases = (
+				EED5CA8307EA4847AE3E9B18 /* Sources */,
+				F4E96B8EBC62431F97334091 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			packageProductDependencies = (
+				2F2A69858E2348BFA498BEAE /* Clibsodium */,
 			);
 		};
 /* End PBXNativeTarget section */
@@ -191,6 +230,10 @@
 			targets = (
 				13B07F861A680F5B00A75B9A /* muxr */,
 				F7697CD97CE940EB85A88294 /* "HerdLiveActivity" */,
+				0B84EAF237214EA09506EA98 /* "ByokitNoticeService" */,
+			);
+			packageReferences = (
+				A672564840494D85972C4EE6 /* swift-sodium */,
 			);
 		};
 /* End PBXProject section */
@@ -343,6 +386,16 @@ fi
 				888D62E3BC394EFA907CB9E9 /* HerdActivityAttributes.swift in Sources */,
 				C1728846AED44059B5E6FE24 /* HerdLiveActivityIntents.swift in Sources */,
 				7B3CC6833AD548C790504C1E /* HerdLiveActivityWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EED5CA8307EA4847AE3E9B18 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1E6BEBC122B142ED844B8AE7 /* NoticeKeyStore.swift in Sources */,
+				74C8732EB4884D44A6176449 /* NoticePayload.swift in Sources */,
+				4D7A265BFBEB4CDD8BEFF005 /* NotificationService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -571,6 +624,46 @@ fi
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 			};
 		};
+		96098A1E6B09402CA9567F43 /* Debug */ = {
+			name = Debug;
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				INFOPLIST_FILE = "ByokitNoticeService/ByokitNoticeService-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				PRODUCT_NAME = "ByokitNoticeService";
+				SKIP_INSTALL = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.trymuxr.app.notices";
+				SWIFT_VERSION = 5.9;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = ByokitNoticeService/ByokitNoticeService.entitlements;
+				CURRENT_PROJECT_VERSION = 52;
+				MARKETING_VERSION = 0.2.16;
+			};
+		};
+		8B50C5127EA040E9A75C389D /* Release */ = {
+			name = Release;
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				INFOPLIST_FILE = "ByokitNoticeService/ByokitNoticeService-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				PRODUCT_NAME = "ByokitNoticeService";
+				SKIP_INSTALL = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.trymuxr.app.notices";
+				SWIFT_VERSION = 5.9;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = ByokitNoticeService/ByokitNoticeService.entitlements;
+				CURRENT_PROJECT_VERSION = 52;
+				MARKETING_VERSION = 0.2.16;
+			};
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -601,6 +694,15 @@ fi
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		7792C2EF21E6420698825FA9 /* Build configuration list for PBXNativeTarget "ByokitNoticeService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				96098A1E6B09402CA9567F43 /* Debug */,
+				8B50C5127EA040E9A75C389D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -609,6 +711,17 @@ fi
 			buildActionMask = 2147483647;
 			files = (
 				DAEC7A7C39D7423D96D5FCC4 /* HerdLiveActivity.appex in Copy Files */,
+				FEC4B9C6011C4D289B3845E4 /* ByokitNoticeService.appex in Copy Files */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			name = "Copy Files";
+			dstPath = "";
+			dstSubfolderSpec = 13;
+		};
+		FF2A114F6AA1461B9991D200 /* Copy Files */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			name = "Copy Files";
@@ -625,6 +738,13 @@ fi
 			remoteGlobalIDString = F7697CD97CE940EB85A88294;
 			remoteInfo = "HerdLiveActivity";
 		};
+		14BB5F4DA721470A9078520A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0B84EAF237214EA09506EA98;
+			remoteInfo = "ByokitNoticeService";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXTargetDependency section */
@@ -633,7 +753,31 @@ fi
 			target = F7697CD97CE940EB85A88294 /* "HerdLiveActivity" */;
 			targetProxy = 5FAC4FF2A8E14E3CA907F284 /* PBXContainerItemProxy */;
 		};
+		07FF853EECB14EB9BE1B11A5 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0B84EAF237214EA09506EA98 /* "ByokitNoticeService" */;
+			targetProxy = 14BB5F4DA721470A9078520A /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A672564840494D85972C4EE6 = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jedisct1/swift-sodium.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.11.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2F2A69858E2348BFA498BEAE = {
+			isa = XCSwiftPackageProductDependency;
+			package = A672564840494D85972C4EE6;
+			productName = Clibsodium;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 83CBB9F71A601CBA00E9B192 /* Project object */;
 }

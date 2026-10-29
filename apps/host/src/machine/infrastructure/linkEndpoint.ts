@@ -1,10 +1,11 @@
+import { openAnswer } from '@byokit/push';
 import { sealNotice } from '@byokit/seal';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { dirname } from 'node:path';
 import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream, type PairRequest } from '@byokit/pair';
-import { isExpoToken, linkUrl, ownerClient, RelayOwnerError, RelayClient, type RelayClientStore } from '@byokit/relay';
+import { isExpoToken, linkUrl, ownerClient, RelayOwnerError, RelayClient, type PushAction, type RelayClientStore } from '@byokit/relay';
 import {
     agentAlertTitle,
     lifecycleNotificationAllowed,
@@ -63,7 +64,7 @@ export interface LinkEndpointOptions {
     machineName: string;
     crypto: MachineCryptoState;
     currentCrypto: () => MachineCryptoState | undefined;
-    savePushLevel: (deviceId: string, level: LifecycleNotificationLevel | undefined) => void;
+    savePushLevel: (deviceId: string, level: LifecycleNotificationLevel | undefined, noticePublicKey?: string) => void;
     grants: GrantStore;
     /** Pending relay unsubscribes, persisted so they survive a host restart.
      *  Omit it and the kit keeps them in memory only. */
@@ -298,6 +299,8 @@ export class LinkEndpoint {
     private pairing: { kind: 'native' | 'browser'; confirm: (request: PairRequest, options: { signal: AbortSignal }) => boolean | Promise<boolean>; handle: (request: LinkRequest, grant: Grant) => Promise<unknown> } | undefined;
 
     private client?: RelayClient;
+    // ponytail: bounded pending questions live until host restart; old alerts then fail closed.
+    private readonly pendingAnswers = new Map<string, { device: string; sessionId: string; eventId: string; key: string; expires: number }>();
     private connectionTimer?: ReturnType<typeof setInterval>;
     private readonly deviceConnections = new Map<string, boolean>();
 
@@ -365,6 +368,7 @@ export class LinkEndpoint {
         endpoint = new LinkEndpoint(host, options.currentCrypto, options.savePushLevel, () => new RelayClient(host, {
             url: new URL('/relay/v1/host', relayControlUrl(options.relayUrl)).toString().replace(/^http/, 'ws'),
             name: options.machineName,
+            onAction: (press) => endpoint.answerNotice(press, options.answer),
             ...(enrol === undefined ? {} : { enrol }),
             ...(options.onStatus === undefined ? {} : { onStatus: options.onStatus }),
             ...(options.revokeStore === undefined ? {} : { store: options.revokeStore }),
@@ -441,7 +445,7 @@ export class LinkEndpoint {
             ? ' could not start.'
             : COPY_SUFFIX[input.kind];
         const question = input.kind === 'blocked' ? safeQuestion(input.question) : undefined;
-        const notice = (asked: string | undefined) => ({
+        const notice = (asked: string | undefined, answerable: boolean) => ({
             title,
             // A blocked agent's own question is the alert; the sealed notice keeps it from the relay.
             body: asked ?? `${input.agentName}${suffix}`,
@@ -454,15 +458,28 @@ export class LinkEndpoint {
                 sessionId: input.sessionId,
                 machineId: input.machineId,
                 presentationOwner: 'relay-push',
+                ...(answerable ? { answer: { host: input.machineId } } : {}),
             },
         });
         for (const grant of recipients) {
-            const key = Buffer.from(grant.key, 'base64url');
-            let sealed = sealNotice(notice(question), key);
+            const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
+            const answerable = input.kind === 'blocked' && grant.role === 'control' && device?.noticePublicKey !== undefined;
+            const key = device?.noticePublicKey === undefined ? Buffer.from(grant.key, 'base64url') : Buffer.from(device.noticePublicKey, 'base64');
+            const id = createHash('sha256').update(JSON.stringify([input.eventId, grant.id])).digest('hex');
+            for (const [oldId, pending] of this.pendingAnswers) {
+                if (pending.expires < Date.now() || (pending.device === grant.id && pending.sessionId === input.sessionId)) this.pendingAnswers.delete(oldId);
+            }
+            if (answerable) {
+                if (this.pendingAnswers.size >= 1024) this.pendingAnswers.delete(this.pendingAnswers.keys().next().value!);
+                this.pendingAnswers.set(id, { device: grant.id, sessionId: input.sessionId, eventId: input.eventId, key: device!.noticePublicKey!, expires: Date.now() + 3_600_000 });
+            }
+            let sealed = sealNotice(notice(question, answerable), key);
             // The relay refuses push data over 2 KB; a wide question gives way to the plain copy.
-            if (JSON.stringify(sealed).length > SEALED_NOTICE_MAX) sealed = sealNotice(notice(undefined), key);
+            if (JSON.stringify(sealed).length > SEALED_NOTICE_MAX) sealed = sealNotice(notice(undefined, answerable), key);
             void this.client.notify({
-                id: createHash('sha256').update(JSON.stringify([input.eventId, grant.id])).digest('hex'),
+                id,
+                mutableContent: true,
+                ...(answerable ? { categoryId: 'agent-question-native', actions: ['answer'], ttl: 3600 } : {}),
                 title: 'Agent update',
                 body: 'An agent has an update.',
                 data: sealed,
@@ -501,7 +518,8 @@ export class LinkEndpoint {
         const notice = (url: string | undefined) => generalNoticeEnvelope(
             url === undefined ? { title: input.title, body: input.body, id: input.id, machineId: input.machineId } : { ...input, url });
         for (const { grant, live } of recipients) {
-            const key = Buffer.from(grant.key, 'base64url');
+            const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
+            const key = device?.noticePublicKey === undefined ? Buffer.from(grant.key, 'base64url') : Buffer.from(device.noticePublicKey, 'base64');
             let sealed = sealNotice(notice(input.url), key);
             // The relay refuses push data over 2 KB; a long link gives way.
             if (JSON.stringify(sealed).length > SEALED_NOTICE_MAX) sealed = sealNotice(notice(undefined), key);
@@ -512,6 +530,7 @@ export class LinkEndpoint {
             }
             void this.client.notify({
                 id: createHash('sha256').update(JSON.stringify([input.id, grant.id])).digest('hex'),
+                mutableContent: true,
                 title: 'muxr',
                 body: 'You have a new notification.',
                 data: sealed,
@@ -522,6 +541,28 @@ export class LinkEndpoint {
             });
         }
         return recipients.length;
+    }
+
+    private async answerNotice(press: PushAction, deliver: LinkAnswer): Promise<void> {
+        const crypto = this.currentCrypto();
+        const grant = this.host.devices().find((entry) => entry.id === press.device);
+        const pending = this.pendingAnswers.get(press.event);
+        if (grant === undefined || grant.role !== 'control' || !trusted(grant, crypto) || press.action !== 'answer'
+            || pending === undefined || pending.device !== grant.id || pending.expires < Date.now()) {
+            throw new PublicLinkError('That question was already answered or changed.');
+        }
+        const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
+        if (device?.noticePublicKey !== pending.key || crypto === undefined) throw new PublicLinkError('This answer was not accepted.');
+        const text = openAnswer(press, Buffer.from(pending.key, 'base64'), Buffer.from(crypto.boxSecretKey, 'base64'));
+        if (text === null || text.trim() === '' || text.length > 500 || /[\u0000-\u001f\u007f]/.test(text)) throw new PublicLinkError('This answer was not accepted.');
+        // Consume before awaiting delivery: concurrent presses never type twice.
+        this.pendingAnswers.delete(press.event);
+        const response = await deliver({ type: 'session.answer', requestId: randomUUID(), params: {
+            sessionId: pending.sessionId, eventId: pending.eventId, answer: text.trim(),
+        } }, muxrDeviceIdOf(grant)!);
+        if (response?.type !== 'result' || !response.ok) {
+            throw new PublicLinkError(response?.type === 'result' ? response.error : 'The answer was not sent.');
+        }
     }
 
     private async pushRequest(frame: ClientFrame, grant: Grant, deviceId: string): Promise<HostFrame> {
@@ -544,8 +585,21 @@ export class LinkEndpoint {
         }
         const level = frame.params.level === undefined ? 'important' : parseLifecycleNotificationLevel(frame.params.level);
         if (level === undefined) throw new PublicLinkError('push.subscribe level is invalid');
+        const noticePublicKey = frame.params.noticePublicKey;
+        if (noticePublicKey !== undefined && (token === undefined || typeof noticePublicKey !== 'string'
+            || !/^[A-Za-z0-9+/]{43}=$/.test(noticePublicKey) || Buffer.from(noticePublicKey, 'base64').length !== 32)) {
+            throw new PublicLinkError('push.subscribe notice key is invalid');
+        }
+        if (noticePublicKey !== undefined) {
+            try {
+                const key = Buffer.from(noticePublicKey, 'base64');
+                if (key.toString('base64') !== noticePublicKey) throw new Error('noncanonical key');
+                sealNotice(null, key); // Reject low-order X25519 points before a later send could throw.
+            } catch { throw new PublicLinkError('push.subscribe notice key is invalid'); }
+        }
         await this.client.subscribe(grant.id, token !== undefined ? { expo: token } : { web: subscription! });
-        this.savePushLevel(deviceId, level);
+        if (!trusted(grant, this.currentCrypto())) throw new PublicLinkError('device no longer trusted');
+        this.savePushLevel(deviceId, level, noticePublicKey);
         return { type: 'result', requestId: frame.requestId, ok: true, data: null };
     }
 
@@ -617,6 +671,7 @@ export class LinkEndpoint {
         }
         this.deviceConnections.clear();
         this.client?.stop();
+        this.pendingAnswers.clear();
         this.host.close();
     }
 

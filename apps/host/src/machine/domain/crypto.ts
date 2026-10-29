@@ -33,6 +33,8 @@ export interface MachineDeviceRecord {
     personal?: boolean;
     /** Push policy persists with the trusted device, not the relay registration. */
     pushLevel?: LifecycleNotificationLevel;
+    /** Installation notification identity, registered over this device's authenticated link. */
+    noticePublicKey?: string;
     capabilities?: PeerCapability[];
     allowedCwds?: string[];
 }

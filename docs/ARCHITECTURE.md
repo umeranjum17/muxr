@@ -257,17 +257,23 @@ history after showing the plan.
 
 ## Push notifications
 
-Lifecycle notifications open the app; requests travel over the authenticated
-link. A blocked agent's alert names it and carries its question; the native
-Answer action, "Answer in muxr", opens muxr to send one key as `session.answer`
-over the link, and the host types it only while that alert's blocked event is
-still the one waiting. A browser notification, including the installed iPhone
+A blocked agent's alert names it and carries its question. On iOS, the
+`@byokit/push` native Answer action seals a short reply and sends it through
+`@byokit/relay`'s one-use action route without foregrounding muxr or depending
+on app JavaScript. The host opens it only for the still-trusted registering
+grant and original notification/button, then delivers `session.answer` to the
+originating session while its blocked event is still current. One-key choices
+keep their existing behavior; longer answers send literal characters and Enter.
+Android and local-only alerts still open muxr to answer over its paired link. A browser notification, including the installed iPhone
 web app, has no reply field, so answering there is platform-limited and its tap
 opens the agent. A general notification sent by a tool on the host instead
 opens the link it carries.
 
-The host seals each lifecycle notice separately to the recipient's raw device
-box key using `@byokit/seal`. Task title, agent name, a blocked agent's question,
+The host seals each lifecycle notice separately using `@byokit/seal`. An iOS
+installation provisions one notification key with `setNoticeKey`, separate
+from every per-host pairing identity. Its public half is registered through
+authenticated `push.subscribe` and persisted with that trusted device; other
+clients and older registrations continue using their pairing box key. Task title, agent name, a blocked agent's question,
 event kind and machine/session scope stay inside the sealed notice; the relay and push provider receive generic
 alert text and ciphertext. A general notification from the host's
 `POST /v1/notify` is sealed the same way, with its title, body and link inside
@@ -278,8 +284,16 @@ over its live link and raises it locally; it gets nothing while disconnected.
 Clients open notices with stored
 paired grants and fall back to generic text when opening fails. The browser service worker reads
 paired grants through `pairing/infrastructure/webSecureStore.ts` to open notices;
-approval still runs in the app over the authenticated link. Native pre-display
-decryption is not implemented; see [notification presentation](../README.md).
+browser approval still runs in the app over the authenticated link. iOS
+pre-display opening is owned by the kit's generated `ByokitNoticeService`
+extension, with Swift-Sodium pinned to 0.11.0. Missing/locked/wrong keys and
+modified ciphertext leave the generic alert unchanged. Native Answer targets
+come only from stored, unexpired control pairings and HTTPS relay origins;
+revocation removes the target and the host refuses stale grants. Pending
+question routing is bounded in host memory, so old alerts after a host restart
+fail closed and ask the person to open muxr. Simulator compilation and loopback
+reply checks do not prove locked-phone APNs delivery; that requires the owner's
+signed build, App Group profiles, push credentials and a physical-device run.
 Browser taps carry decrypted scope in the `/notification` URL fragment, never
 an HTTP query, and the app checks the originating machine before navigation.
 

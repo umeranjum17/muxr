@@ -1159,6 +1159,16 @@
     sodium-native "5.1.0"
     sodium-universal "5.0.1"
 
+"@byokit/push@0.1.1":
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/@byokit/push/-/push-0.1.1.tgz#3eb20eced785923de7776739910500fffaa28c94"
+  integrity sha512-540xcofJ9aBLXzNj3HGv4mzKzXMhqhOwZNYrSlu1cS2JLaKiM79hITBouNZkjPG3bY94JKeu1aefsekAaymX8w==
+  dependencies:
+    "@byokit/seal" "0.3.2"
+    "@noble/ciphers" "2.4.0"
+    "@noble/curves" "2.4.0"
+    "@noble/hashes" "2.4.0"
+
 "@byokit/reach@0.6.0":
   version "0.6.0"
   resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.6.0.tgz#1ce4dc08470594123c778cae531f1655d4013960"
@@ -1197,6 +1207,15 @@
   version "0.3.1"
   resolved "https://registry.yarnpkg.com/@byokit/seal/-/seal-0.3.1.tgz#b6f7d48f58bb734a553cbcc53a040366324783f1"
   integrity sha512-MjehvrD8mCB3O1u/nFv8taFijYV2OxCj387Qrk0ZErxiv3Ry2sXtYVHFMLiq32J1kT7mpBpYpcuPK970eJkzdg==
+  dependencies:
+    "@noble/ciphers" "2.4.0"
+    "@noble/curves" "2.4.0"
+    "@noble/hashes" "2.4.0"
+
+"@byokit/seal@0.3.2":
+  version "0.3.2"
+  resolved "https://registry.yarnpkg.com/@byokit/seal/-/seal-0.3.2.tgz#18bf7889cc84365fcf3b367331a05795d14729c2"
+  integrity sha512-Fb2chAs+TxogOLXEgf7z0NLcmLSwNxPL/S6TVVUB3WwP5HtPLjV4Z/pcDrCJKwjm11xqgy9xaI/WLUIa+kbLXQ==
   dependencies:
     "@noble/ciphers" "2.4.0"
     "@noble/curves" "2.4.0"

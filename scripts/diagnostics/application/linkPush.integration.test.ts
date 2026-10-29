@@ -15,6 +15,8 @@ import { join } from 'node:path';
 import { DeviceLink, hostId, keyPairFrom, type DeviceGrant } from '@byokit/pair';
 import { describe, expect, it } from 'vitest';
 import { openNotice, sealNotice } from '@byokit/seal';
+import { nativeAnswerLoopback } from '../../../.agents/skills/done-done-verify-pockit/features/nativeAnswerLoopbackLab.mjs';
+import { answerAgent } from '../../../apps/host/src/agent/application/answerAgent';
 import { runInNewContext } from 'node:vm';
 import { isOpenableNotifyUrl, openLifecycleNotice } from '../../../apps/mobile/sources/utils/openLifecycleNotice';
 import { watchAgentLifecycle } from '../../../apps/mobile/sources/herd/application/WatchAgentLifecycle';
@@ -487,5 +489,12 @@ describe('push rides the byokit link relay', () => {
             await relay.close().catch(() => {});
             rmSync(dataDir, { recursive: true, force: true });
         }
+    }, 30_000);
+
+    it('opens a sealed Answer only for its trusted grant and original question, without app JavaScript', async () => {
+        const result = await nativeAnswerLoopback({ startRelay, LinkEndpoint, answerAgent, openLifecycleNotice });
+        expect(result.received).toBe(result.typed);
+        expect(result.sameTokenReplayRefused).toBe(true);
+        expect(result.revokedGrantRefused).toBe(true);
     }, 30_000);
 });

@@ -314,3 +314,5 @@ journeys:
   desklink-pin:
     command: node .agents/skills/done-done-verify-pockit/features/desklinkPinLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m
+  native-answer-loopback:
+    command: node .agents/skills/done-done-verify-pockit/features/nativeAnswerLoopbackLab.mjs > "$DONE_DONE_EVIDENCE_ROOT/journey.log" 2>&1

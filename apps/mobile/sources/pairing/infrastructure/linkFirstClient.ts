@@ -54,7 +54,7 @@ export type SessionClient = {
     onMachinesChanged(listener: () => void): () => void;
     /** A general notification the host sent over the link (devices with no push address). */
     onNotice?: (notice: unknown) => void;
-    registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
+    registerPush(token: string, level: LifecycleNotificationLevel, noticePublicKey?: string): Promise<boolean>;
     unregisterPush(): Promise<boolean>;
     terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
     voiceStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
@@ -137,7 +137,7 @@ export class LinkFirstClient implements SessionClient {
     private offlineCheck: ReturnType<typeof setTimeout> | undefined;
     private healthGeneration = 0;
     private handshake = 0;
-    private lastPush: { token: string; level: LifecycleNotificationLevel } | undefined;
+    private lastPush: { token: string; level: LifecycleNotificationLevel; noticePublicKey?: string } | undefined;
     private readonly stateListeners = new Set<(state: ConnectionState) => void>();
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
     private readonly pluginListeners = new Set<(frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void>();
@@ -452,10 +452,10 @@ export class LinkFirstClient implements SessionClient {
         return () => { this.machinesListeners.delete(listener); };
     }
 
-    async registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean> {
-        this.lastPush = { token, level };
+    async registerPush(token: string, level: LifecycleNotificationLevel, noticePublicKey?: string): Promise<boolean> {
+        this.lastPush = { token, level, noticePublicKey };
         if (this.link === undefined || !this.online) return false;
-        await this.request('push.subscribe', { token, level }, 5_000);
+        await this.request('push.subscribe', { token, level, noticePublicKey }, 5_000);
         return true;
     }
 
@@ -519,7 +519,7 @@ export class LinkFirstClient implements SessionClient {
         // The registration may have ridden the relay HTTP API while the link
         // was down; re-register here so one device lives in one push store.
         if (this.lastPush !== undefined) {
-            void this.registerPush(this.lastPush.token, this.lastPush.level).catch(() => undefined);
+            void this.registerPush(this.lastPush.token, this.lastPush.level, this.lastPush.noticePublicKey).catch(() => undefined);
         }
     }
 
