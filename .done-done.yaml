@@ -1,50 +1,38 @@
 # done-done project config. `done-done init` never overwrites this file.
 # The app name finds this repo's evidence and receipts from every checkout.
 app: "pockit"
-# Approved written requirements: supervisor inbox 003 (two doors), the
-# scoped slice-1 decision in inbox 004 (unchanged navigation), and the ticket's
-# existing Boat-flow requirement. Inbox 026 authorizes these retained captures.
+# Approved written requirements: supervisor inbox 003 (two doors) and the
+# ticket's existing Boat-flow requirement. Inbox 028 limits these rows to
+# still-image-verifiable requirements and the fresh driver's exact filenames.
 approved_requirements:
   - kind: spec
     name: native-connect-360-light
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: connect-360-font1-light.png
+    capture: native-connect-360-light.png
   - kind: spec
     name: native-connect-360-dark
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: connect-360-font1-dark.png
+    capture: native-connect-360-dark.png
   - kind: spec
     name: native-connect-390-light
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: connect-390-font1-light.png
+    capture: native-connect-390-light.png
   - kind: spec
     name: native-connect-390-dark
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: connect-390-font1-dark.png
+    capture: native-connect-390-dark.png
   - kind: spec
     name: pwa-connect-1280-light
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: web-connect-1280-light.png
+    capture: pwa-connect-1280-light.png
   - kind: spec
     name: pwa-connect-1280-dark
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: web-connect-1280-dark.png
-  - kind: spec
-    name: pwa-demo-360-light
-    requirement: 'the main navigation unchanged after'
-    capture: web-demo-360-light.png
-  - kind: spec
-    name: pwa-demo-390-light
-    requirement: 'the main navigation unchanged after'
-    capture: web-demo-390-light.png
+    capture: pwa-connect-1280-dark.png
   - kind: spec
     name: native-boat-entry-390-light
     requirement: 'the cloud-machine option reaching the existing Boat flow.'
-    capture: boat-entry-390-light.png
-# This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
-# agent: opencode
-
-approved_requirements:
+    capture: native-boat-entry-390-light.png
   - kind: spec
     name: Settings cloud machine action
     requirement: 'Settings > Machines gets an "Add a cloud machine" action that reaches the same Boat flow, worded as a cloud machine, not a second competing concept.'
@@ -53,6 +41,8 @@ approved_requirements:
     name: One machine list and shared actions
     requirement: 'A cloud machine that exists or is created is listed beside paired computers with its own status, reachable by switch, and removable by forget, exactly like a machine today. One list, one set of actions.'
     capture: live-switch-board.png
+# This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
+# agent: opencode
 
 # Proof primitives: the repo's own check lanes, driven by done-done so the
 # capture is tied to the exact commit. Prerequisites (run once per checkout):
