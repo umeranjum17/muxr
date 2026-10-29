@@ -235,23 +235,16 @@ function DemoPairStep() {
     const router = useRouter();
     return (
         <View style={[styles.pairCard, cardStyle(theme)]}>
-            <WordWrappingText fontSize={18} style={styles.pairTitle}>Pair your own computer</WordWrappingText>
+            <WordWrappingText fontSize={18} style={styles.pairTitle}>Connect your own machine</WordWrappingText>
             <Text style={styles.pairBody}>
-                The agents above are a demo in this browser. Pair your computer and Home shows the agents running there.
+                The agents above are a demo in this browser. Connect your computer or a Boat cloud machine and Home shows the agents running there.
             </Text>
             <ActionButton
-                title="Pair your own computer"
+                title="Connect a machine"
                 icon="link-outline"
                 wrap
-                accessibilityLabel="Pair your own computer"
-                onPress={() => router.push('/pair')}
-            />
-            <ActionButton
-                title="Cloud computer"
-                variant="secondary"
-                icon="cloud-outline"
-                wrap
-                onPress={() => router.push('/cloud-computer')}
+                accessibilityLabel="Connect a machine"
+                onPress={() => router.push('/connect')}
             />
             <Text style={styles.pairHint}>
                 On your computer, run <Text style={styles.command}>muxr</Text> and paste the link it shows. Cloud setup is in the muxr phone app.

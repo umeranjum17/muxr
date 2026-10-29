@@ -15,7 +15,7 @@ if (values['nightly-tag']) throw new Error('sealed_release cannot be combined wi
 if (values['owner-authorized'] === values['captain-tested'] || values['requested-version'] !== values.version) {
     throw new Error('sealed_release requires exactly one of owner_authorized or captain_tested and version naming the same release');
 }
-if (process.env.GITHUB_REF !== 'refs/heads/main') throw new Error('Dispatch sealed_release from main, not from the old tag tree');
+if (process.env.GITHUB_REF !== 'refs/heads/main' && process.env.GITHUB_REF !== `refs/tags/v${values.version}`) throw new Error('Dispatch sealed_release from main or its matching release tag');
 if (!values.directory) throw new Error('--directory is required');
 const tag = `v${values.version}`;
 const commit = execFileSync('git', ['rev-parse', '--verify', `refs/tags/${tag}^{commit}`], { encoding: 'utf8' }).trim();
