@@ -281,7 +281,7 @@ journeys:
     timeout: 30m
   # The agent chat slice in the installed PWA (chat-view.md, chat-switch-labelled,
   # chat-composer-card, chat-reply-actions, chat-side-panel): the Chat | Terminal
-  # switch in the header, the model chip, Copy and Speak and the desktop right
+  # switch in the header, the model chip, Copy and the desktop right
   # panel at 360/390/445/270 dp (font 1.0 and 2.0) and 1280/1440 dp, dark and
   # light. MUXR_LAB_WEB is a lab web export of this commit
   # (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export).

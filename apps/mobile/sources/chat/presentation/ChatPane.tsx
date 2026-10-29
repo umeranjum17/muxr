@@ -53,7 +53,7 @@ function Message({ sessionId, message, live, ink, onFullDiff, onOpenTerminal }: 
             </View>}
             {message.images !== undefined && <View style={{ paddingVertical: 4 }}><ChatImages sessionId={sessionId} images={message.images} mine={false} /></View>}
             {message.tools !== undefined && <ChatSteps tools={message.tools} live={live} ink={ink} onFullDiff={onFullDiff} onOpenTerminal={onOpenTerminal} />}
-            {message.text !== '' && <ReplyActions sessionId={sessionId} markdown={message.text} />}
+            {message.text !== '' && <ReplyActions markdown={message.text} />}
         </View>
     );
 }

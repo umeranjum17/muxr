@@ -58,8 +58,8 @@ screen. Codex, OpenCode and in-chat approvals are not part of it.
   harness's `/model`, Pi also `/thinking`, and sends it then shows the terminal
   where the harness's own picker answers), one mic (tap dictates, hold talks
   live, release ends it), Send, and Stop while the agent works.
-- `chat-reply-actions` Copy and Speak sit under each assistant reply; Speak
-  reads it through the realtime voice session (a second tap stops it).
+- `chat-reply-actions` Copy sits under each assistant reply (Speak waits for its
+  own proof in the next slice).
 - `chat-side-panel` on a wide screen with the sidebar, the chat column is 740 dp
   and a right panel shows the agent's project, changes, shared artifacts and
   usage.

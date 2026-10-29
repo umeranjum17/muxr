@@ -6,7 +6,7 @@
 # standalone --app Chromium paired through window.__MUXR_LAB_PAIR__, then per
 # cell (phone 360/390/445/270 at font 1.0, 270 at font 2.0, desktop 1280/1440;
 # dark and light) the Claude agent in Chat: the Chat | Terminal switch in the
-# header, the model chip, Copy and Speak under a reply, and on a wide screen the
+# header, the model chip, Copy under a reply, and on a wide screen the
 # right panel. Each cell is read back as text and run through pwa-check. Exit 1
 # when any cell misses one of them.
 #   scripts/diagnostics/application/withPrivateXvfb.sh bash <this> <web export dir> <out dir>
@@ -50,8 +50,8 @@ ax eval "location.reload()" >/dev/null; sleep 10
 # name:width:height:dpr:kind; font F at W x H is a viewport of W/F x H/F (react-native-web pins fontScale to 1).
 CELLS="360-1.0:360:800:3:mobile 390-1.0:390:844:3:mobile 445-1.0:445:960:3:mobile 270-1.0:270:594:2:mobile 270-2.0:135:297:4:mobile 1280:1280:800:1:desktop 1440:1440:900:1:desktop"
 shoot() { if [ "$1" = mobile ]; then ax emulate --viewport "$2x$3x$4,mobile,touch" --color-scheme "$5" >/dev/null; else ax emulate --viewport "$2x$3x$4" --color-scheme "$5" >/dev/null; fi; }
-# One DOM read per cell: the switch, the chip, Copy and Speak, and the side panel.
-READ="(() => { const l = [...document.querySelectorAll('[aria-label]')].map((e) => e.getAttribute('aria-label')); const has = (re) => l.some((t) => re.test(t)); return JSON.stringify({ chat: has(/^Chat view/), terminal: has(/^Terminal view/), chip: l.find((t) => /^Model /.test(t)) ?? 'none', copy: has(/^Copy reply/), speak: has(/^Speak reply/), panel: document.body.innerText.includes('Shared Artifacts') && document.body.innerText.includes('All changes') }); })()"
+# One DOM read per cell: the switch, the chip, Copy, and the side panel.
+READ="(() => { const l = [...document.querySelectorAll('[aria-label]')].map((e) => e.getAttribute('aria-label')); const has = (re) => l.some((t) => re.test(t)); return JSON.stringify({ chat: has(/^Chat view/), terminal: has(/^Terminal view/), chip: l.find((t) => /^Model /.test(t)) ?? 'none', copy: has(/^Copy reply/), panel: document.body.innerText.includes('Shared Artifacts') && document.body.innerText.includes('All changes') }); })()"
 misses=0
 for theme in dark light; do for cell in $CELLS; do
   IFS=: read -r nm w h dpr kind <<<"$cell"
@@ -66,7 +66,7 @@ for theme in dark light; do for cell in $CELLS; do
   node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name.png" "$name" >"$out/$name.check.txt" 2>&1
   echo "$name: $read_back" | tee -a "$out/lines.log"
   ok=1
-  case "$read_back" in *'"chat":true'*'"terminal":true'*'"copy":true'*'"speak":true'*) ;; *) ok=0 ;; esac
+  case "$read_back" in *'"chat":true'*'"terminal":true'*'"copy":true'*) ;; *) ok=0 ;; esac
   # Below 170 dp the card has room for attach, mic and Send only, so the chip steps aside.
   if [ "$w" -ge 170 ]; then case "$read_back" in *'"chip":"Model Opus 5.5, effort High"'*) ;; *) ok=0 ;; esac; fi
   [ "$kind" = desktop ] && case "$read_back" in *'"panel":true'*) ;; *) ok=0 ;; esac
@@ -76,8 +76,8 @@ cat >"$out/steps.json" <<JSON
 {
   "target": { "version": "$(node -p "require('./package.json').version")" },
   "start": "the installed PWA (standalone --app window) paired to a private lab host over a fake Herdr with a seeded Claude conversation",
-  "steps": ["pair the PWA through the lab hook", "open the Claude agent and switch it to Chat", "read the header switch, the model chip, Copy and Speak under a reply and, on desktop, the right panel at phone widths 360, 390, 445 and 270 (font 1.0 and 2.0) and desktop widths 1280 and 1440, dark and light"],
-  "result": "every cell shows the Chat | Terminal switch in the header, the Opus 5.5 High model chip, Copy and Speak under replies and no pane count in the header, and the desktop cells show the right panel; $misses cells missed"
+  "steps": ["pair the PWA through the lab hook", "open the Claude agent and switch it to Chat", "read the header switch, the model chip, Copy under a reply and, on desktop, the right panel at phone widths 360, 390, 445 and 270 (font 1.0 and 2.0) and desktop widths 1280 and 1440, dark and light"],
+  "result": "every cell shows the Chat | Terminal switch in the header, the Opus 5.5 High model chip, Copy under replies and no pane count in the header, and the desktop cells show the right panel; $misses cells missed"
 }
 JSON
 echo "standalone=$standalone paired=$paired misses=$misses"
