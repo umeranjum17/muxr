@@ -9,7 +9,8 @@
 // Read returned, one a file the reply draws (chat-images).
 // Stdin lines drive the header-fit journey (chat-header-fit.md): `status <state>
 // <task>` sets Claude 1's lifecycle and task title, `changes` leaves three
-// uncommitted files in its folder.
+// uncommitted files in its folder; `model <text>` reports the harness model and
+// effort (slice-1 chip) through Herdr pane metadata, CHAT_LAB_MODEL seeds it.
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
@@ -107,10 +108,14 @@ const herdr = (method, params) => new Promise((resolve, reject) => {
     });
 });
 const claude = stack.world.agents.find((agent) => agent.agent === 'claude');
+// What the harness reports through Herdr pane metadata, as `muxr name --model` does.
+const report = (model) => herdr('pane.report_metadata', { pane_id: claude.pane_id, tokens: { provider: 'claude', model } });
+await report(process.env.CHAT_LAB_MODEL ?? 'Opus 5.5 High');
 const git = (...args) => execFileSync('git', ['-c', 'user.name=Umer', '-c', 'user.email=umer@example.invalid', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: project, stdio: 'ignore' });
 createInterface({ input: process.stdin }).on('line', (text) => {
     const [command, state, ...task] = text.trim().split(' ');
     const done = command === 'status' ? herdr('lab.set_agent_status', { pane_id: claude.pane_id, agent_status: state, title: task.join(' ') })
+        : command === 'model' ? report([state, ...task].join(' '))
         : command === 'changes' ? Promise.resolve().then(() => {
             git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'Start');
             writeFileSync(join(project, 'notes.txt'), 'line 1\nline 2 changed\n');

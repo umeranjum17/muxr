@@ -279,6 +279,15 @@ journeys:
   action-sheet:
     command: node .agents/skills/done-done-verify-pockit/features/actionSheetLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --interact > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # The agent chat slice in the installed PWA (chat-view.md, chat-switch-labelled,
+  # chat-composer-card, chat-reply-actions, chat-side-panel): the Chat | Terminal
+  # switch in the header, the model chip, Copy and Speak and the desktop right
+  # panel at 360/390/445/270 dp (font 1.0 and 2.0) and 1280/1440 dp, dark and
+  # light. MUXR_LAB_WEB is a lab web export of this commit
+  # (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export).
+  chat-slice-pwa:
+    command: scripts/diagnostics/application/withPrivateXvfb.sh bash .agents/skills/done-done-verify-pockit/features/chatSlicePwaLab.sh "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # The chat's tool steps on Android: the release app on an owned emulator,
   # paired to the chat fake lab (seeded Claude log with real edits, a failed
   # command and a plan), shows each reply's steps folded, a group opened with an

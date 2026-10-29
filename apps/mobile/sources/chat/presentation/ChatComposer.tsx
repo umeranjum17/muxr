@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { withAlpha } from '@/components/ui';
@@ -51,6 +51,11 @@ export function ComposerMic({ sessionId, dictation, size }: { sessionId: string;
     );
 }
 
+/** Below this window width the chip is its mark alone, so the mic and Send keep their place. */
+const TIGHT_CHIP_WIDTH = 220;
+/** Under this the card has room for attach, mic and Send only, so the chip steps aside. */
+const MIN_CHIP_WIDTH = 170;
+
 /**
  * The card the message is written in: the field on top, the controls under it.
  * The chip shows what the harness reports as its model, with the effort dimmer.
@@ -72,6 +77,8 @@ export function ChatComposerCard(props: {
     stop: React.ReactNode;
 }): React.JSX.Element {
     const { theme } = useUnistyles();
+    const { width } = useWindowDimensions();
+    const tight = width < TIGHT_CHIP_WIDTH;
     const [open, setOpen] = React.useState(false);
     const commands = modelCommands(props.agentKind);
     const parts = splitModelEffort(props.reportedModel);
@@ -90,7 +97,7 @@ export function ChatComposerCard(props: {
             ))}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 {props.attach}
-                {commands.length > 0 && (
+                {commands.length > 0 && width >= MIN_CHIP_WIDTH && (
                     <Pressable
                         onPress={() => setOpen((current) => !current)}
                         disabled={!props.modelEnabled}
@@ -98,11 +105,11 @@ export function ChatComposerCard(props: {
                         accessibilityLabel={parts === undefined ? 'Model' : `Model ${parts.model}${parts.effort === undefined ? '' : `, effort ${parts.effort}`}`}
                         accessibilityHint="Changes the model through the agent's own command"
                         accessibilityState={{ expanded: open, disabled: !props.modelEnabled }}
-                        style={({ pressed }) => ({ flexShrink: 1, minWidth: 0, height: props.controlSize, flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 12, paddingRight: 8, borderRadius: props.controlSize / 2, backgroundColor: withAlpha(theme.colors.text, open ? 0.14 : 0.08), opacity: !props.modelEnabled ? 0.5 : pressed ? 0.7 : 1 })}
+                        style={({ pressed }) => ({ flexShrink: 1, minWidth: tight ? props.controlSize : 0, height: props.controlSize, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingLeft: tight ? 0 : 12, paddingRight: tight ? 0 : 8, borderRadius: props.controlSize / 2, backgroundColor: withAlpha(theme.colors.text, open ? 0.14 : 0.08), opacity: !props.modelEnabled ? 0.5 : pressed ? 0.7 : 1 })}
                     >
-                        <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>{parts?.model ?? 'Model'}</Text>
-                        {parts?.effort !== undefined && <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={{ flexShrink: 0, color: theme.colors.textSecondary, fontSize: 14 }}>{parts.effort}</Text>}
-                        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={13} color={theme.colors.textSecondary} />
+                        {!tight && <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>{parts?.model ?? 'Model'}</Text>}
+                        {!tight && parts?.effort !== undefined && <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 14 }}>{parts.effort}</Text>}
+                        <Ionicons name={tight ? 'options-outline' : open ? 'chevron-up' : 'chevron-down'} size={tight ? 16 : 13} color={theme.colors.textSecondary} />
                     </Pressable>
                 )}
                 <View style={{ flex: 1, minWidth: 0 }} />
