@@ -9,7 +9,10 @@ name: release
 # anywhere. Trusted publishing cannot move a dist-tag, so a stable version is
 # published straight under `latest`, and only once its release journey passed
 # on the exact tarball this run sealed and the captain, after his own phone
-# test, started the run by hand with captain_tested and that version. A push
+# test, started the run by hand with captain_tested and that version (or, when
+# he authorized the release before he could test it, with owner_authorized and a
+# committed owner authorization: published labelled owner-authorized and NOT
+# owner-tested, and never recorded as his test). A push
 # never publishes a stable version; it builds, seals and reports the gate. Run
 # it from main, or from the release tag (v<version>) once main has moved on.
 # When the version is already on npm, the build job only confirms it.
@@ -41,8 +44,12 @@ on:
         description: The captain's own phone test passed on this stable build; publish it as npm latest
         type: boolean
         default: false
+      owner_authorized:
+        description: The captain authorized this stable build before testing it (a committed owner authorization for the version); publish it as npm latest, labelled owner-authorized and NOT owner-tested. Leave captain_tested unchecked
+        type: boolean
+        default: false
       version:
-        description: The stable version tested, or optional exact version matching nightly_tag
+        description: The stable version tested or owner-authorized, or optional exact version matching nightly_tag
         type: string
         default: ''
       nightly_tag:
@@ -186,9 +193,13 @@ jobs:
         if: needs.build.outputs.needed == 'true' && needs.build.outputs.channel == 'stable' && steps.github-release.outputs.exists == 'true'
         env:
           CAPTAIN_TESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.captain_tested && inputs.version || '' }}
-        run: node scripts/release/presentation/acceptStable.mjs --version "$RELEASE_VERSION" --package "$RUNNER_TEMP"/package/*.tgz --captain-tested "$CAPTAIN_TESTED"
+          OWNER_AUTHORIZATION_NOTICE_FILE: ${{ runner.temp }}/owner-authorization.txt
+          OWNER_AUTHORIZED: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_authorized && !inputs.captain_tested && inputs.version || '' }}
+        run: node scripts/release/presentation/acceptStable.mjs --version "$RELEASE_VERSION" --package "$RUNNER_TEMP"/package/*.tgz --captain-tested "$CAPTAIN_TESTED" --owner-authorized "$OWNER_AUTHORIZED"
       - name: Publish with provenance
         if: needs.build.outputs.needed == 'true' && (needs.build.outputs.channel != 'stable' || steps.accepted.outputs.accepted == 'true')
+        env:
+          OWNER_AUTHORIZATION_NOTICE_FILE: ${{ runner.temp }}/owner-authorization.txt
         run: node scripts/release/presentation/publishNpm.mjs
       - id: live
         name: Check whether npm latest serves this version
@@ -213,6 +224,11 @@ jobs:
       - name: Require the phone-attach receipt for this stable commit and build
         if: steps.live.outputs.ready == 'true' && steps.github-release.outputs.exists == 'true' && needs.build.outputs.channel == 'stable'
         run: node scripts/release/presentation/checkJourneyReceipt.mjs --tag "$GITHUB_RELEASE_TAG" --commit "$RELEASE_COMMIT"
+      - name: Say in the release notes that the build is owner-authorized and not owner-tested
+        if: steps.live.outputs.ready == 'true' && steps.github-release.outputs.exists == 'true' && steps.accepted.outputs.owner_authorized == 'true'
+        env:
+          OWNER_AUTHORIZATION_NOTICE_FILE: ${{ runner.temp }}/owner-authorization.txt
+        run: node scripts/release/presentation/noteOwnerAuthorization.mjs --tag "$GITHUB_RELEASE_TAG"
       - name: Promote the accepted stable release to GitHub Latest
         if: steps.live.outputs.ready == 'true' && steps.github-release.outputs.exists == 'true' && needs.build.outputs.channel == 'stable'
         run: node scripts/release/presentation/promoteReleaseVisibility.mjs --tag "$GITHUB_RELEASE_TAG"
