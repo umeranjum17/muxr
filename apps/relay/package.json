@@ -13,8 +13,8 @@
         }
     },
     "dependencies": {
-        "@byokit/pair": "0.10.3",
-        "@byokit/reach": "0.6.0",
-        "@byokit/relay": "0.7.1"
+        "@byokit/pair": "0.10.5",
+        "@byokit/reach": "0.7.1",
+        "@byokit/relay": "0.8.3"
     }
 }

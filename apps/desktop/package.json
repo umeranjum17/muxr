@@ -12,14 +12,14 @@
         "start:tray": "electron . --hidden"
     },
     "dependencies": {
-        "@byokit/accounts": "0.28.2",
-        "@byokit/herdr": "0.16.4",
-        "@byokit/pair": "0.10.3",
-        "@byokit/reach": "0.6.0",
-        "@byokit/realtime": "0.3.1",
-        "@byokit/relay": "0.7.1",
-        "@byokit/seal": "0.3.0",
-        "@byokit/ui-core": "0.6.0",
+        "@byokit/accounts": "0.34.0",
+        "@byokit/herdr": "0.16.8",
+        "@byokit/pair": "0.10.5",
+        "@byokit/reach": "0.7.1",
+        "@byokit/realtime": "0.3.3",
+        "@byokit/relay": "0.8.3",
+        "@byokit/seal": "0.3.2",
+        "@byokit/ui-core": "0.7.0",
         "@desklink/host": "0.5.10",
         "ccusage": "20.0.20",
         "ws": "^8.18.0"
