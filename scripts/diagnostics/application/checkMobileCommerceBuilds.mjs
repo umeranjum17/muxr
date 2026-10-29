@@ -76,13 +76,26 @@ const xcodeConfigs = [...xcodeConfigSection.matchAll(/\n\t\t[0-9A-F]{24} \/\* (\
         deploymentTarget: body.match(/IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);/)?.[1] ?? null,
     }));
 assert.ok(xcodeConfigs.length > 0, 'Xcode project declares no build configurations');
-for (const { name, bundleId, deploymentTarget } of xcodeConfigs) {
-    const label = bundleId === null ? `project-level ${name}` : `${bundleId} ${name}`;
-    assert.ok(deploymentTarget !== null, `Xcode configuration ${label} declares no deployment target`);
-    assert.ok(Number(deploymentTarget) >= 16.4, `Xcode configuration ${label} is below the expo-libghostty minimum`);
+function checkDeploymentTargets(configs) {
+    for (const { name, bundleId, deploymentTarget } of configs) {
+        const label = bundleId === null ? `project-level ${name}` : `${bundleId} ${name}`;
+        assert.ok(deploymentTarget !== null, `Xcode configuration ${label} declares no deployment target`);
+        // The published notice extension links Clibsodium, not expo-libghostty.
+        if (bundleId === 'com.trymuxr.app.notices') {
+            assert.ok(Number(deploymentTarget) >= 15.1, `Xcode configuration ${label} is below the notice kit minimum`);
+            continue;
+        }
+        assert.ok(Number(deploymentTarget) >= 16.4, `Xcode configuration ${label} is below the expo-libghostty minimum`);
+    }
 }
+checkDeploymentTargets(xcodeConfigs);
+// Regression: the real kit extension at 15.1 passes above, but the same target
+// version on the app must still fail. A broad exemption cannot make this green.
+assert.throws(() => checkDeploymentTargets(xcodeConfigs.map((entry) =>
+    entry.bundleId === 'com.trymuxr.app' ? { ...entry, deploymentTarget: '15.1' } : entry)),
+/\bcom\.trymuxr\.app Debug is below the expo-libghostty minimum/);
 // Named explicitly so a target that disappears is a failure, not a smaller count.
-for (const bundleId of ['com.trymuxr.app', 'com.trymuxr.app.activity']) {
+for (const bundleId of ['com.trymuxr.app', 'com.trymuxr.app.activity', 'com.trymuxr.app.notices']) {
     const configured = xcodeConfigs.filter((entry) => entry.bundleId === bundleId).map((entry) => entry.name).sort();
     assert.deepEqual(configured, ['Debug', 'Release'], `expected Debug and Release build configurations for ${bundleId}`);
 }
