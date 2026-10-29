@@ -19,8 +19,9 @@ const AUTH = 38911;
 const API = 38912;
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
-// One check judges at most 10 captures: six of the eight steps and two reopened chats are cited from EVIDENCE;
-// the whole width/theme matrix is saved next to it.
+// One check judges at most 10 captures and reads each against the whole claim, so EVIDENCE cites only the chat
+// frames (steps 3, 4, 7, 8 and two reopened chats); the card, code, running-turn frames, the log and the whole
+// width/theme matrix are saved next to it.
 const MATRIX = `${EVIDENCE}-matrix`;
 const CITED_CELLS = ['390-light', '270-dark'];
 const CHECK = resolve('.agents/skills/done-done-verify-pockit/features/visualCheck.mjs');
@@ -28,9 +29,10 @@ const CHECK = resolve('.agents/skills/done-done-verify-pockit/features/visualChe
 const CELLS = ['360', '390', '445', '270'].flatMap((width) => ['light', 'dark'].map((theme) => [width, theme]));
 const DENSITY = { 360: 480, 390: 443, 445: 388, 270: 640 };
 mkdirSync(EVIDENCE, { recursive: true });
+mkdirSync(MATRIX, { recursive: true });
 const exec = promisify(execFile);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
-const say = (line) => { const out = `${new Date().toISOString()} ${line}`; console.log(out); appendFileSync(join(EVIDENCE, 'journey.log'), `${out}\n`); };
+const say = (line) => { const out = `${new Date().toISOString()} ${line}`; console.log(out); appendFileSync(join(MATRIX, 'journey.log'), `${out}\n`); };
 let serial = '';
 const adb = async (args, timeout = 60_000) => (await exec('adb', ['-s', serial, ...args], { timeout, maxBuffer: 64 << 20 })).stdout;
 const sh = (cmd) => adb(['shell', cmd]);
@@ -126,11 +128,13 @@ try {
     mkdirSync(flow, { recursive: true });
 
     await launch();
-    await capture(flow, '1-first-run-card');
+    const early = join(MATRIX, 'flow');
+    mkdirSync(early, { recursive: true });
+    await capture(early, '1-first-run-card');
     await tapOn('the Just this phone card', (v) => v.startsWith('Just this phone'));
     await tapOn('Sign in with ChatGPT', (v) => v === 'Sign in with ChatGPT');
     await waitFor('the sign-in code', has('Enter this code on ChatGPT'), 60);
-    await capture(flow, '2-sign-in-code');
+    await capture(early, '2-sign-in-code');
     await sleep(1000);
     say(`approving ${standIn.lastCode() === undefined ? 'no code yet' : 'the code the stand-in issued'}`);
     await standIn.approve(standIn.lastCode());
