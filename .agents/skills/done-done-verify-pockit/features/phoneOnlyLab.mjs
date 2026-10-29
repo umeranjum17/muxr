@@ -191,7 +191,7 @@ try {
     say(`RESULT FAIL: ${error instanceof Error ? error.message : String(error)}`);
     if (serial) await screenshot(join(EVIDENCE, 'failure.png')).catch(() => undefined);
     if (serial) writeFileSync(join(EVIDENCE, 'crash.log'), await adb(['logcat', '-d', '-b', 'crash']).catch((e) => String(e)));
-    if (serial) writeFileSync(join(EVIDENCE, 'app.log'), await adb(['logcat', '-d', '-s', 'ReactNativeJS:V', 'AndroidRuntime:E']).catch((e) => String(e)));
+    if (serial) writeFileSync(join(EVIDENCE, 'app.log'), await adb(['logcat', '-d', '-s', 'ReactNativeJS:V', 'AndroidRuntime:E', 'ActivityManager:I', 'libc:F', 'DEBUG:I']).catch((e) => String(e)));
     process.exitCode = 1;
 } finally {
     if (serial) await sh('wm size reset; wm density reset; settings put system font_scale 1.0; cmd uimode night no').catch(() => undefined);

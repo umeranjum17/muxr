@@ -24,6 +24,8 @@ function said(body) {
     let toolDone = false;
     for (const item of Array.isArray(body.input) ? body.input : []) {
         if (item?.type === 'function_call_output') { toolDone = true; continue; }
+        // Only the latest user message counts; earlier turns stay in the history.
+        if (item?.role === 'user') { words.length = 0; toolDone = false; }
         const content = typeof item?.content === 'string' ? [{ type: 'input_text', text: item.content }] : Array.isArray(item?.content) ? item.content : [];
         for (const part of content) if (part?.type === 'input_text' && typeof part.text === 'string') words.push(part.text);
     }
