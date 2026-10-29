@@ -8,11 +8,11 @@ name: release
 # the sealed tarball through npm trusted publishing (OIDC). No npm token exists
 # anywhere. Trusted publishing cannot move a dist-tag, so a stable version is
 # published straight under `latest`, and only once its release journey passed
-# on the exact tarball this run sealed and the captain, after his own phone
-# test, started the run by hand with captain_tested and that version (or, when
-# he authorized the release before he could test it, with owner_authorized and a
-# committed owner authorization: published labelled owner-authorized and NOT
-# owner-tested, and never recorded as his test). A push
+# on the exact sealed APK and tarball and a manual run carries exactly one
+# attestation: captain_tested after his own phone test, or owner_authorized
+# with a committed owner authorization before he can test it (published
+# labelled owner-authorized and NOT owner-tested, never recorded as his test).
+# An already-sealed stable can be published from main without rebuilding; a push
 # never publishes a stable version; it builds, seals and reports the gate. Run
 # it from main, or from the release tag (v<version>) once main has moved on.
 # When the version is already on npm, the build job only confirms it.
