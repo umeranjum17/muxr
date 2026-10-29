@@ -119,7 +119,7 @@ answered=none
 grep -q '"source":"terminal.text".*"text":"2"' "$mx/pane-input.jsonl" 2>/dev/null && answered=typed
 echo "answered: $answered" | tee -a "$mx/lines.log"
 [ "$answered" = typed ] || misses=$((misses + 1))
-for name in ${CHAT_WORK_CITE:-}; do case "$name" in *.*) cp "$mx/$name" "$out/";; *) cp "$mx/$name.png" "$out/";; esac; done
+for name in ${CHAT_WORK_CITE:-}; do case "$name" in *.mp4) cp "$mx/$name" "$out/";; *) cp "$mx/$name.png" "$out/";; esac; done
 cat >"$out/steps.json" <<JSON
 {
   "target": { "version": "$(node -p "require('./package.json').version")" },
