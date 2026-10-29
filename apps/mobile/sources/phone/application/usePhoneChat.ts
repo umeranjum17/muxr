@@ -18,6 +18,7 @@ export function usePhoneChat() {
     const [busy, setBusy] = React.useState(false);
     const cancelled = React.useRef(false);
     const session = React.useRef<PhoneSession<string> | undefined>(undefined);
+    const activeTurn = React.useRef<Promise<void> | undefined>(undefined);
 
     const ready = React.useCallback(async () => {
         try {
@@ -73,23 +74,28 @@ export function usePhoneChat() {
         setBusy(true);
         // The kit adds the turn once its first write lands, before any words stream.
         const tick = setInterval(redraw, 250);
-        try {
-            const pending = start(chat, redraw);
-            redraw();
-            await pending;
-        } catch {
-            // An aborted or refused turn is already in the chat with its words.
-        } finally {
-            clearInterval(tick);
-            redraw();
-            setBusy(false);
-        }
+        const operation = Promise.resolve().then(async () => {
+            try {
+                const pending = start(chat, redraw);
+                redraw();
+                await pending;
+            } catch {
+                // An aborted or refused turn is already in the chat with its words.
+            } finally {
+                clearInterval(tick);
+                redraw();
+                setBusy(false);
+            }
+        });
+        activeTurn.current = operation;
+        await operation;
     }, [busy]);
 
     const send = React.useCallback((text: string) => run((chat, onText) => chat.send(text, { onText })), [run]);
     const tryAgain = React.useCallback((requestId: string) => run((chat, onText) => chat.resume(requestId, { onText })), [run]);
 
     const startOver = React.useCallback(async () => {
+        await activeTurn.current;
         session.current = undefined;
         setTurns([]);
         await endPhoneChat();
