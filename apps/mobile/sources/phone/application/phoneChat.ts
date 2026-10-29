@@ -1,3 +1,4 @@
+import { randomUUID } from 'expo-crypto';
 import { PhoneSession, type PhoneTool } from '@byokit/phone';
 import { setThemePreference } from '@/settings';
 import { PHONE_ACCOUNT, PHONE_INSTRUCTIONS, PHONE_MEMBER } from '../domain/phone';
@@ -37,7 +38,8 @@ export function openPhoneChat(): Promise<PhoneSession<string>> {
         // The kit never guesses a model: the first one this plan lists is the one used.
         const model = (await accounts.models(PHONE_MEMBER, PHONE_ACCOUNT)).find((m) => m.available)?.id;
         if (model === undefined) throw new Error('Your plan lists no model for this phone yet.');
-        return PhoneSession.open({ accounts, member: PHONE_MEMBER, account: PHONE_ACCOUNT, model, instructions: PHONE_INSTRUCTIONS, tools: [setTheme], log });
+        // Hermes has no globalThis.crypto.randomUUID, the kit's default for a turn's id.
+        return PhoneSession.open({ accounts, member: PHONE_MEMBER, account: PHONE_ACCOUNT, model, instructions: PHONE_INSTRUCTIONS, tools: [setTheme], log, newId: randomUUID });
     })();
     opened.catch(() => { opened = undefined; });
     return opened;
