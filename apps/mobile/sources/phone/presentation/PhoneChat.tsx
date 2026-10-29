@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { Pressable, ScrollView, TextInput, View } from 'react-native';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -51,9 +51,10 @@ export function PhoneChat(props: {
         setText('');
         props.onSend(said);
     };
-    const Avoid = Platform.OS === 'web' ? View : KeyboardAvoidingView;
+    // The window does not resize for the keyboard, so the composer clears it by its measured height.
+    const keyboard = useKeyboardState((state) => state.isVisible ? state.height : 0);
     return (
-        <Avoid style={styles.fill} behavior="padding">
+        <View style={styles.fill}>
             <ScrollView
                 ref={scroll}
                 style={styles.fill}
@@ -77,7 +78,7 @@ export function PhoneChat(props: {
                     <Turn key={turn.requestId} turn={turn} busy={props.busy} onTryAgain={props.onTryAgain} />
                 ))}
             </ScrollView>
-            <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+            <View style={[styles.composer, { paddingBottom: keyboard > 0 ? keyboard : Math.max(insets.bottom, 10) }]}>
                 <Text style={styles.account}>{props.account.words}</Text>
                 <View style={styles.row}>
                     <TextInput
@@ -103,7 +104,7 @@ export function PhoneChat(props: {
                     </Pressable>
                 </View>
             </View>
-        </Avoid>
+        </View>
     );
 }
 
