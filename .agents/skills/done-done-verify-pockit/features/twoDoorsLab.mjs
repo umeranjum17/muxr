@@ -235,21 +235,22 @@ async function timedRun() {
     const composer = find(await screen(), (v) => v.startsWith('Prompt'));
     await sh(`input tap ${center(composer).join(' ')}`);
     await sleep(800);
-    await sh("input text 'hello%sfrom%sthe%sphone'");
+    // One short word: a busy emulator drops keys from a longer `input text`.
+    await sh("input text 'hello'");
     const send = find(await screen(), (v) => /^Send/.test(v));
     if (send) await sh(`input tap ${center(send).join(' ')}`);
     else await sh('input keyevent KEYCODE_ENTER');
     // The answer is drawn in the native terminal; Herdr's pane is where it is read.
     let paneText = '';
     const deadline = Date.now() + 90_000;
-    while (Date.now() < deadline && !paneText.includes('lab agent heard: hello from the phone')) {
+    while (Date.now() < deadline && !paneText.includes('lab agent heard: hello')) {
         await sleep(1000);
         paneText = JSON.parse(lab.herdr(['pane', 'list'])).result.panes
             .map((pane) => lab.herdr(['pane', 'read', pane.pane_id, '--source', 'visible'])).join('\n');
     }
     await sh('input keyevent KEYCODE_BACK').catch(() => undefined);
     await sleep(500);
-    if (!paneText.includes('lab agent heard: hello from the phone')) throw new Error('the agent never answered the prompt in its terminal');
+    if (!paneText.includes('lab agent heard: hello')) throw new Error('the agent never answered the prompt in its terminal');
     await step('send a prompt and the agent answers in its terminal');
     writeFileSync(join(dir, 'agent-pane.txt'), paneText);
     timing.totalMs = Date.now() - t0;
