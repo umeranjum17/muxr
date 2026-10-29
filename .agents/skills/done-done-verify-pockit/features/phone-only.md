@@ -27,8 +27,8 @@ an existing app capability (`set_theme`), and no shell or file access.
   under the emulator lock (`flock -o -w 600 /tmp/fm-muxr-emulator.lock`). It boots
   its own emulator, `pm clear`s the app and runs `phoneStandIn.mjs`, a stand-in
   for the ChatGPT BYOKit routes (device-code sign-in and the model API).
-- Pass: `journey.log` ends `RESULT done`; `flow/` holds the eight steps; the
-  360/390/445/270 dp light and dark folders hold the reopened chat.
+- Pass: `journey.log` ends `RESULT done`; `flow/` holds the eight steps, two reopened chats are cited beside it, and the
+  360/390/445/270 dp light and dark matrix is saved in `<evidence>-matrix` (one check judges at most 10 captures).
 
 ## Gotchas
 

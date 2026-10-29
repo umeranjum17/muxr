@@ -7,7 +7,7 @@
 // EXPO_PUBLIC_MUXR_PHONE_API_BASE=http://127.0.0.1:38912 (the stand-in's ports).
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
@@ -20,6 +20,10 @@ const AUTH = 38911;
 const API = 38912;
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
+// One check judges at most 10 captures: the 8 steps and two reopened chats are cited from EVIDENCE;
+// the whole width/theme matrix is saved next to it.
+const MATRIX = `${EVIDENCE}-matrix`;
+const CITED_CELLS = ['390-light', '270-dark'];
 const CHECK = resolve('.agents/skills/done-done-verify-pockit/features/visualCheck.mjs');
 // 1080 px at density 480 is 360 dp, 443 is 390, 388 is 445 and 640 is the reference phone's 270.
 const CELLS = ['360', '390', '445', '270'].flatMap((width) => ['light', 'dark'].map((theme) => [width, theme]));
@@ -172,7 +176,7 @@ try {
     // The reopened chat everywhere.
     for (const [width, theme] of CELLS) {
         const cell = `${width}-${theme}`;
-        const dir = join(EVIDENCE, cell);
+        const dir = join(MATRIX, cell);
         mkdirSync(dir, { recursive: true });
         await sh(`wm density ${DENSITY[width]}; cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
         await launch(has('Continue your chat'));
@@ -180,6 +184,7 @@ try {
         await tapOn('Continue your chat', (v) => v.startsWith('Continue your chat'));
         await waitFor('the chat', has('Uses your ChatGPT plan.'), 60);
         await capture(dir, `chat-${cell}`, true);
+        if (CITED_CELLS.includes(cell)) copyFileSync(join(dir, `chat-${cell}.png`), join(EVIDENCE, `chat-${cell}.png`));
     }
 
     // The a11y dumps of a screen that looks the same in two cells are byte-identical; keep the first, never a copy.
