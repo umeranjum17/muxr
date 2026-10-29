@@ -90,7 +90,8 @@ function ReadyStep() {
                     </Pressable>
                 )}
             </StepCard>
-            <ActionButton title="Next: pair" icon="arrow-forward-outline" wrap onPress={() => router.push({ pathname: '/my-computer', params: { step: 'pair' } })} />
+            {/* A string href: on web the object form with params pushed /pair. */}
+            <ActionButton title="Next: pair" icon="arrow-forward-outline" wrap onPress={() => router.push('/my-computer?step=pair')} />
         </>
     );
 }

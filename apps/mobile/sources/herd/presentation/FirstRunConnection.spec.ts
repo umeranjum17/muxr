@@ -136,6 +136,7 @@ describe('two-door first run', () => {
         expect(visible).toContain('About 4–6 min with a Boat account');
         expect(visible).toContain('Paid to Boat, from $0.018 an hour');
         expect(visible).toContain('Any server over SSH · 3–7 min');
+        expect(visible).toContain('Encrypted after verified pairing. No new muxr account.');
         expect(visible.some((text) => text.includes('phone'))).toBe(false);
         press(renderer.root, 'My computer');
         expect(routerPush).toHaveBeenCalledWith('/my-computer');
@@ -155,7 +156,7 @@ describe('two-door first run', () => {
         press(renderer.root, 'Get the desktop app. Open its download link on your computer.');
         expect(routerPush).toHaveBeenCalledWith('/add-computer');
         press(renderer.root, 'Next: pair');
-        expect(routerPush).toHaveBeenCalledWith({ pathname: '/my-computer', params: { step: 'pair' } });
+        expect(routerPush).toHaveBeenCalledWith('/my-computer?step=pair');
         routerPush.mockClear();
         TestRenderer.act(() => { renderer.unmount(); });
 
@@ -164,7 +165,8 @@ describe('two-door first run', () => {
         visible = texts(renderer.root);
         expect(visible).toContain('Step 2 of 3');
         expect(visible).toContain('Pair with your computer');
-        expect(visible).toContain('Private link or pairing code');
+        expect(renderer.root.findByType('TextInput').props.accessibilityLabel).toBe('Private link or pairing code');
+        expect(visible).toContain('Then check two words');
         expect(visible).toContain('Example words');
         expect(visible).toContain('Next · Start an agent');
         expect(renderer.root.findByType('TextInput').props.placeholder).toBe('Paste link');
