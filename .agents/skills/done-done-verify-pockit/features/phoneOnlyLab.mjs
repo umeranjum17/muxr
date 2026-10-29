@@ -6,9 +6,8 @@
 // The APK must be built with EXPO_PUBLIC_MUXR_PHONE_AUTH_BASE=http://127.0.0.1:38911 and
 // EXPO_PUBLIC_MUXR_PHONE_API_BASE=http://127.0.0.1:38912 (the stand-in's ports).
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { appendFileSync, copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { appendFileSync, copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
 import { dumpUiXml } from '../../../../perf/lib/androidSignals.mjs';
@@ -187,11 +186,11 @@ try {
         if (CITED_CELLS.includes(cell)) copyFileSync(join(dir, `chat-${cell}.png`), join(EVIDENCE, `chat-${cell}.png`));
     }
 
-    // The a11y dumps of a screen that looks the same in two cells are byte-identical; keep the first, never a copy.
-    const seen = new Set();
-    for (const file of readdirSync(EVIDENCE, { recursive: true }).sort().filter((f) => f.endsWith('.xml'))) {
-        const digest = createHash('sha256').update(readFileSync(join(EVIDENCE, file))).digest('hex');
-        if (seen.has(digest)) rmSync(join(EVIDENCE, file)); else seen.add(digest);
+    // The a11y dumps are not captures: move them beside the matrix so the cited folder holds only the ten frames.
+    for (const file of readdirSync(EVIDENCE, { recursive: true }).filter((f) => f.endsWith('.xml'))) {
+        const target = join(MATRIX, 'dumps', file);
+        mkdirSync(dirname(target), { recursive: true });
+        renameSync(join(EVIDENCE, file), target);
     }
     say(`visual check leads: ${leads.length === 0 ? 'none' : `\n${leads.join('\n')}`}`);
     say(`stand-in saw ${standIn.requests.length} model requests`);
