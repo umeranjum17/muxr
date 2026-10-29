@@ -2,9 +2,9 @@
 # The demo an unpaired browser lands on (pwa-demo-first-run.md), captured from
 # one owned lab: the export served on its own free port, a standalone --app
 # Chromium on a private display, then the matrix (demoFirstRunPwaCells.sh) and
-# the first-open-to-pair clip (demoPwaJourney.sh) in one run, encoded to
+# the clip from first open into the My computer pair step (demoPwaJourney.sh) in one run, encoded to
 # demo-first-run.mp4 with each frame's real on-screen time. Exit 1 when a cell
-# fails or the clip does not end on /pair.
+# fails or the clip does not end on /my-computer.
 #   scripts/diagnostics/application/withPrivateXvfb.sh bash <this> <web export dir> <out dir>
 # The export comes from `yarn web:export`; no relay, host or Herdr is needed,
 # nothing pairs, and no grant may be stored in the profile.
@@ -61,9 +61,9 @@ cat > "$out/steps.json" <<JSON
     "read the demo: the Sample data pill, Umer's MacBook Pro and zulu-2, kestrel and ember in order",
     "open the first agent's sample conversation and scroll it",
     "go back to all demo agents",
-    "tap Pair your own computer"
+    "tap Connect a machine, then the My computer door, then Next: pair"
   ],
-  "result": "the real /pair screen: Securely pair this device, its pairing code field and Connect"
+  "result": "the My computer pair step: Pair with your computer, its Private link or pairing code field and Connect"
 }
 JSON
 echo "cells exit $cells, clip exit $clip"

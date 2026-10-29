@@ -4,7 +4,7 @@ On the native pair page, one Scan button opens the system QR scanner in one
 tap: the recovery card's Pair again, Settings → Pair another machine, the
 command palette, and a launch link. First run instead leads with the ready
 link/code field and Connect, with Scan immediately below; see
-[first-run-browser-steps.md](./first-run-browser-steps.md). A code that has run out or was refused leads with
+[two-doors-first-run.md](./two-doors-first-run.md). A code that has run out or was refused leads with
 **Scan a new code**, plus one line saying to open muxr on the computer or run `muxr pair` for a new one.
 Pasting the string, and SSH, sit below as quieter options. A device that cannot
 scan (web/PWA, an iOS simulator, an older iPad whose system scanner throws)

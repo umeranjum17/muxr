@@ -165,7 +165,7 @@ it('signs in to Boat once the person opens the page, and gives up with a retry a
     TestRenderer.act(() => { signIn.props.onPress(); });
     expect(lab.opened).toEqual([expect.stringContaining('/api/boat/agent/identity/claim?claim_attempt_token=')]);
 
-    await until(() => texts(root).includes('Connected'), 'the connected account');
+    await until(() => texts(root).includes('Pick a size'), 'the size step after the connected account');
     expect(lab.secrets.get('muxr.cloud.boat-key.v1')).toBe('boat-claimed-key');
     expect(texts(root)).not.toContain('Waiting for Boat…');
     TestRenderer.act(() => renderer.unmount());
@@ -237,7 +237,7 @@ it('reaches a new cloud computer over SSH with a key this phone made, adds the c
     const root = renderer.root;
     current = root;
     await until(() => button(root, 'Create cloud computer') !== undefined, 'the size step');
-    expect(texts(root)).toContain('Private connection');
+    expect(texts(root)).toContain('Step 2 of 3');
     // The screen is the person's choice and off until they turn it on.
     expect(button(root, 'Add a screen for sign-ins').props.accessibilityState.checked).toBe(false);
     TestRenderer.act(() => { button(root, 'Add a screen for sign-ins').props.onPress(); });

@@ -62,6 +62,14 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="my-computer"
+                options={{ headerShown: true, headerTitle: 'My computer', headerBackTitle: t('common.back') }}
+            />
+            <Stack.Screen
+                name="connect"
+                options={{ headerShown: true, headerTitle: 'muxr', headerBackTitle: t('common.back') }}
+            />
+            <Stack.Screen
                 name="cloud-computer"
                 options={{ headerShown: true, headerTitle: 'Cloud computer' }}
             />
