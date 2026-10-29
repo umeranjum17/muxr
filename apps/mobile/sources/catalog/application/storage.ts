@@ -176,6 +176,10 @@ interface StorageState extends WatchSnapshot {
     setSessionError: (sessionId: string, message: string | null) => void;
     herdrWorkspaces: HerdrTreeWorkspace[];
     herdrTreeLoaded: boolean;
+    /** Last successful tree read and whether its replacement failed. Never inferred from socket liveness. */
+    herdrTreeUpdatedAt: number | null;
+    herdrTreeRefreshFailed: boolean;
+    herdrTreeNeedsRefresh: boolean;
     /** Latest herdr runtime liveness from `herdr.tree`: false is dead, undefined is unknown. Written only by sync.refreshHerdTree. */
     herdrRuntime: boolean | undefined;
     /** The dead runtime is a computer with no Herdr installed: the fix is an install, not a restart. */
@@ -307,6 +311,9 @@ export const storage = create<StorageState>()((set, get) => ({
     }),
     herdrWorkspaces: [],
     herdrTreeLoaded: false,
+    herdrTreeUpdatedAt: null,
+    herdrTreeRefreshFailed: false,
+    herdrTreeNeedsRefresh: true,
     herdrRuntime: undefined,
     herdrMissing: false,
     herdrOutdated: false,
@@ -603,28 +610,29 @@ export function useSpacesLayout(): SpacesLayout {
     return storage(spacesLayoutOf);
 }
 
-/** Home draws its snapshot until the host has sent both its tree and its agents. */
-export function homeShowsSnapshot(state: Pick<StorageState, 'homeSnapshot' | 'herdrTreeLoaded' | 'sessionsLoaded'>): boolean {
-    return state.homeSnapshot !== null && !(state.herdrTreeLoaded && state.sessionsLoaded);
+/** A fresh tree already carries runtime and lifecycle; an unrelated catalog read must never mask it. */
+export function homeShowsSnapshot(state: Pick<StorageState, 'homeSnapshot' | 'herdrTreeLoaded'>): boolean {
+    return state.homeSnapshot !== null && !state.herdrTreeLoaded;
 }
 
 /**
- * Home's herd. Until a cold start has both the host's tree and its agents,
- * this is the last Home the device saw for the machine, flagged `stale` so
- * Home can say so. Everything outside Home reads the host's state only.
+ * Home's herd, with freshness derived from the read that produced it rather
+ * than a socket that may still look connected after a background suspension.
  */
-export function useHomeTree(): { workspaces: HerdrTreeWorkspace[]; loaded: boolean; stale: boolean } {
+export function useHomeTree(): { workspaces: HerdrTreeWorkspace[]; loaded: boolean; stale: boolean; updatedAt: number | null; refreshFailed: boolean } {
     return storage(useShallow((state) => {
-        const stale = homeShowsSnapshot(state);
+        const snapshot = homeShowsSnapshot(state);
         return {
-            workspaces: stale ? state.homeSnapshot!.workspaces as HerdrTreeWorkspace[] : state.herdrWorkspaces,
-            loaded: state.herdrTreeLoaded || stale,
-            stale,
+            workspaces: snapshot ? state.homeSnapshot!.workspaces as HerdrTreeWorkspace[] : state.herdrWorkspaces,
+            loaded: state.herdrTreeLoaded || snapshot,
+            stale: snapshot || state.herdrTreeNeedsRefresh || state.herdrTreeRefreshFailed || state.socketStatus !== 'connected' || state.herdrRuntime === false,
+            updatedAt: snapshot ? state.homeSnapshot!.updatedAt ?? null : state.herdrTreeUpdatedAt,
+            refreshFailed: state.herdrTreeRefreshFailed,
         };
     }));
 }
 
-export function useHomeHerd(): { workspaces: HerdrTreeWorkspace[]; sessions: (Session | HomeSession)[]; loaded: boolean; stale: boolean } {
+export function useHomeHerd(): ReturnType<typeof useHomeTree> & { sessions: (Session | HomeSession)[] } {
     const tree = useHomeTree();
     const sessions = storage(useShallow((state) => Object.values(homeShowsSnapshot(state) ? state.homeSnapshot!.sessions : state.sessions)));
     return { ...tree, sessions };

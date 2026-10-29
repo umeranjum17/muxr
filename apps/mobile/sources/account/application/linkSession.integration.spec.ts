@@ -187,6 +187,7 @@ vi.mock('../../catalog/infrastructure/sessionMapping', () => ({
 }));
 vi.mock('../../catalog/application/storage', () => ({
     storage: {
+        setState: (patch: Record<string, unknown>) => Object.assign(harness, patch),
         getState: () => ({
             sessions: harness.sessions,
             sessionsLoaded: harness.sessionsLoaded,

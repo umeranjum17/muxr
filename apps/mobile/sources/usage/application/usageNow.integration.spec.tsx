@@ -275,19 +275,37 @@ describe('the Home card read path', () => {
 
 
 
-    it('recovers from a failed refresh in the background, without an alarm or a tap', async () => {
-        request.mockResolvedValueOnce(collected()).mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
+    it('keeps old figures visibly stale after a failed refresh, then clears the failure on a fresh answer', async () => {
+        request.mockResolvedValueOnce(collected(90)).mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
         const card = renderCard();
         await tick();
         await tick(11_000);
 
         pressRefresh(card);
         await tick(1_000);
-        expect(screenText(card)).not.toContain('plugins.rightNow.refreshFailed');
+        expect(screenText(card)).toContain('plugins.rightNow.refreshFailed');
+        expect(screenText(card)).toContain('components.sessionStatusBar.limitAsOf');
+        expect(screenText(card)).not.toContain('plugins.rightNow.refreshing');
         expect(screenText(card)).toContain('5h 0%');
 
         await tick(30_000);
         expect(forcedReads()).toHaveLength(3);
+        expect(screenText(card)).not.toContain('plugins.rightNow.refreshFailed');
+
+        // After a host restart its retained cache can answer first while it
+        // collects. A final answer naming the SAME reading is not progress:
+        // finish as a failed refresh instead of polling a finished collection.
+        const capturedAt = new Date(Date.now() - 90_000).toISOString();
+        request.mockResolvedValueOnce({ ...collected(90, 100, capturedAt), refreshing: true })
+            .mockResolvedValue(collected(96, 100, capturedAt));
+        await tick(11_000);
+        pressRefresh(card);
+        await tick();
+        expect(screenText(card)).toContain('plugins.rightNow.refreshing');
+        await tick(6_000);
+        expect(screenText(card)).not.toContain('plugins.rightNow.refreshing');
+        expect(screenText(card)).toContain('plugins.rightNow.refreshFailed');
+        expect(screenText(card)).toContain('5h 0%');
     });
 
 

@@ -37,9 +37,8 @@ export interface UsageNowRead {
     /** Figures, a wait, or a failure: the card paints one of the three and has
      *  no fourth to fall back on. */
     display: UsageDisplay;
-    /** Reads keep failing and there are no figures to stand on. With figures
-     *  on screen a failure stays quiet: they keep their age and a retry runs
-     *  in the background. */
+    /** The latest refresh failed or exhausted its collection budget, even
+     *  when last-known figures remain visible. */
     failed: boolean;
     /** A read is in flight behind the display. */
     refreshing: boolean;
@@ -133,12 +132,19 @@ export function useUsageNow(): UsageNowRead {
                 // The host answered, so the last read was not rejected: whether
                 // it produced figures is a different question (`failed`).
                 rejected.current = false;
-                // Only a newer payload, or an explicit failure, ends a read. The
-                // a follow-up can return the figures it set out to replace
-                // while the collection is running. That is not a newer answer,
-                // so keep waiting rather than settling on them.
+                const newer = replaced === undefined || isNewer(result, replaced, replacedAt, Date.now());
+                // A completed collection that only returns the retained cache
+                // has failed to refresh it. Do not keep polling work the host
+                // explicitly says has finished, or call those old figures new.
+                if (result.collecting !== true && result.refreshing !== true && !newer) {
+                    collecting.current = 0;
+                    bursting.current = false;
+                    setFailed(true);
+                    setRefreshing(false);
+                    return;
+                }
                 let showsFigures = displayRef.current.status === 'figures';
-                if (result.collecting !== true && (replaced === undefined || isNewer(result, replaced, replacedAt, Date.now()))) {
+                if (result.collecting !== true && newer) {
                     retries.current = 0;
                     setFailed(false);
                     rememberShown(READ_TAB, { status: 'figures', at: Date.now(), figures: withNow(shown.current, result) });
@@ -162,7 +168,7 @@ export function useUsageNow(): UsageNowRead {
                 // alarm while they stand. With nothing collected yet it says
                 // what it is -- a host still collecting, or one that never
                 // finished -- and keeps asking in the background either way.
-                setFailed(exhausted && !showsFigures);
+                setFailed(exhausted);
                 setRefreshing(!exhausted);
                 if (!showsFigures) {
                     rememberShown(READ_TAB, exhausted
@@ -181,8 +187,8 @@ export function useUsageNow(): UsageNowRead {
                     bursting.current = false;
                     rejected.current = true;
                     setRefreshing(false);
+                    setFailed(true);
                     if (displayRef.current.status !== 'figures') {
-                        setFailed(true);
                         rememberShown(READ_TAB, { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause), ...measured(displayRef.current) });
                     }
                     retryLater();
