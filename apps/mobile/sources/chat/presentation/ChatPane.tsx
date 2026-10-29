@@ -107,8 +107,8 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
 
     // What stands between the messages and the composer: the question, its answer's receipt, the old needs-you card, or the running strip.
     let bottom: React.ReactNode = null;
-    if (props.needsYou && ask.choices.length > 0) bottom = <AskCard agentLabel={props.agentLabel} statusColor={props.statusColor} question={ask.question} choices={ask.choices} onAnswer={ask.answer} onOpenTerminal={props.onOpenTerminal} />;
-    else if (props.needsYou && ask.sent) bottom = <AnswerSent agentLabel={props.agentLabel} statusColor={props.statusColor} />;
+    if (props.needsYou && ask.choices.length > 0) bottom = <AskCard agentLabel={props.agentLabel} statusColor={props.statusColor} question={ask.question} choices={ask.choices} onAnswer={ask.answer} />;
+    else if (props.needsYou && ask.sent !== null) bottom = <AnswerSent agentLabel={props.agentLabel} statusColor={props.statusColor} choice={ask.sent} />;
     else if (props.needsYou) {
         bottom = (
             <View accessibilityRole="alert" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginHorizontal: 14, marginBottom: 6, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: withAlpha(props.statusColor, 0.5), backgroundColor: withAlpha(props.statusColor, 0.12) }}>

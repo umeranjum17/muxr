@@ -39,21 +39,21 @@ export function usePendingChoices({ sessionId, waiting, channel, columns }: {
     channel?: { sendText: (text: string) => void };
     /** The terminal grid width in columns the pane is drawn at; wrapped unnumbered labels are rejoined against it. */
     columns?: number;
-}): PendingAsk & { answer: (choice: PendingChoice) => void; sent: boolean } {
+}): PendingAsk & { answer: (choice: PendingChoice) => void; sent: string | null } {
     const [ask, setAsk] = React.useState<PendingAsk>(NONE);
-    /** An answer went out and the screen has not asked anything new yet. */
-    const [sent, setSent] = React.useState(false);
+    /** The label of the choice sent, until the screen asks anything new. */
+    const [sent, setSent] = React.useState<string | null>(null);
     const answered = React.useRef<{ signature: string; at: number } | null>(null);
 
     const show = React.useCallback((next: PendingAsk): void => {
-        if (next.choices.length > 0) setSent(false);
+        if (next.choices.length > 0) setSent(null);
         setAsk((current) => (signature(current.choices) === signature(next.choices) && current.question.join('\n') === next.question.join('\n') ? current : next));
     }, []);
 
     React.useEffect(() => {
         if (!waiting) {
             answered.current = null;
-            setSent(false);
+            setSent(null);
             setAsk(NONE);
             return;
         }
@@ -88,7 +88,7 @@ export function usePendingChoices({ sessionId, waiting, channel, columns }: {
         setAsk(NONE);
         if (choice.number !== undefined) {
             hapticsSelection();
-            setSent(true);
+            setSent(choice.label);
             channel.sendText(choice.key);
             return;
         }
@@ -104,7 +104,7 @@ export function usePendingChoices({ sessionId, waiting, channel, columns }: {
                 }
                 answered.current = { signature: signature(fresh.choices), at: Date.now() };
                 hapticsSelection();
-                setSent(true);
+                setSent(match.label);
                 channel.sendText(match.key);
             } catch {
                 answered.current = null;

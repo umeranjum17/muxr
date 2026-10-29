@@ -11,8 +11,8 @@ export interface AskState {
     question: string[];
     choices: AskChoice[];
     answer: (choice: AskChoice) => void;
-    /** An answer went out and the agent has not asked anything new yet. */
-    sent: boolean;
+    /** The label of the choice just sent, until the agent asks anything new. */
+    sent: string | null;
 }
 export interface AskChoice { key: string; label: string; number?: string }
 
@@ -59,13 +59,12 @@ export function HelperCard({ tool }: { tool: ChatTool }): React.JSX.Element {
 }
 
 /** The question the agent is asking, with its choices as buttons; tapping one answers it. */
-export function AskCard({ agentLabel, statusColor, question, choices, onAnswer, onOpenTerminal }: {
+export function AskCard({ agentLabel, statusColor, question, choices, onAnswer }: {
     agentLabel: string;
     statusColor: string;
     question: string[];
     choices: AskChoice[];
     onAnswer: (choice: AskChoice) => void;
-    onOpenTerminal: () => void;
 }): React.JSX.Element {
     const { theme } = useUnistyles();
     const { height } = useWindowDimensions();
@@ -75,42 +74,39 @@ export function AskCard({ agentLabel, statusColor, question, choices, onAnswer, 
                 <Ionicons name="help-circle" size={20} color={statusColor} />
                 <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>{agentLabel} needs you</Text>
             </View>
-            <ScrollView style={{ maxHeight: Math.max(160, height * 0.42) }} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                {question.length > 0 && (
+            {question.length > 0 && (
+                <ScrollView style={{ maxHeight: Math.min(160, Math.max(48, height * 0.18)) }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                     <View style={{ gap: 2 }}>
                         {question.map((line, index) => <Text key={index} selectable style={{ color: theme.colors.text, fontSize: 14, lineHeight: 20 }}>{line}</Text>)}
                     </View>
-                )}
-                <View style={{ gap: 6 }}>
-                    {choices.map((choice) => (
-                        <Pressable
-                            key={choice.key}
-                            onPress={() => onAnswer(choice)}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Answer ${choice.label}`}
-                            style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: pressed ? theme.colors.surfaceHighest : theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider })}
-                        >
-                            {choice.number !== undefined && <View style={{ minWidth: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHighest }}><Text style={{ color: theme.colors.text, fontSize: 12.5, fontWeight: '600' }}>{choice.number}</Text></View>}
-                            <Text numberOfLines={3} style={{ flex: 1, minWidth: 0, color: theme.colors.text, fontSize: 14, lineHeight: 19 }}>{choice.label}</Text>
-                        </Pressable>
-                    ))}
-                </View>
-            </ScrollView>
-            <Pressable onPress={onOpenTerminal} accessibilityRole="button" accessibilityLabel="Open terminal" style={({ pressed }) => ({ minHeight: 40, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
-                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 13, textDecorationLine: 'underline' }}>Open terminal</Text>
-            </Pressable>
+                </ScrollView>
+            )}
+            <View style={{ gap: 6 }}>
+                {choices.map((choice) => (
+                    <Pressable
+                        key={choice.key}
+                        onPress={() => onAnswer(choice)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Answer ${choice.label}`}
+                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: pressed ? theme.colors.surfaceHighest : theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider })}
+                    >
+                        {choice.number !== undefined && <View style={{ minWidth: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceHighest }}><Text style={{ color: theme.colors.text, fontSize: 12.5, fontWeight: '600' }}>{choice.number}</Text></View>}
+                        <Text numberOfLines={2} style={{ flex: 1, minWidth: 0, color: theme.colors.text, fontSize: 14, lineHeight: 19 }}>{choice.label}</Text>
+                    </Pressable>
+                ))}
+            </View>
         </View>
     );
 }
 
 /** The moment after a tap: the agent has the answer and is still on its way. */
-export function AnswerSent({ agentLabel, statusColor }: { agentLabel: string; statusColor: string }): React.JSX.Element {
+export function AnswerSent({ agentLabel, statusColor, choice }: { agentLabel: string; statusColor: string; choice: string }): React.JSX.Element {
     const { theme } = useUnistyles();
     return (
-        <View accessible accessibilityRole="summary" accessibilityLabel={`Answer sent. ${agentLabel} is continuing.`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 6, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider }}>
+        <View accessible accessibilityRole="summary" accessibilityLabel={`Answer sent: ${choice}. ${agentLabel} is continuing.`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 6, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 14, backgroundColor: theme.colors.surfaceHigh, borderWidth: 1, borderColor: theme.colors.divider }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: statusColor }} />
-            <Text numberOfLines={2} style={{ flex: 1, minWidth: 0, color: theme.colors.textSecondary, fontSize: 13 }}>
-                <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Answer sent</Text>{` · ${agentLabel} is continuing`}
+            <Text numberOfLines={3} style={{ flex: 1, minWidth: 0, color: theme.colors.textSecondary, fontSize: 13 }}>
+                <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Answer sent</Text>{` · ${choice} · ${agentLabel} is continuing`}
             </Text>
         </View>
     );
