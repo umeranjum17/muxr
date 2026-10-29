@@ -3,7 +3,7 @@
  * HERDR_BIN shim. The host never talks JSON-RPC through this process; it
  * execs argv and reads stdout. World lives on the control socket.
  */
-import { chmodSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -257,12 +257,32 @@ function runTerminal(args) {
     };
     const tickMs = 100;
     const perTick = Math.max(1, Math.round(bps * tickMs / 1000));
+    // A lab drops one URL into `<socket>.print-url`: the screen then shows it
+    // the way an agent that wraps its own text prints it, a real new line at
+    // every `cols` characters, and repaints it at the grid it has now.
+    const printedUrl = () => {
+        try { return readFileSync(`${process.env.FAKE_HERDR_SOCKET}.print-url`, 'utf8').trim() || undefined; } catch { return undefined; }
+    };
+    const printedScreen = (url) => {
+        const rowsOfUrl = [];
+        for (let at = 0; at < url.length; at += cols) rowsOfUrl.push(url.slice(at, at + cols));
+        return `\u001b[2J\u001b[H$ npm view react\r\n${rowsOfUrl.join('\r\n')}\r\n`;
+    };
+
     // Herdr's real cost model: a scroll or a resize costs the whole screen, and
     // the stream repaints itself periodically. The phone's scroll acking and
     // write pump were built against that, so a fake that only ever appends
     // measures the easy half of the work.
     const emit = (full) => {
         seq += 1;
+        const url = printedUrl();
+        if (url !== undefined) {
+            writeFrame({
+                type: 'terminal.frame', seq, encoding: 'ansi', width: cols, height: rows, full,
+                bytes: Buffer.from(full ? printedScreen(url) : '').toString('base64'),
+            });
+            return;
+        }
         const size = full ? cols * rows : perTick;
         writeFrame({
             type: 'terminal.frame',

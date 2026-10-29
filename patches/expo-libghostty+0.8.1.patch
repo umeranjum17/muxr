@@ -541,7 +541,7 @@ index 2d3ed62..f7717fa 100644
    internal fun setTheme(theme: TerminalThemeRecord?) = terminal.setTheme(
      foreground = theme?.foreground,
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
-index 9d6ad16..b50f22a 100644
+index 9d6ad16..9c5da97 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 @@ -9,7 +9,11 @@ import android.graphics.Canvas
@@ -1142,7 +1142,7 @@ index 9d6ad16..b50f22a 100644
  
      buf.position(0)
      buf.int // version
-@@ -520,12 +825,200 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -520,12 +825,239 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      cursorColor = buf.int
      syncBlinkTimer()
  
@@ -1217,18 +1217,23 @@ index 9d6ad16..b50f22a 100644
 +        i = end.coerceAtLeast(i + 1)
 +      }
 +
-+      // A wrapped URL continues onto this row only when the vt continuation
-+      // flag says this row is soft-wrapped from the one above and the row
-+      // above ended with a plain URL run at the final column. A hard new
-+      // line starts fresh, even below a full-width URL.
-+      if (rowIndex > 0 && wrapContinuation && ranges.none { it.startCol == 0 && !it.isOsc8 }) {
++      // A wrapped URL continues onto this row when the vt continuation flag
++      // says this row is soft-wrapped from the one above and the row above
++      // ended with a plain URL run at the final column. An agent that wraps
++      // its own text ends such a row with a real new line instead: that
++      // continues the URL only when the row starts at column 0 and the URL
++      // so far plus this row's leading run is still one valid web URL
++      // (hardWrapKeepsUrl). Any other hard new line starts fresh.
++      if (rowIndex > 0 && ranges.none { it.startCol == 0 && !it.isOsc8 }) {
 +        val parent = rowLinks.getOrNull(rowIndex - 1)
 +          ?.lastOrNull { !it.isOsc8 && it.endCol >= cols - 1 }
 +        if (parent != null) {
 +          var end = 0
 +          while (end < textUnits && !isUrlBreak(rowChars[end])) end++
 +          val endCol = if (end > 0) colOf[end - 1] else -1
-+          if (endCol >= 0) {
++          val joins = wrapContinuation ||
++            (endCol >= 0 && colOf[0] == 0 && hardWrapKeepsUrl(rowIndex - 1, parent, String(rowChars, 0, end)))
++          if (endCol >= 0 && joins) {
 +            ranges.add(LinkRange(0, endCol, String(rowChars, 0, end), fromWrap = true))
 +            for (c in 0..endCol) mask[c] = true
 +          }
@@ -1240,6 +1245,39 @@ index 9d6ad16..b50f22a 100644
 +    rowLinks[rowIndex] = if (ranges.isEmpty()) null else ranges.toTypedArray()
 +    rowLinkMask[rowIndex] = mask
 +    if (textUnits > 0) updateRowPaths(rowIndex, textUnits, ranges)
++  }
++
++  /** Whether [next], the leading run of the row below a full-width URL run
++   *  ending [parent] on [parentRow], carries the URL on: the head is walked up
++   *  through earlier continuations, and the whole must parse as a web URL. */
++  private fun hardWrapKeepsUrl(parentRow: Int, parent: LinkRange, next: String): Boolean {
++    var head = parent.segment
++    var row = parentRow
++    var range = parent
++    while (range.fromWrap) {
++      if (row <= 0 || head.length >= LINK_MAX_CHARS) return false
++      range = rowLinks.getOrNull(row - 1)?.lastOrNull { !it.isOsc8 && it.endCol >= cols - 1 } ?: return false
++      head = range.segment + head
++      row--
++    }
++    return parsesAsWebUrl(head + next)
++  }
++
++  /** A web URL with a host and, if it names one, a port that is a number. */
++  private fun parsesAsWebUrl(raw: String): Boolean {
++    var text = raw
++    while (text.isNotEmpty() && text.last() in URL_TRAILING_TRIM) text = text.dropLast(1)
++    val start = when {
++      text.startsWith("https://", ignoreCase = true) -> 8
++      text.startsWith("http://", ignoreCase = true) -> 7
++      else -> return false
++    }
++    val authority = text.substring(start).takeWhile { it != '/' && it != '?' && it != '#' }.substringAfterLast('@')
++    val colon = authority.lastIndexOf(':')
++    val hasPort = colon >= 0 && !authority.endsWith("]") && !(authority.startsWith("[") && colon < authority.indexOf(']'))
++    val host = if (hasPort) authority.substring(0, colon) else authority
++    val port = if (hasPort) authority.substring(colon + 1) else ""
++    return host.isNotEmpty() && port.length <= 5 && port.all { it.isDigit() } && (port.isEmpty() || port.toInt() <= 65535)
 +  }
 +
 +  /** Printed file and folder paths in a redrawn row, kept apart from links:
@@ -1309,7 +1347,7 @@ index 9d6ad16..b50f22a 100644
 +    var text = tapped.segment
 +    var topRow = r
 +    var topRange = tapped
-+    while (topRow > 0 && rowWrapCont.getOrNull(topRow) == true && topRange.startCol == 0 && text.length < LINK_MAX_CHARS) {
++    while (topRow > 0 && (rowWrapCont.getOrNull(topRow) == true || topRange.fromWrap) && topRange.startCol == 0 && text.length < LINK_MAX_CHARS) {
 +      val prev = rowLinks.getOrNull(topRow - 1)
 +        ?.lastOrNull { !it.isOsc8 && it.endCol >= cols - 1 } ?: break
 +      text = prev.segment + text
@@ -1320,9 +1358,10 @@ index 9d6ad16..b50f22a 100644
 +    if (topRange.fromWrap) return null
 +    var bottomRow = r
 +    var bottomRange = tapped
-+    while (bottomRange.endCol >= cols - 1 && rowWrapCont.getOrNull(bottomRow + 1) == true && text.length < LINK_MAX_CHARS) {
++    while (bottomRange.endCol >= cols - 1 && text.length < LINK_MAX_CHARS) {
++      val soft = rowWrapCont.getOrNull(bottomRow + 1) == true
 +      val next = rowLinks.getOrNull(bottomRow + 1)
-+        ?.firstOrNull { !it.isOsc8 && it.startCol == 0 && !looksLikeFreshUrl(it.segment) } ?: break
++        ?.firstOrNull { !it.isOsc8 && it.startCol == 0 && (it.fromWrap || (soft && !looksLikeFreshUrl(it.segment))) } ?: break
 +      text += next.segment
 +      bottomRow++
 +      bottomRange = next
@@ -1345,7 +1384,7 @@ index 9d6ad16..b50f22a 100644
    // ── Selection ──
  
    /** Top-left / bottom-right cells of the rendered selection, or null. */
-@@ -558,7 +1051,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -558,7 +1090,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
  
    private fun clearSelection() {
@@ -1354,7 +1393,7 @@ index 9d6ad16..b50f22a 100644
      selectionMode = false
      draggingHandle = HANDLE_NONE
      actionMode?.finish()
-@@ -567,7 +1060,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -567,7 +1099,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun selectAllContent() {
      if (handle == 0L) return
@@ -1363,7 +1402,7 @@ index 9d6ad16..b50f22a 100644
        selectionMode = true
        scheduleFrame()
        actionMode?.invalidate()
-@@ -576,7 +1069,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -576,7 +1108,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun copySelection() {
      if (handle == 0L) return
@@ -1372,7 +1411,7 @@ index 9d6ad16..b50f22a 100644
      val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
      clipboard.setPrimaryClip(
        ClipData.newPlainText("terminal", String(bytes, Charsets.UTF_8))
-@@ -705,7 +1198,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -705,7 +1237,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      if (handle == 0L) return
      val col = (x / cellWidth).toInt().coerceIn(0, cols - 1)
      val row = ((y / cellHeight).toInt() - dragBiasRows).coerceIn(0, rows - 1)
@@ -1381,7 +1420,7 @@ index 9d6ad16..b50f22a 100644
      magnifier?.show(x, y)
      scheduleFrame()
    }
-@@ -730,6 +1223,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -730,6 +1262,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun wantsBlink(): Boolean {
      return cursorBlinks && cursorVisible && isAttachedToWindow && hasWindowFocus() &&
@@ -1389,7 +1428,7 @@ index 9d6ad16..b50f22a 100644
        Settings.Global.getFloat(
          context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f
        ) != 0f
-@@ -756,9 +1250,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -756,9 +1289,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        blinkPhaseOn = true
        invalidate()
      }
@@ -1404,7 +1443,7 @@ index 9d6ad16..b50f22a 100644
      }
    }
  
-@@ -777,11 +1274,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -777,11 +1313,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      syncBlinkTimer()
    }
  
@@ -1419,7 +1458,7 @@ index 9d6ad16..b50f22a 100644
      if (rowIndex < rowSelStart.size) {
        rowSelStart[rowIndex] = selStart
        rowSelEnd[rowIndex] = selEnd
-@@ -836,12 +1335,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -836,12 +1374,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
      buf.position(nextRecord)
  
@@ -1441,7 +1480,7 @@ index 9d6ad16..b50f22a 100644
      for (col in 0 until colCount) {
        val bg = cellBg[col]
        if (bg == defaultBg) continue
-@@ -851,12 +1356,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -851,12 +1395,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        canvas.drawRect(x, top, x + width, bottom, fillPaint)
      }
  
@@ -1466,7 +1505,7 @@ index 9d6ad16..b50f22a 100644
        val paint = when {
          symbolsPaint != null &&
            (codepoint in PUA_BMP_FIRST..PUA_BMP_LAST || codepoint >= PUA_SUPPLEMENTARY_FIRST) ->
-@@ -868,23 +1381,122 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -868,23 +1420,122 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        }
        paint.color = cellFg[col]
        if (flags and FLAG_FAINT != 0) paint.alpha = 160
@@ -1598,7 +1637,7 @@ index 9d6ad16..b50f22a 100644
      drawCursor(canvas)
      drawSelectionHandles(canvas)
      drawScrollIndicator(canvas)
-@@ -921,7 +1533,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -921,7 +1572,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
  
    private fun drawJumpToBottomChip(canvas: Canvas) {
@@ -1607,7 +1646,7 @@ index 9d6ad16..b50f22a 100644
      val density = resources.displayMetrics.density
      val (cx, cy) = jumpChipCenter()
      val radius = JUMP_CHIP_RADIUS_DP * density
-@@ -970,6 +1582,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -970,6 +1621,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -1628,7 +1667,7 @@ index 9d6ad16..b50f22a 100644
    // ── Input ──
  
    override fun onTouchEvent(event: MotionEvent): Boolean {
-@@ -1094,17 +1720,29 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1094,17 +1759,29 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -1659,7 +1698,7 @@ index 9d6ad16..b50f22a 100644
  
      // Nerd Font glyph ranges: BMP private-use area plus the supplementary
      // private-use planes (material icons live at U+F0000+ since v3).
-@@ -1131,7 +1769,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1131,7 +1808,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
  
      const val HEADER_BYTES = 52
@@ -1668,7 +1707,7 @@ index 9d6ad16..b50f22a 100644
      const val CELL_RECORD_BYTES = 16
      const val MAX_CELL_TEXT_UNITS = 32
  
-@@ -1153,5 +1791,22 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1153,5 +1830,22 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val FLAG_SPACER = 1 shl 8
      const val FLAG_FG_DEFAULT = 1 shl 9
      const val FLAG_BG_NONE = 1 shl 10

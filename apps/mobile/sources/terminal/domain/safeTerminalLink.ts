@@ -63,52 +63,97 @@ export interface TerminalLinkRow {
     isWrapped: boolean;
 }
 
+/** The characters a URL row may continue with: TERMINAL_URL_PATTERN's body class. */
+const URL_RUN = /[^\s"'!*(){}|\\\^<>`]*/;
+const URL_RUN_START = /^[^\s"'!*(){}|\\\^<>`]/;
+const URL_TAIL = /https?:\/\/[^\s"'!*(){}|\\\^<>`]*$/i;
+
 /**
- * The rows a wrapped join resolves across: rowIndex's soft-wrapped run —
- * upward while the run continues, stopping after the first row containing a
- * space, mirrored downward — plus rowIndex's string offset inside the join.
- * Every row of one run sees the same span, so hit-testing and decorations
- * agree on where a printed link starts and ends.
+ * Whether row r+1 is a candidate hard-wrap continuation of row r: an agent
+ * that wraps its own text (Claude Code) ends the row with a real new line at
+ * the exact column width. Candidates are settled by hardWrapJoins, which sees
+ * the URL so far.
+ */
+function hardWrapCandidate(
+    rowAt: (row: number) => TerminalLinkRow | undefined,
+    r: number,
+    cols: number | undefined,
+): boolean {
+    const above = rowAt(r)?.text;
+    const below = rowAt(r + 1)?.text;
+    if (cols === undefined || above === undefined || below === undefined) return false;
+    return above.length === cols && !/\s$/.test(above) && URL_RUN_START.test(below);
+}
+
+/** Whether the URL printed so far, carried on by the leading run of the next
+ *  row, is still one valid web URL. A genuine line break followed by text that
+ *  does not extend the URL (a bad port, no host) fails here. */
+function hardWrapJoins(soFar: string, next: string): boolean {
+    const head = URL_TAIL.exec(soFar)?.[0];
+    if (head === undefined) return false;
+    const candidate = new RegExp(TERMINAL_URL_PATTERN.source, 'i').exec(head + URL_RUN.exec(next)![0])?.[0];
+    return candidate !== undefined && safeTerminalLinkUrl(candidate) !== null;
+}
+
+/**
+ * The rows a wrapped join resolves across: rowIndex's run of soft-wrapped
+ * rows — and, when cols is known, of hard-wrapped rows that fill the column
+ * width and carry the URL on — upward while the run continues, stopping after
+ * the first row containing a space, mirrored downward, plus rowIndex's string
+ * offset inside the join. Every row of one run sees the same span, so
+ * hit-testing and decorations agree on where a printed link starts and ends.
  */
 function joinedTerminalWindow(
     rowAt: (row: number) => TerminalLinkRow | undefined,
     rowIndex: number,
+    cols?: number,
 ): { lines: string[]; offset: number } {
     const textOf = (row: number): string => rowAt(row)?.text ?? '';
-    const lines: string[] = [textOf(rowIndex)];
+    const joinsBelow = (r: number): boolean => rowAt(r + 1)?.isWrapped === true || hardWrapCandidate(rowAt, r, cols);
     let top = rowIndex;
-    for (;;) {
-        if (top <= 0 || !rowAt(top)?.isWrapped) break;
-        const t = textOf(top - 1);
-        lines.unshift(t);
+    while (top > 0 && joinsBelow(top - 1)) {
         top--;
-        if (t.includes(' ')) break;
+        if (textOf(top).includes(' ')) break;
     }
     let bottom = rowIndex;
-    for (;;) {
-        if (!rowAt(bottom + 1)?.isWrapped) break;
-        const t = textOf(bottom + 1);
-        lines.push(t);
+    while (joinsBelow(bottom)) {
         bottom++;
-        if (t.includes(' ')) break;
+        if (textOf(bottom).includes(' ')) break;
     }
+    // Hard-wrap candidates are settled top-down against the URL so far; a
+    // failed one splits the run, and only rowIndex's side of it is kept.
+    let start = top;
+    let soFar = textOf(top);
+    for (let r = top + 1; r <= bottom; r++) {
+        const next = textOf(r);
+        if (rowAt(r)?.isWrapped !== true && !hardWrapJoins(soFar, next)) {
+            if (r > rowIndex) { bottom = r - 1; break; }
+            start = r;
+            soFar = '';
+        }
+        soFar += next;
+    }
+    const lines: string[] = [];
+    for (let r = start; r <= bottom; r++) lines.push(textOf(r));
     let offset = 0;
-    for (let i = 0; i < rowIndex - top; i++) offset += lines[i].length;
+    for (let i = 0; i < rowIndex - start; i++) offset += lines[i].length;
     return { lines, offset };
 }
 
 /**
  * The exact link text under (rowIndex, at) of terminal rows, joined across
- * soft-wrapped rows only. A hard new line never inherits the row above: a
- * full-width URL followed by a hard new line stops at that line. `at` is a
- * string index inside row rowIndex's text.
+ * soft-wrapped rows and, when cols is given, across a hard new line that
+ * follows a row filled to cols whose next row keeps the URL valid. Any other
+ * hard new line never inherits the row above. `at` is a string index inside
+ * row rowIndex's text.
  */
 export function joinedTerminalUrlAt(
     rowAt: (row: number) => TerminalLinkRow | undefined,
     rowIndex: number,
     at: number,
+    cols?: number,
 ): string | null {
-    const span = joinedTerminalWindow(rowAt, rowIndex);
+    const span = joinedTerminalWindow(rowAt, rowIndex, cols);
     return terminalUrlAt(span.lines.join(''), span.offset + at);
 }
 
@@ -126,7 +171,7 @@ export function joinedTerminalUrlRanges(
     rowAt: (r: number) => TerminalLinkRow | undefined,
 ): { start: number; length: number }[] {
     const { text, cellOf } = lineCellMap(line, cols);
-    const span = joinedTerminalWindow(rowAt, row);
+    const span = joinedTerminalWindow(rowAt, row, cols);
     const joined = span.lines.join('');
     const from = span.offset;
     const to = from + text.length;
@@ -192,7 +237,7 @@ export function plainLinkAtCell(
 ): string | null {
     const at = lineCellMap(line, cols).cellOf.indexOf(col);
     if (at < 0 || at >= (rowAt(row)?.text.length ?? 0)) return null;
-    return joinedTerminalUrlAt(rowAt, row, at);
+    return joinedTerminalUrlAt(rowAt, row, at, cols);
 }
 
 /** One printed path character, as Ghostty's link regex spells it. */
