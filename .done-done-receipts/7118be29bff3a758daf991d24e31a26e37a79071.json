@@ -1,0 +1,149 @@
+{
+  "schema": 2,
+  "repo": "pockit",
+  "head": "7118be29bff3a758daf991d24e31a26e37a79071",
+  "tree": "1f8e1fb1fc4f33c186fcb42a7654d64e8af7a5e0",
+  "claim": "These ordered native captures collectively show muxr 0.2.17 keeper automation: 01 attached; 02 two named panes; 03 closed target absent with survivor/list end; 04 fresh reattach and phone-sent response; 05 later phone response marked churn-proof; 06 history with Latest; 07 newest row 400; 08 Usage open (no supported provider accounts in the isolated lab); 09 returned and sent another responsive prompt. The sealed release-build.json records the exact APK/npm tarball, every release step passed, exactly one host, documented host-first-stream attach 565 ms <=4000 and scroll 4177 ms <=7500. This is automated keeper evidence, NOT an owner/captain test, production-account test or theme/text matrix.",
+  "result": "pass",
+  "at": "2026-10-29T08:53:41.745Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/01-agent-attached.png",
+      "sha256": "d91409cf8415f0c2d69831ebfb83ec7a0af7ecb77a571ea5c93799240d51f7f9"
+    },
+    {
+      "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/02-panes-before-close.png",
+      "sha256": "fff9337f04edd094edf5077a05748679ae6416d75913c9d826d4dd1f6596c5ae"
+    },
+    {
+      "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/03-panes-after-close.png",
+      "sha256": "a22f1e3ee0676eefce10ba094ee3fd50f2eac5b8f21c3f30c7f38cff677af0c8"
+    },
+    {
+      "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/04-reattached-and-responsive.png",
+      "sha256": "9f893dcd1d8dfa16afb18f7126f4ac34a6046f87fd90067eb51938caa5a7d436"
+    },
+    {
+      "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/05-command-after-churn.png",
+      "sha256": "b5b0e99dd7f6ddbb517502b068329e41608cecea4cdb7853c122a30de10f1071"
+    },
+    {
+      "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/06-scrolled-back.png",
+      "sha256": "ebb246e8d53eccc0ef0013b9c6cfdd88f573cb700fa943c60720a70220e1696c"
+    },
+    {
+      "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/07-scrolled-to-latest.png",
+      "sha256": "8ba60a76939e09392b75d1e1edd381e8ebe8791c22a0556231ab5c540b0ac35c"
+    },
+    {
+      "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/08-usage-open.png",
+      "sha256": "58154fa737cfbe6564e224d6f95d3d946786399ce1f58c123e7059bf353e005e"
+    },
+    {
+      "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/09-back-from-usage-responsive.png",
+      "sha256": "2266a4645b32e116550d559cf7fca2e64934bfd5eee2905c848ed84d18cf09f6"
+    },
+    {
+      "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/release-build.json",
+      "sha256": "a890358823b3f0c49b473fadd73de25d7c913964f1c358ef8856c37fdf343f73"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261029T083443Z-7118be29-8a4f62",
+      "commit": "7118be29bff3a758daf991d24e31a26e37a79071",
+      "journey": "phone-attach",
+      "command": "bash /home/you/.cache/fms/release017/tap-point/capture-preserving.sh",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.2.17"
+        },
+        "start": "the release app installed over the existing app on the phone, its data kept, with a lab computer running two agent panes that the phone is not yet paired to",
+        "steps": [
+          "pair the phone to the lab computer",
+          "open an agent and time its first attach, from the tap to the host's new terminal stream",
+          "open the owned pane overview and see both named pane cards",
+          "close Pane to close and see only Surviving lab agent with the pane list end visible",
+          "return Home and freshly reattach, then send a command and see its response",
+          "reattach through pane churn and send another command with visible output",
+          "scroll its history back and forward fast",
+          "open Usage and come back",
+          "count the hosts alive"
+        ],
+        "result": "the first attach took 565 ms from the tap to the host's new terminal stream, the phone attached after every round of pane churn, the typed command printed its output on a clean screen, the history scrolled back and forward, Usage opened and closed, and one host stayed alive"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/01-agent-attached.png",
+        "sha256": "d91409cf8415f0c2d69831ebfb83ec7a0af7ecb77a571ea5c93799240d51f7f9",
+        "verdict": "pass",
+        "seen": "The header reads \"Surviving lab...\" with \"umer-lab\" and a green connected dot, and the terminal body shows \"Surviving lab agent ready\". That matches an attached agent session at step 01. No error, dialog, or keyboard hides the content. The capture does not show the other steps, which is expected."
+      },
+      {
+        "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/02-panes-before-close.png",
+        "sha256": "fff9337f04edd094edf5077a05748679ae6416d75913c9d826d4dd1f6596c5ae",
+        "verdict": "pass",
+        "seen": "The screen shows \"Release proof panes\" with the \"Tab 1\" badge showing 2. Two named panes are visible: \"Surviving lab agent ready\" (titled \"Surviving la...\") and \"Pane to close ready\" (titled \"Pane to close\"). This matches the \"two named panes\" part."
+      },
+      {
+        "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/03-panes-after-close.png",
+        "sha256": "a22f1e3ee0676eefce10ba094ee3fd50f2eac5b8f21c3f30c7f38cff677af0c8",
+        "verdict": "pass",
+        "seen": "The outcome names a closed target absent with the survivor and list end. The screen shows \"Release proof panes\" with Tab 1 showing a count of 1, a single remaining pane captioned \"Surviving lab agent ready\" (\"Surviving la...\", \"claude · umer-...\"), and the dashed \"New pane\" Right/Below list ending the row. Only the survivor is present, so the closed pane is absent."
+      },
+      {
+        "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/04-reattached-and-responsive.png",
+        "sha256": "9f893dcd1d8dfa16afb18f7126f4ac34a6046f87fd90067eb51938caa5a7d436",
+        "verdict": "pass",
+        "seen": "The terminal shows the session reattached with the phone-sent command 'echo reattach-proof' followed by the response 'lab agent got: echo reattach-proof'. This matches the named part 04 (fresh reattach and phone response). The image does not show the other parts, so it covers only index 3."
+      },
+      {
+        "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/05-command-after-churn.png",
+        "sha256": "b5b0e99dd7f6ddbb517502b068329e41608cecea4cdb7853c122a30de10f1071",
+        "verdict": "pass",
+        "seen": "The named part is the churn-proof phone response, and the bottom of the thread reads 'lab agent got: echo churn-proof-33530', matching the outcome. The earlier 'echo reattach-proof' and 'lab agent got: echo reattach-proof' lines also show the fresh-reattach response from part 04. The image shows only the terminal thread, with no error or overlay hiding it."
+      },
+      {
+        "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/06-scrolled-back.png",
+        "sha256": "ebb246e8d53eccc0ef0013b9c6cfdd88f573cb700fa943c60720a70220e1696c",
+        "verdict": "pass",
+        "seen": "The outcome names '06 history with Latest'. The screenshot shows scrolled-back history: rows 280 through 314 of \"the lab agent's history\" fill the view, and a \"↓ Latest\" button sits above the prompt bar. The newest row (400) is not visible, which fits a scrolled-back state. The header shows \"Done\"."
+      },
+      {
+        "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/07-scrolled-to-latest.png",
+        "sha256": "8ba60a76939e09392b75d1e1edd381e8ebe8791c22a0556231ab5c540b0ac35c",
+        "verdict": "pass",
+        "seen": "The outcome names '07 newest row 400'. The screenshot shows the history scrolled to the bottom, with the last visible line reading 'row 400 of the lab agent's history' directly above the tab bar. The top line reads 'row 367', so the view is a contiguous tail of the history ending at the newest row. Nothing visible contradicts this. The image does not show a 'Latest' label, so it does not cover part 06 by itself."
+      },
+      {
+        "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/08-usage-open.png",
+        "sha256": "58154fa737cfbe6564e224d6f95d3d946786399ce1f58c123e7059bf353e005e",
+        "verdict": "pass",
+        "seen": "The header reads \"Usage\" with a back arrow and refresh icon, and the body says \"No supported providers detected\" with \"Run a coding agent on this computer or connect a plan.\" This matches the named part \"08 Usage open\" and the outcome's note of no supported provider accounts in the lab. It is a single screen with no error or crash."
+      },
+      {
+        "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/09-back-from-usage-responsive.png",
+        "sha256": "2266a4645b32e116550d559cf7fca2e64934bfd5eee2905c848ed84d18cf09f6",
+        "verdict": "pass",
+        "seen": "The bottom of the screen shows the typed command \"echo usage-return-proof\" followed by the reply \"lab agent got: echo usage-return-proof\", with no Usage overlay visible. That matches part 09: the session returned from Usage and sent another prompt that got a response. The screenshot does not show the other parts, which its own capture name does not claim."
+      },
+      {
+        "path": "<evidence root>/20261029T083443Z-7118be29-8a4f62/release-build.json",
+        "sha256": "a890358823b3f0c49b473fadd73de25d7c913964f1c358ef8856c37fdf343f73",
+        "verdict": "pass",
+        "seen": "Read the single JSON object in release-build.json. Its fields match the outcome's release-build claims: apk and package SHA-256 hashes are present, result is \"pass\", all six steps (pair, attach, send, scroll, usage, one-host) are \"pass\", hosts is 1, and timings are attachMs 565 (<=4000) and scrollMs 4177 (<=7500). It does not show any of the numbered native captures 01 to 09 individually, so covers is empty. Its own part is shown and not contradicted."
+      }
+    ]
+  }
+}
