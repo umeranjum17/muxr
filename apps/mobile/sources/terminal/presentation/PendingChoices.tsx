@@ -2,23 +2,13 @@ import * as React from 'react';
 import { Pressable, Text, View, type LayoutChangeEvent } from 'react-native';
 import Animated, { FadeIn, FadeOut, ReduceMotion } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
-import { sync } from '@/catalog/sync';
-import { hapticsSelection } from '@/components/haptics';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { pendingChoices, type PendingChoice } from '../domain/promptAvailability';
+import { usePendingChoices } from '../application/usePendingChoices';
 import { useTerminalColors } from './useTerminalColors';
 
 /** The stack's own breathing room above and below the chips. */
 const STACK_PAD = 8;
-
-/** A question can arrive a beat after the status flips, and the next one can
- *  follow the last without the status ever leaving blocked. */
-const READ_MS = 1_500;
-/** The screen can still show an answered question until the agent redraws. */
-const ANSWER_SETTLE_MS = 4_000;
-const signature = (choices: readonly PendingChoice[]): string =>
-    choices.map((choice) => `${choice.key}\u0000${choice.label}`).join('\n');
 
 /**
  * The answers to the question a waiting agent is asking, as buttons along the
@@ -47,75 +37,14 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
 }) {
     const { theme } = useUnistyles();
     const { colors: terminalColors } = useTerminalColors();
-    const [choices, setChoices] = React.useState<PendingChoice[]>([]);
     const [stackHeight, setStackHeight] = React.useState(0);
-    const answered = React.useRef<{ signature: string; at: number } | null>(null);
-
-    React.useEffect(() => {
-        if (!waiting) {
-            answered.current = null;
-            setChoices([]);
-            return;
-        }
-        let alive = true;
-        let timer: ReturnType<typeof setTimeout>;
-        const read = async (): Promise<void> => {
-            try {
-                const { text } = await sync.request('pane.read', { sessionId, source: 'visible', ansi: true });
-                if (!alive) return;
-                const next = pendingChoices(text, columns);
-                const nextSignature = signature(next);
-                const last = answered.current;
-                if (last !== null && last.signature === nextSignature && Date.now() - last.at < ANSWER_SETTLE_MS) return;
-                setChoices((current) => (signature(current) === nextSignature ? current : next));
-            } catch {
-                if (alive) setChoices([]);
-            } finally {
-                if (alive) timer = setTimeout(() => { void read(); }, READ_MS);
-            }
-        };
-        void read();
-        return () => {
-            alive = false;
-            clearTimeout(timer);
-        };
-    }, [columns, sessionId, waiting]);
+    const { choices, answer } = usePendingChoices({ sessionId, waiting, ...(channel === undefined ? {} : { channel }), ...(columns === undefined ? {} : { columns }) });
 
     const visible = waiting && choices.length > 0 && channel !== undefined;
     React.useLayoutEffect(() => { onVisibilityChange(visible); }, [onVisibilityChange, visible]);
     React.useEffect(() => () => onVisibilityChange(false), [onVisibilityChange]);
 
     if (!visible) return null;
-
-    const answer = (choice: PendingChoice): void => {
-        const last = answered.current;
-        if (last !== null && Date.now() - last.at < ANSWER_SETTLE_MS) return;
-        answered.current = { signature: signature(choices), at: Date.now() };
-        setChoices([]);
-        if (choice.number !== undefined) {
-            hapticsSelection();
-            channel.sendText(choice.key);
-            return;
-        }
-        void (async () => {
-            try {
-                const { text } = await sync.request('pane.read', { sessionId, source: 'visible', ansi: true });
-                const fresh = pendingChoices(text, columns);
-                const match = fresh.find((candidate) => candidate.number === undefined && candidate.label === choice.label);
-                if (match === undefined) {
-                    answered.current = null;
-                    setChoices(fresh);
-                    return;
-                }
-                answered.current = { signature: signature(fresh), at: Date.now() };
-                hapticsSelection();
-                channel.sendText(match.key);
-            } catch {
-                answered.current = null;
-                return;
-            }
-        })();
-    };
 
     // A solid band in the terminal's own resolved background (the colour the
     // person tunes in Settings), so it tracks the terminal and no text shows
