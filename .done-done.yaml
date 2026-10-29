@@ -33,14 +33,6 @@ approved_requirements:
     name: native-boat-entry-390-light
     requirement: 'the cloud-machine option reaching the existing Boat flow.'
     capture: native-boat-entry-390-light.png
-  - kind: spec
-    name: Settings cloud machine action
-    requirement: 'Settings > Machines gets an "Add a cloud machine" action that reaches the same Boat flow, worded as a cloud machine, not a second competing concept.'
-    capture: live-machine-board.png
-  - kind: spec
-    name: One machine list and shared actions
-    requirement: 'A cloud machine that exists or is created is listed beside paired computers with its own status, reachable by switch, and removable by forget, exactly like a machine today. One list, one set of actions.'
-    capture: live-switch-board.png
 # This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
 # agent: opencode
 
