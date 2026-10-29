@@ -260,12 +260,12 @@ rules, with no H2 sections.
   screen's worktree hint: installed PWA at 393/270/208 dp, font 1.0/2.0, both
   themes, and native at 270 dp font 2.0; DOM ranges and screenshot OCR lead on
   words split across lines.
-- [Tailscale is step 1 of the first run, not a gate](./tailscale-first-step.md) —
-  the unpaired first screen on a release APK (Play Store AVD) and the PWA reads
-  Get Tailscale → Get muxr on your computer (the desktop app) → Pair with your
-  computer, with no tap needed before the link field; **Get Tailscale** opens the
-  store; use the Visual check's native and installed-PWA matrix at 393/270 dp,
-  font 1.0/2.0, both themes.
+- [Two doors to a working agent terminal](./two-doors-first-run.md) —
+  unpaired first screen: My computer and Cloud machine · Boat as equal doors,
+  each a three-step branch whose every step shows its time, SSH as a small
+  link; release APK at 360/390/445 dp and 270 dp text 2.0 plus a 1280 dp
+  tablet, both themes, a timed clean-install My computer run to a working
+  agent terminal, and the web doors at 270–1440.
 - [Say which end to fix when pairing can't reach the computer over Tailscale](./pair-tailscale-unreachable.md) —
   a Tailscale-address offer whose first dial fails: one sentence naming this phone (no Tailscale
   address here) or the computer, on main and candidate release APKs at 393/270 dp both themes, a
@@ -273,24 +273,15 @@ rules, with no H2 sections.
 - [Try muxr with sample agents before you pair](./pwa-demo-first-run.md) —
   unpaired installed PWA opens on the demo: the "Sample data" pill and Umer's
   MacBook Pro, three sample agents in order, a sample conversation and the
-  **Pair your own computer** step into `/pair`; 270 dp at text 2.0 plus
+  **Connect a machine** step into the two doors (`/connect`); 270 dp at text 2.0 plus
   360/390/445/1280/1440, light and dark, at rest and scrolled, DOM facts and a
-  sampled first-open-to-pair clip. Native is unchanged.
-- [Land on the first-run link-first shell](./first-run-browser-steps.md) —
-  unpaired release APK and installed PWA: Tailscale and desktop-app steps, then ready-link field → Connect →
-  existing consent, active cloud-computer entry, unchanged native SSH login and
-  expandable setup details; 393/270 dp, font 1.0/2.0, both themes and scrolled,
-  plus a link-to-consent recording.
+  sampled clip from first open into the My computer pair step. Native is unchanged.
 - [Start a cloud computer](./cloud-computer-onboarding.md) — native first-run
   entry → one checklist → Boat account link → size and price → create, install,
   SSH (no tailnet) and pair with no QR → Home; PWA explains setup is in the phone app.
   Machine creation costs money: only with approved cost; no second Boat claim
   (account link runs against the `boatSignInLab.mjs` Boat stand-in; the whole
   set-up over SSH to Home runs as the `cloud-setup` journey with a stand-in computer).
-- [Read the whole install command on the native first run](./first-run-install-command.md) —
-  unpaired release APK at 393/270 dp, font 1.0/2.0, both themes: the command
-  wraps inside the screen (uiautomator bounds, no sideways scroller) and Copy
-  still hands over the one-line command.
 - [Check the self-host](./selfhost-health.md) — relay `/health`, version
   identity, the owner-only hosts listing, and clean-container configure-only
   foreground startup with native tailnet pairing.

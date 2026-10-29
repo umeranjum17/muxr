@@ -4,8 +4,7 @@ Drive the real unpaired app; no relay or Herdr is needed for the pair
 screens. The shared `WordWrappingText` keeps words whole by measuring them with
 the same font and fitting the whole block to its widest word. It carries the
 pair title, comparison words, the pair card's field label and hint, the
-first-run "Let’s connect" title and setup-card hint and "What running this
-does" toggle, every `<Header title="…">` string title (up to three lines), and
+first-run "Connect a machine" title and every first-run step title, every `<Header title="…">` string title (up to three lines), and
 every wrapping `ActionButton` label (Connect, Scan the QR, Install muxr). A
 button passes its row width as `lineWidth`: the label sits in a row sized to
 its own text, and measuring that box shrank the label with every scale. Under
@@ -39,7 +38,7 @@ unpaired.
    through `visualCheck.mjs <serial> <dir> <name> [--end]`.
 3. PWA: run `visualCheck.mjs pwa-check <shot>.png <name>` on the same page
    immediately after every shot. At 208 dp font 2.0 the first-run cells
-   must show `Connect a machine`, `Let’s connect` and the Connect button whole,
+   must show `Connect a machine`, both door titles and the Connect button whole,
    and the pair cell its whole title above the Connect bar. The Install muxr
    invite renders only in a browser tab (never in the installed PWA), so a
    standalone capture that shows it was taken before display-mode settled:

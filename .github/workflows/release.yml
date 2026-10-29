@@ -12,9 +12,10 @@ name: release
 # attestation: captain_tested after his own phone test, or owner_authorized
 # with a committed owner authorization before he can test it (published
 # labelled owner-authorized and NOT owner-tested, never recorded as his test).
-# An already-sealed stable can be published from main without rebuilding; a push
-# never publishes a stable version; it builds, seals and reports the gate. Run
-# it from main, or from the release tag (v<version>) once main has moved on.
+# An already-sealed stable dispatched from main is forwarded to its release
+# tag without rebuilding: npm provenance uses the run's source SHA, not checkout's.
+# Future release tags must carry this workflow. A push never publishes a stable
+# version; it builds, seals and reports the gate.
 # When the version is already on npm, the build job only confirms it.
 #
 # Gaps, not published by this workflow:
@@ -155,10 +156,38 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
+  dispatch-sealed:
+    needs: build
+    if: inputs.sealed_release != '' && github.ref == 'refs/heads/main' && needs.build.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: v${{ needs.build.outputs.version }}
+      SEALED_RELEASE: ${{ inputs.sealed_release }}
+      REQUESTED_VERSION: ${{ inputs.version }}
+      OWNER_AUTHORIZED: ${{ inputs.owner_authorized }}
+      CAPTAIN_TESTED: ${{ inputs.captain_tested }}
+      NIGHTLY_TAG: ${{ inputs.nightly_tag }}
+    steps:
+      # Dispatch returns immediately; the tag run waits for this run's shared
+      # publication lock. No OIDC token or publication happens on main.
+      - name: Run sealed publication at the tag commit, not the dispatcher commit
+        run: |
+          gh workflow run release.yml --ref "$RELEASE_TAG" \
+            -f sealed_release="$SEALED_RELEASE" -f version="$REQUESTED_VERSION" \
+            -f owner_authorized="$OWNER_AUTHORIZED" -f captain_tested="$CAPTAIN_TESTED" \
+            -f nightly_tag="$NIGHTLY_TAG"
+          echo "Sealed publication dispatched at $RELEASE_TAG; follow its release run for the result." >> "$GITHUB_STEP_SUMMARY"
+
   publish:
     needs: build
-    # A release tag is a manual run's source once main has moved past it.
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    # Unpublished sealed stables can publish only in the tag run. Already-live
+    # versions retain main's idempotent public-surface checks; nightly is unchanged.
+    if: (github.ref == 'refs/heads/main' && (inputs.sealed_release == '' || needs.build.outputs.needed != 'true')) || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -210,6 +239,11 @@ jobs:
           OWNER_AUTHORIZATION_NOTICE_FILE: ${{ runner.temp }}/owner-authorization.txt
           OWNER_AUTHORIZED: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_authorized && !inputs.captain_tested && inputs.version || '' }}
         run: node scripts/release/presentation/acceptStable.mjs --version "$RELEASE_VERSION" --package "$RUNNER_TEMP"/package/*.tgz --captain-tested "$CAPTAIN_TESTED" --owner-authorized "$OWNER_AUTHORIZED"
+      - name: Bind sealed stable provenance to the resolved tag commit
+        if: needs.build.outputs.needed == 'true' && inputs.sealed_release != ''
+        run: |
+          test "$GITHUB_REF" = "refs/tags/v$SEALED_RELEASE"
+          test "$GITHUB_SHA" = "$RELEASE_COMMIT"
       - name: Publish with provenance
         if: needs.build.outputs.needed == 'true' && (needs.build.outputs.channel != 'stable' || steps.accepted.outputs.accepted == 'true')
         env:

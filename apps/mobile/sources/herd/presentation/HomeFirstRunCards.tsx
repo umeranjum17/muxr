@@ -42,6 +42,7 @@ const styles = StyleSheet.create((theme) => ({
     row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     title: { flex: 1, color: theme.colors.text, fontSize: 17, ...Typography.default('semiBold') },
     body: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, ...Typography.default() },
+    step: { color: theme.colors.textSecondary, fontSize: 12, ...Typography.default('semiBold') },
     actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
     // A row of its own: in the wrapping row web sizes the pill to its label
     // and lets it run past the card instead of fitting the card's width.
@@ -113,6 +114,8 @@ export function FirstAgentCard() {
                 <Ionicons name="rocket-outline" size={22} color={theme.colors.accent} />
                 <Text style={styles.title}>Start your first agent</Text>
             </View>
+            {/* The last step of either first-run door, so it says its time like the others. */}
+            <Text style={styles.step}>Step 3 of 3 · about 30 s</Text>
             <Text style={styles.body}>{body}</Text>
             {error !== undefined && <Text style={[styles.body, { color: theme.colors.deleteAction }]}>{error}</Text>}
             <View style={styles.actions}>

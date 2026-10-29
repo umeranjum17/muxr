@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Records the demo-first run in the installed PWA: first open, a sample
-# conversation, back, and the Pair your own computer step opening the real
-# pairing screen. Frames are sampled with the same screenshot command the
+# conversation, back, then Connect a machine, the My computer door and Next:
+# pair, the branch's real pairing step. Frames are sampled with the same screenshot command the
 # matrix uses, each stamped as it is taken, so the clip keeps the real pacing;
 # it is a sample, not a frame-rate measurement. Then it checks the run really
-# ended on /pair.
+# ended on /my-computer.
 #   CHROME_DEVTOOLS_AXI_BROWSER_URL=<devtools> [VIEWPORT=390x844x2,mobile,touch]
 #   [THEME=dark] [MUXR_DEMO_URL=http://127.0.0.1:<port>/] demoPwaJourney.sh <outDir>
 #   (from the repo root)
@@ -53,7 +53,14 @@ chrome-devtools-axi eval "${scroll/FACTOR/0}" >/dev/null 2>&1
 frames 5
 chrome-devtools-axi eval "document.querySelector('[role=button][aria-label=\"Back to all demo agents\"]').click()" >/dev/null 2>&1
 frames 5
-chrome-devtools-axi eval "document.querySelector('[role=button][aria-label=\"Pair your own computer\"]').click()" >/dev/null 2>&1
+press() { chrome-devtools-axi eval "[...document.querySelectorAll('[role=button]')].find((e) => (e.getAttribute('aria-label') ?? e.innerText.trim()).startsWith('$1'))?.click()" >/dev/null 2>&1; }
+press 'Connect a machine'
+sleep 2
+frames 6
+press 'My computer.'
+sleep 2
+frames 6
+press 'Next: pair'
 sleep 2
 frames 8
 
@@ -71,7 +78,7 @@ printf "file '%s'\n" "$(printf 'frame-%04d.png' $((count - 1)))" >> "$out"/frame
 seconds=$(awk "BEGIN{printf \"%.2f\", (${stamps[$((count - 1))]} - ${stamps[0]}) / 1000}")
 path=$(chrome-devtools-axi eval "location.pathname" 2>&1 | sed -n 's/^result: "\(.*\)"$/\1/p' | head -1 | tr -d '\\"')
 echo "frames=$count sampled over ${seconds}s"
-if [ "$path" != "/pair" ]; then
-  echo "journey ended on ${path:-no page}, not /pair"
+if [ "$path" != "/my-computer" ]; then
+  echo "journey ended on ${path:-no page}, not /my-computer"
   exit 1
 fi

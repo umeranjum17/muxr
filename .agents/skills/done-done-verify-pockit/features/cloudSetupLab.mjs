@@ -292,9 +292,9 @@ try {
     await bringMuxrBack();
     await dismissPrompts().catch(() => undefined);
 
-    // First run leads with Tailscale, the desktop app and pairing; the cloud entry sits below them.
-    const cloudEntry = (v) => v === 'Cloud computer' || v === 'Add a cloud computer. Boat.';
-    await waitFor('the first-run screen', (found) => find(found, (v) => v === 'Let’s connect' || cloudEntry(v)) !== undefined, 180);
+    // First run is two doors: My computer and Cloud machine · Boat.
+    const cloudEntry = (v) => v.startsWith('Cloud machine · Boat. ');
+    await waitFor('the first-run screen', (found) => find(found, (v) => v === 'Connect a machine' || cloudEntry(v)) !== undefined, 180);
     await tap('Cloud computer', cloudEntry);
     // A busy emulator drops keys from a long `input text`: type in short chunks and read the field back.
     const EMAIL = 'umer@example.com';
@@ -313,13 +313,13 @@ try {
     await sleep(4000);
     say(`after Sign in to Boat: ${await focused()}`);
     await bringMuxrBack();
-    await waitFor('Boat account Connected', (found) => find(found, (v) => v === 'Connected') !== undefined);
+    await waitFor('Boat account connected', (found) => find(found, (v) => v === 'Pick a size') !== undefined);
     if (opts.dp !== '390' || opts.font !== '1.0' || opts.theme !== 'light') {
         await view(opts.dp, opts.font, opts.theme);
         await sh(`am force-stop ${PKG}`);
         await bringMuxrBack();
-        await tap('Cloud computer', (v) => v === 'Cloud computer' || v === 'Add a cloud computer. Boat.', 180);
-        await waitFor('the size step with the linked account', (found) => find(found, (v) => v === 'Connected') !== undefined);
+        await tap('Cloud computer', cloudEntry, 180);
+        await waitFor('the size step with the linked account', (found) => find(found, (v) => v === 'Pick a size') !== undefined);
     }
     await shot('01-size-and-price');
     // --views 390:1.0:dark,270:2.0:light,… shoots the size step's screen switch, off and then on, at each view.
@@ -328,8 +328,8 @@ try {
         await view(dp, font, theme);
         await sh(`am force-stop ${PKG}`);
         await bringMuxrBack();
-        await tap('Cloud computer', (v) => v === 'Cloud computer' || v === 'Add a cloud computer. Boat.', 180);
-        await waitFor('the size step with the linked account', (found) => find(found, (v) => v === 'Connected') !== undefined);
+        await tap('Cloud computer', cloudEntry, 180);
+        await waitFor('the size step with the linked account', (found) => find(found, (v) => v === 'Pick a size') !== undefined);
         await tap('the screen switch', (v) => v === 'Add a screen for sign-ins');
         // At large text the card is taller than the space left: scroll back until its title, beside the switch, shows below the header.
         const title = async () => (await screen()).find((n) => n.text === 'Add a screen for sign-ins');

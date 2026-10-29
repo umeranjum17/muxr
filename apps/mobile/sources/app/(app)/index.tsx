@@ -52,8 +52,10 @@ function NotAuthenticated() {
 
     return (
         <View style={styles.screen}>
+            {/* The screen's own heading says Connect a machine and wraps whole
+                words; a header title that long clips at 270 dp and the largest text. */}
             <Header
-                title="Connect a machine"
+                title="muxr"
                 headerShadowVisible={false}
             />
             <ScrollView

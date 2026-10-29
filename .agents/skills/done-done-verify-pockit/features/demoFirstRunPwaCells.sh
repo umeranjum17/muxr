@@ -23,7 +23,7 @@ facts='(() => {
     text.includes("Sample data") ? "sample-data pill" : "NO sample-data pill",
     text.includes("Umer") ? "Umer computer" : "NO demo name",
     ordered ? "3 agents in order" : `agents unordered: ${tops.join(",")}`,
-    text.includes("Pair your own computer") ? "pair step" : "NO pair step",
+    text.includes("Connect a machine") ? "connect step" : "NO connect step",
   ];
   return pieces.join(" | ");
 })()'
@@ -109,36 +109,43 @@ for cell in 270:2.0:594 390:1.0:844; do
     chrome-devtools-axi eval "$back" >/dev/null 2>&1; sleep 1
   done
 done
-# The screen the demo's last step opens: the real /pair, shot as its own
-# capture at the phone width in both themes, so "the pair step opens the real
-# pairing screen" is shown rather than inferred from the clip's last frames.
-toPair='(() => {
-  document.querySelector("[role=button][aria-label=\"Pair your own computer\"]").click();
-  return "pairing";
-})()'
-for theme in light dark; do
-  name="pair-screen-390-1.0-$theme"
-  chrome-devtools-axi emulate --viewport 390x844x2,mobile,touch --color-scheme $theme >/dev/null 2>&1
-  chrome-devtools-axi eval "location.assign('/')" >/dev/null 2>&1
-  for _ in $(seq 1 30); do
-    [ -n "$(chrome-devtools-axi eval 'document.body.innerText.trim().length > 0 ? "drawn" : ""' 2>/dev/null | grep -o drawn)" ] && break
-    sleep 1
+# The screens the demo's last step leads to (two-doors-first-run.md): the two
+# doors, My computer's Get ready and Pair, and the Boat door's browser notice,
+# at every cell, at rest and scrolled, each with the words it must show.
+screens='connect|Connect a machine|My computer|Cloud machine · Boat|from $0.018 an hour
+my-computer|Get ready|about 2 min|Get Tailscale|Next: pair
+my-computer?step=pair|Pair with your computer|Private link or pairing code|Example words|Start an agent
+cloud-computer|Your cloud computer|Set up from the muxr phone app'
+for cell in 270:2.0:594 360:1.0:800 390:1.0:844 445:1.0:900 1280:1.0:900 1440:1.0:1000; do
+  w=${cell%%:*}; rest=${cell#*:}; f=${rest%%:*}; h=${rest##*:}
+  vw=$(awk "BEGIN{print int($w/$f)}"); vh=$(awk "BEGIN{print int($h/$f)}"); dpr=$(awk "BEGIN{print 2*$f}")
+  view="${vw}x${vh}x${dpr},mobile,touch"
+  for theme in light dark; do
+    while IFS='|' read -r path words; do
+      slug=$(printf '%s' "$path" | tr '?=' '--')
+      name="web-$slug-$w-$f-$theme"
+      chrome-devtools-axi emulate --viewport "$view" --color-scheme $theme >/dev/null 2>&1
+      chrome-devtools-axi eval "location.assign('/$path')" >/dev/null 2>&1
+      for _ in $(seq 1 30); do
+        [ -n "$(chrome-devtools-axi eval 'document.body.innerText.trim().length > 0 ? "drawn" : ""' 2>/dev/null | grep -o drawn)" ] && break
+        sleep 1
+      done
+      sleep 3
+      chrome-devtools-axi emulate --viewport "$view" --color-scheme $theme >/dev/null 2>&1; sleep 2
+      missing=$(chrome-devtools-axi eval "(() => { const text = document.body.innerText; return '$words'.split('|').filter((word) => !text.includes(word)).join(', ') || 'none'; })()" 2>&1 | sed -n 's/^result: "\(.*\)"$/\1/p' | head -1 | tr -d '\\"')
+      if [ "$missing" != none ]; then echo "FAIL $name facts: missing ${missing:-everything}"; failures=$((failures + 1)); else echo "$name facts: all words shown"; fi
+      chrome-devtools-axi screenshot "$out/$name.png" >/dev/null 2>&1
+      pwa=$(node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name.png" "$name" 2>&1)
+      chrome-devtools-axi eval "$toEnd" >/dev/null 2>&1; sleep 1
+      chrome-devtools-axi screenshot "$out/$name-scrolled.png" >/dev/null 2>&1
+      pwaEnd=$(node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name-scrolled.png" "$name-scrolled" 2>&1)
+      echo "$pwa" > "$out/$name.check.txt"; echo "$pwaEnd" > "$out/$name-scrolled.check.txt"
+      printf '%s' "$pwa" | grep -q '^clean' || failures=$((failures + 1))
+      printf '%s' "$pwaEnd" | grep -q '^clean' || failures=$((failures + 1))
+      echo "$pwa" | grep -E "^(DEFECT|clean|FAIL)" | cut -c1-200
+      echo "$pwaEnd" | grep -E "^(DEFECT|clean|FAIL)" | sed 's/^/scrolled: /' | cut -c1-200
+    done <<< "$screens"
   done
-  chrome-devtools-axi emulate --viewport 390x844x2,mobile,touch --color-scheme $theme >/dev/null 2>&1; sleep 2
-  chrome-devtools-axi eval "$toPair" >/dev/null 2>&1
-  for _ in $(seq 1 30); do
-    [ -n "$(chrome-devtools-axi eval "location.pathname === '/pair' ? 'pair' : ''" 2>/dev/null | grep -o pair)" ] && break
-    sleep 1
-  done
-  sleep 2
-  chrome-devtools-axi emulate --viewport 390x844x2,mobile,touch --color-scheme $theme >/dev/null 2>&1; sleep 1
-  shown=$(chrome-devtools-axi eval "location.pathname + ' | ' + document.body.innerText.replace(/\\s+/g, ' ').slice(0, 80)" 2>&1 | head -1)
-  case "$shown" in */pair*pair*) ;; *) echo "FAIL $name facts: not the pair screen ($shown)"; failures=$((failures + 1));; esac
-  chrome-devtools-axi screenshot "$out/$name.png" >/dev/null 2>&1
-  pwa=$(node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name.png" "$name" 2>&1)
-  echo "$pwa" > "$out/$name.check.txt"
-  printf '%s' "$pwa" | grep -q '^clean' || failures=$((failures + 1))
-  echo "$pwa" | grep -E "^(DEFECT|clean|FAIL)" | cut -c1-200
 done
 echo "cells: $((failures)) failing check(s)"
 [ "$failures" -eq 0 ] || exit 1
