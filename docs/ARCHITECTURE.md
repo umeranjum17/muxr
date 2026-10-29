@@ -95,8 +95,10 @@ Noise IK. The relay cannot read session, terminal or stream payloads. See
 
 **The app owns**: rendering and local persistence only. No truth lives on the
 phone. A machine-scoped, display-only Home snapshot in local MMKV holds the last
-host-confirmed tree and agent presentation until both a fresh tree and catalog
-arrive. It is not an authority for terminal previews or close actions; sign-out,
+host-confirmed tree and agent presentation until a fresh tree arrives; a failed
+catalog read cannot mask newer runtime or lifecycle truth. Home labels retained
+states as last known, with their last-update age and any tree refresh failure.
+It is not an authority for terminal previews or close actions; sign-out,
 removed grants, and web secure-store reset clear it.
 
 ## Model mapping

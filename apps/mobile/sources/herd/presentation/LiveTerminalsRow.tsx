@@ -392,16 +392,17 @@ const MachineLiveTerminalsRow = React.memo(({
             )}
             <RecentActivity
                 rows={needsYouRows}
+                heading={stale ? 'Last known · Needs you' : undefined}
                 onSelect={selectActivity}
             />
             <RecentActivity
                 rows={readyRows}
-                heading="Ready · unseen"
+                heading={stale ? 'Last known · Ready' : 'Ready · unseen'}
                 onSelect={openReady}
             />
             <RecentActivity
                 rows={departedRows}
-                heading="Failed"
+                heading={stale ? 'Last known · Failed' : 'Failed'}
                 onSelect={selectActivity}
             />
         </View>

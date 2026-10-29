@@ -153,16 +153,15 @@ function Strip({ onPress, onLongPress, label, line, note, facts, dot, withContro
  *  strip; `word` is the whole sentence a reader hears. */
 function freshness(payload: UsageFigures | undefined, failed: boolean, refreshing: boolean, throttledSeconds?: number) {
     const agedFor = disclosedAge(payload);
-    const word = refreshing
-        ? t('plugins.rightNow.refreshing')
-        : throttledSeconds !== undefined
-            ? t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds })
-            : failed
-                ? t('plugins.rightNow.refreshFailed')
-                : agedFor === undefined ? undefined : t('components.sessionStatusBar.limitAsOf', { age: agedFor });
-    const shown = !refreshing && throttledSeconds !== undefined
-        ? t('plugins.rightNow.refreshIn', { seconds: throttledSeconds })
-        : word?.split(' · ')[0];
+    const failedAge = payload?.ageSeconds === undefined ? 'Last update time unknown.'
+        : t('components.sessionStatusBar.limitAsOf', { age: compactAge((payload.ageSeconds * 1_000) + Math.max(0, Date.now() - (payload.ageAt ?? Date.now()))) });
+    let word: string | undefined;
+    if (failed) word = `${t('plugins.rightNow.refreshFailed')} · ${failedAge}`;
+    else if (refreshing) word = t('plugins.rightNow.refreshing');
+    else if (throttledSeconds !== undefined) word = t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds });
+    else if (agedFor !== undefined) word = t('components.sessionStatusBar.limitAsOf', { age: agedFor });
+    let shown = failed ? word : word?.split(' · ')[0];
+    if (!failed && !refreshing && throttledSeconds !== undefined) shown = t('plugins.rightNow.refreshIn', { seconds: throttledSeconds });
     return { word, shown, alarm: failed && !refreshing && throttledSeconds === undefined };
 }
 

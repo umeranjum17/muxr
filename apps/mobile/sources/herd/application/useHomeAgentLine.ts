@@ -9,9 +9,10 @@ import { agentSummary, agentSummaryLine } from '../domain/agentSummary';
  *  that has not arrived is not an empty one, and "nothing is running" before the
  *  answer lands would be a guess. */
 export function useHomeAgentLine(): string | undefined {
-    const { sessions, workspaces, loaded } = useHomeHerd();
+    const { sessions, workspaces, loaded, stale } = useHomeHerd();
     return React.useMemo(() => {
         if (!loaded) return undefined;
-        return agentSummaryLine(agentSummary(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces))));
-    }, [loaded, sessions, workspaces]);
+        const line = agentSummaryLine(agentSummary(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces))));
+        return stale ? `Last known: ${line}` : line;
+    }, [loaded, sessions, workspaces, stale]);
 }
