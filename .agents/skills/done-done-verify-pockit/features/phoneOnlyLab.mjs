@@ -6,7 +6,8 @@
 // The APK must be built with EXPO_PUBLIC_MUXR_PHONE_AUTH_BASE=http://127.0.0.1:38911 and
 // EXPO_PUBLIC_MUXR_PHONE_API_BASE=http://127.0.0.1:38912 (the stand-in's ports).
 import { execFile } from 'node:child_process';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
@@ -158,6 +159,16 @@ try {
     await waitFor('the retried reply', (found) => find(found, (v) => v.includes('Make the app dark')) !== undefined && find(found, (v) => v === 'Try again') === undefined && find(found, (v) => v === 'Thinking…') === undefined, 120);
     await capture(flow, '8-retried-reply');
 
+    // The agent left muxr dark; hand the look back to the phone so each cell follows its own theme.
+    await type('Follow my phone');
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        await sleep(1500);
+        await tapOn('Send', (v) => v === 'Send');
+        await sleep(2500);
+        if (find(await screen(), (v) => v.startsWith('Follow my phone')) === undefined) break;
+    }
+    await waitFor('the agent handing the look back', has('Done. muxr follows your phone now.'), 90);
+
     // The reopened chat everywhere.
     for (const [width, theme] of CELLS) {
         const cell = `${width}-${theme}`;
@@ -171,9 +182,16 @@ try {
         await capture(dir, `chat-${cell}`, true);
     }
 
+    // The a11y dumps of a screen that looks the same in two cells are byte-identical; keep the first, never a copy.
+    const seen = new Set();
+    for (const file of readdirSync(EVIDENCE, { recursive: true }).sort().filter((f) => f.endsWith('.xml'))) {
+        const digest = createHash('sha256').update(readFileSync(join(EVIDENCE, file))).digest('hex');
+        if (seen.has(digest)) rmSync(join(EVIDENCE, file)); else seen.add(digest);
+    }
     say(`visual check leads: ${leads.length === 0 ? 'none' : `\n${leads.join('\n')}`}`);
     say(`stand-in saw ${standIn.requests.length} model requests`);
     writeFileSync(join(EVIDENCE, 'steps.json'), `${JSON.stringify({
+        target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: 'the release app freshly installed on an Android phone (emulator), cleared, with no computer and no account',
         steps: [
             'open the app: the first screen offers Just this phone',
@@ -183,6 +201,7 @@ try {
             'send a slow message and close the app mid-answer',
             'reopen: the first screen offers Continue your chat, the chat shows the turn was interrupted with Try again',
             'tap Try again and read the answer',
+            'ask the agent to follow the phone again, then reopen the chat at 360, 390, 445 and 270 dp in light and dark',
         ],
         result: 'the chat continued where it stopped; the plan words show before the first message; the app never used another account. Sign-in ran against a BYOKit ChatGPT stand-in, so no real credential was used.',
     }, null, 2)}\n`);

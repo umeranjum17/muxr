@@ -168,7 +168,7 @@ journeys:
   # shared emulator lock; MUXR_LAB_APK is a release build of this commit,
   # MUXR_LAB_AVD_HOME a task-owned emulator home.
   pane-switcher:
-    command: node .agents/skills/done-done-verify-pockit/features/paneSwitcherLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    command: node .agents/skills/done-done-verify-pockit/features/paneSwitcherLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" > /dev/null 2>&1
     timeout: 30m
   # Terminal key and quick-actions targets on Android: the release app on an
   # owned emulator, paired to the fake stack (three tabs), measures every key
@@ -177,7 +177,7 @@ journeys:
   # Runs by hand under the shared emulator lock; MUXR_LAB_APK is a release
   # build of this commit, MUXR_LAB_AVD_HOME a task-owned emulator home.
   key-targets:
-    command: node .agents/skills/done-done-verify-pockit/features/keyRowLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    command: node .agents/skills/done-done-verify-pockit/features/keyRowLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" > /dev/null 2>&1
     timeout: 30m
   # The composer's send feedback on Android: the release app over a stub-backed
   # Claude Code in a provisioned Herdr lab (HERDR_LAB_PREPROVISIONED=1), a
@@ -316,7 +316,7 @@ journeys:
   # kill the app mid-turn, reopen and Try again. APK built with the stand-in's ports
   # in EXPO_PUBLIC_MUXR_PHONE_AUTH_BASE / _API_BASE (see phoneOnlyLab.mjs).
   phone-only:
-    command: node .agents/skills/done-done-verify-pockit/features/phoneOnlyLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    command: node .agents/skills/done-done-verify-pockit/features/phoneOnlyLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" > /dev/null 2>&1
     timeout: 30m
   # A version bump on the built web export: the changelog entry validates for
   # package.json's version, checkWebExport passes, and the served export's

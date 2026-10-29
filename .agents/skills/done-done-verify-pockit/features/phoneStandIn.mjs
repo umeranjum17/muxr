@@ -45,8 +45,8 @@ export async function startPhoneStandIn({ authPort = 0, apiPort = 0, log = () =>
         const ask = req.url?.startsWith('/codex/responses') ? said(body) : undefined;
         if (ask) log(`ask: ${ask.words.slice(0, 60)} tool=${ask.toolDone}`);
         const tools = Array.isArray(body.tools) ? body.tools.filter((t) => t?.type === 'function') : [];
-        if (ask && !ask.toolDone && ask.words.includes('dark') && tools.some((t) => t.name === 'set_theme')) {
-            const item = { type: 'function_call', call_id: 'call_theme', name: 'set_theme', arguments: JSON.stringify({ theme: 'dark' }) };
+        if (ask && !ask.toolDone && (ask.words.includes('dark') || ask.words.includes('follow')) && tools.some((t) => t.name === 'set_theme')) {
+            const item = { type: 'function_call', call_id: 'call_theme', name: 'set_theme', arguments: JSON.stringify({ theme: ask.words.includes('follow') ? 'system' : 'dark' }) };
             res.writeHead(200, { ...cors, 'content-type': 'text/event-stream' });
             res.write(sse('response.output_item.added', { output_index: 0, item: { ...item, arguments: '' } }));
             res.write(sse('response.function_call_arguments.delta', { output_index: 0, item_id: item.call_id, delta: item.arguments }));
@@ -55,7 +55,7 @@ export async function startPhoneStandIn({ authPort = 0, apiPort = 0, log = () =>
         }
         if (ask && !ask.toolDone && ask.words.includes('take your time')) await new Promise((done) => setTimeout(done, SLOW_MS));
         if (ask?.toolDone) {
-            const text = 'Done. muxr is dark now. Ask me to change it back any time.';
+            const text = ask.words.includes('follow') ? 'Done. muxr follows your phone now.' : 'Done. muxr is dark now. Ask me to change it back any time.';
             res.writeHead(200, { ...cors, 'content-type': 'text/event-stream' });
             for (const delta of text.match(/[\s\S]{1,4}/g)) { res.write(sse('response.output_text.delta', { delta })); await new Promise((done) => setTimeout(done, 15)); }
             return res.end(`${sse('response.completed', { response: { status: 'completed' } })}data: [DONE]\n\n`);
