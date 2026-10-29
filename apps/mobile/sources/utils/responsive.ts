@@ -12,7 +12,7 @@ export const SIDEBAR_MAX_WIDTH = 360;
 
 export function sidebarWidth(windowWidth: number): number {
     return Math.min(
-        Math.max(Math.floor(windowWidth * 0.26), SIDEBAR_MIN_WIDTH),
+        Math.max(Math.floor(windowWidth * 0.22), SIDEBAR_MIN_WIDTH),
         SIDEBAR_MAX_WIDTH,
     );
 }
