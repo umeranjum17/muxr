@@ -139,7 +139,13 @@ try {
     // A turn the app dies in the middle of.
     await sh('cmd uimode night no');
     await type('Take your time');
-    await tapOn('Send', (v) => v === 'Send');
+    // The first tap can land while the keyboard moves the composer; tap again until the text is gone.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        await sleep(1500);
+        await tapOn('Send', (v) => v === 'Send');
+        await sleep(2500);
+        if (find(await screen(), (v) => v.startsWith('Take your time')) === undefined) break;
+    }
     await waitFor('the turn running', has('Thinking…'), 30);
     await capture(flow, '5-turn-running');
     await sh(`am force-stop ${PKG}`);
