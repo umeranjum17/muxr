@@ -199,7 +199,7 @@ try {
         renameSync(join(EVIDENCE, file), target);
     }
     say(`visual check leads: ${leads.length === 0 ? 'none' : `\n${leads.join('\n')}`}`);
-    say(`stand-in saw ${standIn.requests.length} model requests`);
+    say(`stand-in saw ${standIn.requests().length} model requests`);
     writeFileSync(join(EVIDENCE, 'steps.json'), `${JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: 'the release app freshly installed on an Android phone (emulator), cleared, with no computer and no account',
