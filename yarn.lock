@@ -1122,6 +1122,21 @@
     partial-json "0.1.7"
     undici-types "8.11.2"
 
+"@byokit/accounts@0.34.0":
+  version "0.34.0"
+  resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.34.0.tgz#11bdfe8330bd42a7f04ccfd4f17e1c51eb2609b4"
+  integrity sha512-UpSG14opbEdysBnD4pF+kvzzuvX5uyz6NO6my8ruuHtoJENkx6BD8S5VP6h+Xbjzj4paDwf/PzO9fqgj9EaFog==
+  dependencies:
+    "@anthropic-ai/sdk" "0.133.0"
+    "@byokit/secrets" "0.5.3"
+    "@byokit/usage" "0.10.1"
+    "@earendil-works/pi-ai" "^1.3.0"
+    "@google/genai" "2.29.0"
+    "@modelcontextprotocol/sdk" "1.32.1"
+    openai "7.19.0"
+    partial-json "0.1.7"
+    undici-types "8.11.2"
+
 "@byokit/audio@0.2.0":
   version "0.2.0"
   resolved "https://registry.yarnpkg.com/@byokit/audio/-/audio-0.2.0.tgz#1b33bc0436cf3d06b37dd609bb59142444cd6cb2"
@@ -1158,6 +1173,11 @@
     sodium-javascript "0.8.0"
     sodium-native "5.1.0"
     sodium-universal "5.0.1"
+
+"@byokit/phone@0.1.6":
+  version "0.1.6"
+  resolved "https://registry.yarnpkg.com/@byokit/phone/-/phone-0.1.6.tgz#7111034be35770007d83bd43ab971d834ed66621"
+  integrity sha512-fDDWNGV+Bi4TB18POdL23bQQiNYbK39b7dq4KCp4GxNtCIVhXFm8j80xESS0BhaipPP+XWVKXqq+k9HRSp6Siw==
 
 "@byokit/reach@0.6.0":
   version "0.6.0"
@@ -1202,12 +1222,31 @@
     "@noble/curves" "2.4.0"
     "@noble/hashes" "2.4.0"
 
+"@byokit/seal@0.3.2":
+  version "0.3.2"
+  resolved "https://registry.yarnpkg.com/@byokit/seal/-/seal-0.3.2.tgz#18bf7889cc84365fcf3b367331a05795d14729c2"
+  integrity sha512-Fb2chAs+TxogOLXEgf7z0NLcmLSwNxPL/S6TVVUB3WwP5HtPLjV4Z/pcDrCJKwjm11xqgy9xaI/WLUIa+kbLXQ==
+  dependencies:
+    "@noble/ciphers" "2.4.0"
+    "@noble/curves" "2.4.0"
+    "@noble/hashes" "2.4.0"
+
 "@byokit/secrets@0.5.2":
   version "0.5.2"
   resolved "https://registry.yarnpkg.com/@byokit/secrets/-/secrets-0.5.2.tgz#c89a9ab245e4fed566dfb4af33c1675399caeec4"
   integrity sha512-IO/wCZHMxnqJe0CdRjbdmlvyP1mu7URZS1W1CVGMjJwxfO1aQ8hGH4TBLBCTQ5l/uJFsNel7bkFFfqwjGn39eA==
   dependencies:
     "@byokit/seal" "0.3.1"
+    "@homebridge/dbus-native" "0.7.9"
+  optionalDependencies:
+    "@napi-rs/keyring" "2.1.0"
+
+"@byokit/secrets@0.5.3":
+  version "0.5.3"
+  resolved "https://registry.yarnpkg.com/@byokit/secrets/-/secrets-0.5.3.tgz#a4d15ce5fc83e6f7567a248a3de06e474a1eba53"
+  integrity sha512-g8fTyx9qol0hyBYgoUpPMTNSRVJ4rKogwLJQIfCEIhP4zNPv50DYD+07GJj44LEGKai8wh8j//MKtwZ69nTlLQ==
+  dependencies:
+    "@byokit/seal" "0.3.2"
     "@homebridge/dbus-native" "0.7.9"
   optionalDependencies:
     "@napi-rs/keyring" "2.1.0"
@@ -1223,6 +1262,11 @@
   integrity sha512-1kUVi4/5pZEG5lhCYTyBTGLHtJDWLUEWbsmbL0pVCU4WrCvcx/is06sLEvHlQF8ZXmebU6EfdREJrpX6yut9wQ==
   dependencies:
     uqr "0.1.3"
+
+"@byokit/usage@0.10.1":
+  version "0.10.1"
+  resolved "https://registry.yarnpkg.com/@byokit/usage/-/usage-0.10.1.tgz#ec9a31cca268b1502202087b4a99334c89b04fd4"
+  integrity sha512-dBqb6u6ElfQrjqrSvH40yiEaSMl/czX6cIFXK6zFx0qQ7aQ8a1A+uPXm3FatlX89QHuTo8O3AuwBQjt12ovYxQ==
 
 "@byokit/usage@0.9.0":
   version "0.9.0"
@@ -1309,6 +1353,27 @@
     openai "7.19.0"
     partial-json "0.1.7"
     typebox "1.3.27"
+
+"@earendil-works/pi-ai@^1.3.0":
+  version "1.4.0"
+  resolved "https://registry.yarnpkg.com/@earendil-works/pi-ai/-/pi-ai-1.4.0.tgz#2ddca1029bbe97e26298d998d3a66d09db7759e2"
+  integrity sha512-hQM/C4+1w8rHYACzDDf+0vQMnEnpzIop1tptIERVgR3ZeT/hHSzBNG8PaWPgxWQjqSeKCyBZSyp8uTT6eKK1pQ==
+  dependencies:
+    "@anthropic-ai/sdk" "0.129.0"
+    "@aws-sdk/client-bedrock-runtime" "3.1127.0"
+    "@earendil-works/pi-telemetry" "1.4.0"
+    "@google/genai" "2.21.0"
+    "@smithy/node-http-handler" "4.12.1"
+    http-proxy-agent "9.1.0"
+    https-proxy-agent "9.1.0"
+    openai "7.19.0"
+    partial-json "0.1.7"
+    typebox "1.3.27"
+
+"@earendil-works/pi-telemetry@1.4.0":
+  version "1.4.0"
+  resolved "https://registry.yarnpkg.com/@earendil-works/pi-telemetry/-/pi-telemetry-1.4.0.tgz#18cc568b0d2d1bcb94ce0ecaba5e9bf06391484b"
+  integrity sha512-MLIfowwUYIY65jSjMX82paZOrX/NTvLk6D08h+3Jq42a99RzUOewzuCR0zOlPul3D6UBfddat76VT6LvsHEs1w==
 
 "@earendil-works/pi-telemetry@^1.2.0":
   version "1.3.0"

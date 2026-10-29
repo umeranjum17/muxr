@@ -13,6 +13,7 @@ import { useCompactWindow } from '@/components/useCompactWindow';
 import { FirstRunSetupCard, SetupStep } from './FirstRunSetupCard';
 import { addComputerLink } from '@/commercialization';
 import { openTailscaleStore } from './tailscaleApp';
+import { JustThisPhoneCard } from '@/phone/ui';
 
 /**
  * Segmented Fast pairing / Direct SSH switcher. Rendered at the top of the
@@ -79,6 +80,7 @@ export function FirstRunConnection() {
                 <WordWrappingText fontSize={25} lineHeight={29} style={styles.title}>Let’s connect</WordWrappingText>
                 <Text style={styles.subtitle}>Use the machine you already have.</Text>
             </View>
+            <JustThisPhoneCard />
             <View style={[styles.card, compact && styles.cardCompact]}>
                 <SetupStep
                     number={1}
