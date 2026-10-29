@@ -102,10 +102,16 @@ done; done
 shoot mobile 390 844 3 dark; sleep 3
 lab "output $QUESTION"; lab "status blocked Fix empty cart shipping"
 await_label 'Answer Yes[^,A-Za-z]' || misses=$((misses + 1))
+# A still cannot show a change, so the tap and the card after it are a clip: the question, the tap, then
+# the card with the agent's screen cleared, two frames a second.
+mkdir -p "$root/frames"
+ax screenshot "$root/frames/f1.png" >/dev/null
 ax eval "[...document.querySelectorAll('[aria-label^=\"Answer Yes, and\"]')][0]?.click()" >/dev/null
-# The agent takes the answer and its screen clears while it carries on.
-lab "output "; sleep 2
-ax screenshot "$mx/answered-390-dark.png" >/dev/null
+ax screenshot "$root/frames/f2.png" >/dev/null
+lab "output "
+for n in 3 4 5 6; do sleep 0.5; ax screenshot "$root/frames/f$n.png" >/dev/null; done
+cp "$root/frames/f6.png" "$mx/answered-390-dark.png"
+ffmpeg -loglevel error -y -framerate 2 -i "$root/frames/f%d.png" -vf "scale=390:-2" -c:v libx264 -pix_fmt yuv420p "$mx/answered-390-dark.mp4" || misses=$((misses + 1))
 input=$(sed -n 's/^lab input: //p' "$root/lab.log" | head -1)
 cp "$input" "$mx/pane-input.jsonl" 2>/dev/null
 # Choice 2's number reached the pane through the terminal's own channel.
@@ -113,7 +119,7 @@ answered=none
 grep -q '"source":"terminal.text".*"text":"2"' "$mx/pane-input.jsonl" 2>/dev/null && answered=typed
 echo "answered: $answered" | tee -a "$mx/lines.log"
 [ "$answered" = typed ] || misses=$((misses + 1))
-for name in ${CHAT_WORK_CITE:-}; do cp "$mx/$name.png" "$out/"; done
+for name in ${CHAT_WORK_CITE:-}; do case "$name" in *.*) cp "$mx/$name" "$out/";; *) cp "$mx/$name.png" "$out/";; esac; done
 cat >"$out/steps.json" <<JSON
 {
   "target": { "version": "$(node -p "require('./package.json').version")" },
