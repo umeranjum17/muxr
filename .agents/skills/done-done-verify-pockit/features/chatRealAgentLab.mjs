@@ -14,7 +14,7 @@ const helper = process.env.HERDR_LAB_HELPER;
 const ollama = process.env.CHAT_LAB_OLLAMA ?? 'http://127.0.0.1:11434/v1';
 const model = process.env.CHAT_LAB_MODEL_ID ?? 'qwen3.8:27b-q4_K_M';
 mkdirSync(join(root, 'lab'), { recursive: true });
-const session = execFileSync(helper, ['name', 'mx-chat-slice1-build1'], { encoding: 'utf8' }).trim();
+const session = execFileSync(helper, ['name', process.env.CHAT_LAB_NAME ?? 'mx-chat-slice1-build1'], { encoding: 'utf8' }).trim();
 process.env.HERDR_LAB_SESSION = session;
 process.env.HERDR_LAB_PREPROVISIONED = '1';
 let lab;
