@@ -90,6 +90,19 @@ yarn check:architecture
 yarn workspace @muxr/mobile typecheck
 ```
 
+### One evidence card, one claim
+
+A card carries one claim, built from that claim's own captures; a pull request
+that proves several things at one head cannot put them all in the Checks block,
+because a second claim over the same captures is answered with
+
+    every evidence file was already used as proof of a different claim
+
+Pick the one claim a reviewer most needs to see, and name the other facets in
+the PR body as proven separately at the same head, with their run ids or evidence
+paths — never as proven by the card. Multi-claim cards belong to the proof
+tooling owner: do not patch the tool or mint a second card for the same captures.
+
 ## Architecture
 
 Packages are module-first, not layer-first.
