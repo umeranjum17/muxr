@@ -15,7 +15,7 @@
  * completion, each lost acknowledgement settled by retrying the same code, and
  * a Tailscale address that does not answer naming which end to fix.
  */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { networkInterfaces, tmpdir } from 'node:os';
@@ -40,6 +40,7 @@ import {
 } from '@byokit/pair';
 import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { cliMain, hostMain, hostRoot, pairingIntent, relayMain, waitForRelay } from './host.js';
+import { removeTestScratch } from '../../scripts/diagnostics/application/testScratchOwner.mjs';
 import { machineIdentity } from './hostSetup.js';
 import type { StoredHostedGrant } from '../../apps/mobile/sources/pairing/application/linkPairing.js';
 import { LinkFirstClient } from '../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
@@ -103,13 +104,15 @@ async function stop(child: ChildProcess | undefined): Promise<void> {
     await exited;
 }
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 async function until<T>(produce: () => T | undefined | Promise<T | undefined>, what: string, timeoutMs = 20_000): Promise<T> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
         const value = await produce();
         if (value !== undefined) return value;
         if (Date.now() > deadline) throw new Error(`timed out: ${what}`);
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await sleep(100);
     }
 }
 
@@ -119,7 +122,50 @@ let port = 0;
 let relay: ChildProcess | undefined;
 let host: (ChildProcess & { output: () => string }) | undefined;
 
+/**
+ * True when `pid` is a running muxr relay and not a reused pid: the same command
+ * check the relay's own data-dir lock and `muxr` make before signalling one.
+ */
+function isRelayProcess(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        const command = execFileSync(process.env.MUXR_PS_BIN?.trim() || 'ps', ['-ww', '-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
+        return /(?:\/relay\.(?:js|mjs)|apps\/relay\/.+\/main\.js)(?:\s|$)/.test(command);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * `muxr`'s setup commands start their own detached relay when their health probe
+ * misses ours (a loaded machine). It records itself in the shared data dir as
+ * `home/relay/relay.pid` and outlives the CLI child that started it, so it is no
+ * child of this test and nothing else here would ever stop it. Stopping it before
+ * a relay of ours claims that dir, and before the home is removed, is the fix for
+ * the ENOTEMPTY teardown failures (PR 1108, PR 1110): the old code signalled it and
+ * removed the tree at once, and a relay still closing writes `relay.pid` again.
+ * Waits until it is provably gone, polled, never a bare sleep.
+ */
+async function stopStrayRelay(): Promise<void> {
+    for (let round = 0; round < 50; round++) {
+        let pid: number | undefined;
+        try {
+            const recorded = Number(readFileSync(join(home, 'relay', 'relay.pid'), 'utf8').trim());
+            pid = Number.isSafeInteger(recorded) && recorded > 1 ? recorded : undefined;
+        } catch {
+            pid = undefined;
+        }
+        if (pid === undefined || pid === relay?.pid || !isRelayProcess(pid)) return;
+        try { process.kill(pid, 'SIGTERM'); } catch { return; }
+        await sleep(100);
+    }
+}
+
 async function startMachine(): Promise<void> {
+    // A relay this test did not start can own the data dir, and the new one then
+    // refuses to start ("another relay already owns") under the same load.
+    await stop(relay);
+    await stopStrayRelay();
     const started = launch([relayMain], {
         MUXR_RELAY_PORT: String(port),
         MUXR_RELAY_HOST: '0.0.0.0',
@@ -229,13 +275,10 @@ describe('native pairing over the byokit link', () => {
     afterAll(async () => {
         vi.unstubAllGlobals();
         await Promise.all([...children].map((child) => stop(child)));
-        // `muxr self-host` starts its own detached relay when its health probe misses ours (a loaded machine);
-        // that relay is no child of this test, but it records itself in the relay data dir.
-        const stray = Number(existsSync(join(home, 'relay', 'relay.pid')) ? readFileSync(join(home, 'relay', 'relay.pid'), 'utf8') : '');
-        if (Number.isSafeInteger(stray) && stray > 1 && stray !== relay?.pid) {
-            try { process.kill(stray, 'SIGTERM'); } catch { /* already gone */ }
-        }
-        rmSync(home, { recursive: true, force: true });
+        await stopStrayRelay();
+        // The scratch sweeper's removal retries by re-reading the tree, so a file
+        // a late writer flushes after the children were listed cannot fail the run.
+        removeTestScratch(home);
     });
 
     it('refuses owned and shared pairing without a running machine before showing a code', async () => {
