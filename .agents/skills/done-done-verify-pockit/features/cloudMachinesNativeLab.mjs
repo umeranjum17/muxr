@@ -122,16 +122,18 @@ try{
  writeFileSync(join(EVIDENCE,'phone-settings-before.json'),JSON.stringify(originalPhoneSettings));
  await view(390,'1.0','light');
  await adb(['reverse',`tcp:${opts.port}`,`tcp:${opts.port}`]);
- // Reinstall alone can restore saved app data; reset grants, updates and onboarding explicitly.
- await adb(['uninstall',PKG],120000).catch(()=>{});
- await adb(['install',opts.apk],300000);
- const reset=await sh(`pm clear ${PKG}`);
- if(reset.trim()!=='Success')throw Error('Fresh-state setup failed: muxr app data was not cleared');
- say('fresh-state setup: installed task APK and cleared muxr app data');
+ // A failed uninstall must not silently turn the fresh install into an update over saved data.
+ const removed=await adb(['uninstall',PKG],120000);
+ if(removed.trim()!=='Success')throw Error('Fresh-state precondition failed: muxr uninstall did not succeed');
+ const installed=await adb(['install',opts.apk],300000);
+ if(!installed.trim().endsWith('Success'))throw Error('Fresh-state precondition failed: task APK install did not succeed');
+ say('fresh-state setup: uninstall and task APK install both succeeded');
  await sh(`pm grant ${PKG} android.permission.POST_NOTIFICATIONS`).catch(()=>{});
  activity=(await sh(`cmd package resolve-activity --brief ${PKG}`)).trim().split('\n').pop();
  await bringMuxrBack();await dismissPrompts().catch(()=>{});
- await waitFor('fresh muxr Connect a machine',ns=>ns.some(n=>n.pkg===PKG)&&find(ns,v=>v==='Connect a machine'),180);
+ const focus=(await sh('dumpsys window displays')).match(/mCurrentFocus=.*/)?.[0]??'';
+ if(!focus.includes(PKG))throw Error('Fresh-state precondition failed: muxr is not foreground after reinstall');
+ await waitFor('fresh muxr Connect a machine precondition',ns=>ns.some(n=>n.pkg===PKG)&&find(ns,v=>v==='Connect a machine'),30);
  say('fresh-state setup ready: muxr first-run Connect a machine is visible; starting the user flow');
  process.env.MUXR_LAB_MACHINE_NAME='Desk';
  desk=await linkHerdrLab(resolve(process.env.MX_LIVE_ROOT),'mx-cloud-machine-add1',undefined,undefined,{},async offer=>{
