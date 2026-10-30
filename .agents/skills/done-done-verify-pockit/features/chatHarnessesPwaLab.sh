@@ -32,6 +32,9 @@ mx="${out%/}-matrix"; mkdir -p "$out" "$mx"
 root=$(mktemp -d "${MUXR_LAB_ROOT:-$HOME/.cache/fms}/mxch.XXXXXX")
 free_port() { node -e 'const s=require("net").createServer().listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})'; }
 WEB_PORT=$(free_port); CDP_PORT=$(free_port); AXI_PORT=$(free_port)
+# The tool derives a bridge port from the session name and that port can be held by
+# another lane's long-lived bridge (one run died on 9380 already in use); a fresh name
+# per run picks a different one.
 LAB_PID=; SRV_PID=; CHR_PID=
 cleanup() {
   exec 3>&- 2>/dev/null
@@ -56,7 +59,7 @@ SRV_PID=$!
 chromium --user-data-dir="$root/profile" --remote-debugging-port=$CDP_PORT --hide-scrollbars --no-first-run --no-default-browser-check \
   --window-size=390,844 --app="http://127.0.0.1:$WEB_PORT/" >"$root/chromium.log" 2>&1 </dev/null &
 CHR_PID=$!
-export CHROME_DEVTOOLS_AXI_BROWSER_URL="http://127.0.0.1:$CDP_PORT" CHROME_DEVTOOLS_AXI_SESSION="muxr-chat-harness-$$" CHROME_DEVTOOLS_AXI_PORT="$AXI_PORT"
+export CHROME_DEVTOOLS_AXI_BROWSER_URL="http://127.0.0.1:$CDP_PORT" CHROME_DEVTOOLS_AXI_SESSION="muxr-chat-harness-$$-$AXI_PORT"
 ax() { chrome-devtools-axi "$@" 2>&1; }
 # A value written into steps.json: the reads are plain `key=value` text, never quoted.
 jv() { printf '%s' "$1" | tr -d '"\\'; }
