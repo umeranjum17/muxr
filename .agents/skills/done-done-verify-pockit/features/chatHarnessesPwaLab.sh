@@ -50,10 +50,6 @@ exec 3>"$root/lab.in"
 lab() { echo "$*" >&3; sleep 1; }
 for _ in $(seq 120); do grep -q 'lab ready' "$root/lab.log" && break; sleep 1; done
 grep -q 'lab ready' "$root/lab.log" || { echo "the lab never came ready"; tail "$root/lab.log"; exit 1; }
-kill -USR1 "$LAB_PID"
-for _ in $(seq 30); do grep -q '^browser link:' "$root/lab.log" && break; sleep 1; done
-link=$(sed -n 's/^browser link: //p' "$root/lab.log" | head -1)
-[ -n "$link" ] || { echo "the lab never minted a browser link"; tail "$root/lab.log"; exit 1; }
 MUXR_WEB_EXPORT_DIR="$web" MUXR_WEB_PORT=$WEB_PORT node scripts/diagnostics/application/serveWebExport.mjs >"$root/web.log" 2>&1 </dev/null &
 SRV_PID=$!
 chromium --user-data-dir="$root/profile" --remote-debugging-port=$CDP_PORT --hide-scrollbars --no-first-run --no-default-browser-check \
@@ -71,6 +67,13 @@ id=$(ax pages | grep "127.0.0.1:$WEB_PORT" | grep -o '^[^0-9]*[0-9]*' | grep -o 
 sleep 8
 standalone=$(read_eval "matchMedia('(display-mode: standalone)').matches")
 for _ in $(seq 60); do ax eval "typeof window.__MUXR_LAB_PAIR__" | grep -q function && break; sleep 1; done
+# An offer lives about two minutes, and a loaded machine can take longer than that to draw
+# the page, so the link is minted here, once the hook is there to take it.
+minted=$(grep -c '^browser link:' "$root/lab.log")
+kill -USR1 "$LAB_PID"
+for _ in $(seq 30); do [ "$(grep -c '^browser link:' "$root/lab.log")" -gt "$minted" ] && break; sleep 1; done
+link=$(sed -n 's/^browser link: //p' "$root/lab.log" | tail -1)
+[ -n "$link" ] || { echo "the lab never minted a browser link"; tail "$root/lab.log"; exit 1; }
 paired=$(read_eval "(async () => typeof (await window.__MUXR_LAB_PAIR__('$link')).machineId)()")
 echo "standalone: $standalone; paired: $paired"
 ax eval "location.reload()" >/dev/null; sleep 10
