@@ -244,7 +244,8 @@ try{
 finally{
  // Delete before lengthy capture/phone cleanup, scoped strictly to creation receipts.
  try{
-  let ids=[];try{ids=JSON.parse(readFileSync(createdFile,'utf8'));}catch{}
+  // Receipt errors must reach the cleanup failure handler; unknown ownership is not an empty account.
+  const ids=JSON.parse(readFileSync(createdFile,'utf8'));
   const owned=new Set(ids);
   if(owned.size>1)throw Error('one-machine ceiling breached');
   const listing=await account.list();
