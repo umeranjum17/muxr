@@ -52,14 +52,14 @@ export async function deleteGrant(machineId: string): Promise<StoredHostedGrant[
     return Object.values(all);
 }
 
-export async function storeGrant(grant: StoredHostedGrant): Promise<void> {
+export async function storeGrant(grant: StoredHostedGrant, freshPairing = false): Promise<void> {
     const all = await loadGrants();
     const existing = all[grant.machineId];
     if (existing !== undefined && existing.credential === '' && grantRejectsDowngrade(existing.keyVersion, grant.keyVersion)) throw new Error('pairing grant downgrade rejected');
     all[grant.machineId] = grant;
     await secretSet(grantKey(grant.machineId), JSON.stringify(grant));
     await secretSet(GRANTS_INDEX, JSON.stringify(Object.keys(all)));
-    await syncNativeNotices(Object.values(all), true);
+    await syncNativeNotices(Object.values(all), freshPairing);
 }
 
 export async function clearGrants(): Promise<void> {

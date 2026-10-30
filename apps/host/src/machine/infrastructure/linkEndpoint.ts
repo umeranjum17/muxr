@@ -447,6 +447,9 @@ export class LinkEndpoint {
             : COPY_SUFFIX[input.kind];
         const question = input.kind === 'blocked' ? safeQuestion(input.question) : undefined;
         const choices = noticeChoices(question);
+        const choiceData = choices.length === 0 ? {} : { choices };
+        const categoryId = choices.length === 0 ? 'agent-question-native' : `agent-choices-native-${choices.length}`;
+        const actions = choices.length === 0 ? ['answer'] : choices.map(({ id }) => id);
         const notice = (asked: string | undefined, answerable: boolean) => ({
             title,
             // A blocked agent's own question is the alert; the sealed notice keeps it from the relay.
@@ -460,7 +463,7 @@ export class LinkEndpoint {
                 sessionId: input.sessionId,
                 machineId: input.machineId,
                 presentationOwner: 'relay-push',
-                ...(answerable ? { answer: { host: input.machineId, ...(choices.length === 0 ? {} : { choices }) } } : {}),
+                ...(answerable ? { answer: { host: input.machineId, ...choiceData } } : {}),
             },
         });
         for (const grant of recipients) {
@@ -486,8 +489,7 @@ export class LinkEndpoint {
                 id,
                 mutableContent: true,
                 ...(answerable ? {
-                    categoryId: choices.length === 0 ? 'agent-question-native' : `agent-choices-native-${choices.length}`,
-                    actions: choices.length === 0 ? ['answer'] : choices.map(({ id }) => id), ttl: 3600,
+                    categoryId, actions, ttl: 3600,
                 } : {}),
                 title: 'Agent update',
                 body: 'An agent has an update.',

@@ -34,8 +34,9 @@ export function syncNativeNotices(grants: StoredHostedGrant[], resume = false): 
         let signedOut = paired.length === 0 ? 'pending' : await AsyncStorage.getItem(SIGNED_OUT);
         if (signedOut === 'pending') {
             // Even a failure in JS retry storage must not bypass the native refusal.
-            try { await AsyncStorage.setItem(SIGNED_OUT, 'pending'); }
-            finally { await declareSignedOut(); }
+            await AsyncStorage.setItem(SIGNED_OUT, 'pending')
+                .catch(() => console.warn('[push] notice cleanup retry storage unavailable'));
+            await declareSignedOut();
             await deleteNativeSecret(NOTICE_KEY);
             await AsyncStorage.setItem(SIGNED_OUT, 'done');
             signedOut = 'done';
@@ -51,12 +52,12 @@ export function syncNativeNotices(grants: StoredHostedGrant[], resume = false): 
         // New trusted targets must be installed before setNoticeKey ends native refusal.
         await setAnswerTargets(targets);
         let secret = (await getNativeSecret(NOTICE_KEY)) ?? undefined;
-        if (secret === undefined) {
-            secret = encodeBase64(keyPair().secretKey);
-            await setNativeSecret(NOTICE_KEY, secret);
-        }
+        const needsKey = secret === undefined || resume;
+        if (secret === undefined) secret = encodeBase64(keyPair().secretKey);
         const keys = keyPairFrom(decodeBase64(secret));
-        await setNoticeKey(keys.secretKey);
+        // Loading grants or moving a relay must not end the kit's durable sign-out refusal.
+        if (needsKey) await setNoticeKey(keys.secretKey);
+        await setNativeSecret(NOTICE_KEY, secret);
         await AsyncStorage.removeItem(SIGNED_OUT);
         return encodeBase64(keys.publicKey);
     });

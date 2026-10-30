@@ -188,7 +188,7 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
         throw new Error(computer === undefined ? pairingFailure(cause) : await tailscaleUnreachableHere(computer));
     }
     const stored = provenLinkGrant(result, result.key);
-    await storeGrant(stored);
+    await storeGrant(stored, true);
     await deletePendingPair();
     return stored;
 }

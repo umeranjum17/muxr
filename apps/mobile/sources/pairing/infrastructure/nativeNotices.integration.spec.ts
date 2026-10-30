@@ -55,11 +55,11 @@ it('keeps one notice identity across distinct host pairings and removes revoked 
     };
     const first = grant('first');
     const second = grant('second');
-    await storeGrant(first);
+    await storeGrant(first, true);
     const installationKey = [...native.key];
     expect(installationKey.length).toBe(32);
     expect(b64url(Uint8Array.from(installationKey)) === first.deviceKey.secretKey).toBe(false);
-    await storeGrant(second);
+    await storeGrant(second, true);
     expect(b64url(Uint8Array.from(native.key)) === b64url(Uint8Array.from(installationKey))).toBe(true);
     expect(native.targets.map(({ host, relay }) => ({ host, relay }))).toEqual([
         { host: 'first', relay: 'https://relay.example' }, { host: 'second', relay: 'https://relay.example' },
@@ -82,6 +82,8 @@ it('keeps one notice identity across distinct host pairings and removes revoked 
     await syncNativeNotices([second]);
     expect(native.refused).toBe(true);
     await storeGrant(second);
+    expect(native.refused).toBe(true);
+    await storeGrant(second, true);
     expect(native.refused).toBe(false);
     expect(native.targets.map(({ host }) => host)).toEqual(['second']);
     await clearGrants();
