@@ -88,8 +88,9 @@ jobs:
             TRUSTED_REF_ARGS=()
           fi
           # The journey writes its output to the evidence log, so a red run
-          # prints that log here before failing.
-          npx -y done-done-axi@0.6.22 run fast || {
+          # prints that log here before failing. 0.6.23 reads the `journey` key
+          # that scopes .done-done.yaml's approved_requirements rows.
+          npx -y done-done-axi@0.6.23 run fast || {
             tail -n 200 ~/.done-done/evidence/pockit/*/*.log >&2 2>/dev/null || true
             exit 1
           }

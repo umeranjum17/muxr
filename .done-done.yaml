@@ -1,7 +1,48 @@
 # done-done project config. `done-done init` never overwrites this file.
 # The app name finds this repo's evidence and receipts from every checkout.
 app: "pockit"
+# Approved written requirements: supervisor inbox 003 (two doors) and the
+# ticket's existing Boat-flow requirement. Inbox 028 limits these rows to
+# still-image-verifiable requirements and the fresh driver's exact filenames.
+# Upstream rows name the journey that captures them (`journey:`, done-done 0.6.23), so
+# it is enforced only on a claim citing that journey's run, and its capture is
+# that journey's own filename. A claim about another journey never answers for it.
 approved_requirements:
+  - kind: spec
+    name: native-connect-360-light
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    journey: two-doors
+    capture: doors-360-1.0-light.png
+  - kind: spec
+    name: native-connect-360-dark
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    journey: two-doors
+    capture: doors-360-1.0-dark.png
+  - kind: spec
+    name: native-connect-390-light
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    journey: two-doors
+    capture: doors-390-1.0-light.png
+  - kind: spec
+    name: native-connect-390-dark
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    journey: two-doors
+    capture: doors-390-1.0-dark.png
+  - kind: spec
+    name: pwa-connect-1280-light
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    journey: demo-first-run-pwa
+    capture: web-connect-1280-1.0-light.png
+  - kind: spec
+    name: pwa-connect-1280-dark
+    requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
+    journey: demo-first-run-pwa
+    capture: web-connect-1280-1.0-dark.png
+  - kind: spec
+    name: native-boat-entry-390-light
+    requirement: 'the cloud-machine option reaching the existing Boat flow.'
+    journey: two-doors
+    capture: boat-1-account-390-1.0-light.png
   - kind: spec
     name: Settings cloud machine action
     requirement: 'Settings > Machines shows an "Add a cloud machine" row, and the "Cloud machine" Boat flow screen that row opens is visible. The row is a single direct action with no intermediate screen. A still frame cannot show a touch transition: tap linkage is proven by the driven journey and disclosed, not photographed.'
