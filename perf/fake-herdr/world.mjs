@@ -3,8 +3,8 @@
  * `workspace:pane` shape (`w1:p1`) so Agent Routes and close-guards bind.
  */
 
-const KINDS = ['pi', 'claude', 'codex', 'gemini'];
-const KIND_LABEL = { pi: 'Pi', claude: 'Claude', codex: 'Codex', gemini: 'Gemini' };
+export const AGENT_KINDS = ['pi', 'claude', 'codex', 'gemini', 'opencode'];
+const KIND_LABEL = { pi: 'Pi', claude: 'Claude', codex: 'Codex', gemini: 'Gemini', opencode: 'OpenCode' };
 /**
  * Which harnesses leave Herdr a scrollback ring to scroll, measured by running
  * each one under a pty and reading the modes it sets: `pi`, `codex` and
@@ -15,7 +15,7 @@ const KIND_LABEL = { pi: 'Pi', claude: 'Claude', codex: 'Codex', gemini: 'Gemini
  * real Herdr, which is the same shape. A phone that cannot tell those two
  * apart shows a jump-to-bottom control on a pane with no bottom to go to.
  */
-const ALTERNATE_SCREEN_KINDS = new Set(['claude']);
+const ALTERNATE_SCREEN_KINDS = new Set(['claude', 'opencode']);
 const SCROLLBACK_ROWS = 4_000;
 const TAB_LABELS = ['main', 'review', 'shell', 'scratch'];
 const PANES_PER_TAB = 4;
@@ -67,9 +67,9 @@ export function createWorld({
         const indexInTab = index % PANES_PER_TAB;
         const panesInTab = Math.min(PANES_PER_TAB, paneCount - tabIndex * PANES_PER_TAB);
         const isAgent = index < agentCount;
-        const kind = KINDS[index % KINDS.length];
+        const kind = AGENT_KINDS[index % AGENT_KINDS.length];
         const name = isAgent
-            ? `${KIND_LABEL[kind]} ${Math.floor(index / KINDS.length) + 1}`
+            ? `${KIND_LABEL[kind]} ${Math.floor(index / AGENT_KINDS.length) + 1}`
             : 'zsh';
         const title = isAgent ? `${kind} · ${name}` : `zsh · ${basenameLabel(cwd)}`;
         paneRecords.push({

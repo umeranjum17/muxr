@@ -341,6 +341,20 @@ journeys:
   chat-working-pwa:
     command: scripts/diagnostics/application/withPrivateXvfb.sh bash .agents/skills/done-done-verify-pockit/features/chatWorkingPwaLab.sh "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT-journey.out" 2>&1
     timeout: 60m
+  # Which harnesses the chat is offered to, in the installed PWA
+  # (chat-harnesses.md): the chat fake lab holding one agent of every kind,
+  # CHAT_HARNESS's agent opened at 390 and 1280 dp, dark and light, the header's
+  # Chat control read back, the chat pressed, the agent held working then blocked
+  # on a three-choice question, the terminal's Answer chip tapped and the pane's
+  # own input read back, and the view chooser's own sentence. Codex and OpenCode
+  # keep the terminal: chat slice 2's three facets are Claude and Pi only.
+  # MUXR_LAB_WEB is a lab web export of this commit
+  # (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export). The judge takes every file in
+  # the run folder as a capture, so the log and the whole matrix sit beside it in
+  # -matrix, not in it.
+  chat-harnesses-pwa:
+    command: CHAT_HARNESSES="${CHAT_HARNESS:-codex}" scripts/diagnostics/application/withPrivateXvfb.sh bash .agents/skills/done-done-verify-pockit/features/chatHarnessesPwaLab.sh "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT-journey.out" 2>&1
+    timeout: 60m
   # The chat's tool steps on Android: the release app on an owned emulator,
   # paired to the chat fake lab (seeded Claude log with real edits, a failed
   # command and a plan), shows each reply's steps folded, a group opened with an

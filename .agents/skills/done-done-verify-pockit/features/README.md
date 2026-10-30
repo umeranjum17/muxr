@@ -184,6 +184,11 @@ rules, with no H2 sections.
   line with Stop, the needs-you card into the terminal, and the Settings default; or, without
   Herdr, `chatFakeLab.mjs` (fake stack, seeded Claude log) for the look and the tool steps on
   the PWA and a lab-id APK on an emulator.
+- [Which harnesses get the chat](./chat-harnesses.md) —
+  `chatHarnessesPwaLab.sh` (chat fake lab with one agent of every kind, installed PWA):
+  a Codex and an OpenCode agent opened at 390 and 1280 dp, dark and light — the header's Chat
+  control, the chat pressed, the agent working then blocked, the terminal's Answer chip tapped
+  and the pane read back, and the view chooser's own sentence.
 - [Fit the agent header beside its controls with a long task](./chat-header-fit.md) —
   `headerFitNativeLab.mjs` (chat fake lab, lab-id APK on an emulator) and `headerFitPwaCells.sh` (installed PWA): chat and terminal view
   at 360 and 390 dp, light and dark, quiet then Working with a long task and three changes;
