@@ -160,8 +160,6 @@ for harness in ${CHAT_HARNESSES:-codex opencode}; do
   done
   echo "$harness: done" | tee -a "$mx/lines.log"
 done
-# The view chooser is the same screen for every harness in the run.
-cp "$mx/session-view.png" "$out/" 2>/dev/null || { echo "missing citation session-view.png" | tee -a "$mx/lines.log"; misses=$((misses+1)); }
 cat >"$mx/steps.json" <<JSON
 {
   "target": { "version": "$(node -p "require('./package.json').version")" },
