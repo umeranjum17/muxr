@@ -46,6 +46,9 @@ describe('the chat read of an agent conversation', () => {
             line({ type: 'user', uuid: 'u8', timestamp: at(4), message: { role: 'user', content: [
                 { type: 'tool_result', tool_use_id: 'toolu_3', is_error: true, content: 'Exit code 1\nFAIL cart.test.ts\n  ✕ $50 ships free' },
             ] } }),
+            // A helper's reply rides on its call as one line, with how the run went.
+            line({ type: 'assistant', uuid: 'a6', timestamp: at(5), message: { id: 'msg_h', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_4', name: 'Task', input: { description: 'Check the tax table', prompt: 'Look at tax.ts' } }] } }),
+            line({ type: 'user', uuid: 'u10', timestamp: at(5), toolUseResult: { status: 'completed', totalToolUseCount: 7, totalDurationMs: 72_000 }, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_4', content: [{ type: 'text', text: '\n## Tax table\nRates are current for 2026; no change needed.' }] }] } }),
             line({ type: 'assistant', uuid: 'a4', timestamp: at(5), message: { id: 'msg_2', role: 'assistant', content: [{ type: 'text', text: 'Done. **4 tests** pass.' }] } }),
         ].join(''));
         writeFileSync(join(pi, '--home-you-little-shop--', 'run', '2026-10-21T10-00-00Z_pi-77.jsonl'), [
@@ -67,6 +70,7 @@ describe('the chat read of an agent conversation', () => {
                 { verb: 'Ran a command', kind: 'run', detail: 'yarn test cart', outcome: 'failed', exit: 1, output: ['FAIL cart.test.ts', '  ✕ $50 ships free'] },
                 { verb: 'Used list orders', kind: 'tool' },
             ]],
+            ['assistant', '', [{ verb: 'Started a helper', kind: 'helper', detail: 'Check the tax table', outcome: 'ok', note: '7 steps · 1 min 12 s', result: 'Rates are current for 2026; no change needed.' }]],
             ['assistant', 'Done. **4 tests** pass.', undefined],
         ]);
 

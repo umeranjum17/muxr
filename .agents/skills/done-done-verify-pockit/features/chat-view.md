@@ -17,7 +17,8 @@ real prompt is answered. The host reads the harness's own session log through
 `chat.read` (`apps/host/src/agent/infrastructure/chatTranscript.ts`), found the
 way Herdr names it: Claude by session id under the project folder, Pi by the
 log path Herdr reports. Images in the conversation show inline and open full
-screen. Codex, OpenCode and in-chat approvals are not part of it.
+screen. Codex and OpenCode are not part of it. Slice 2 adds the running strip,
+helper cards and the in-chat answer (`chat-working.md`).
 
 ## Sub-features
 
@@ -70,7 +71,8 @@ screen. Codex, OpenCode and in-chat approvals are not part of it.
   applies to an agent with no choice of its own.
 - `chat-running` a working agent shows `Working · <task>` and the composer's
   trailing circle becomes Stop (`session.abort`).
-- `chat-needs-you` a blocked agent shows the needs-you card; Open terminal
+- `chat-needs-you` a blocked agent shows the needs-you card (with the question's
+  choices as buttons when they can be read, `chat-working.md`); Open terminal
   switches to the terminal.
 - `chat-model` the model pill shows what Herdr's pane metadata (`muxr name`)
   says; absent when none.

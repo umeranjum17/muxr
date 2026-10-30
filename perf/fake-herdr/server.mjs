@@ -422,6 +422,14 @@ export async function startFakeHerdr(options) {
             });
             return { pane_id: pane.pane_id, agent_status: status };
         },
+        // Lab-only: the text a pane's screen reads back, so a proof can hold a
+        // working agent's last lines or a question with its choices.
+        'lab.set_pane_output': (params) => {
+            const pane = live.panes.find((row) => row.pane_id === params.pane_id);
+            if (pane === undefined) throw fail('pane_not_found', 'pane not found');
+            pane.output = typeof params.output === 'string' ? params.output : '';
+            return { pane_id: pane.pane_id };
+        },
         'pane.split': (params) => {
             const target = live.panes.find((row) => row.pane_id === params.target_pane_id);
             if (target === undefined) throw fail('pane_not_found', 'pane not found');

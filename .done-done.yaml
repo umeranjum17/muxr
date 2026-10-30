@@ -298,6 +298,16 @@ journeys:
   chat-slice-pwa:
     command: scripts/diagnostics/application/withPrivateXvfb.sh bash .agents/skills/done-done-verify-pockit/features/chatSlicePwaLab.sh "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # Chat slice 2 in the installed PWA (chat-working.md, chat-running-strip,
+  # chat-helper-card, chat-ask-answer): a helper's reply card, the Running strip
+  # with the pane's last lines, a blocked agent's question answered by a tap, and a
+  # stopped agent with no output at 360/390/445/270 dp (font 1.0 and 2.0) and
+  # 1280/1440 dp, dark and light. MUXR_LAB_WEB is a lab web export of this commit
+  # (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export). The judge takes every file in the
+  # run folder as a capture, so the log and the whole matrix sit beside it, not in it.
+  chat-working-pwa:
+    command: scripts/diagnostics/application/withPrivateXvfb.sh bash .agents/skills/done-done-verify-pockit/features/chatWorkingPwaLab.sh "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT-journey.out" 2>&1
+    timeout: 60m
   # The chat's tool steps on Android: the release app on an owned emulator,
   # paired to the chat fake lab (seeded Claude log with real edits, a failed
   # command and a plan), shows each reply's steps folded, a group opened with an

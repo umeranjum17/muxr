@@ -5,8 +5,10 @@ import { Ionicons } from '@expo/vector-icons';
 import type { ChatMessage, ChatTool } from '@trymuxr/contract';
 import { withAlpha } from '@/components/ui';
 import type { ChatState } from '../application/useChat';
+import { useRunningStrip } from '../application/useRunningStrip';
 import { ChatImages } from './ChatImages';
 import { ChatSteps, DiffSheet } from './ChatSteps';
+import { AnswerSent, AskCard, HelperCard, RunningStrip, type AskState } from './ChatWorking';
 import { ReplyActions } from './ReplyActions';
 
 export interface ChatPaneProps {
@@ -21,6 +23,10 @@ export interface ChatPaneProps {
     statusColor: string;
     ink: string;
     onOpenTerminal: () => void;
+    /** The chat is the view in front: nothing is read from the pane while it is behind. */
+    visible: boolean;
+    /** The question the agent is asking and how to answer it, read by the terminal context (`usePendingChoices`). */
+    ask: AskState;
 }
 
 const NEAR_BOTTOM = 80;
@@ -36,6 +42,10 @@ function clock(at: number): string {
 function Message({ sessionId, message, live, ink, onFullDiff, onOpenTerminal }: { sessionId: string; message: ChatMessage; live: boolean; ink: string; onFullDiff: (tool: ChatTool) => void; onOpenTerminal: () => void }): React.JSX.Element {
     const { theme } = useUnistyles();
     const mine = message.role === 'user';
+    // A helper that came back is a card of its own, not a step in the row.
+    const replied = (tool: ChatTool) => tool.kind === 'helper' && (tool.result !== undefined || tool.outcome === 'failed');
+    const steps = message.tools?.filter((tool) => !replied(tool)) ?? [];
+    const helpers = message.tools?.filter(replied) ?? [];
     if (mine) {
         return (
             <View style={{ gap: 6 }}>
@@ -52,7 +62,8 @@ function Message({ sessionId, message, live, ink, onFullDiff, onOpenTerminal }: 
                 <React.Suspense fallback={null}><ChatMarkdown markdown={message.text} /></React.Suspense>
             </View>}
             {message.images !== undefined && <View style={{ paddingVertical: 4 }}><ChatImages sessionId={sessionId} images={message.images} mine={false} /></View>}
-            {message.tools !== undefined && <ChatSteps tools={message.tools} live={live} ink={ink} onFullDiff={onFullDiff} onOpenTerminal={onOpenTerminal} />}
+            {steps.length > 0 && <ChatSteps tools={steps} live={live} ink={ink} onFullDiff={onFullDiff} onOpenTerminal={onOpenTerminal} />}
+            {helpers.map((tool, index) => <HelperCard key={index} tool={tool} />)}
             {message.text !== '' && <ReplyActions markdown={message.text} />}
         </View>
     );
@@ -84,6 +95,8 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
     const stuck = React.useRef(true);
     const { state } = props;
     const messages = state.status === 'ready' ? state.messages : [];
+    const strip = useRunningStrip(props.sessionId, props.visible && props.working);
+    const { ask } = props;
 
     let body: React.ReactNode;
     if (state.status === 'loading') body = <View style={{ padding: 24 }}><ActivityIndicator color={theme.colors.textSecondary} /></View>;
@@ -91,6 +104,26 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
     else if (state.status === 'failed') body = <Notice title="Chat is not available" body={state.outdatedHost ? 'This computer runs an older muxr. Update it to read chats here.' : state.message} action={{ label: 'Open terminal', onPress: props.onOpenTerminal }} />;
     else if (messages.length === 0) body = <Notice title="No messages yet" body={`Ask ${props.agentLabel} about this workspace. Replies show up here as whole messages.`} />;
     else body = messages.map((message, index) => <Message key={message.id} sessionId={props.sessionId} message={message} live={props.working && index === messages.length - 1} ink={props.ink} onFullDiff={setTool} onOpenTerminal={props.onOpenTerminal} />);
+
+    // What stands between the messages and the composer: the question, its answer's receipt, the old needs-you card, or the running strip.
+    let bottom: React.ReactNode = null;
+    if (props.needsYou && ask.choices.length > 0) bottom = <AskCard agentLabel={props.agentLabel} statusColor={props.statusColor} question={ask.question} choices={ask.choices} onAnswer={ask.answer} />;
+    else if (props.needsYou && ask.sent !== null) bottom = <AnswerSent agentLabel={props.agentLabel} statusColor={props.statusColor} choice={ask.sent} />;
+    else if (props.needsYou) {
+        bottom = (
+            <View accessibilityRole="alert" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginHorizontal: 14, marginBottom: 6, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: withAlpha(props.statusColor, 0.5), backgroundColor: withAlpha(props.statusColor, 0.12) }}>
+                <Ionicons name="warning-outline" size={22} color={props.statusColor} />
+                <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 120 }}>
+                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>{props.agentLabel} needs you</Text>
+                    <Text numberOfLines={2} style={{ color: theme.colors.textSecondary, fontSize: 13 }}>It is waiting for an answer in the terminal</Text>
+                </View>
+                <Pressable onPress={props.onOpenTerminal} accessibilityRole="button" accessibilityLabel="Open terminal" style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: accent, opacity: pressed ? 0.7 : 1 })}>
+                    <Text style={{ color: onAccent, fontSize: 13.5, fontWeight: '600' }}>Open terminal</Text>
+                    <Ionicons name="chevron-forward" size={14} color={onAccent} />
+                </Pressable>
+            </View>
+        );
+    } else if (props.working) bottom = <RunningStrip task={props.task} lines={strip} statusColor={props.statusColor} />;
 
     return (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: props.ink }}>
@@ -111,28 +144,7 @@ export function ChatPane(props: ChatPaneProps): React.JSX.Element {
                 {body}
             </ScrollView>
 
-            {props.needsYou
-                ? (
-                    <View accessibilityRole="alert" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginHorizontal: 14, marginBottom: 6, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: withAlpha(props.statusColor, 0.5), backgroundColor: withAlpha(props.statusColor, 0.12) }}>
-                        <Ionicons name="warning-outline" size={22} color={props.statusColor} />
-                        <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 120 }}>
-                            <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>{props.agentLabel} needs you</Text>
-                            <Text numberOfLines={2} style={{ color: theme.colors.textSecondary, fontSize: 13 }}>It is waiting for an answer in the terminal</Text>
-                        </View>
-                        <Pressable onPress={props.onOpenTerminal} accessibilityRole="button" accessibilityLabel="Open terminal" style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: accent, opacity: pressed ? 0.7 : 1 })}>
-                            <Text style={{ color: onAccent, fontSize: 13.5, fontWeight: '600' }}>Open terminal</Text>
-                            <Ionicons name="chevron-forward" size={14} color={onAccent} />
-                        </Pressable>
-                    </View>
-                )
-                : props.working && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 18, minHeight: 28 }}>
-                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: props.statusColor }} />
-                        <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 13 }}>
-                            <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Working</Text>{props.task === undefined ? '' : ` · ${props.task}`}
-                        </Text>
-                    </View>
-                )}
+            {bottom}
 
             <DiffSheet tool={tool} onClose={() => setTool(null)} />
         </View>
