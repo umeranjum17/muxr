@@ -100,6 +100,7 @@ import { sidebarWidth, useSplitViewLayout } from '@/utils/responsive';
 import { PREVIEW_DOCK, previewDocks, requestDesktop, type DesktopOrigin } from '@/desktop/request';
 import { PreviewChip, PreviewTooltip, previewIcon, usePreviewGate } from '@/desktop/preview';
 import { FindOutputSheet } from './FindOutputSheet';
+import { usePendingChoices } from '../application/usePendingChoices';
 import { PendingChoices } from './PendingChoices';
 import { TITLE_BUTTON_PADDING, useHeaderFit } from './useHeaderFit';
 
@@ -815,6 +816,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const choosePaneView = React.useCallback((view: 'chat' | 'terminal') => setPaneViews(rememberPaneView(paneViews, props.id, view)), [paneViews, props.id, setPaneViews]);
     // Read for every chat agent, whichever view is up, so a switch to the chat opens on the conversation as it is.
     const chat = useChat(props.id, agentHasChat(paneKind) && isFocused);
+    // The chat answers a waiting agent with the same read and the same keys as the terminal's chips; only one of the two is ever listening.
+    const chatAsk = usePendingChoices({
+        sessionId: props.id,
+        waiting: chatShown && canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !desktopVisible,
+        ...(channel === undefined ? {} : { channel }),
+        ...(grid?.cols === undefined ? {} : { columns: grid.cols }),
+    });
     const latestShown = localBack > 0 || showJump || (hostHasScrollback === false && scrolledAway && !DRAWS_OWN_LATEST.has(paneKind ?? ''));
     React.useEffect(() => {
         const subscription = AppState.addEventListener('change', (next) => setAppActive(next === 'active'));
@@ -1802,7 +1810,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         <PendingChoices
                             key={props.id}
                             sessionId={props.id}
-                            waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !latestShown && !scrolledAway && !desktopVisible}
+                            waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !latestShown && !scrolledAway && !desktopVisible && !chatShown}
                             channel={channel}
                             onVisibilityChange={setChoicesVisible}
                             lineHeight={terminalRowHeight}
@@ -1824,6 +1832,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 statusColor={headerStatus.color}
                                 ink={railInk}
                                 onOpenTerminal={() => choosePaneView('terminal')}
+                                visible={isFocused && appActive && !desktopVisible}
+                                ask={chatAsk}
                             />
                         )}
                     </View>

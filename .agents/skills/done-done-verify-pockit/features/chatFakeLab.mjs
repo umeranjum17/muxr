@@ -9,7 +9,10 @@
 // Read returned, one a file the reply draws (chat-images).
 // Stdin lines drive the header-fit journey (chat-header-fit.md): `status <state>
 // <task>` sets Claude 1's lifecycle and task title, `changes` leaves three
-// uncommitted files in its folder; `model <text>` reports the harness model and
+// uncommitted files in its folder; `output <text>` sets what the pane's screen reads
+// back (`\n` for a new line: the working strip's last lines, or a question with its
+// numbered choices); CHAT_LAB_HELPER=1 ends the conversation with a helper's reply
+// card (chat-working.md); `model <text>` reports the harness model and
 // effort (slice-1 chip) through Herdr pane metadata, CHAT_LAB_MODEL seeds it.
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -44,6 +47,12 @@ const conversationIn = (cwd) => {
     const test2 = tool('Bash', { command: 'yarn test checkout --reporter=dot', description: 'Run every checkout test' });
     const look = tool('Read', { file_path: at(cwd, 'shots/voice.png') });
     const patch = (oldStart, lines) => ({ toolUseResult: { structuredPatch: [{ oldStart, oldLines: lines.filter((l) => !l.startsWith('+')).length, newStart: oldStart, newLines: lines.filter((l) => !l.startsWith('-')).length, lines }] } });
+    // A helper's reply: its call, then the answer with how the run went (Claude Code's own `toolUseResult`).
+    const helper = tool('Task', { description: 'Audit cart shipping tests', prompt: 'Scan the cart tests for the old $50 rule.' });
+    const helperReply = process.env.CHAT_LAB_HELPER === '1' ? [
+        reply('a9', 10, 'm8', [{ type: 'text', text: 'I asked a helper to scan the cart tests for the old shipping rule.' }, helper]),
+        answer('r12', 10, helper, [{ type: 'text', text: 'cart.total.spec.ts still expects the $50 rule; the other 11 tests already use >= 50.\n\nNothing else needs to change.' }], { toolUseResult: { status: 'completed', totalToolUseCount: 7, totalDurationMs: 72_000 } }),
+    ] : [];
     return [
         user('u1', 1, 'Review the checkout. Keep free shipping from $50.'),
         reply('a1', 2, 'm1', [read1, read2, grep1]),
@@ -66,6 +75,7 @@ const conversationIn = (cwd) => {
         answer('r10', 8, plan1, 'Todos have been modified successfully.'),
         answer('r9', 8, test2, 'Exit code 1\n....F\nFAIL src/cart/summary.test.tsx\n  ✕ shows how much is left for free shipping\nTests: 1 failed, 4 passed, 5 total', { is_error: true }),
         reply('a7', 9, 'm6', [{ type: 'text', text: 'An empty cart now pays **$0** shipping, and a test covers it. One cart test still expects the old $50 rule; I will update it next.' }]),
+        ...helperReply,
     ].join('');
 };
 
@@ -116,6 +126,7 @@ createInterface({ input: process.stdin }).on('line', (text) => {
     const [command, state, ...task] = text.trim().split(' ');
     const done = command === 'status' ? herdr('lab.set_agent_status', { pane_id: claude.pane_id, agent_status: state, title: task.join(' ') })
         : command === 'model' ? report([state, ...task].join(' '))
+        : command === 'output' ? herdr('lab.set_pane_output', { pane_id: claude.pane_id, output: [state, ...task].join(' ').replace(/\\n/g, '\n') })
         : command === 'changes' ? Promise.resolve().then(() => {
             git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'Start');
             writeFileSync(join(project, 'notes.txt'), 'line 1\nline 2 changed\n');
@@ -125,5 +136,6 @@ createInterface({ input: process.stdin }).on('line', (text) => {
             : Promise.reject(new Error(`unknown command: ${text}`));
     done.then(() => console.log(`lab did: ${command}`), (error) => console.error(`lab failed: ${command}: ${error.message}`));
 });
+console.log(`lab input: ${stack.inputJsonl}`);
 console.log(`lab ready: agents ${stack.world.agents.map((agent) => `${agent.agent}=${agent.pane_id}`).join(', ')}, self ${process.pid}`);
 setInterval(() => {}, 1 << 30);

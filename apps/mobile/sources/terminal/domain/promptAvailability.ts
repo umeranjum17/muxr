@@ -58,6 +58,41 @@ export function pendingChoices(screen: string, columns?: number): PendingChoice[
     return permission.length > 0 ? permission : unnumberedChoices(text, columns);
 }
 
+/** A line of nothing but a rule or a box edge. */
+const RULE_LINE = /^[\s─━═│┃╭╮╰╯┌┐└┘├┤┬┴┼╌╍┄┅\-_=|]*$/;
+/** How many lines of what is being asked the chat shows. */
+const QUESTION_LINES = 6;
+
+/**
+ * What the agent is asking: the lines of the screen just above its first
+ * choice, without rules and box edges. A dialog drawn in a box keeps its
+ * text, only the frame goes. Empty when the choices cannot be placed.
+ */
+export function pendingQuestion(screen: string, choices: readonly PendingChoice[]): string[] {
+    const first = choices[0];
+    if (first === undefined) return [];
+    const lines = screen.split(ESCAPE).filter((part) => !part.startsWith('\x1b')).join('').split('\n');
+    const head = first.label.slice(0, 24);
+    // A numbered run is found by its "1." row, since a later choice's label can contain the first's.
+    const firstRow = (line: string): boolean => first.number === undefined ? line.includes(head) : /^\s*(?:[❯›]\s*)?1\.\s/.test(line);
+    let at = -1;
+    for (let index = lines.length - 1; index >= 0; index--) {
+        if (firstRow(lines[index]!)) { at = index; break; }
+    }
+    if (at === -1) return [];
+    const asked: string[] = [];
+    for (let index = at - 1; index >= 0 && asked.length < QUESTION_LINES; index--) {
+        const text = lines[index]!.replace(/^[\s│┃]+|[\s│┃]+$/g, '');
+        if (RULE_LINE.test(text)) {
+            // A rule or blank after text ends the block; before any text it is the gap above the choices.
+            if (asked.length > 0 && text !== '') break;
+            continue;
+        }
+        asked.unshift(text);
+    }
+    return asked;
+}
+
 /**
  * OpenCode's permission buttons, found by their labels in one row near the
  * bottom. At phone width the row is cut off at the grid edge ("Allow alway"),

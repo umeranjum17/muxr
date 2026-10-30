@@ -346,7 +346,10 @@ function runTerminal(args) {
                     emit(true);
                 }
                 else if (message.type === 'terminal.input') {
+                    const typed = typeof message.text === 'string' ? message.text : inputBytes(message);
                     const wheel = wheelReports(inputBytes(message));
+                    // What the phone typed into the pane, so a proof can read that an answer arrived.
+                    if (wheel.count === 0 && typed !== '') appendFileSync(process.env.FAKE_HERDR_INPUT_LOG ?? `${process.env.FAKE_HERDR_SOCKET}.input.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), source: 'terminal.text', pane_id: paneId, text: typed })}\n`);
                     if (wheel.count > 0) appendFileSync(process.env.FAKE_HERDR_INPUT_LOG ?? `${process.env.FAKE_HERDR_SOCKET}.input.jsonl`, `${JSON.stringify({ at: new Date().toISOString(), source: 'terminal.input', pane_id: paneId, count: wheel.count, notches: wheel.notches })}\n`);
                 }
             } catch {
