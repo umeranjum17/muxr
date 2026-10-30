@@ -105,16 +105,20 @@ export const SettingsView = React.memo(function SettingsView({
     }, []));
     const machineRows = React.useMemo(() => {
         const rows: { id: string; live?: (typeof allMachinesWithOffline)[number] }[] = [];
-        const listedIds = new Set<string>();
+        const liveById = new Map(allMachinesWithOffline
+            .filter((machine) => showOfflineMachines || isMachineOnline(machine))
+            .map((machine) => [machine.id, machine]));
         const pairedIds = new Set(pairedGrants.map((grant) => grant.machineId));
+        // Keep paired rows in their saved order while live data reconnects, as
+        // ComputersSheet does. A status update must not move another row under a tap.
+        for (const grant of pairedGrants) {
+            rows.push({ id: grant.machineId, live: liveById.get(grant.machineId) });
+        }
         const hosted = getCachedConnectionSettings().mode === 'hosted';
         for (const machine of allMachinesWithOffline) {
-            if ((hosted && !pairedIds.has(machine.id)) || (!showOfflineMachines && !isMachineOnline(machine))) continue;
-            listedIds.add(machine.id);
+            if (pairedIds.has(machine.id) || hosted) continue;
+            if (!showOfflineMachines && !isMachineOnline(machine)) continue;
             rows.push({ id: machine.id, live: machine });
-        }
-        for (const grant of pairedGrants) {
-            if (!listedIds.has(grant.machineId)) rows.push({ id: grant.machineId });
         }
         return rows;
     }, [allMachinesWithOffline, pairedGrants, showOfflineMachines]);
