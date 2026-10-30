@@ -152,8 +152,10 @@ for harness in ${CHAT_HARNESSES:-codex opencode}; do
   row="
     \"$harness\": { \"chatControl\": \"$(jv "$control")\", \"runningStrip\": \"$facet\", \"helperCard\": \"$facet\", \"inChatAnswer\": \"$facet\", \"terminalAnswerTap\": \"$(jv "$tapped")\" }"
   harness_rows="$harness_rows${harness_rows:+,}$row"
-  # The frames this run's claim cites, out of the matrix folder.
-  for name in "$harness-390-1.0-dark-working.png" "$harness-390-1.0-dark-ask.png" "$harness-390-1.0-dark-answered.mp4"; do
+  # The frames this run's claim cites, out of the matrix folder. The working frame
+  # stays in the matrix: a harness with no chat has no strip to shoot, so it shows
+  # a terminal and nothing the claim is about.
+  for name in "$harness-390-1.0-dark-ask.png" "$harness-390-1.0-dark-answered.mp4"; do
     cp "$mx/$name" "$out/" 2>/dev/null || { echo "missing citation $name" | tee -a "$mx/lines.log"; misses=$((misses+1)); }
   done
   echo "$harness: done" | tee -a "$mx/lines.log"
