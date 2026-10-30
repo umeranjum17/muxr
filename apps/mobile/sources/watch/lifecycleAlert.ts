@@ -91,6 +91,15 @@ if (Platform.OS !== 'web') {
             { identifier: OPEN_ACTION, buttonTitle: 'Open', options: { opensAppToForeground: true } },
             { identifier: ANSWER_ACTION, buttonTitle: 'Answer', textInput: { submitButtonTitle: 'Send', placeholder: 'y, n or a short answer' }, options: { opensAppToForeground: false } },
         ]).catch(() => undefined);
+        for (const count of [2, 3]) {
+            void Notifications.setNotificationCategoryAsync(`agent-choices-native-${count}`, [
+                ...Array.from({ length: count }, (_, index) => ({
+                    identifier: String(index + 1), buttonTitle: `Choose ${index + 1}`,
+                    options: { opensAppToForeground: false },
+                })),
+                { identifier: OPEN_ACTION, buttonTitle: 'Open', options: { opensAppToForeground: true } },
+            ]).catch(() => undefined);
+        }
     }
 }
 

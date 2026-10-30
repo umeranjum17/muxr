@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DeviceLink, hostId, keyPairFrom } from '@byokit/pair';
-import { openAnswer, openNoticeContent, sealAnswer } from '@byokit/push';
+import { openAnswer, openChoice, openNoticeContent, sealAnswer } from '@byokit/push';
 
 /** Real relay + host endpoint; only the external Expo provider and agent input sink are fixtures. */
 export async function nativeAnswerLoopback({ startRelay, LinkEndpoint, answerAgent, openLifecycleNotice }) {
@@ -52,9 +52,9 @@ export async function nativeAnswerLoopback({ startRelay, LinkEndpoint, answerAge
             token: 'ExponentPushToken[sealed-answer-fixture]', level: 'important', noticePublicKey: b64(notice.publicKey),
         } });
         assert.ok(crypto.devices[0].noticePublicKey === b64(notice.publicKey), 'the authenticated registration must persist the notice identity');
-        const notify = async (eventId) => {
+        const notify = async (eventId, question = 'Which path should I take?') => {
             const before = deliveries.length;
-            endpoint.notifyAttention({ sessionId: 'origin-session', eventId, kind: 'blocked', machineId: 'answer-machine', agentName: 'Lab agent', question: 'Which path should I take?' });
+            endpoint.notifyAttention({ sessionId: 'origin-session', eventId, kind: 'blocked', machineId: 'answer-machine', agentName: 'Lab agent', question });
             const deadline = Date.now() + 5000;
             while (deliveries.length === before) {
                 assert.ok(Date.now() < deadline, 'relay did not deliver the question');
@@ -76,22 +76,42 @@ export async function nativeAnswerLoopback({ startRelay, LinkEndpoint, answerAge
         assert.equal(openAnswer({ event: payload.id, action: 'answer', reply }, notice.publicKey, machine.secretKey), 'take the safe path');
         assert.equal(openAnswer({ event: 'another-question', action: 'answer', reply }, notice.publicKey, machine.secretKey), null);
         assert.equal(openAnswer({ event: payload.id, action: 'open', reply }, notice.publicKey, machine.secretKey), null);
-        const press = (token, sealed) => fetch(`http://127.0.0.1:${relay.port}/relay/v1/push/action`, {
-            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token, action: 'answer', reply: sealed }),
+        const press = (token, sealed, action = 'answer') => fetch(`http://127.0.0.1:${relay.port}/relay/v1/push/action`, {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token, action, reply: sealed }),
         });
         assert.equal((await press(payload.action, reply)).status, 200);
         assert.deepEqual(received, [{ session: 'origin-session', event: 'answer-question', keys: [...'take the safe path', 'enter'] }]);
         assert.equal((await press(payload.action, reply)).ok, false);
         const next = (await notify('next-question')).data;
         assert.equal((await press(next.action, reply)).ok, false);
+        const chooser = await notify('choice-question', 'Which path?\n1. Safe path\n2. Stop');
+        assert.equal(chooser.categoryId, 'agent-choices-native-2');
+        assert.deepEqual(openNoticeContent({ body: chooser.data }, notice.secretKey)?.data.answer.choices,
+            [{ id: '1', label: 'Safe path' }, { id: '2', label: 'Stop' }]);
+        const choicePress = { event: chooser.data.id, action: '1',
+            reply: sealAnswer({ event: chooser.data.id, action: '1', choice: '1' }, notice.secretKey, machine.publicKey) };
+        assert.equal(openChoice(choicePress, notice.publicKey, machine.secretKey), '1');
+        assert.equal(openAnswer(choicePress, notice.publicKey, machine.secretKey), null);
+        assert.equal(openChoice({ ...choicePress, event: 'wrong-question' }, notice.publicKey, machine.secretKey), null);
+        const forgedText = sealAnswer({ event: chooser.data.id, action: '1', text: '1' }, notice.secretKey, machine.publicKey);
+        assert.equal((await press(chooser.data.action, forgedText, '1')).ok, false);
+        // A rejected press may consume its relay token: deliver a fresh, still-current question.
+        const validChoice = (await notify('choice-next', 'Which path?\n1. Safe path\n2. Stop')).data;
+        const choiceReply = sealAnswer({ event: validChoice.id, action: '1', choice: '1' }, notice.secretKey, machine.publicKey);
+        assert.equal((await press(validChoice.action, choiceReply, '1')).status, 200);
+        assert.deepEqual(received.at(-1), { session: 'origin-session', event: 'choice-next', keys: ['1'] });
+        assert.equal((await press(validChoice.action, choiceReply, '1')).ok, false);
+        const ambiguous = await notify('ambiguous-menu', 'Which path?\n1. Safe path\n3. Stop');
+        assert.equal(ambiguous.categoryId, 'agent-question-native');
         const revoked = (await notify('revoked-question')).data;
         const revokedReply = sealAnswer({ event: revoked.id, action: 'answer', text: 'y' }, notice.secretKey, machine.publicKey);
         crypto.devices.length = 0;
         assert.equal((await press(revoked.action, revokedReply)).ok, false);
-        assert.equal(received.length, 1);
+        assert.equal(received.length, 2);
         return { transport: 'real loopback relay; synthetic Expo delivery and agent input sink', question: 'Which path should I take?',
             typed: 'take the safe path', received: received[0].keys.slice(0, -1).join(''), originatingSessionOnly: true,
             sameTokenReplayRefused: true, reboundReplayOpensToNull: true, revokedGrantRefused: true,
+            chooserDelivered: true, typedReplyCannotAuthorizeChoice: true, ambiguousMenuUsesText: true,
             missingWrongTamperedNoticeFallsBack: true, physicalApns: 'not performed', appJavaScript: 'not involved in loopback; native wake not proven' };
     } finally {
         link?.stop();

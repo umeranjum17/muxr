@@ -59,7 +59,7 @@ export async function storeGrant(grant: StoredHostedGrant): Promise<void> {
     all[grant.machineId] = grant;
     await secretSet(grantKey(grant.machineId), JSON.stringify(grant));
     await secretSet(GRANTS_INDEX, JSON.stringify(Object.keys(all)));
-    await syncNativeNotices(Object.values(all));
+    await syncNativeNotices(Object.values(all), true);
 }
 
 export async function clearGrants(): Promise<void> {

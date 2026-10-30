@@ -35,5 +35,5 @@ export {
     type PairingStringParse,
 } from './domain/pairingString';
 
-export { nativeNoticeSecret, syncNativeNotices } from './infrastructure/nativeNotices';
+export { nativeNoticeSecret, syncNativeNotices, nativeNoticeCleanupPending, retryNativeNoticeCleanup } from './infrastructure/nativeNotices';
 export { listPairedGrants } from './application/linkPairing';

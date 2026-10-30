@@ -7,7 +7,7 @@ import { activeSessionClient } from '@/connection/sessionClientRef';
 import { clearRegisteredPushToken, loadRegisteredPushToken, saveRegisteredPushToken } from '@/catalog/application/persistence';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { storage } from '@/catalog/store';
-import { listPairedGrants, nativeNoticeSecret, syncNativeNotices } from '@/pairing';
+import { listPairedGrants, nativeNoticeSecret, syncNativeNotices, nativeNoticeCleanupPending } from '@/pairing';
 import { isSealedLifecyclePush, openLifecycleNotice } from './openLifecycleNotice';
 import { QUESTION_CATEGORY } from '@/watch/lifecycleAlert';
 
@@ -161,6 +161,13 @@ export function unregisterNativePushNotifications(_credentials: AuthCredentials)
         pendingNotificationLevel = null;
         // Disable native replies before logout can clear credentials or fail in other cleanup.
         await syncNativeNotices([]);
+        if (await nativeNoticeCleanupPending().catch(() => true)) {
+            await Notifications.scheduleNotificationAsync({
+                identifier: 'notice-cleanup-pending',
+                content: { title: 'Signed out', body: 'Open muxr again to finish notification cleanup.', sound: false },
+                trigger: null,
+            }).catch(() => undefined); // A quiet notice must never prevent sign-out.
+        }
         if (loadRegisteredPushToken() === null) return;
         if (await activeSessionClient()?.unregisterPush().catch(() => false)) clearRegisteredPushToken();
     })().finally(() => { unregistering = null; });

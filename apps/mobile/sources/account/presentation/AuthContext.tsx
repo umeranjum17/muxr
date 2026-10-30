@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useState, useEffect, type ReactNode } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import * as Updates from 'expo-updates';
 import { TokenStorage, type AuthCredentials } from '../infrastructure/tokenStorage';
 import { sync, syncCreate } from '@/catalog/sync';
@@ -8,6 +8,7 @@ import { clearHostedE2ee } from '@/pairing/e2ee';
 import { askForNotificationsAfterPairing } from '@/utils/microphonePermissions';
 import { unregisterNativePushNotifications } from '@/utils/nativePushNotifications';
 import { unsubscribeWebPush } from '@/utils/pushNotifications';
+import { retryNativeNoticeCleanup, syncNativeNotices } from '@/pairing';
 
 interface AuthContextType {
     isAuthenticated: boolean;
@@ -52,8 +53,20 @@ export function AuthProvider({ children, initialCredentials }: { children: React
         setIsAuthenticated(true);
     }, []);
 
+    useEffect(() => {
+        if (Platform.OS !== 'ios') return;
+        const retry = () => {
+            const cleanup = credentials === null ? syncNativeNotices([]) : retryNativeNoticeCleanup();
+            void cleanup.catch(() => console.warn('[push] native cleanup will retry'));
+        };
+        retry();
+        const listener = AppState.addEventListener('change', (state) => { if (state === 'active') retry(); });
+        return () => listener.remove();
+    }, [credentials]);
+
     const logout = useCallback(async () => {
-        if (credentials !== null) await unregisterNativePushNotifications(credentials);
+        if (credentials !== null) await unregisterNativePushNotifications(credentials)
+            .catch(() => console.warn('[push] native cleanup will retry'));
         if (Platform.OS === 'web') await unsubscribeWebPush();
         await clearLocalSession(true);
     }, [clearLocalSession, credentials]);

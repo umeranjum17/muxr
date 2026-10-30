@@ -258,12 +258,16 @@ history after showing the plan.
 ## Push notifications
 
 A blocked agent's alert names it and carries its question. On iOS, the
-`@byokit/push` native Answer action seals a short reply and sends it through
+`@byokit/push` 0.2.0 native Answer action seals a short reply and sends it through
 `@byokit/relay`'s one-use action route without foregrounding muxr or depending
 on app JavaScript. The host opens it only for the still-trusted registering
 grant and original notification/button, then delivers `session.answer` to the
-originating session while its blocked event is still current. One-key choices
-keep their existing behavior; longer answers send literal characters and Enter.
+originating session while its blocked event is still current. Explicit consecutive
+numbered menus of two or three choices offer background buttons; larger,
+truncated or ambiguous menus keep typed Answer. The host opens a button with
+`openChoice` and accepts only the id it offered, never a typed reply on a choice
+button. One-key choices keep their existing behavior; longer answers send literal
+characters and Enter.
 Android and local-only alerts still open muxr to answer over its paired link. A browser notification, including the installed iPhone
 web app, has no reply field, so answering there is platform-limited and its tap
 opens the agent. A general notification sent by a tool on the host instead
@@ -272,8 +276,10 @@ opens the link it carries.
 The host seals each lifecycle notice separately using `@byokit/seal`. An iOS
 installation provisions one notification key with `setNoticeKey`, separate
 from every per-host pairing identity. Its public half is registered through
-authenticated `push.subscribe` and persisted with that trusted device; other
-clients and older registrations continue using their pairing box key. Task title, agent name, a blocked agent's question,
+authenticated `push.subscribe` and persisted with that trusted device. Only
+answerable blocked questions use this installation key; general notifications,
+other clients and older registrations retain their pairing box key and generic
+background presentation. Task title, agent name, a blocked agent's question,
 event kind and machine/session scope stay inside the sealed notice; the relay and push provider receive generic
 alert text and ciphertext. A general notification from the host's
 `POST /v1/notify` is sealed the same way, with its title, body and link inside
@@ -289,7 +295,12 @@ pre-display opening is owned by the kit's generated `ByokitNoticeService`
 extension, with Swift-Sodium pinned to 0.11.0. Missing/locked/wrong keys and
 modified ciphertext leave the generic alert unchanged. Native Answer targets
 come only from stored, unexpired control pairings and HTTPS relay origins;
-revocation removes the target and the host refuses stale grants. Pending
+revocation removes the target and the host refuses stale grants. Sign-out calls
+kit-owned `declareSignedOut` before clearing the session: native decrypt and
+Answer stay refused even if key/target cleanup fails. Cleanup is durably retried
+at startup/foreground without blocking logout; a quiet notice asks the person
+to reopen muxr. Only a fresh pairing provisions trusted targets before a
+successful `setNoticeKey` resumes native replies. Pending
 question routing is bounded in host memory, so old alerts after a host restart
 fail closed and ask the person to open muxr. Simulator compilation and loopback
 reply checks do not prove locked-phone APNs delivery; that requires the owner's

@@ -1,16 +1,22 @@
+#if canImport(UserNotifications)
 import UserNotifications
+#if SWIFT_PACKAGE
+import NoticeSession
+#endif
 
 final class NotificationService: UNNotificationServiceExtension {
   private var completion: ((UNNotificationContent) -> Void)?
   private var fallback: UNNotificationContent?
+  var group = Bundle.main.object(forInfoDictionaryKey: "ByokitNoticeAppGroup") as? String
+  var readKey: (String) -> Data? = { NoticeKeyStore(group: $0).get() }
   override func didReceive(_ request: UNNotificationRequest, withContentHandler handler: @escaping (UNNotificationContent) -> Void) {
     completion = handler
     fallback = request.content
     guard let content = request.content.mutableCopy() as? UNMutableNotificationContent,
-          let group = Bundle.main.object(forInfoDictionaryKey: "ByokitNoticeAppGroup") as? String,
-          var key = NoticeKeyStore(group: group).get() else { finish(request.content); return }
+          let group, !NoticeSession(group: group).isSignedOut,
+          var key = readKey(group) else { finish(request.content); return }
     defer { key.resetBytes(in: 0..<key.count) }
-    if let opened = NoticePayload.openTransport(content.userInfo, key: key) {
+    if let opened = NoticePayload.openTransport(content.userInfo, key: key, session: NoticeSession(group: group)) {
       content.title = opened.title
       content.body = opened.body
       // Match muxr's notification response: userInfo.data contains the original routing fields.
@@ -31,3 +37,4 @@ final class NotificationService: UNNotificationServiceExtension {
     handler?(content)
   }
 }
+#endif

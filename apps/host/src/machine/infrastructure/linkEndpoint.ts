@@ -1,4 +1,5 @@
-import { openAnswer } from '@byokit/push';
+import { openAnswer, openChoice } from '@byokit/push';
+import { noticeChoices } from '../domain/noticeChoices.js';
 import { sealNotice } from '@byokit/seal';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -300,7 +301,7 @@ export class LinkEndpoint {
 
     private client?: RelayClient;
     // ponytail: bounded pending questions live until host restart; old alerts then fail closed.
-    private readonly pendingAnswers = new Map<string, { device: string; sessionId: string; eventId: string; key: string; expires: number }>();
+    private readonly pendingAnswers = new Map<string, { device: string; sessionId: string; eventId: string; key: string; expires: number; choices: string[] }>();
     private connectionTimer?: ReturnType<typeof setInterval>;
     private readonly deviceConnections = new Map<string, boolean>();
 
@@ -445,6 +446,7 @@ export class LinkEndpoint {
             ? ' could not start.'
             : COPY_SUFFIX[input.kind];
         const question = input.kind === 'blocked' ? safeQuestion(input.question) : undefined;
+        const choices = noticeChoices(question);
         const notice = (asked: string | undefined, answerable: boolean) => ({
             title,
             // A blocked agent's own question is the alert; the sealed notice keeps it from the relay.
@@ -458,28 +460,35 @@ export class LinkEndpoint {
                 sessionId: input.sessionId,
                 machineId: input.machineId,
                 presentationOwner: 'relay-push',
-                ...(answerable ? { answer: { host: input.machineId } } : {}),
+                ...(answerable ? { answer: { host: input.machineId, ...(choices.length === 0 ? {} : { choices }) } } : {}),
             },
         });
         for (const grant of recipients) {
             const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
-            const answerable = input.kind === 'blocked' && grant.role === 'control' && device?.noticePublicKey !== undefined;
-            const key = device?.noticePublicKey === undefined ? Buffer.from(grant.key, 'base64url') : Buffer.from(device.noticePublicKey, 'base64');
+            let answerable = input.kind === 'blocked' && grant.role === 'control' && device?.noticePublicKey !== undefined;
+            const key = answerable ? Buffer.from(device!.noticePublicKey!, 'base64') : Buffer.from(grant.key, 'base64url');
             const id = createHash('sha256').update(JSON.stringify([input.eventId, grant.id])).digest('hex');
             for (const [oldId, pending] of this.pendingAnswers) {
                 if (pending.expires < Date.now() || (pending.device === grant.id && pending.sessionId === input.sessionId)) this.pendingAnswers.delete(oldId);
             }
             if (answerable) {
                 if (this.pendingAnswers.size >= 1024) this.pendingAnswers.delete(this.pendingAnswers.keys().next().value!);
-                this.pendingAnswers.set(id, { device: grant.id, sessionId: input.sessionId, eventId: input.eventId, key: device!.noticePublicKey!, expires: Date.now() + 3_600_000 });
+                this.pendingAnswers.set(id, { device: grant.id, sessionId: input.sessionId, eventId: input.eventId, key: device!.noticePublicKey!, expires: Date.now() + 3_600_000, choices: choices.map(({ id }) => id) });
             }
             let sealed = sealNotice(notice(question, answerable), key);
             // The relay refuses push data over 2 KB; a wide question gives way to the plain copy.
-            if (JSON.stringify(sealed).length > SEALED_NOTICE_MAX) sealed = sealNotice(notice(undefined, answerable), key);
+            if (JSON.stringify(sealed).length > SEALED_NOTICE_MAX) {
+                answerable = false;
+                this.pendingAnswers.delete(id);
+                sealed = sealNotice(notice(undefined, false), key);
+            }
             void this.client.notify({
                 id,
                 mutableContent: true,
-                ...(answerable ? { categoryId: 'agent-question-native', actions: ['answer'], ttl: 3600 } : {}),
+                ...(answerable ? {
+                    categoryId: choices.length === 0 ? 'agent-question-native' : `agent-choices-native-${choices.length}`,
+                    actions: choices.length === 0 ? ['answer'] : choices.map(({ id }) => id), ttl: 3600,
+                } : {}),
                 title: 'Agent update',
                 body: 'An agent has an update.',
                 data: sealed,
@@ -518,8 +527,8 @@ export class LinkEndpoint {
         const notice = (url: string | undefined) => generalNoticeEnvelope(
             url === undefined ? { title: input.title, body: input.body, id: input.id, machineId: input.machineId } : { ...input, url });
         for (const { grant, live } of recipients) {
-            const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
-            const key = device?.noticePublicKey === undefined ? Buffer.from(grant.key, 'base64url') : Buffer.from(device.noticePublicKey, 'base64');
+            // General notices retain the pairing seal and generic background presentation.
+            const key = Buffer.from(grant.key, 'base64url');
             let sealed = sealNotice(notice(input.url), key);
             // The relay refuses push data over 2 KB; a long link gives way.
             if (JSON.stringify(sealed).length > SEALED_NOTICE_MAX) sealed = sealNotice(notice(undefined), key);
@@ -547,13 +556,20 @@ export class LinkEndpoint {
         const crypto = this.currentCrypto();
         const grant = this.host.devices().find((entry) => entry.id === press.device);
         const pending = this.pendingAnswers.get(press.event);
-        if (grant === undefined || grant.role !== 'control' || !trusted(grant, crypto) || press.action !== 'answer'
+        if (grant === undefined || grant.role !== 'control' || !trusted(grant, crypto)
             || pending === undefined || pending.device !== grant.id || pending.expires < Date.now()) {
             throw new PublicLinkError('That question was already answered or changed.');
         }
         const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
         if (device?.noticePublicKey !== pending.key || crypto === undefined) throw new PublicLinkError('This answer was not accepted.');
-        const text = openAnswer(press, Buffer.from(pending.key, 'base64'), Buffer.from(crypto.boxSecretKey, 'base64'));
+        const deviceKey = Buffer.from(pending.key, 'base64');
+        const hostKey = Buffer.from(crypto.boxSecretKey, 'base64');
+        let text: string | null = null;
+        if (pending.choices.length === 0 && press.action === 'answer') text = openAnswer(press, deviceKey, hostKey);
+        if (pending.choices.includes(press.action)) {
+            const choice = openChoice(press, deviceKey, hostKey);
+            if (choice === press.action) text = choice;
+        }
         if (text === null || text.trim() === '' || text.length > 500 || /[\u0000-\u001f\u007f]/.test(text)) throw new PublicLinkError('This answer was not accepted.');
         // Consume before awaiting delivery: concurrent presses never type twice.
         this.pendingAnswers.delete(press.event);

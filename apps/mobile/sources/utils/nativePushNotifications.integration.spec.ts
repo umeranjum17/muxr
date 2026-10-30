@@ -17,7 +17,7 @@ vi.mock('@/catalog/application/persistence', () => ({
     saveRegisteredPushToken: (token: string) => { persistence.token = token; },
 }));
 vi.mock('@/utils/microphonePermissions', () => ({ requestNotificationPermission: async () => true }));
-vi.mock('@/pairing', () => ({ listPairedGrants: async () => [], nativeNoticeSecret: async () => undefined, syncNativeNotices: async (grants: unknown[]) => persistence.provision(grants) }));
+vi.mock('@/pairing', () => ({ listPairedGrants: async () => [], nativeNoticeSecret: async () => undefined, nativeNoticeCleanupPending: async () => false, syncNativeNotices: async (grants: unknown[]) => persistence.provision(grants) }));
 vi.mock('@/catalog/store', () => ({
     storage: { getState: () => ({ localSettings: { lifecycleNotificationLevel: 'important' } }) },
 }));

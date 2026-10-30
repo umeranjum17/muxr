@@ -1,6 +1,9 @@
 import Foundation
 import CoreFoundation
 import Clibsodium
+#if SWIFT_PACKAGE
+import NoticeSession
+#endif
 
 struct NoticeContent {
   let title: String
@@ -8,7 +11,8 @@ struct NoticeContent {
   let data: [String: Any]?
 }
 enum NoticePayload {
-  static func openTransport(_ fields: [AnyHashable: Any], key: Data) -> NoticeContent? {
+  static func openTransport(_ fields: [AnyHashable: Any], key: Data, session: NoticeSession) -> NoticeContent? {
+    guard !session.isSignedOut else { return nil }
     let expo = fields["body"] as? [String: Any]
     // `@byokit/relay` sends the envelope itself as `data`, which Expo carries at `body.data`.
     guard let payload = fields["notice"] ?? expo?["notice"] ?? expo?["data"] else { return nil }

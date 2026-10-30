@@ -26,7 +26,7 @@
     "@byokit/cloud": "0.3.0",
     "@byokit/dictation": "0.5.0",
     "@byokit/pair": "0.10.3",
-    "@byokit/push": "0.1.1",
+    "@byokit/push": "0.2.0",
     "@byokit/reach": "0.6.0",
     "@byokit/realtime": "0.3.1",
     "@byokit/seal": "0.3.2",

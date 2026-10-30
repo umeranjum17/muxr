@@ -1159,10 +1159,10 @@
     sodium-native "5.1.0"
     sodium-universal "5.0.1"
 
-"@byokit/push@0.1.1":
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/@byokit/push/-/push-0.1.1.tgz#3eb20eced785923de7776739910500fffaa28c94"
-  integrity sha512-540xcofJ9aBLXzNj3HGv4mzKzXMhqhOwZNYrSlu1cS2JLaKiM79hITBouNZkjPG3bY94JKeu1aefsekAaymX8w==
+"@byokit/push@0.2.0":
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/@byokit/push/-/push-0.2.0.tgz#26c1e1c623a2a28498082badad30621377dafea2"
+  integrity sha512-LfqzFDicZV2otGog3L0y88Ccz9bdVvIhkgz1u/dZD3Chcob1+VxRzhqMWB6eRjOxiMBOBZu59ov83HMQWkNVWw==
   dependencies:
     "@byokit/seal" "0.3.2"
     "@noble/ciphers" "2.4.0"
