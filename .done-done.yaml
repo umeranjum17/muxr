@@ -46,26 +46,32 @@ approved_requirements:
   - kind: spec
     name: Settings cloud machine action
     requirement: 'Settings > Machines shows an "Add a cloud machine" row as a single direct action. A still frame cannot show a touch transition: tap linkage with no intermediate screen is proven by the driven journey and disclosed, not photographed.'
+    journey: cloud-machines
     capture: live-05-settings-action.png
   - kind: spec
     name: Settings cloud machine Boat destination
     requirement: 'The "Cloud machine" Boat flow screen opened by the Settings action is visible. A still frame cannot show a touch transition: linkage is proven by the driven journey and disclosed, not photographed.'
+    journey: cloud-machines
     capture: live-06-boat-entry.png
   - kind: spec
     name: One machine list and shared actions
     requirement: 'The created cloud machine is listed beside the paired Desk computer with its own status in the same machine list, with the ordinary machine actions.'
+    journey: cloud-machines
     capture: live-07-cloud-listed.png
   - kind: spec
     name: Switch to the paired computer
     requirement: 'After switching from the cloud machine to the paired Desk computer, Home shows Desk connected.'
+    journey: cloud-machines
     capture: live-08-desk-switched.png
   - kind: spec
     name: Switch back to the cloud machine
     requirement: 'After switching back from Desk, Home shows the created cloud machine connected.'
+    journey: cloud-machines
     capture: live-09-cloud-switched-back.png
   - kind: spec
     name: Forget the cloud machine
     requirement: 'After forgetting the cloud machine through the ordinary machine action, Settings > Machines shows Desk remaining and no cloud machine row.'
+    journey: cloud-machines
     capture: live-12-cloud-forgotten.png
 # This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
 # agent: opencode
@@ -306,6 +312,12 @@ journeys:
   # the Boat lab as the key proxy in front of Boat, the key read in place from
   # BOAT_LIVE_KEY_FILE (never on the phone), Home connected over SSH, and every
   # machine the run created removed (cloud-computer-onboarding, step 8).
+  # Real Boat lifecycle from Settings, under the keeper lock and a preprovisioned
+  # non-default Herdr lab. Requires a matching MUXR_LAB_APK, private MX_LIVE_ROOT,
+  # and explicitly approved BOAT_LAB_UPSTREAM / BOAT_LAB_KEY_FILE; costs money.
+  cloud-machines:
+    command: node .agents/skills/done-done-verify-pockit/features/cloudMachinesNativeLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --port "$BOAT_LAB_PORT" --upstream "$BOAT_LAB_UPSTREAM" --key-file "$BOAT_LAB_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 25m
   cloud-boat:
     command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --upstream "${BOAT_LIVE_API:-https://boat.dev/api/v1}" --key-file "$BOAT_LIVE_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
