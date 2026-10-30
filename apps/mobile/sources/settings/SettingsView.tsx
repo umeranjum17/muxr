@@ -6,6 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { SESSION_VIEW_CHOICES } from '@/chat';
 import { getCachedConnectionSettings } from '@/connection';
 import { getCachedHostedGrant, listPairedGrants, removeHostedGrant } from '@/pairing/e2ee';
@@ -46,6 +47,7 @@ export const SettingsView = React.memo(function SettingsView({
     onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 }) {
     const { theme } = useUnistyles();
+    const compact = useCompactWindow();
     const router = useRouter();
     // Only a computer that can list accounts offers them.
     const accountsAvailable = usePlanAccountsAvailable();
@@ -103,16 +105,20 @@ export const SettingsView = React.memo(function SettingsView({
     }, []));
     const machineRows = React.useMemo(() => {
         const rows: { id: string; live?: (typeof allMachinesWithOffline)[number] }[] = [];
-        const listedIds = new Set<string>();
+        const liveById = new Map(allMachinesWithOffline
+            .filter((machine) => showOfflineMachines || isMachineOnline(machine))
+            .map((machine) => [machine.id, machine]));
         const pairedIds = new Set(pairedGrants.map((grant) => grant.machineId));
+        // Keep paired rows in their saved order while live data reconnects, as
+        // ComputersSheet does. A status update must not move another row under a tap.
+        for (const grant of pairedGrants) {
+            rows.push({ id: grant.machineId, live: liveById.get(grant.machineId) });
+        }
         const hosted = getCachedConnectionSettings().mode === 'hosted';
         for (const machine of allMachinesWithOffline) {
-            if ((hosted && !pairedIds.has(machine.id)) || (!showOfflineMachines && !isMachineOnline(machine))) continue;
-            listedIds.add(machine.id);
+            if (pairedIds.has(machine.id) || hosted) continue;
+            if (!showOfflineMachines && !isMachineOnline(machine)) continue;
             rows.push({ id: machine.id, live: machine });
-        }
-        for (const grant of pairedGrants) {
-            if (!listedIds.has(grant.machineId)) rows.push({ id: grant.machineId });
         }
         return rows;
     }, [allMachinesWithOffline, pairedGrants, showOfflineMachines]);
@@ -343,6 +349,15 @@ export const SettingsView = React.memo(function SettingsView({
                         onPress={() => router.push('/add-computer')}
                     />
                 )}
+                <Item
+                    title="Add a cloud machine"
+                    subtitle={Platform.OS === 'web' ? 'Set up from the muxr phone app' : 'Create a machine on Boat, then pair it with this device'}
+                    titleLines={0}
+                    subtitleLines={0}
+                    showChevron={!compact}
+                    icon={compact ? undefined : <Ionicons name="cloud-outline" size={29} color={theme.colors.textSecondary} />}
+                    onPress={() => router.push('/cloud-computer')}
+                />
                 <Item
                     title="Pair another machine"
                     subtitle="Open muxr on your computer, or run muxr pair, then scan the QR or paste its string"

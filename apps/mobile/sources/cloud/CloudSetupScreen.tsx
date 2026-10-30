@@ -21,8 +21,8 @@ import { BOAT_API, BOAT_KEY, BOAT_PRICES, deployBoatComputer, pendingBoatSize, P
  * deploy's own words; the screen phase shows only when that switch is on.
  */
 const PHASES: { steps: DeployStep['step'][]; title: string; screenOnly?: boolean }[] = [
-    { steps: ['creating'], title: 'Creating your cloud computer on Boat.' },
-    { steps: ['starting'], title: 'Starting your cloud computer.' },
+    { steps: ['creating'], title: 'Creating your cloud machine on Boat.' },
+    { steps: ['starting'], title: 'Starting your cloud machine.' },
     { steps: ['installing', 'configuring'], title: 'Installing muxr.' },
     { steps: ['screen'], title: 'Adding a screen for sign-ins.', screenOnly: true },
     { steps: ['connecting'], title: 'Connecting over a private SSH link.' },
@@ -30,12 +30,12 @@ const PHASES: { steps: DeployStep['step'][]; title: string; screenOnly?: boolean
 ];
 const SIZES: { id: BoatSize; title: string }[] = [{ id: 'small', title: 'Small · 2 CPUs, 4 GB' }, { id: 'default', title: 'Standard · 4 CPUs, 8 GB' }];
 const STEP_WORDS: Record<DeployStep['step'], string> = {
-    creating: 'Creating your cloud computer on Boat.',
-    starting: 'Starting your cloud computer.',
-    installing: words('setup.installing', { app: 'muxr' }),
-    configuring: 'Setting up muxr on your cloud computer.',
+    creating: 'Creating your cloud machine on Boat.',
+    starting: 'Starting your cloud machine.',
+    installing: 'Installing muxr on your cloud machine.',
+    configuring: 'Setting up muxr on your cloud machine.',
     screen: 'Adding a screen for sign-ins. This takes a few minutes.',
-    connecting: 'Connecting this phone to your cloud computer over a private SSH link.',
+    connecting: 'Connecting this phone to your cloud machine over a private SSH link.',
     pairing: words('setup.pairing', { app: 'muxr' }),
 };
 let deployRun: Promise<void> | undefined;
@@ -134,7 +134,7 @@ export function CloudSetupScreen() {
                 if (mounted.current) setDeploy(s);
             },
             pair: async (offer, tunnelPort, deliverWords) => {
-                if (!(await pairLinkOffer(offer, auth, { tunnelPort, confirm: async () => true, onWords: deliverWords }))) throw new Error('Pairing with your cloud computer failed. Try again.');
+                if (!(await pairLinkOffer(offer, auth, { tunnelPort, confirm: async () => true, onWords: deliverWords }))) throw new Error('Pairing with your cloud machine failed. Try again.');
             },
         }).finally(() => {
             deployRun = undefined;
@@ -189,7 +189,7 @@ export function CloudSetupScreen() {
     }, [email]);
 
     if (Platform.OS === 'web') {
-        return <View style={styles.webNotice}><WordWrappingText fontSize={24} lineHeight={30} style={styles.heading} accessibilityRole="header">Your cloud computer</WordWrappingText><Text style={styles.body}>Set up from the muxr phone app.</Text></View>;
+        return <View style={styles.webNotice}><WordWrappingText fontSize={24} lineHeight={30} style={styles.heading} accessibilityRole="header">Your cloud machine</WordWrappingText><Text style={styles.body}>Set up from the muxr phone app.</Text></View>;
     }
 
     const phase = deploy === undefined ? -1 : PHASES.findIndex((p) => p.steps.includes(deploy.step));
@@ -245,7 +245,7 @@ export function CloudSetupScreen() {
                     </Pressable>
                     <Text style={styles.detail}>{`Paid to Boat, not muxr. Free while asleep; Boat's plan is at least $${PRICE.planFloorPerMonth} a month. Prices checked ${checkedLabel(PRICE.checked)}.`}</Text>
                     {busy && <Text style={styles.detail}>Setup is still running.</Text>}
-                    <ActionButton title="Create cloud computer" icon="cloud-outline" disabled={busy} onPress={() => { void create(); }} wrap />
+                    <ActionButton title="Create cloud machine" icon="cloud-outline" disabled={busy} onPress={() => { void create(); }} wrap />
                     {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
                 </>
             )}
@@ -267,7 +267,7 @@ export function CloudSetupScreen() {
                     </View>
                     {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
                     {!busy && error && <ActionButton title="Try again" variant="secondary" onPress={() => { void create(); }} />}
-                    <Text style={styles.detail}>Then you land on Home. Start an agent there, about 30 s, and it opens in a terminal on the cloud computer.</Text>
+                    <Text style={styles.detail}>Then you land on Home. Start an agent there, about 30 s, and it opens in a terminal on the cloud machine.</Text>
                 </>
             )}
         </ScrollView>

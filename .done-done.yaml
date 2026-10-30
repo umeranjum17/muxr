@@ -4,7 +4,7 @@ app: "pockit"
 # Approved written requirements: supervisor inbox 003 (two doors) and the
 # ticket's existing Boat-flow requirement. Inbox 028 limits these rows to
 # still-image-verifiable requirements and the fresh driver's exact filenames.
-# Each row names the journey that captures it (`journey:`, done-done 0.6.23), so
+# Upstream rows name the journey that captures them (`journey:`, done-done 0.6.23), so
 # it is enforced only on a claim citing that journey's run, and its capture is
 # that journey's own filename. A claim about another journey never answers for it.
 approved_requirements:
@@ -43,6 +43,36 @@ approved_requirements:
     requirement: 'the cloud-machine option reaching the existing Boat flow.'
     journey: two-doors
     capture: boat-1-account-390-1.0-light.png
+  - kind: spec
+    name: Settings cloud machine action
+    requirement: 'Settings shows a MACHINES section containing an "Add a cloud machine" row with the subtitle "Create a machine on Boat, then pair it with this device".'
+    journey: cloud-machines
+    capture: live-05-settings-action.png
+  - kind: spec
+    name: Settings cloud machine Boat destination
+    requirement: 'The screen header reads "Cloud machine" and "Step 1 of 3", with "Connect your Boat account" and a "Connect Boat account" button visible.'
+    journey: cloud-machines
+    capture: live-06-boat-entry.png
+  - kind: spec
+    name: One machine list and shared actions
+    requirement: 'Settings lists Desk and a separate machine whose visible hostname begins "box-node-" in the same MACHINES section. The hostname row shows "Linux • online", "Active", and a trash control, while Desk has its own trash control.'
+    journey: cloud-machines
+    capture: live-07-cloud-listed.png
+  - kind: spec
+    name: Switch to the paired computer
+    requirement: 'Home shows "Desk" in its header with a green indicator and "connected".'
+    journey: cloud-machines
+    capture: live-08-desk-switched.png
+  - kind: spec
+    name: Switch back to the cloud machine
+    requirement: 'Home shows a hostname beginning "box-node-" in its header with a green indicator and "connected".'
+    journey: cloud-machines
+    capture: live-09-cloud-switched-back.png
+  - kind: spec
+    name: Forget the cloud machine
+    requirement: 'Settings shows Desk as its only machine row in the MACHINES section, with no additional box-node hostname row; the "Add a cloud machine" row remains visible.'
+    journey: cloud-machines
+    capture: live-12-cloud-forgotten.png
 # This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
 # agent: opencode
 
@@ -282,6 +312,12 @@ journeys:
   # the Boat lab as the key proxy in front of Boat, the key read in place from
   # BOAT_LIVE_KEY_FILE (never on the phone), Home connected over SSH, and every
   # machine the run created removed (cloud-computer-onboarding, step 8).
+  # Real Boat lifecycle from Settings, under the keeper lock and a preprovisioned
+  # non-default Herdr lab. Requires a matching MUXR_LAB_APK, private MX_LIVE_ROOT,
+  # and explicitly approved BOAT_LAB_UPSTREAM / BOAT_LAB_KEY_FILE; costs money.
+  cloud-machines:
+    command: node .agents/skills/done-done-verify-pockit/features/cloudMachinesNativeLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --port "$BOAT_LAB_PORT" --upstream "$BOAT_LAB_UPSTREAM" --key-file "$BOAT_LAB_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 25m
   cloud-boat:
     command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --upstream "${BOAT_LIVE_API:-https://boat.dev/api/v1}" --key-file "$BOAT_LIVE_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
