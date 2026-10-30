@@ -31,7 +31,7 @@ web=$1; out=$2
 mx="${out%/}-matrix"; mkdir -p "$out" "$mx"
 root=$(mktemp -d "${MUXR_LAB_ROOT:-$HOME/.cache/fms}/mxch.XXXXXX")
 free_port() { node -e 'const s=require("net").createServer().listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})'; }
-WEB_PORT=$(free_port); CDP_PORT=$(free_port)
+WEB_PORT=$(free_port); CDP_PORT=$(free_port); AXI_PORT=$(free_port)
 LAB_PID=; SRV_PID=; CHR_PID=
 cleanup() {
   exec 3>&- 2>/dev/null
@@ -56,7 +56,7 @@ SRV_PID=$!
 chromium --user-data-dir="$root/profile" --remote-debugging-port=$CDP_PORT --hide-scrollbars --no-first-run --no-default-browser-check \
   --window-size=390,844 --app="http://127.0.0.1:$WEB_PORT/" >"$root/chromium.log" 2>&1 </dev/null &
 CHR_PID=$!
-export CHROME_DEVTOOLS_AXI_BROWSER_URL="http://127.0.0.1:$CDP_PORT" CHROME_DEVTOOLS_AXI_SESSION="muxr-chat-harness-$$"
+export CHROME_DEVTOOLS_AXI_BROWSER_URL="http://127.0.0.1:$CDP_PORT" CHROME_DEVTOOLS_AXI_SESSION="muxr-chat-harness-$$" CHROME_DEVTOOLS_AXI_PORT="$AXI_PORT"
 ax() { chrome-devtools-axi "$@" 2>&1; }
 # A value written into steps.json: the reads are plain `key=value` text, never quoted.
 jv() { printf '%s' "$1" | tr -d '"\\'; }
@@ -71,6 +71,7 @@ for _ in $(seq 60); do ax eval "typeof window.__MUXR_LAB_PAIR__" | grep -q funct
 paired=$(read_eval "(async () => typeof (await window.__MUXR_LAB_PAIR__('$link')).machineId)()")
 echo "standalone: $standalone; paired: $paired"
 ax eval "location.reload()" >/dev/null; sleep 10
+misses=0
 # What the app says where the view is chosen. It is read before any agent opens: a
 # session in the URL takes a later navigation back to itself, so a fresh boot is
 # the only way to this screen.
@@ -89,7 +90,6 @@ CHATCTL="(() => { const e = [...document.querySelectorAll('[aria-label]')].find(
 # The chat's own furniture: the composer's model chip, the Running strip and a helper's card stand for "the chat is drawn".
 CHATSHOWN="(() => { const l = [...document.querySelectorAll('[aria-label]')].map((e) => e.getAttribute('aria-label')); return \`composer-chip=\${+l.some((t) => /^Model /.test(t))};running-strip=\${+l.some((t) => /^Working(,|\\.)/.test(t))};helper-card=\${+l.some((t) => /^Helper /.test(t))};answer-buttons=\${l.filter((t) => /^Answer /.test(t)).length}\`; })()"
 QUESTION='────────────────\nRun rm -rf dist && pnpm build in /app/web? This deletes the existing dist folder, including the three files you edited by hand last week, and the build recreates it from source in about forty seconds.\n  1. Yes\n  2. Yes, and do not ask again for rm -rf dist commands in /app/web for the rest of this session\n  3. No, and tell Claude what to do differently'
-misses=0
 harness_rows=""
 mkdir -p "$root/frames"
 for harness in ${CHAT_HARNESSES:-codex opencode}; do
