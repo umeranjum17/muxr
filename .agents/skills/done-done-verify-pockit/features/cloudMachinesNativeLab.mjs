@@ -102,10 +102,11 @@ const view=async(dp,font,theme)=>{
 async function cells(prefix){
  for(const [dp,font] of [[360,'1.0'],[390,'1.0'],[393,'2.0']]){
   for(const theme of ['light','dark']){
+   // The bound action/list still captures 390/light once; do not photograph it twice.
+   if (dp === 390 && font === '1.0' && theme === 'light') continue;
    await view(dp,font,theme); await sh(`am force-stop ${PKG}`);await go('settings');
    await waitFor('Settings Machines',ns=>find(ns,v=>v==='Add a cloud machine'),60);
    await shot(`${prefix}-${dp}-${font}-${theme}`);
-   writeFileSync(join(EVIDENCE,`${prefix}-${dp}-${font}-${theme}.xml`),await dumpUiXml(30000));
   }
  }
  await view(390,'1.0','light');await sh(`am force-stop ${PKG}`);await go('settings');
@@ -203,10 +204,8 @@ try{
  await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://settings' -n ${activity}`);
  const firstRows=await waitFor('saved machine rows after restart',ns=>find(ns,v=>v==='Desk')&&find(ns,v=>v===cloudName),120);
  const rowData=nodes=>['Desk',cloudName].map(name=>({name,...find(nodes,v=>v===name)}));
- writeFileSync(join(EVIDENCE,'live-reconnect-first.xml'),await dumpUiXml(30000));
- await shot('live-reconnect-first');
+ // Reconnect evidence is row geometry, not redundant captures of the same static screen.
  const onlineRows=await waitFor('real cloud online after reconnect',ns=>ns.some(n=>n.desc.includes(cloudName)&&n.desc.includes('online')),180);
- writeFileSync(join(EVIDENCE,'live-reconnect-online.xml'),await dumpUiXml(30000));await shot('live-reconnect-online');
  const beforeOrder=rowData(firstRows).sort((a,b)=>a.box[1]-b.box[1]).map(r=>r.name);
  const afterOrder=rowData(onlineRows).sort((a,b)=>a.box[1]-b.box[1]).map(r=>r.name);
  writeFileSync(join(EVIDENCE,'live-reconnect-order.json'),JSON.stringify({first:rowData(firstRows),online:rowData(onlineRows),firstCloudStatus:firstRows.find(n=>n.desc.includes(cloudName)&&!n.desc.startsWith('Forget '))?.desc,beforeOrder,afterOrder,providerMachineId:realRef.id},null,2));
