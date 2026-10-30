@@ -122,13 +122,17 @@ try{
  writeFileSync(join(EVIDENCE,'phone-settings-before.json'),JSON.stringify(originalPhoneSettings));
  await view(390,'1.0','light');
  await adb(['reverse',`tcp:${opts.port}`,`tcp:${opts.port}`]);
- // Fresh task APK only, clearing all previous pairing state.
+ // Reinstall alone can restore saved app data; reset grants, updates and onboarding explicitly.
  await adb(['uninstall',PKG],120000).catch(()=>{});
  await adb(['install',opts.apk],300000);
+ const reset=await sh(`pm clear ${PKG}`);
+ if(reset.trim()!=='Success')throw Error('Fresh-state setup failed: muxr app data was not cleared');
+ say('fresh-state setup: installed task APK and cleared muxr app data');
  await sh(`pm grant ${PKG} android.permission.POST_NOTIFICATIONS`).catch(()=>{});
  activity=(await sh(`cmd package resolve-activity --brief ${PKG}`)).trim().split('\n').pop();
  await bringMuxrBack();await dismissPrompts().catch(()=>{});
- await waitFor('Connect a machine',ns=>find(ns,v=>v==='Connect a machine'),180);
+ await waitFor('fresh muxr Connect a machine',ns=>ns.some(n=>n.pkg===PKG)&&find(ns,v=>v==='Connect a machine'),180);
+ say('fresh-state setup ready: muxr first-run Connect a machine is visible; starting the user flow');
  process.env.MUXR_LAB_MACHINE_NAME='Desk';
  desk=await linkHerdrLab(resolve(process.env.MX_LIVE_ROOT),'mx-cloud-machine-add1',undefined,undefined,{},async offer=>{
   for(const port of new Set(parseOffer(offer,0).urls.map(u=>new URL(u).port).filter(Boolean))){
