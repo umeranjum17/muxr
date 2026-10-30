@@ -1028,6 +1028,8 @@ export interface ChatTool {
     outcome?: 'ok' | 'failed';
     /** A command's exit code, when the harness said. */
     exit?: number;
+    /** A helper's reply in one line (`kind: 'helper'` only); absent from an older host and while it works. */
+    result?: string;
 }
 
 export type ChatToolKind = 'edit' | 'write' | 'read' | 'list' | 'search' | 'run' | 'fetch' | 'web' | 'helper' | 'plan' | 'ask' | 'tool';

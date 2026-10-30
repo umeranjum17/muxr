@@ -80,7 +80,9 @@ const LINE_MAX = 200;
 
 type Args = Record<string, unknown> | undefined;
 type Pending = ChatTool & { id?: string };
-interface Result { text: string; failed: boolean; patch?: Hunk[]; images: Array<{ mimeType: string; data: string }> }
+interface Result { text: string; failed: boolean; patch?: Hunk[]; helper?: HelperRun; images: Array<{ mimeType: string; data: string }> }
+/** What Claude Code records of a helper's run beside its result. */
+interface HelperRun { steps?: number; seconds?: number }
 /** Claude Code's own record of an edit, beside its result: real line numbers. */
 interface Hunk { oldStart: number; newStart: number; lines: string[] }
 
@@ -163,10 +165,27 @@ function resultsOf(entries: Array<Record<string, unknown>>): Map<string, Result>
             const answers = (message.content as Block[]).filter((block) => block?.type === 'tool_result' && typeof block.tool_use_id === 'string');
             // The patch rides on the line, so it names the call only when the line answers one.
             const patch = answers.length === 1 ? hunksOf((entry.toolUseResult as { structuredPatch?: unknown } | undefined)?.structuredPatch) : undefined;
-            for (const block of answers) results.set(block.tool_use_id as string, { text: textOf(block.content), failed: block.is_error === true, images: inlineImagesOf(block.content), ...(patch === undefined ? {} : { patch }) });
+            const helper = answers.length === 1 ? helperRunOf(entry.toolUseResult) : undefined;
+            for (const block of answers) results.set(block.tool_use_id as string, { text: textOf(block.content), failed: block.is_error === true, images: inlineImagesOf(block.content), ...(patch === undefined ? {} : { patch }), ...(helper === undefined ? {} : { helper }) });
         }
     }
     return results;
+}
+
+function helperRunOf(value: unknown): HelperRun | undefined {
+    const run = value as { totalToolUseCount?: unknown; totalDurationMs?: unknown } | undefined;
+    const helper: HelperRun = {};
+    if (typeof run?.totalToolUseCount === 'number') helper.steps = run.totalToolUseCount;
+    if (typeof run?.totalDurationMs === 'number') helper.seconds = Math.round(run.totalDurationMs / 1000);
+    return helper.steps === undefined && helper.seconds === undefined ? undefined : helper;
+}
+
+/** A helper's status line: "7 steps · 1 min 12 s". */
+function helperNote({ steps, seconds }: HelperRun): string {
+    const parts: string[] = [];
+    if (steps !== undefined) parts.push(`${steps} step${steps === 1 ? '' : 's'}`);
+    if (seconds !== undefined) parts.push(`${seconds >= 60 ? `${Math.floor(seconds / 60)} min ` : ''}${seconds % 60} s`);
+    return parts.join(' · ');
 }
 
 function hunksOf(value: unknown): Hunk[] | undefined {
@@ -191,6 +210,13 @@ function withResult({ id, ...tool }: Pending, results: Map<string, Result>, cwd:
     if (result === undefined) return tool;
     let lines = result.text.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '').split('\n').map((line) => cwd === undefined ? line : line.split(`${cwd}/`).join('')).filter((line) => line.trim() !== '');
     const out: ChatTool = { ...tool, outcome: result.failed ? 'failed' : 'ok', ...(result.patch === undefined ? {} : patchOf(result.patch)) };
+    if (tool.kind === 'helper') {
+        // The helper's reply is its own card: one line of it, and how the run went.
+        const reply = lines.find((line) => /\w/.test(line) && !line.trimStart().startsWith('#')) ?? lines.find((line) => /\w/.test(line));
+        if (reply !== undefined) out.result = cut(reply.trim().replace(/^[#>*\-\s]+/, ''), LINE_MAX);
+        if (result.helper !== undefined) out.note = helperNote(result.helper);
+        return out;
+    }
     if (tool.kind === 'run') {
         const code = /(?:exit code|exited with code)\s*(\d+)/i.exec(result.text)?.[1];
         if (code !== undefined || !result.failed) out.exit = code === undefined ? 0 : Number(code);
