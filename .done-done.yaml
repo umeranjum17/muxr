@@ -4,7 +4,7 @@ app: "pockit"
 approved_requirements:
   - kind: spec
     name: Settings cloud machine action
-    requirement: 'Settings > Machines gets an "Add a cloud machine" action that reaches the same Boat flow, worded as a cloud machine, not a second competing concept.'
+    requirement: 'Settings > Machines shows an "Add a cloud machine" row, and the "Cloud machine" Boat flow screen that row opens is visible. The row is a single direct action with no intermediate screen. A still frame cannot show a touch transition: tap linkage is proven by the driven journey and disclosed, not photographed.'
     capture: live-machine-board.png
   - kind: spec
     name: One machine list and shared actions
