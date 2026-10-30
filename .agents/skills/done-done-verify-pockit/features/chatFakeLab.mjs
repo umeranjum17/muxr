@@ -8,12 +8,15 @@
 // Two of the repo's own screenshots stand in for the agent's images: one a
 // Read returned, one a file the reply draws (chat-images).
 // Stdin lines drive the header-fit journey (chat-header-fit.md): `status <state>
-// <task>` sets Claude 1's lifecycle and task title, `changes` leaves three
+// <task>` sets the driven agent's lifecycle and task title, `changes` leaves three
 // uncommitted files in its folder; `output <text>` sets what the pane's screen reads
 // back (`\n` for a new line: the working strip's last lines, or a question with its
 // numbered choices); CHAT_LAB_HELPER=1 ends the conversation with a helper's reply
 // card (chat-working.md); `model <text>` reports the harness model and
 // effort (slice-1 chip) through Herdr pane metadata, CHAT_LAB_MODEL seeds it.
+// `agent <kind>` moves every following line onto another agent of the herd, for a
+// journey that compares harnesses in one lab; CHAT_LAB_PANES (default 2) sizes the
+// herd, so a five-kind lab sets 5.
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
@@ -81,7 +84,7 @@ const conversationIn = (cwd) => {
 
 let project;
 const stack = await startFakeStack({
-    transport: serial ? 'adb' : 'loopback', panes: 2, agents: 2, titleChurnHz: 0,
+    transport: serial ? 'adb' : 'loopback', panes: Number(process.env.CHAT_LAB_PANES ?? 2), agents: Number(process.env.CHAT_LAB_PANES ?? 2), titleChurnHz: 0,
     // The host reads Claude logs from the lab HOME, by the pane's cwd and session id.
     setupHome: (home) => {
         const cwd = join(dirname(home), 'herdr', 'project');
@@ -118,15 +121,19 @@ const herdr = (method, params) => new Promise((resolve, reject) => {
     });
 });
 const claude = stack.world.agents.find((agent) => agent.agent === 'claude');
+/** Which agent the stdin commands drive: any kind the fake Herdr holds (`agent <kind>`), Claude by default. */
+let target = claude;
+const findTarget = (kind) => stack.world.agents.find((agent) => agent.agent === kind) ?? claude;
 // What the harness reports through Herdr pane metadata, as `muxr name --model` does.
-const report = (model) => herdr('pane.report_metadata', { pane_id: claude.pane_id, tokens: { provider: 'claude', model } });
+const report = (model) => herdr('pane.report_metadata', { pane_id: target.pane_id, tokens: { provider: target.agent, model } });
 await report(process.env.CHAT_LAB_MODEL ?? 'Opus 5.5 High');
 const git = (...args) => execFileSync('git', ['-c', 'user.name=Umer', '-c', 'user.email=umer@example.invalid', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: project, stdio: 'ignore' });
 createInterface({ input: process.stdin }).on('line', (text) => {
     const [command, state, ...task] = text.trim().split(' ');
-    const done = command === 'status' ? herdr('lab.set_agent_status', { pane_id: claude.pane_id, agent_status: state, title: task.join(' ') })
+    const done = command === 'agent' ? Promise.resolve().then(() => { target = findTarget(state); console.log(`lab agent: ${target.agent}=${target.pane_id}`); })
+        : command === 'status' ? herdr('lab.set_agent_status', { pane_id: target.pane_id, agent_status: state, title: task.join(' ') })
         : command === 'model' ? report([state, ...task].join(' '))
-        : command === 'output' ? herdr('lab.set_pane_output', { pane_id: claude.pane_id, output: [state, ...task].join(' ').replace(/\\n/g, '\n') })
+        : command === 'output' ? herdr('lab.set_pane_output', { pane_id: target.pane_id, output: [state, ...task].join(' ').replace(/\\n/g, '\n') })
         : command === 'changes' ? Promise.resolve().then(() => {
             git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'Start');
             writeFileSync(join(project, 'notes.txt'), 'line 1\nline 2 changed\n');
