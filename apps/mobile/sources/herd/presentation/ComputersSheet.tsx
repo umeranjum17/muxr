@@ -192,7 +192,7 @@ export function ComputersSheet({ visible, sessionId, agentKind, agentName, onClo
         setProbes({});
         setReadiness({});
         void hasBoatComputer().then((exists) => { if (!cancelled) setHasCloud(exists); }).catch((cause) => {
-            if (!cancelled) Modal.alert('Could not check your cloud computer', cause instanceof Error ? cause.message : String(cause));
+            if (!cancelled) Modal.alert('Could not check your cloud machine', cause instanceof Error ? cause.message : String(cause));
         });
         void listPairedGrants().then((all) => {
             if (cancelled) return;
@@ -317,7 +317,7 @@ export function ComputersSheet({ visible, sessionId, agentKind, agentName, onClo
                     icon={<Ionicons name="add-circle-outline" size={29} color={theme.colors.textSecondary} />}
                 />
                 {(sessionId !== undefined || !hasCloud) && <Item
-                    title={sessionId === undefined ? 'Create a cloud computer' : 'Add a cloud computer'}
+                    title={sessionId === undefined ? 'Create a cloud machine' : 'Add a cloud machine'}
                     style={addCopyStyle}
                     titleStyle={{ color: theme.colors.text }}
                     subtitle={Platform.OS === 'web' ? 'Set up from the muxr phone app' : 'Boat · from $0.036 an hour'}

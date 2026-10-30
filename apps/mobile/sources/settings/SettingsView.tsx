@@ -347,7 +347,7 @@ export const SettingsView = React.memo(function SettingsView({
                 )}
                 <Item
                     title="Add a cloud machine"
-                    subtitle={Platform.OS === 'web' ? 'Set up from the muxr phone app' : 'Create a computer on Boat, then pair it with this device'}
+                    subtitle={Platform.OS === 'web' ? 'Set up from the muxr phone app' : 'Create a machine on Boat, then pair it with this device'}
                     titleLines={0}
                     subtitleLines={0}
                     showChevron={!compact}

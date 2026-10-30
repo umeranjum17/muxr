@@ -97,7 +97,7 @@ function boatProvider(): Provider {
 async function addScreen(provider: Provider, ref: MachineRef): Promise<void> {
     const done = await provider.exec(ref, ADD_SCREEN, { root: true, timeoutMs: SCREEN_TIMEOUT_MS });
     if (done.timedOut) throw new Error('Adding the screen took longer than 15 minutes on your Boat computer. Try again.');
-    if (done.code !== 0) throw new Error(`The screen did not install on your Boat computer: ${(done.stderr.trim() || done.stdout.trim()).slice(-300)}`);
+    if (done.code !== 0) throw new Error(`The screen did not install on your Boat machine: ${(done.stderr.trim() || done.stdout.trim()).slice(-300)}`);
 }
 
 /** A saved cloud computer suppresses the dock's create offer, including during setup. */
@@ -149,13 +149,13 @@ async function boatSsh(id: string, publicKey: string): Promise<{ host: string; p
         throw new Error('Could not reach Boat. Check your connection and try again.');
     }
     const ssh = await res.json().catch(() => ({})) as { hostKey?: unknown; sshEndpoint?: unknown; machineIp?: unknown; sshUser?: unknown; error?: unknown };
-    if (!res.ok) throw new Error(`Boat did not open SSH to your cloud computer (${res.status}${typeof ssh.error === 'string' ? `: ${ssh.error}` : ''}). Try again.`);
+    if (!res.ok) throw new Error(`Boat did not open SSH to your cloud machine (${res.status}${typeof ssh.error === 'string' ? `: ${ssh.error}` : ''}). Try again.`);
     const endpoint = typeof ssh.sshEndpoint === 'string' ? ssh.sshEndpoint : undefined;
     const at = endpoint?.lastIndexOf(':') ?? -1;
     const host = endpoint !== undefined && at > 0 ? endpoint.slice(0, at) : ssh.machineIp;
     const port = endpoint !== undefined && at > 0 ? endpoint.slice(at + 1) : '22';
     const fingerprint = typeof ssh.hostKey === 'string' ? await sshFingerprint(ssh.hostKey) : undefined;
-    if (typeof host !== 'string' || host === '' || fingerprint === undefined) throw new Error('Boat did not say how to reach your cloud computer over SSH. Try again.');
+    if (typeof host !== 'string' || host === '' || fingerprint === undefined) throw new Error('Boat did not say how to reach your cloud machine over SSH. Try again.');
     return { host, port, user: typeof ssh.sshUser === 'string' && ssh.sshUser !== '' ? ssh.sshUser : 'user', fingerprint };
 }
 
@@ -232,7 +232,7 @@ export async function deployBoatComputer(o: {
                     hostKeyMismatch = fingerprint !== target.fingerprint;
                     return !hostKeyMismatch;
                 });
-                if (hostKeyMismatch) throw new Error('Your cloud computer answered with a different SSH key than Boat gave muxr, so muxr stopped before signing in. Try again.');
+                if (hostKeyMismatch) throw new Error('Your cloud machine answered with a different SSH key than Boat gave muxr, so muxr stopped before signing in. Try again.');
                 if (!opened.ok) throw new Error(opened.message);
                 tunnel = true;
                 o.onStep({ step: 'pairing' });

@@ -170,7 +170,7 @@ async function screenPhase() {
     if (opts.machine) {
         await waitFor('View screen', (found) => find(found, (v) => v === 'View screen') !== undefined, 30);
         await shot('08-computers');
-        say('stand-in: stopping before View screen, which only a real cloud computer may open');
+        say('stand-in: stopping before View screen, which only a real cloud machine may open');
         return;
     }
     await tap('View screen', (v) => v === 'View screen', 30);
@@ -295,7 +295,7 @@ try {
     // First run is two doors: My computer and Cloud machine · Boat.
     const cloudEntry = (v) => v.startsWith('Cloud machine · Boat. ');
     await waitFor('the first-run screen', (found) => find(found, (v) => v === 'Connect a machine' || cloudEntry(v)) !== undefined, 180);
-    await tap('Cloud computer', cloudEntry);
+    await tap('Cloud machine', cloudEntry);
     // A busy emulator drops keys from a long `input text`: type in short chunks and read the field back.
     const EMAIL = 'umer@example.com';
     for (let attempt = 0; ; attempt += 1) {
@@ -345,7 +345,7 @@ try {
         writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
             target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
             start: 'fresh release APK on an owned emulator, the Boat lab account linked',
-            steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', ...(opts.views?.split(',') ?? []).map((cell) => `at ${cell.replaceAll(':', ' ')}: turn Add a screen for sign-ins on, then off`)],
+            steps: ['open Cloud machine', 'link the Boat account (umer@example.com)', ...(opts.views?.split(',') ?? []).map((cell) => `at ${cell.replaceAll(':', ' ')}: turn Add a screen for sign-ins on, then off`)],
             result: 'the size step shows the Add a screen for sign-ins switch, off by default, and it turns on and off at every view',
         }, null, 2));
         say('PASS: size step shot at every view; --size-only stops before Create');
@@ -357,15 +357,15 @@ try {
         say(`machines on the account before Create: ${before.size}`);
         if (opts['switch-route'] && before.size > 0) throw new Error('SSH-return qualification needs an empty Boat account; existing machines are untouched');
     }
-    await tap('Create cloud computer', (v) => v === 'Create cloud computer');
+    await tap('Create cloud machine', (v) => v === 'Create cloud machine');
     created = Date.now();
     say('from here the journey taps nothing in muxr; no browser may open');
     // Each set-up step's words, in order, as the checklist shows them.
     const STEPS = [
-        ['02-creating', (v) => v === 'Creating your cloud computer on Boat.' || v === 'Starting your cloud computer.'],
+        ['02-creating', (v) => v === 'Creating your cloud machine on Boat.' || v === 'Starting your cloud machine.'],
         ['03-installing', (v) => /^Putting muxr on|^Installing/.test(v)],
-        ['04-configuring', (v) => v === 'Setting up muxr on your cloud computer.'],
-        ['05-private-connection', (v) => v === 'Connecting this phone to your cloud computer over a private SSH link.'],
+        ['04-configuring', (v) => v === 'Setting up muxr on your cloud machine.'],
+        ['05-private-connection', (v) => v === 'Connecting this phone to your cloud machine over a private SSH link.'],
         ['06-pairing', (v) => v === 'Connecting this device to muxr.'],
     ];
     const seen = new Set();
@@ -382,7 +382,7 @@ try {
             say(`step: ${name}`);
         }
         // A short viewport keeps the active step below the fold; follow it as a person would, with a scroll.
-        if (Number(opts.dp) < 390 && seen.size < STEPS.length && find(found, (v) => v === 'Your cloud computer')) await sh('input swipe 540 1800 540 700 300');
+        if (Number(opts.dp) < 390 && seen.size < STEPS.length && find(found, (v) => v === 'Your cloud machine')) await sh('input swipe 540 1800 540 700 300');
         if (find(found, (v) => v === 'Try again')) { await shot('07-setup-failed'); throw new Error(`set-up failed: ${found.filter((n) => n.text).map((n) => n.text).join(' | ')}`); }
         if (find(found, (v) => v === 'connected') && find(found, (v) => v === 'Plan, ask, build…')) { home = true; break; }
         await sleep(1500);
@@ -394,7 +394,7 @@ try {
     if (opts['switch-route']) {
         const header = (await screen()).find((node) => node.desc.endsWith('. Show computer details'));
         const cloudName = header?.desc.slice(0, -'. Show computer details'.length);
-        if (!cloudName) throw new Error('Could not read the cloud computer name from Home');
+        if (!cloudName) throw new Error('Could not read the cloud machine name from Home');
         const originalSsh = await sshDetails('07');
         let deskOutput = '';
         desk = spawn('unshare', ['-Ur', '--uts', '--', 'sh', '-c', 'hostname Umer-Desk; exec node "$1" Desk', 'sh', resolve('.agents/skills/done-done-verify-pockit/features/computersLab.mjs')], {
@@ -424,7 +424,7 @@ try {
         };
         await computers();
         await shot('08b-cloud-checked-on-pick');
-        await tap('Cloud computer row', (v) => v === cloudName);
+        await tap('Cloud machine row', (v) => v === cloudName);
         await tap('Switch back to cloud', (v) => v === 'Switch');
         await sh(`am start -W -a android.intent.action.VIEW -d 'muxr://' -n ${activity}`);
         await waitFor('Cloud connected again', (found) => find(found, (v) => v === cloudName) !== undefined && find(found, (v) => v === 'connected') !== undefined, 180);
@@ -457,8 +457,8 @@ try {
     writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
         target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
         start: opts.upstream ? `fresh release APK on an owned 390 dp emulator, a real Boat machine through the lab's key proxy to ${opts.upstream}` : 'fresh release APK on an owned 390 dp emulator, Boat lab with its stand-in computer (sshd + muxr in a namespace)',
-        steps: ['open Cloud computer', 'link the Boat account (umer@example.com)', 'tap Create cloud computer', 'tap nothing else until Home connects', ...(opts['switch-route'] ? ['pair Desk', 'open Desk agent → Pane actions → Computers; cloud says Checked when you pick it', 'pick the cloud and confirm Switch', 'read Connection settings without editing: same SSH host and saved key fingerprint before and after Desk', 'force-stop: confirm the old app process is gone and capture the launcher', 'launch muxr and capture app start then connected in one recording, with no SSH input and a new process id'] : [])],
-        result: opts['switch-route'] ? 'Home reconnected to the cloud computer over its retained SSH route after switching to Desk and back, then after relaunch; no SSH credential was re-entered' : 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
+        steps: ['open Cloud machine', 'link the Boat account (umer@example.com)', 'tap Create cloud machine', 'tap nothing else until Home connects', ...(opts['switch-route'] ? ['pair Desk', 'open Desk agent → Pane actions → Computers; cloud says Checked when you pick it', 'pick the cloud and confirm Switch', 'read Connection settings without editing: same SSH host and saved key fingerprint before and after Desk', 'force-stop: confirm the old app process is gone and capture the launcher', 'launch muxr and capture app start then connected in one recording, with no SSH input and a new process id'] : [])],
+        result: opts['switch-route'] ? 'Home reconnected to the cloud machine over its retained SSH route after switching to Desk and back, then after relaunch; no SSH credential was re-entered' : 'set-up ran Create, Put muxr on it, Private connection (SSH) and Pair with no browser, and the phone landed on Home connected',
     }, null, 2));
     if (opts.screen) await screenPhase();
     }

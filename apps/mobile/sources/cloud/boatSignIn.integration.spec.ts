@@ -236,16 +236,16 @@ it('reaches a new cloud computer over SSH with a key this phone made, adds the c
     await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(CloudSetupScreen)); });
     const root = renderer.root;
     current = root;
-    await until(() => button(root, 'Create cloud computer') !== undefined, 'the size step');
+    await until(() => button(root, 'Create cloud machine') !== undefined, 'the size step');
     expect(texts(root)).toContain('Step 2 of 3');
     // The screen is the person's choice and off until they turn it on.
     expect(button(root, 'Add a screen for sign-ins').props.accessibilityState.checked).toBe(false);
     TestRenderer.act(() => { button(root, 'Add a screen for sign-ins').props.onPress(); });
     expect(button(root, 'Add a screen for sign-ins').props.accessibilityState.checked).toBe(true);
-    TestRenderer.act(() => { button(root, 'Create cloud computer').props.onPress(); });
+    TestRenderer.act(() => { button(root, 'Create cloud machine').props.onPress(); });
     // A failing install shows apt's own words and stops before the phone signs in; Try again carries on.
     await until(() => button(root, 'Try again') !== undefined, 'the failed screen install', 2_000);
-    expect(texts(root)).toContain('The screen did not install on your Boat computer: E: Unable to locate package libpipewire-0.3-0t64');
+    expect(texts(root)).toContain('The screen did not install on your Boat machine: E: Unable to locate package libpipewire-0.3-0t64');
     expect(lab.authorized).toEqual([]);
     TestRenderer.act(() => { button(root, 'Try again').props.onPress(); });
     await until(() => router.replace.mock.calls.length > 0, 'Home after pairing', 2_000);
