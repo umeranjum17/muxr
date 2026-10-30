@@ -4,35 +4,45 @@ app: "pockit"
 # Approved written requirements: supervisor inbox 003 (two doors) and the
 # ticket's existing Boat-flow requirement. Inbox 028 limits these rows to
 # still-image-verifiable requirements and the fresh driver's exact filenames.
+# Each row names the journey that captures it (`journey:`, done-done 0.6.23), so
+# it is enforced only on a claim citing that journey's run, and its capture is
+# that journey's own filename. A claim about another journey never answers for it.
 approved_requirements:
   - kind: spec
     name: native-connect-360-light
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: native-connect-360-light.png
+    journey: two-doors
+    capture: doors-360-1.0-light.png
   - kind: spec
     name: native-connect-360-dark
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: native-connect-360-dark.png
+    journey: two-doors
+    capture: doors-360-1.0-dark.png
   - kind: spec
     name: native-connect-390-light
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: native-connect-390-light.png
+    journey: two-doors
+    capture: doors-390-1.0-light.png
   - kind: spec
     name: native-connect-390-dark
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: native-connect-390-dark.png
+    journey: two-doors
+    capture: doors-390-1.0-dark.png
   - kind: spec
     name: pwa-connect-1280-light
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: pwa-connect-1280-light.png
+    journey: demo-first-run-pwa
+    capture: web-connect-1280-1.0-light.png
   - kind: spec
     name: pwa-connect-1280-dark
     requirement: 'the first screen must offer two branches - "My computer" and "Cloud machine (Boat)".'
-    capture: pwa-connect-1280-dark.png
+    journey: demo-first-run-pwa
+    capture: web-connect-1280-1.0-dark.png
   - kind: spec
     name: native-boat-entry-390-light
     requirement: 'the cloud-machine option reaching the existing Boat flow.'
-    capture: native-boat-entry-390-light.png
+    journey: two-doors
+    capture: boat-1-account-390-1.0-light.png
 # This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
 # agent: opencode
 
