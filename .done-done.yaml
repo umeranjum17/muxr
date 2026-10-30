@@ -45,12 +45,28 @@ approved_requirements:
     capture: boat-1-account-390-1.0-light.png
   - kind: spec
     name: Settings cloud machine action
-    requirement: 'Settings > Machines shows an "Add a cloud machine" row, and the "Cloud machine" Boat flow screen that row opens is visible. The row is a single direct action with no intermediate screen. A still frame cannot show a touch transition: tap linkage is proven by the driven journey and disclosed, not photographed.'
-    capture: live-machine-board.png
+    requirement: 'Settings > Machines shows an "Add a cloud machine" row as a single direct action. A still frame cannot show a touch transition: tap linkage with no intermediate screen is proven by the driven journey and disclosed, not photographed.'
+    capture: live-05-settings-action.png
+  - kind: spec
+    name: Settings cloud machine Boat destination
+    requirement: 'The "Cloud machine" Boat flow screen opened by the Settings action is visible. A still frame cannot show a touch transition: linkage is proven by the driven journey and disclosed, not photographed.'
+    capture: live-06-boat-entry.png
   - kind: spec
     name: One machine list and shared actions
-    requirement: 'A cloud machine that exists or is created is listed beside paired computers with its own status, reachable by switch, and removable by forget, exactly like a machine today. One list, one set of actions.'
-    capture: live-switch-board.png
+    requirement: 'The created cloud machine is listed beside the paired Desk computer with its own status in the same machine list, with the ordinary machine actions.'
+    capture: live-07-cloud-listed.png
+  - kind: spec
+    name: Switch to the paired computer
+    requirement: 'After switching from the cloud machine to the paired Desk computer, Home shows Desk connected.'
+    capture: live-08-desk-switched.png
+  - kind: spec
+    name: Switch back to the cloud machine
+    requirement: 'After switching back from Desk, Home shows the created cloud machine connected.'
+    capture: live-09-cloud-switched-back.png
+  - kind: spec
+    name: Forget the cloud machine
+    requirement: 'After forgetting the cloud machine through the ordinary machine action, Settings > Machines shows Desk remaining and no cloud machine row.'
+    capture: live-12-cloud-forgotten.png
 # This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
 # agent: opencode
 
