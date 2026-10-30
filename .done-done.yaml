@@ -45,32 +45,32 @@ approved_requirements:
     capture: boat-1-account-390-1.0-light.png
   - kind: spec
     name: Settings cloud machine action
-    requirement: 'Settings > Machines shows an "Add a cloud machine" row as a single direct action. A still frame cannot show a touch transition: tap linkage with no intermediate screen is proven by the driven journey and disclosed, not photographed.'
+    requirement: 'Settings shows a MACHINES section containing an "Add a cloud machine" row with the subtitle "Create a machine on Boat, then pair it with this device".'
     journey: cloud-machines
     capture: live-05-settings-action.png
   - kind: spec
     name: Settings cloud machine Boat destination
-    requirement: 'The "Cloud machine" Boat flow screen opened by the Settings action is visible. A still frame cannot show a touch transition: linkage is proven by the driven journey and disclosed, not photographed.'
+    requirement: 'The screen header reads "Cloud machine" and "Step 1 of 3", with "Connect your Boat account" and a "Connect Boat account" button visible.'
     journey: cloud-machines
     capture: live-06-boat-entry.png
   - kind: spec
     name: One machine list and shared actions
-    requirement: 'The created cloud machine is listed beside the paired Desk computer with its own status in the same machine list, with the ordinary machine actions.'
+    requirement: 'Settings lists Desk and a separate machine whose visible hostname begins "box-node-" in the same MACHINES section. The hostname row shows "Linux • online", "Active", and a trash control, while Desk has its own trash control.'
     journey: cloud-machines
     capture: live-07-cloud-listed.png
   - kind: spec
     name: Switch to the paired computer
-    requirement: 'After switching from the cloud machine to the paired Desk computer, Home shows Desk connected.'
+    requirement: 'Home shows "Desk" in its header with a green indicator and "connected".'
     journey: cloud-machines
     capture: live-08-desk-switched.png
   - kind: spec
     name: Switch back to the cloud machine
-    requirement: 'After switching back from Desk, Home shows the created cloud machine connected.'
+    requirement: 'Home shows a hostname beginning "box-node-" in its header with a green indicator and "connected".'
     journey: cloud-machines
     capture: live-09-cloud-switched-back.png
   - kind: spec
     name: Forget the cloud machine
-    requirement: 'After forgetting the cloud machine through the ordinary machine action, Settings > Machines shows Desk remaining and no cloud machine row.'
+    requirement: 'Settings shows Desk as its only machine row in the MACHINES section, with no additional box-node hostname row; the "Add a cloud machine" row remains visible.'
     journey: cloud-machines
     capture: live-12-cloud-forgotten.png
 # This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
