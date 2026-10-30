@@ -24,7 +24,8 @@
             ],
             "knownLimits": [
                 "Home card transitions still use a brief settling delay; the Right now card and Spaces can update immediately.",
-                "The original physical-phone flashing report remains independently unverified."
+                "The original physical-phone flashing report remains independently unverified.",
+                "0.2.17 is the v0.2.17 tag, byte-identical to the sealed artifact (sha256 a15eb8f9bd1713f7ef82aaf02676cf8189d1d1656b97dfbefa1351b480b32b82); its provenance names the publishing workflow commit rather than the tag commit."
             ]
         },
         {

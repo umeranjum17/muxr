@@ -94,7 +94,7 @@ try {
     pairing = await stack.mintPairing();
     await adb('logcat', '-c');
     await adb('shell', 'monkey', '-p', pkg, '1');
-    await wait(/Let’s connect|Other ways to connect|Enter pairing string/, 25);
+    await wait(/Connect a machine|Let’s connect|Other ways to connect|Enter pairing string/, 25);
     // The pairing link opens the app on its consent step, the way a scanned QR does.
     await adb('shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', `'muxr-dev://pair#${pairing.code}'`, pkg);
     await wait(/wants to pair with this phone/, 25);

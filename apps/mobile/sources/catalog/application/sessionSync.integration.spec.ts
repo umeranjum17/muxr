@@ -151,7 +151,7 @@ vi.mock('@/herd', async () => {
 import { applyStatusToSession, sessionInfoToSession } from '../infrastructure/sessionMapping';
 import { applyHostInfoToAgent } from '../domain/agent';
 import { arrangeLiveTerminalCards, EMPTY_LIVE_TERMINAL_ARRANGEMENT } from '@/herd/application/liveTerminalOrder';
-import { homeShowsSnapshot, storage } from './storage';
+import { storage } from './storage';
 
 async function spawn(options: { modelMode?: string; effortLevel?: string }) {
     const { machineSpawnNewSession } = await import('./ops');
@@ -1506,6 +1506,7 @@ describe('session sync flow', () => {
     });
 
     it('draws the last Home the host confirmed, stale, until the host answers', async () => {
+        const { homeShowsSnapshot, storage } = await import('./storage');
         const { clearHomeSnapshot, saveHomeSnapshot } = await import('./persistence');
         const tree = (sessionId: string, agentStatus: AgentLifecycle): HerdrTreeWorkspace[] => [{
             workspaceId: 'workspace-a',
@@ -1544,7 +1545,8 @@ describe('session sync flow', () => {
         storage.getState().applyHerdrTree(tree('old', 'working'));
         storage.getState().applySessions([agent('old')], true);
         storage.getState().markSessionsLoaded();
-        const confirmed = tree('old', 'working');
+        const confirmed = tree('old', 'blocked');
+        confirmed[0]!.tabs[0]!.panes[0]!.agentKind = 'opencode';
         saveHomeSnapshot('machine', confirmed, [agent('old')], workspaceNames(confirmed), new Map());
 
         // Another machine's cold start has no Home to draw.
@@ -1557,10 +1559,55 @@ describe('session sync flow', () => {
         storage.getState().restoreHome('machine');
         expect(homeShowsSnapshot(storage.getState())).toBe(true);
         expect(Object.keys(storage.getState().homeSnapshot!.sessions)).toEqual(['old']);
+        expect(storage.getState().homeSnapshot!.updatedAt).toBeGreaterThan(0);
 
-        // The tree alone is half a Home, so the snapshot stays until the agents arrive too.
-        storage.getState().applyHerdrTree(tree('new', 'idle'));
-        expect(homeShowsSnapshot(storage.getState())).toBe(true);
+        // A fresh tree is authoritative even if the separate catalog is still
+        // pending or failed: it must replace the old runtime and Needs you.
+        storage.getState().applySessions([applyStatusToSession(agent('old'), {
+            sessionId: 'old', agentStatus: 'blocked', promptable: true, isStreaming: false,
+            tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        })], true);
+        const relaunched = tree('old', 'done');
+        const { sync: realSync } = await vi.importActual<typeof import('./sync')>('./sync');
+        realSync.invalidateCatalog();
+        let finishFirst!: (value: { workspaces: HerdrTreeWorkspace[]; connected: boolean }) => void;
+        let finishLater!: (value: { workspaces: HerdrTreeWorkspace[]; connected: boolean }) => void;
+        const firstTree = new Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }>((resolve) => { finishFirst = resolve; });
+        const laterTrees = new Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }>((resolve) => { finishLater = resolve; });
+        hostSync.request.mockReset().mockReturnValue(laterTrees).mockReturnValueOnce(firstTree);
+        const firstRead = realSync.refreshHerdTree();
+        const polls = Array.from({ length: 5 }, () => realSync.refreshHerdTree());
+        try {
+            finishFirst({ workspaces: relaunched, connected: true });
+            await firstRead;
+            // Later polls are still pending: starting one is not evidence that
+            // this answer is stale. Otherwise every read slower than 5s loses.
+            expect(homeShowsSnapshot(storage.getState())).toBe(false);
+        } finally {
+            finishLater({ workspaces: relaunched, connected: true });
+            await Promise.allSettled(polls);
+        }
+        hostSync.request.mockResolvedValue({ workspaces: relaunched, connected: true });
+        expect(selectLiveTerminalCards([], herdPanes([], storage.getState().herdrWorkspaces)))
+            .toContainEqual(expect.objectContaining({ id: 'old', agentKind: 'pi', agentStatus: 'done' }));
+        expect(storage.getState().sessions.old!.agentState).toBeNull();
+        expect(herdPanes(Object.values(storage.getState().sessions), storage.getState().herdrWorkspaces)[0]!.agentStatus).toBe('done');
+        const lastUpdate = storage.getState().herdrTreeUpdatedAt;
+        let recover!: (value: { workspaces: HerdrTreeWorkspace[]; connected: boolean }) => void;
+        const recovery = new Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }>((resolve) => { recover = resolve; });
+        hostSync.request.mockRejectedValueOnce(new Error('host unavailable')).mockReturnValueOnce(recovery);
+        const failedRead = realSync.refreshHerdTree();
+        const nextPoll = realSync.refreshHerdTree();
+        try {
+            await expect(failedRead).rejects.toThrow('host unavailable');
+            expect(storage.getState().herdrTreeRefreshFailed).toBe(true);
+            expect(storage.getState().herdrTreeUpdatedAt).toBe(lastUpdate);
+        } finally {
+            recover({ workspaces: relaunched, connected: true });
+            await nextPoll;
+        }
+        expect(storage.getState().herdrTreeRefreshFailed).toBe(false);
+        realSync.invalidateCatalog();
         storage.getState().applySessions([agent('new')], true);
         storage.getState().markSessionsLoaded();
         expect(homeShowsSnapshot(storage.getState())).toBe(false);

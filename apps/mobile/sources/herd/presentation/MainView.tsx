@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { storage, useHerdrRuntime, useHerdrTree, useLocalSetting, useSessionsLoaded, useSocketStatus } from '@/catalog/store';
+import { storage, useHerdrRuntime, useHerdrTree, useHomeTree, useLocalSetting, useSessionsLoaded, useSocketStatus } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useSplitViewLayout } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
@@ -308,6 +308,24 @@ const HeaderSearch = React.memo(({
     );
 });
 
+function HomeFreshnessNotice() {
+    const { stale, loaded, updatedAt, refreshFailed } = useHomeTree();
+    const { theme } = useUnistyles();
+    const [now, setNow] = React.useState(Date.now);
+    React.useEffect(() => {
+        if (!stale) return;
+        setNow(Date.now());
+        const timer = setInterval(() => setNow(Date.now()), 60_000);
+        return () => clearInterval(timer);
+    }, [stale]);
+    if (!stale || !loaded) return null;
+    return <Text accessibilityRole="alert" style={{ marginHorizontal: 16, marginVertical: 8, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>
+        {refreshFailed ? 'Could not refresh. ' : 'Waiting for a fresh update. '}
+        {updatedAt === null ? 'Last update time unknown.' : `Last updated ${Math.max(0, Math.floor((now - updatedAt) / 60_000))}m ago.`}
+        {' Showing last known agent states, not current status.'}
+    </Text>;
+}
+
 let lastTerminalLaunchClaimed = false;
 
 export const MainView = React.memo(({ liveCardBadge }: {
@@ -502,6 +520,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
     // stays off until the computer answers; the recovery card below already
     // speaks. (RightNowCard itself is untouched.)
     const homeHeader = <>
+        <HomeFreshnessNotice />
         {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} agentLine={agentLine} />}
         <HomeWebInstallInvite />
     </>;
@@ -542,6 +561,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
                     ) : splitBusy && splitBusySince !== null ? <BusyConnectingCard since={splitBusySince} computer={splitMachineName || 'Your computer'} /> : null}
                     {/* The same order as the phone: plans and machine first, then Live,
                         then what to start. */}
+                    <HomeFreshnessNotice />
                     {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} agentLine={agentLine} />}
                     <HomeWebInstallInvite />
                     {!splitRecovering && !splitBusy

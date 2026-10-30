@@ -343,6 +343,8 @@ type HomeWorkspace = Omit<HerdrTreeWorkspace, 'worktree' | 'tabs'> & {
 
 export interface HomeSnapshot {
     machineId: string;
+    /** Missing on snapshots saved before freshness was recorded. */
+    updatedAt?: number;
     workspaces: HomeWorkspace[];
     sessions: Record<string, HomeSession>;
 }
@@ -355,6 +357,7 @@ export function loadHomeSnapshot(machineId: string): HomeSnapshot | null {
         const parsed = JSON.parse(raw) as HomeSnapshot;
         if (parsed.machineId !== machineId || !Array.isArray(parsed.workspaces)
             || parsed.sessions === null || typeof parsed.sessions !== 'object') return null;
+        if (typeof parsed.updatedAt !== 'number' || !Number.isFinite(parsed.updatedAt) || parsed.updatedAt < 0) delete parsed.updatedAt;
         return parsed;
     } catch {
         return null;
@@ -372,6 +375,7 @@ export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspa
     mmkv.remove(OLD_HOME_SNAPSHOT_KEY);
     const snapshot: HomeSnapshot = {
         machineId,
+        updatedAt: Date.now(),
         workspaces: workspaces.map((workspace) => ({
             workspaceId: workspace.workspaceId,
             label: names.get(workspace.workspaceId),

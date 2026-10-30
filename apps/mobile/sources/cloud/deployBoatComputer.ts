@@ -24,6 +24,8 @@ export const BOAT_PRICES: Price[] = [
     { ...PRICE, size: 'small', perHour: 0.018, basis: '2 vCPU, 4 GB: half the default rate, billed per second while on' },
     { ...PRICE, size: 'default', perHour: 0.036, basis: '4 vCPU, 8 GB: $20 a month buys 2,000,000 VM-seconds, billed per second while on' },
 ];
+/** The cheapest size's hourly price: what every entry point quotes as "from". */
+export const BOAT_FROM_PER_HOUR = Math.min(...BOAT_PRICES.flatMap((price) => price.perHour ?? []));
 export type BoatSize = 'small' | 'default';
 
 /**
