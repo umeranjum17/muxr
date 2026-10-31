@@ -1,6 +1,6 @@
 /** Product-owned plans wire and bookkeeping; managed accounts and Auto come from BYOKit. */
 export type { PlanProvider, PlanAccountRecord } from './planStore.js';
-export { PLAN_PROVIDERS, PLAN_LABELS, muxrHome, plansDir, defaultPlanFolder, loadPlanAccounts } from './planStore.js';
+export { PLAN_PROVIDERS, PLAN_LABELS, muxrHome, plansDir, defaultPlanFolder, conversationRoot, loadPlanAccounts } from './planStore.js';
 export type { PlanIdentity, PlanCommandRunner } from './planIdentity.js';
 export { runPlanCommand, claudeIdentity, codexIdentity } from './planIdentity.js';
 export type { PlansDeps } from './plansApi.js';

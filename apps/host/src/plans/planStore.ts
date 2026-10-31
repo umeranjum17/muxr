@@ -7,9 +7,9 @@
  * is the tool's own status command (BYOKit for managed accounts, `planIdentity.ts` for the default row). muxr never opens a
  * credential file to learn who an account is.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 export type PlanProvider = 'claude' | 'codex' | 'opencode';
 export const PLAN_PROVIDERS: PlanProvider[] = ['claude', 'codex', 'opencode'];
@@ -45,6 +45,21 @@ export function defaultPlanFolder(provider: PlanProvider, env: NodeJS.ProcessEnv
     const home = env.HOME?.trim() || homedir();
     if (provider === 'claude') return env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
     return env.CODEX_HOME?.trim() || join(home, '.codex');
+}
+
+/**
+ * The folder whose `projects` really holds an account's conversations. A managed account links `projects`
+ * to the computer's own store, and the kit refuses a linked path, so the store's own folder is named instead.
+ */
+export function conversationRoot(folder: string): string {
+    try {
+        const projects = join(folder, 'projects');
+        if (!lstatSync(projects).isSymbolicLink()) return folder;
+        const real = realpathSync(projects);
+        return basename(real) === 'projects' ? dirname(real) : folder;
+    } catch {
+        return folder;
+    }
 }
 
 function storePath(env: NodeJS.ProcessEnv): string {

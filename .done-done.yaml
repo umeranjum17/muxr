@@ -318,6 +318,16 @@ journeys:
   cloud-machines:
     command: node .agents/skills/done-done-verify-pockit/features/cloudMachinesNativeLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --port "$BOAT_LAB_PORT" --upstream "$BOAT_LAB_UPSTREAM" --key-file "$BOAT_LAB_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 25m
+  # A running Claude conversation moves from one computer to another and carries on there
+  # (move-to-computer.md): two real lab computers (Desk, Laptop) on guarded Herdr lab sessions
+  # with a stand-in Claude, the installed PWA at phone 390 and desktop 1280, dark and light:
+  # Pane actions, Move to another computer, Laptop, Move, then the outcome, read back through
+  # Laptop's own Herdr. MUXR_LAB_WEB is a lab web export of this commit
+  # (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export). The judge takes every file in the run
+  # folder as a capture, so the logs and read-backs sit beside it in -logs.
+  move-to-computer:
+    command: scripts/diagnostics/application/withPrivateXvfb.sh node .agents/skills/done-done-verify-pockit/features/moveToComputerPwaLab.mjs "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT-journey.out" 2>&1
+    timeout: 40m
   cloud-boat:
     command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --upstream "${BOAT_LIVE_API:-https://boat.dev/api/v1}" --key-file "$BOAT_LIVE_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m

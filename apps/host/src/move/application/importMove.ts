@@ -6,7 +6,7 @@ import type { MoveReady } from '@trymuxr/contract';
 import type { SessionSource } from '../../agent/index.js';
 import { startAgent } from '../../agent/index.js';
 import { homePath } from '../../platform/homePath.js';
-import { listPlans, planAccounts, planLaunchEnv, resolvePlanLaunch, type PlanAccountRecord } from '../../plans/index.js';
+import { conversationRoot, listPlans, planAccounts, planLaunchEnv, resolvePlanLaunch, type PlanAccountRecord } from '../../plans/index.js';
 import { moveAdapter, moveError } from '../domain/adapters.js';
 import type { TransferStore } from '../infrastructure/transferStore.js';
 
@@ -53,7 +53,7 @@ export async function importMove(
     }
     const record = await destinationAccount(deps.env, adapter.provider);
     if (record === undefined) throw moveError('move-not-ready', signInFirst(params.kind));
-    const imported = await importConversation({ bundle: staged.path, accountFolder: record.folder, kind: params.kind, conversation: params.conversation });
+    const imported = await importConversation({ bundle: staged.path, accountFolder: conversationRoot(record.folder), kind: params.kind, conversation: params.conversation });
     if (!imported.ok) {
         const exists = imported.code === 'exists';
         throw moveError(exists ? 'move-exists' : 'move-corrupt', exists
