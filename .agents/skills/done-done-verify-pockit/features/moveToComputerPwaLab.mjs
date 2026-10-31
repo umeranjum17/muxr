@@ -46,6 +46,11 @@ const stopAll = async () => {
         child.kill('SIGTERM');
         await Promise.race([exited, sleep(60_000)]);
     }
+    // The two computers' own host logs, beside the frames: a refused move is read from the host that refused it.
+    for (const name of ['desk', 'laptop']) {
+        const from = join(root, `${name}-host.out`);
+        if (existsSync(from)) writeFileSync(join(logs, `${name}-host.log`), readFileSync(from, 'utf8'));
+    }
     // Idempotent: the lab tears its own sessions down on stop; this covers a lab that died first.
     for (const session of [deskSession, laptopSession]) { try { execFileSync(helper, ['teardown', session], { stdio: 'ignore', timeout: 120_000 }); } catch { /* already gone */ } }
 };
@@ -168,7 +173,9 @@ try {
                 log(`moved (${tag})`);
                 break;
             }
-            log(`the move did not happen (${tag}): ${(text() ?? '').split('\n').filter((l) => /move|Laptop|Desk/i.test(l)).slice(0, 6).join(' / ')}`);
+            const said = (text() ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
+            writeFileSync(join(logs, `outcome-${tag}.txt`), said.join('\n'));
+            log(`the move did not happen (${tag}): ${said.join(' / ')}`);
             // Close the sheet and carry on to the next cell: Desk still runs the agent.
             click("(n.innerText||'') === 'Cancel' && n.getAttribute('role') === 'button'"); await sleep(1000);
             ax('eval', 'location.reload()'); await sleep(8000);

@@ -180,6 +180,10 @@ try {
     }
 } finally {
     for (const socket of offers.values()) socket.destroy();
+    // Each computer's host log, kept where the driver can copy it: a failed move is read from the host that refused it.
+    for (const [one, name] of [[desk, 'desk'], [laptop, 'laptop']]) {
+        if (one !== undefined) writeFileSync(join(root, `${name}-host.out`), one.lab.hostOutput());
+    }
     for (const lab of labs.reverse()) await lab.stop().catch((error) => log(`stop failed: ${error.message}`));
     log('done');
 }
