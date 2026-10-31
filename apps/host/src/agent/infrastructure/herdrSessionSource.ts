@@ -2870,6 +2870,11 @@ export async function createHerdrSessionSource(
             return { agent: record.agent?.agent ?? undefined, cwd: cwdForSession(sessionId) ?? '', ref: { kind: ref.kind, value: ref.value } };
         },
 
+        async exportConversation(sessionId: string, exportOptions: { to: string; maxBytes?: number }) {
+            const record = await resolvePane(sessionId);
+            return client.kit.exportConversation({ paneId: record.paneId }, exportOptions);
+        },
+
         async canMovePlanAccount(sessionId: string): Promise<boolean> {
             const agent = (await resolvePane(sessionId)).agent;
             return conversationToMove(agent) !== undefined && agent?.agent !== 'opencode';

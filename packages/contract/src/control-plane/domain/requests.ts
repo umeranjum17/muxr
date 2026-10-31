@@ -67,6 +67,8 @@ export type StreamingBehavior = 'steer' | 'followUp';
 
 /** The plain word an agent kind that cannot move keeps: the existing Continue. */
 export const MOVE_CONTINUE_NOTE = 'Continue';
+/** One `move.read`/`move.stage` chunk, raw bytes (base64 on the wire). */
+export const MOVE_CHUNK_BYTES = 192 * 1024;
 /** The largest bundle a move carries; a longer conversation keeps the Continue note's route. */
 export const MOVE_MAX_BYTES = 64 * 1024 * 1024;
 
@@ -77,6 +79,19 @@ export type MoveOffer = { movable: true; kind: string } | { movable: false; note
 export type MoveReady =
     | { ready: true; home: string }
     | { ready: false; code: 'move-not-ready'; message: string };
+
+/** One exported conversation on the source, read by `transferId` in chunks. */
+export interface MoveBundle {
+    transferId: string;
+    kind: string;
+    conversation: string;
+    /** Whole bundle, in bytes. */
+    bytes: number;
+    /** SHA-256 of the whole bundle, lowercase hex. */
+    digest: string;
+    cwd: string;
+    taskTitle?: string;
+}
 
 export interface WatchSettlement {
     status: string;
@@ -663,6 +678,10 @@ export interface RequestMap extends PeerRequestMap {
     'move.offer': { params: { sessionId: string }; result: MoveOffer };
     /** Destination: is this kind installed and signed in here, and where does the folder map to? */
     'move.ready': { params: { kind: string }; result: MoveReady };
+    /** Source: package the conversation into one private bundle (the agent must be idle or done). */
+    'move.export': { params: { sessionId: string }; result: MoveBundle };
+    /** Source: one chunk of the exported bundle, base64. */
+    'move.read': { params: { transferId: string; offset: number; length: number }; result: { offset: number; data: string; eof: boolean } };
     /** Destination: append one chunk at `offset`; a repeat of an earlier offset answers what is held. */
     'move.stage': { params: { transferId: string; offset: number; data: string }; result: { received: number } };
     /** Destination: verify the staged bundle, import it and resume the agent in a pane. */
