@@ -249,7 +249,7 @@ export interface SessionSource {
     /** The harness conversation Herdr published for this agent, which the chat view reads; absent until the agent has one. */
     conversation?(sessionId: string): Promise<{ agent: string | undefined; cwd: string; ref: { kind: 'id' | 'path'; value: string } } | undefined>;
     /** Package this agent's conversation into one private bundle file (kit portable bundle; credentials never included). */
-    exportConversation?(sessionId: string, options: { to: string; maxBytes?: number }): Promise<ConversationExport>;
+    exportConversation?(sessionId: string, options: { to: string; maxBytes?: number; accountFolder?: string }): Promise<ConversationExport>;
     abort(sessionId: string): Promise<void>;
     reload(sessionId: string): Promise<void>;
     prompt(options: SessionPromptOptions): Promise<void>;

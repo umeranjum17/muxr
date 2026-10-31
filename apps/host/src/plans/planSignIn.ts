@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import type { HerdrTreePane, HerdrTreeWorkspace, PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
 import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRecord, type PlanPreparation } from './planAccounts.js';
-import { loadPlanAccounts, PLAN_LABELS, plansDir, type PlanProvider } from './planStore.js';
+import { defaultPlanFolder, loadPlanAccounts, PLAN_LABELS, plansDir, type PlanProvider } from './planStore.js';
 
 // A completed attempt releases its kit: a later re-sign-in must not inherit add's cancel ownership.
 const attempts = new Map<string, { kit: ReturnType<typeof planAccounts>; adoptedId?: string }>();
@@ -313,6 +313,12 @@ export async function observePlanPanes(env: NodeJS.ProcessEnv, tree: { workspace
         return [pane.paneId, provider === undefined ? undefined : await observePaneAccount(env, pane.paneId, provider, foregroundPids)] as const;
     }));
     return new Map(found.filter((entry): entry is [string, string | null] => entry[1] !== undefined));
+}
+
+/** The sign-in folder a pane's agent keeps its conversations in: its recorded account's, else the computer's own. */
+export function planPaneFolder(env: NodeJS.ProcessEnv, paneId: string, provider: PlanProvider): string {
+    const accountId = loadPanes(env).find(([id]) => id === paneId)?.[1];
+    return loadPlanAccounts(env).find((record) => record.id === accountId && record.provider === provider)?.folder ?? defaultPlanFolder(provider, env);
 }
 
 /** The account an agent's pane runs on: what its own process runs on, else

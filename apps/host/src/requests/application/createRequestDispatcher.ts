@@ -515,7 +515,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'move.offer': async (params) => moveOffer((await source.list({ fresh: true })).find((candidate) => candidate.id === params.sessionId)?.agentKind),
         'move.ready': (params) => moveReady({ source, env: process.env }, params.kind),
-        'move.export': (params) => exportMove(source, moves, params.sessionId),
+        'move.export': (params) => exportMove(source, moves, process.env, params.sessionId),
         'move.read': async (params) => moves.read(params.transferId, params.offset, params.length),
         'move.stage': async (params) => ({ received: moves.stage(params.transferId, params.offset, params.data) }),
         'move.import': (params) => importMove({ source, store: moves, env: process.env, rememberPane }, params),

@@ -1683,7 +1683,7 @@ export async function createHerdrSessionSource(
         const args = kind === 'opencode' ? opencodeLaunchArgs() : [];
         await client.kit.startAgent({
             kind, name: launchName, cwd: panesById.get(paneId)?.cwd ?? homedir(),
-            place: { pane: paneId }, timeoutMs: 60_000,
+            place: { pane: paneId }, timeoutMs: 60_000, hostLaunch: true,
             ...(args.length === 0 ? {} : { args }),
         });
         recordStartedAgent(paneId, kind, launchName);
@@ -2150,7 +2150,7 @@ export async function createHerdrSessionSource(
         let launched = false;
         try {
             await client.kit.startAgent({
-                kind, name: launchName, cwd, env, timeoutMs: 60_000,
+                kind, name: launchName, cwd, env, timeoutMs: 60_000, hostLaunch: true,
                 // A worktree start gets its own new workspace; otherwise the one labelled with the folder.
                 place: startOptions.worktree === undefined ? { workspace: cwd, ...label } : { workspace: 'new', ...label },
                 ...(startOptions.worktree === undefined ? {} : { worktree: startOptions.worktree }),
@@ -2870,7 +2870,7 @@ export async function createHerdrSessionSource(
             return { agent: record.agent?.agent ?? undefined, cwd: cwdForSession(sessionId) ?? '', ref: { kind: ref.kind, value: ref.value } };
         },
 
-        async exportConversation(sessionId: string, exportOptions: { to: string; maxBytes?: number }) {
+        async exportConversation(sessionId: string, exportOptions: { to: string; maxBytes?: number; accountFolder?: string }) {
             const record = await resolvePane(sessionId);
             return client.kit.exportConversation({ paneId: record.paneId }, exportOptions);
         },
@@ -3171,7 +3171,7 @@ export async function createHerdrSessionSource(
                 const args = kind === 'opencode' ? opencodeLaunchArgs() : [];
                 void client.kit
                     .startAgent({
-                        kind, name, cwd: homedir(), place: { pane: paneId }, timeoutMs: 30_000,
+                        kind, name, cwd: homedir(), place: { pane: paneId }, timeoutMs: 30_000, hostLaunch: true,
                         ...(args.length === 0 ? {} : { args }),
                     })
                     .catch(() => {});
