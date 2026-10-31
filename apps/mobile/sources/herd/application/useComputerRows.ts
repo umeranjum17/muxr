@@ -81,7 +81,6 @@ export function useComputerRows(o: {
             grant,
             disabledReason,
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }), [grants, machines, probes, session?.metadata?.machineId, socket.status, sourceMachineId, switchable]);
 
     const sourceName = machines.find((machine) => machine.id === sourceMachineId)?.metadata?.displayName?.trim() || 'the previous computer';
