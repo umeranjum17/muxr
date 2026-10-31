@@ -33,6 +33,7 @@ import {
 } from '../../agent/index.js';
 import type { PeerDeviceContext, PeerRuntime } from '../../peer/index.js';
 import { grantMayAdministerPeers, hostPlatformLabel, listMachines, observerGrantIsViewOnly } from '../../machine/index.js';
+import { TransferStore, importMove, moveOffer, moveReady } from '../../move/index.js';
 import { collectUsage, usageNow } from '../../usage/index.js';
 import {
     voiceKeyClear,
@@ -47,6 +48,7 @@ import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
 import {
     PLAN_LABELS,
+    muxrHome,
     acknowledgeAutoTerms,
     listPlans,
     withPlanAccounts,
@@ -258,6 +260,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     };
 
     const chat = new ChatTranscripts();
+    const moves = new TransferStore(muxrHome(process.env));
 
     const handlers: { [K in NonPeerRequestType]: Handler<K> } = {
         'session.list': async (params) => {
@@ -313,8 +316,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return presentAttachmentItems(listing.artifacts);
         },
         'session.start': async (params) => {
-            const { peerMutation: _peerMutation, planAccount, planEnv: _planEnv, planUnset: _planUnset, signIn: _signIn, ...start } =
-                params as typeof params & { planEnv?: unknown; planUnset?: unknown; signIn?: unknown };
+            const { peerMutation: _peerMutation, planAccount, planEnv: _planEnv, planUnset: _planUnset, signIn: _signIn, resumeArgs: _resumeArgs, ...start } =
+                params as typeof params & { planEnv?: unknown; planUnset?: unknown; signIn?: unknown; resumeArgs?: unknown };
             const chosen = planAccount ?? (start.kind === 'opencode' ? 'auto' : undefined);
             if (chosen !== undefined && (start.kinds !== undefined || start.members !== undefined)) {
                 throw Object.assign(
@@ -510,6 +513,11 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             }
             return source.handoff(params);
         },
+        'move.offer': async (params) => moveOffer((await source.list({ fresh: true })).find((candidate) => candidate.id === params.sessionId)?.agentKind),
+        'move.ready': (params) => moveReady({ source, env: process.env }, params.kind),
+        'move.stage': async (params) => ({ received: moves.stage(params.transferId, params.offset, params.data) }),
+        'move.import': (params) => importMove({ source, store: moves, env: process.env, rememberPane }, params),
+        'move.release': async (params) => { moves.release(params.transferId); return null; },
         'session.status': async (params) => useCaseData(
             await readAgentSession(source, { view: 'status', sessionId: params.sessionId }),
         ) as Awaited<ReturnType<SessionSource['status']>>,

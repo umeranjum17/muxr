@@ -55,6 +55,8 @@ export interface SessionStartOptions {
     /** Published managed-account credential names to remove before the agent opens. */
     planUnset?: string[];
     signIn?: string;
+    /** Internal (never on the phone wire): extra launch arguments, e.g. `--resume <id>` for a moved conversation. */
+    resumeArgs?: string[];
     worktree?: { branch?: string; base?: string };
     /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
     kinds?: string[];

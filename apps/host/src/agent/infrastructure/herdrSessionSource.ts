@@ -2145,7 +2145,7 @@ export async function createHerdrSessionSource(
             }
             : paneEnv;
         const launchEnv = startOptions.planEnv?.PATH === undefined ? process.env : { ...process.env, PATH: startOptions.planEnv.PATH };
-        const args = kind === 'opencode' ? opencodeLaunchArgs(launchEnv) : [];
+        const args = kind === 'opencode' ? opencodeLaunchArgs(launchEnv) : startOptions.resumeArgs ?? [];
         let paneId: string | undefined;
         let launched = false;
         try {

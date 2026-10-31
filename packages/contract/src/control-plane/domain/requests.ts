@@ -65,6 +65,19 @@ export interface PromptAttachment {
 
 export type StreamingBehavior = 'steer' | 'followUp';
 
+/** The plain word an agent kind that cannot move keeps: the existing Continue. */
+export const MOVE_CONTINUE_NOTE = 'Continue';
+/** The largest bundle a move carries; a longer conversation keeps the Continue note's route. */
+export const MOVE_MAX_BYTES = 64 * 1024 * 1024;
+
+/** Whether this agent's kind can move with its conversation, or keeps the Continue note. */
+export type MoveOffer = { movable: true; kind: string } | { movable: false; note: typeof MOVE_CONTINUE_NOTE };
+
+/** Whether a computer can resume a kind: installed, signed in on its own, with the folder it would use. */
+export type MoveReady =
+    | { ready: true; home: string }
+    | { ready: false; code: 'move-not-ready'; message: string };
+
 export interface WatchSettlement {
     status: string;
     detail: string;
@@ -639,6 +652,26 @@ export interface RequestMap extends PeerRequestMap {
         params: { sessionId: string; targetName: string };
         result: { note: string };
     };
+    // --- move to another computer --------------------------------------------
+    // The same conversation, carried to another paired computer and resumed in a pane
+    // there. The phone is the courier: it reads the portable bundle from the source in
+    // bounded chunks and stages it on the destination. A bundle never carries a
+    // sign-in; the destination resumes on its own. A refusal is a typed `code`:
+    // `move-unsupported`, `move-busy`, `move-too-large`, `move-corrupt`, `move-exists`,
+    // `move-not-ready`, `move-resume-failed`.
+    /** Source: can this agent's kind move, or does it keep the Continue note? */
+    'move.offer': { params: { sessionId: string }; result: MoveOffer };
+    /** Destination: is this kind installed and signed in here, and where does the folder map to? */
+    'move.ready': { params: { kind: string }; result: MoveReady };
+    /** Destination: append one chunk at `offset`; a repeat of an earlier offset answers what is held. */
+    'move.stage': { params: { transferId: string; offset: number; data: string }; result: { received: number } };
+    /** Destination: verify the staged bundle, import it and resume the agent in a pane. */
+    'move.import': {
+        params: { transferId: string; kind: string; conversation: string; bytes: number; digest: string; cwd: string; taskTitle?: string };
+        result: { sessionId: string; cwd: string };
+    };
+    /** Either side: drop a transfer's private bundle. */
+    'move.release': { params: { transferId: string }; result: null };
     /**
      * Answer the question an agent is blocked on with one key: `y`, `n` or a
      * choice number. With `eventId` the host refuses once that blocked event is
