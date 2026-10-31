@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { ScopedTheme, StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { SheetIcon } from '@/components/SheetIcon';
 import { useAuth } from '@/account/ui';
@@ -58,11 +58,6 @@ export function MoveOrContinueRow({ sessionId, agentKind, onMove, onContinue }: 
     </Pressable>;
 }
 
-/** Over an agent the terminal is always dark, so this sheet reads the dark theme like Computers and Continue. */
-export function MoveSheet(props: MoveSheetProps): React.JSX.Element {
-    return <ScopedTheme name="dark"><MoveSheetContent {...props} /></ScopedTheme>;
-}
-
 interface MoveSheetProps {
     visible: boolean;
     sessionId: string;
@@ -73,7 +68,11 @@ interface MoveSheetProps {
     onContinue: () => void;
 }
 
-function MoveSheetContent({ visible, sessionId, agentKind, sourceCwd, onClose, onContinue }: MoveSheetProps): React.JSX.Element {
+/**
+ * No scoped theme: the sheet's own surface follows the app theme (a web sheet portals out of any
+ * scope), so its text must read the same theme or it vanishes into the surface in light mode.
+ */
+export function MoveSheet({ visible, sessionId, agentKind, sourceCwd, onClose, onContinue }: MoveSheetProps): React.JSX.Element {
     const { theme } = useUnistyles();
     const router = useRouter();
     const auth = useAuth();
