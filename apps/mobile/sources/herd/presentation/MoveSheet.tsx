@@ -186,32 +186,32 @@ export function MoveSheet({ visible, sessionId, agentKind, sourceCwd, onClose, o
         return [`Running ${agentLine}`, picked === null ? 'Pick a computer' : 'Online, ready to receive', 'on', 'on'];
     })();
     const header = phase === 'pick' && picked === null ? null : (
-        <View style={[styles.strip, { backgroundColor: theme.colors.surfaceHigh }]}>
+        <View style={[styles.strip, styles.panelBg]}>
             <View style={styles.side}>
-                <Text style={[styles.sideName, { color: theme.colors.text }]} numberOfLines={1}>{sourceName === 'the previous computer' ? 'This computer' : sourceName}</Text>
-                <View style={styles.status}><View style={[styles.dot, { backgroundColor: strip[2] === 'on' ? theme.colors.success : theme.colors.textSecondary }]} /><Text style={[styles.statusText, { color: theme.colors.textSecondary }]}>{strip[0]}</Text></View>
+                <Text style={[styles.sideName, styles.ink]} numberOfLines={1}>{sourceName === 'the previous computer' ? 'This computer' : sourceName}</Text>
+                <View style={styles.status}><View style={[styles.dot, { backgroundColor: strip[2] === 'on' ? theme.colors.success : theme.colors.textSecondary }]} /><Text style={[styles.statusText, styles.muted]}>{strip[0]}</Text></View>
             </View>
             <Ionicons name="arrow-forward" size={16} color={theme.colors.textSecondary} />
             <View style={styles.side}>
-                <Text style={[styles.sideName, { color: theme.colors.text }]} numberOfLines={1}>{to}</Text>
-                <View style={styles.status}><View style={[styles.dot, { backgroundColor: strip[3] === 'on' ? theme.colors.success : strip[3] === 'bad' ? theme.colors.textDestructive : theme.colors.textSecondary }]} /><Text style={[styles.statusText, { color: theme.colors.textSecondary }]}>{strip[1]}</Text></View>
+                <Text style={[styles.sideName, styles.ink]} numberOfLines={1}>{to}</Text>
+                <View style={styles.status}><View style={[styles.dot, { backgroundColor: strip[3] === 'on' ? theme.colors.success : strip[3] === 'bad' ? theme.colors.textDestructive : theme.colors.textSecondary }]} /><Text style={[styles.statusText, styles.muted]}>{strip[1]}</Text></View>
             </View>
         </View>
     );
     const truth = (rows: Array<[string, string]>) => (
-        <View style={[styles.group, { backgroundColor: theme.colors.surfaceHigh }]}>
-            {rows.map(([who, what]) => <View key={who} style={styles.truth}><Text style={[styles.truthWho, { color: theme.colors.text }]}>{who}</Text><Text style={[styles.truthWhat, { color: theme.colors.textSecondary }]}>{what}</Text></View>)}
+        <View style={[styles.group, styles.panelBg]}>
+            {rows.map(([who, what]) => <View key={who} style={styles.truth}><Text style={[styles.truthWho, styles.ink]}>{who}</Text><Text style={[styles.truthWhat, styles.muted]}>{what}</Text></View>)}
         </View>
     );
     const list = (marker: 'checkmark' | 'remove', items: string[]) => (
-        <View style={[styles.group, { backgroundColor: theme.colors.surfaceHigh }]}>
-            {items.map((item) => <View key={item} style={styles.listRow}><Ionicons name={marker} size={16} color={marker === 'checkmark' ? theme.colors.success : theme.colors.textSecondary} /><Text style={[styles.line, { color: theme.colors.text, flex: 1 }]}>{item}</Text></View>)}
+        <View style={[styles.group, styles.panelBg]}>
+            {items.map((item) => <View key={item} style={styles.listRow}><Ionicons name={marker} size={16} color={marker === 'checkmark' ? theme.colors.success : theme.colors.textSecondary} /><Text style={[styles.line, styles.ink, { flex: 1 }]}>{item}</Text></View>)}
         </View>
     );
     const button = (label: string, onPress: () => void, kind: 'primary' | 'secondary' | 'quiet' = 'primary', disabled = false) => (
         <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityState={{ disabled }}
-            style={[kind === 'quiet' ? styles.quiet : styles.primary, kind === 'primary' && { backgroundColor: theme.colors.accent, opacity: disabled ? 0.4 : 1 }, kind === 'secondary' && { backgroundColor: theme.colors.surfaceHighest }]}>
-            <Text style={kind === 'primary' ? [styles.primaryText, { color: theme.colors.surface }] : [styles.quietText, { color: kind === 'secondary' ? theme.colors.text : theme.colors.textSecondary }]}>{label}</Text>
+            style={[kind === 'quiet' ? styles.quiet : styles.primary, kind === 'primary' && styles.accentBg, kind === 'primary' && disabled && styles.dimmed, kind === 'secondary' && styles.trackBg]}>
+            <Text style={kind === 'primary' ? [styles.primaryText, styles.onAccent] : [styles.quietText, kind === 'secondary' ? styles.ink : styles.muted]}>{label}</Text>
         </Pressable>
     );
 
@@ -220,9 +220,9 @@ export function MoveSheet({ visible, sessionId, agentKind, sourceCwd, onClose, o
         body = (
             <View style={styles.panel}>
                 {header}
-                <Text style={[styles.note, { color: theme.colors.textSecondary }]}>Carries this conversation to the computer you pick.</Text>
+                <Text style={[styles.note, styles.muted]}>Carries this conversation to the computer you pick.</Text>
                 <ComputerRows rows={rows.map((row) => row.id === picked?.row.id ? { ...row, readiness: 'Selected' } : row)} onPick={(row) => setPicked({ row, name: row.name })} />
-                {rowsFailure !== undefined && <Text accessibilityRole="alert" style={[styles.error, { color: theme.colors.textDestructive }]}>{rowsFailure}</Text>}
+                {rowsFailure !== undefined && <Text accessibilityRole="alert" style={[styles.error, styles.danger]}>{rowsFailure}</Text>}
                 <View style={styles.buttons}>
                     {button('Continue', () => setPhase('confirm'), 'primary', picked === null)}
                     {button('Cancel', onClose, 'quiet')}
@@ -233,11 +233,11 @@ export function MoveSheet({ visible, sessionId, agentKind, sourceCwd, onClose, o
         body = (
             <View style={styles.panel}>
                 {header}
-                <Text style={[styles.section, { color: theme.colors.textSecondary }]}>What moves</Text>
+                <Text style={[styles.section, styles.muted]}>What moves</Text>
                 {list('checkmark', ['The whole conversation', 'The same folder, when it exists there'])}
-                <Text style={[styles.section, { color: theme.colors.textSecondary }]}>What stays behind</Text>
+                <Text style={[styles.section, styles.muted]}>What stays behind</Text>
                 {list('remove', ['A running command or shell', 'Sign-ins and keys', 'Files outside the conversation'])}
-                <Text style={[styles.note, { color: theme.colors.textSecondary }]}>{`${sourceName} keeps this conversation until ${to} has it running.${viaSwitch ? ` The app switches to ${to} to finish.` : ''}`}</Text>
+                <Text style={[styles.note, styles.muted]}>{`${sourceName} keeps this conversation until ${to} has it running.${viaSwitch ? ` The app switches to ${to} to finish.` : ''}`}</Text>
                 <View style={styles.buttons}>
                     {button(`Move to ${to}`, () => void start())}
                     {button('Back', () => setPhase('pick'), 'quiet')}
@@ -253,20 +253,20 @@ export function MoveSheet({ visible, sessionId, agentKind, sourceCwd, onClose, o
                     <View key={entry.step} style={styles.step} accessibilityLabel={`${entry.label(to, sent)}${index < at ? ', done' : index === at ? ', in progress' : ''}`}>
                         <Ionicons name={index < at ? 'checkmark-circle' : index === at ? 'radio-button-on' : 'ellipse-outline'} size={18}
                             color={index < at ? theme.colors.success : index === at ? theme.colors.text : theme.colors.textSecondary} />
-                        <Text style={[styles.line, { color: index > at ? theme.colors.textSecondary : theme.colors.text }]}>{entry.label(to, sent)}</Text>
+                        <Text style={[styles.line, index > at ? styles.muted : styles.ink]}>{entry.label(to, sent)}</Text>
                     </View>
                 ))}
                 {step === 'sending' && progress.total > 0 && (
                     <View accessibilityLabel={`Sent ${megabytes(progress.sent)} of ${megabytes(progress.total)}`}>
-                        <View style={[styles.track, { backgroundColor: theme.colors.surfaceHighest }]}>
-                            <View style={[styles.fill, { backgroundColor: theme.colors.accent, width: `${Math.round((progress.sent / progress.total) * 100)}%` }]} />
+                        <View style={[styles.track, styles.trackBg]}>
+                            <View style={[styles.fill, styles.accentBg, { width: `${Math.round((progress.sent / progress.total) * 100)}%` }]} />
                         </View>
-                        <View style={styles.meta}><Text style={[styles.note, { color: theme.colors.textSecondary }]}>{`${megabytes(progress.sent)} of ${megabytes(progress.total)} sent`}</Text><Text style={[styles.note, { color: theme.colors.textSecondary }]}>{`${Math.round((progress.sent / progress.total) * 100)}%`}</Text></View>
+                        <View style={styles.meta}><Text style={[styles.note, styles.muted]}>{`${megabytes(progress.sent)} of ${megabytes(progress.total)} sent`}</Text><Text style={[styles.note, styles.muted]}>{`${Math.round((progress.sent / progress.total) * 100)}%`}</Text></View>
                     </View>
                 )}
                 <View style={styles.buttons}>
                     {button('Cancel', () => { cancelled.current = true; }, 'quiet')}
-                    <Text style={[styles.note, { color: theme.colors.textSecondary, textAlign: 'center' }]}>{`Stops here; nothing changes on ${sourceName}.`}</Text>
+                    <Text style={[styles.note, styles.mutedCenter]}>{`Stops here; nothing changes on ${sourceName}.`}</Text>
                 </View>
             </View>
         );
@@ -274,9 +274,9 @@ export function MoveSheet({ visible, sessionId, agentKind, sourceCwd, onClose, o
         body = (
             <View style={styles.panel}>
                 {header}
-                <Text style={[styles.note, { color: theme.colors.textSecondary }]}>{`The conversation carries on there. It is still open on ${sourceName} until you close it.`}</Text>
+                <Text style={[styles.note, styles.muted]}>{`The conversation carries on there. It is still open on ${sourceName} until you close it.`}</Text>
                 {truth([[to, 'Has the whole conversation and is running it in a pane.'], [sourceName, 'Keeps its copy, open and idle, until you close it.']])}
-                {notice !== undefined && <Text accessibilityRole="alert" style={[styles.error, { color: theme.colors.textDestructive }]}>{notice}</Text>}
+                {notice !== undefined && <Text accessibilityRole="alert" style={[styles.error, styles.danger]}>{notice}</Text>}
                 <View style={styles.buttons}>
                     {button(`Open on ${to}`, () => void open(false))}
                     {!viaSwitch && button(`Close on ${sourceName}`, () => void open(true), 'secondary')}
@@ -287,7 +287,7 @@ export function MoveSheet({ visible, sessionId, agentKind, sourceCwd, onClose, o
         body = (
             <View style={styles.panel}>
                 {header}
-                <Text accessibilityRole="alert" style={[styles.line, { color: theme.colors.text }]}>{failed?.message}</Text>
+                <Text accessibilityRole="alert" style={[styles.line, styles.ink]}>{failed?.message}</Text>
                 {truth(onDestination
                     ? [[to, 'Has the conversation, but the agent did not start.'], [sourceName, 'Untouched.']]
                     : [[sourceName, 'Still running this agent, unchanged.'], [to, noRetry ? 'Nothing was moved.' : 'Nothing was imported.']])}
@@ -304,6 +304,15 @@ export function MoveSheet({ visible, sessionId, agentKind, sourceCwd, onClose, o
 }
 
 const styles = StyleSheet.create((theme) => ({
+    ink: { color: theme.colors.text },
+    muted: { color: theme.colors.textSecondary },
+    mutedCenter: { color: theme.colors.textSecondary, textAlign: 'center' },
+    danger: { color: theme.colors.textDestructive },
+    onAccent: { color: theme.colors.surface },
+    panelBg: { backgroundColor: theme.colors.surfaceHigh },
+    trackBg: { backgroundColor: theme.colors.surfaceHighest },
+    accentBg: { backgroundColor: theme.colors.accent },
+    dimmed: { opacity: 0.4 },
     strip: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12 },
     side: { flex: 1, gap: 2 },
     sideName: { fontSize: 15, fontWeight: '600' },
