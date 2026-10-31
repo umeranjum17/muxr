@@ -13,7 +13,7 @@
     },
     "dependencies": {
         "@byokit/accounts": "0.28.2",
-        "@byokit/herdr": "0.16.4",
+        "@byokit/herdr": "0.17.2",
         "@byokit/pair": "0.10.3",
         "@byokit/reach": "0.6.0",
         "@byokit/realtime": "0.3.1",
