@@ -119,11 +119,11 @@ try {
         children.splice(children.indexOf(browser), 1);
     };
 
-    // The conversation as Desk holds it before the move, read through Desk's own Herdr.
+    // Each theme moves its own conversation, so phone and desktop frames are both taken from a real move.
+    const agents = labInfo.agents ?? { dark: { label: 'Release notes', word: 'saffron' }, light: { label: 'Draft notes', word: 'marigold' } };
+    // The conversation as Desk holds it before the moves, read through Desk's own Herdr.
     const before = labHerdr(deskSession, 'pane', 'read', await pane(labInfo.desk), '--source', 'recent-unwrapped', '--lines', '40');
     writeFileSync(join(logs, 'desk-before.txt'), before);
-
-    let moved = false;
     // The theme is chosen the way a person chooses it, in Settings > Appearance, so the sheet and its text agree.
     const setAppTheme = async (theme) => {
         for (let attempt = 1; attempt <= 4; attempt += 1) {
@@ -136,14 +136,17 @@ try {
         }
         ax('eval', "location.assign('/')"); await sleep(8000);
     };
+    // Frames at every width for each sheet state. The last width presses Move, so the three earlier states are
+    // taken from a real visit at each width and the outcome is then read at both.
     for (const theme of ['dark', 'light']) {
+        const agent = agents[theme];
         await openBrowser(theme);
         await setAppTheme(theme);
-        for (const cell of CELLS) {
+        for (const [index, cell] of CELLS.entries()) {
             const tag = `${cell[0]}-${theme}`;
             emulate(cell, theme);
             // Desk is the connected computer; open its agent, then its Pane actions.
-            const hasAgent = () => evalJs("!!document.querySelector('[aria-label^=\"Open Release notes\"]')");
+            const hasAgent = () => evalJs(`!!document.querySelector('[aria-label^="Open ${agent.label}"]')`);
             for (let attempt = 0; attempt < 6 && !hasAgent(); attempt += 1) {
                 const connected = evalJs("document.querySelector('[aria-label^=\"Switch machine\"]')?.getAttribute('aria-label')") ?? '';
                 if (!/current Desk/.test(connected)) {
@@ -153,10 +156,10 @@ try {
                 await sleep(4000);
             }
             await until('Desk agent row', hasAgent, 60);
-            evalJs("document.querySelector('[aria-label^=\"Open Release notes\"]').click()");
+            evalJs(`document.querySelector('[aria-label^="Open ${agent.label}"]').click()`);
             await until('the agent screen', () => evalJs("!!document.querySelector('[aria-label=\"Pane actions\"]')"), 60);
             evalJs("document.querySelector('[aria-label=\"Pane actions\"]').click()"); await sleep(1500);
-            await until('the Move row', () => evalJs("!!document.querySelector('[aria-label=\"Move to another computer\"]')"), 30);
+            await until('the Move row', () => evalJs("!!document.querySelector('[aria-label=\"Move to another computer\"]')"), 120);
             shot(`actions-${tag}`);
             evalJs("document.querySelector('[aria-label=\"Move to another computer\"]').click()");
             await until('Laptop online', () => /Laptop\s*Online/.test(text() ?? ''), 60);
@@ -164,36 +167,36 @@ try {
             shot(`pick-${tag}`);
             click("(n.innerText||'') === 'Continue' && n.getAttribute('role') === 'button'"); await sleep(1500);
             shot(`confirm-${tag}`);
+            if (index < CELLS.length - 1) {
+                // Leave the sheet on the confirm state for the next width rather than moving twice.
+                click("(n.innerText||'') === 'Back' && n.getAttribute('role') === 'button'"); await sleep(800);
+                click("(n.innerText||'') === 'Cancel' && n.getAttribute('role') === 'button'"); await sleep(800);
+                ax('eval', "location.assign('/')"); await sleep(6000);
+                continue;
+            }
             click("(n.innerText||'').startsWith('Move to Laptop') && n.getAttribute('role') === 'button'");
             const outcome = await until('an outcome', () => { const t = text() ?? ''; if (/Moved to Laptop/.test(t)) return 'moved'; if (/can.t move|didn.t finish|dropped|can.t take it|didn.t start/.test(t)) return 'failed'; return false; }, 240);
             await sleep(1000);
             shot(`outcome-${outcome}-${tag}`);
-            if (outcome === 'moved') {
-                moved = true;
-                log(`moved (${tag})`);
-                break;
-            }
             const said = (text() ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
             writeFileSync(join(logs, `outcome-${tag}.txt`), said.join('\n'));
-            log(`the move did not happen (${tag}): ${said.join(' / ')}`);
-            // Close the sheet and carry on to the next cell: Desk still runs the agent.
-            click("(n.innerText||'') === 'Cancel' && n.getAttribute('role') === 'button'"); await sleep(1000);
-            ax('eval', 'location.reload()'); await sleep(8000);
+            if (outcome !== 'moved') throw new Error(`the move did not happen at ${tag}: ${said.join(' / ')}`);
+            log(`moved (${tag})`);
+            // The outcome the person is looking at, at the other width: same state, same sheet.
+            for (const other of CELLS.slice(0, -1)) { emulate(other, theme); shot(`outcome-moved-${other[0]}-${theme}`); }
         }
         await closeBrowser();
-        if (moved) break;
+        // Read back through Laptop's own Herdr: the same conversation is running there and it remembers the earlier turn.
+        const arrived = await laptopPaneWith(labInfo.laptop.session, agent.word);
+        writeFileSync(join(logs, `laptop-after-${theme}.txt`), arrived.read);
+        if (!/Resumed this conversation/.test(arrived.read)) throw new Error(`Laptop did not resume the ${theme} conversation`);
+        labHerdr(laptopSession, 'pane', 'send-text', arrived.pane, 'What was the launch word?\n');
+        await sleep(3000);
+        const turn = labHerdr(laptopSession, 'pane', 'read', arrived.pane, '--source', 'recent-unwrapped', '--lines', '40');
+        writeFileSync(join(logs, `laptop-turn-${theme}.txt`), turn);
+        if (!/You said: What was the launch word/.test(turn)) throw new Error(`Laptop did not continue the ${theme} conversation`);
+        log(`PASS: the ${theme} conversation moved from Desk to Laptop and carried on there`);
     }
-    if (!moved) throw new Error('the move never happened: see outcome-failed-*.png for what the app said; the original conversation stayed on Desk');
-    const laptopPane = await pane(labInfo.laptop);
-    const after = labHerdr(laptopSession, 'pane', 'read', laptopPane, '--source', 'recent-unwrapped', '--lines', '40');
-    writeFileSync(join(logs, 'laptop-after.txt'), after);
-    if (!/Resumed this conversation/.test(after) || !/saffron/.test(after)) throw new Error('the conversation did not arrive on Laptop');
-    labHerdr(laptopSession, 'pane', 'send-text', laptopPane, 'What was the launch word?\n');
-    await sleep(3000);
-    const turn = labHerdr(laptopSession, 'pane', 'read', laptopPane, '--source', 'recent-unwrapped', '--lines', '40');
-    writeFileSync(join(logs, 'laptop-turn.txt'), turn);
-    if (!/You said: What was the launch word/.test(turn)) throw new Error('Laptop did not continue the conversation');
-    log('PASS: the conversation moved from Desk to Laptop and carried on there');
 } catch (error) {
     failed = true;
     log(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
@@ -210,4 +213,14 @@ async function pane(info) {
     const claude = panes.find((p) => p.agent === 'claude');
     if (claude === undefined) throw new Error('no Claude pane on that computer');
     return claude.pane_id;
+}
+
+// The pane on Laptop holding the conversation whose earlier turn said this word.
+async function laptopPaneWith(session, word) {
+    const panes = JSON.parse(labHerdr(session, 'pane', 'list')).result.panes.filter((p) => p.agent === 'claude');
+    for (const p of panes) {
+        const read = labHerdr(session, 'pane', 'read', p.pane_id, '--source', 'recent-unwrapped', '--lines', '40');
+        if (read.includes(word)) return { pane: p.pane_id, read };
+    }
+    throw new Error(`Laptop has no pane running the ${word} conversation`);
 }

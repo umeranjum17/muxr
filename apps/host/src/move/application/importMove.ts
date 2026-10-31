@@ -53,7 +53,11 @@ export async function importMove(
     }
     const record = await destinationAccount(deps.env, adapter.provider);
     if (record === undefined) throw moveError('move-not-ready', signInFirst(params.kind));
-    const imported = await importConversation({ bundle: staged.path, accountFolder: conversationRoot(record.folder), kind: params.kind, conversation: params.conversation });
+    // The kit stages inside the account folder and refuses a path that is not there yet, and a signed-in
+    // computer that never ran the agent has no store of its own. Make the store, then import into it.
+    const storeFolder = conversationRoot(record.folder);
+    await mkdir(storeFolder, { recursive: true, mode: 0o700 });
+    const imported = await importConversation({ bundle: staged.path, accountFolder: storeFolder, kind: params.kind, conversation: params.conversation });
     if (!imported.ok) {
         const exists = imported.code === 'exists';
         throw moveError(exists ? 'move-exists' : 'move-corrupt', exists

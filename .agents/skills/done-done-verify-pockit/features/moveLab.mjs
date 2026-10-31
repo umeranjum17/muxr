@@ -139,34 +139,43 @@ let desk, laptop;
 try {
     desk = await up('Desk');
     laptop = await up('Laptop');
-    const started = await requestLab(desk.lab.link, 'session.start', { cwd: desk.work, kind: 'claude', planAccount: desk.accountId, label: 'release-notes' });
-    // An agent's route changes once it settles, so find it again by kind each time.
-    const claude = async () => (await requestLab(desk.lab.link, 'session.list', {})).find((row) => row.agentKind === 'claude');
-    let sessionId = started.info.id;
-    for (let i = 0; i < 60; i += 1) {
-        await sleep(1000);
-        const row = await claude();
-        if (i % 10 === 0) log(`poll ${i}: ${JSON.stringify((await requestLab(desk.lab.link, 'session.list', {})).map((r) => ({ id: r.id, kind: r.agentKind, st: r.agentStatus })))}`);
-        if (i === 12 && row !== undefined) {
-            try { const pane = (await requestLab(desk.lab.link, 'session.open', { sessionId: row.id })).info.paneId; log(`pane ${pane}:\n${desk.lab.herdr(['pane', 'read', pane, '--source', 'recent-unwrapped', '--lines', '25'])}`); } catch (error) { log(`pane read: ${error.message}`); }
+    // Two conversations, so each theme moves one of its own and every frame comes from a real move.
+    const startClaude = async (label, line) => {
+        const before = new Set((await requestLab(desk.lab.link, 'session.list', {})).map((row) => row.paneId));
+        const started = await requestLab(desk.lab.link, 'session.start', { cwd: desk.work, kind: 'claude', planAccount: desk.accountId, label });
+        // An agent's route changes once it settles, so find it again by the pane it holds.
+        const claude = async () => (await requestLab(desk.lab.link, 'session.list', {}))
+            .find((row) => row.agentKind === 'claude' && !before.has(row.paneId))
+            ?? (await requestLab(desk.lab.link, 'session.list', {})).find((row) => row.id === started.info.id);
+        let sessionId = started.info.id;
+        for (let i = 0; i < 60; i += 1) {
+            await sleep(1000);
+            const row = await claude();
+            if (i % 10 === 0) log(`${label} poll ${i}: ${JSON.stringify((await requestLab(desk.lab.link, 'session.list', {})).map((r) => ({ id: r.id, kind: r.agentKind, st: r.agentStatus, title: r.taskTitle })))}`);
+            if (row === undefined) continue;
+            sessionId = row.id;
+            const s = await requestLab(desk.lab.link, 'session.status', { sessionId }).catch((error) => { if (i % 10 === 0) log(`status: ${error.message}`); });
+            if (s?.agentStatus === 'idle') { await sleep(8000); sessionId = (await claude())?.id ?? sessionId; break; }
         }
-        if (row === undefined) continue;
-        sessionId = row.id;
-        const s = await requestLab(desk.lab.link, 'session.status', { sessionId }).catch((error) => { if (i % 10 === 0) log(`status: ${error.message}`); });
-        if (s?.agentStatus === 'idle') { await sleep(8000); sessionId = (await claude())?.id ?? sessionId; break; }
-    }
-    for (let attempt = 1; ; attempt += 1) {
-        try { await requestLab(desk.lab.link, 'session.prompt', { sessionId, text: 'The launch word is saffron. Remember it.' }); break; }
-        catch (error) {
-            if (attempt === 8) throw error;
-            log(`prompt retry ${attempt}: ${error.message}`);
-            await sleep(2000);
-            sessionId = (await claude())?.id ?? sessionId;
+        for (let attempt = 1; ; attempt += 1) {
+            try { await requestLab(desk.lab.link, 'session.prompt', { sessionId, text: line }); break; }
+            catch (error) {
+                if (attempt === 8) throw error;
+                log(`prompt retry ${attempt}: ${error.message}`);
+                await sleep(2000);
+                sessionId = (await claude())?.id ?? sessionId;
+            }
         }
-    }
-    sessionId = (await claude()).id;
-    await sleep(3000);
-    writeFileSync(join(root, 'lab.json'), JSON.stringify({ sessionId, desk: { port: desk.lab.port, session: desk.lab.session, work: desk.work }, laptop: { port: laptop.lab.port, session: laptop.lab.session, work: laptop.work } }));
+        sessionId = (await claude())?.id ?? sessionId;
+        await sleep(3000);
+        return sessionId;
+    };
+    const first = await startClaude('release-notes', 'The launch word is saffron. Remember it.');
+    const second = await startClaude('draft-notes', 'The launch word is marigold. Remember it.');
+    writeFileSync(join(root, 'lab.json'), JSON.stringify({ sessionId: first, agents: {
+        dark: { sessionId: first, label: 'Release notes', word: 'saffron' },
+        light: { sessionId: second, label: 'Draft notes', word: 'marigold' },
+    }, desk: { port: desk.lab.port, session: desk.lab.session, work: desk.work }, laptop: { port: laptop.lab.port, session: laptop.lab.session, work: laptop.work } }));
     log('ready; links written; running until the stop file appears');
     // A pairing offer lasts about two minutes, so the driver asks for one when it is ready to use it:
     // touch <labRoot>/mint-desk (or mint-laptop) and read <labRoot>/desk-link.txt (or laptop-link.txt) once the request file is gone.
