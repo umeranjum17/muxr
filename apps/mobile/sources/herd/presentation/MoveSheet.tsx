@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { SheetIcon } from '@/components/SheetIcon';
 import { useAuth } from '@/account/ui';
@@ -58,7 +58,12 @@ export function MoveOrContinueRow({ sessionId, agentKind, onMove, onContinue }: 
     </Pressable>;
 }
 
-export function MoveSheet({ visible, sessionId, agentKind, sourceCwd, onClose, onContinue }: {
+/** Over an agent the terminal is always dark, so this sheet reads the dark theme like Computers and Continue. */
+export function MoveSheet(props: MoveSheetProps): React.JSX.Element {
+    return <ScopedTheme name="dark"><MoveSheetContent {...props} /></ScopedTheme>;
+}
+
+interface MoveSheetProps {
     visible: boolean;
     sessionId: string;
     agentKind: string | undefined;
@@ -66,7 +71,9 @@ export function MoveSheet({ visible, sessionId, agentKind, sourceCwd, onClose, o
     onClose: () => void;
     /** Hand the person to the simpler Continue flow when a move cannot happen. */
     onContinue: () => void;
-}): React.JSX.Element {
+}
+
+function MoveSheetContent({ visible, sessionId, agentKind, sourceCwd, onClose, onContinue }: MoveSheetProps): React.JSX.Element {
     const { theme } = useUnistyles();
     const router = useRouter();
     const auth = useAuth();
