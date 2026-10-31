@@ -7,9 +7,9 @@
  * is the tool's own status command (BYOKit for managed accounts, `planIdentity.ts` for the default row). muxr never opens a
  * credential file to learn who an account is.
  */
-import { lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 export type PlanProvider = 'claude' | 'codex' | 'opencode';
 export const PLAN_PROVIDERS: PlanProvider[] = ['claude', 'codex', 'opencode'];
@@ -55,7 +55,10 @@ export function conversationRoot(folder: string): string {
     try {
         const projects = join(folder, 'projects');
         if (!lstatSync(projects).isSymbolicLink()) return folder;
-        const real = realpathSync(projects);
+        // The store may not exist yet on a computer that has not run the agent, where realpath cannot
+        // follow the link; the link's own target still names the store.
+        const target = resolve(folder, readlinkSync(projects));
+        const real = existsSync(target) ? realpathSync(target) : target;
         return basename(real) === 'projects' ? dirname(real) : folder;
     } catch {
         return folder;
