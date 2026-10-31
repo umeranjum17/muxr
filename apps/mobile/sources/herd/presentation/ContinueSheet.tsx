@@ -8,52 +8,17 @@ import { pairMachine } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
-import { sessionStopAfterHandoff } from '@/catalog/ops';
 import { Modal } from '@/modal';
-import { useAllMachines, useSession, useSocketStatus } from '@/catalog/store';
-import { openPairedMachine, SshComputerNeedsActivation } from '@/collaboration';
+import { useAllMachines, useSession } from '@/catalog/store';
+import { openPairedMachine } from '@/collaboration';
 import { SheetIcon } from '@/components/SheetIcon';
 import { navigateToSession } from '../application/useNavigateToSession';
 import { ComputerRows, type ComputerRow } from './ComputersSheet';
+import { useComputerRows } from '../application/useComputerRows';
+import { mapHomePath, retireSource } from '../application/retireSource';
 
 const HANDOFF_TIMEOUT_MS = 250_000;
 const PROMPT_TIMEOUT_MS = 60_000;
-
-function mapHomePath(path: string | undefined, sourceHome: string | undefined, targetHome: string | undefined): { cwd: string; folder: string } {
-    if (path === undefined || sourceHome === undefined || targetHome === undefined) return { cwd: '~', folder: '~' };
-    const home = sourceHome.replace(/[/\\]+$/, '');
-    if (path !== home && !path.startsWith(`${home}/`) && !path.startsWith(`${home}\\`)) return { cwd: '~', folder: '~' };
-    const relative = path.slice(home.length).replace(/^[/\\]+/, '');
-    if (!relative) return { cwd: targetHome, folder: '~' };
-    const separator = targetHome.includes('\\') && !targetHome.includes('/') ? '\\' : '/';
-    const target = targetHome.replace(/[/\\]+$/, '');
-    return { cwd: `${target}${separator}${relative.replace(/[/\\]+/g, separator)}`, folder: `~/${relative.replace(/\\/g, '/')}` };
-}
-
-/** Close the source only while it is at rest (strict: isSessionIdle also counts blocked/failed). Returns a notice when it stays open. */
-async function retireSource(sessionId: string, sourceName: string): Promise<string | undefined> {
-    const kept = (why: string) => `${why} It is still open on ${sourceName}. Close it when you are done.`;
-    let refusal = 'You chose to keep it open.';
-    const atRest = async (): Promise<boolean> => {
-        const { agentStatus } = await sync.request('session.status', { sessionId });
-        if (agentStatus === 'idle' || agentStatus === 'done') return true;
-        refusal = agentStatus === undefined || agentStatus === 'unknown'
-            ? 'The agent there could not be checked, so it was not closed.'
-            : 'The agent there is not idle, so it was not closed.';
-        return false;
-    };
-    try {
-        if (!await atRest()) return kept(refusal);
-        const result = await sessionStopAfterHandoff(sessionId, {
-            confirmClose: async (prompt) => (await Modal.confirm(`${prompt.confirmText}?`, prompt.message, { cancelText: 'Cancel', confirmText: prompt.confirmText, destructive: true })) && atRest(),
-            confirmRetry: async (reason) => (await Modal.confirm('Could not close the agent', reason, { cancelText: 'Cancel', confirmText: 'Retry' })) && atRest(),
-        });
-        return result.status === 'closed' ? undefined : kept(refusal);
-    } catch (cause) {
-        if (typeof cause === 'object' && cause !== null && 'code' in cause && cause.code === 'agent-unavailable') return undefined;
-        return kept(`It could not be closed: ${message(cause)}`);
-    }
-}
 
 function message(cause: unknown): string {
     return cause instanceof Error ? cause.message : String(cause);
@@ -88,9 +53,6 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
     const auth = useAuth();
     const session = useSession(sessionId);
     const machines = useAllMachines({ includeOffline: true });
-    const socket = useSocketStatus();
-    const [grants, setGrants] = React.useState<StoredHostedGrant[]>([]);
-    const [probes, setProbes] = React.useState<Record<string, { online: boolean; installed: boolean; ssh?: boolean }>>({});
     const [phase, setPhase] = React.useState<'pick' | 'writing' | 'preview' | 'starting'>('pick');
     const [picked, setPicked] = React.useState<{ grant: StoredHostedGrant; name: string; note: string; cwd: string; folder: string } | null>(null);
     const [failure, setFailure] = React.useState<string>();
@@ -98,63 +60,20 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
     const generation = React.useRef(0);
     const sourceMachineId = getCachedConnectionSettings().machineId;
     const sourceMachine = machines.find((machine) => machine.id === sourceMachineId);
+    const checkInstalled = React.useCallback(async (client: Awaited<ReturnType<typeof openPairedMachine>>) => {
+        const kinds = await client.request('herdr.agentKinds', {});
+        return agentKind !== undefined && (kinds.installed ?? []).includes(agentKind) ? undefined : `${agentKind ?? 'This agent'} is not installed there.`;
+    }, [agentKind]);
+    const { rows, failure: rowsFailure } = useComputerRows({ visible, sessionId, check: checkInstalled, switchable: false });
 
     React.useEffect(() => {
         if (!visible) return;
-        const current = ++generation.current;
+        ++generation.current;
         setPhase('pick');
         setPicked(null);
         setFailure(undefined);
-        setProbes({});
-        void listPairedGrants().then((paired) => {
-            if (generation.current !== current) return;
-            setGrants(paired);
-            for (const grant of paired) {
-                if (grant.machineId === sourceMachineId) {
-                    setProbes((value) => ({ ...value, [grant.machineId]: { online: true, installed: true } }));
-                    continue;
-                }
-                void (async () => {
-                    try {
-                        const client = await openPairedMachine(grant);
-                        try {
-                            const kinds = await client.request('herdr.agentKinds', {});
-                            if (generation.current === current) setProbes((value) => ({
-                                ...value,
-                                [grant.machineId]: { online: true, installed: agentKind !== undefined && (kinds.installed ?? []).includes(agentKind) },
-                            }));
-                        } finally { client.close(); }
-                    } catch (cause) {
-                        if (generation.current === current) setProbes((value) => ({ ...value, [grant.machineId]: { online: false, installed: false, ssh: cause instanceof SshComputerNeedsActivation } }));
-                    }
-                })();
-            }
-        }).catch((cause: unknown) => setFailure(message(cause)));
         return () => { generation.current++; };
-    }, [visible, sourceMachineId, agentKind]);
-
-    const rows = React.useMemo<ComputerRow[]>(() => grants.map((grant) => {
-        const probe = probes[grant.machineId];
-        const active = grant.machineId === sourceMachineId;
-        const isOnline = active ? socket.status === 'connected' : probe?.online === true;
-        const name = active ? 'This computer' : machines.find((machine) => machine.id === grant.machineId)?.metadata?.displayName?.trim()
-            || grant.machineName?.trim() || 'Paired computer';
-        let state: ComputerRow['state'] = isOnline ? 'online' : 'offline';
-        if (!isOnline && active) state = 'asleep';
-        else if (!active && probe?.ssh) state = 'ssh';
-        let disabledReason: string | undefined;
-        if (probe?.ssh) disabledReason = 'Switch to it in Computers first.';
-        else if (probe?.online && !probe.installed) disabledReason = `${agentKind ?? 'This agent'} is not installed there.`;
-        return {
-            id: grant.machineId,
-            name,
-            state,
-            inUse: active || session?.metadata?.machineId === grant.machineId,
-            checking: !active && probe === undefined,
-            grant,
-            disabledReason,
-        };
-    }), [agentKind, grants, machines, probes, session?.metadata?.machineId, socket.status, sourceMachineId]);
+    }, [visible]);
 
     const begin = async (row: ComputerRow) => {
         if (!row.grant || agentKind === undefined) return;
@@ -238,7 +157,7 @@ export function ContinueSheet({ visible, sessionId, agentKind, sourceCwd, onClos
     const body = phase === 'pick' ? (
         <View>
             <ComputerRows rows={rows} onPick={(row) => { void begin(row); }} />
-            {failure !== undefined && <Text accessibilityRole="alert" style={{ color: '#ff6961', padding: 16 }}>{failure}</Text>}
+            {(failure ?? rowsFailure) !== undefined && <Text accessibilityRole="alert" style={{ color: '#ff6961', padding: 16 }}>{failure ?? rowsFailure}</Text>}
         </View>
     ) : (
         <View style={{ padding: 20, gap: 14 }}>
