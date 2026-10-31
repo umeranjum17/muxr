@@ -1,6 +1,55 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.18",
+            "title": "Agent chat, and a two-door first run",
+            "summary": "Since 0.2.17: an agent screen opens on a Chat view beside its terminal, with a composer, a running strip and reply cards; the first run offers My computer or a Boat cloud machine; and Settings can add a cloud machine at any time.",
+            "features": [
+                {
+                    "title": "Chat beside the terminal",
+                    "detail": "The agent header carries a Chat | Terminal switch. Chat shows the agent's own conversation, a composer with attach, the harness's model and effort chip, one mic, Send and Stop, and Copy under each reply. Claude and Pi agents have chat; other harnesses stay on their terminal."
+                },
+                {
+                    "title": "Answer from the conversation",
+                    "detail": "While an agent works, a Running strip says what it is doing. A helper's question arrives as a reply card whose buttons answer it in the conversation, instead of sending you back to the terminal to type."
+                },
+                {
+                    "title": "Two doors on first run",
+                    "detail": "The first screen offers My computer or a Boat cloud machine as two equal choices, each naming the time it takes and what it costs. My computer leads through Tailscale, pairing and the first agent; the cloud door creates the machine and hands back a working terminal."
+                },
+                {
+                    "title": "Add a cloud machine from Settings",
+                    "detail": "The Machines section of Settings can create a Boat cloud machine at any time. It joins your own computers with the same status, switch and forget actions."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Home stops showing a stale agent",
+                    "detail": "An agent relaunched in the same pane no longer keeps a false Needs you, and a refresh that cannot read the tree says the data is last known, with its age, instead of looking current."
+                },
+                {
+                    "title": "A busy computer keeps its tree",
+                    "detail": "The host journals one slow Herdr read and restarts the kit only on a trend of them, so a single 20 second sample on a loaded machine no longer interrupts the tree the phone reads."
+                },
+                {
+                    "title": "The on-device speech runtime loads on Android",
+                    "detail": "The speech package the local speech gate needs is registered in the Android build again, so a build no longer reaches runtime without its native library."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Checks",
+                    "status": "not-run",
+                    "detail": "This release has not been accepted on a phone. The captain's own phone test is still required before stable publication."
+                }
+            ],
+            "knownLimits": [
+                "Chat covers Claude and Pi agents; Codex and OpenCode agents stay on their terminal.",
+                "Standby voice detection was not exercised at runtime on Android; only its package registration is proven.",
+                "A Boat cloud machine is paid to Boat from $0.018 an hour and runs in the cloud, not on your computer."
+            ]
+        },
+        {
             "appVersion": "0.2.17",
             "title": "Steadier agent cards on Home",
             "summary": "Since 0.2.16: an agent keeps one Home card through a relaunch, and its last terminal picture stays visible when it returns to Live.",
