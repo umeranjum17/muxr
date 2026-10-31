@@ -6,6 +6,8 @@
  * subscription's own (`<id>:sub:0:probe`); a kit that never settles that watch
  * keeps its tree refresh running for good. Passive reads must not need that
  * refresh; the client's bootstrap guard must recover without a polling reader.
+ * The guard restarts the kit on a trend of slow samples (3 x 20 s), not one, so
+ * this check waits past that 60 s before it calls the read wedged.
  * Real lab Herdr and the host's Herdr client, built (`apps/host/dist`). A
  * socket proxy in front of the lab Herdr only holds one subscribe line back, so
  * the pane closes before Herdr reads it. (A whole lab host refuses any socket
@@ -103,11 +105,11 @@ try {
         const snapshot = client.kit.snapshot();
         return client.connected && snapshot.workspaces.some((workspace) => workspace.id === trigger)
             && !snapshot.workspaces.some((workspace) => workspace.tabs.some((tab) => tab.panes.some((pane) => pane.id === doomed)));
-    }, 'automatic bootstrap recovery without a refreshing consumer', 45_000);
+    }, 'automatic bootstrap recovery without a refreshing consumer', 90_000);
     const recoveryWaited = `${((Date.now() - asked) / 1000).toFixed(1)}s`;
     process.stdout.write(`ok: automatic bootstrap recovers ${recoveryWaited} after a watched agent pane closed, without a refreshing consumer\n`);
     const freshAsked = Date.now();
-    const answered = await Promise.race([client.refresh().then(() => true), sleep(45_000).then(() => false)]);
+    const answered = await Promise.race([client.refresh().then(() => true), sleep(90_000).then(() => false)]);
     const waited = `${((Date.now() - freshAsked) / 1000).toFixed(1)}s`;
     if (!answered) throw new Error(`the Herdr tree refresh never answered after a watched agent pane closed (gave up after ${waited})`);
     process.stdout.write(`ok: an explicit fresh tree read still answers ${waited} after recovery\n`);

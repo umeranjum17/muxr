@@ -47,8 +47,22 @@ export async function labHerdrSocket(bin: string, socketPath: string | undefined
     return named.socket_path;
 }
 
-/** Longer than a healthy read of a few hundred panes on a loaded machine. */
-const REFRESH_WEDGED_MS = 20_000;
+/**
+ * One sample of a slow read, not a verdict. Every Herdr request and every
+ * per-pane status acknowledgement gets 15 s of its own, and a refresh asked for
+ * while another bootstrap runs waits for a follow-up that pays the status
+ * barrier again, so a read that is still making progress on a loaded machine
+ * overruns 20 s routinely. Measured on a loaded host (1-min load 32-47, 106
+ * panes, 55 agent panes): a healthy read costs 0.1-0.5 s, of which the Herdr read
+ * itself is ~105 ms and the tree build 0.5 ms -- the rest is time spent waiting
+ * on Herdr. Restarting the kit on a single sample threw away a read that was
+ * about to land, so the wait is sampled and the kit is restarted only once the
+ * read has stayed over the line for every sample in a row.
+ */
+const REFRESH_SLOW_MS = 20_000;
+/** Consecutive slow samples before a read counts as wedged: 60 s, well past the
+ * kit's own 15 s request and 15 s acknowledgement deadlines. */
+const REFRESH_WEDGED_SAMPLES = 3;
 
 export class KitHerdrClient implements HerdrCaller {
     /** Live event-socket state, surfaced on `herdr.tree` so the phone can tell a dead herdr from a quiet one. */
@@ -188,26 +202,35 @@ export class KitHerdrClient implements HerdrCaller {
      * settles a status watch Herdr refuses for a pane that closed as the watch
      * opened (the refusal carries `<id>:sub:0:probe`), so that refresh, and every
      * one queued behind it, waited for good: lists and Usage still answered while
-     * no pane would open until the host restarted. A read that overruns restarts
-     * the kit the way an outage does: stop rejects the stuck readers, start reads
-     * the tree fresh.
+     * no pane would open until the host restarted. A read that stays wedged
+     * across every slow sample restarts the kit the way an outage does: stop
+     * rejects the stuck readers, start reads the tree fresh.
      */
     async refresh(): Promise<void> {
         await this.guardRefresh(this.kit.refresh());
     }
 
     private async guardRefresh(read: Promise<void>): Promise<void> {
-        let timer: NodeJS.Timeout | undefined;
-        const overrun = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), REFRESH_WEDGED_MS); });
-        const landed = await Promise.race([read.then(() => true), overrun]).finally(() => clearTimeout(timer));
-        if (landed) return;
+        const settled = read.then(() => true);
+        for (let sample = 1; ; sample += 1) {
+            let timer: NodeJS.Timeout | undefined;
+            const overrun = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), REFRESH_SLOW_MS); });
+            const landed = await Promise.race([settled, overrun]).finally(() => clearTimeout(timer));
+            if (landed) return;
+            const waited = (sample * REFRESH_SLOW_MS) / 1000;
+            if (sample < REFRESH_WEDGED_SAMPLES) {
+                process.stderr.write(`herdr: tree read still waiting after ${waited}s (slow sample ${sample}/${REFRESH_WEDGED_SAMPLES}); keeping the herdr kit\n`);
+                continue;
+            }
+            process.stderr.write(`herdr: tree read still waiting after ${waited}s (${sample} slow samples in a row); restarting the herdr kit\n`);
+            break;
+        }
         this.restarting ??= this.restartKit().finally(() => { this.restarting = undefined; });
         await this.restarting;
         await this.kit.refresh();
     }
 
     private async restartKit(): Promise<void> {
-        process.stderr.write(`herdr: tree read still waiting after ${REFRESH_WEDGED_MS / 1000}s; restarting the herdr kit\n`);
         this.connected = false;
         this.outage = true;
         await this.kit.stop();
