@@ -16,6 +16,7 @@ import { promisify } from 'node:util';
 import { parseArgs } from 'node:util';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
 import { dismissKeyboard, dismissPrompts, dumpUiXml, screenshot } from '../../../../perf/lib/androidSignals.mjs';
+import { setAndroidSerial } from '../../../../perf/lib/deviceTarget.mjs';
 import { startFakeStack } from '../../../../perf/lib/fakeStack.mjs';
 import { pairPhone } from '../../../../perf/lib/pairPhone.mjs';
 
@@ -243,6 +244,8 @@ process.once('SIGTERM', async () => {
 try {
     emulator = await bootOwnedEmulator({ name: 'muxr-dictation-lab', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: opts.launcher ? [opts.launcher] : [], onSpawn: (child) => { spawned = child; } });
     serial = emulator.serial;
+    // Every shared helper (reverse, dumps, screenshots) names this emulator, never the phone on the default server.
+    setAndroidSerial(serial);
     say(`emulator ${serial} booted`);
     stackStarting = startFakeStack({
         panes: 3, agents: 2,

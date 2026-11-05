@@ -443,5 +443,5 @@ journeys:
   # MUXR_LAB_APK, MUXR_LAB_AVD_HOME and MUXR_HEX_LAB (a Hex wrapper with an
   # installed speech model) are set; see dictation-on-computer.md.
   dictation-computer:
-    command: node .agents/skills/done-done-verify-pockit/features/dictationLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --computer "$MUXR_HEX_LAB" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    command: node .agents/skills/done-done-verify-pockit/features/dictationLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --computer "$MUXR_HEX_LAB" ${MUXR_LAB_LAUNCHER:+--launcher "$MUXR_LAB_LAUNCHER"} > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
