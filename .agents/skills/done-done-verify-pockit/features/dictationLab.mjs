@@ -307,7 +307,7 @@ try {
             const caption = `ON THE COMPUTER (muxr host log)\n\n${hostLines.at(-1)}\n\nEngine: hex model transcribe (local, no cloud)\nModel: ${model}\n\nThe words in the phone composer (left) are the text in this reading.`;
             const panel = join(EVIDENCE, '.panel.png');
             await exec('convert', ['-background', '#101418', '-fill', '#e6edf3', '-font', 'Adwaita-Mono', '-pointsize', '36', '-size', '920x', `caption:${caption}`, '-bordercolor', '#101418', '-border', '40', '-gravity', 'NorthWest', '-extent', '1000x2400', panel]);
-            await exec('convert', [join(EVIDENCE, 'computer-clean-after.png'), panel, '+append', join(EVIDENCE, 'computer-clean-after-with-host.png')]);
+            await exec('convert', [join(EVIDENCE, 'computer-clean-after.png'), panel, '+append', '-depth', '8', join(EVIDENCE, 'computer-clean-after-with-host.png')]);
             rmSync(panel, { force: true });
         }
         results.push({ ok: hostLines.length > 0 });
