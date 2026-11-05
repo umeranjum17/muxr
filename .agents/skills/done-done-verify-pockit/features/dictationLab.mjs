@@ -301,6 +301,16 @@ try {
         writeFileSync(join(EVIDENCE, 'host-dictation.log'), `${hostLines.join('\n')}\n`);
         say(`host log: ${hostLines.length} Hex reading(s): ${hostLines.at(-1) ?? 'none'}`);
         results.push({ ok: hostLines.length > 0 });
+        writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
+            target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
+            start: 'A fresh install of the release app paired to a lab host that has Hex and its speech model',
+            steps: [
+                'Open Settings > Voice & dictation and turn on Transcribe on my computer',
+                'Go back to Home, tap Dictate and let the recorded clip play in as the take',
+                'Tap Stop once and wait for Transcribing to settle',
+            ],
+            result: 'The Home composer draft holds the words Hex read on the host, and the host log shows its Hex reading',
+        }, null, 1));
     } else {
     results.push(await take('clean-quiet', quiet, (text) => near(text, meant('quiet'))));
     await clearDraft();

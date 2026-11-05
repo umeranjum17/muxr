@@ -95,3 +95,7 @@ token. The planner asks the kit for `parallelToolCalls: false`; a small fetch gu
 response bounds, redirect rejection, reader cleanup and rejection of incomplete planning
 responses (also rejected by accounts 0.13.0). The kit waits for EOF and does not
 cancel the reader on parse errors; the guard closes it at completion or failure.
+
+## Dictation on the computer (Hex)
+
+Separate from realtime voice: with Settings → Voice & dictation → Transcribe on my computer on, the phone records a take, sends it as one WAV in `dictation.transcribe`, and `hexDictation.ts` has the computer's Hex (`hex model transcribe`, local, MIT) read it. Only the text goes back. The host never starts Hex's app or downloads its model, keeps no audio, and logs the character count (the words only when `MUXR_DICTATION_LOG_TEXT=1`). A computer without Hex answers with why. `MUXR_HEX_BIN` names the binary when it is not `hex` on the PATH.
