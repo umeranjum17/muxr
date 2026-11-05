@@ -25,7 +25,8 @@ const finish = (code) => {
         steps: steps.map((s) => `${s.name}: ${s.ok ? 'ok' : 'FAILED'}`),
         result: code === 0 ? `Settings shows Version ${version} and the changelog and export checks pass` : 'a step failed',
     }, null, 2));
-    writeFileSync(join(evidence, 'release-bump.log'), `${lines.join('\n')}\n`);
+    // The log names the version and commit it covers, so it is not byte-identical to the stdout the run keeps as journey.out.
+    writeFileSync(join(evidence, 'release-bump.log'), `release-bump ${version} at ${head}\n${lines.join('\n')}\n`);
     process.exit(code);
 };
 
