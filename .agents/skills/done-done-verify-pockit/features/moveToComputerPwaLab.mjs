@@ -10,7 +10,7 @@
 // types a new turn and sees the stand-in remember the earlier one. A refusal is recorded as the real
 // outcome and the run exits 1: the move did not happen.
 import { execFileSync, spawn } from 'node:child_process';
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 
@@ -76,6 +76,22 @@ const shotCells = [];
 const CELLS = [['390', 390, 844, 3, true], ['1280', 1280, 800, 1, false]];
 const emulate = (cell, theme) => ax('emulate', '--viewport', cell[4] ? `${cell[1]}x${cell[2]}x${cell[3]},mobile,touch` : `${cell[1]}x${cell[2]}x${cell[3]}`, '--color-scheme', theme);
 const shot = (name) => { ax('screenshot', join(evidence, `${name}.png`)); shotCells.push(name); log(`captured ${name}`); };
+const emulated = (width) => (width >= 1000 ? 60_000 : 120_000);
+// A frame right after a viewport change is the blank resize, not the state a person sees: wait for the sheet's own text,
+// then re-take the frame until it is as big as a painted one at that width (a uniform frame compresses far smaller).
+const painted = async (mark, width) => {
+    await until(`the sheet at ${mark}`, () => (text() ?? '').includes(mark), 30);
+    ax('eval', 'window.dispatchEvent(new Event("resize"))');
+    await sleep(1200);
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+        shot(mark);
+        const bytes = statSync(join(evidence, `${mark}.png`)).size;
+        if (bytes >= emulated(width)) return;
+        log(`${mark} painted nothing yet (${bytes} bytes), attempt ${attempt}`);
+        await sleep(1500);
+    }
+    throw new Error(`${mark} never painted at ${width}`);
+};
 const mint = async (name) => {
     writeFileSync(join(root, `mint-${name}`), '');
     await until(`${name} link`, () => !existsSync(join(root, `mint-${name}`)), 30);
@@ -182,8 +198,11 @@ try {
             writeFileSync(join(logs, `outcome-${tag}.txt`), said.join('\n'));
             if (outcome !== 'moved') throw new Error(`the move did not happen at ${tag}: ${said.join(' / ')}`);
             log(`moved (${tag})`);
-            // The outcome the person is looking at, at the other width: same state, same sheet.
-            for (const other of CELLS.slice(0, -1)) { emulate(other, theme); shot(`outcome-moved-${other[0]}-${theme}`); }
+            // The outcome the person is looking at, at the other width: same state, same sheet, painted at that width.
+            for (const other of CELLS.slice(0, -1)) {
+                emulate(other, theme);
+                await painted(`outcome-moved-${other[0]}-${theme}`, other[1]);
+            }
         }
         await closeBrowser();
         // Read back through Laptop's own Herdr: the same conversation is running there and it remembers the earlier turn.
@@ -197,6 +216,17 @@ try {
         if (!/You said: What was the launch word/.test(turn)) throw new Error(`Laptop did not continue the ${theme} conversation`);
         log(`PASS: the ${theme} conversation moved from Desk to Laptop and carried on there`);
     }
+    // done-done's step record: the user steps this run drove and what the captures show.
+    writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
+        target: { version: `muxr ${JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8')).version} web export, installed PWA` },
+        start: 'the installed PWA paired to two lab computers (Desk, the connected one, and Laptop), each a private lab host over its own Herdr with a stand-in Claude that keeps a real conversation',
+        steps: [
+            'per width (390 phone, 1280 desktop) and theme (dark, light): open Desk\'s agent from Home and open its Pane actions',
+            'choose Move to another computer, pick Laptop, and confirm',
+            'wait for the outcome, then read the outcome at the other width',
+        ],
+        result: 'the sheet reaches Moved to Laptop and the same conversation (id and earlier turn) is running on Laptop and answers a new turn from memory; actions-*.png, pick-*.png, confirm-*.png and outcome-moved-*.png are each step, and laptop-after-*.txt / laptop-turn-*.txt are Laptop\'s own Herdr read back',
+    }, null, 2)}\n`);
 } catch (error) {
     failed = true;
     log(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
