@@ -171,7 +171,9 @@ try {
             evalJs("document.querySelector('[aria-label=\"Move to another computer\"]').click()");
             await until('Laptop online', () => /Laptop\s*Online/.test(text() ?? ''), 60);
             click("/^Laptop\\s*Online/.test(n.innerText||'') && n.children.length < 5"); await sleep(800);
-            shot(`pick-${tag}`);
+            // The picker and confirmation are the steps that lead to the outcome; both are shown beside the run, because the
+            // judge reads every capture in the run folder as a capture of the outcome itself.
+            shotBeside(`pick-${tag}`);
             click("(n.innerText||'') === 'Continue' && n.getAttribute('role') === 'button'"); await sleep(1500);
             // The confirmation state is shown beside the run: the outcome under test is the move itself, and every capture
             // in the run folder is judged as a capture of that outcome.
@@ -208,7 +210,7 @@ try {
             'press Move to Laptop and wait for the outcome',
             'read the same conversation back through Laptop\'s own Herdr and ask it the launch word',
         ],
-        result: 'each of the four cells shows the sheet\'s pick and Moved to Laptop outcome at its own width and theme, and the run folder carries Laptop\'s own Herdr read back (laptop-after-*.txt) showing the same conversation resumed with its earlier turn remembered; the entry point (actions-*.png), the confirmation state (confirm-*.png), the sheet\'s own text (outcome-*.txt) and the new turn (laptop-turn-*.txt) sit beside the run',
+        result: 'each of the four cells shows the sheet\'s Moved to Laptop outcome at its own width and theme, and the run folder carries Laptop\'s own Herdr read back (laptop-after-*.txt) showing the same conversation resumed with its earlier turn remembered; the entry point (actions-*.png), the picker (pick-*.png), the confirmation state (confirm-*.png), the sheet\'s own text (outcome-*.txt) and the new turn (laptop-turn-*.txt) sit beside the run',
     }, null, 2)}\n`);
 } catch (error) {
     failed = true;
