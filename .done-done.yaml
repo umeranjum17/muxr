@@ -126,6 +126,13 @@ journeys:
   workspace-name-host:
     command: node .agents/skills/done-done-verify-pockit/features/workspaceNameHostLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m
+  # One-command triage: the real CLI against broken private homes, before,
+  # with --fix and after. PATH holds only stand-ins, so no real service manager
+  # or Herdr is reachable. Writes one text capture per scene, gate.log and
+  # steps.json. See features/triage.md.
+  triage:
+    command: node .agents/skills/done-done-verify-pockit/features/triageLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 5m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A

@@ -66,6 +66,8 @@ rules, with no H2 sections.
 - [Open agent pages on the normal desktop](./agent-desktop.md) —
   guarded real-Herdr launch environment evidence; all launch families,
   plan-account moves and headless device mirrors stay isolated.
+- [Triage a broken setup with one command](./triage.md) —
+  `muxr triage` reports every check and `--fix` repairs what is local and safe.
 - [Install a missing Herdr without a terminal](./home-herdr-missing.md) —
   desktop app with Herdr hidden: one plain sentence on the window and the
   paired phone's Home, offline Try again, real published install, Home

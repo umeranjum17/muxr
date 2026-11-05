@@ -5,6 +5,7 @@ import {
     readFileSync,
     realpathSync,
     rmSync,
+    statSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import {
@@ -52,6 +53,7 @@ import {
     advertisedRelayHealthy,
     cloudflaredAlive,
     readSelfhostState,
+    relayPortTaken,
     selfhostControlBase,
     selfhostPath,
     selfhostRelayHealthy,
@@ -62,6 +64,7 @@ import {
     remoteHostOnline,
     repairSelfhostRelay,
 } from '../infrastructure/selfhostRelay.mjs';
+import { selfhostFileCheck, staleFileChecks, stateFolderCheck } from '../infrastructure/localState.mjs';
 
 const FULL_UNINSTALL_ENTRIES = [
     'auth.json',
@@ -200,6 +203,7 @@ function panePackRelease(plugin) {
 function versionAgreement(cli, service, pack) {
     const known = [cli === 'unknown' ? undefined : cli, service, pack?.version].filter((version) => version !== undefined);
     const agree = known.every((version) => version === known[0]);
+    const cliBehind = service !== undefined && cli !== 'unknown' && cli.localeCompare(service, 'en', { numeric: true }) < 0;
     const parts = [
         `CLI ${cli}`,
         `host ${service ?? 'not observed'}`,
@@ -207,7 +211,9 @@ function versionAgreement(cli, service, pack) {
     ];
     return {
         level: agree ? 'ok' : 'warn',
-        detail: `${parts.join(' · ')}${agree ? '' : ' — these copies differ; update or reinstall so the plugin, the CLI on PATH and the running host are one release before trusting validation'}`,
+        detail: `${parts.join(' · ')}${agree ? '' : cliBehind
+            ? ' — this CLI is older than the host; run `muxr update`'
+            : ' — these copies differ; update or reinstall so the plugin, the CLI on PATH and the running host are one release before trusting validation'}`,
     };
 }
 
@@ -246,6 +252,10 @@ export function peerAgentAccessReady() {
     } catch { return false; }
 }
 
+function portHolderCommand(port) {
+    return platform() === 'darwin' ? `lsof -nP -iTCP:${port} -sTCP:LISTEN` : `ss -ltnp 'sport = :${port}'`;
+}
+
 function runtimeKind(managedMode) {
     return managedMode === 'relay' ? 'relay' : 'host';
 }
@@ -256,18 +266,17 @@ function managedSetupReport(states, drifted) {
     return { level: 'ok', detail: `${states.length} entries current` };
 }
 
-export async function inspectSetup() {
-    const checks = [];
-    // repair: { label, run } — offered interactively when the check fails.
-    const add = (level, name, detail, repair) => checks.push({ level, name, detail, repair });
-    // Filled in once Herdr's registrations are read; it still prints first.
-    const versions = { level: 'ok', name: 'muxr versions', detail: '' };
-    checks.push(versions);
+function herdrSocketIssue() {
+    const socket = env('HERDR_SOCKET_PATH');
+    if (socket === undefined || statSync(socket, { throwIfNoEntry: false })?.isSocket()) return undefined;
+    return `HERDR_SOCKET_PATH=${socket} is not a Herdr socket — unset it, or point it at a running session`;
+}
+
+async function runtimeChecks(add, managedMode) {
     let panePack;
     const major = Number(process.versions.node.split('.')[0]);
     add(major >= 22 ? 'ok' : 'fail', 'node', `v${process.versions.node}${major >= 22 ? '' : ' — needs >= 22'}`);
     const cliDir = dirname(realpathSync(process.argv[1]));
-    const managedMode = daemonMode();
     const kind = runtimeKind(managedMode);
     const runtime = kind === 'relay'
         ? existsSync(join(cliDir, 'relay.js')) || existsSync(join(process.cwd(), 'apps', 'relay', 'dist', 'main.js'))
@@ -304,7 +313,7 @@ export async function inspectSetup() {
         const serverReady = herdrServerIsReady(binary);
         add(serverReady ? 'ok' : 'fail', 'herdr server', serverReady
             ? 'running'
-            : 'not running — start it with `herdr server`',
+            : herdrSocketIssue() ?? 'not running — start it with `herdr server`',
             serverReady ? undefined : { label: 'start the herdr server', run: async () => { await ensureHerdrServer(binary); } });
         const integrations = run(binary, ['integration', 'status']);
         if (integrations.ok) {
@@ -342,7 +351,10 @@ export async function inspectSetup() {
                 run: () => { for (const id of missing) run(binary, ['plugin', 'unlink', id]); },
             } : undefined);
     }
-    Object.assign(versions, versionAgreement(cliVersion(), hostServiceVersion(), panePack));
+    return { binary, panePack };
+}
+
+function serviceChecks(add, managedMode, binary) {
     const manifest = loadManifest();
     const integrations = Object.entries(manifest.entries).filter(([, entry]) => entry.scope !== 'daemon');
     const states = integrations.map(([path, entry]) => `${path.startsWith(`${home()}/`) ? `~/${path.slice(home().length + 1)}` : basename(path)}:${entryStatus(path, entry)}`);
@@ -416,8 +428,12 @@ export async function inspectSetup() {
                 loaded.ok && startsAtLogin ? undefined : { label: 'load the muxr service for login', run: () => runDaemon(['start']) });
         }
     }
+}
+
+async function selfhostChecks(add, managedMode) {
     let selfhost = readSelfhostState();
-    if (selfhostStateUnreadable()) {
+    const fileLocked = selfhostFileCheck(add);
+    if (selfhostStateUnreadable() && !fileLocked) {
         add('fail', 'self-host state', `${selfhostPath()} exists but is unreadable (truncated or corrupt) — move it aside with \`mv ${selfhostPath()} ${selfhostPath()}.broken\` only after pairings are backed up; setup refuses to mint a new identity over it`);
     } else if (managedMode === 'selfhost' && selfhost !== undefined) {
         const expires = selfhost.credentialExpiresAt === undefined ? undefined : Date.parse(selfhost.credentialExpiresAt);
@@ -430,20 +446,24 @@ export async function inspectSetup() {
             selfhost = undefined;
         }
     }
-    const relayReady = await selfhostRelayHealthy(selfhost);
+    const portTaken = await relayPortTaken(selfhost);
+    const relayReady = !portTaken && await selfhostRelayHealthy(selfhost);
     const relayDetail = selfhost?.relayLocation === 'remote'
         ? publicRelayUrl(selfhost.relayUrl) ?? 'remote relay'
         : `:${selfhost?.relayPort}`;
     let relayLevel = 'warn';
-    let relayDetailText = 'not configured — run muxr setup';
+    let relayDetailText = fileLocked ? 'not checked until the self-host state can be read' : 'not configured — run muxr setup';
     if (selfhost !== undefined && relayReady) {
         relayLevel = 'ok';
         relayDetailText = `reachable at ${relayDetail}`;
+    } else if (portTaken) {
+        relayLevel = 'fail';
+        relayDetailText = `port ${selfhost.relayPort} is taken by another program — find it with \`${portHolderCommand(selfhost.relayPort)}\`, stop it, then run \`muxr daemon restart\``;
     } else if (selfhost !== undefined) {
         relayLevel = 'fail';
         relayDetailText = `configured at ${relayDetail}, not reachable — restart it with \`muxr daemon restart\``;
     }
-    const relayRepair = selfhost !== undefined && !relayReady && selfhost.relayLocation !== 'remote'
+    const relayRepair = selfhost !== undefined && !relayReady && !portTaken && selfhost.relayLocation !== 'remote'
         ? { label: 'restart the self-host relay', run: async () => {
             if ((await repairSelfhostRelay(selfhost)) !== 0) throw new Error('muxr daemon restart failed');
         } }
@@ -506,15 +526,68 @@ export async function inspectSetup() {
         ready ? undefined : { label: 'restart muxr to restore local peer access', run: () => runDaemon(['restart']) });
     }
     if (hasPendingRemoteConnect()) add('fail', 'pending enrollment', 'run `muxr` and choose Resume remote connection');
+}
+
+/** Every check, each section fail-soft: a probe that throws costs one line, never the rest of the list. */
+async function collectChecks() {
+    const checks = [];
+    // repair: { label, run, safe? } — offered interactively when the check fails. `safe` marks a
+    // local, reversible action `--fix` may take unasked; it never reaches a service or a process.
+    const add = (level, name, detail, repair) => checks.push({ level, name, detail, repair });
+    const section = async (name, inspect) => {
+        try { return await inspect(); }
+        catch (cause) { add('warn', name, `could not be checked: ${cause instanceof Error ? cause.message : String(cause)}`); return undefined; }
+    };
+    // Filled in once Herdr's registrations are read; it still prints first.
+    const versions = { level: 'ok', name: 'muxr versions', detail: '' };
+    checks.push(versions);
+    const managedMode = daemonMode();
+    const { binary, panePack } = await section('runtime', () => runtimeChecks(add, managedMode)) ?? {};
+    await section('muxr versions', () => Object.assign(versions, versionAgreement(cliVersion(), hostServiceVersion(), panePack)));
+    await section('state folder', () => stateFolderCheck(add));
+    await section('stale files', () => staleFileChecks(add));
+    await section('services', () => serviceChecks(add, managedMode, binary));
+    await section('self-host', () => selfhostChecks(add, managedMode));
+    return checks;
+}
+
+async function applySafeRepairs(checks) {
+    let fixed = 0;
+    for (const { repair } of checks.filter((check) => check.repair?.safe)) {
+        try {
+            await repair.run();
+            print(`  fixed  ${repair.label}`);
+            fixed += 1;
+        } catch (cause) {
+            print(`  could not ${repair.label}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        }
+    }
+    return fixed;
+}
+
+export async function inspectSetup({ fix = false, ask = true } = {}) {
+    let checks = await collectChecks();
+    let fixed = 0;
+    if (fix) {
+        fixed = await applySafeRepairs(checks);
+        checks = await collectChecks();
+    }
     const width = Math.max(...checks.map((check) => check.name.length));
     print();
     for (const check of checks) print(`  ${{ ok: 'ok  ', warn: 'warn', fail: 'FAIL' }[check.level]}  ${check.name.padEnd(width)}  ${check.detail}`);
     const failures = checks.filter((check) => check.level === 'fail');
     print(failures.length ? `\n${failures.length} blocking problem${failures.length === 1 ? '' : 's'} above.` : '\nmuxr setup checks passed.');
+    const fixable = checks.filter((check) => check.repair?.safe).length;
+    const left = checks.filter((check) => check.level !== 'ok' && !check.repair?.safe).length;
+    if (fixed + fixable + left > 0) {
+        const counts = [[fixed, 'fixed'], [fixable, 'fixable'], [left, 'need you'], [checks.length - fixable - left, 'ok']]
+            .filter(([count]) => count > 0).map((entry) => entry.join(' '));
+        print(`${counts.join(', ')}.${fixable > 0 ? ' Run: muxr triage --fix' : ''}`);
+    }
     // Interactive repair: offer only what failed and has a known-safe action;
     // anything else stays a printed remedy. Non-interactive runs report only.
     const repairs = failures.filter((check) => check.repair !== undefined);
-    if (repairs.length > 0 && process.stdin.isTTY && process.stdout.isTTY) {
+    if (ask && repairs.length > 0 && process.stdin.isTTY && process.stdout.isTTY) {
         print('\nRepairs available:');
         for (const check of repairs) print(`  • ${check.repair.label}`);
         if (await askVisible(`Run ${repairs.length === 1 ? 'this repair' : `these ${repairs.length} repairs`} now? [y/N] `, { piped: true })) {

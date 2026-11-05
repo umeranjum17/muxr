@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isIP } from 'node:net';
+import { createConnection, isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import {
     inspectServe,
@@ -97,6 +97,23 @@ export async function selfhostRelayHealthy(state, timeoutMs = 2_000) {
     if (state === undefined) return false;
     return fetch(`${selfhostControlBase(state)}/health`, { signal: AbortSignal.timeout(timeoutMs) })
         .then((response) => response.ok).catch(() => false);
+}
+
+/** Something accepts connections on the local relay port, but it is not a muxr relay. */
+export async function relayPortTaken(state) {
+    if (state === undefined || state.relayLocation === 'remote' || !Number.isInteger(state.relayPort)) return false;
+    const base = selfhostControlBase(state);
+    const open = await new Promise((settle) => {
+        const socket = createConnection({ host: new URL(base).hostname, port: state.relayPort, timeout: 500 });
+        const finish = (answer) => { socket.destroy(); settle(answer); };
+        socket.once('connect', () => finish(true));
+        socket.once('timeout', () => finish(false));
+        socket.once('error', () => finish(false));
+    });
+    if (!open) return false;
+    const health = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2_000) })
+        .then((response) => response.json()).catch(() => undefined);
+    return health?.ok !== true;
 }
 
 export async function advertisedRelayHealthy(state) {
