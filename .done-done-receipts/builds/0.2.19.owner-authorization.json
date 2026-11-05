@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "ownerTested": false,
+  "words": "instead of asking me again and again for npm and publishing ... set up the CI/CD pipeline once so it autodeploys on merge / why do I need card for npm, makes no sense, use your mind",
+  "quotes": [
+    {
+      "date": "2026-10-14",
+      "words": "instead of asking me again and again for npm and publishing ... set up the CI/CD pipeline once so it autodeploys on merge"
+    },
+    {
+      "date": "2026-10-20",
+      "words": "why do I need card for npm, makes no sense, use your mind"
+    }
+  ],
+  "provenance": "relayed by Main, corr=c67e46eb4d433f83, from the captain's Overwatch chat on 14 and 20 October 2026",
+  "device": "a4b93ea2",
+  "date": "2026-11-05T20:52:24Z",
+  "version": "0.2.19",
+  "commit": "e0b77adf711920e2ec42b2ebe7a814dadcfe3161",
+  "apk": "52b934341d9743de5370c13fdab4446aa5264fc9250693ce8e1561d671b1696b",
+  "package": "c6ed1b219a773e377d7463b70af9550d93ecf040005100e8e103597421bd5ce0",
+  "receipt": ".done-done-receipts/e0b77adf711920e2ec42b2ebe7a814dadcfe3161.json"
+}
