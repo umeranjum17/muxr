@@ -31,6 +31,7 @@ const EVIDENCE = resolve(opts.evidence);
 const FIXTURES = resolve('scripts/dictation/fixtures');
 mkdirSync(EVIDENCE, { recursive: true });
 const SCRATCH = mkdtempSync(join(tmpdir(), 'muxr-dictation-lab-'));
+const PHONE_SHOT = join(SCRATCH, 'phone-after.png');
 const exec = promisify(execFile);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const say = (line) => { const out = `${new Date().toISOString()} ${line}`; console.log(out); appendFileSync(join(EVIDENCE, 'dictation-lab.log'), `${out}\n`); };
@@ -169,7 +170,8 @@ async function take(name, file, expect) {
     await tap('Stop dictation', center(stop));
     found = await waitFor(`${name}: settled draft`, settled, 900);
     const text = draft(found);
-    await screenshot(join(EVIDENCE, `${name}-after.png`));
+    // The computer journey judges one paired frame (phone beside host log), built later from this phone-only shot.
+    await screenshot(opts.computer ? PHONE_SHOT : join(EVIDENCE, `${name}-after.png`));
     if (!opts.computer) writeFileSync(join(EVIDENCE, `${name}-after.xml.json`), JSON.stringify(found.filter((n) => n.text || n.desc), null, 1));
     const ok = expect(text);
     say(`take ${name}: draft ${JSON.stringify(text)} ${ok ? 'PASS' : 'FAIL'}`);
@@ -305,10 +307,9 @@ try {
             const dataHome = process.env.XDG_DATA_HOME || join(process.env.HOME ?? '', '.local', 'share');
             const model = (await exec('ls', [join(dataHome, 'hex', 'models')]).catch(() => ({ stdout: '' }))).stdout.split('\n').find((f) => f.endsWith('.gguf')) ?? 'the installed Hex model';
             const caption = `ON THE COMPUTER (muxr host log)\n\n${hostLines.at(-1)}\n\nEngine: hex model transcribe (local, no cloud)\nModel: ${model}\n\nThe words in the phone composer (left) are the text in this reading.`;
-            const panel = join(EVIDENCE, '.panel.png');
+            const panel = join(SCRATCH, 'panel.png');
             await exec('convert', ['-background', '#101418', '-fill', '#e6edf3', '-font', 'Adwaita-Mono', '-pointsize', '36', '-size', '920x', `caption:${caption}`, '-bordercolor', '#101418', '-border', '40', '-gravity', 'NorthWest', '-extent', '1000x2400', panel]);
-            await exec('convert', [join(EVIDENCE, 'computer-clean-after.png'), panel, '+append', '-depth', '8', join(EVIDENCE, 'computer-clean-after-with-host.png')]);
-            rmSync(panel, { force: true });
+            await exec('convert', [PHONE_SHOT, panel, '+append', '-depth', '8', join(EVIDENCE, 'computer-clean-after.png')]);
         }
         results.push({ ok: hostLines.length > 0 });
         writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
