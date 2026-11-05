@@ -79,18 +79,18 @@ const shot = (name) => { ax('screenshot', join(evidence, `${name}.png`)); shotCe
 const emulated = (width) => (width >= 1000 ? 60_000 : 120_000);
 // A frame right after a viewport change is the blank resize, not the state a person sees: wait for the sheet's own text,
 // then re-take the frame until it is as big as a painted one at that width (a uniform frame compresses far smaller).
-const painted = async (mark, width) => {
-    await until(`the sheet at ${mark}`, () => (text() ?? '').includes(mark), 30);
+const painted = async (name, width, mark = 'Moved to Laptop') => {
+    await until(`the sheet at ${name}`, () => (text() ?? '').includes(mark), 30);
     ax('eval', 'window.dispatchEvent(new Event("resize"))');
     await sleep(1200);
     for (let attempt = 1; attempt <= 4; attempt += 1) {
-        shot(mark);
-        const bytes = statSync(join(evidence, `${mark}.png`)).size;
+        shot(name);
+        const bytes = statSync(join(evidence, `${name}.png`)).size;
         if (bytes >= emulated(width)) return;
-        log(`${mark} painted nothing yet (${bytes} bytes), attempt ${attempt}`);
+        log(`${name} painted nothing yet (${bytes} bytes), attempt ${attempt}`);
         await sleep(1500);
     }
-    throw new Error(`${mark} never painted at ${width}`);
+    throw new Error(`${name} never painted at ${width}`);
 };
 const mint = async (name) => {
     writeFileSync(join(root, `mint-${name}`), '');
