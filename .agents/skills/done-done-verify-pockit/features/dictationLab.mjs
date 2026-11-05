@@ -281,8 +281,15 @@ try {
         phase = 'computer-setting';
         const SWITCH = 'Transcribe on my computer';
         await adb(['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', "'muxr://settings/voice'", PKG]);
-        const row = (await waitFor('the computer-dictation switch', (found) => found.some((n) => n.desc === SWITCH), 60)).find((n) => n.desc === SWITCH);
-        await tap(SWITCH, center(row));
+        await waitFor('the computer-dictation switch', (found) => found.some((n) => n.desc === SWITCH), 60);
+        // The Dictation group starts at the foot of the screen: scroll it up, then tap the Switch control itself.
+        await adb(['shell', 'input', 'swipe', '540', '1800', '540', '900', '400']);
+        await sleep(1500);
+        const before = await screen();
+        writeFileSync(join(EVIDENCE, 'computer-setting-before.xml.json'), JSON.stringify(before.filter((n) => n.text || n.desc), null, 1));
+        const control = before.filter((n) => n.desc === SWITCH).sort((a, b) => Number(/Switch/.test(b.cls)) - Number(/Switch/.test(a.cls)))[0];
+        if (control === undefined) throw new Error('the computer-dictation switch left the screen');
+        await tap(SWITCH, center(control));
         const on = await waitFor('the switch to read on', (found) => found.some((n) => n.text.startsWith('Hex on your computer reads what you say')), 30);
         await screenshot(join(EVIDENCE, 'computer-setting-on.png'));
         writeFileSync(join(EVIDENCE, 'computer-setting-on.xml.json'), JSON.stringify(on.filter((n) => n.text || n.desc), null, 1));
