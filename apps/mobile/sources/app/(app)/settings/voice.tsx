@@ -243,7 +243,7 @@ export default function VoiceProviderScreen() {
         && downloadableModel !== undefined
         && !installedModelIds.has(downloadableModel.id);
     const dictationFooter = modelError
-        ?? (dictationOnComputer ? 'Hex on your computer reads what you say. The recording goes only to your connected computer, and the model there needs Hex installed.' : null)
+        ?? (dictationOnComputer ? 'Hex on your computer reads what you say. The recording goes only to your connected computer, which needs Hex installed.' : null)
         ?? 'Dictation runs on this device. Pin a language when you know what you\'ll speak; the multilingual model covers 99 languages. Hold a downloaded model to remove it.';
 
     return (

@@ -151,6 +151,10 @@ rules, with no H2 sections.
   the phone's Whisper finals. Near-silence leaves the draft empty while quiet and
   clean still transcribe, on a clean install and over old data. Status and
   evidence: see the feature doc.
+- [Dictation read on the computer by Hex](./dictation-on-computer.md) —
+  `dictationLab.mjs --computer` on a task-owned emulator: Settings turns on
+  Transcribe on my computer, a file-fed take goes over the link to the lab
+  host, Hex reads it there, and the text fills the Home composer.
 
 - [Keep one Home row and its last preview through relaunch](./home-agent-relaunch.md) —
   real named-Herdr pane replacement, 1.5-second section dwell, old-outcome

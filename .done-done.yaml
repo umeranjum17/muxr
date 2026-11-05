@@ -436,3 +436,12 @@ journeys:
   desklink-pin:
     command: node .agents/skills/done-done-verify-pockit/features/desklinkPinLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m
+  # Dictation read on the computer by Hex, not on the phone: the release app
+  # (built with EXPO_PUBLIC_MUXR_LAB_DICTATE=1) on an owned emulator turns on
+  # Settings > Transcribe on my computer, takes the clean fixture file-fed, and
+  # the draft fills from the real lab host's Hex reading (host-dictation.log).
+  # MUXR_LAB_APK, MUXR_LAB_AVD_HOME and MUXR_HEX_LAB (a Hex wrapper with an
+  # installed speech model) are set; see dictation-on-computer.md.
+  dictation-computer:
+    command: node .agents/skills/done-done-verify-pockit/features/dictationLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --computer "$MUXR_HEX_LAB" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
