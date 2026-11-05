@@ -25,6 +25,7 @@ import {
     addComputerLink,
     directBillingUrl,
     firstRestorableMachine,
+    SETUP_COMMAND,
     setupEmptyState,
 } from '@/commercialization';
 
@@ -38,13 +39,13 @@ describe('open-source mobile onboarding flow', () => {
 
         expect(setupEmptyState('https://muxr.test/')).toEqual({
             title: 'Connect your computer',
-            command: 'muxr',
+            command: SETUP_COMMAND,
             setupUrl: 'https://muxr.test/setup',
             desktopUrl: 'https://muxr.test/desktop',
         });
         expect(setupEmptyState()).toEqual({
             title: 'Connect your computer',
-            command: 'muxr',
+            command: SETUP_COMMAND,
         });
 
         expect(directBillingUrl({ directDistribution: false, publicBaseUrl: 'https://muxr.test' })).toBeNull();

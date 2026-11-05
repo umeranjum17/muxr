@@ -113,7 +113,7 @@ done
 # doors, My computer's Get ready and Pair, and the Boat door's browser notice,
 # at every cell, at rest and scrolled, each with the words it must show.
 screens='connect|Connect a machine|My computer|Cloud machine · Boat|from $0.018 an hour
-my-computer|Get ready|about 2 min|Get Tailscale|Next: pair
+my-computer|Get ready|about 2 min|Get Tailscale|install.sh|Copy|Next: pair
 my-computer?step=pair|Pair with your computer|Private link or pairing code|Example words|Start an agent
 cloud-computer|Your cloud computer|Set up from the muxr phone app'
 for cell in 270:2.0:594 360:1.0:800 390:1.0:844 445:1.0:900 1280:1.0:900 1440:1.0:1000; do
