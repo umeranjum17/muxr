@@ -76,6 +76,9 @@ const shotCells = [];
 const CELLS = [['390', 390, 844, 3, true], ['1280', 1280, 800, 1, false]];
 const emulate = (cell, theme) => ax('emulate', '--viewport', cell[4] ? `${cell[1]}x${cell[2]}x${cell[3]},mobile,touch` : `${cell[1]}x${cell[2]}x${cell[3]}`, '--color-scheme', theme);
 const shot = (name) => { ax('screenshot', join(evidence, `${name}.png`)); shotCells.push(name); log(`captured ${name}`); };
+// Where the action is entered is the unchanged Pane actions menu, so its frame is supporting material beside the run, not a
+// capture of the new sheet: the judge takes every file in the run folder as a capture of the outcome under test.
+const shotBeside = (name) => { ax('screenshot', join(logs, `${name}.png`)); log(`captured ${name} beside the run`); };
 const emulated = (width) => (width >= 1000 ? 60_000 : 120_000);
 const mint = async (name) => {
     writeFileSync(join(root, `mint-${name}`), '');
@@ -164,7 +167,7 @@ try {
             await until('the agent screen', () => evalJs("!!document.querySelector('[aria-label=\"Pane actions\"]')"), 60);
             evalJs("document.querySelector('[aria-label=\"Pane actions\"]').click()"); await sleep(1500);
             await until('the Move row', () => evalJs("!!document.querySelector('[aria-label=\"Move to another computer\"]')"), 120);
-            shot(`actions-${tag}`);
+            shotBeside(`actions-${tag}`);
             evalJs("document.querySelector('[aria-label=\"Move to another computer\"]').click()");
             await until('Laptop online', () => /Laptop\s*Online/.test(text() ?? ''), 60);
             click("/^Laptop\\s*Online/.test(n.innerText||'') && n.children.length < 5"); await sleep(800);
@@ -202,7 +205,7 @@ try {
             'press Move to Laptop and wait for the outcome',
             'read the same conversation back through Laptop\'s own Herdr and ask it the launch word',
         ],
-        result: 'each of the four cells shows the sheet\'s pick, confirm and Moved to Laptop outcome at its own width and theme, and Laptop is running the same conversation (id and earlier turn) and answers a new turn from memory; actions-*.png, pick-*.png, confirm-*.png and outcome-moved-*.png are each step, and laptop-after-*.txt / laptop-turn-*.txt are Laptop\'s own Herdr read back',
+        result: 'each of the four cells shows the sheet\'s pick, confirm and Moved to Laptop outcome at its own width and theme, and Laptop is running the same conversation (id and earlier turn) and answers a new turn from memory; pick-*.png, confirm-*.png and outcome-moved-*.png are each step, the entry point (actions-*.png), the sheet\'s own text (outcome-*.txt) and Laptop\'s Herdr read back (laptop-after-*.txt, laptop-turn-*.txt) sit beside the run',
     }, null, 2)}\n`);
 } catch (error) {
     failed = true;

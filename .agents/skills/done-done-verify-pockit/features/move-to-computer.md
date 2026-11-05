@@ -48,7 +48,10 @@ moves too. A managed account whose `projects` is a link to the computer's own st
 ## Driving it
 
 `moveLab.mjs` brings up Desk and Laptop (real relay, host, guarded Herdr lab session, stand-in Claude that keeps a
-real Claude transcript). `moveToComputerPwaLab.mjs` (journey `move-to-computer`) pairs the installed PWA with both,
-opens the agent on Desk, and records pick, confirm and outcome at 390 and 1280, dark and light; on a success it
-reads back through Laptop's own Herdr that the same conversation id and its earlier turn are running there and that
-a new turn is answered with the old one remembered.
+real Claude transcript), one conversation per cell. `moveToComputerPwaLab.mjs` (journey `move-to-computer`) pairs the
+installed PWA with both, opens that cell's agent on Desk, and records pick, confirm and the outcome at 390 and 1280,
+dark and light; on each success it reads back through Laptop's own Herdr that the same conversation id and its earlier
+turn are running there and that a new turn is answered with the old one remembered. Each cell drives its own move: a
+viewport change back to a phone drops the open sheet, so an outcome is never re-shot at the other width. The frame of
+where the action is entered (the unchanged Pane actions menu) is kept beside the run, in `<evidence>-logs/`, because
+the judge takes every file in the run folder as a capture of the outcome.
