@@ -2,7 +2,9 @@
 // a watch that fails the run if realtime voice ever starts. See dictation-silence-gate.md.
 // Usage, from the repo root after `yarn build`:
 //   node .agents/skills/done-done-verify-pockit/features/dictationLab.mjs --apk <lab APK> --evidence <dir> \
-//     --avd-home <dir> [--launcher <cmd>]
+//     --avd-home <dir> [--launcher <cmd>] [--computer <hex wrapper>]
+// With --computer the run is the dictation-on-the-computer journey instead of the on-phone takes:
+// the wrapper is the Hex binary the lab host runs as MUXR_HEX_BIN (see dictation-on-computer.md).
 // Every tap is on a control found by its label in a dump taken just before it: a
 // stale coordinate or a guessed element lands on Send or Talk, and Talk starts
 // realtime voice over the composer.
@@ -19,7 +21,7 @@ import { pairPhone } from '../../../../perf/lib/pairPhone.mjs';
 
 const { values: opts } = parseArgs({ options: {
     apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' },
-    launcher: { type: 'string' },
+    launcher: { type: 'string' }, computer: { type: 'string' },
 } });
 if (!opts.apk || !opts.evidence || !opts['avd-home']) throw new Error('--apk, --evidence and --avd-home are required');
 const PKG = 'com.trymuxr.app';
@@ -242,7 +244,11 @@ try {
     emulator = await bootOwnedEmulator({ name: 'muxr-dictation-lab', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: opts.launcher ? [opts.launcher] : [], onSpawn: (child) => { spawned = child; } });
     serial = emulator.serial;
     say(`emulator ${serial} booted`);
-    stackStarting = startFakeStack({ panes: 3, agents: 2 }).then((started) => { stack = started; });
+    stackStarting = startFakeStack({
+        panes: 3, agents: 2,
+        // The real host reads the take with Hex; its log keeps the words for this proof only.
+        ...(opts.computer ? { setupHome: () => ({ MUXR_HEX_BIN: resolve(opts.computer), MUXR_DICTATION_LOG_TEXT: '1' }) } : {}),
+    }).then((started) => { stack = started; });
     await stackStarting;
     say(`fake stack relay port ${stack.relayPort}`);
     watch = serviceWatch(stopped);
@@ -267,6 +273,25 @@ try {
     await adb(['reverse', `tcp:${stack.relayPort}`, `tcp:${stack.relayPort}`]); // the adbd restart dropped it
     await dismissPrompts(['CANCEL', 'Not now', 'Deny', 'Later']);
     await home();
+    if (opts.computer) {
+        // Settings > Voice & dictation > Transcribe on my computer, then one take that Hex reads on the host.
+        phase = 'computer-setting';
+        const SWITCH = 'Transcribe on my computer';
+        await adb(['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', "'muxr://settings/voice'", PKG]);
+        const row = (await waitFor('the computer-dictation switch', (found) => found.some((n) => n.desc === SWITCH), 60)).find((n) => n.desc === SWITCH);
+        await tap(SWITCH, center(row));
+        const on = await waitFor('the switch to read on', (found) => found.some((n) => n.text.startsWith('Hex on your computer reads what you say')), 30);
+        await screenshot(join(EVIDENCE, 'computer-setting-on.png'));
+        writeFileSync(join(EVIDENCE, 'computer-setting-on.xml.json'), JSON.stringify(on.filter((n) => n.text || n.desc), null, 1));
+        await adb(['shell', 'input', 'keyevent', 'KEYCODE_BACK']);
+        await home();
+        results.push(await take('computer-clean', clean, (text) => near(text, meant('clean'))));
+        // The host's own log line proves Hex, not the phone, read the take.
+        const hostLines = stack.hostLog().split('\n').filter((line) => line.startsWith('dictation: Hex transcribed'));
+        writeFileSync(join(EVIDENCE, 'host-dictation.log'), `${hostLines.join('\n')}\n`);
+        say(`host log: ${hostLines.length} Hex reading(s): ${hostLines.at(-1) ?? 'none'}`);
+        results.push({ ok: hostLines.length > 0 });
+    } else {
     results.push(await take('clean-quiet', quiet, (text) => near(text, meant('quiet'))));
     await clearDraft();
     results.push(await take('clean-silence', silence, (text) => text.trim() === ''));
@@ -279,6 +304,7 @@ try {
     await dismissPrompts(['CANCEL', 'Not now', 'Deny', 'Later']);
     await home(180);
     results.push(await take('reinstall-quiet', quiet, (text) => near(text, meant('quiet'))));
+    }
 
     const appops = (await adb(['shell', 'cmd', 'appops', 'get', PKG, 'RECORD_AUDIO'])).trim();
     say(`appops: ${appops}`);

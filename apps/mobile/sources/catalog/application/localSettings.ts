@@ -61,6 +61,7 @@ export const LocalSettingsSchema = z.object({
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     dictationLanguage: z.string().nullable().describe('Spoken dictation language (null for automatic detection)'),
     dictationModel: z.string().describe('Selected on-device dictation model'),
+    dictationOnComputer: z.boolean().catch(false).describe('Whether dictation is read by Hex on the paired computer instead of on this phone'),
     dictationWordReplacements: z.array(z.object({ from: z.string(), to: z.string() })).describe('On-device dictation word replacements'),
     lifecycleNotificationLevel: z.enum(LIFECYCLE_NOTIFICATION_LEVELS).describe('Which agent lifecycle events may emit notifications'),
     // Herd tab: bucket the agents section under workspace subheaders (herdr's "grouped" toggle).
@@ -116,6 +117,7 @@ export const localSettingsDefaults: LocalSettings = {
     vadStandbyEnabled: false,
     dictationLanguage: null,
     dictationModel: 'base.en-q5_1',
+    dictationOnComputer: false,
     dictationWordReplacements: [],
     lifecycleNotificationLevel: 'important',
     savedLayouts: [],
