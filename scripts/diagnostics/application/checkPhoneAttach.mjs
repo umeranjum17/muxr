@@ -85,6 +85,13 @@ const dump = () => {
             sh('rm -f /sdcard/d.xml');
             // A loaded emulator raises "System UI isn't responding" over the app: wait it out.
             const wait = /isn(?:'|&apos;)t responding/.test(xml) && /text="Wait"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(xml);
+            // A fresh install asks to send notifications over the app, even after `pm grant`: a user taps Allow.
+            const allow = !wait && xml.includes('permissioncontroller') && /text="Allow"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(xml);
+            if (allow) {
+                sh(`input tap ${(Number(allow[1]) + Number(allow[3])) >> 1} ${(Number(allow[2]) + Number(allow[4])) >> 1}`);
+                log('allowed the notification permission dialog');
+                continue;
+            }
             if (!wait) return xml;
             sh(`input tap ${(Number(wait[1]) + Number(wait[3])) >> 1} ${(Number(wait[2]) + Number(wait[4])) >> 1}`);
             log('waited out a system "not responding" dialog');
@@ -133,6 +140,22 @@ const nodes = (xml) => {
         if (!tag.endsWith('/>')) open.push(tag.includes('scrollable="true"') ? box : undefined);
     }
     return found;
+};
+// A scroller lists only the rows on screen, so a row below the fold is not in the
+// dump and tapNode never scrolls to it. Scroll the list around a row that is
+// shown, as a user would, until the wanted row appears.
+const scrollToRow = async (pattern, shownRow) => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        const rows = nodes(dump());
+        const named = (node) => pattern.test(/(?:text|content-desc)="([^"]*)"/.exec(node.tag)?.[1] ?? '');
+        if (rows.some(named)) return;
+        const anchor = rows.find((node) => node.scroller && shownRow.test(/(?:text|content-desc)="([^"]*)"/.exec(node.tag)?.[1] ?? ''));
+        if (!anchor) throw new Error(`never saw ${shownRow} to scroll ${pattern} into view`);
+        const [left, top, right, bottom] = anchor.scroller;
+        drag((left + right) >> 1, Math.round(top + (bottom - top) * 0.75), Math.round(top + (bottom - top) * 0.3));
+        await sleep(1500);
+    }
+    throw new Error(`scrolling never brought ${pattern} into view`);
 };
 const tapNode = async (pattern, seconds = 90, className, optional = false) => {
     let unmoved;
@@ -524,6 +547,7 @@ try {
     // child, which in 0.2.8 booted a second host instead of counting.
     await tapNode(/^Pane actions/, 30);
     await sleep(1000);
+    await scrollToRow(/^Usage$/, /^Git history$/);
     await tapNode(/^Usage$/, 30);
     let onUsage = false;
     for (let second = 0; second < 30 && !onUsage; second += 1) {
