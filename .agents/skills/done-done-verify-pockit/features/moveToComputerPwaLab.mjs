@@ -184,12 +184,13 @@ try {
             log(`moved (${tag})`);
             // Read back through Laptop's own Herdr: the same conversation is running there and it remembers the earlier turn.
             const arrived = await laptopPaneWith(labInfo.laptop.session, agent.word);
-            writeFileSync(join(logs, `laptop-after-${tag}.txt`), arrived.read);
+            // Part of the outcome is what Laptop itself says, so its own Herdr read-back is a capture in the run folder.
+            writeFileSync(join(evidence, `laptop-after-${tag}.txt`), arrived.read);
             if (!/Resumed this conversation/.test(arrived.read)) throw new Error(`Laptop did not resume the ${tag} conversation`);
             labHerdr(laptopSession, 'pane', 'send-text', arrived.pane, 'What was the launch word?\n');
             await sleep(3000);
             const turn = labHerdr(laptopSession, 'pane', 'read', arrived.pane, '--source', 'recent-unwrapped', '--lines', '40');
-            writeFileSync(join(logs, `laptop-turn-${tag}.txt`), turn);
+            writeFileSync(join(evidence, `laptop-turn-${tag}.txt`), turn);
             if (!/You said: What was the launch word/.test(turn)) throw new Error(`Laptop did not continue the ${tag} conversation`);
             log(`PASS: the ${tag} conversation moved from Desk to Laptop and carried on there`);
         }
@@ -205,7 +206,7 @@ try {
             'press Move to Laptop and wait for the outcome',
             'read the same conversation back through Laptop\'s own Herdr and ask it the launch word',
         ],
-        result: 'each of the four cells shows the sheet\'s pick, confirm and Moved to Laptop outcome at its own width and theme, and Laptop is running the same conversation (id and earlier turn) and answers a new turn from memory; pick-*.png, confirm-*.png and outcome-moved-*.png are each step, the entry point (actions-*.png), the sheet\'s own text (outcome-*.txt) and Laptop\'s Herdr read back (laptop-after-*.txt, laptop-turn-*.txt) sit beside the run',
+        result: 'each of the four cells shows the sheet\'s pick, confirm and Moved to Laptop outcome at its own width and theme; Laptop\'s own Herdr read back (laptop-after-*.txt, laptop-turn-*.txt) is in the run folder and shows the same conversation resumed with its earlier turn remembered and a new turn answered; the entry point (actions-*.png) and the sheet\'s own text (outcome-*.txt) sit beside the run',
     }, null, 2)}\n`);
 } catch (error) {
     failed = true;
