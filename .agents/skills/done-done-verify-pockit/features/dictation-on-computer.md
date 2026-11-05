@@ -26,7 +26,7 @@ node .agents/skills/done-done-verify-pockit/features/dictationLab.mjs --apk <apk
 ```
 
 Journey name: `dictation-computer`. Writes `computer-setting-on.png`,
-`computer-clean-after.png`, their `.xml.json` dumps, `host-dictation.log` and
+`computer-clean-after.png`, `host-dictation.log` and
 `dictation-lab.log`. The host here is the real built host over the perf fake
 stack; only Herdr is faked.
 

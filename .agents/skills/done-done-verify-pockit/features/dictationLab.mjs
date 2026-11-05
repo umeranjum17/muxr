@@ -113,7 +113,7 @@ async function serviceWatch(stopped) {
             const types = dump.includes('VoiceOverlayService') ? [...dump.matchAll(/(?:foregroundServiceType|types)=0x([0-9a-f]+)/gi)].map((m) => parseInt(m[1], 16)) : [];
             const running = types.some((type) => (type & 0x80) !== 0);
             if (running) serviceRuns += 1;
-            if (!dumpSaved && types.length > 0) { writeFileSync(join(EVIDENCE, 'voice-service-dumpsys.txt'), dump.replace(/foregroundNoti=.*$/gm, 'foregroundNoti=<omitted>')); dumpSaved = true; }
+            if (!dumpSaved && types.length > 0 && !opts.computer) { writeFileSync(join(EVIDENCE, 'voice-service-dumpsys.txt'), dump.replace(/foregroundNoti=.*$/gm, 'foregroundNoti=<omitted>')); dumpSaved = true; }
             const parsed = types.map((t) => `0x${t.toString(16)}`).join(',') || 'none';
             if (parsed !== last) { say(`foreground service types ${parsed}, microphone ${running ? 'RUNNING' : 'not running'} (${phase})`); last = parsed; }
         }
@@ -156,7 +156,7 @@ const settled = (found) => labelled(found, 'Dictate') !== undefined && !recordin
 async function take(name, file, expect) {
     phase = name;
     await feed(file);
-    await screenshot(join(EVIDENCE, `${name}-before.png`));
+    if (!opts.computer) await screenshot(join(EVIDENCE, `${name}-before.png`));
     const mic = labelled(await screen(), 'Dictate');
     if (mic === undefined) throw new Error(`${name}: no Dictate control on screen`);
     await tap('Dictate', center(mic));
@@ -170,7 +170,7 @@ async function take(name, file, expect) {
     found = await waitFor(`${name}: settled draft`, settled, 900);
     const text = draft(found);
     await screenshot(join(EVIDENCE, `${name}-after.png`));
-    writeFileSync(join(EVIDENCE, `${name}-after.xml.json`), JSON.stringify(found.filter((n) => n.text || n.desc), null, 1));
+    if (!opts.computer) writeFileSync(join(EVIDENCE, `${name}-after.xml.json`), JSON.stringify(found.filter((n) => n.text || n.desc), null, 1));
     const ok = expect(text);
     say(`take ${name}: draft ${JSON.stringify(text)} ${ok ? 'PASS' : 'FAIL'}`);
     return { found, ok };
@@ -286,13 +286,12 @@ try {
         await adb(['shell', 'input', 'swipe', '540', '1800', '540', '900', '400']);
         await sleep(1500);
         const before = await screen();
-        writeFileSync(join(EVIDENCE, 'computer-setting-before.xml.json'), JSON.stringify(before.filter((n) => n.text || n.desc), null, 1));
+        // The computer journey keeps only pictures of the claim in the evidence folder; accessibility dumps stay out.
         const control = before.filter((n) => n.desc === SWITCH).sort((a, b) => Number(/Switch/.test(b.cls)) - Number(/Switch/.test(a.cls)))[0];
         if (control === undefined) throw new Error('the computer-dictation switch left the screen');
         await tap(SWITCH, center(control));
         const on = await waitFor('the switch to read on', (found) => found.some((n) => n.text.startsWith('Hex on your computer reads what you say')), 30);
         await screenshot(join(EVIDENCE, 'computer-setting-on.png'));
-        writeFileSync(join(EVIDENCE, 'computer-setting-on.xml.json'), JSON.stringify(on.filter((n) => n.text || n.desc), null, 1));
         await adb(['shell', 'input', 'keyevent', 'KEYCODE_BACK']);
         await home();
         results.push(await take('computer-clean', clean, (text) => near(text, meant('clean'))));
