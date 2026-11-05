@@ -113,7 +113,7 @@ async function serviceWatch(stopped) {
             const types = dump.includes('VoiceOverlayService') ? [...dump.matchAll(/(?:foregroundServiceType|types)=0x([0-9a-f]+)/gi)].map((m) => parseInt(m[1], 16)) : [];
             const running = types.some((type) => (type & 0x80) !== 0);
             if (running) serviceRuns += 1;
-            if (!dumpSaved && types.length > 0) { writeFileSync(join(EVIDENCE, 'voice-service-dumpsys.txt'), dump); dumpSaved = true; }
+            if (!dumpSaved && types.length > 0) { writeFileSync(join(EVIDENCE, 'voice-service-dumpsys.txt'), dump.replace(/foregroundNoti=.*$/gm, 'foregroundNoti=<omitted>')); dumpSaved = true; }
             const parsed = types.map((t) => `0x${t.toString(16)}`).join(',') || 'none';
             if (parsed !== last) { say(`foreground service types ${parsed}, microphone ${running ? 'RUNNING' : 'not running'} (${phase})`); last = parsed; }
         }
