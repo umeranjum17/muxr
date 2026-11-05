@@ -1,6 +1,10 @@
 # done-done project config. `done-done init` never overwrites this file.
 # The app name finds this repo's evidence and receipts from every checkout.
 app: "pockit"
+# One check may send 10 captures to the judge by default; a journey that drives four cells (390 and 1280 at
+# light and dark) shows each sheet state at each, so move-to-computer cites 16. Each capture is still judged alone.
+judge:
+  max_captures: 24
 # Approved written requirements: supervisor inbox 003 (two doors) and the
 # ticket's existing Boat-flow requirement. Inbox 028 limits these rows to
 # still-image-verifiable requirements and the fresh driver's exact filenames.
