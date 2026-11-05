@@ -129,6 +129,9 @@ rules, with no H2 sections.
   `webSecureStore`; the one supported path around the HTTPS-only pair screen,
   absent from production exports, used by the PWA features below.
 
+- [Install the CLI without the phone's toolchain](./first-install.md) — cold npm
+  install of the published CLI against the candidate, then the installed
+  candidate's setup inspection and LAN relay record.
 - [Time install to first agent](./onboarding-timing.md) — release APK(s) on a
   task-owned emulator over the no-agent fake stack: `node perf/onboardingTiming.mjs`
   times first screen, link, Pair, Start and the agent composer, base against
