@@ -170,12 +170,15 @@ try {
         await sleep(3000);
         return sessionId;
     };
-    const first = await startClaude('release-notes', 'The launch word is saffron. Remember it.');
-    const second = await startClaude('draft-notes', 'The launch word is marigold. Remember it.');
-    writeFileSync(join(root, 'lab.json'), JSON.stringify({ sessionId: first, agents: {
-        dark: { sessionId: first, label: 'Release notes', word: 'saffron' },
-        light: { sessionId: second, label: 'Draft notes', word: 'marigold' },
-    }, desk: { port: desk.lab.port, session: desk.lab.session, work: desk.work }, laptop: { port: laptop.lab.port, session: laptop.lab.session, work: laptop.work } }));
+    // One conversation per cell (each width and theme), so every frame - the sheet's states and its outcome alike - comes
+    // from its own real move at that width. Labels start with different words, so a row is named unambiguously.
+    const cells = [['390-dark', 'Release notes', 'saffron'], ['1280-dark', 'Cardamom run', 'cobalt'], ['390-light', 'Draft notes', 'marigold'], ['1280-light', 'Amber run', 'amber']];
+    const agents = {};
+    for (const [cell, label, word] of cells) {
+        agents[cell] = { sessionId: await startClaude(label, `The launch word is ${word}. Remember it.`), label, word };
+    }
+    writeFileSync(join(root, 'lab.json'), JSON.stringify({ sessionId: agents['390-dark'].sessionId, agents,
+        desk: { port: desk.lab.port, session: desk.lab.session, work: desk.work }, laptop: { port: laptop.lab.port, session: laptop.lab.session, work: laptop.work } }));
     log('ready; links written; running until the stop file appears');
     // A pairing offer lasts about two minutes, so the driver asks for one when it is ready to use it:
     // touch <labRoot>/mint-desk (or mint-laptop) and read <labRoot>/desk-link.txt (or laptop-link.txt) once the request file is gone.
