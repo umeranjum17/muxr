@@ -1,0 +1,97 @@
+{
+  "schema": 2,
+  "repo": "pockit",
+  "head": "e0b77adf711920e2ec42b2ebe7a814dadcfe3161",
+  "tree": "1ab34db6344d6aecedae2c92694153deca0677dc",
+  "claim": "These ordered native captures collectively show muxr 0.2.19 on the keeper phone against a private lab host: 04 a command typed at the agent and its output on a clean screen; 05 the history scrolled back; 06 the newest output after scrolling forward; 07 the agent screen after opening Usage and coming back. The sealed release-build.json records the exact APK and npm tarball, every release step passed, exactly one host, attach 430 ms and scroll 3114 ms. This is automated keeper evidence, NOT an owner or captain test.",
+  "result": "pass",
+  "at": "2026-11-05T20:52:05.845Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261105T204239Z-e0b77adf-98ca96/04-typed-command-and-output.png",
+      "sha256": "e28454530f5ba8ba480e3dbb021eb7728b712c84d4d17241db9d517c9b2514e8"
+    },
+    {
+      "path": "<evidence root>/20261105T204239Z-e0b77adf-98ca96/05-scrolled-back.png",
+      "sha256": "ecea4fd2d68b05b78790763989048c92ec2e3cbf9b3ba03b3da7c1e025abda9c"
+    },
+    {
+      "path": "<evidence root>/20261105T204239Z-e0b77adf-98ca96/06-scrolled-to-latest.png",
+      "sha256": "656ad274dd2948f0c5dfce50495526eec6a1a7e3142caa988f1b26651bbfecdc"
+    },
+    {
+      "path": "<evidence root>/20261105T204239Z-e0b77adf-98ca96/07-back-from-usage.png",
+      "sha256": "880b3bd21c9a83879fd4bf7222434e3fc0def28f73aad0f8fdc46242704acfac"
+    },
+    {
+      "path": "<evidence root>/20261105T204239Z-e0b77adf-98ca96/release-build.json",
+      "sha256": "2248b1339216e33d8ffa487335995d3a18f1a52ca098f12482427a6e290c7323"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261105T204239Z-e0b77adf-98ca96",
+      "commit": "e0b77adf711920e2ec42b2ebe7a814dadcfe3161",
+      "journey": "phone-attach",
+      "command": "node scripts/diagnostics/application/checkPhoneAttach.mjs",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "0.2.19"
+        },
+        "start": "the release app freshly installed on the phone, with a lab computer running two agent panes that the phone is not yet paired to",
+        "steps": [
+          "pair the phone to the lab computer",
+          "open an agent and time its first attach, from the tap to the host's new terminal stream",
+          "close agent panes and attach again through pane churn",
+          "type a command at the agent",
+          "scroll its history back and forward fast",
+          "open Usage and come back",
+          "count the hosts alive"
+        ],
+        "result": "the first attach took 430 ms from the tap to the host's new terminal stream, the phone attached after every round of pane churn, the typed command printed its output on a clean screen, the history scrolled back and forward, Usage opened and closed, and one host stayed alive"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261105T204239Z-e0b77adf-98ca96/04-typed-command-and-output.png",
+        "sha256": "e28454530f5ba8ba480e3dbb021eb7728b712c84d4d17241db9d517c9b2514e8",
+        "verdict": "pass",
+        "seen": "Outcome's part for this capture is 04: a command typed at the agent and its output on a clean screen. The terminal area shows 'lab agent ready', then 'echo lab-typed-48326', then 'lab agent got: echo lab-typed-48326'. The screen is otherwise clean (no error or crash). A keyboard is open at the bottom, but it covers only the lower part of the screen, not the terminal output, and the prompt field is empty. This matches the typed command and its output. The other parts (history scrolled back, newest output after scrolling forward, Usage and back) need their own captures."
+      },
+      {
+        "path": "<evidence root>/20261105T204239Z-e0b77adf-98ca96/05-scrolled-back.png",
+        "sha256": "ecea4fd2d68b05b78790763989048c92ec2e3cbf9b3ba03b3da7c1e025abda9c",
+        "verdict": "pass",
+        "seen": "The outcome names this capture (05-scrolled-back.png) as 'history scrolled back'. The screen shows terminal rows quoted as 'row 329 of the lab agent's history' through 'row 351 of the lab agent's history', which is older history output rather than a fresh command prompt. A 'Latest' button with a down arrow appears at the bottom, indicating the view is scrolled away from the newest output. The agent header 'Fix the login pa...' and Tab 1 are visible, and no keyboard, dialog, or error hides the content. This matches the scrolled-back part."
+      },
+      {
+        "path": "<evidence root>/20261105T204239Z-e0b77adf-98ca96/06-scrolled-to-latest.png",
+        "sha256": "656ad274dd2948f0c5dfce50495526eec6a1a7e3142caa988f1b26651bbfecdc",
+        "verdict": "pass",
+        "seen": "The capture is 06-scrolled-to-latest. The terminal area ends with the quote \"row 400 of the lab agent's history\" at the bottom, preceded by consecutive rows 379-399. This shows the newest output after scrolling forward. There is no error, crash, or overlay hiding the content; the keyboard is not open, only the prompt bar and the Tab 1 strip. It shows only its own part, which is fine."
+      },
+      {
+        "path": "<evidence root>/20261105T204239Z-e0b77adf-98ca96/07-back-from-usage.png",
+        "sha256": "880b3bd21c9a83879fd4bf7222434e3fc0def28f73aad0f8fdc46242704acfac",
+        "verdict": "pass",
+        "seen": "The outcome names 'agent screen after Usage and back' for 07-back-from-usage. The screenshot shows the agent terminal view with title 'Fix the login pa...', Tab 1, and the prompt bar ('Prompt...'). Terminal content shows 'row 400 of the lab agent's history' as the newest line at the bottom, with no error, dialog, or keyboard overlay hiding content. It is consistent with returning to the agent screen from Usage; no Usage screen is visible, and nothing contradicts the outcome."
+      },
+      {
+        "path": "<evidence root>/20261105T204239Z-e0b77adf-98ca96/release-build.json",
+        "sha256": "2248b1339216e33d8ffa487335995d3a18f1a52ca098f12482427a6e290c7323",
+        "verdict": "pass",
+        "seen": "Read 1 entry (release-build.json). Fields: version \"0.2.19\", install \"fresh\", result \"pass\", all steps (pair, attach, send, scroll, usage, one-host) \"pass\", hosts 1, attachMs 430, scrollMs 3114, with apk and package hashes. This matches the outcome's description of the sealed release-build.json: every step passed, exactly one host, attach 430 ms, scroll 3114 ms, and the exact APK and tarball recorded. It does not show the four screen captures, which other captures cover, so it covers none of the shared screen parts."
+      }
+    ]
+  }
+}
