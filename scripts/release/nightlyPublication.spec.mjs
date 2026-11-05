@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import { sealRelease } from './application/sealRelease.mjs';
 import { resolveNightly } from './application/resolveNightly.mjs';
+import { publishTarball } from './application/publishNpm.mjs';
 
 it('admits a sealed stable from main or its exact tag, never another branch or tag', () => {
     const cli = fileURLToPath(new URL('./presentation/stableDecision.mjs', import.meta.url));
@@ -71,4 +72,23 @@ it('resolves the sealed nightly bytes, refuses conflicting identities, and retri
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
+});
+
+it('reports npm\'s own staged-version conflict with the promotion step, never an unsettled publish', () => {
+    const line = 'npm error 409 Conflict - Cannot publish over previously staged version 0.2.19';
+    const calls = [];
+    const run = (_cmd, args) => {
+        calls.push(args[0]);
+        return args[0] === 'publish' ? { status: 1, stdout: '', stderr: `${line}\nnpm error code E409\n` } : { status: 0, stdout: '"0.2.18"\n', stderr: '' };
+    };
+    let message;
+    try { publishTarball('/tmp/x.tgz', 'latest', '0.2.19', run); } catch (error) { message = error.message; }
+    expect(message).toContain(line);
+    expect(message).toContain('npm error code E409');
+    expect(message).toContain('already staged');
+    expect(message).toContain('npm stage list');
+    expect(message).toContain('npm stage approve <stage-id>');
+    expect(message).toContain('"0.2.18"');
+    expect(message).not.toContain('did not settle');
+    expect(calls.filter((name) => name === 'publish')).toHaveLength(1);
 });

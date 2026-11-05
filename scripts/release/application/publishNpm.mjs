@@ -11,15 +11,54 @@ import { resolveStable } from './resolveStable.mjs';
 
 const spec = (version) => `@trymuxr/cli@${version}`;
 
-function npm(args, allowMissing = false) {
+const output = (result) => [result.stdout, result.stderr].map((text) => (text ?? '').trim()).filter(Boolean).join('\n');
+
+/** npm's own words for a failed command, verbatim, with the HTTP status and error code lines intact. */
+function npmFailure(args, result) {
+    const detail = output(result) || result.error?.message || 'no output';
+    return `npm ${args.join(' ')} failed (${result.status ?? 'no exit status'}):\n${detail}`;
+}
+
+/** A 409 from publish that says this version is already staged, awaiting a maintainer's approval. */
+const stagedConflict = (text, version) => /409/.test(text) && text.includes(`Cannot publish over previously staged version ${version}`);
+
+function npm(args, allowMissing = false, run = spawnSync) {
     // Metadata reads are small and must fail fast; publishing uploads the
     // whole tarball and keeps the longer budget.
     const timeout = args[0] === 'publish' ? 180000 : 20000;
-    const result = spawnSync('npm', args, { encoding: 'utf8', timeout });
+    const result = run('npm', args, { encoding: 'utf8', timeout });
     if (result.status === 0) return result.stdout.trim();
     if (allowMissing && /E404/.test(result.stderr)) return undefined;
-    const detail = (result.stderr || result.error?.message || 'no output').trim().slice(-400);
-    throw new Error(`npm ${args.join(' ')} failed (${result.status ?? 'no exit status'}): ${detail}`);
+    throw new Error(npmFailure(args, result));
+}
+
+/**
+ * Publish the tarball. A staged-version conflict is a recognised outcome, not
+ * an unsettled publish: it is never retried, and the error names the maintainer's
+ * next step. Anything else is npm's own output, verbatim.
+ */
+export function publishTarball(path, tag, version, run = spawnSync) {
+    const args = ['publish', path, '--tag', tag, '--access', 'public', '--provenance'];
+    const result = run('npm', args, { encoding: 'utf8', timeout: 180000 });
+    if (result.status === 0) return;
+    const text = output(result);
+    // The job log carries npm's lines even when a caller swallows the error.
+    process.stderr.write(`${text || result.error?.message || 'npm printed nothing'}\n`);
+    if (!stagedConflict(text, version)) throw new Error(npmFailure(args, result));
+    let live = 'unknown (npm view failed)';
+    try {
+        live = npm(['view', '@trymuxr/cli', `dist-tags.${tag}`, '--json'], false, run);
+    } catch (error) {
+        live = `unknown (${error.message.split('\n')[0]})`;
+    }
+    throw new Error([
+        `${spec(version)} is already staged on npm; it was not published again and nothing was retried.`,
+        `npm said:\n${text}`,
+        `Live dist-tag ${tag} is ${live}, so ${version} is not live yet.`,
+        'A maintainer promotes it with their 2FA code:',
+        '  npm stage list',
+        `  npm stage approve <stage-id>   (the stage id of ${spec(version)} from the list)`,
+    ].join('\n'));
 }
 
 /** Whether this CLI version is already on npm; a merge that changes nothing publishes nothing. */
@@ -104,7 +143,7 @@ export async function publishNpm() {
     if (current && compareVersions(current, RELEASE_VERSION) > 0) throw new Error('Refusing to move the channel backwards');
     // Trusted publishing can publish a version but not move a tag: the tag is
     // set by this publication or not at all.
-    if (existing === undefined) npm(['publish', path, '--tag', publishTag, '--access', 'public', '--provenance']);
+    if (existing === undefined) publishTarball(path, publishTag, RELEASE_VERSION);
     else if (current !== RELEASE_VERSION) throw new Error(`${spec(RELEASE_VERSION)} is already on npm without the ${publishTag} tag, and trusted publishing cannot move a tag; publish a new version`);
     // Different bytes under the same version is never a propagation delay.
     if (await integrityOf(RELEASE_VERSION) !== integrity) throw new Error('Published npm integrity mismatch');
