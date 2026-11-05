@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { Platform, Pressable, Share, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
@@ -40,7 +40,9 @@ export function SetupCommand(props: { command: string; shareable?: boolean; effe
     return (
         <View style={styles.root}>
             <View style={styles.block}>
-                <Text style={styles.command} selectable>{props.command}</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityLabel={props.command}>
+                    <Text style={styles.command} selectable>{props.command}</Text>
+                </ScrollView>
             </View>
             <View style={styles.actions}>
                 <Pressable accessibilityRole="button" accessibilityLabel="Copy command" hitSlop={6} style={[styles.action, styles.actionPrimary]} onPress={copy}>
@@ -93,7 +95,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 12,
         paddingVertical: 10,
     },
-    command: { ...Typography.mono(), fontSize: 13, lineHeight: 19, color: theme.colors.text },
+    command: { ...Typography.mono(), flexShrink: 0, fontSize: 13, lineHeight: 19, color: theme.colors.text },
     actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     action: {
         flexDirection: 'row',
