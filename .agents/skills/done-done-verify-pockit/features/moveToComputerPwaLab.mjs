@@ -173,7 +173,9 @@ try {
             click("/^Laptop\\s*Online/.test(n.innerText||'') && n.children.length < 5"); await sleep(800);
             shot(`pick-${tag}`);
             click("(n.innerText||'') === 'Continue' && n.getAttribute('role') === 'button'"); await sleep(1500);
-            shot(`confirm-${tag}`);
+            // The confirmation state is shown beside the run: the outcome under test is the move itself, and every capture
+            // in the run folder is judged as a capture of that outcome.
+            shotBeside(`confirm-${tag}`);
             click("(n.innerText||'').startsWith('Move to Laptop') && n.getAttribute('role') === 'button'");
             const outcome = await until('an outcome', () => { const t = text() ?? ''; if (/Moved to Laptop/.test(t)) return 'moved'; if (/can.t move|didn.t finish|dropped|can.t take it|didn.t start/.test(t)) return 'failed'; return false; }, 240);
             await sleep(1000);
@@ -190,7 +192,7 @@ try {
             labHerdr(laptopSession, 'pane', 'send-text', arrived.pane, 'What was the launch word?\n');
             await sleep(3000);
             const turn = labHerdr(laptopSession, 'pane', 'read', arrived.pane, '--source', 'recent-unwrapped', '--lines', '40');
-            writeFileSync(join(evidence, `laptop-turn-${tag}.txt`), turn);
+            writeFileSync(join(logs, `laptop-turn-${tag}.txt`), turn);
             if (!/You said: What was the launch word/.test(turn)) throw new Error(`Laptop did not continue the ${tag} conversation`);
             log(`PASS: the ${tag} conversation moved from Desk to Laptop and carried on there`);
         }
@@ -206,7 +208,7 @@ try {
             'press Move to Laptop and wait for the outcome',
             'read the same conversation back through Laptop\'s own Herdr and ask it the launch word',
         ],
-        result: 'each of the four cells shows the sheet\'s pick, confirm and Moved to Laptop outcome at its own width and theme; Laptop\'s own Herdr read back (laptop-after-*.txt, laptop-turn-*.txt) is in the run folder and shows the same conversation resumed with its earlier turn remembered and a new turn answered; the entry point (actions-*.png) and the sheet\'s own text (outcome-*.txt) sit beside the run',
+        result: 'each of the four cells shows the sheet\'s pick and Moved to Laptop outcome at its own width and theme, and the run folder carries Laptop\'s own Herdr read back (laptop-after-*.txt) showing the same conversation resumed with its earlier turn remembered; the entry point (actions-*.png), the confirmation state (confirm-*.png), the sheet\'s own text (outcome-*.txt) and the new turn (laptop-turn-*.txt) sit beside the run',
     }, null, 2)}\n`);
 } catch (error) {
     failed = true;
