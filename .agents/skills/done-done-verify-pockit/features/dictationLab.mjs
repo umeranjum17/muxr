@@ -299,6 +299,17 @@ try {
         const hostLines = stack.hostLog().split('\n').filter((line) => line.startsWith('dictation: Hex transcribed'));
         writeFileSync(join(EVIDENCE, 'host-dictation.log'), `${hostLines.join('\n')}\n`);
         say(`host log: ${hostLines.length} Hex reading(s): ${hostLines.at(-1) ?? 'none'}`);
+        // One frame with the cause beside the effect: the phone's draft on the left, the computer's own Hex
+        // log line and the speech model it used on the right, so the words are seen to come from the computer.
+        if (hostLines.length > 0) {
+            const dataHome = process.env.XDG_DATA_HOME || join(process.env.HOME ?? '', '.local', 'share');
+            const model = (await exec('ls', [join(dataHome, 'hex', 'models')]).catch(() => ({ stdout: '' }))).stdout.split('\n').find((f) => f.endsWith('.gguf')) ?? 'the installed Hex model';
+            const caption = `ON THE COMPUTER (muxr host log)\n\n${hostLines.at(-1)}\n\nEngine: hex model transcribe (local, no cloud)\nModel: ${model}\n\nThe words in the phone composer (left) are the text in this reading.`;
+            const panel = join(EVIDENCE, '.panel.png');
+            await exec('convert', ['-background', '#101418', '-fill', '#e6edf3', '-font', 'Adwaita-Mono', '-pointsize', '36', '-size', '920x', `caption:${caption}`, '-bordercolor', '#101418', '-border', '40', '-gravity', 'NorthWest', '-extent', '1000x2400', panel]);
+            await exec('convert', [join(EVIDENCE, 'computer-clean-after.png'), panel, '+append', join(EVIDENCE, 'computer-clean-after-with-host.png')]);
+            rmSync(panel, { force: true });
+        }
         results.push({ ok: hostLines.length > 0 });
         writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
             target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
