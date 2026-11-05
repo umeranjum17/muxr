@@ -11,8 +11,9 @@ transport. A browser reaches the doors from the demo's **Connect a machine**
 
 Each door is a three-step branch and every step screen shows its own time:
 
-- My computer (`/my-computer`): 1 Get ready (Tailscale on both ends, muxr on
-  the computer), 2 Pair with your computer (Scan the QR where the device can
+- My computer (`/my-computer`): 1 Get ready (Tailscale on both ends, then muxr
+  on the computer as one pasteable install line with Copy and Share and what it
+  does, so a computer with nothing on it never meets `command not found`), 2 Pair with your computer (Scan the QR where the device can
   scan, Private link or pairing code, then two example words to compare),
   3 Start an agent on Home's first-agent card.
 - Cloud machine · Boat (`/cloud-computer`): 1 Connect your Boat account,

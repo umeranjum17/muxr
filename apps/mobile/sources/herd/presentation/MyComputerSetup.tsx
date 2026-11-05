@@ -68,10 +68,10 @@ function ReadyStep() {
             <StepCard title="2 · muxr on the computer" time="about 1–2 min">
                 <Text style={styles.hint}>
                     {browser
-                        ? 'Paste this one line in a terminal on the computer. It installs muxr and sets it up. A browser can’t scan the QR it ends on, so run muxr link there for a link to paste here.'
+                        ? 'Paste this one line in a terminal on the computer. It installs muxr and sets it up. A browser can’t scan its QR, so then run muxr link there for a link to paste here.'
                         : 'Paste this one line in a terminal on the computer. It installs muxr, sets it up and ends on a QR to scan.'}
                 </Text>
-                <SetupCommand command={setup.command} shareable />
+                <SetupCommand command={setup.command} shareable effectsOpen />
                 {desktopLink !== undefined && (
                     <ActionButton
                         variant="secondary"

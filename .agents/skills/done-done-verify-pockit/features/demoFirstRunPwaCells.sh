@@ -115,7 +115,7 @@ done
 screens='connect|Connect a machine|My computer|Cloud machine · Boat|from $0.018 an hour
 my-computer|Get ready|about 2 min|Get Tailscale|install.sh|Copy|Next: pair
 my-computer?step=pair|Pair with your computer|Private link or pairing code|Example words|Start an agent
-cloud-computer|Your cloud computer|Set up from the muxr phone app'
+cloud-computer|Your cloud machine|Set up from the muxr phone app'
 for cell in 270:2.0:594 360:1.0:800 390:1.0:844 445:1.0:900 1280:1.0:900 1440:1.0:1000; do
   w=${cell%%:*}; rest=${cell#*:}; f=${rest%%:*}; h=${rest##*:}
   vw=$(awk "BEGIN{print int($w/$f)}"); vh=$(awk "BEGIN{print int($h/$f)}"); dpr=$(awk "BEGIN{print 2*$f}")

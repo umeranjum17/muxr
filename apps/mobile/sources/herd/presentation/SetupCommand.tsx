@@ -10,10 +10,9 @@ import { WordWrappingText } from '@/components/WordWrappingText';
 // scripts/setup/presentation/setupWizard.mjs: a first run asks one question
 // (the route, already chosen) and keeps every other default.
 const SETUP_EFFECTS = [
-    'It installs muxr for your user, with no sudo. It needs Node.js 22 or newer.',
-    'It asks one question on the computer: how your phone reaches it. The recommended answer is already chosen; Enter takes it.',
-    'It installs Herdr, the terminal engine your agents run in, if the computer has none, and keeps muxr running in the background.',
-    'It ends on a QR and two words. You scan, check the words match, and approve on the computer.',
+    'Installs muxr for your user, with no sudo. Needs Node.js 22 or newer.',
+    'Asks one question: how your phone reaches the computer. Enter takes the recommended answer.',
+    'Installs Herdr, the terminal engine, if the computer has none, then ends on a QR to scan.',
 ] as const;
 
 /**
@@ -22,11 +21,11 @@ const SETUP_EFFECTS = [
  * plain-words list of what running it does. Used by every first-run step that
  * tells a person what to paste on the computer.
  */
-export function SetupCommand(props: { command: string; shareable?: boolean }) {
+export function SetupCommand(props: { command: string; shareable?: boolean; effectsOpen?: boolean }) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const [notice, setNotice] = React.useState<string | undefined>();
-    const [effectsOpen, setEffectsOpen] = React.useState(false);
+    const [effectsOpen, setEffectsOpen] = React.useState(props.effectsOpen === true);
     const copy = React.useCallback(() => {
         void Clipboard.setStringAsync(props.command).then((ok) => {
             setNotice(ok === false ? 'Could not copy. Type the command shown above on your computer.' : 'Copied. Paste it in a terminal on your computer.');
@@ -44,9 +43,9 @@ export function SetupCommand(props: { command: string; shareable?: boolean }) {
                 <Text style={styles.command} selectable>{props.command}</Text>
             </View>
             <View style={styles.actions}>
-                <Pressable accessibilityRole="button" accessibilityLabel="Copy command" hitSlop={6} style={styles.action} onPress={copy}>
-                    <Ionicons name="copy-outline" size={18} color={theme.colors.text} />
-                    <Text style={styles.actionText}>Copy</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Copy command" hitSlop={6} style={[styles.action, styles.actionPrimary]} onPress={copy}>
+                    <Ionicons name="copy-outline" size={18} color={theme.colors.button.primary.tint} />
+                    <Text style={[styles.actionText, styles.actionPrimaryText]}>Copy</Text>
                 </Pressable>
                 {props.shareable && Platform.OS !== 'web' && (
                     <Pressable accessibilityRole="button" accessibilityLabel="Share command" hitSlop={6} style={styles.action} onPress={share}>
@@ -106,6 +105,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         borderWidth: 1,
         borderColor: theme.colors.divider,
     },
+    actionPrimary: { backgroundColor: theme.colors.button.primary.background, borderColor: theme.colors.button.primary.background },
+    actionPrimaryText: { color: theme.colors.button.primary.tint },
     actionText: { ...Typography.default('semiBold'), fontSize: 14, color: theme.colors.text },
     hint: { ...Typography.default(), flexShrink: 1, fontSize: 13, lineHeight: 18, color: theme.colors.textSecondary },
     effectsToggle: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 32 },
