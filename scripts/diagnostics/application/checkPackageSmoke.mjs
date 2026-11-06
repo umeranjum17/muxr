@@ -621,18 +621,11 @@ try {
     assert.ok(anthropicSdk.every((dependency) => dependency.transitiveOf !== undefined), '@anthropic-ai/sdk must be audited as a transitive dependency');
     assert.ok(anthropicSdk.some((dependency) => dependency.transitiveOf === '@byokit/accounts'), '@anthropic-ai/sdk must be audited transitively via @byokit/accounts');
     // npm installs required peers into the shipped closure, so the inventory
-    // must name them. react-native is reachable only through peer edges
-    // (react-native-zeroconf's required one, and react-native-webrtc's, which
-    // @byokit/realtime declares as an optional peer), and the walk records
-    // whichever it reaches first, so this assertion fails if the peer walk
-    // stops.
+    // must name them. zod arrives only through a peer edge, so this assertion
+    // fails if the peer walk stops.
     assert.ok(
         licenseInventory.dependencies.some((dependency) => dependency.name === 'zod' && dependency.transitiveOf !== undefined),
         'peer-installed zod missing from license audit',
-    );
-    assert.ok(
-        licenseInventory.dependencies.some((dependency) => dependency.name === 'react-native' && ['react-native-zeroconf', 'react-native-webrtc'].includes(dependency.transitiveOf)),
-        'peer-installed react-native missing from license audit',
     );
 
     // The desktop AppImage carries its own generated inventory through the
@@ -682,11 +675,13 @@ try {
     const installedDesklinkRoot = join(installDir, 'node_modules', '@desklink', 'host');
     const installedDesklink = JSON.parse(readFileSync(join(installedDesklinkRoot, 'package.json'), 'utf8'));
     assert.equal(installedDesklink.version, packageJson.dependencies['@desklink/host']);
+    // A first install is the longest wait on the road to a working agent, and
+    // the phone's toolchain once doubled it.
+    for (const name of ['react-native', 'react-native-zeroconf', 'metro']) {
+        assert.ok(!existsSync(join(installDir, 'node_modules', name)), `npm install of the CLI brought in ${name}`);
+    }
     // The inventory promises to name every production package a consumer
-    // install materializes. This is why the shipped package.json pins the
-    // peer-installed react-native: an unbounded peer range would let npm
-    // resolve today's latest here, bringing in dependencies the audit never
-    // walked and shipping them without a license entry.
+    // install materializes.
     const shippedInventoryNames = new Set(licenseInventory.dependencies.map((dependency) => dependency.name));
     const consumerPackageNames = new Set();
     const collectConsumerPackages = (dir) => {
