@@ -55,7 +55,8 @@ real Claude transcript), one conversation per cell. `moveToComputerPwaLab.mjs` (
 installed PWA with both, opens that cell's agent on Desk, and records pick, confirm and the outcome at 390 and 1280,
 dark and light; on each success it reads back through Laptop's own Herdr that the same conversation id and its earlier
 turn are running there and that a new turn is answered with the old one remembered, then reloads the app on Desk and
-captures `source-note-*.png`, the Pane actions row naming Laptop. Each cell drives its own move: a
+captures `source-note-*.png` beside the run: the Pane actions row naming Laptop, which is what the person sees once the
+move sheet is gone. Each cell drives its own move: a
 viewport change back to a phone drops the open sheet, so an outcome is never re-shot at the other width. The frame of
 where the action is entered (the unchanged Pane actions menu) is kept beside the run, in `<evidence>-logs/`, because
 the judge takes every file in the run folder as a capture of the outcome.

@@ -199,13 +199,14 @@ try {
             if (!/You said: What was the launch word/.test(turn)) throw new Error(`Laptop did not continue the ${tag} conversation`);
             log(`PASS: the ${tag} conversation moved from Desk to Laptop and carried on there`);
             // The sheet is gone once the person dismisses it, so Desk's own Pane actions is what still names where the
-            // conversation went. Reloaded the way a person reopens the app, and captured as part of the outcome.
+            // conversation went. Reloaded the way a person reopens the app. The judge reads every file in the run folder
+            // as a capture of the move itself, so this frame sits beside the run with the picker and the confirmation.
             ax('eval', "location.assign('/')"); await sleep(8000);
             evalJs(`document.querySelector('[aria-label^="Open ${agent.label}"]')?.click()`);
             await until('the source agent screen', () => evalJs("!!document.querySelector('[aria-label=\"Pane actions\"]')"), 60);
             evalJs("document.querySelector('[aria-label=\"Pane actions\"]').click()"); await sleep(1500);
             await until('the move note on the source', () => evalJs("!!document.querySelector('[aria-label=\"Moved to Laptop\"]')"), 60);
-            shot(`source-note-${tag}`);
+            shotBeside(`source-note-${tag}`);
         }
         await closeBrowser();
     }
@@ -220,7 +221,7 @@ try {
             'read the same conversation back through Laptop\'s own Herdr and ask it the launch word',
             'reload the app on Desk and open that agent\'s Pane actions, where the move row names the computer it went to',
         ],
-        result: 'each of the four cells shows the sheet\'s Moved to Laptop outcome at its own width and theme, the run folder carries Laptop\'s own Herdr read back (laptop-after-*.txt) showing the same conversation resumed with its earlier turn remembered, and source-note-*.png shows Desk\'s own Pane actions naming where the conversation went after the sheet was gone; the entry point (actions-*.png), the picker (pick-*.png), the confirmation state (confirm-*.png), the sheet\'s own text (outcome-*.txt) and the new turn (laptop-turn-*.txt) sit beside the run',
+        result: 'each of the four cells shows the sheet\'s Moved to Laptop outcome at its own width and theme, and the run folder carries Laptop\'s own Herdr read back (laptop-after-*.txt) showing the same conversation resumed with its earlier turn remembered; the entry point (actions-*.png), the picker (pick-*.png), the confirmation state (confirm-*.png), the sheet\'s own text (outcome-*.txt), the new turn (laptop-turn-*.txt) and Desk\'s own Pane actions naming Laptop after the sheet was gone (source-note-*.png) sit beside the run',
     }, null, 2)}\n`);
 } catch (error) {
     failed = true;
