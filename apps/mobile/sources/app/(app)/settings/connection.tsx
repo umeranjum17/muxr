@@ -542,7 +542,7 @@ export default function ConnectionSettingsScreen() {
             unavailable: 'Nearby discovery is unavailable in this app build. Open muxr on the computer, or run muxr setup, to refresh the route, then pair by QR or string if needed.',
             failed: 'Nearby discovery failed. Check Wi-Fi and retry; open muxr on the computer, or run muxr setup, to refresh its route if the address changed.',
         };
-        const staleLanHint = status !== 'connected' && describeRoute(initial.relayUrl) === 'Local or private network'
+        const staleLanHint = status !== 'connected' && describeRoute(initial.relayUrl) === 'Same Wi-Fi'
             ? ' The saved LAN address may have changed.' : '';
         const canRetryNearby = Platform.OS !== 'web' && !['disabled', 'unavailable'].includes(nearbyPhase);
         const transportPrivacy = initial.ssh !== undefined && sshSupported

@@ -36,7 +36,7 @@ import {
     stopOwnedSelfhostRelay,
     writeSelfhostState,
 } from './selfhost.mjs';
-import { serve, tailscaleStatus } from '@byokit/reach';
+import { serve, tailscaleStatus } from './reach.mjs';
 
 export function enrollmentPayload(link) {
     const parsed = parseEnrollment(link);

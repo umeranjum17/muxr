@@ -122,6 +122,13 @@ journeys:
   pane-account-host:
     command: node .agents/skills/done-done-verify-pockit/features/paneAccountHostLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m
+  # The first wait a new user sits through: a cold npm install of the published
+  # CLI against the candidate, then the installed candidate running setup's
+  # inspection and publishing its relay on the LAN. Private prefixes, caches and
+  # home. Needs `yarn build` and a fresh web export. See features/first-install.md.
+  first-install:
+    command: node .agents/skills/done-done-verify-pockit/features/firstInstallLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 15m
   # Self-naming on the host, no phone: a lane alone in the lead's workspace
   # runs the real `muxr name --workspace`; the workspace keeps its label, only
   # the lane's own tab is named, and herdr.tree carries a path-labelled
@@ -450,3 +457,12 @@ journeys:
   desklink-pin:
     command: node .agents/skills/done-done-verify-pockit/features/desklinkPinLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m
+  # Dictation read on the computer by Hex, not on the phone: the release app
+  # (built with EXPO_PUBLIC_MUXR_LAB_DICTATE=1) on an owned emulator turns on
+  # Settings > Transcribe on my computer, takes the clean fixture file-fed, and
+  # the draft fills from the real lab host's Hex reading (host-dictation.log).
+  # MUXR_LAB_APK, MUXR_LAB_AVD_HOME and MUXR_HEX_LAB (a Hex wrapper with an
+  # installed speech model) are set; see dictation-on-computer.md.
+  dictation-computer:
+    command: node .agents/skills/done-done-verify-pockit/features/dictationLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --computer "$MUXR_HEX_LAB" ${MUXR_LAB_LAUNCHER:+--launcher "$MUXR_LAB_LAUNCHER"} > /dev/null 2>&1
+    timeout: 30m

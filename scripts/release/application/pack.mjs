@@ -95,7 +95,13 @@ const dependencies = licenseInventory({
     rootPackage,
     declared: runtimeDependencies,
 });
-const reactNative = dependencies.find((dependency) => dependency.name === 'react-native');
+// Transitive ranges that float past the audited closure; see the pin in `pkg`.
+const pinnedTransitives = Object.fromEntries(
+    ['@earendil-works/pi-ai']
+        .map((name) => dependencies.find((dependency) => dependency.name === name))
+        .filter((dependency) => dependency !== undefined)
+        .map((dependency) => [dependency.name, dependency.auditedVersion]),
+);
 writeThirdPartyInventory({
     inventoryPath: join(out, 'THIRD_PARTY_LICENSES.json'),
     licenseDir: join(out, 'LICENSES', 'npm'),
@@ -132,6 +138,19 @@ const copyContext = (name) => {
 copyFileSync(join(root, 'scripts', 'cli.mjs'), join(out, 'cli.mjs'));
 copyFileSync(join(root, 'muxr.config.example.json'), join(out, 'muxr.config.example.json'));
 for (const context of ['setup', 'release', 'diagnostics', 'terminal', 'naming', 'preview', 'accounts']) copyContext(context);
+await build({
+    entryPoints: ['scripts/setup/infrastructure/reach.mjs'],
+    outfile: join(out, 'setup', 'infrastructure', 'reach.mjs'),
+    allowOverwrite: true,
+    preserveSymlinks: true,
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+    external,
+    legalComments: 'none',
+    logLevel: 'warning',
+});
 if (!existsSync(join(out, 'setup', 'domain', 'dist', 'index.js'))) {
     throw new Error('setup domain was not compiled; run yarn build before packing');
 }
@@ -212,15 +231,15 @@ const pkg = {
         'skills/',
         'web/',
     ],
-    // react-native-zeroconf declares react-native as an unbounded required
-    // peer (>=0.60), so left to itself a consumer install resolves today's
-    // latest — a dependency tree the audit never walked. Pin the audited
-    // version so consumers install exactly the closure the inventory names.
-    // ponytail: pins only this peer; surface required-peer edges from
+    // @byokit/accounts floats @earendil-works/pi-ai at ^1.3.0, so a fresh
+    // install resolved 1.5.0, which pulls in the unaudited pi-schema. Pin the
+    // audited version so consumers install exactly the closure the inventory
+    // names.
+    // ponytail: pins only this one; surface unbounded edges from
     // installedClosure if another package drifts the same way.
     dependencies: {
         ...runtimeDependencies,
-        ...(reactNative === undefined ? {} : { 'react-native': reactNative.auditedVersion }),
+        ...pinnedTransitives,
     },
     repository: { type: 'git', url: 'git+https://github.com/umeranjum17/muxr.git' },
     homepage: 'https://trymuxr.com',

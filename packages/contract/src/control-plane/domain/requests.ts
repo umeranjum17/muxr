@@ -1020,6 +1020,12 @@ export interface RequestMap extends PeerRequestMap {
         params: { displayName: string; taskTitle: string; status: string; outcome: string; tail?: string };
         result: VoiceReport;
     };
+    /**
+     * Dictation read on the computer by Hex, not on the phone: one recorded
+     * take as a base64 16 kHz mono WAV in, its text out. The host never keeps
+     * the audio. A host without Hex answers with the reason.
+     */
+    'dictation.transcribe': { params: { audio: string }; result: { text: string } };
 }
 
 export type RequestType = keyof RequestMap;

@@ -9,7 +9,7 @@ import {
     tailscaleName,
     tailscaleState,
     unserve,
-} from '@byokit/reach';
+} from './reach.mjs';
 import { advertisedUrlForMode, localRelayBase, parseConnection, publicRelayUrl } from '../domain/dist/index.js';
 import { relayEntry } from './paths.mjs';
 import {

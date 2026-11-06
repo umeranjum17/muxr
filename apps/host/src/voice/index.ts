@@ -78,3 +78,5 @@ export async function voiceKeyClear(providerId?: unknown): Promise<void> {
 export async function voiceReport(input: unknown): Promise<{ say: string }> {
     return (await load()).voiceReport(input);
 }
+
+export { dictateWithHex } from './hexDictation.js';
