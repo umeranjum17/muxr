@@ -4,7 +4,7 @@
 // is the real cli. Finished run: the CLI ends on its own line, no menu. Unfinished
 // run (setup cancelled, exit 0, nothing saved): the menu still opens.
 // Run from the repo root: node <this> <evidence-dir>
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -29,5 +29,15 @@ try {
         if (outcome === 'cancel' && !menu) failures.push('unfinished first run did not open the menu');
     }
 } finally { rmSync(root, { recursive: true, force: true }); }
+writeFileSync(join(evidence, 'steps.json'), JSON.stringify({
+    target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
+    start: 'bare muxr in a terminal on a computer with no muxr host state saved (private MUXR_HOME)',
+    steps: [
+        'run muxr and finish the first-run setup, which saves the host state',
+        'see the line "Open muxr on your phone and tap Start" and land back at the shell with exit 0, no menu',
+        'run muxr again where the setup is cancelled and nothing is saved, and see the main menu open',
+    ],
+    result: 'a finished first run ends on its own line with no menu; an unfinished one still opens the menu',
+}, null, 2));
 if (failures.length > 0) { console.error(failures.join('\n')); process.exit(1); }
 console.log('first run exit: finished run ends without the menu; unfinished run opens it');
