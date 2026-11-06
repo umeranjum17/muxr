@@ -14,7 +14,7 @@
 //   node .agents/skills/done-done-verify-pockit/features/twoDoorsLab.mjs --apk <apk> --evidence <dir> \
 //     --avd-home <dir> --root <short lab dir> [--part <parts>]
 import { execFile } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
@@ -23,11 +23,17 @@ import { dumpUiXml } from '../../../../perf/lib/androidSignals.mjs';
 import { linkHerdrLab } from '../../../../scripts/diagnostics/application/linkHerdrLab.mjs';
 
 const { values: opts } = parseArgs({ options: {
-    apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' }, root: { type: 'string' }, part: { type: 'string', default: '360,390,445,270,tablet,timed' },
+    apk: { type: 'string' }, evidence: { type: 'string' }, matrix: { type: 'string' }, 'avd-home': { type: 'string' }, root: { type: 'string' }, part: { type: 'string', default: '360,390,445,270,tablet,timed' },
 } });
 if (!opts.apk || !opts.evidence || !opts['avd-home'] || (!opts.root && opts.part.includes('timed'))) throw new Error('--apk, --evidence, --avd-home and --root are required');
 const PKG = 'com.trymuxr.app';
 const EVIDENCE = resolve(opts.evidence);
+// The judge takes every file in the run folder as a capture and sends at most ten, so the
+// whole width/theme matrix sits beside the run (MATRIX) and only the frames a claim cites
+// are copied in: the doors and Boat step the approved requirements name, and the My
+// computer Get ready step this change is about.
+const MATRIX = resolve(opts.matrix ?? opts.evidence);
+const CITED = /^(doors-(360|390)-1\.0-(light|dark)|boat-1-account-390-1\.0-light|mycomputer-1-ready-(360|390)-1\.0-(light|dark))$/;
 const ROOT = resolve(opts.root ?? '.');
 const PARTS = new Set(opts.part.split(','));
 const CHECK = resolve('.agents/skills/done-done-verify-pockit/features/visualCheck.mjs');
@@ -35,6 +41,7 @@ const CHECK = resolve('.agents/skills/done-done-verify-pockit/features/visualChe
 const DENSITY = { 360: 480, 390: 443, 445: 388, 270: 640 };
 const CELLS = [['360', '1.0'], ['390', '1.0'], ['445', '1.0'], ['270', '2.0']].filter(([w]) => PARTS.has(w)).flatMap(([w, f]) => ['light', 'dark'].map((t) => [w, f, t]));
 mkdirSync(EVIDENCE, { recursive: true });
+mkdirSync(MATRIX, { recursive: true });
 const exec = promisify(execFile);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const say = (line) => { const out = `${new Date().toISOString()} ${line}`; console.log(out); };
@@ -132,6 +139,7 @@ async function capture(dir, name, end = false) {
     const run = await exec(process.execPath, args, { timeout: 180_000, maxBuffer: 16 << 20 }).then((r) => ({ out: r.stdout }), (e) => ({ out: `${e.stdout ?? ''}${e.stderr ?? ''}` }));
     // The dumps fed the check above; the screenshot is the evidence. Layout-only dumps are
     // byte-identical across themes and would read as reused frames.
+    if (MATRIX !== EVIDENCE && CITED.test(name)) { mkdirSync(join(EVIDENCE, 'frames'), { recursive: true }); copyFileSync(join(dir, `${name}.png`), join(EVIDENCE, 'frames', `${name}.png`)); }
     for (const ext of ['xml', 'compressed.xml']) rmSync(join(dir, `${name}.${ext}`), { force: true });
     const lines = run.out.split('\n').filter((line) => line.startsWith('DEFECT'));
     for (const line of lines) leads.push(`${name}: ${line}`);
@@ -286,7 +294,7 @@ try {
     {
         for (const [width, font, theme] of CELLS) {
             const cell = `${width}-${font}-${theme}`;
-            const dir = join(EVIDENCE, 'frames', cell);
+            const dir = join(MATRIX, 'frames', cell);
             mkdirSync(dir, { recursive: true });
             await sh(`wm size 1080x2376; wm density ${DENSITY[width]}; settings put system font_scale ${font}; cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
             await launchFresh();
@@ -307,7 +315,7 @@ try {
         // At 1280 the Boat steps are the tablet app: a browser only says to set up from the phone app.
         for (const theme of PARTS.has('tablet') ? ['light', 'dark'] : []) {
             const cell = `tablet-1280-1.0-${theme}`;
-            const dir = join(EVIDENCE, 'frames', cell);
+            const dir = join(MATRIX, 'frames', cell);
             mkdirSync(dir, { recursive: true });
             await sh(`wm size 2560x1600; wm density 320; settings put system font_scale 1.0; cmd uimode night ${theme === 'dark' ? 'yes' : 'no'}`);
             await launchFresh();

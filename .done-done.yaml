@@ -423,7 +423,7 @@ journeys:
   # release build of this commit, MUXR_LAB_AVD_HOME a task-owned emulator home,
   # MUXR_LAB_ROOT a short lab directory, HERDR_LAB_HELPER set.
   two-doors:
-    command: node .agents/skills/done-done-verify-pockit/features/twoDoorsLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --root "$MUXR_LAB_ROOT" --part "${TWO_DOORS_PART:-360,390,445,270,tablet,timed}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    command: node .agents/skills/done-done-verify-pockit/features/twoDoorsLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --matrix "$DONE_DONE_EVIDENCE_ROOT-matrix" --avd-home "$MUXR_LAB_AVD_HOME" --root "$MUXR_LAB_ROOT" --part "${TWO_DOORS_PART:-360,390,445,270,tablet,timed}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
   # A version bump on the built web export: the changelog entry validates for
   # package.json's version, checkWebExport passes, and the served export's
