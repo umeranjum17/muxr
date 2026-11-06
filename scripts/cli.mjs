@@ -71,6 +71,7 @@ Run muxr with no arguments for the interactive menu.
 Get started
   muxr setup                     install, connect, and pair this machine
   muxr config init|check         walk through host settings, or validate the config file
+  muxr triage [--fix]            find what is broken; --fix repairs what is local and safe
   muxr doctor                    check the complete local setup
   muxr diagnostics               show bounded redacted host history for agents
   muxr report                    prepare a local redacted bug report draft
@@ -123,7 +124,8 @@ const COMMAND_HELP = {
     link: `muxr link [--new]\n\nShow this computer's one pairing link and its QR. Open it on a phone with Tailscale on: with muxr installed it opens the app and pairs in one tap (no code or words); without it, the page says how to install, and the same link finishes afterwards. The link stays the same across restarts and paired phones do not expire. It is a secret: anyone on your tailnet who has it can pair. --new replaces it; revoking a device or rotating the machine keys also replaces it. Only a tailnet route has a link.\n`,
     pair: `muxr pair [--code|--handoff|--browser|--browser-view|--browser-personal]\n\nOn a tailnet route, show this computer's pairing link (as \`muxr link\`). --code instead creates a two-minute native QR/string you approve here after comparing two words (the only form off a tailnet), an eight-hour control-browser link (--browser), an eight-hour view-only browser link (--browser-view), or a 30-day control link for a browser only you use (--browser-personal).\n\n--handoff pairs a phone without a terminal, using the running host and the current directory as the kit workDir. It atomically writes a private JSON file (at most 64 KB) to .byokit/outbox/muxr-pair-<random>.json:\n  {"version":1,"offer":"<pairing string>","expiresAt":<unix milliseconds>,"wordsFile":"muxr-pair-<random>.words"}\nThe phone reads the offer, dials it over your tailnet, then uses kit deliver to write the two words it sees as UTF-8 text to .byokit/inbox/<wordsFile> (0600, at most 64 KB). Only matching words approve. Wrong words, cancellation, or a two-minute timeout refuse pairing. Both files are removed when pairing ends; refreshed offers replace the same outbox file. Never log or share either file. Browser flags cannot be combined with --handoff.\nHandoff works only on a computer with no paired device yet (first-device setup of a headless cloud computer); once a phone is paired it refuses, and no Wayland screen-share grant applies.\n`,
     desktop: `muxr desktop setup\n\nOn a Wayland desktop, show the screen-sharing prompt here and save the approval, so the phone opens this computer without anyone at the screen. \`muxr setup\` and \`muxr pair\` do this once; run it again if the phone starts asking.\n`,
-    doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
+    doctor: `muxr doctor [--fix]\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets. In a terminal it offers the repairs it knows, including service restarts, after asking.\n`,
+    triage: `muxr triage [--fix]\n\nRun every setup check, one line each: what is wrong and the exact next action. It never asks anything, and one failed check never stops the rest.\n\n--fix applies only local, reversible repairs: clearing a lock or pid file left by an exited process, creating a missing state folder, and setting muxr's own state file to owner-only. Everything else stays a printed command for you to run; it never restarts a service, stops a process or uses sudo.\n`,
     diagnostics: `muxr diagnostics\n\nPrint seven days of bounded redacted host, client, relay, collaboration, and broker history as JSON. No prompts, terminal output, paths, secrets, or internal ids are recorded.\n`,
     report: `muxr report > muxr-report.md\n\nPrepare a local GitHub issue draft with environment versions, redacted doctor check names, and the latest 50 bounded diagnostic events. The command only prints a draft. Review every line, add what happened, and explicitly decide whether to post it; muxr never opens or submits an issue.\n`,
     status: `muxr status\n\nAlias for muxr doctor.\n`,
@@ -468,7 +470,14 @@ async function dispatch(command, args = []) {
             return 1;
         }
     }
-    if (command === 'doctor' || command === 'status') return inspectSetup();
+    if (command === 'doctor' || command === 'status') return inspectSetup({ fix: args.includes('--fix') });
+    if (command === 'triage') {
+        if (args.some((arg) => arg !== '--fix')) {
+            process.stderr.write('usage: muxr triage [--fix]\n');
+            return 1;
+        }
+        return inspectSetup({ fix: args.includes('--fix'), ask: false });
+    }
     if (command === 'diagnostics') {
         try { dumpDiagnostics(); return 0; }
         catch (error) { process.stderr.write(`muxr diagnostics: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }

@@ -1,25 +1,13 @@
 import * as React from 'react';
-import * as Clipboard from 'expo-clipboard';
 import { Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { loadAppConfig } from '@/catalog';
 import { setupEmptyState } from '@/commercialization';
-import { useCompactWindow } from '@/components/useCompactWindow';
 import { WordWrappingText } from '@/components/WordWrappingText';
+import { useCompactWindow } from '@/components/useCompactWindow';
 import { openExternalUrl } from '@/utils/openExternalUrl';
-
-// Honest disclosure of what the copyable command does, checked against the
-// real behaviour in scripts/cli.mjs: plain `muxr` opens the interactive menu
-// (nothing changes until a plan is approved), setup installs Herdr when
-// missing and adds lifecycle detection only, and Apply registers the relay
-// and host services before showing the pairing QR/string.
-const SETUP_EFFECTS = [
-    'It opens the interactive muxr menu on the computer. Nothing is installed or changed until you approve the reviewed plan.',
-    'Approving setup installs Herdr (the local agent engine) when missing, and adds lifecycle detection to your coding agents — never agent skills or prompt files.',
-    'It registers background services (relay and agent host) and shows a short-lived QR or string to pair this device.',
-] as const;
+import { SetupCommand } from './SetupCommand';
 
 /**
  * One numbered step row: the round number badge beside a title (with an
@@ -59,7 +47,7 @@ export function SetupStep(props: {
  * steps, no leading action glyphs; the only compact control is Copy. It carries
  * no pairing buttons (the screen keeps its own) and no progress state.
  *
- * `variant="command"` renders only step 1's command row + effects disclosure,
+ * `variant="command"` renders only step 1's command block + effects disclosure,
  * for the guided run step where the surrounding screen owns the progression.
  */
 export function FirstRunSetupCard(props: {
@@ -68,67 +56,17 @@ export function FirstRunSetupCard(props: {
     const commandOnly = props.variant === 'command';
     const narrow = useCompactWindow();
     const compact = commandOnly && narrow;
-    const { theme } = useUnistyles();
     const styles = stylesheet;
     const setup = setupEmptyState(loadAppConfig().publicBaseUrl);
-    const [copied, setCopied] = React.useState(false);
-    const [copyFailed, setCopyFailed] = React.useState(false);
-    const [effectsOpen, setEffectsOpen] = React.useState(false);
-    const copy = React.useCallback(() => {
-        void Clipboard.setStringAsync(setup.command).then((ok) => {
-            if (ok === false) { setCopyFailed(true); return; }
-            setCopyFailed(false);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        }).catch(() => setCopyFailed(true));
-    }, [setup.command]);
     return (
         <View style={styles.card}>
             <SetupStep
                 number={1}
                 compact={compact}
                 title="On your computer"
-                hint="muxr controls coding agents on a computer you operate. Run muxr there to review setup."
+                hint="muxr controls coding agents on a computer you operate. Paste this line in a terminal there: it installs muxr and sets it up."
             >
-                <View style={[styles.commandRow, compact && styles.compactCommandRow]}>
-                    <Text style={[styles.command, !compact && styles.commandFlexible]} selectable>{setup.command}</Text>
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={copied ? 'Copied' : `Copy ${setup.command}`}
-                        hitSlop={10}
-                        style={styles.copy}
-                        onPress={copy}
-                    >
-                        <Ionicons name={copied ? 'checkmark-outline' : 'copy-outline'} size={20} color={theme.colors.textSecondary} />
-                    </Pressable>
-                </View>
-                {copyFailed && (
-                    <Text accessibilityLiveRegion="polite" style={styles.copyStatus}>Could not copy. Enter the command shown above on your computer.</Text>
-                )}
-                <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ expanded: effectsOpen }}
-                    accessibilityLabel="What running this does"
-                    hitSlop={8}
-                    style={styles.effectsToggle}
-                    onPress={() => setEffectsOpen((open) => !open)}
-                >
-                    <Ionicons name={effectsOpen ? 'chevron-down-outline' : 'chevron-forward-outline'} size={13} color={theme.colors.textSecondary} />
-                    {/* Its own column: a row would size the label to its scaled text. */}
-                    <View style={styles.effectsToggleLabel}>
-                        <WordWrappingText fontSize={13} style={styles.effectsToggleText}>What running this does</WordWrappingText>
-                    </View>
-                </Pressable>
-                {effectsOpen && (
-                    <View style={styles.effectsBody}>
-                        {SETUP_EFFECTS.map((line) => (
-                            <View key={line} style={styles.effectRow}>
-                                <Text style={styles.effectDash}>{'–'}</Text>
-                                <Text style={styles.effectsText}>{line}</Text>
-                            </View>
-                        ))}
-                    </View>
-                )}
+                <SetupCommand command={setup.command} />
                 {setup.setupUrl !== undefined && (
                     <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void openExternalUrl(setup.setupUrl!)}>
                         <Text style={styles.link}>Not installed? Setup guide</Text>
@@ -207,72 +145,10 @@ const stylesheet = StyleSheet.create((theme) => ({
         lineHeight: 18,
         color: theme.colors.textSecondary,
     },
-    commandRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        marginTop: 2,
-    },
-    compactCommandRow: { flexDirection: 'column', alignItems: 'stretch' },
-    commandFlexible: { flex: 1 },
-    command: {
-        ...Typography.mono(),
-        fontSize: 13,
-        color: theme.colors.text,
-    },
-    copy: {
-        minWidth: 44,
-        minHeight: 44,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
     link: {
         ...Typography.default('semiBold'),
         fontSize: 13,
         color: theme.colors.accent,
         marginTop: 2,
-    },
-    copyStatus: {
-        ...Typography.default(),
-        fontSize: 13,
-        lineHeight: 18,
-        color: theme.colors.textSecondary,
-    },
-    effectsToggle: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 5,
-        marginTop: 2,
-        minHeight: 32,
-    },
-    effectsToggleLabel: { flex: 1 },
-    effectsToggleText: {
-        ...Typography.default('semiBold'),
-        flexShrink: 1,
-        fontSize: 13,
-        color: theme.colors.textSecondary,
-    },
-    effectsBody: {
-        gap: 10,
-        paddingTop: 2,
-    },
-    effectRow: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        gap: 8,
-    },
-    effectDash: {
-        ...Typography.default('semiBold'),
-        fontSize: 13,
-        lineHeight: 18,
-        color: theme.colors.textSecondary,
-        width: 10,
-    },
-    effectsText: {
-        ...Typography.default(),
-        flex: 1,
-        fontSize: 13,
-        lineHeight: 18,
-        color: theme.colors.textSecondary,
     },
 }));

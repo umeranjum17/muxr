@@ -1,6 +1,10 @@
 # done-done project config. `done-done init` never overwrites this file.
 # The app name finds this repo's evidence and receipts from every checkout.
 app: "pockit"
+# One check may send 10 captures to the judge by default; a journey that drives four cells (390 and 1280 at
+# light and dark) shows each sheet state at each, so move-to-computer cites 16. Each capture is still judged alone.
+judge:
+  max_captures: 24
 # Approved written requirements: supervisor inbox 003 (two doors) and the
 # ticket's existing Boat-flow requirement. Inbox 028 limits these rows to
 # still-image-verifiable requirements and the fresh driver's exact filenames.
@@ -40,7 +44,7 @@ approved_requirements:
     capture: web-connect-1280-1.0-dark.png
   - kind: spec
     name: native-boat-entry-390-light
-    requirement: 'the cloud-machine option reaching the existing Boat flow.'
+    requirement: 'After tapping Cloud machine · Boat, the screen titled "Cloud machine" shows "Step 1 of 3" and the heading "Connect your Boat account" with a "Connect Boat account" button.'
     journey: two-doors
     capture: boat-1-account-390-1.0-light.png
   - kind: spec
@@ -118,6 +122,13 @@ journeys:
   pane-account-host:
     command: node .agents/skills/done-done-verify-pockit/features/paneAccountHostLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m
+  # The first wait a new user sits through: a cold npm install of the published
+  # CLI against the candidate, then the installed candidate running setup's
+  # inspection and publishing its relay on the LAN. Private prefixes, caches and
+  # home. Needs `yarn build` and a fresh web export. See features/first-install.md.
+  first-install:
+    command: node .agents/skills/done-done-verify-pockit/features/firstInstallLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 15m
   # Self-naming on the host, no phone: a lane alone in the lead's workspace
   # runs the real `muxr name --workspace`; the workspace keeps its label, only
   # the lane's own tab is named, and herdr.tree carries a path-labelled
@@ -126,6 +137,13 @@ journeys:
   workspace-name-host:
     command: node .agents/skills/done-done-verify-pockit/features/workspaceNameHostLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 10m
+  # One-command triage: the real CLI against broken private homes, before,
+  # with --fix and after. PATH holds only stand-ins, so no real service manager
+  # or Herdr is reachable. Writes one text capture per scene, gate.log and
+  # steps.json. See features/triage.md.
+  triage:
+    command: node .agents/skills/done-done-verify-pockit/features/triageLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 5m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A
@@ -325,6 +343,16 @@ journeys:
   cloud-machines:
     command: node .agents/skills/done-done-verify-pockit/features/cloudMachinesNativeLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --port "$BOAT_LAB_PORT" --upstream "$BOAT_LAB_UPSTREAM" --key-file "$BOAT_LAB_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 25m
+  # A running Claude conversation moves from one computer to another and carries on there
+  # (move-to-computer.md): two real lab computers (Desk, Laptop) on guarded Herdr lab sessions
+  # with a stand-in Claude, the installed PWA at phone 390 and desktop 1280, dark and light:
+  # Pane actions, Move to another computer, Laptop, Move, then the outcome, read back through
+  # Laptop's own Herdr, then Desk's own Pane actions naming where it went. MUXR_LAB_WEB is a lab web export of this commit
+  # (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export). The judge takes every file in the run
+  # folder as a capture, so the logs and read-backs sit beside it in -logs.
+  move-to-computer:
+    command: scripts/diagnostics/application/withPrivateXvfb.sh node .agents/skills/done-done-verify-pockit/features/moveToComputerPwaLab.mjs "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT-journey.out" 2>&1
+    timeout: 40m
   cloud-boat:
     command: node .agents/skills/done-done-verify-pockit/features/cloudSetupLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --port "$BOAT_LAB_PORT" --upstream "${BOAT_LIVE_API:-https://boat.dev/api/v1}" --key-file "$BOAT_LIVE_KEY_FILE" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
@@ -430,7 +458,7 @@ journeys:
   # release build of this commit, MUXR_LAB_AVD_HOME a task-owned emulator home,
   # MUXR_LAB_ROOT a short lab directory, HERDR_LAB_HELPER set.
   two-doors:
-    command: node .agents/skills/done-done-verify-pockit/features/twoDoorsLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --root "$MUXR_LAB_ROOT" --part "${TWO_DOORS_PART:-360,390,445,270,tablet,timed}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    command: node .agents/skills/done-done-verify-pockit/features/twoDoorsLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --matrix "$DONE_DONE_EVIDENCE_ROOT-matrix" --avd-home "$MUXR_LAB_AVD_HOME" --root "$MUXR_LAB_ROOT" --part "${TWO_DOORS_PART:-360,390,445,270,tablet,timed}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
   # A version bump on the built web export: the changelog entry validates for
   # package.json's version, checkWebExport passes, and the served export's

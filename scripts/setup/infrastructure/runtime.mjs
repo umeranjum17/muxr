@@ -120,6 +120,12 @@ export function loadManifest() {
     return { version: 1, entries: {}, herdrInstalled: [] };
 }
 
+/** Only a definite "no such process" counts: one we may not signal is alive. */
+export function processGone(pid) {
+    try { process.kill(pid, 0); return false; }
+    catch (cause) { return cause?.code === 'ESRCH'; }
+}
+
 export function saveManifest(manifest, dryRun) {
     if (dryRun) return;
     ensurePrivateDir(stateDir());

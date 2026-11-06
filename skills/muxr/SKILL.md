@@ -70,7 +70,7 @@ work.
 | Publish an HTML page with images, or a new version of it | `muxr skill artifact-pages` · [source](references/artifact-pages.md) |
 | Name the current Herdr tab/pane | `muxr name --tab LABEL --pane TITLE --provider PROVIDER --model MODEL` |
 | See Claude accounts and their quota, or start or move an agent onto one | `muxr accounts` (below) |
-| Troubleshoot, recover, or report a bug | run interactive `muxr doctor` for checked safe repairs, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |
+| Troubleshoot, recover, or report a bug | run `muxr triage --fix` for local repairs and the exact next action, interactive `muxr doctor` for checked safe repairs that touch services, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |
 
 ## Claude accounts (by hand)
 

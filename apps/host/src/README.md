@@ -17,6 +17,7 @@ src/
   diagnostics/{infrastructure}/
   desktop/{domain,application,infrastructure}/
   plans/                          plan accounts: store, identity, auto, sign-in and management
+  move/{domain,application,infrastructure}/   move an agent's conversation to another computer: kind adapters, export/import, private transfer files
 ```
 
 Each module exposes `index.ts`. Other modules import that file, not internals.

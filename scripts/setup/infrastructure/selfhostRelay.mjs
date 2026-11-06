@@ -21,6 +21,7 @@ import {
     lanAddress,
     publicRelayUrl,
     stateDir,
+    processGone,
 } from './runtime.mjs';
 import { daemonDefinition, daemonState, runDaemon } from './daemon.mjs';
 import {
@@ -36,7 +37,7 @@ import {
     stopOwnedSelfhostRelay,
     writeSelfhostState,
 } from './selfhost.mjs';
-import { serve, tailscaleStatus } from '@byokit/reach';
+import { serve, tailscaleStatus } from './reach.mjs';
 
 export function enrollmentPayload(link) {
     const parsed = parseEnrollment(link);
@@ -282,12 +283,7 @@ export async function withSelfhostRotationLock(operation) {
             try { owner = JSON.parse(readFileSync(lock, 'utf8')); }
             catch { throw new Error('pairing lock is unreadable; remove it only after confirming no muxr setup is running'); }
             if (!Number.isInteger(owner?.pid)) throw new Error('pairing lock has no process owner; remove it only after confirming no muxr setup is running');
-            try {
-                process.kill(owner.pid, 0);
-                throw new Error(`another pairing or device rotation is running (pid ${owner.pid})`);
-            } catch (error) {
-                if (error?.code !== 'ESRCH') throw error;
-            }
+            if (!processGone(owner.pid)) throw new Error(`another pairing or device rotation is running (pid ${owner.pid})`);
             const after = lstatSync(lock);
             if (after.ino !== before.ino || after.dev !== before.dev) return claim();
             rmSync(lock, { force: true });

@@ -155,6 +155,14 @@ function paneEnvironment(): Record<string, string> {
     };
 }
 
+/** muxr launches the user's own installed Pi with the account the person
+ *  chose (or none), so it owns Pi's launch contract. Without this opt-in the
+ *  kit refuses every Pi start that lacks an explicit `--model` and a complete
+ *  replacement env (@byokit/herdr 0.16.7+); other kinds are unaffected. */
+function hostLaunchFor(kind: string): { hostLaunch?: true } {
+    return kind === 'pi' ? { hostLaunch: true } : {};
+}
+
 /** Outlasts kit startAgent plus confirmLaunch's two readiness gates. */
 const ACTIVE_LAUNCH_MS = 200_000;
 
@@ -1683,8 +1691,9 @@ export async function createHerdrSessionSource(
         const args = kind === 'opencode' ? opencodeLaunchArgs() : [];
         await client.kit.startAgent({
             kind, name: launchName, cwd: panesById.get(paneId)?.cwd ?? homedir(),
-            place: { pane: paneId }, timeoutMs: 60_000,
+            place: { pane: paneId }, timeoutMs: 60_000, hostLaunch: true,
             ...(args.length === 0 ? {} : { args }),
+            ...hostLaunchFor(kind),
         });
         recordStartedAgent(paneId, kind, launchName);
     }
@@ -2145,16 +2154,17 @@ export async function createHerdrSessionSource(
             }
             : paneEnv;
         const launchEnv = startOptions.planEnv?.PATH === undefined ? process.env : { ...process.env, PATH: startOptions.planEnv.PATH };
-        const args = kind === 'opencode' ? opencodeLaunchArgs(launchEnv) : [];
+        const args = kind === 'opencode' ? opencodeLaunchArgs(launchEnv) : startOptions.resumeArgs ?? [];
         let paneId: string | undefined;
         let launched = false;
         try {
             await client.kit.startAgent({
-                kind, name: launchName, cwd, env, timeoutMs: 60_000,
+                kind, name: launchName, cwd, env, timeoutMs: 60_000, hostLaunch: true,
                 // A worktree start gets its own new workspace; otherwise the one labelled with the folder.
                 place: startOptions.worktree === undefined ? { workspace: cwd, ...label } : { workspace: 'new', ...label },
                 ...(startOptions.worktree === undefined ? {} : { worktree: startOptions.worktree }),
                 ...(args.length === 0 ? {} : { args }),
+                ...hostLaunchFor(kind),
                 onEvent: (event) => {
                     if (event.phase !== 'placed') return;
                     paneId = event.ref.paneId;
@@ -2870,6 +2880,11 @@ export async function createHerdrSessionSource(
             return { agent: record.agent?.agent ?? undefined, cwd: cwdForSession(sessionId) ?? '', ref: { kind: ref.kind, value: ref.value } };
         },
 
+        async exportConversation(sessionId: string, exportOptions: { to: string; maxBytes?: number; accountFolder?: string }) {
+            const record = await resolvePane(sessionId);
+            return client.kit.exportConversation({ paneId: record.paneId }, exportOptions);
+        },
+
         async canMovePlanAccount(sessionId: string): Promise<boolean> {
             const agent = (await resolvePane(sessionId)).agent;
             return conversationToMove(agent) !== undefined && agent?.agent !== 'opencode';
@@ -3166,8 +3181,9 @@ export async function createHerdrSessionSource(
                 const args = kind === 'opencode' ? opencodeLaunchArgs() : [];
                 void client.kit
                     .startAgent({
-                        kind, name, cwd: homedir(), place: { pane: paneId }, timeoutMs: 30_000,
+                        kind, name, cwd: homedir(), place: { pane: paneId }, timeoutMs: 30_000, hostLaunch: true,
                         ...(args.length === 0 ? {} : { args }),
+                        ...hostLaunchFor(kind),
                     })
                     .catch(() => {});
                 started += 1;

@@ -1,10 +1,10 @@
 /** Product-owned plans wire and bookkeeping; managed accounts and Auto come from BYOKit. */
 export type { PlanProvider, PlanAccountRecord } from './planStore.js';
-export { PLAN_PROVIDERS, PLAN_LABELS, muxrHome, plansDir, defaultPlanFolder, loadPlanAccounts } from './planStore.js';
+export { PLAN_PROVIDERS, PLAN_LABELS, muxrHome, plansDir, defaultPlanFolder, conversationRoot, loadPlanAccounts } from './planStore.js';
 export type { PlanIdentity, PlanCommandRunner } from './planIdentity.js';
 export { runPlanCommand, claudeIdentity, codexIdentity } from './planIdentity.js';
 export type { PlansDeps } from './plansApi.js';
 export { AUTO_TERMS_NOTE, listPlans, acknowledgeAutoTerms, resolvePlanLaunch, resolvePlanEnv, planLaunchEnv, renamePlanAccount, removePlanAccount, opencodeAccountStates } from './plansApi.js';
 export { opencodeLaunchArgs } from './opencodeAccounts.js';
 export { planAccounts, resolvePlanRecord } from './planAccounts.js';
-export { sweepStaleSignInKeys, preparePlanSignIn, planAccountStatus, rememberPlanPane, planPaneAccount, rememberSignInTab, signInTab, forgetSignInTab, withPlanSignIn, finishPlanSignIn, cancelPlanSignIn, withPlanAccounts, observePlanPanes } from './planSignIn.js';
+export { sweepStaleSignInKeys, preparePlanSignIn, planAccountStatus, rememberPlanPane, planPaneAccount, planPaneFolder, rememberSignInTab, signInTab, forgetSignInTab, withPlanSignIn, finishPlanSignIn, cancelPlanSignIn, withPlanAccounts, observePlanPanes } from './planSignIn.js';

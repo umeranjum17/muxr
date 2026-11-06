@@ -14,6 +14,7 @@ import { loadAppConfig } from '@/catalog';
 import { addComputerLink, setupEmptyState } from '@/commercialization';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { openTailscaleStore } from './tailscaleApp';
+import { SetupCommand } from './SetupCommand';
 
 // The My computer door's branch: Get ready (Tailscale, muxr on the computer),
 // then Pair. Its third step, starting an agent, is Home's first-agent card,
@@ -56,7 +57,7 @@ function ReadyStep() {
     const browser = Platform.OS === 'web';
     const device = browser ? 'device' : pairingDeviceNoun();
     const desktopLink = addComputerLink();
-    const setupUrl = setupEmptyState(loadAppConfig().publicBaseUrl).setupUrl;
+    const setup = setupEmptyState(loadAppConfig().publicBaseUrl);
     return (
         <>
             <OnboardingStepHeader step={1} of={3} time="about 3–4 min" title="Get ready" subtitle="Two things on your computer, once. Then you pair." />
@@ -65,27 +66,25 @@ function ReadyStep() {
                 <ActionButton variant="secondary" title="Get Tailscale" icon="download-outline" wrap action={openTailscaleStore} />
             </StepCard>
             <StepCard title="2 · muxr on the computer" time="about 1–2 min">
-                {desktopLink !== undefined ? (
-                    <>
-                        <Text style={styles.hint}>Open the desktop app’s download link on your computer. It opens and shows a QR to pair.</Text>
-                        <ActionButton
-                            variant="secondary"
-                            title="Get the desktop app"
-                            icon="laptop-outline"
-                            wrap
-                            accessibilityLabel="Get the desktop app. Open its download link on your computer."
-                            onPress={() => router.push('/add-computer')}
-                        />
-                        <Text style={styles.hint}>Rather use a terminal? Run <Text style={styles.command}>muxr</Text> there.</Text>
-                    </>
-                ) : (
-                    <Text style={styles.hint}>
-                        On the computer, open a terminal and run <Text style={styles.command}>muxr</Text>, then <Text style={styles.command}>muxr link</Text>.
-                        {browser ? ' It prints a link for this browser.' : ' It shows a QR and a link to pair.'}
-                    </Text>
+                <Text style={styles.hint}>
+                    {browser
+                        ? 'Paste this one line in a terminal on the computer. It installs muxr and sets it up. A browser can’t scan its QR, so then run muxr link there for a link to paste here.'
+                        : 'Paste this one line in a terminal on the computer. It installs muxr, sets it up and ends on a QR to scan.'}
+                </Text>
+                <SetupCommand command={setup.command} shareable effectsOpen />
+                {desktopLink !== undefined && (
+                    <ActionButton
+                        variant="secondary"
+                        title="Rather not use a terminal? Get the desktop app"
+                        icon="laptop-outline"
+                        wrap
+                        accessibilityLabel="Get the desktop app. Open its download link on your computer."
+                        onPress={() => router.push('/add-computer')}
+                    />
                 )}
-                {setupUrl !== undefined && (
-                    <Pressable accessibilityRole="link" style={styles.linkTarget} onPress={() => { void openExternalUrl(setupUrl); }}>
+                <Text style={styles.hint}>Already installed? Run <Text style={styles.command}>muxr</Text> there.</Text>
+                {setup.setupUrl !== undefined && (
+                    <Pressable accessibilityRole="link" style={styles.linkTarget} onPress={() => { void openExternalUrl(setup.setupUrl!); }}>
                         <Text style={styles.link}>muxr not installed? Setup guide</Text>
                     </Pressable>
                 )}
@@ -121,7 +120,7 @@ function PairStep() {
             {canScan && (
                 <View style={styles.card}>
                     <ActionButton title="Scan the QR" icon="qr-code-outline" wrap onPress={() => { void scanPairQr(); }} />
-                    <Text style={styles.hint}>On your computer, run <Text style={styles.command}>muxr link</Text>, or open the desktop app. Scan the QR it shows.</Text>
+                    <Text style={styles.hint}>Scan the QR your computer shows at the end of setup. <Text style={styles.command}>muxr link</Text> shows it again.</Text>
                 </View>
             )}
             <View style={styles.card}>

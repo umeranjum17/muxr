@@ -24,7 +24,7 @@ import type {
     PluginsInvalidatedFrame,
     WatchSettlement,
 } from '@trymuxr/contract';
-import type { TerminalSession } from '@byokit/herdr';
+import type { ConversationExport, TerminalSession } from '@byokit/herdr';
 
 export interface VoiceStreamTransport {
     onData: (chunk: Uint8Array) => void | Promise<void>;
@@ -55,6 +55,8 @@ export interface SessionStartOptions {
     /** Published managed-account credential names to remove before the agent opens. */
     planUnset?: string[];
     signIn?: string;
+    /** Internal (never on the phone wire): extra launch arguments, e.g. `--resume <id>` for a moved conversation. */
+    resumeArgs?: string[];
     worktree?: { branch?: string; base?: string };
     /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
     kinds?: string[];
@@ -246,6 +248,8 @@ export interface SessionSource {
     canMovePlanAccount?(sessionId: string): Promise<boolean>;
     /** The harness conversation Herdr published for this agent, which the chat view reads; absent until the agent has one. */
     conversation?(sessionId: string): Promise<{ agent: string | undefined; cwd: string; ref: { kind: 'id' | 'path'; value: string } } | undefined>;
+    /** Package this agent's conversation into one private bundle file (kit portable bundle; credentials never included). */
+    exportConversation?(sessionId: string, options: { to: string; maxBytes?: number; accountFolder?: string }): Promise<ConversationExport>;
     abort(sessionId: string): Promise<void>;
     reload(sessionId: string): Promise<void>;
     prompt(options: SessionPromptOptions): Promise<void>;

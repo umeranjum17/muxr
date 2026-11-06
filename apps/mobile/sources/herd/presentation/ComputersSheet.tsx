@@ -15,7 +15,7 @@ import * as React from 'react';
 import { Platform, View, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -126,7 +126,7 @@ export function ComputerRows({ rows, onPick, loadingId, wrapNames = false }: { r
     const narrow = width < 200;
     const wrapHeading = wrapNames && width / fontScale < 200;
     return (
-        <ItemGroup title="Your computers" titleStyle={{ color: theme.colors.groupped.sectionTitle }} headerStyle={wrapHeading ? { paddingHorizontal: 12 } : undefined}>
+        <ItemGroup title="Your computers" titleStyle={styles.groupTitle} headerStyle={wrapHeading ? { paddingHorizontal: 12 } : undefined}>
             {rows.map((row) => {
                 const availability = row.checking ? 'Checking…' : STATE_LABEL[row.state];
                 const reason = row.checking ? undefined : [stateReason(row.state, row.inUse), row.disabledReason].filter(Boolean).join(' ');
@@ -136,7 +136,7 @@ export function ComputerRows({ rows, onPick, loadingId, wrapNames = false }: { r
                 return (
                     <Item key={row.id} title={row.name} titleLines={wrapNames ? 0 : undefined}
                         style={wrapNames && narrow ? { flexDirection: 'column', alignItems: 'stretch' } : undefined}
-                        titleStyle={{ color: theme.colors.text }} subtitleStyle={{ color: theme.colors.textSecondary }}
+                        titleStyle={styles.rowTitle} subtitleStyle={styles.rowSubtitle}
                         subtitle={subtitle} subtitleLines={0}
                         icon={<View style={row.state !== 'online' ? { opacity: 0.5 } : undefined}>
                             <Ionicons name="desktop-outline" size={29} color={stateColor(row.state, theme)} />
@@ -368,3 +368,11 @@ export function ComputersSheet({ visible, sessionId, agentKind, agentName, onClo
     );
     return sessionId === undefined ? content : <ScopedTheme name="dark">{content}</ScopedTheme>;
 }
+
+// Colours come from the stylesheet, not the scoped JS theme: a web sheet portals out of the terminal's dark scope, so
+// only the stylesheet reads the same theme as the sheet's own surface.
+const styles = StyleSheet.create((theme) => ({
+    rowTitle: { color: theme.colors.text },
+    rowSubtitle: { color: theme.colors.textSecondary },
+    groupTitle: { color: theme.colors.groupped.sectionTitle },
+}));
