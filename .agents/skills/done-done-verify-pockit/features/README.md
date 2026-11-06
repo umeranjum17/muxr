@@ -269,6 +269,8 @@ rules, with no H2 sections.
   screen's worktree hint: installed PWA at 393/270/208 dp, font 1.0/2.0, both
   themes, and native at 270 dp font 2.0; DOM ranges and screenshot OCR lead on
   words split across lines.
+- [First run exits](./first-run-exit.md) —
+  a finished first run of bare `muxr` ends on its own line; an unfinished one still opens the menu.
 - [Two doors to a working agent terminal](./two-doors-first-run.md) —
   unpaired first screen: My computer and Cloud machine · Boat as equal doors,
   each a three-step branch whose every step shows its time, SSH as a small
