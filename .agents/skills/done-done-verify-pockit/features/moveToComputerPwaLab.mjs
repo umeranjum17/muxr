@@ -4,8 +4,10 @@
 // (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export):
 //   scripts/diagnostics/application/withPrivateXvfb.sh node .../moveToComputerPwaLab.mjs <web export dir> <evidence dir>
 // For phone 390 and desktop 1280, dark and light, it opens the agent on Desk, Pane actions, Move to
-// another computer, picks Laptop, confirms, and records each sheet state it reaches (pick, confirm,
-// progress when the transfer is slow enough to catch, then the outcome). On a success it reads back,
+// another computer, picks Laptop, confirms, and drives the sheet to its outcome. The claim this journey
+// proves is the one this branch adds: Desk's own Pane actions naming the computer the conversation went to,
+// captured as source-note-*.png in the run folder. The move itself - each sheet state, Laptop's read back
+// and the new turn - is captured beside the run. On a success it reads back,
 // through Laptop's own Herdr, that the same conversation (its id and its earlier turn) is running there,
 // types a new turn and sees the stand-in remember the earlier one, then reloads the app on Desk and captures that Desk's
 // own Pane actions now names the computer the conversation went to. A refusal is recorded as the real
@@ -182,7 +184,7 @@ try {
             click("(n.innerText||'').startsWith('Move to Laptop') && n.getAttribute('role') === 'button'");
             const outcome = await until('an outcome', () => { const t = text() ?? ''; if (/Moved to Laptop/.test(t)) return 'moved'; if (/can.t move|didn.t finish|dropped|can.t take it|didn.t start/.test(t)) return 'failed'; return false; }, 240);
             await sleep(1000);
-            shot(`outcome-${outcome}-${tag}`);
+            shotBeside(`outcome-${outcome}-${tag}`);
             const said = (text() ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
             writeFileSync(join(logs, `outcome-${tag}.txt`), said.join('\n'));
             if (outcome !== 'moved') throw new Error(`the move did not happen at ${tag}: ${said.join(' / ')}`);
@@ -190,7 +192,7 @@ try {
             // Read back through Laptop's own Herdr: the same conversation is running there and it remembers the earlier turn.
             const arrived = await laptopPaneWith(labInfo.laptop.session, agent.word);
             // Part of the outcome is what Laptop itself says, so its own Herdr read-back is a capture in the run folder.
-            writeFileSync(join(evidence, `laptop-after-${tag}.txt`), arrived.read);
+            writeFileSync(join(logs, `laptop-after-${tag}.txt`), arrived.read);
             if (!/Resumed this conversation/.test(arrived.read)) throw new Error(`Laptop did not resume the ${tag} conversation`);
             labHerdr(laptopSession, 'pane', 'send-text', arrived.pane, 'What was the launch word?\n');
             await sleep(3000);
@@ -221,7 +223,7 @@ try {
             'read the same conversation back through Laptop\'s own Herdr and ask it the launch word',
             'reload the app on Desk and open that agent\'s Pane actions, where the move row names the computer it went to',
         ],
-        result: 'each of the four cells shows the sheet\'s Moved to Laptop outcome at its own width and theme, and the run folder carries Laptop\'s own Herdr read back (laptop-after-*.txt) showing the same conversation resumed with its earlier turn remembered; the entry point (actions-*.png), the picker (pick-*.png), the confirmation state (confirm-*.png), the sheet\'s own text (outcome-*.txt), the new turn (laptop-turn-*.txt) and Desk\'s own Pane actions naming Laptop after the sheet was gone (source-note-*.png) sit beside the run',
+        result: 'each of the four cells shows source-note-*.png: Desk\'s own Pane actions reading Moved to Laptop, the computer that conversation went to; the move itself - the sheet\'s Moved to Laptop outcome (outcome-*.png), its own text (outcome-*.txt), Laptop\'s own Herdr read back (laptop-after-*.txt) showing the same conversation resumed with its earlier turn remembered, the new turn (laptop-turn-*.txt), the entry point (actions-*.png), the picker (pick-*.png) and the confirmation state (confirm-*.png) - sits beside the run',
     }, null, 2)}\n`);
 } catch (error) {
     failed = true;
