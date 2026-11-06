@@ -2,7 +2,9 @@
 // a watch that fails the run if realtime voice ever starts. See dictation-silence-gate.md.
 // Usage, from the repo root after `yarn build`:
 //   node .agents/skills/done-done-verify-pockit/features/dictationLab.mjs --apk <lab APK> --evidence <dir> \
-//     --avd-home <dir> [--launcher <cmd>]
+//     --avd-home <dir> [--launcher <cmd>] [--computer <hex wrapper>]
+// With --computer the run is the dictation-on-the-computer journey instead of the on-phone takes:
+// the wrapper is the Hex binary the lab host runs as MUXR_HEX_BIN (see dictation-on-computer.md).
 // Every tap is on a control found by its label in a dump taken just before it: a
 // stale coordinate or a guessed element lands on Send or Talk, and Talk starts
 // realtime voice over the composer.
@@ -14,12 +16,13 @@ import { promisify } from 'node:util';
 import { parseArgs } from 'node:util';
 import { bootOwnedEmulator } from '../../../../perf/lib/androidEmulator.mjs';
 import { dismissKeyboard, dismissPrompts, dumpUiXml, screenshot } from '../../../../perf/lib/androidSignals.mjs';
+import { setAndroidSerial } from '../../../../perf/lib/deviceTarget.mjs';
 import { startFakeStack } from '../../../../perf/lib/fakeStack.mjs';
 import { pairPhone } from '../../../../perf/lib/pairPhone.mjs';
 
 const { values: opts } = parseArgs({ options: {
     apk: { type: 'string' }, evidence: { type: 'string' }, 'avd-home': { type: 'string' },
-    launcher: { type: 'string' },
+    launcher: { type: 'string' }, computer: { type: 'string' },
 } });
 if (!opts.apk || !opts.evidence || !opts['avd-home']) throw new Error('--apk, --evidence and --avd-home are required');
 const PKG = 'com.trymuxr.app';
@@ -28,6 +31,7 @@ const EVIDENCE = resolve(opts.evidence);
 const FIXTURES = resolve('scripts/dictation/fixtures');
 mkdirSync(EVIDENCE, { recursive: true });
 const SCRATCH = mkdtempSync(join(tmpdir(), 'muxr-dictation-lab-'));
+const PHONE_SHOT = join(SCRATCH, 'phone-after.png');
 const exec = promisify(execFile);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const say = (line) => { const out = `${new Date().toISOString()} ${line}`; console.log(out); appendFileSync(join(EVIDENCE, 'dictation-lab.log'), `${out}\n`); };
@@ -110,7 +114,7 @@ async function serviceWatch(stopped) {
             const types = dump.includes('VoiceOverlayService') ? [...dump.matchAll(/(?:foregroundServiceType|types)=0x([0-9a-f]+)/gi)].map((m) => parseInt(m[1], 16)) : [];
             const running = types.some((type) => (type & 0x80) !== 0);
             if (running) serviceRuns += 1;
-            if (!dumpSaved && types.length > 0) { writeFileSync(join(EVIDENCE, 'voice-service-dumpsys.txt'), dump); dumpSaved = true; }
+            if (!dumpSaved && types.length > 0 && !opts.computer) { writeFileSync(join(EVIDENCE, 'voice-service-dumpsys.txt'), dump.replace(/foregroundNoti=.*$/gm, 'foregroundNoti=<omitted>')); dumpSaved = true; }
             const parsed = types.map((t) => `0x${t.toString(16)}`).join(',') || 'none';
             if (parsed !== last) { say(`foreground service types ${parsed}, microphone ${running ? 'RUNNING' : 'not running'} (${phase})`); last = parsed; }
         }
@@ -153,7 +157,7 @@ const settled = (found) => labelled(found, 'Dictate') !== undefined && !recordin
 async function take(name, file, expect) {
     phase = name;
     await feed(file);
-    await screenshot(join(EVIDENCE, `${name}-before.png`));
+    if (!opts.computer) await screenshot(join(EVIDENCE, `${name}-before.png`));
     const mic = labelled(await screen(), 'Dictate');
     if (mic === undefined) throw new Error(`${name}: no Dictate control on screen`);
     await tap('Dictate', center(mic));
@@ -166,8 +170,9 @@ async function take(name, file, expect) {
     await tap('Stop dictation', center(stop));
     found = await waitFor(`${name}: settled draft`, settled, 900);
     const text = draft(found);
-    await screenshot(join(EVIDENCE, `${name}-after.png`));
-    writeFileSync(join(EVIDENCE, `${name}-after.xml.json`), JSON.stringify(found.filter((n) => n.text || n.desc), null, 1));
+    // The computer journey judges one paired frame (phone beside host log), built later from this phone-only shot.
+    await screenshot(opts.computer ? PHONE_SHOT : join(EVIDENCE, `${name}-after.png`));
+    if (!opts.computer) writeFileSync(join(EVIDENCE, `${name}-after.xml.json`), JSON.stringify(found.filter((n) => n.text || n.desc), null, 1));
     const ok = expect(text);
     say(`take ${name}: draft ${JSON.stringify(text)} ${ok ? 'PASS' : 'FAIL'}`);
     return { found, ok };
@@ -241,8 +246,14 @@ process.once('SIGTERM', async () => {
 try {
     emulator = await bootOwnedEmulator({ name: 'muxr-dictation-lab', avdHome: resolve(opts['avd-home']), bootTimeoutMs: 720_000, launcher: opts.launcher ? [opts.launcher] : [], onSpawn: (child) => { spawned = child; } });
     serial = emulator.serial;
+    // Every shared helper (reverse, dumps, screenshots) names this emulator, never the phone on the default server.
+    setAndroidSerial(serial);
     say(`emulator ${serial} booted`);
-    stackStarting = startFakeStack({ panes: 3, agents: 2 }).then((started) => { stack = started; });
+    stackStarting = startFakeStack({
+        panes: 3, agents: 2,
+        // The real host reads the take with Hex; its log keeps the words for this proof only.
+        ...(opts.computer ? { setupHome: () => ({ MUXR_HEX_BIN: resolve(opts.computer), MUXR_DICTATION_LOG_TEXT: '1' }) } : {}),
+    }).then((started) => { stack = started; });
     await stackStarting;
     say(`fake stack relay port ${stack.relayPort}`);
     watch = serviceWatch(stopped);
@@ -267,6 +278,51 @@ try {
     await adb(['reverse', `tcp:${stack.relayPort}`, `tcp:${stack.relayPort}`]); // the adbd restart dropped it
     await dismissPrompts(['CANCEL', 'Not now', 'Deny', 'Later']);
     await home();
+    if (opts.computer) {
+        // Settings > Voice & dictation > Transcribe on my computer, then one take that Hex reads on the host.
+        phase = 'computer-setting';
+        const SWITCH = 'Transcribe on my computer';
+        await adb(['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', "'muxr://settings/voice'", PKG]);
+        await waitFor('the computer-dictation switch', (found) => found.some((n) => n.desc === SWITCH), 60);
+        // The Dictation group starts at the foot of the screen: scroll it up, then tap the Switch control itself.
+        await adb(['shell', 'input', 'swipe', '540', '1800', '540', '900', '400']);
+        await sleep(1500);
+        const before = await screen();
+        // The computer journey keeps only pictures of the claim in the evidence folder; accessibility dumps stay out.
+        const control = before.filter((n) => n.desc === SWITCH).sort((a, b) => Number(/Switch/.test(b.cls)) - Number(/Switch/.test(a.cls)))[0];
+        if (control === undefined) throw new Error('the computer-dictation switch left the screen');
+        await tap(SWITCH, center(control));
+        const on = await waitFor('the switch to read on', (found) => found.some((n) => n.text.startsWith('Hex on your computer reads what you say')), 30);
+        await screenshot(join(EVIDENCE, 'computer-setting-on.png'));
+        await adb(['shell', 'input', 'keyevent', 'KEYCODE_BACK']);
+        await home();
+        results.push(await take('computer-clean', clean, (text) => near(text, meant('clean'))));
+        // The host's own log line proves Hex, not the phone, read the take.
+        const hostLines = stack.hostLog().split('\n').filter((line) => line.startsWith('dictation: Hex transcribed'));
+        writeFileSync(join(EVIDENCE, 'host-dictation.log'), `${hostLines.join('\n')}\n`);
+        say(`host log: ${hostLines.length} Hex reading(s): ${hostLines.at(-1) ?? 'none'}`);
+        // One frame with the cause beside the effect: the phone's draft on the left, the computer's own Hex
+        // log line and the speech model it used on the right, so the words are seen to come from the computer.
+        if (hostLines.length > 0) {
+            const dataHome = process.env.XDG_DATA_HOME || join(process.env.HOME ?? '', '.local', 'share');
+            const model = (await exec('ls', [join(dataHome, 'hex', 'models')]).catch(() => ({ stdout: '' }))).stdout.split('\n').find((f) => f.endsWith('.gguf')) ?? 'the installed Hex model';
+            const caption = `ON THE COMPUTER (muxr host log)\n\n${hostLines.at(-1)}\n\nEngine: hex model transcribe (local, no cloud)\nModel: ${model}\n\nThe words in the phone composer (left) are the text in this reading.`;
+            const panel = join(SCRATCH, 'panel.png');
+            await exec('convert', ['-background', '#101418', '-fill', '#e6edf3', '-font', 'Adwaita-Mono', '-pointsize', '36', '-size', '920x', `caption:${caption}`, '-bordercolor', '#101418', '-border', '40', '-gravity', 'NorthWest', '-extent', '1000x2400', panel]);
+            await exec('convert', [PHONE_SHOT, panel, '+append', '-depth', '8', join(EVIDENCE, 'computer-clean-after.png')]);
+        }
+        results.push({ ok: hostLines.length > 0 });
+        writeFileSync(join(EVIDENCE, 'steps.json'), JSON.stringify({
+            target: { version: JSON.parse(readFileSync('package.json', 'utf8')).version },
+            start: 'A fresh install of the release app paired to a lab host that has Hex and its speech model',
+            steps: [
+                'Open Settings > Voice & dictation and turn on Transcribe on my computer',
+                'Go back to Home, tap Dictate and let the recorded clip play in as the take',
+                'Tap Stop once and wait for Transcribing to settle',
+            ],
+            result: 'The Home composer draft holds the words Hex read on the host, and the host log shows its Hex reading',
+        }, null, 1));
+    } else {
     results.push(await take('clean-quiet', quiet, (text) => near(text, meant('quiet'))));
     await clearDraft();
     results.push(await take('clean-silence', silence, (text) => text.trim() === ''));
@@ -279,6 +335,7 @@ try {
     await dismissPrompts(['CANCEL', 'Not now', 'Deny', 'Later']);
     await home(180);
     results.push(await take('reinstall-quiet', quiet, (text) => near(text, meant('quiet'))));
+    }
 
     const appops = (await adb(['shell', 'cmd', 'appops', 'get', PKG, 'RECORD_AUDIO'])).trim();
     say(`appops: ${appops}`);

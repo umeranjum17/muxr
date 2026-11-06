@@ -5,6 +5,7 @@ import { BUNDLED_DICTATION_MODEL_ID, getInstalledDictationModelUri } from '@/uti
 import { getBundledDictationModelUri } from '@/utils/dictationModelFiles';
 import { getDictationVadModelUri } from '@/utils/dictationVadModel';
 import { dictationMicrophone } from '@/utils/dictationMicrophone';
+import { computerEngine } from '@/utils/computerTranscription';
 
 const KEEP_WARM_MS = 3 * 60_000;
 const VOCABULARY_PROMPT = 'muxr, Herdr, Crewhouse, Treehouse, OpenClaw, ChatGPT, Codex, Claude, BYOKit, worktree, npm.';
@@ -93,7 +94,10 @@ export async function startLiveTranscription({ hint, keywords, onText, onLevel }
     onLevel: (level: number) => void;
 }): Promise<LiveTranscription> {
     const settings = loadLocalSettings();
-    const selectedEngine = await acquireEngine(settings.dictationModel || BUNDLED_DICTATION_MODEL_ID);
+    // Hex on the paired computer reads the take; the phone loads no model.
+    const selectedEngine = settings.dictationOnComputer
+        ? { engine: computerEngine(), multilingual: false }
+        : await acquireEngine(settings.dictationModel || BUNDLED_DICTATION_MODEL_ID);
     const mic = dictationMicrophone();
     const handle = new Dictation({ engine: selectedEngine.engine, audio: mic.audio }).listen({
         onDeviceOnly: true,
@@ -108,20 +112,21 @@ export async function startLiveTranscription({ hint, keywords, onText, onLevel }
         await mic.opened;
     } catch (error) {
         handle.cancel();
-        coolEngine();
+        if (!settings.dictationOnComputer) coolEngine();
         throw error;
     }
+    const settle = () => { if (!settings.dictationOnComputer) coolEngine(); };
     return {
         async finish() {
             try {
                 return dropNonSpeechLabels((await handle.finish()).text);
             } finally {
-                coolEngine();
+                settle();
             }
         },
         cancel() {
             handle.cancel();
-            coolEngine();
+            settle();
         },
     };
 }

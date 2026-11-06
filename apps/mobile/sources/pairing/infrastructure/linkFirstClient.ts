@@ -88,17 +88,17 @@ function protocolMismatchMessage(reason: 'host-too-old' | 'host-too-new', hostVe
 }
 
 /** Actionable offline copy per route, built muxr-side. The kit's
- *  `describeRoute` labels name the transport ("Local or private network")
- *  but never form a sentence, so they must not be interpolated into one. */
+ *  `describeRoute` labels name the route ("Same Wi-Fi") but never form a
+ *  sentence, so they must not be interpolated into one. */
 export function hostUnreachableMessage(route: string | undefined, computer: string): string {
     if (route === 'Tailscale') return tailscaleUnreachableMessage(computer, 'phone');
     if (route === 'Private network')
         return `Can't reach ${computer}. Is it awake and on the same private network as this phone?`;
-    if (route === 'Cloudflare tunnel')
+    if (route === 'Temporary public link')
         return `Can't reach ${computer}. Is it awake and is its Cloudflare tunnel running?`;
-    if (route === 'Hosted VPS / custom relay')
+    if (route === 'Your own server')
         return `Can't reach ${computer}. Is it awake and online?`;
-    if (route === 'Local or private network')
+    if (route === 'Same Wi-Fi')
         return `Can't reach ${computer}. Is it awake and on the same Wi-Fi as this phone?`;
     return `Can't reach ${computer}. Is it awake and online?`;
 }

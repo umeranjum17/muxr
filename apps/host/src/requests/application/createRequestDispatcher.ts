@@ -41,6 +41,7 @@ import {
     voiceProviderDescribe,
     voiceProviderList,
     voiceProviderSet,
+    dictateWithHex,
     voiceReport,
     voiceStatus,
 } from '../../voice/index.js';
@@ -750,6 +751,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'voice.key.clear': async (params) => { await voiceKeyClear(params.provider); return null; },
         // The spoken sentence is derived from the outcome here, never by the caller.
         'voice.report': async (params) => voiceReport(params),
+        'dictation.transcribe': (params) => dictateWithHex(params.audio),
         'worktree.land': (params) => landWorktree(params.worktreePath, params.message, params.stash),
         'terminal.attach': async () => { throw new Error('terminal attach requires a link stream'); },
         'terminal.detach': async (params) => {

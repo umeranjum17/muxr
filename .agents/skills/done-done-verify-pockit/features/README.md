@@ -66,6 +66,8 @@ rules, with no H2 sections.
 - [Open agent pages on the normal desktop](./agent-desktop.md) —
   guarded real-Herdr launch environment evidence; all launch families,
   plan-account moves and headless device mirrors stay isolated.
+- [Triage a broken setup with one command](./triage.md) —
+  `muxr triage` reports every check and `--fix` repairs what is local and safe.
 - [Install a missing Herdr without a terminal](./home-herdr-missing.md) —
   desktop app with Herdr hidden: one plain sentence on the window and the
   paired phone's Home, offline Try again, real published install, Home
@@ -129,6 +131,9 @@ rules, with no H2 sections.
   `webSecureStore`; the one supported path around the HTTPS-only pair screen,
   absent from production exports, used by the PWA features below.
 
+- [Install the CLI without the phone's toolchain](./first-install.md) — cold npm
+  install of the published CLI against the candidate, then the installed
+  candidate's setup inspection and LAN relay record.
 - [Time install to first agent](./onboarding-timing.md) — release APK(s) on a
   task-owned emulator over the no-agent fake stack: `node perf/onboardingTiming.mjs`
   times first screen, link, Pair, Start and the agent composer, base against
@@ -151,6 +156,10 @@ rules, with no H2 sections.
   the phone's Whisper finals. Near-silence leaves the draft empty while quiet and
   clean still transcribe, on a clean install and over old data. Status and
   evidence: see the feature doc.
+- [Dictation read on the computer by Hex](./dictation-on-computer.md) —
+  `dictationLab.mjs --computer` on a task-owned emulator: Settings turns on
+  Transcribe on my computer, a file-fed take goes over the link to the lab
+  host, Hex reads it there, and the text fills the Home composer.
 
 - [Keep one Home row and its last preview through relaunch](./home-agent-relaunch.md) —
   real named-Herdr pane replacement, 1.5-second section dwell, old-outcome

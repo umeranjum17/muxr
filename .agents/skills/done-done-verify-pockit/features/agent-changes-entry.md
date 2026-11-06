@@ -24,7 +24,7 @@ no count.
   draws inside a `ScopedTheme name="dark"`, which Unistyles holds as one
   shared value while it renders; a scope that once did not finish left it `dark`, so
   the screen opened from it drew a dark body under a light header in light
-  mode (fixed in `patches/react-native-unistyles+3.1.1.patch`: a scope reads
+  mode (fixed upstream in react-native-unistyles 3.5: a scope reads
   its parent from React context).
 - `changes-large-text` at width ÷ font scale under 200 (270 dp or 393 dp at
   font 2.0) the review's scope chips and Lines added / Lines removed / Files

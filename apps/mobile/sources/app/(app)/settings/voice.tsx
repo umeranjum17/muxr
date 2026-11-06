@@ -69,6 +69,7 @@ export default function VoiceProviderScreen() {
     const vadStandbyEnabled = useLocalSetting('vadStandbyEnabled');
     const [dictationLanguage, setDictationLanguage] = useLocalSettingMutable('dictationLanguage');
     const [dictationModel, setDictationModel] = useLocalSettingMutable('dictationModel');
+    const [dictationOnComputer, setDictationOnComputer] = useLocalSettingMutable('dictationOnComputer');
     const [dictationWordReplacements, setDictationWordReplacements] = useLocalSettingMutable('dictationWordReplacements');
     const [dictationSheet, setDictationSheet] = React.useState<'language' | null>(null);
     const [installedModelIds, setInstalledModelIds] = React.useState<Set<string>>(() => new Set([BUNDLED_DICTATION_MODEL_ID]));
@@ -242,6 +243,7 @@ export default function VoiceProviderScreen() {
         && downloadableModel !== undefined
         && !installedModelIds.has(downloadableModel.id);
     const dictationFooter = modelError
+        ?? (dictationOnComputer ? 'Hex on your computer reads what you say. The recording goes only to your connected computer, which needs Hex installed.' : null)
         ?? 'Dictation runs on this device. Pin a language when you know what you\'ll speak; the multilingual model covers 99 languages. Hold a downloaded model to remove it.';
 
     return (
@@ -287,6 +289,14 @@ export default function VoiceProviderScreen() {
                 </ItemGroup>
             )}
             <ItemGroup title="Dictation" footer={dictationFooter}>
+                <Item
+                    title="Transcribe on my computer"
+                    subtitle="Hex reads your dictation on the connected computer instead of this phone"
+                    subtitleLines={0}
+                    icon={<Ionicons name="desktop-outline" size={28} color={theme.colors.textSecondary} />}
+                    showChevron={false}
+                    rightElement={<Switch value={dictationOnComputer} accessibilityLabel="Transcribe on my computer" onValueChange={setDictationOnComputer} />}
+                />
                 <Item
                     title="Spoken language"
                     detail={DICTATION_LANGUAGE_NAMES.get(dictationLanguage ?? 'auto') ?? 'Automatic'}
