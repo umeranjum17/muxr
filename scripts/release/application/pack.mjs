@@ -95,7 +95,13 @@ const dependencies = licenseInventory({
     rootPackage,
     declared: runtimeDependencies,
 });
-const reactNative = dependencies.find((dependency) => dependency.name === 'react-native');
+// Transitive ranges that float past the audited closure; see the pin in `pkg`.
+const pinnedTransitives = Object.fromEntries(
+    ['react-native', '@earendil-works/pi-ai']
+        .map((name) => dependencies.find((dependency) => dependency.name === name))
+        .filter((dependency) => dependency !== undefined)
+        .map((dependency) => [dependency.name, dependency.auditedVersion]),
+);
 writeThirdPartyInventory({
     inventoryPath: join(out, 'THIRD_PARTY_LICENSES.json'),
     licenseDir: join(out, 'LICENSES', 'npm'),
@@ -216,11 +222,14 @@ const pkg = {
     // peer (>=0.60), so left to itself a consumer install resolves today's
     // latest — a dependency tree the audit never walked. Pin the audited
     // version so consumers install exactly the closure the inventory names.
-    // ponytail: pins only this peer; surface required-peer edges from
+    // @byokit/accounts floats @earendil-works/pi-ai at ^1.3.0 for the same
+    // reason (a fresh install resolved 1.5.0, which pulls in the unaudited
+    // pi-schema), so it is pinned the same way.
+    // ponytail: pins only these two; surface unbounded edges from
     // installedClosure if another package drifts the same way.
     dependencies: {
         ...runtimeDependencies,
-        ...(reactNative === undefined ? {} : { 'react-native': reactNative.auditedVersion }),
+        ...pinnedTransitives,
     },
     repository: { type: 'git', url: 'git+https://github.com/umeranjum17/muxr.git' },
     homepage: 'https://trymuxr.com',
