@@ -33,6 +33,7 @@ const EVIDENCE = resolve(opts.evidence);
 // are copied in: the doors and Boat step the approved requirements name, and the My
 // computer Get ready step this change is about.
 const MATRIX = resolve(opts.matrix ?? opts.evidence);
+const CITED_SEEN = new Set();
 const CITED = /^(doors-(360|390)-1\.0-(light|dark)|boat-1-account-390-1\.0-light|mycomputer-1-ready-(360|390)-1\.0-(light|dark))$/;
 const ROOT = resolve(opts.root ?? '.');
 const PARTS = new Set(opts.part.split(','));
@@ -139,7 +140,7 @@ async function capture(dir, name, end = false) {
     const run = await exec(process.execPath, args, { timeout: 180_000, maxBuffer: 16 << 20 }).then((r) => ({ out: r.stdout }), (e) => ({ out: `${e.stdout ?? ''}${e.stderr ?? ''}` }));
     // The dumps fed the check above; the screenshot is the evidence. Layout-only dumps are
     // byte-identical across themes and would read as reused frames.
-    if (MATRIX !== EVIDENCE && CITED.test(name)) { mkdirSync(join(EVIDENCE, 'frames'), { recursive: true }); copyFileSync(join(dir, `${name}.png`), join(EVIDENCE, 'frames', `${name}.png`)); }
+    if (MATRIX !== EVIDENCE && CITED.test(name)) { mkdirSync(join(EVIDENCE, 'frames'), { recursive: true }); copyFileSync(join(dir, `${name}.png`), join(EVIDENCE, 'frames', `${name}.png`)); CITED_SEEN.add(name); }
     for (const ext of ['xml', 'compressed.xml']) rmSync(join(dir, `${name}.${ext}`), { force: true });
     const lines = run.out.split('\n').filter((line) => line.startsWith('DEFECT'));
     for (const line of lines) leads.push(`${name}: ${line}`);
@@ -333,13 +334,14 @@ try {
         start: 'the release app freshly installed on an Android phone (emulator), not paired to any computer',
         steps: [
             'open the app on Connect a machine and see the two doors, My computer and Cloud machine · Boat, with SSH as a small link',
-            'open My computer: Get ready, then Next: pair to Pair with your computer; open Cloud machine · Boat to Connect your Boat account',
+            'open My computer: Get ready leads with one install line to paste, with Copy and Share and a plain list of what it does; then Next: pair to Pair with your computer; open Cloud machine · Boat to Connect your Boat account',
             'repeat at 360, 390 and 445 dp at text 1.0 and 270 dp at text 2.0, light and dark, at rest and scrolled to the end',
             'install the app clean, take the My computer door, type the computer pairing code, Connect, Pair, Start Claude Code on Home',
             'send a prompt from the agent screen and read the agent answer in its Herdr terminal',
         ],
         result: `each door shows what it is, its time and what it needs or costs, every step screen shows its own time${timing.totalMs === undefined ? '' : `, and My computer reached a working agent terminal in ${(timing.totalMs / 1000).toFixed(0)} s from a clean install`}`,
     }, null, 2)}\n`);
+    say(`cited frames copied beside the steps: ${[...CITED_SEEN].sort().join(', ') || 'none'}`);
     say('RESULT done');
 } catch (error) {
     say(`RESULT FAIL: ${error instanceof Error ? error.message : String(error)}`);
