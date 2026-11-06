@@ -271,7 +271,9 @@ it('reaches a new cloud computer over SSH with a key this phone made, adds the c
 
     // No tailnet anywhere: no sign-in page, no tailscale command, no tailnet name handed to muxr.
     expect(lab.opened).toEqual([]);
-    expect(commands.some((argv) => argv.some((a) => a.includes('tailscale')))).toBe(false);
+    // (The kit's own `test -e` of its retired tailscaled drop-in, which a re-install uses to sign an older machine out of a tailnet, is a file probe, not a tailscale command.)
+    const tailscaleCommands = commands.filter((argv) => argv.some((a) => a.includes('tailscale')) && !(argv[0] === 'test' && argv[1] === '-e'));
+    expect(tailscaleCommands).toEqual([]);
     expect(commands.find((argv) => argv.includes('self-host'))).toEqual(expect.arrayContaining(['--loopback', '--advertise', 'ws://muxr-cloud.ts.net:8792']));
     TestRenderer.act(() => renderer.unmount());
 });

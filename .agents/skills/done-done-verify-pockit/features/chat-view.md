@@ -169,12 +169,9 @@ MUXR_DEV_APP_ID=app.muxr.chatsteps.dev MUXR_DISTRIBUTION=direct` with
   element by `aria-label` and calls `.click()`.
 
 - The terminal screen's `ScopedTheme` is the app theme in chat view and dark in
-  terminal view, with the terminal itself in a dark scope of its own. That
-  works because the patched unistyles hook reads its scope from React context
-  (`patches/react-native-unistyles+3.1.1.patch`); reading it from the shadow
-  registry, as upstream does, left half the screen on the old theme after a
-  switch, and lazy or self-re-rendering parts (Markdown, a step's peek) on the
-  app theme.
+  terminal view, with the terminal itself in a dark scope of its own. Unistyles 3.5
+  reads a scope's theme from React context, so a switch repaints the whole screen
+  (the 3.1 registry read, which muxr once patched, left half of it on the old theme).
 - A Home draft in the composer turns the next tap on an agent into a
   new-agent start; clear it before opening agents from Home.
 - Pi's own "Claude rate limit warning" line trips the host's quota-retry
