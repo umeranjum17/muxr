@@ -23,7 +23,7 @@ try {
             encoding: 'utf8', timeout: 60_000, env: { ...process.env, HOME: home, MUXR_HOME: home, TERM: 'xterm-256color' },
         });
         const text = run.stdout.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
-        writeFileSync(join(evidence, `first-run-${outcome}.txt`), text);
+        writeFileSync(join(evidence, `first-run-${outcome}.txt`), `# first run, ${outcome === 'finish' ? 'finished' : 'cancelled'}; checkout ${spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()}\n${text}`);
         const menu = text.includes('What would you like to do?');
         console.log(`${outcome === 'finish' ? 'finished first run' : 'cancelled first run'}: ${menu ? 'the menu "What would you like to do?" opened' : 'no menu opened'}; ${outcome === 'cancel' ? 'muxr waited for a choice' : text.includes('muxr exit 0') ? 'muxr exited 0 on its own' : 'muxr did not exit'}; last line shown: ${text.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('muxr exit')).at(-1)}`);
         if (outcome === 'finish' && (menu || !text.includes('muxr exit 0') || !text.includes('Open muxr on your phone'))) failures.push(`finished first run did not end cleanly (menu ${menu})`);
