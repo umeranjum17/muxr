@@ -653,11 +653,15 @@ async function relayMenu() {
 
 const input = process.argv.slice(2);
 if (input[0] === undefined && process.stdin.isTTY && process.stdout.isTTY) {
+    let finishedFirstRun = false;
     if (readMenuState() === undefined) {
         const code = await dispatch('setup', []);
         if (typeof code === 'number' && code !== 0) process.exitCode = code;
+        // A finished first run ends on its own "Open muxr on your phone" line;
+        // the menu behind it only asked a new person to find Quit.
+        finishedFirstRun = code === 0 && readMenuState() !== undefined;
     }
-    for (;;) {
+    while (!finishedFirstRun) {
         const state = await printState();
         const sharedRelay = state?.relayRole === 'shared';
         const serviceStopped = state !== undefined && daemonState() === 'stopped';

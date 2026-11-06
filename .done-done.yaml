@@ -178,6 +178,13 @@ journeys:
   package-smoke:
     command: node scripts/diagnostics/application/checkPackageSmoke.mjs > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}.log 2>&1
     timeout: 10m
+  # A bare `muxr` after a finished first run ends on its own line instead of
+  # opening the menu, and still opens the menu when setup left nothing saved
+  # (first-run-exit.md). The real cli on a pty in a private MUXR_HOME; only the
+  # setup wizard's apply step is stood in. No emulator, no service manager.
+  first-run-exit:
+    command: node .agents/skills/done-done-verify-pockit/features/firstRunExitLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 5m
   # Workspace and pane names on the phone: a lab Herdr where every lane
   # self-names in one shared workspace (the last as ssh-ed25519), the real
   # herdr.task-titles hook titling a Pi stand-in, and the release app paired to
