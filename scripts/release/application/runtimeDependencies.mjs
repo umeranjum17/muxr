@@ -8,13 +8,14 @@ const read = (path) => JSON.parse(readFileSync(path, 'utf8'));
  * The runtime dependencies the host and relay must leave external, and that the
  * packed CLI and the desktop AppImage must install rather than bundle: each
  * carries a native addon. Derived from the manifests so both distributions use
- * one list. @byokit/reach is bundled instead: installing it would install React
- * Native for the phone's mDNS library. Its Node code loads only bonjour-service.
+ * one list. @byokit/reach (now a shim over @byokit/discover) is bundled instead:
+ * installing it would install React Native for the phone's mDNS library. Its
+ * Node code loads only bonjour-service, versioned from @byokit/discover.
  */
 export function runtimeDependencies(root = process.cwd()) {
     const rootPackage = read(join(root, 'package.json'));
     const hostPackage = read(join(root, 'apps', 'host', 'package.json'));
-    const reachPackage = read(join(root, 'node_modules', '@byokit', 'reach', 'package.json'));
+    const discoverPackage = read(join(root, 'node_modules', '@byokit', 'discover', 'package.json'));
     const desklinkHost = read(join(root, 'node_modules', '@desklink', 'host', 'package.json'));
     const desklinkPin = desktopHostOfSource(root);
     if (desklinkHost.version !== desklinkPin) {
@@ -31,6 +32,6 @@ export function runtimeDependencies(root = process.cwd()) {
         '@byokit/herdr': hostPackage.dependencies['@byokit/herdr'],
         '@byokit/pair': hostPackage.dependencies['@byokit/pair'],
         '@byokit/relay': hostPackage.dependencies['@byokit/relay'],
-        'bonjour-service': reachPackage.dependencies['bonjour-service'],
+        'bonjour-service': discoverPackage.dependencies['bonjour-service'],
     };
 }
