@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import type { MoveOffer } from '@trymuxr/contract';
 import { OptionSheet } from '@/components/OptionSheet';
 import { SheetIcon } from '@/components/SheetIcon';
 import { useAuth } from '@/account/ui';
@@ -33,7 +34,8 @@ type Picked = { row: ComputerRow; name: string };
 
 /**
  * The one row an agent's actions offer for sending it to another computer:
- * Move (same conversation) when its kind can move, otherwise the Continue note.
+ * Move (same conversation) when its kind can move, the Continue note when it cannot,
+ * or where it went once this copy has already been moved.
  */
 export function MoveOrContinueRow({ sessionId, agentKind, onMove, onContinue }: {
     sessionId: string;
@@ -42,14 +44,23 @@ export function MoveOrContinueRow({ sessionId, agentKind, onMove, onContinue }: 
     onContinue: () => void;
 }): React.JSX.Element | null {
     const { theme } = useUnistyles();
-    const [movable, setMovable] = React.useState(false);
+    const [offer, setOffer] = React.useState<MoveOffer>();
     React.useEffect(() => {
         let live = true;
-        setMovable(false);
-        void sync.request('move.offer', { sessionId }).then((offer) => { if (live) setMovable(offer.movable); }).catch(() => undefined);
+        setOffer(undefined);
+        void sync.request('move.offer', { sessionId }).then((next) => { if (live) setOffer(next); }).catch(() => undefined);
         return () => { live = false; };
     }, [sessionId]);
-    if (!movable) return <ContinueRow agentKind={agentKind} onOpen={onContinue} />;
+    // The live copy is on the other computer now; this one holds the conversation it left, so name where it went.
+    if (offer?.movedTo !== undefined) {
+        return (
+            <View accessibilityLabel={`Moved to ${offer.movedTo}`} style={styles.row}>
+                <SheetIcon name="swap-horizontal-outline" size={18} color={theme.colors.textSecondary} />
+                <Text numberOfLines={2} style={[styles.rowLabel, styles.rowNote]}>{`Moved to ${offer.movedTo}`}</Text>
+            </View>
+        );
+    }
+    if (offer?.movable !== true) return <ContinueRow agentKind={agentKind} onOpen={onContinue} />;
     return <Pressable onPress={onMove} accessibilityRole="button" accessibilityLabel="Move to another computer"
         style={({ pressed }) => [styles.row, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh }]}>
         <SheetIcon name="swap-horizontal-outline" size={18} color={theme.colors.textSecondary} />
@@ -327,6 +338,7 @@ const styles = StyleSheet.create((theme) => ({
     meta: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
     row: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider },
     rowLabel: { flex: 1, color: theme.colors.text, fontSize: 15 },
+    rowNote: { color: theme.colors.textSecondary },
     lede: { color: theme.colors.textSecondary, fontSize: 14, paddingHorizontal: 16, paddingBottom: 8 },
     panel: { padding: 20, gap: 12 },
     heading: { fontSize: 18, fontWeight: '600' },

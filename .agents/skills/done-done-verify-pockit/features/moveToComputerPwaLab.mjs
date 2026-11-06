@@ -7,7 +7,8 @@
 // another computer, picks Laptop, confirms, and records each sheet state it reaches (pick, confirm,
 // progress when the transfer is slow enough to catch, then the outcome). On a success it reads back,
 // through Laptop's own Herdr, that the same conversation (its id and its earlier turn) is running there,
-// types a new turn and sees the stand-in remember the earlier one. A refusal is recorded as the real
+// types a new turn and sees the stand-in remember the earlier one, then reloads the app on Desk and captures that Desk's
+// own Pane actions now names the computer the conversation went to. A refusal is recorded as the real
 // outcome and the run exits 1: the move did not happen.
 import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -197,6 +198,14 @@ try {
             writeFileSync(join(logs, `laptop-turn-${tag}.txt`), turn);
             if (!/You said: What was the launch word/.test(turn)) throw new Error(`Laptop did not continue the ${tag} conversation`);
             log(`PASS: the ${tag} conversation moved from Desk to Laptop and carried on there`);
+            // The sheet is gone once the person dismisses it, so Desk's own Pane actions is what still names where the
+            // conversation went. Reloaded the way a person reopens the app, and captured as part of the outcome.
+            ax('eval', "location.assign('/')"); await sleep(8000);
+            evalJs(`document.querySelector('[aria-label^="Open ${agent.label}"]')?.click()`);
+            await until('the source agent screen', () => evalJs("!!document.querySelector('[aria-label=\"Pane actions\"]')"), 60);
+            evalJs("document.querySelector('[aria-label=\"Pane actions\"]').click()"); await sleep(1500);
+            await until('the move note on the source', () => evalJs("!!document.querySelector('[aria-label=\"Moved to Laptop\"]')"), 60);
+            shot(`source-note-${tag}`);
         }
         await closeBrowser();
     }
@@ -209,8 +218,9 @@ try {
             'choose Move to another computer, pick Laptop, and confirm',
             'press Move to Laptop and wait for the outcome',
             'read the same conversation back through Laptop\'s own Herdr and ask it the launch word',
+            'reload the app on Desk and open that agent\'s Pane actions, where the move row names the computer it went to',
         ],
-        result: 'each of the four cells shows the sheet\'s Moved to Laptop outcome at its own width and theme, and the run folder carries Laptop\'s own Herdr read back (laptop-after-*.txt) showing the same conversation resumed with its earlier turn remembered; the entry point (actions-*.png), the picker (pick-*.png), the confirmation state (confirm-*.png), the sheet\'s own text (outcome-*.txt) and the new turn (laptop-turn-*.txt) sit beside the run',
+        result: 'each of the four cells shows the sheet\'s Moved to Laptop outcome at its own width and theme, the run folder carries Laptop\'s own Herdr read back (laptop-after-*.txt) showing the same conversation resumed with its earlier turn remembered, and source-note-*.png shows Desk\'s own Pane actions naming where the conversation went after the sheet was gone; the entry point (actions-*.png), the picker (pick-*.png), the confirmation state (confirm-*.png), the sheet\'s own text (outcome-*.txt) and the new turn (laptop-turn-*.txt) sit beside the run',
     }, null, 2)}\n`);
 } catch (error) {
     failed = true;

@@ -326,7 +326,7 @@ journeys:
   # (move-to-computer.md): two real lab computers (Desk, Laptop) on guarded Herdr lab sessions
   # with a stand-in Claude, the installed PWA at phone 390 and desktop 1280, dark and light:
   # Pane actions, Move to another computer, Laptop, Move, then the outcome, read back through
-  # Laptop's own Herdr. MUXR_LAB_WEB is a lab web export of this commit
+  # Laptop's own Herdr, then Desk's own Pane actions naming where it went. MUXR_LAB_WEB is a lab web export of this commit
   # (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export). The judge takes every file in the run
   # folder as a capture, so the logs and read-backs sit beside it in -logs.
   move-to-computer:

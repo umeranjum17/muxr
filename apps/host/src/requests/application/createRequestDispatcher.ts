@@ -33,7 +33,7 @@ import {
 } from '../../agent/index.js';
 import type { PeerDeviceContext, PeerRuntime } from '../../peer/index.js';
 import { grantMayAdministerPeers, hostPlatformLabel, listMachines, observerGrantIsViewOnly } from '../../machine/index.js';
-import { TransferStore, exportMove, importMove, moveOffer, moveReady } from '../../move/index.js';
+import { TransferStore, exportMove, importMove, moveOffer, moveReady, movedToOf, rememberMovedTo } from '../../move/index.js';
 import { collectUsage, usageNow } from '../../usage/index.js';
 import {
     voiceKeyClear,
@@ -513,7 +513,18 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             }
             return source.handoff(params);
         },
-        'move.offer': async (params) => moveOffer((await source.list({ fresh: true })).find((candidate) => candidate.id === params.sessionId)?.agentKind),
+        'move.offer': async (params) => {
+            const session = (await source.list({ fresh: true })).find((candidate) => candidate.id === params.sessionId);
+            const movedTo = movedToOf(muxrHome(process.env), params.sessionId);
+            return { ...moveOffer(session?.agentKind), ...(movedTo === undefined ? {} : { movedTo }) };
+        },
+        // The phone says where the conversation went once the destination has it; the sheet is then gone, so this note
+        // is the only thing left on this computer that names the other one.
+        'move.done': async (params) => {
+            const live = (await source.list({ fresh: true })).map((session) => session.id);
+            if (live.includes(params.sessionId) && params.to.trim() !== '') rememberMovedTo(muxrHome(process.env), params.sessionId, params.to.trim().slice(0, 64), live);
+            return null;
+        },
         'move.ready': (params) => moveReady({ source, env: process.env }, params.kind),
         'move.export': (params) => exportMove(source, moves, process.env, params.sessionId),
         'move.read': async (params) => moves.read(params.transferId, params.offset, params.length),

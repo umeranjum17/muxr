@@ -2,7 +2,7 @@ import { MOVE_CHUNK_BYTES, type MoveBundle, type RequestParams, type RequestResu
 
 /** One computer's request line. The source is the connected computer; the destination may be reached on a link of its own. */
 export type MoveEndpoint = <T extends MoveRequest>(type: T, params: RequestParams<T>, timeoutMs?: number) => Promise<RequestResult<T>>;
-type MoveRequest = 'move.ready' | 'move.export' | 'move.read' | 'move.stage' | 'move.import' | 'move.release';
+type MoveRequest = 'move.ready' | 'move.export' | 'move.read' | 'move.stage' | 'move.import' | 'move.release' | 'move.done';
 
 export type MoveStep = 'checking' | 'packing' | 'sending' | 'resuming';
 
@@ -104,6 +104,8 @@ export async function moveToComputer(run: MoveRun): Promise<MoveOutcome> {
             cwd: run.mapCwd(bundle.cwd, home ?? '~'), ...(bundle.taskTitle === undefined ? {} : { taskTitle: bundle.taskTitle }),
         }, 120_000);
         await release();
+        // Name the destination on this computer, so a person who comes back to this copy is told where it went.
+        await run.source('move.done', { sessionId: run.sessionId, to: run.destinationName }).catch(() => undefined);
         return { ok: true, sessionId: imported.sessionId, cwd: imported.cwd };
     } catch (cause) {
         // Only a failure after the import ran can have left the conversation on the destination.

@@ -20,6 +20,9 @@ happen offers it as **Continue instead**.
   holds its conversations). Claude is wired; Codex and Pi are follow-ups. A kind with no adapter answers `Continue`.
 - A computer the app reaches only by switching to it (SSH, a loopback relay) is moved to buffered: the whole
   bundle is read first, then the app switches and stages it; the source then stays open and the sheet says so.
+- The source computer keeps the fact, not just the sheet: once the destination has the conversation, the phone
+  sends `move.done` and the source's own copy names where it went (`Moved to Laptop`) in the same Pane actions
+  row, so the sheet being gone no longer leaves two identical-looking agents and no clue which one is live.
 
 ## What it cannot carry, and why that is acceptable
 
@@ -51,7 +54,8 @@ moves too. A managed account whose `projects` is a link to the computer's own st
 real Claude transcript), one conversation per cell. `moveToComputerPwaLab.mjs` (journey `move-to-computer`) pairs the
 installed PWA with both, opens that cell's agent on Desk, and records pick, confirm and the outcome at 390 and 1280,
 dark and light; on each success it reads back through Laptop's own Herdr that the same conversation id and its earlier
-turn are running there and that a new turn is answered with the old one remembered. Each cell drives its own move: a
+turn are running there and that a new turn is answered with the old one remembered, then reloads the app on Desk and
+captures `source-note-*.png`, the Pane actions row naming Laptop. Each cell drives its own move: a
 viewport change back to a phone drops the open sheet, so an outcome is never re-shot at the other width. The frame of
 where the action is entered (the unchanged Pane actions menu) is kept beside the run, in `<evidence>-logs/`, because
 the judge takes every file in the run folder as a capture of the outcome.

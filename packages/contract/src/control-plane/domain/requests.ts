@@ -73,7 +73,10 @@ export const MOVE_CHUNK_BYTES = 192 * 1024;
 export const MOVE_MAX_BYTES = 64 * 1024 * 1024;
 
 /** Whether this agent's kind can move with its conversation, or keeps the Continue note. */
-export type MoveOffer = { movable: true; kind: string } | { movable: false; note: typeof MOVE_CONTINUE_NOTE };
+export type MoveOffer = ({ movable: true; kind: string } | { movable: false; note: typeof MOVE_CONTINUE_NOTE }) & {
+    /** The computer this agent's conversation went to, while its own copy is still on this computer. */
+    movedTo?: string;
+};
 
 /** Whether a computer can resume a kind: installed, signed in on its own, with the folder it would use. */
 export type MoveReady =
@@ -689,6 +692,8 @@ export interface RequestMap extends PeerRequestMap {
         params: { transferId: string; kind: string; conversation: string; bytes: number; digest: string; cwd: string; taskTitle?: string };
         result: { sessionId: string; cwd: string };
     };
+    /** Source: say where this agent's conversation went, so this computer can name it after the sheet is gone. */
+    'move.done': { params: { sessionId: string; to: string }; result: null };
     /** Either side: drop a transfer's private bundle. */
     'move.release': { params: { transferId: string }; result: null };
     /**
