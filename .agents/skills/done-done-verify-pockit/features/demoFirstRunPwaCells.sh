@@ -57,7 +57,7 @@ for cell in 270:2.0:594 360:1.0:800 390:1.0:844 445:1.0:900 1280:1.0:900 1440:1.
     chrome-devtools-axi eval "$toEnd" >/dev/null 2>&1; sleep 1
     chrome-devtools-axi screenshot "$out/$name-scrolled.png" >/dev/null 2>&1
     pwaEnd=$(node "$wt/.agents/skills/done-done-verify-pockit/features/visualCheck.mjs" pwa-check "$out/$name-scrolled.png" "$name-scrolled" 2>&1)
-    echo "$seen" > "$out/$name.facts.txt"; echo "$pwa" > "$out/$name.check.txt"; echo "$pwaEnd" > "$out/$name-scrolled.check.txt"
+    echo "$name: $seen" > "$out/$name.facts.txt"; echo "$pwa" > "$out/$name.check.txt"; echo "$pwaEnd" > "$out/$name-scrolled.check.txt"
     # A page that drew nothing (or an error screen) still passes the pixel
     # leads, so the DOM facts are the gate: one missing piece fails the cell.
     if [ -z "$seen" ] || printf '%s' "$seen" | grep -q 'NO \|unordered'; then
@@ -113,9 +113,9 @@ done
 # doors, My computer's Get ready and Pair, and the Boat door's browser notice,
 # at every cell, at rest and scrolled, each with the words it must show.
 screens='connect|Connect a machine|My computer|Cloud machine · Boat|from $0.018 an hour
-my-computer|Get ready|about 2 min|Get Tailscale|Next: pair
+my-computer|Get ready|about 2 min|Get Tailscale|install.sh|Copy|Next: pair
 my-computer?step=pair|Pair with your computer|Private link or pairing code|Example words|Start an agent
-cloud-computer|Your cloud computer|Set up from the muxr phone app'
+cloud-computer|Your cloud machine|Set up from the muxr phone app'
 for cell in 270:2.0:594 360:1.0:800 390:1.0:844 445:1.0:900 1280:1.0:900 1440:1.0:1000; do
   w=${cell%%:*}; rest=${cell#*:}; f=${rest%%:*}; h=${rest##*:}
   vw=$(awk "BEGIN{print int($w/$f)}"); vh=$(awk "BEGIN{print int($h/$f)}"); dpr=$(awk "BEGIN{print 2*$f}")

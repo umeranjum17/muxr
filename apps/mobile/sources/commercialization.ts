@@ -1,7 +1,10 @@
 import { Platform } from 'react-native';
 import { loadAppConfig } from '@/catalog';
 
-export const SETUP_COMMAND = 'muxr';
+// One line for a computer with nothing on it: install.sh installs muxr for the
+// user (no sudo), then hands the terminal to the guided setup, which installs
+// Herdr, picks the route and ends on the pairing QR.
+export const SETUP_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh | sh';
 
 export function setupEmptyState(publicBaseUrl?: string): {
     title: string;

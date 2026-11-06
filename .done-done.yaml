@@ -44,7 +44,7 @@ approved_requirements:
     capture: web-connect-1280-1.0-dark.png
   - kind: spec
     name: native-boat-entry-390-light
-    requirement: 'the cloud-machine option reaching the existing Boat flow.'
+    requirement: 'After tapping Cloud machine · Boat, the screen titled "Cloud machine" shows "Step 1 of 3" and the heading "Connect your Boat account" with a "Connect Boat account" button.'
     journey: two-doors
     capture: boat-1-account-390-1.0-light.png
   - kind: spec
@@ -451,7 +451,7 @@ journeys:
   # release build of this commit, MUXR_LAB_AVD_HOME a task-owned emulator home,
   # MUXR_LAB_ROOT a short lab directory, HERDR_LAB_HELPER set.
   two-doors:
-    command: node .agents/skills/done-done-verify-pockit/features/twoDoorsLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --root "$MUXR_LAB_ROOT" --part "${TWO_DOORS_PART:-360,390,445,270,tablet,timed}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    command: node .agents/skills/done-done-verify-pockit/features/twoDoorsLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --matrix "$DONE_DONE_EVIDENCE_ROOT-matrix" --avd-home "$MUXR_LAB_AVD_HOME" --root "$MUXR_LAB_ROOT" --part "${TWO_DOORS_PART:-360,390,445,270,tablet,timed}" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
   # A version bump on the built web export: the changelog entry validates for
   # package.json's version, checkWebExport passes, and the served export's
