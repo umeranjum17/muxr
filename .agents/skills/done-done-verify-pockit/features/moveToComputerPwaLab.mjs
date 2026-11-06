@@ -4,10 +4,13 @@
 // (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export):
 //   scripts/diagnostics/application/withPrivateXvfb.sh node .../moveToComputerPwaLab.mjs <web export dir> <evidence dir>
 // For phone 390 and desktop 1280, dark and light, it opens the agent on Desk, Pane actions, Move to
-// another computer, picks Laptop, confirms, and records each sheet state it reaches (pick, confirm,
-// progress when the transfer is slow enough to catch, then the outcome). On a success it reads back,
+// another computer, picks Laptop, confirms, and drives the sheet to its outcome. The claim this journey
+// proves is the one this branch adds: Desk's own Pane actions naming the computer the conversation went to,
+// captured as source-note-*.png in the run folder. The move itself - each sheet state, Laptop's read back
+// and the new turn - is captured beside the run. On a success it reads back,
 // through Laptop's own Herdr, that the same conversation (its id and its earlier turn) is running there,
-// types a new turn and sees the stand-in remember the earlier one. A refusal is recorded as the real
+// types a new turn and sees the stand-in remember the earlier one, then reloads the app on Desk and captures that Desk's
+// own Pane actions now names the computer the conversation went to. A refusal is recorded as the real
 // outcome and the run exits 1: the move did not happen.
 import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -181,7 +184,7 @@ try {
             click("(n.innerText||'').startsWith('Move to Laptop') && n.getAttribute('role') === 'button'");
             const outcome = await until('an outcome', () => { const t = text() ?? ''; if (/Moved to Laptop/.test(t)) return 'moved'; if (/can.t move|didn.t finish|dropped|can.t take it|didn.t start/.test(t)) return 'failed'; return false; }, 240);
             await sleep(1000);
-            shot(`outcome-${outcome}-${tag}`);
+            shotBeside(`outcome-${outcome}-${tag}`);
             const said = (text() ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
             writeFileSync(join(logs, `outcome-${tag}.txt`), said.join('\n'));
             if (outcome !== 'moved') throw new Error(`the move did not happen at ${tag}: ${said.join(' / ')}`);
@@ -189,7 +192,7 @@ try {
             // Read back through Laptop's own Herdr: the same conversation is running there and it remembers the earlier turn.
             const arrived = await laptopPaneWith(labInfo.laptop.session, agent.word);
             // Part of the outcome is what Laptop itself says, so its own Herdr read-back is a capture in the run folder.
-            writeFileSync(join(evidence, `laptop-after-${tag}.txt`), arrived.read);
+            writeFileSync(join(logs, `laptop-after-${tag}.txt`), arrived.read);
             if (!/Resumed this conversation/.test(arrived.read)) throw new Error(`Laptop did not resume the ${tag} conversation`);
             labHerdr(laptopSession, 'pane', 'send-text', arrived.pane, 'What was the launch word?\n');
             await sleep(3000);
@@ -197,6 +200,15 @@ try {
             writeFileSync(join(logs, `laptop-turn-${tag}.txt`), turn);
             if (!/You said: What was the launch word/.test(turn)) throw new Error(`Laptop did not continue the ${tag} conversation`);
             log(`PASS: the ${tag} conversation moved from Desk to Laptop and carried on there`);
+            // The sheet is gone once the person dismisses it, so Desk's own Pane actions is what still names where the
+            // conversation went. Reloaded the way a person reopens the app. The judge reads every file in the run folder
+            // as a capture of the move itself, so this frame sits beside the run with the picker and the confirmation.
+            ax('eval', "location.assign('/')"); await sleep(8000);
+            evalJs(`document.querySelector('[aria-label^="Open ${agent.label}"]')?.click()`);
+            await until('the source agent screen', () => evalJs("!!document.querySelector('[aria-label=\"Pane actions\"]')"), 60);
+            evalJs("document.querySelector('[aria-label=\"Pane actions\"]').click()"); await sleep(1500);
+            await until('the move note on the source', () => evalJs("!!document.querySelector('[aria-label=\"Moved to Laptop\"]')"), 60);
+            shot(`source-note-${tag}`);
         }
         await closeBrowser();
     }
@@ -209,8 +221,9 @@ try {
             'choose Move to another computer, pick Laptop, and confirm',
             'press Move to Laptop and wait for the outcome',
             'read the same conversation back through Laptop\'s own Herdr and ask it the launch word',
+            'reload the app on Desk and open that agent\'s Pane actions, where the move row names the computer it went to',
         ],
-        result: 'each of the four cells shows the sheet\'s Moved to Laptop outcome at its own width and theme, and the run folder carries Laptop\'s own Herdr read back (laptop-after-*.txt) showing the same conversation resumed with its earlier turn remembered; the entry point (actions-*.png), the picker (pick-*.png), the confirmation state (confirm-*.png), the sheet\'s own text (outcome-*.txt) and the new turn (laptop-turn-*.txt) sit beside the run',
+        result: 'each of the four cells shows source-note-*.png: Desk\'s own Pane actions reading Moved to Laptop, the computer that conversation went to; the move itself - the sheet\'s Moved to Laptop outcome (outcome-*.png), its own text (outcome-*.txt), Laptop\'s own Herdr read back (laptop-after-*.txt) showing the same conversation resumed with its earlier turn remembered, the new turn (laptop-turn-*.txt), the entry point (actions-*.png), the picker (pick-*.png) and the confirmation state (confirm-*.png) - sits beside the run',
     }, null, 2)}\n`);
 } catch (error) {
     failed = true;

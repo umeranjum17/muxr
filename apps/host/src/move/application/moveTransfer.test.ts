@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { SessionSource } from '../../agent/index.js';
 import { TransferStore } from '../infrastructure/transferStore.js';
+import { movedToOf, rememberMovedTo } from '../infrastructure/moveNotes.js';
 import { importMove } from './importMove.js';
 
 /** The destination half of a move over the real transfer store: a bundle that arrives damaged or short is refused before any account or agent is touched. */
@@ -31,6 +32,21 @@ describe('move: a bundle that arrives damaged is refused and cleaned up', () => 
             expect(readdirSync(join(home, 'moves'))).toEqual([]);
             await expect(importMove(deps, { ...claim, kind: 'pi', bytes: 800, digest: 'f'.repeat(64) })).rejects.toMatchObject({ code: 'move-unsupported' });
             expect(existsSync(join(home, 'moves', `dst-${transferId}.bundle`))).toBe(false);
+        } finally { rmSync(home, { recursive: true, force: true }); }
+    });
+});
+
+/** The source's own note: it names the computer the conversation went to, and dies with the copy it belongs to. */
+describe('move: the note naming where an agent went', () => {
+    it('answers for a copy still here, and is dropped for one that is gone', () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-moved-'));
+        try {
+            expect(movedToOf(home, 's1')).toBeUndefined();
+            rememberMovedTo(home, 's1', 'Laptop', ['s1']);
+            expect(movedToOf(home, 's1')).toBe('Laptop');
+            rememberMovedTo(home, 's2', 'Desk', ['s2']);
+            expect(movedToOf(home, 's1')).toBeUndefined();
+            expect(movedToOf(home, 's2')).toBe('Desk');
         } finally { rmSync(home, { recursive: true, force: true }); }
     });
 });
