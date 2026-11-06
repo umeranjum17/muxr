@@ -208,7 +208,7 @@ try {
             await until('the source agent screen', () => evalJs("!!document.querySelector('[aria-label=\"Pane actions\"]')"), 60);
             evalJs("document.querySelector('[aria-label=\"Pane actions\"]').click()"); await sleep(1500);
             await until('the move note on the source', () => evalJs("!!document.querySelector('[aria-label=\"Moved to Laptop\"]')"), 60);
-            shotBeside(`source-note-${tag}`);
+            shot(`source-note-${tag}`);
         }
         await closeBrowser();
     }
