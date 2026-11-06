@@ -36,6 +36,7 @@ muxr update                    # check, confirm, update, and restart
 muxr update --check            # check without changing anything
 muxr --skill                   # print the compact agent skill
 muxr skill collaboration       # load one focused reference on demand
+muxr triage --fix              # find what is broken, repair what is local and safe
 muxr doctor                    # current setup health and checked repairs
 muxr diagnostics               # bounded redacted host/client history for agents
 muxr report > muxr-report.md   # local redacted issue draft; never submits

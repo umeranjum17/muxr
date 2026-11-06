@@ -7,8 +7,8 @@
  * promptly instead of leaving setup waiting forever.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { execFileSync, spawn } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -238,6 +238,45 @@ try {
         serveUp.kill('SIGTERM');
         await serveClosed;
     }
+
+    // Triage on one broken home: what is ours and local gets repaired, the rest
+    // stays a printed next action, and a probe that throws costs only its section.
+    const triageHome = join(scratch, 'triage');
+    mkdirSync(join(triageHome, 'relay'), { recursive: true, mode: 0o700 });
+    mkdirSync(join(triageHome, 'host'));
+    const statePath = join(triageHome, 'selfhost.json');
+    const lockPath = join(triageHome, 'selfhost-rotation.lock');
+    const pidPath = join(triageHome, 'relay', 'relay.pid');
+    writeFileSync(statePath, JSON.stringify({ version: 1, relayPort: occupied.address().port }));
+    chmodSync(statePath, 0o644);
+    writeFileSync(lockPath, JSON.stringify({ pid: spawnSync(process.execPath, ['-e', '']).pid }));
+    writeFileSync(pidPath, String(process.pid));
+    writeFileSync(join(triageHome, 'host', 'diagnostics.json'), JSON.stringify({ current: { hostVersion: '99.0.0' } }));
+    writeFileSync(join(triageHome, 'setup-manifest.json'), JSON.stringify({ version: 1, entries: { [triageHome]: { kind: 'owned', hash: '' } }, herdrInstalled: [] }));
+    const fakeHerdr = join(triageHome, 'herdr');
+    writeFileSync(fakeHerdr, '#!/bin/sh\nexit 1\n', { mode: 0o700 });
+    const triage = (...args) => spawnSync(process.execPath, [cli, 'triage', ...args], {
+        env: { ...environment, HOME: triageHome, MUXR_HOME: triageHome, HERDR_BIN: fakeHerdr, HERDR_SOCKET_PATH: join(triageHome, 'gone.sock') },
+        encoding: 'utf8', timeout: 20_000, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const broken = triage();
+    assert.equal(broken.status, 1, broken.stderr);
+    assert.match(broken.stdout, /this CLI is older than the host; run `muxr update`/);
+    assert.match(broken.stdout, /gone\.sock is not a Herdr socket/);
+    assert.match(broken.stdout, /services\s+could not be checked/);
+    assert.match(broken.stdout, /selfhost-rotation\.lock was left by process \d+, which has exited/);
+    assert.match(broken.stdout, /selfhost\.json is open to other users/);
+    assert.match(broken.stdout, new RegExp(`port ${occupied.address().port} is taken by another program`));
+    assert.equal(statSync(statePath).mode & 0o777, 0o644, 'triage without --fix changed the state file');
+    assert.equal(existsSync(lockPath), true, 'triage without --fix cleared the lock');
+    const fixed = triage('--fix');
+    assert.equal(fixed.status, 1, 'the taken port is still a blocking problem');
+    assert.equal(statSync(statePath).mode & 0o777, 0o600);
+    assert.equal(existsSync(lockPath), false, 'the stale lock survived --fix');
+    assert.equal(existsSync(pidPath), true, 'a live process lost its pid file');
+    assert.doesNotMatch(fixed.stdout, /open to other users|left by process/);
+    assert.match(fixed.stdout, /is taken by another program/);
+    assert.equal(occupied.listening, true);
 } finally {
     await new Promise((resolve) => occupied.close(resolve));
     rmSync(scratch, { recursive: true, force: true });

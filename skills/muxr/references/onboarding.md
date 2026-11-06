@@ -139,6 +139,7 @@ verification exception). Plugin and agent changes sync live.
 ```bash
 muxr update                    # check, confirm, update, and restart (not on headless Tailscale setups)
 muxr update --check            # check without changing anything
+muxr triage --fix              # find what is broken, repair what is local and safe
 muxr doctor                    # current setup health and checked repairs
 muxr diagnostics               # bounded redacted host/client history
 muxr report > muxr-report.md   # local redacted issue draft; never submits
@@ -180,7 +181,9 @@ reading settings and setup state, even when those files are malformed.
 
 Use the checked recovery path before changing files or reinstalling:
 
-1. Run `muxr doctor` in an interactive terminal. It checks the runtime, Herdr,
+1. Run `muxr triage --fix`. It never asks anything, prints one line per check
+   with the exact next action, and repairs only what is local and reversible.
+   Then run `muxr doctor` in an interactive terminal. It checks the runtime, Herdr,
    integrations, managed files, service registration, relay, connection,
    pairing, and local peer access. When a failed check has a known safe repair,
    doctor lists the repair and asks before running it.
