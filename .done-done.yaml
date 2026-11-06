@@ -40,7 +40,7 @@ approved_requirements:
     capture: web-connect-1280-1.0-dark.png
   - kind: spec
     name: native-boat-entry-390-light
-    requirement: 'the cloud-machine option reaching the existing Boat flow.'
+    requirement: 'After tapping Cloud machine · Boat, the screen titled "Cloud machine" shows "Step 1 of 3" and the heading "Connect your Boat account" with a "Connect Boat account" button.'
     journey: two-doors
     capture: boat-1-account-390-1.0-light.png
   - kind: spec
