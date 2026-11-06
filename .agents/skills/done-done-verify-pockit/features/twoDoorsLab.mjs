@@ -14,7 +14,7 @@
 //   node .agents/skills/done-done-verify-pockit/features/twoDoorsLab.mjs --apk <apk> --evidence <dir> \
 //     --avd-home <dir> --root <short lab dir> [--part <parts>]
 import { execFile } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { parseArgs, promisify } from 'node:util';
@@ -37,7 +37,7 @@ const CELLS = [['360', '1.0'], ['390', '1.0'], ['445', '1.0'], ['270', '2.0']].f
 mkdirSync(EVIDENCE, { recursive: true });
 const exec = promisify(execFile);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
-const say = (line) => { const out = `${new Date().toISOString()} ${line}`; console.log(out); appendFileSync(join(EVIDENCE, 'journey.log'), `${out}\n`); };
+const say = (line) => { const out = `${new Date().toISOString()} ${line}`; console.log(out); };
 let serial = '';
 const adb = async (args, timeout = 60_000) => (await exec('adb', ['-s', serial, ...args], { timeout, maxBuffer: 64 << 20 })).stdout;
 const sh = (cmd) => adb(['shell', cmd]);
@@ -106,15 +106,19 @@ async function scrollUntil(what, test) {
     }
     await tapOn(what, test);
 }
+// True when the screen moved at all; a screen that fits has no scrolled frame to take.
 async function scrollToEnd() {
     let last = '';
+    let moved = false;
     for (let i = 0; i < 8; i += 1) {
         const now = JSON.stringify((await screen()).map((n) => n.box));
-        if (now === last) return;
+        if (now === last) return moved;
+        if (last !== '') moved = true;
         last = now;
         await drag(1900, 500);
         await sleep(1200);
     }
+    return moved;
 }
 const doors = (v) => v === 'Connect a machine';
 const myComputer = (v) => v === 'My computer' || v.startsWith('My computer. ');
@@ -126,14 +130,16 @@ async function capture(dir, name, end = false) {
     const args = [CHECK, serial, dir, name];
     if (end) args.push('--end');
     const run = await exec(process.execPath, args, { timeout: 180_000, maxBuffer: 16 << 20 }).then((r) => ({ out: r.stdout }), (e) => ({ out: `${e.stdout ?? ''}${e.stderr ?? ''}` }));
+    // The dumps fed the check above; the screenshot is the evidence. Layout-only dumps are
+    // byte-identical across themes and would read as reused frames.
+    for (const ext of ['xml', 'compressed.xml']) rmSync(join(dir, `${name}.${ext}`), { force: true });
     const lines = run.out.split('\n').filter((line) => line.startsWith('DEFECT'));
     for (const line of lines) leads.push(`${name}: ${line}`);
     say(`shot ${name}: ${lines.length === 0 ? 'clean' : lines.join(' | ')}`);
 }
 async function both(dir, name) {
     await capture(dir, name);
-    await scrollToEnd();
-    await capture(dir, `${name}-scrolled`, true);
+    if (await scrollToEnd()) await capture(dir, `${name}-scrolled`, true);
 }
 async function launchFresh() {
     await sh(`am force-stop ${PKG}; pm clear ${PKG}`);
