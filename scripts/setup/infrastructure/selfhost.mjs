@@ -249,12 +249,18 @@ export async function cleanupManagedIngress(state) {
     await unserve(ingress, reachTailscaleOptions());
 }
 
+function procCommand(pid) {
+    try { return readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').join(' ').trim(); }
+    catch { return ''; }
+}
+
 export function ownedRelayPid() {
     const pidPath = join(stateDir(), 'relay', 'relay.pid');
     const pid = Number(existsSync(pidPath) ? readFileSync(pidPath, 'utf8').trim() : '');
     if (!Number.isSafeInteger(pid) || pid <= 1) return undefined;
     const command = run(env('MUXR_PS_BIN') || 'ps', ['-ww', '-p', String(pid), '-o', 'command=']);
-    const relayCommand = command.ok ? command.stdout.trim() : '';
+    // A machine without procps has no `ps`; Linux still names the process in /proc.
+    const relayCommand = command.ok ? command.stdout.trim() : procCommand(pid);
     return /(?:^|\s)\S*\/relay\.js(?:\s|$)/.test(relayCommand) || relayCommand.includes(relayEntry()) ? pid : undefined;
 }
 
