@@ -254,7 +254,9 @@ try {
     writeFileSync(join(triageHome, 'host', 'diagnostics.json'), JSON.stringify({ current: { hostVersion: '99.0.0' } }));
     writeFileSync(join(triageHome, 'setup-manifest.json'), JSON.stringify({ version: 1, entries: { [triageHome]: { kind: 'owned', hash: '' } }, herdrInstalled: [] }));
     const fakeHerdr = join(triageHome, 'herdr');
-    writeFileSync(fakeHerdr, '#!/bin/sh\nexit 1\n', { mode: 0o700 });
+    // Herdr answers its version and an empty integration list, so the only agent
+// finding is that no agent CLI is installed.
+writeFileSync(fakeHerdr, '#!/bin/sh\ncase "$1" in --version) echo "herdr 0.7.3";; integration) exit 0;; *) exit 1;; esac\n', { mode: 0o700 });
     const triage = (...args) => spawnSync(process.execPath, [cli, 'triage', ...args], {
         env: { ...environment, HOME: triageHome, MUXR_HOME: triageHome, HERDR_BIN: fakeHerdr, HERDR_SOCKET_PATH: join(triageHome, 'gone.sock') },
         encoding: 'utf8', timeout: 20_000, stdio: ['ignore', 'pipe', 'pipe'],
@@ -264,6 +266,7 @@ try {
     assert.match(broken.stdout, /this CLI is older than the host; run `muxr update`/);
     assert.match(broken.stdout, /gone\.sock is not a Herdr socket/);
     assert.match(broken.stdout, /services\s+could not be checked/);
+    assert.match(broken.stdout, /FAIL\s+agent CLI\s+none found — install one, e\.g\. `npm i -g @anthropic-ai\/claude-code`, then sign in/);
     assert.match(broken.stdout, /selfhost-rotation\.lock was left by process \d+, which has exited/);
     assert.match(broken.stdout, /selfhost\.json is open to other users/);
     assert.match(broken.stdout, new RegExp(`port ${occupied.address().port} is taken by another program`));

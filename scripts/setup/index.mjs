@@ -57,6 +57,7 @@ export {
     hostSharedRelay,
     manageMachines,
     recommendedConnection,
+    serverComputer,
     selfhostArgsFromSetupPlan,
 } from './presentation/setupWizard.mjs';
 
