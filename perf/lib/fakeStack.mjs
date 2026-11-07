@@ -19,6 +19,7 @@ import { join, resolve } from 'node:path';
 import { runCommand as run, spawnCommand as spawn, onCommandCleanup, commandSignal, assertCommandActive } from './commands.mjs';
 import { androidArgs } from './deviceTarget.mjs';
 import { waitForRelay } from '../../scripts/diagnostics/application/waitForRelay.mjs';
+import { startHerdrCore } from './herdrCoreLab.mjs';
 
 const RELAY_ENTRY = 'apps/relay/dist/main.js';
 const HOST_ENTRY = 'apps/host/dist/main.js';
@@ -121,9 +122,12 @@ function childEnv(home, muxrHome, extra, base = process.env) {
 /**
  * @param {{ panes?: number, agents?: number, titleChurnHz?: number,
  *   terminalBytesPerSecond?: number, emptyPanes?: number, emptyAfterMs?: number,
- *   transport?: 'adb' | 'loopback', advertiseHost?: string }} [options]
+ *   transport?: 'adb' | 'loopback', advertiseHost?: string, herdrCore?: boolean }} [options]
  * `advertiseHost` names the address the pairing offer carries instead of
  * 127.0.0.1 (a lab forwards it to the loopback relay itself).
+ * `herdrCore` also starts a private lab Herdr Core (`herdrCoreLab.mjs`) beside the
+ * fake Herdr TUI and returns it as `herdrCore`. The host is not pointed at it: until
+ * the host reads Herdr Core (plan step 3), a journey drives the core directly.
  */
 export async function startFakeStack(options = {}) {
     return startStack(options);
@@ -222,6 +226,8 @@ async function startStack(options, live) {
             entry.deliberateCleanup = stopping;
         });
     }
+    const core = options.herdrCore && !live ? await startHerdrCore() : undefined;
+    if (core) health.push({ name: 'herdr-core', pid: core.pid, exitCode: null, signal: null, deliberateCleanup: false });
     // Older host heads resolve the default HOME socket instead of the env override.
     // Keep both paths inside this run's isolated infrastructure.
     if (!live) {
@@ -232,9 +238,12 @@ async function startStack(options, live) {
     const stop = () => {
         stopping = true;
         for (const child of children.splice(0)) {
+            // A host on its way out writes its data dirs again; sweep once more when it is gone.
+            child.once('exit', () => rmSync(root, { recursive: true, force: true }));
             try { child.kill('SIGTERM'); } catch { /* already gone */ }
         }
         fake.close();
+        core?.stop();
         // Only the reverse this run added: --remove-all would cut whatever else
         // on this desk is tunnelling to the emulator, and a run that never made
         // one -- loopback, or a failure before it -- must not reach for adb.
@@ -331,6 +340,8 @@ async function startStack(options, live) {
             // The stand-in for Herdr is reported apart from our own code.
             pids: { relay: relay.pid, host: host.pid },
             herdrPid: fake.pid,
+            /** The lab Herdr Core when `herdrCore` was asked for; the host never sees it yet. */
+            herdrCore: core,
             identity: (identity.stdout ?? '').trim().split('\n').pop(),
             hostLog: () => hostLog.join(''),
             /** Bounded, credential-free lifecycle of everything this run spawned. */

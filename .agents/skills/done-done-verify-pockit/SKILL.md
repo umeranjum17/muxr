@@ -32,6 +32,7 @@ done-done receipt --verify <head>       # read-only: verify the recorded receipt
 - A PR's `## Checks` block names this skill for `proof:` and the run's files for `evidence:`.
 - After a drive, `done-done maintain` reports drift between this skill and the source; fix the skill, not the run.
 - Headless smoke entry (done-done scaffold): `node perf/fake-herdr/stack.smoke.mjs` runs the relay and host over a fake Herdr with a scripted phone client; success is exit 0 and the final line `fake-herdr stack smoke ok`. It uses `MUXR_RELAY_PORT=0` and tears down what it starts. The per-feature entries in `features/` cite it.
+- Herdr Core lab entry (plan step 2): `done-done verify herdr-core-lab` starts fakeStack with a private pinned Herdr Core beside the fake Herdr TUI and drives the calls the host will make on it; `features/herdr-core-lab.md` is the recipe and `features/herdr-core-ports.md` says how each Herdr journey moves to the core or is retired. The host cannot see Core agents until plan step 3.
 
 ## Isolation contract (read first)
 
