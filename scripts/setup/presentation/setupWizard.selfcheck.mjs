@@ -18,6 +18,9 @@ async function checkWizard() {
     process.env.MUXR_TAILSCALE_BIN = 'wizard-fixture-tailscale';
     process.env.MUXR_NO_TUI = '1';
     process.env.NO_COLOR = '1';
+    // The fixture is a laptop; a CI runner or SSH session would read as a server.
+    for (const name of ['CI', 'SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY']) delete process.env[name];
+    process.env.DISPLAY = ':0';
     process.env.MUXR_RELAY_PORT = '18792';
     process.env.HOME = join(scratch, 'home');
     process.env.XDG_CONFIG_HOME = join(scratch, 'config');
