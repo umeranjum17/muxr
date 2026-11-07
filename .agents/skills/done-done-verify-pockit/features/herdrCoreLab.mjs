@@ -18,7 +18,8 @@ const { startFakeStack } = await import(join(repo, 'perf/lib/fakeStack.mjs'));
 const { ensureHerdrCore, HERDR_CORE_PIN } = await import(join(repo, 'perf/lib/herdrCoreLab.mjs'));
 mkdirSync(evidence, { recursive: true });
 const gate = join(evidence, 'gate.log');
-const log = (line) => { console.log(line); appendFileSync(gate, `${line}\n`); };
+// gate.log is the record; stdout (journey.out) carries only the verdict, so the two never match.
+const log = (line) => appendFileSync(gate, `${line}\n`);
 const capture = (name, lines) => writeFileSync(join(evidence, name), `${lines.join('\n')}\n`);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const plain = (text) => text.replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b\[[0-9;?=!]*[A-Za-z]|\x1b[A-Za-z=>]|[\x00-\x08\x0b-\x1f]/g, '');
@@ -190,4 +191,5 @@ writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
     result: `the harness drives a lab Herdr Core through the calls the host will make (the host itself cannot see Core agents until plan step 3): gate.log lists ${checks.filter((c) => c.ok).length} of ${checks.length} checks passing; ${ok ? 'pass' : 'fail'}`,
 }, null, 2)}\n`);
 log(ok ? 'PASS: the harness ran the host-side Herdr Core calls on a private lab core and tore it down' : 'FAIL: see above');
+console.log(`herdr-core-lab ${ok ? 'pass' : 'fail'}: ${checks.filter((c) => c.ok).length}/${checks.length} checks; see ${gate}`);
 process.exit(ok ? 0 : 1);
