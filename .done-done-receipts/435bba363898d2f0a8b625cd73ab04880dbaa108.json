@@ -1,0 +1,117 @@
+{
+  "schema": 2,
+  "repo": "pockit",
+  "head": "435bba363898d2f0a8b625cd73ab04880dbaa108",
+  "tree": "623cdbf745e1ad00247fd414d52c934f1efd4888",
+  "claim": "a person installs muxr 0.2.20 on a phone, pairs it with a computer running muxr, opens an agent terminal, types a command and reads its output, scrolls the history back and forward, and opens Usage with exactly one host alive",
+  "result": "pass",
+  "at": "2026-11-07T11:23:26.002Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/01-agent-attached.png",
+      "sha256": "b76a7547f74bfb4b76294a445db4f8e1f2c2485279b8f562d7f693074cf6bedb"
+    },
+    {
+      "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/03-attached-after-pane-churn.png",
+      "sha256": "e82854bd780f7906f431cdd309abdc6e6cfce11be38d2ed9315558b7ef97cd47"
+    },
+    {
+      "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/04-typed-command-and-output.png",
+      "sha256": "5e21b1f195f7d03a52217b7f15dc85b6d7b7b6c6e08b5667fa060b865d5acc0d"
+    },
+    {
+      "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/05-scrolled-back.png",
+      "sha256": "0ea465bd151fb889a222beb2926639d98e3dfb2df8f5d38f4e0a22b27affa9e4"
+    },
+    {
+      "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/06-scrolled-to-latest.png",
+      "sha256": "705b5db43e63f3dcca46ef525b432393c867562372a691ab71110f9d715bc49d"
+    },
+    {
+      "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/journey.log",
+      "sha256": "657eba600e6c8a75226c3bf5bb0c268dfc2b6146e5c1da13a845abe38f03d273"
+    },
+    {
+      "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/release-build.json",
+      "sha256": "23d5260647e4e3a56fd8fae12f8e10196b2918f70c991e47c4d89c19187ba18b"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261107T111444Z-435bba36-242ad7",
+      "commit": "435bba363898d2f0a8b625cd73ab04880dbaa108",
+      "journey": "phone-attach",
+      "command": "node scripts/diagnostics/application/checkPhoneAttach.mjs",
+      "tool": "0.6.26",
+      "steps": {
+        "target": {
+          "version": "0.2.20"
+        },
+        "start": "the release app freshly installed on the phone, with a lab computer running two agent panes that the phone is not yet paired to",
+        "steps": [
+          "pair the phone to the lab computer",
+          "open an agent and time its first attach, from the tap to the host's new terminal stream",
+          "close agent panes and attach again through pane churn",
+          "type a command at the agent",
+          "scroll its history back and forward fast",
+          "open Usage and come back",
+          "count the hosts alive"
+        ],
+        "result": "the first attach took 1185 ms from the tap to the host's new terminal stream, the phone attached after every round of pane churn, the typed command printed its output on a clean screen, the history scrolled back and forward, Usage opened and closed, and one host stayed alive"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/01-agent-attached.png",
+        "sha256": "b76a7547f74bfb4b76294a445db4f8e1f2c2485279b8f562d7f693074cf6bedb",
+        "verdict": "pass",
+        "seen": "This capture is named 01-agent-attached, so it matches the outcome's 'opens an agent terminal' part. The header reads \"Fix the login page  umer-lab\" with the Terminal toggle selected, and the terminal body shows \"lab agent ready\". Tab 1 is open, and the key row (ctrl, shift, esc, tab, ^C, ^D) and the prompt box are visible. There is no error, crash or overlay. The other parts (typing a command, scrolling history, Usage) are not shown, but that does not make this capture wrong."
+      },
+      {
+        "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/03-attached-after-pane-churn.png",
+        "sha256": "e82854bd780f7906f431cdd309abdc6e6cfce11be38d2ed9315558b7ef97cd47",
+        "verdict": "pass",
+        "seen": "The screenshot shows the muxr agent terminal on a phone: header 'Fix the login page umer-lab' with Chat/Terminal toggle set to Terminal, and the terminal shows 'lab agent ready' with a cursor, plus Tab 1 and the ctrl/shift/esc/tab key row. So an agent terminal is open and attached. No command typed/output read, no scrolled history, and no Usage screen are visible. Nothing contradicts the outcome, so this is correct for the opened-terminal part only."
+      },
+      {
+        "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/04-typed-command-and-output.png",
+        "sha256": "5e21b1f195f7d03a52217b7f15dc85b6d7b7b6c6e08b5667fa060b865d5acc0d",
+        "verdict": "pass",
+        "seen": "The Terminal tab of the agent 'Fix the login page' is open. Output shows 'echo lab-typed-82077' followed by 'lab agent got: echo lab-typed-82077', so a command was typed and its output is readable. The keyboard covers only the lower part of the screen, not the terminal content. This matches the 'command typed and output read' part plus 'agent terminal opened'."
+      },
+      {
+        "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/05-scrolled-back.png",
+        "sha256": "0ea465bd151fb889a222beb2926639d98e3dfb2df8f5d38f4e0a22b27affa9e4",
+        "verdict": "pass",
+        "seen": "The terminal tab is open in an agent session ('Fix the login page', host umer-lab). The visible output shows \"row 273 of the lab agent's history\" through \"row 313 of the lab agent's history\", with a 'Latest' button at the bottom, which indicates the view is scrolled back from the newest output. No error, crash, or overlay such as a keyboard hides the content. This shows the scrolled-back part. It does not show the typed command, the scroll forward, or Usage."
+      },
+      {
+        "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/06-scrolled-to-latest.png",
+        "sha256": "705b5db43e63f3dcca46ef525b432393c867562372a691ab71110f9d715bc49d",
+        "verdict": "pass",
+        "seen": "The capture is named 06-scrolled-to-latest. The terminal view for 'Fix the login page' (umer-lab) is open with the Terminal tab selected. The bottom of the output reads \"row 400 of the lab agent's history\", with rows 361-400 visible and no further content below. This matches the 'history scrolled back and forward' part, since the view is at the latest row after scrolling. It also shows the agent terminal is open. No typed command output or Usage screen is visible, but those belong to other captures. No error, dialog, or keyboard obscures the content."
+      },
+      {
+        "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/journey.log",
+        "sha256": "657eba600e6c8a75226c3bf5bb0c268dfc2b6146e5c1da13a845abe38f03d273",
+        "verdict": "pass",
+        "seen": "I read the whole journey.log. Agent terminal: 'first attach: attached in 9.8s' and 'captured 01-agent-attached'. Typed command: 'typed \"echo lab-typed-82077\" and a pane printed it'. Scrolling: 'scrolled back into history in 4567 ms' and 'scrolled forward to the newest output in 4315 ms'. Usage: 'Usage open' and 'hosts alive: 1'. The 0.2.20 APK install and pairing also succeed, and nothing in the log contradicts the outcome. Attach times of 14-16s are slow but they all landed. The line about the host name 'extreme' is a note, not a failure."
+      },
+      {
+        "path": "<evidence root>/20261107T111444Z-435bba36-242ad7/release-build.json",
+        "sha256": "23d5260647e4e3a56fd8fae12f8e10196b2918f70c991e47c4d89c19187ba18b",
+        "verdict": "pass",
+        "seen": "Read one JSON record. version is \"0.2.20\", install \"fresh\", result \"pass\", and all steps (pair, attach, send, scroll, usage, one-host) are \"pass\" with hosts: 1. This matches the outcome: install 0.2.20, pair, attach, type/read output, scroll back and forth, Usage with exactly one host. No contradicting fields. The \"package\": null is minor, since the apk hash is present. It covers all four shared parts, though the steps are summarized rather than detailed."
+      }
+    ]
+  }
+}
