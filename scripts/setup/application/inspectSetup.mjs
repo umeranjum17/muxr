@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import {
+    AGENT_INSTALL_HINT,
     HERDR_INSTALL_HINT,
     MIN_HERDR,
     api,
@@ -320,9 +321,10 @@ async function runtimeChecks(add, managedMode) {
             const statuses = parseIntegrationStatus(integrations.stdout);
             const detected = detectedLifecycleTargets(statuses).map(([id, status]) => `${id}:${status}`);
             const needsSync = detected.some((status) => !status.endsWith(':current'));
-            add(needsSync ? 'warn' : 'ok', 'integrations', needsSync
+            if (detected.length === 0) add('fail', 'agent CLI', `none found — ${AGENT_INSTALL_HINT}`);
+            else add(needsSync ? 'warn' : 'ok', 'integrations', needsSync
                 ? `${detected.join(', ')} — run \`muxr integrations sync\``
-                : detected.join(', ') || 'no supported agent CLI detected');
+                : detected.join(', '));
         } else {
             add('warn', 'integrations', `${integrations.stderr || 'status unavailable'} — run \`muxr integrations sync\``);
         }
