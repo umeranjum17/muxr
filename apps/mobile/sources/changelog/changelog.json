@@ -1,6 +1,65 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.20",
+            "title": "An agent moves to another computer",
+            "summary": "Since 0.2.19: a running Claude agent can move to another computer and carry on there, the computer it left says where it went, `muxr triage` finds what is broken in one command and repairs what is safe, and the first run hands you one install line instead of a command your computer does not have.",
+            "features": [
+                {
+                    "title": "Move an agent to another computer",
+                    "detail": "Pane actions carries Move to another computer: pick the computer, see what moves and what stays behind, then watch it land. The conversation carries on where it arrives. Claude agents move today; other kinds say Continue and stay where they are."
+                },
+                {
+                    "title": "The computer it left says where it went",
+                    "detail": "Once a move lands, the agent's row on the computer it came from reads Moved to Laptop instead of offering a second move, so the leftover copy is never mistaken for the live one."
+                },
+                {
+                    "title": "One command that finds what is broken",
+                    "detail": "`muxr triage` checks the whole setup and prints one line per problem with the exact next action. `muxr triage --fix` repairs only what is local and reversible, such as a lock file an exited process left behind, and never restarts a service or asks for sudo."
+                },
+                {
+                    "title": "One install line on the My computer step",
+                    "detail": "The My computer step of the first run gives a single muxr install line with Copy and Share, and says what it does, instead of naming a command a bare computer does not have."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Setup says when no agent CLI is installed",
+                    "detail": "`muxr doctor` and `muxr triage` show a failing line naming an agent CLI to install and sign in to, instead of reporting the integrations as ok. Scripts that read their exit code now get 1 on a machine with no agent CLI."
+                },
+                {
+                    "title": "A server is never sent to Wi-Fi only",
+                    "detail": "A machine reached over SSH, in CI, or with no display is treated as a server: setup recommends the person's own relay or Tailscale and no longer offers Wi-Fi only there."
+                },
+                {
+                    "title": "A finished first run exits",
+                    "detail": "A bare `muxr` whose first run finished returns to the shell on its Open muxr on your phone line, instead of opening a menu a new person has to find Quit in. A cancelled setup still opens the menu."
+                },
+                {
+                    "title": "The CLI installs without the phone's toolchain",
+                    "detail": "The published package no longer pulls in React Native, Metro and Hermes through one dependency, so a global install fetches far less before the first agent answers."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Phone attach",
+                    "status": "partial",
+                    "detail": "On 7 November 2026 the phone-attach journey passed at this version on an Android 36 x86_64 emulator: pairing, a first attach 1.2 s from the tap to the host's own terminal-stream line, attaches again through 18 rounds of agent panes coming and going, a typed command read back from the pane, history scrolled back and forward in 4.5 s, Usage opened and closed, exactly one host alive. Not proven: no iOS run, no test on the captain's own phone, and the run installed a locally built APK rather than the sealed candidate.",
+                    "evidence": {
+                        "testedCommit": "435bba363898d2f0a8b625cd73ab04880dbaa108",
+                        "environment": "Android 36 x86_64 emulator, release APK built from this commit, lab host on a private home",
+                        "checkedBy": "done-done verify phone-attach, judged by claude-sonnet-5-5",
+                        "checkedAt": "2026-11-07T11:20:00Z"
+                    }
+                }
+            ],
+            "knownLimits": [
+                "Only Claude agents move to another computer; Codex, Pi and OpenCode agents answer Continue for now.",
+                "The phone proof for this version ran on an Android emulator, not on the captain's own phone, and no iOS device was tested.",
+                "A Boat cloud machine is paid to Boat from $0.018 an hour and runs in the cloud, not on your computer."
+            ]
+        },
+        {
             "appVersion": "0.2.19",
             "title": "Agent chat, and a two-door first run",
             "summary": "Since 0.2.17 (0.2.18 was never published, so this release carries its changes): an agent screen opens on a Chat view beside its terminal, with a composer, a running strip and reply cards; the first run offers My computer or a Boat cloud machine; and Settings can add a cloud machine at any time.",
