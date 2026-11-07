@@ -43,12 +43,19 @@
             "verification": [
                 {
                     "title": "Phone attach",
-                    "status": "not-run",
-                    "detail": "This release has not been proved on a phone yet. The captain's own phone test is still required before stable publication."
+                    "status": "partial",
+                    "detail": "On 7 November 2026 the phone-attach journey passed at this version on an Android 36 x86_64 emulator: pairing, a first attach 1.2 s from the tap to the host's own terminal-stream line, attaches again through 18 rounds of agent panes coming and going, a typed command read back from the pane, history scrolled back and forward in 4.5 s, Usage opened and closed, exactly one host alive. Not proven: no iOS run, no test on the captain's own phone, and the run installed a locally built APK rather than the sealed candidate.",
+                    "evidence": {
+                        "testedCommit": "435bba363898d2f0a8b625cd73ab04880dbaa108",
+                        "environment": "Android 36 x86_64 emulator, release APK built from this commit, lab host on a private home",
+                        "checkedBy": "done-done verify phone-attach, judged by claude-sonnet-5-5",
+                        "checkedAt": "2026-11-07T11:20:00Z"
+                    }
                 }
             ],
             "knownLimits": [
                 "Only Claude agents move to another computer; Codex, Pi and OpenCode agents answer Continue for now.",
+                "The phone proof for this version ran on an Android emulator, not on the captain's own phone, and no iOS device was tested.",
                 "A Boat cloud machine is paid to Boat from $0.018 an hour and runs in the cloud, not on your computer."
             ]
         },
