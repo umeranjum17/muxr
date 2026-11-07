@@ -111,6 +111,11 @@ rules, with no H2 sections.
 - [Show a stalled computer as busy and recovering](./herdr-stall-recovery.md) —
   named Herdr lab freeze: tree goes unavailable within 20s, returns healthy and
   attaches within 10s; iPad Home records busy copy and agents recovering alone.
+- [Drive a lab Herdr Core from the proof harness](./herdr-core-lab.md) —
+  plan step 2: the pinned core beside fakeStack's fake Herdr TUI, every call the
+  host will make (start, prompt, wait, labels, framed attach, documents, events)
+  on a private 2-character session, clean teardown; the port/retire table for
+  every Herdr journey is [herdr-core-ports.md](./herdr-core-ports.md).
 
 - [Read the desktop receiver's decoder and frame rate (developer probe)](./desktop-decoder-probe.md) —
   developer-mode-only machine row and `/debug/decode` route: absent until ten
