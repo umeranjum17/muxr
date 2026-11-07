@@ -12,7 +12,7 @@
  * Plan step 2 (data/muxr-herdr-core-design/report.md, section 8): the host cannot read Herdr
  * Core yet, so nothing here is wired into the host or the phone.
  */
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomInt } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -86,8 +86,7 @@ export async function ensureHerdrCore({ cacheDir } = {}) {
 function shortDir() {
     const letters = 'abcdefghijklmnopqrstuvwxyz0123456789';
     for (let attempt = 0; attempt < 200; attempt += 1) {
-        const [a, b] = randomBytes(2);
-        const tag = `${letters[a % 26]}${letters[b % letters.length]}`;
+        const tag = `${letters[randomInt(26)]}${letters[randomInt(letters.length)]}`;
         const dir = `/tmp/k${tag}`;
         try { mkdirSync(dir, { mode: 0o700 }); } catch { continue; }
         chmodSync(dir, 0o700);
