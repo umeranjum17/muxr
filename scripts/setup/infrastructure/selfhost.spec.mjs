@@ -13,8 +13,8 @@ const started = [];
 const homes = [];
 const originalHome = process.env.MUXR_HOME;
 
-function startDesktopRelay(home) {
-    const script = join(home, 'relay.mjs');
+function startFakeRelay(home, name = 'relay.mjs') {
+    const script = join(home, name);
     writeFileSync(script, [
         "import { createServer } from 'node:http';",
         'const server = createServer((req, res) => {',
@@ -46,6 +46,22 @@ afterEach(() => {
 });
 
 describe('stopping a self-host relay', () => {
+    it('recognises its own relay on a computer with no ps', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-selfhost-spec-'));
+        homes.push(home);
+        process.env.MUXR_HOME = home;
+        const port = await startFakeRelay(home, 'relay.js');
+        const pid = started.at(-1).pid;
+        writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'cli', relayLocation: 'local', relayPort: port })}\n`, { mode: 0o600 });
+        mkdirSync(join(home, 'relay'), { recursive: true });
+        writeFileSync(join(home, 'relay', 'relay.pid'), String(pid), { mode: 0o600 });
+        process.env.MUXR_PS_BIN = join(home, 'no-such-ps');
+        try {
+            await expect(stopOwnedSelfhostRelay()).resolves.toMatchObject({ port });
+        } finally { delete process.env.MUXR_PS_BIN; }
+        expect(await fetch(`http://127.0.0.1:${port}/health`).then(() => true, () => false)).toBe(false);
+    }, 15_000);
+
     it('explains an unconfigured computer before up starts anything', () => {
         const result = spawnSync('docker', ['run', '--rm', '--network', 'none', '-v', `${process.cwd()}:/app:ro`,
             '-w', '/app', '-e', 'MUXR_MODE=selfhost', '-e', 'MUXR_HOME=/tmp/muxr-empty',
@@ -60,7 +76,7 @@ describe('stopping a self-host relay', () => {
         const home = mkdtempSync(join(tmpdir(), 'muxr-selfhost-spec-'));
         homes.push(home);
         process.env.MUXR_HOME = home;
-        const port = await startDesktopRelay(home);
+        const port = await startFakeRelay(home);
         const pid = started.at(-1).pid;
         writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, createdBy: 'desktop', relayLocation: 'local', relayPort: port })}\n`, { mode: 0o600 });
         mkdirSync(join(home, 'relay'), { recursive: true });
