@@ -177,6 +177,8 @@ async function checkWizard() {
             const direct = await run(['', '1', '1']);
             recommended(direct, 'Use muxr away from home — phone only (Tailscale)');
             assert.match(direct, /Connection: Direct Tailscale on port 18792/);
+            assert.match(direct.replace(/\s+/g, ' '), /uses your plain Tailscale address instead of a Serve route/);
+            assert.doesNotMatch(direct, /option above/);
             assert.deepEqual(calls, [], 'Blocked Serve mutated setup');
         }
         tailscaleConnected = false;
