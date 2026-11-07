@@ -229,7 +229,7 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
         {
             value: 'tailscale-direct', title: 'Use muxr away from home — phone only (Tailscale)',
             description: tailscaleAvailable
-                ? 'Needs the Tailscale app on both, signed in to the same account. Phone app only, no browser; pick this if the option above is unavailable here.'
+                ? `Needs the Tailscale app on both, signed in to the same account. Phone app only, no browser; ${serveOccupied || serveDisabled ? 'uses your plain Tailscale address instead of a Serve route.' : 'pick this if the option above is unavailable here.'}`
                 : `Install the free Tailscale app on both and sign in to the same account, so your phone reaches this computer from anywhere, then rerun setup: ${TAILSCALE_INSTALL_URL}.`,
             disabled: !tailscaleAvailable,
         },
