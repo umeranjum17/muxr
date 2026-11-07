@@ -12,6 +12,7 @@ const {
     recommendedConnection,
     resolveAdvertise,
     selfhostArgsFromSetupPlan,
+    serverComputer,
     tailscaleBin,
     tailscaleIngress,
 } = await import('../../setup/index.mjs');
@@ -69,6 +70,18 @@ try {
     assert.equal(recommendedConnection(found, undefined, true, { status: 'inconclusive' }).mode, 'tailscale');
     assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'tailscale');
     assert.equal(recommendedConnection({ ...found, private: undefined }, undefined, false, { status: 'inconclusive' }).mode, 'lan');
+    // A server (SSH, CI, no display) is never sent to Wi-Fi only: Tailscale leads,
+    // with the reason; a temporary link already set up is offered but never first.
+    const server = { ...found, private: undefined, server: true };
+    const serverPick = recommendedConnection(server, undefined, false, { status: 'inconclusive' });
+    assert.equal(serverPick.mode, 'tailscale');
+    assert.match(serverPick.description, /server.*Wi-Fi/);
+    assert.equal(recommendedConnection({ ...server, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'tailscale');
+    assert.equal(recommendedConnection({ ...server, relay: {} }, undefined, false, { status: 'inconclusive' }).mode, 'relay');
+    assert.equal(serverComputer({ SSH_CONNECTION: '1 2 3 4' }, 'darwin'), true);
+    assert.equal(serverComputer({}, 'linux'), true);
+    assert.equal(serverComputer({ WAYLAND_DISPLAY: 'wayland-0' }, 'linux'), false);
+    assert.equal(serverComputer({}, 'darwin'), false);
     const privateArgs = selfhostArgsFromSetupPlan({ mode: 'private', port: 8792, web: false, pairing: 'phone', found });
     assert.deepEqual(privateArgs.slice(-2), ['--advertise', 'ws://100.90.0.4:8792']);
     assert.equal((await resolveAdvertise(privateArgs, 8792)).url, 'ws://100.90.0.4:8792');

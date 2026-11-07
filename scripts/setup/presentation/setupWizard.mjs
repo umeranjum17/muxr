@@ -15,7 +15,7 @@ import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
 import { classifyNetworkRoutes, inspectTailscaleServeRoot, probeTailscale, readSelfhostState, selfhostPath, TAILSCALE_INSTALL_URL, tailscaleBin, tailscaleMissing } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting, parseEnrollment } from '../domain/dist/index.js';
-import { env, relayPortFromEnv } from '../infrastructure/runtime.mjs';
+import { AGENT_INSTALL_HINT, env, relayPortFromEnv } from '../infrastructure/runtime.mjs';
 
 function command(name, args = []) {
     const result = spawnSync(name, args, { encoding: 'utf8', timeout: 15_000 });
@@ -129,6 +129,7 @@ export async function probeMachine() {
         herdr: { installed: !herdrVersion.missing, working: herdrVersion.ok, version: herdrVersion.output.split('\n')[0], running: herdrVersion.ok && herdrServerIsReady(binary) },
         agents,
         codingAgents: probeCodingAgents(),
+        server: serverComputer(),
         tailscale,
         cloudflared: probeCloudflared(),
         private: routes.private,
@@ -157,7 +158,7 @@ function renderInspection(found) {
         const extra = found.codingAgents.length > 5 ? '…' : '';
         status('Coding agents', `${found.codingAgents.length} found — ${shown}${extra}`, 'ok');
     } else {
-        status('Coding agents', 'No coding agent found. Install one, e.g. `npm i -g @anthropic-ai/claude-code`, then sign in', 'warn');
+        status('Coding agents', `No coding agent found; ${AGENT_INSTALL_HINT}`, 'warn');
     }
     status('Agent status updates', agentIntegrationDetail(found), found.agents.checked && found.agents.current.length ? 'ok' : 'warn');
     status('Tailscale', found.tailscale.connected ? `connected — ${found.tailscale.ip}` : found.tailscale.detail, found.tailscale.connected ? 'ok' : 'off');
@@ -181,8 +182,15 @@ const RELAY_KIND = {
 };
 const relayKind = (mode) => RELAY_KIND[mode] ?? mode;
 
+// A machine reached over SSH, in CI, or a Linux box with no display is a
+// server: no phone sits on its Wi-Fi, so Wi-Fi only is never a sensible route.
+export const serverComputer = (env = process.env, platform = process.platform) =>
+    ['CI', 'SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY'].some((name) => (env[name] ?? '') !== '')
+    || (platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY);
+
 // No way off Wi-Fi: no Tailscale, private network, tunnel, enrollment, or saved route other than Wi-Fi only.
-const plainComputer = (found, current) => !found.relay && !found.tailscale.installed && !found.private && !found.cloudflared.ok
+// A server is never offered Wi-Fi only, unless it was already saved that way.
+const plainComputer = (found, current) => !found.relay && !found.server && !found.tailscale.installed && !found.private && !found.cloudflared.ok
     && (current === undefined || current.connectionMode === 'lan');
 
 /**
@@ -197,7 +205,7 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
     if (serveOccupied) tailscaleSentence = 'Tailscale Serve is used by something else here; choose the phone-only option below to leave it unchanged.';
     else if (serveDisabled) tailscaleSentence = `Tailscale Serve is unavailable (${serveRoot.reason}); choose the phone-only option below instead.`;
     else if (tailscalePlanned) tailscaleSentence = 'Sign-in happens next; your phone also needs the Tailscale app, signed in to the same account.';
-    else if (!tailscaleAvailable) tailscaleSentence = `Install the free Tailscale app on this computer and your phone and sign in on both, so your phone reaches this computer from anywhere, then rerun setup: ${TAILSCALE_INSTALL_URL}.`;
+    else if (!tailscaleAvailable) tailscaleSentence = `${found.server ? 'This computer is a server, so Wi-Fi is not offered: your phone is not on its network. ' : ''}Install the free Tailscale app on this computer and your phone and sign in on both, so your phone reaches this computer from anywhere, then rerun setup: ${TAILSCALE_INSTALL_URL}.`;
     return [
         // Offered only with an enrollment from your own muxr server: this
         // computer dials out to it, so nothing on it needs to be open.
@@ -255,7 +263,7 @@ export function recommendedConnection(found, current, tailscalePlanned, serveRoo
     const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
     return direct && (found.tailscale.connected || tailscalePlanned)
         ? { mode: 'tailscale-direct', title: 'Use muxr away from home — phone only (Tailscale)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
-        : { mode: 'tailscale', title: 'Use muxr away from home (Tailscale)', description: 'both devices need the Tailscale app, signed in to the same account' };
+        : { mode: 'tailscale', title: 'Use muxr away from home (Tailscale)', description: found.server ? 'this computer is a server, so your phone cannot be on its Wi-Fi; both devices need the Tailscale app, signed in to the same account' : 'both devices need the Tailscale app, signed in to the same account' };
 }
 
 const aborted = (value) => value === undefined || value === BACK;
