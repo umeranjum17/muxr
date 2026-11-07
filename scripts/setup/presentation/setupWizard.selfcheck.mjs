@@ -294,7 +294,7 @@ async function checkWizard() {
         assert.deepEqual(calls, [], 'Inspection mutated setup');
 
         // No agent binary on PATH: setup names the gap with an install command.
-        assert.match(inspection, /No coding agent found\. Install one, e\.g\. `npm i -g @anthropic-ai\/claude-code`, then sign in/);
+        assert.match(inspection, /No coding agent found; install one, e\.g\. `npm i -g @anthropic-ai\/claude-code`, then sign in/);
 
         // Agent binaries present: setup lists them instead of warning.
         presentAgentBins = ['claude', 'codex'];
