@@ -25,6 +25,7 @@ import {
 
 export const MIN_HERDR = [0, 9, 1];
 export { BROWSER_GRANT_TTL_MS, DURABLE_GRANT_EXPIRES_AT, publicRelayUrl, validMachineCrypto };
+export const AGENT_INSTALL_HINT = 'install one, e.g. `npm i -g @anthropic-ai/claude-code`, then sign in (`claude`); muxr drives it and has nothing to run without one';
 export const HERDR_INSTALL_HINT = 'run `muxr setup` to install Herdr automatically';
 // Lifecycle integrations are discovered dynamically from `herdr integration status`.
 // Agent prompt files are never installed or rewritten.
