@@ -144,6 +144,15 @@ journeys:
   triage:
     command: node .agents/skills/done-done-verify-pockit/features/triageLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 5m
+  # The proof harness on a lab Herdr Core (plan step 2), no phone: fakeStack
+  # with a private pinned Herdr Core beside the fake Herdr TUI, driven through
+  # the calls the host will make (start, prompt, wait, labels, framed attach,
+  # documents, events), then torn down by its own PIDs. The host cannot see Core
+  # agents yet. Writes one text capture per call group, gate.log and steps.json.
+  # Needs `yarn build`. See features/herdr-core-lab.md.
+  herdr-core-lab:
+    command: node .agents/skills/done-done-verify-pockit/features/herdrCoreLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 5m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A
