@@ -21,7 +21,7 @@
         "@byokit/ui-core": "0.7.0",
         "@desklink/host": "0.5.10",
         "bonjour-service": "^1.4.4",
-        "ccusage": "20.0.20",
+        "ccusage": "20.0.48",
         "ws": "^8.18.0"
     },
     "devDependencies": {
