@@ -1,5 +1,5 @@
 /** The agents whose conversation the host can read into a chat. */
-const CHAT_AGENTS: ReadonlySet<string> = new Set(['claude', 'pi']);
+const CHAT_AGENTS: ReadonlySet<string> = new Set(['claude', 'pi', 'codex']);
 
 export type SessionViewSetting = 'terminal' | 'chat' | 'phone';
 export type PaneView = 'chat' | 'terminal';
@@ -9,7 +9,7 @@ const PHONE_SHORT_SIDE = 600;
 
 export const SESSION_VIEW_CHOICES: ReadonlyArray<{ key: SessionViewSetting; title: string; subtitle: string }> = [
     { key: 'terminal', title: 'Terminal', subtitle: 'Every agent opens as a terminal' },
-    { key: 'chat', title: 'Chat', subtitle: 'Claude and Pi open as a chat; other agents open the terminal' },
+    { key: 'chat', title: 'Chat', subtitle: 'Claude, Pi and Codex open as a chat; other agents open the terminal' },
     { key: 'phone', title: 'Chat on phone', subtitle: 'Chat on phones, terminal on tablets and larger screens' },
 ];
 

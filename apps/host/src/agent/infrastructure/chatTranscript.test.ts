@@ -80,6 +80,30 @@ describe('the chat read of an agent conversation', () => {
             ['assistant', 'An empty cart ships free.', [{ verb: 'Read a file', kind: 'read', detail: 'cart.ts', outcome: 'ok', note: '1 line', output: ['export const FREE_FROM = 50;'] }]],
         ]);
 
+        const codex = join(root, 'codex', 'sessions');
+        mkdirSync(join(codex, '2026', '10', '21'), { recursive: true });
+        const rollout = join(codex, '2026', '10', '21', 'rollout-2026-10-21T10-00-00-codex-88.jsonl');
+        writeFileSync(rollout, [
+            line({ type: 'session_meta', payload: { id: 'codex-88', cwd } }),
+            line({ type: 'response_item', timestamp: at(1), payload: { type: 'message', id: 'cx-context', role: 'user', content: [{ type: 'input_text', text: '# AGENTS.md instructions for /lab\nContext only' }] } }),
+            line({ type: 'response_item', timestamp: at(1), payload: { type: 'message', id: 'cx-user', role: 'user', content: [{ type: 'input_text', text: 'Check shipping.' }] } }),
+            line({ type: 'response_item', timestamp: at(2), payload: { type: 'function_call', call_id: 'cx-call', name: 'exec_command', arguments: JSON.stringify({ cmd: 'yarn test shipping' }) } }),
+            line({ type: 'response_item', timestamp: at(3), payload: { type: 'function_call_output', call_id: 'cx-call', output: 'Process exited with code 1\nshipping failed' } }),
+            line({ type: 'response_item', timestamp: at(4), payload: { type: 'custom_tool_call', call_id: 'cx-script', name: 'exec', input: 'text(await tools.exec_command({cmd:"yarn test shipping"}));' } }),
+            line({ type: 'response_item', timestamp: at(5), payload: { type: 'custom_tool_call_output', call_id: 'cx-script', output: [{ type: 'input_text', text: JSON.stringify({ exit_code: 0, output: '45 shipping checks passed' }) }] } }),
+            line({ type: 'event_msg', timestamp: at(6), payload: { type: 'agent_message', message: 'duplicate event must not appear' } }),
+            line({ type: 'response_item', timestamp: at(6), payload: { type: 'message', id: 'cx-final', role: 'assistant', content: [{ type: 'output_text', text: '## Shipping\n\n**Checks passed.**' }], phase: 'final_answer' } }),
+        ].join(''));
+        const codexChats = new ChatTranscripts(() => ({ codex }));
+        const codexRead = await codexChats.read({ agent: 'codex', cwd, ref: { kind: 'id', value: 'codex-88' } });
+        expect(codexRead.state === 'ok' && codexRead.messages.map(m => [m.role, m.text, m.tools])).toEqual([
+            ['user', 'Check shipping.', undefined],
+            ['assistant', '', [{ kind: 'run', verb: 'Ran a command', detail: 'yarn test shipping', outcome: 'failed', exit: 1, output: ['shipping failed'] }]],
+            ['assistant', '', [{ kind: 'run', verb: 'Ran a command', detail: 'Script', outcome: 'ok', exit: 0, output: ['45 shipping checks passed'] }]],
+            ['assistant', '## Shipping\n\n**Checks passed.**', undefined],
+        ]);
+        expect(await codexChats.read({ agent: 'codex', cwd, ref: { kind: 'path', value: rollout } }, codexRead.state === 'ok' ? codexRead.revision : undefined)).toEqual({ state: 'unchanged' });
+
         // Nothing moved: the phone's next poll costs one small answer.
         const revision = first.state === 'ok' ? first.revision : undefined;
         expect(await chats.read({ agent: 'claude', cwd, ref: { kind: 'id', value: 'abc-123' } }, revision)).toEqual({ state: 'unchanged' });
@@ -88,7 +112,7 @@ describe('the chat read of an agent conversation', () => {
         expect(grown.state === 'ok' && grown.messages.at(-1)?.text).toBe('Ship it.');
 
         // Agents with no chat, no conversation yet, and a path outside the harness's own logs.
-        expect(await chats.read({ agent: 'codex', cwd, ref: { kind: 'id', value: 'x' } })).toEqual({ state: 'unavailable', reason: 'unsupported-agent' });
+        expect(await chats.read({ agent: 'opencode', cwd, ref: { kind: 'id', value: 'x' } })).toEqual({ state: 'unavailable', reason: 'unsupported-agent' });
         expect(await chats.read({ agent: 'claude', cwd, ref: { kind: 'id', value: 'not-written-yet' } })).toEqual({ state: 'unavailable', reason: 'no-conversation' });
         const stray = join(root, 'stray.jsonl');
         writeFileSync(stray, line({ type: 'user', uuid: 's', timestamp: at(1), message: { role: 'user', content: 'private' } }));

@@ -1,6 +1,6 @@
-# Read a Claude or Pi agent as a chat, and switch it with the terminal
+# Read a Claude, Pi or Codex agent as a chat, and switch it with the terminal
 
-A paired phone can open a Claude or Pi agent as a chat: your messages in grey
+A paired phone can open a Claude, Pi or Codex agent as a chat: your messages in grey
 bubbles on the right, the agent's replies as plain text across the column
 (Markdown drawn), the tools each reply used as step rows (an icon per kind and
 the real target: `Edited src/checkout/shipping.ts +1 −1`, `Ran yarn test`) that
@@ -17,7 +17,7 @@ real prompt is answered. The host reads the harness's own session log through
 `chat.read` (`apps/host/src/agent/infrastructure/chatTranscript.ts`), found the
 way Herdr names it: Claude by session id under the project folder, Pi by the
 log path Herdr reports. Images in the conversation show inline and open full
-screen. Codex and OpenCode are not part of it. Slice 2 adds the running strip,
+screen. Codex reads native rollout response items using the session id Herdr publishes for the pane after its first prompt; OpenCode is not part of it. Slice 2 adds the running strip,
 helper cards and the in-chat answer (`chat-working.md`).
 
 ## Sub-features
@@ -65,7 +65,7 @@ helper cards and the in-chat answer (`chat-working.md`).
   and a right panel shows the agent's project, changes, shared artifacts and
   usage.
 - `chat-toggle` the header's chat/terminal pair switches per agent and is
-  remembered; an agent without a chat (Codex, OpenCode, a shell) keeps the
+  remembered; an agent without a chat (OpenCode, a shell) keeps the
   terminal and its chat button dimmed.
 - `chat-default` Settings → Session view: Terminal, Chat, Chat on phone; it
   applies to an agent with no choice of its own.
@@ -179,3 +179,28 @@ MUXR_DEV_APP_ID=app.muxr.chatsteps.dev MUXR_DISTRIBUTION=direct` with
   read Needs you on a healthy idle agent. That is not the chat's.
 - A lab pane's own terminal can show the person's home path or tool warnings:
   keep the chat captures, not terminal shots of a real HOME.
+
+## Real Codex regression proof
+
+`codex-chat-pwa` and `codex-chat-native` capture the same real Codex conversation
+from a guarded named lab. Run Codex normally, signed in as installed (no copied
+credentials), in a task-owned working directory. After one prompt, confirm the
+pane publishes `agent_session` with its Codex id through the guarded helper.
+The host locates `rollout-<time>-<id>.jsonl` by that pane-owned reference; it
+never guesses the latest conversation in a shared working directory. Give the
+lab host a private transcript root containing only that lab rollout.
+
+Use `linkHerdrLab.mjs` or `chatLab.mjs` with a private `MUXR_HOME`, relay port 0
+and the brief's guarded helper. Pair the installed PWA to this host. Set
+`MUXR_CODEX_BROWSER_ENV` to the task-owned shell file exporting its AXI browser
+URL/session. `codexChatPwa.sh` opens the Home row titled `Check shipping output`,
+then records phone/desktop and largest-text light/dark chat plus raw terminal.
+`CODEX_CHAT_PHASE=before` records the terminal-only baseline instead.
+
+For native, provide `MUXR_LAB_APK`, `MUXR_LAB_AVD_HOME`, `ANDROID_HOME`,
+`MUXR_MEMORY_GATE`, and `MUXR_CODEX_LAB_ROOT` (the stack root); the native
+journey holds the emulator lock, boots its own emulator, installs and clears
+the app, pairs fresh to this host, captures 390/270 dp and largest text,
+then switches to terminal and stops its emulator. Never point either driver
+at the owner's host or device. The native baseline may use the before APK
+against the same lab conversation: that client never asks for `chat.read`.

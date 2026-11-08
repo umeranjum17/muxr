@@ -21,11 +21,13 @@ const MISS_MS = 5_000;
 const IMAGE_LOGS = 8;
 
 function harnessOf(agent: string | undefined): ChatHarness | undefined {
-    return agent === 'claude' || agent === 'pi' ? agent : undefined;
+    return agent === 'claude' || agent === 'pi' || agent === 'codex' ? agent : undefined;
 }
 
 function rootsOf(harness: ChatHarness, roots: TranscriptRoots): string[] {
-    return harness === 'claude' ? roots.claude ?? [] : roots.pi === undefined ? [] : [roots.pi];
+    if (harness === 'claude') return roots.claude ?? [];
+    const root = harness === 'codex' ? roots.codex : roots.pi;
+    return root === undefined ? [] : [root];
 }
 
 /** Claude Code names a project folder after its working directory with every other character as a dash. */
@@ -67,10 +69,11 @@ export class ChatTranscripts {
             }
         }
         if ((this.missed.get(key) ?? 0) > Date.now()) return undefined;
-        // Pi names a log `<time>_<id>.jsonl` under a nest of folders; search for the id.
+        // Pi uses `<time>_<id>.jsonl`; Codex uses `rollout-<time>-<id>.jsonl`.
+        // Both use the conversation published for this pane, never the newest log in a shared cwd.
         for (const root of roots) {
             for (const path of transcriptFiles(root)) {
-                if (path.endsWith(`${sep}${value}.jsonl`) || path.endsWith(`_${value}.jsonl`)) { this.found.set(key, path); return path; }
+                if (path.endsWith(`${sep}${value}.jsonl`) || path.endsWith(`_${value}.jsonl`) || (harness === 'codex' && path.endsWith(`-${value}.jsonl`))) { this.found.set(key, path); return path; }
             }
         }
         this.missed.set(key, Date.now() + MISS_MS);

@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { basename, isAbsolute, join } from 'node:path';
+import { codexChatEntries } from './codexChatEntries.js';
 import type { ChatImage, ChatMessage, ChatTool, ChatToolKind } from '@trymuxr/contract';
 
-export type ChatHarness = 'claude' | 'pi';
+export type ChatHarness = 'claude' | 'pi' | 'codex';
 
 /** A message longer than this is cut: the phone shows a conversation, not a file dump. */
 export const CHAT_TEXT_MAX = 20_000;
@@ -295,10 +296,11 @@ export function chatMessagesFrom(harness: ChatHarness, lines: Iterable<string>, 
     for (const line of lines) {
         try { const entry: unknown = JSON.parse(line); if (typeof entry === 'object' && entry !== null) entries.push(entry as Record<string, unknown>); } catch { /* a torn or foreign line */ }
     }
-    const results = resultsOf(entries);
+    const records = harness === 'codex' ? codexChatEntries(entries) : entries;
+    const results = resultsOf(records);
     const out: Parsed[] = [];
     let last: Parsed | undefined;
-    for (const entry of entries) {
+    for (const entry of records) {
         const parsed = parseEntry(harness, entry, cwd);
         if (parsed === undefined) continue;
         if (last !== undefined && last.group === parsed.group && last.role === parsed.role) {
