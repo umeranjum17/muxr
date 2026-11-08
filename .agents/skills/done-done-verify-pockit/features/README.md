@@ -193,7 +193,7 @@ rules, with no H2 sections.
   Home Screen guide, hidden once installed or with no install path, at 393 and
   270 px, light and dark.
 
-- [Read a Claude or Pi agent as a chat, and switch it with the terminal](./chat-view.md) —
+- [Read a Claude, Pi or Codex agent as a chat, and switch it with the terminal](./chat-view.md) —
   real Claude and Pi panes in a Herdr lab session, paired PWA at 390 px: bubbles, the running
   line with Stop, the needs-you card into the terminal, and the Settings default; or, without
   Herdr, `chatFakeLab.mjs` (fake stack, seeded Claude log) for the look and the tool steps on

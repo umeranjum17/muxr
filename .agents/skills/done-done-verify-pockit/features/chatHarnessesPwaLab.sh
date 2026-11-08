@@ -3,7 +3,7 @@
 # (chat-harnesses.md): the chat fake lab (real relay, host and E2EE over a fake
 # Herdr holding one agent of every kind), the lab web export on its own port, a
 # standalone --app Chromium paired through window.__MUXR_LAB_PAIR__, then, for
-# each harness in CHAT_HARNESSES (codex opencode by default) at phone 390 and
+# each harness in CHAT_HARNESSES (opencode by default) at phone 390 and
 # desktop 1280 dp, dark and light: the agent opened in the app, the header's
 # Chat control read back by its label, the chat view pressed, the agent held
 # working with two screen lines and then blocked on a three-choice question.
@@ -18,9 +18,9 @@
 # the whole width/theme matrix and the logs stay in the matrix folder beside it.
 #
 # Exit 0 when every harness matched the gate this lab asserts: the header keeps
-# its Chat control labelled for Claude and Pi, pressing it draws no chat (no
+# its Chat control labelled for Claude, Pi and Codex, pressing it draws no chat (no
 # composer model chip, no Running strip, no helper card, no in-chat answer), the
-# view chooser says chat reads Claude and Pi sessions only, and a terminal Answer
+# view chooser says chat reads Claude, Pi and Codex sessions only, and a terminal Answer
 # chip that appears still types its number. Exit 1 when the app offers more or
 # less than that, so a harness that gains a chat turns this red.
 #   scripts/diagnostics/application/withPrivateXvfb.sh bash <this> <web export dir> <out dir>
@@ -82,11 +82,11 @@ misses=0
 # session in the URL takes a later navigation back to itself, so a fresh boot is
 # the only way to this screen.
 ax eval "location.assign('/settings/session-view')" >/dev/null
-for _ in $(seq 20); do ax eval "document.body.innerText.includes('Chat reads Claude and Pi sessions only')" | grep -q true && break; sleep 1; done
+for _ in $(seq 20); do ax eval "document.body.innerText.includes('Chat reads Claude, Pi and Codex sessions only')" | grep -q true && break; sleep 1; done
 ax screenshot "$mx/session-view.png" >/dev/null
-chooser=$(read_eval "document.body.innerText.includes('Chat reads Claude and Pi sessions only') && document.body.innerText.includes('Claude and Pi open as a chat; other agents open the terminal')")
+chooser=$(read_eval "document.body.innerText.includes('Chat reads Claude, Pi and Codex sessions only') && document.body.innerText.includes('Claude, Pi and Codex open as a chat; other agents open the terminal')")
 echo "view-chooser=$chooser" | tee -a "$mx/lines.log"
-case "$chooser" in *true*) ;; *) echo "the view chooser did not say chat reads Claude and Pi only" | tee -a "$mx/lines.log"; misses=$((misses+1));; esac
+case "$chooser" in *true*) ;; *) echo "the view chooser did not say chat reads Claude, Pi and Codex only" | tee -a "$mx/lines.log"; misses=$((misses+1));; esac
 ax eval "location.assign('/')" >/dev/null; sleep 6
 # name:width:height:dpr:kind; font F at W x H is a viewport of W/F x H/F (react-native-web pins fontScale to 1).
 CELLS="${CHAT_HARNESS_CELLS:-390-1.0:390:844:3:mobile 1280:1280:800:1:desktop}"
@@ -98,7 +98,7 @@ CHATSHOWN="(() => { const l = [...document.querySelectorAll('[aria-label]')].map
 QUESTION='────────────────\nRun rm -rf dist && pnpm build in /app/web? This deletes the existing dist folder, including the three files you edited by hand last week, and the build recreates it from source in about forty seconds.\n  1. Yes\n  2. Yes, and do not ask again for rm -rf dist commands in /app/web for the rest of this session\n  3. No, and tell Claude what to do differently'
 harness_rows=""
 mkdir -p "$root/frames"
-for harness in ${CHAT_HARNESSES:-codex opencode}; do
+for harness in ${CHAT_HARNESSES:-opencode}; do
   lab "agent $harness"
   got=$(sed -n 's/^lab agent: //p' "$root/lab.log" | tail -1)
   case "$got" in "$harness"=*) ;; *) echo "$harness: the lab has no such agent (got '$got')" | tee -a "$mx/lines.log"; misses=$((misses+1)); continue;; esac
@@ -173,8 +173,8 @@ cat >"$mx/steps.json" <<JSON
   "steps": ["pair the PWA through the lab hook", "open each harness's agent in the app and read the header's Chat control by its label", "press the Chat control and read whether the chat is drawn: the composer's model chip, the Running strip, a helper's card", "hold the agent working with two screen lines, then blocked on a three-choice question", "tap an Answer chip and read the pane's own input back", "read the Session view setting the app shows, at phone 390 and desktop 1280 dp, dark and light"],
   "harnesses": {$harness_rows
   },
-  "viewChooserNamesClaudeAndPi": "$(jv "$chooser")",
-  "result": "every harness kept its terminal-only view: the Chat control reads as available for Claude and Pi, pressing it drew no chat, the view chooser names Claude and Pi only, and the answer a blocked agent got came from the terminal's own chips; $misses cells contradicted that"
+  "viewChooserNamesSupportedAgents": "$(jv "$chooser")",
+  "result": "every harness kept its terminal-only view: the Chat control reads as available for Claude, Pi and Codex, pressing it drew no chat, the view chooser names Claude, Pi and Codex only, and the answer a blocked agent got came from the terminal's own chips; $misses cells contradicted that"
 }
 JSON
 node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$mx/steps.json" || misses=$((misses+1))

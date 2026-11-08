@@ -427,13 +427,13 @@ journeys:
   # Chat control read back, the chat pressed, the agent held working then blocked
   # on a three-choice question, the terminal's Answer chip tapped and the pane's
   # own input read back, and the view chooser's own sentence. Codex and OpenCode
-  # keep the terminal: chat slice 2's three facets are Claude and Pi only.
+  # OpenCode keeps the terminal; Codex has its own real-agent journey below.
   # MUXR_LAB_WEB is a lab web export of this commit
   # (EXPO_PUBLIC_MUXR_LAB_PAIR=1 yarn web:export). The judge takes every file in
   # the run folder as a capture, so the log and the whole matrix sit beside it in
   # -matrix, not in it.
   chat-harnesses-pwa:
-    command: CHAT_HARNESSES="${CHAT_HARNESS:-codex}" scripts/diagnostics/application/withPrivateXvfb.sh bash .agents/skills/done-done-verify-pockit/features/chatHarnessesPwaLab.sh "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT-journey.out" 2>&1
+    command: CHAT_HARNESSES="${CHAT_HARNESS:-opencode}" scripts/diagnostics/application/withPrivateXvfb.sh bash .agents/skills/done-done-verify-pockit/features/chatHarnessesPwaLab.sh "$MUXR_LAB_WEB" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT-journey.out" 2>&1
     timeout: 60m
   # The chat's tool steps on Android: the release app on an owned emulator,
   # paired to the chat fake lab (seeded Claude log with real edits, a failed
@@ -489,3 +489,14 @@ journeys:
   dictation-computer:
     command: node .agents/skills/done-done-verify-pockit/features/dictationLab.mjs --apk "$MUXR_LAB_APK" --evidence "$DONE_DONE_EVIDENCE_ROOT" --avd-home "$MUXR_LAB_AVD_HOME" --computer "$MUXR_HEX_LAB" ${MUXR_LAB_LAUNCHER:+--launcher "$MUXR_LAB_LAUNCHER"} > /dev/null 2>&1
     timeout: 30m
+  # Real Codex conversation in a pre-provisioned guarded lab; chat-view.md.
+  codex-chat-pwa:
+    command: bash .agents/skills/done-done-verify-pockit/features/codexChatPwa.sh
+    timeout: 10m
+  codex-chat-native:
+    command: flock -o -w 300 /tmp/fm-muxr-emulator.lock timeout 1800 node .agents/skills/done-done-verify-pockit/features/codexChatNative.mjs
+    timeout: 35m
+  # Same lab conversation: before native client, candidate native client and installed PWA.
+  codex-chat:
+    command: bash .agents/skills/done-done-verify-pockit/features/codexChatPwa.sh && CODEX_CHAT_PHASE=before MUXR_LAB_APK="$MUXR_LAB_BEFORE_APK" flock -o -w 300 /tmp/fm-muxr-emulator.lock timeout 1800 node .agents/skills/done-done-verify-pockit/features/codexChatNative.mjs && CODEX_CHAT_PHASE=after flock -o -w 300 /tmp/fm-muxr-emulator.lock timeout 1800 node .agents/skills/done-done-verify-pockit/features/codexChatNative.mjs
+    timeout: 60m

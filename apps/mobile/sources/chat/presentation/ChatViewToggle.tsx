@@ -21,7 +21,7 @@ export function ChatViewToggle(props: { view: PaneView; chatAvailable: boolean; 
             <Pressable
                 onPress={dimmed ? undefined : () => props.onChange(view)}
                 accessibilityRole="button"
-                accessibilityLabel={dimmed ? `${label}, available for Claude and Pi` : label}
+                accessibilityLabel={dimmed ? `${label}, available for Claude, Pi and Codex` : label}
                 accessibilityState={{ selected: active, disabled: dimmed }}
                 hitSlop={4}
                 style={{ minWidth: props.labelled ? undefined : 28, height: 26, paddingHorizontal: props.labelled ? 10 : 0, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? (theme.dark ? withAlpha(theme.colors.text, 0.9) : theme.colors.surface) : 'transparent', opacity: dimmed ? 0.35 : 1, ...(active && !theme.dark ? { borderWidth: 0.5, borderColor: theme.colors.divider } : {}) }}

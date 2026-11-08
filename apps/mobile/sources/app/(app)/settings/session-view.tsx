@@ -15,7 +15,7 @@ export default function SessionViewSettingsScreen() {
         <ItemList style={{ paddingTop: 0 }}>
             <ItemGroup
                 title="Open sessions in"
-                footer="Each session can switch with the chat and terminal buttons in its header, and remembers the choice. Chat reads Claude and Pi sessions only."
+                footer="Each session can switch with the chat and terminal buttons in its header, and remembers the choice. Chat reads Claude, Pi and Codex sessions only."
             >
                 {SESSION_VIEW_CHOICES.map((choice) => (
                     <Item
