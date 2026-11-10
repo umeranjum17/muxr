@@ -503,3 +503,6 @@ rules, with no H2 sections.
   a file in a pane's attachment folder shows in that session's Shared Artifacts list.
 - [Title churn stays off the session feed](./title-churn-stays-off-the-session-feed.md) —
   pane renames show on the tree, never as pushes on the session feed.
+- [Which agent CLIs report status in Herdr Core](./herdr-core-status-table.md) —
+  jg-kile-s2: each installed CLI started as installed in a lab core, one prompt, the
+  status it reports; a missing or silent-to-measure CLI reads "not measured".
