@@ -11,7 +11,7 @@ scripts/setup/
   index.mjs                 public entry (CLI and other contexts import only this)
   domain/                   pairing, connection, enrollment, machine crypto, daemon mode
   application/              named use cases (pairDevice, startSelfHost, inspectSetup, …)
-  infrastructure/           paths, runtime/crypto, self-host state and relay, daemon, Herdr
+  infrastructure/           paths, runtime/crypto, self-host state and relay, daemon, Herdr, Herdr Core installer
   presentation/             interactive UI, setup wizard, host/relay up
 ```
 
