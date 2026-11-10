@@ -19,7 +19,6 @@
 // herd, so a five-kind lab sets 5.
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createConnection } from 'node:net';
 import { createInterface } from 'node:readline';
 import { dirname, join } from 'node:path';
 import { startFakeStack } from './perf/lib/fakeStack.mjs';
@@ -107,33 +106,21 @@ const mint = async (kind) => {
 };
 process.on('SIGUSR1', () => void mint('browser').catch((error) => console.error(error)));
 process.on('SIGUSR2', () => void mint('native').catch((error) => console.error(error)));
-// The fake Herdr's own socket; `lab.set_agent_status` is its verification-only method.
-const herdr = (method, params) => new Promise((resolve, reject) => {
-    const socket = createConnection(stack.cellMetricsJsonl.replace(/\.cell-metrics\.jsonl$/, ''), () => socket.write(`${JSON.stringify({ id: 'lab', method, params })}\n`));
-    let buffer = '';
-    socket.on('error', reject);
-    socket.on('data', (chunk) => {
-        buffer += chunk;
-        const reply = buffer.split('\n').slice(0, -1).map((row) => JSON.parse(row)).find((row) => row.id === 'lab');
-        if (reply === undefined) return;
-        socket.destroy();
-        reply.error == null ? resolve(reply.result) : reject(new Error(JSON.stringify(reply.error)));
-    });
-});
-const claude = stack.world.agents.find((agent) => agent.agent === 'claude');
+const { rig } = stack;
+const claude = rig.agents().find((agent) => agent.kind === 'claude');
 /** Which agent the stdin commands drive: any kind the fake Herdr holds (`agent <kind>`), Claude by default. */
 let target = claude;
-const findTarget = (kind) => stack.world.agents.find((agent) => agent.agent === kind) ?? claude;
+const findTarget = (kind) => rig.agents().find((agent) => agent.kind === kind) ?? claude;
 // What the harness reports through Herdr pane metadata, as `muxr name --model` does.
-const report = (model) => herdr('pane.report_metadata', { pane_id: target.pane_id, tokens: { provider: target.agent, model } });
+const report = (model) => rig.reportModel(target.id, { provider: target.kind, model });
 await report(process.env.CHAT_LAB_MODEL ?? 'Opus 5.5 High');
 const git = (...args) => execFileSync('git', ['-c', 'user.name=Umer', '-c', 'user.email=umer@example.invalid', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: project, stdio: 'ignore' });
 createInterface({ input: process.stdin }).on('line', (text) => {
     const [command, state, ...task] = text.trim().split(' ');
-    const done = command === 'agent' ? Promise.resolve().then(() => { target = findTarget(state); console.log(`lab agent: ${target.agent}=${target.pane_id}`); })
-        : command === 'status' ? herdr('lab.set_agent_status', { pane_id: target.pane_id, agent_status: state, title: task.join(' ') })
+    const done = command === 'agent' ? Promise.resolve().then(() => { target = findTarget(state); console.log(`lab agent: ${target.kind}=${target.id}`); })
+        : command === 'status' ? rig.reportStatus(target.id, state, { title: task.join(' ') })
         : command === 'model' ? report([state, ...task].join(' '))
-        : command === 'output' ? herdr('lab.set_pane_output', { pane_id: target.pane_id, output: [state, ...task].join(' ').replace(/\\n/g, '\n') })
+        : command === 'output' ? rig.setTerminalOutput(target.id, [state, ...task].join(' ').replace(/\\n/g, '\n'))
         : command === 'changes' ? Promise.resolve().then(() => {
             git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'Start');
             writeFileSync(join(project, 'notes.txt'), 'line 1\nline 2 changed\n');
@@ -143,6 +130,6 @@ createInterface({ input: process.stdin }).on('line', (text) => {
             : Promise.reject(new Error(`unknown command: ${text}`));
     done.then(() => console.log(`lab did: ${command}`), (error) => console.error(`lab failed: ${command}: ${error.message}`));
 });
-console.log(`lab input: ${stack.inputJsonl}`);
-console.log(`lab ready: agents ${stack.world.agents.map((agent) => `${agent.agent}=${agent.pane_id}`).join(', ')}, self ${process.pid}`);
+console.log(`lab input: ${rig.terminalInputLog}`);
+console.log(`lab ready: agents ${rig.agents().map((agent) => `${agent.kind}=${agent.id}`).join(', ')}, self ${process.pid}`);
 setInterval(() => {}, 1 << 30);

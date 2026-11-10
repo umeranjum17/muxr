@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 const repo = process.cwd();
 const { bootOwnedEmulator } = await import(join(repo, 'perf/lib/androidEmulator.mjs'));
 const { startFakeStack } = await import(join(repo, 'perf/lib/fakeStack.mjs'));
-const { waitForHerd, worldLabels } = await import(join(repo, 'perf/lib/pairPhone.mjs'));
+const { waitForHerd } = await import(join(repo, 'perf/lib/pairPhone.mjs'));
 const { setAndroidSerial } = await import(join(repo, 'perf/lib/deviceTarget.mjs'));
 
 const exec = promisify(execFile);
@@ -82,7 +82,7 @@ try {
         tapped = true;
     }
     note(`tapped Pair: ${tapped}`);
-    const herd = await waitForHerd(worldLabels(stack.world), 60);
+    const herd = await waitForHerd(stack.rig.labels(), 60);
     pairing.release();
     note(`paired: ${JSON.stringify(herd)}`);
     await shot('00-paired-home');
