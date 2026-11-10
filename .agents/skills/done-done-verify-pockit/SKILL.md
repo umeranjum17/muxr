@@ -34,6 +34,7 @@ done-done receipt --verify <head>       # read-only: verify the recorded receipt
 - Headless smoke entry (done-done scaffold): `node perf/fake-herdr/stack.smoke.mjs` runs the relay and host over a fake Herdr with a scripted phone client; success is exit 0 and the final line `fake-herdr stack smoke ok`. It uses `MUXR_RELAY_PORT=0` and tears down what it starts. The per-feature entries in `features/` cite it.
 - Herdr Core lab entry (plan step 2): `done-done verify herdr-core-lab` starts fakeStack with a private pinned Herdr Core beside the fake Herdr TUI and drives the calls the host will make on it; `features/herdr-core-lab.md` is the recipe and `features/herdr-core-ports.md` says how each Herdr journey moves to the core or is retired. The host cannot see Core agents until plan step 3.
 - Herdr Core installer entry (plan slice 4): `done-done verify herdr-core-install` runs `scripts/setup/infrastructure/herdrCore.mjs` in a scratch `MUXR_HOME`: the pinned release installs with its SHA-256 checked against the pin and the release manifest, a changed archive is refused with the cause, and the doctor row (`MUXR_HERDR_CORE_CHECK=1`, lab-only until the switch) reads missing, ok or too old. Supported: Linux x86_64 and aarch64; macOS is refused until a Mac run proves the bundle path.
+- Home on Herdr Core entry (jg-kile slice 1): `done-done verify core-home-status` pairs the emulator to a lab host started with `--herdr-core-lab` and shows a Core agent Working, then Done; `features/core-home-status.md`.
 
 ## Isolation contract (read first)
 

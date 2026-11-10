@@ -170,12 +170,15 @@ function childEnv(home, muxrHome, extra, base = process.env) {
 /**
  * @param {{ panes?: number, agents?: number, titleChurnHz?: number,
  *   terminalBytesPerSecond?: number, emptyPanes?: number, emptyAfterMs?: number,
- *   transport?: 'adb' | 'loopback', advertiseHost?: string, herdrCore?: boolean }} [options]
+ *   transport?: 'adb' | 'loopback', advertiseHost?: string, herdrCore?: boolean, hostOnHerdrCore?: boolean }} [options]
  * `advertiseHost` names the address the pairing offer carries instead of
  * 127.0.0.1 (a lab forwards it to the loopback relay itself).
  * `herdrCore` also starts a private lab Herdr Core (`herdrCoreLab.mjs`) beside the
  * fake Herdr TUI and returns it as `herdrCore`. The host is not pointed at it: until
  * the host reads Herdr Core (plan step 3), a journey drives the core directly.
+ * `hostOnHerdrCore` starts that core and points the host at it with the lab-only
+ * `--herdr-core-lab` source (jg-kile slice 1): the host lists agents from the core, not from
+ * the fake Herdr TUI.
  */
 export async function startFakeStack(options = {}) {
     return startStack(options);
@@ -274,7 +277,7 @@ async function startStack(options, live) {
             entry.deliberateCleanup = stopping;
         });
     }
-    const core = options.herdrCore && !live ? await startHerdrCore() : undefined;
+    const core = (options.herdrCore || options.hostOnHerdrCore) && !live ? await startHerdrCore() : undefined;
     if (core) health.push({ name: 'herdr-core', pid: core.pid, exitCode: null, signal: null, deliberateCleanup: false });
     // Older host heads resolve the default HOME socket instead of the env override.
     // Keep both paths inside this run's isolated infrastructure.
@@ -346,7 +349,7 @@ async function startStack(options, live) {
 
         // Only an explicitly requested live probe connects to the real desk.
         const hostLog = [];
-        const host = spawn(process.execPath, [join(sourceRoot, HOST_ENTRY)], {
+        const host = spawn(process.execPath, [join(sourceRoot, HOST_ENTRY), ...(options.hostOnHerdrCore && core ? ['--herdr-core-lab'] : [])], {
             cwd: sourceRoot,
             stdio: ['ignore', 'pipe', 'pipe'],
             env: childEnv(live?.authHome ?? home, muxrHome, {
@@ -357,6 +360,7 @@ async function startStack(options, live) {
                 HERDR_SOCKET_PATH: fake.socketPath,
                 HERDR_CLIENT_SOCKET_PATH: fake.clientSocketPath,
                 HERDR_BIN: fake.binPath,
+                ...(options.hostOnHerdrCore && core ? { MUXR_HERDR_CORE_SOCKET: core.socket } : {}),
                 ...fixtureEnv,
             }, live?.env),
         });

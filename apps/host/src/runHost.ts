@@ -3,9 +3,9 @@ import type { Grant, LinkStream } from '@byokit/pair';
 import { isPeerCapabilities, parseLifecycleNotificationLevel, relayControlUrl } from '@trymuxr/contract';
 import { createConnection } from 'node:net';
 import { homedir, hostname, userInfo } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, labHerdrSocket, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
+import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrCoreSessionSource, createHerdrSessionSource, labHerdrSocket, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
 import { notifyTokenPath } from './agent/infrastructure/notifyEndpoint.js';
 import { localRelayBase } from '../../../scripts/setup/infrastructure/selfhost.mjs';
 import { startHost } from './host.js';
@@ -243,15 +243,18 @@ function readAuthStates() {
 // The default comes from the passwd entry (os.userInfo ignores $HOME), so a
 // lab that already redirected $HOME may still name $HOME/.muxr.
 const fake = process.argv.includes('--fake');
+// The Herdr Core source (jg-kile slice 1) is a lab source too: no product path selects it, and a
+// real home refuses it exactly as it refuses --fake.
+const coreLab = process.argv.includes('--herdr-core-lab');
 /** Link relay status in the diagnostics journal's words; anything else is closed. */
 const RELAY_DIAGNOSTIC_STATE: Partial<Record<string, DiagnosticRelayState>> = { online: 'open', replaced: 'replaced', connecting: 'connecting' };
-if (fake || process.env.MUXR_PACKAGED !== '1') {
+if (fake || coreLab || process.env.MUXR_PACKAGED !== '1') {
     const muxrHome = env('MUXR_HOME');
     let ownerDefault: string | undefined;
     try { ownerDefault = resolve(join(userInfo().homedir, '.muxr')); }
     catch { /* no passwd entry for this uid: cannot prove the home is safe */ }
     if (muxrHome === undefined || ownerDefault === undefined || resolve(muxrHome) === ownerDefault) {
-        process.stderr.write(`muxr host: ${fake ? '--fake' : 'a source build'} refuses the default muxr home — set MUXR_HOME to a test folder\n`);
+        process.stderr.write(`muxr host: ${fake ? '--fake' : coreLab ? '--herdr-core-lab' : 'a source build'} refuses the default muxr home — set MUXR_HOME to a test folder\n`);
         // An invocation error: exit non-zero so a lab script stops instead of
         // carrying on without the host it asked for.
         process.exit(1);
@@ -311,6 +314,7 @@ const machineName = hostConfig.machineName;
 const dataDir = hostConfig.dataDir;
 const stateRoot = dirname(dataDir);
 const useFake = process.argv.includes('--fake');
+const useCoreLab = coreLab && !useFake;
 const requestedMode = hostConfig.mode;
 function resolveHostMode(
     requested: string | undefined,
@@ -471,13 +475,23 @@ async function main(): Promise<void> {
     const domain = createAgentWatchStores({ dataDir });
     const routes = new AgentRouteStore(dataDir);
     // A lab host (HERDR_SESSION) refuses to start unless it reaches that named session.
-    const herdrSocketPath = useFake ? undefined : await labHerdrSocket(process.env.HERDR_BIN ?? 'herdr', env('HERDR_SOCKET_PATH'));
+    const herdrSocketPath = useFake || useCoreLab ? undefined : await labHerdrSocket(process.env.HERDR_BIN ?? 'herdr', env('HERDR_SOCKET_PATH'));
     // What lab pairing checks: no Herdr at all (fake), the lab session, or the live default.
-    const herdrSession = useFake ? undefined : env('HERDR_SESSION') ?? 'default';
+    const herdrSession = useFake || useCoreLab ? undefined : env('HERDR_SESSION') ?? 'default';
     let source;
     if (useFake) {
         assertFakeSourceCoversContract();
         source = createFakeSessionSource();
+    } else if (useCoreLab) {
+        const coreSocket = env('MUXR_HERDR_CORE_SOCKET');
+        if (coreSocket === undefined || !isAbsolute(coreSocket)) {
+            process.stderr.write('muxr host: --herdr-core-lab needs MUXR_HERDR_CORE_SOCKET set to the lab Herdr Core socket (an absolute path)\n');
+            process.exit(1);
+        }
+        source = await createHerdrCoreSessionSource({
+            socketPath: coreSocket,
+            onProblem: (message) => process.stderr.write(`herdr core: ${message}\n`),
+        });
     } else {
         source = await createHerdrSessionSource({
             dataDir,
@@ -574,7 +588,7 @@ async function main(): Promise<void> {
     });
     // `muxr accounts` talks to the running host over this owner-only socket. A fake host has no Herdr to act on.
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-    const accountsServer = useFake ? undefined : await startLocalAccountsServer(join(dataDir, 'accounts.sock'), host.answer);
+    const accountsServer = useFake || useCoreLab ? undefined : await startLocalAccountsServer(join(dataDir, 'accounts.sock'), host.answer);
 
     // The saved folder reaches a phone already paired as a notice to refetch
     // machines.list: pairing stays non-blocking, so the folder can be answered
@@ -728,7 +742,7 @@ async function main(): Promise<void> {
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 
-    process.stdout.write(`host -> ${relayUrl}${useFake ? ' (fake)' : ' (herdr)'} [${mode}]\n`);
+    process.stdout.write(`host -> ${relayUrl}${useFake ? ' (fake)' : useCoreLab ? ' (herdr core lab)' : ' (herdr)'} [${mode}]\n`);
 }
 
 main().catch((error: unknown) => {
