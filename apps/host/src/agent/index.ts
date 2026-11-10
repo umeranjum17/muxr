@@ -45,6 +45,7 @@ export { listAgents } from './application/listAgents.js';
 export { reportAgentOutcome } from './application/reportAgentOutcome.js';
 export { openTerminal, closeTerminal } from './application/openTerminal.js';
 export { agentToolPath, createHerdrSessionSource, type CreateHerdrSessionSourceOptions } from './infrastructure/herdrSessionSource.js';
+export { createHerdrCoreSessionSource } from './infrastructure/herdrCoreSessionSource.js';
 export { labHerdrSocket } from './infrastructure/herdrKitClient.js';
 export { assertFakeSourceCoversContract, createFakeSessionSource } from './infrastructure/fakeSessionSource.js';
 export { closeAgent } from './infrastructure/agentClose.js';

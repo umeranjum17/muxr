@@ -167,6 +167,14 @@ journeys:
   herdr-core-install:
     command: node .agents/skills/done-done-verify-pockit/features/herdrCoreInstall.mjs "$DONE_DONE_EVIDENCE_ROOT" > /dev/null 2>> "$DONE_DONE_EVIDENCE_ROOT/gate.log"
     timeout: 5m
+  # Home on a host that reads Herdr Core (jg-kile slice 1): the host runs with the lab-only
+  # --herdr-core-lab source over a private lab Herdr Core; a stand-in agent there reports
+  # status and Home shows it Working, then Done, on an owned Android emulator. An agent that
+  # stops reporting fails it (CORE_HOME_SILENT=1). Needs `yarn build` and an x86_64 release
+  # APK in MUXR_LAB_APK. See features/core-home-status.md.
+  core-home-status:
+    command: node .agents/skills/done-done-verify-pockit/features/herdrCoreHomeLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 20m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A
