@@ -44,6 +44,7 @@ import {
     staleUnitPaths,
     versionIsCompatible,
 } from '../infrastructure/herdr.mjs';
+import { herdrCoreStatus } from '../infrastructure/herdrCore.mjs';
 import {
     daemonMode,
     runDaemon,
@@ -547,6 +548,13 @@ async function collectChecks() {
     const { binary, panePack } = await section('runtime', () => runtimeChecks(add, managedMode)) ?? {};
     await section('muxr versions', () => Object.assign(versions, versionAgreement(cliVersion(), hostServiceVersion(), panePack)));
     await section('state folder', () => stateFolderCheck(add));
+    // Lab-only until the release that switches to Herdr Core: nothing reads it, so a normal doctor stays quiet.
+    if (env('MUXR_HERDR_CORE_CHECK') === '1' && managedMode !== 'relay') {
+        await section('herdr core', () => {
+            const core = herdrCoreStatus();
+            add(core.state === 'ok' ? 'ok' : 'warn', 'herdr core', core.detail);
+        });
+    }
     await section('stale files', () => staleFileChecks(add));
     await section('services', () => serviceChecks(add, managedMode, binary));
     await section('self-host', () => selfhostChecks(add, managedMode));

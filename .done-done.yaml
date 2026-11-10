@@ -161,6 +161,12 @@ journeys:
   herdr-core-status-table:
     command: node .agents/skills/done-done-verify-pockit/features/herdrCoreStatusTable.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 20m
+  # Herdr Core installer and doctor check in a scratch MUXR_HOME (plan slice 4): the
+  # real pinned release installs, a changed archive is refused with its cause, an older
+  # core reads "too old", a Mac is refused. Needs the network and `yarn build`.
+  herdr-core-install:
+    command: node .agents/skills/done-done-verify-pockit/features/herdrCoreInstall.mjs "$DONE_DONE_EVIDENCE_ROOT" > /dev/null 2>> "$DONE_DONE_EVIDENCE_ROOT/gate.log"
+    timeout: 5m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A
