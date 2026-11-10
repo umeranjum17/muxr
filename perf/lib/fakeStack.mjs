@@ -93,6 +93,54 @@ async function relayHealthy(port) {
 }
 
 /**
+ * The neutral journey rig: what a journey does to the world under the host, in the
+ * words of the product and not of the fake underneath. A journey seeds a world with
+ * the start options (`panes`, `agents`), then reads it, reports a status, sets what a
+ * terminal shows and reads what was typed, only through these. Which runtime answers
+ * is this file's business, so switching the runtime changes this function and not
+ * the journeys.
+ *
+ * Today's answer is the fake Herdr TUI, driven over its own socket with its
+ * verification-only `lab.*` methods. An `id` is an agent's terminal id as the rig
+ * names it; a journey passes it back and never builds one.
+ */
+function fakeRig(fake) {
+    let requestId = 0;
+    const call = (method, params) => new Promise((resolve, reject) => {
+        const id = `rig_${requestId += 1}`;
+        const socket = createConnection(fake.socketPath, () => socket.write(`${JSON.stringify({ id, method, params })}\n`));
+        let buffer = '';
+        socket.on('error', reject);
+        socket.on('data', (chunk) => {
+            buffer += String(chunk);
+            const reply = buffer.split('\n').slice(0, -1).map((row) => JSON.parse(row)).find((row) => row.id === id);
+            if (reply === undefined) return;
+            socket.destroy();
+            reply.error == null ? resolve(reply.result) : reject(new Error(JSON.stringify(reply.error)));
+        });
+    });
+    return {
+        /** The seeded agents, in seeding order: `{ id, kind }`. */
+        agents: () => fake.world.agents.map((agent) => ({ id: agent.pane_id, kind: agent.agent })),
+        /** Every name the seeded world shows a user; what a paired phone's Home must list. */
+        labels: () => {
+            const labels = [...fake.world.agents.map((agent) => agent.name), ...(fake.world.panes ?? []).map((pane) => pane.label)];
+            return [...new Set(labels.filter((label) => typeof label === 'string' && label.trim() !== ''))];
+        },
+        /** Report an agent's status (`working`, `blocked`, `idle`, `done`...), and its task title when given. */
+        reportStatus: (id, status, { title } = {}) => call('lab.set_agent_status', { pane_id: id, agent_status: status, ...(title === undefined ? {} : { title }) }),
+        /** Report the model an agent's harness runs, as `muxr name --model` does. */
+        reportModel: (id, { provider, model }) => call('pane.report_metadata', { pane_id: id, tokens: { provider, model } }),
+        /** Set the text a terminal's screen reads back. */
+        setTerminalOutput: (id, output) => call('lab.set_pane_output', { pane_id: id, output }),
+        /** Change the server version the host sees, as a restart onto an update would. */
+        setServerVersion: (version) => call('lab.protocol', { protocol: Number(version) }),
+        /** The JSONL file of what phones typed into terminals. */
+        terminalInputLog: fake.inputJsonl,
+    };
+}
+
+/**
  * Env for every muxr child. The live install's relay, token and machine id are
  * dropped: inheriting a machine id would retire the user's real host on their
  * real relay the moment ours connects.
@@ -328,6 +376,8 @@ async function startStack(options, live) {
             hostHttpPort,
             dataDir: hostDataDir,
             journalPath,
+            /** Neutral helpers a journey drives the world through; see `fakeRig`. */
+            rig: live ? undefined : fakeRig(fake),
             world: fake.world,
             // The panes a phase may name. Nothing else is a measurable surface:
             // a card position is whatever the churning herd left under it.

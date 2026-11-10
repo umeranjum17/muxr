@@ -4,7 +4,6 @@
 // and pair it with `window.__MUXR_LAB_PAIR__(<browser link>)` or the pair
 // screen. Run from the repo root (`node --input-type=module -e "$(< …/browserPairLab.mjs)"`)
 // so `./perf/lib` resolves. See lab-browser-pairing.md.
-import { createConnection } from 'node:net';
 import { startFakeStack } from './perf/lib/fakeStack.mjs';
 
 // No status churn: the lab drives the agents' status itself so a proof can
@@ -18,24 +17,6 @@ const stop = (code = 0) => { pairing?.release(); stack.stop(); process.exit(code
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => stop());
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-let requestId = 0;
-const rpc = (method, params) => new Promise((resolve, reject) => {
-    const socket = createConnection(stack.cellMetricsJsonl.replace(/\.cell-metrics\.jsonl$/, ''));
-    const id = `lab_${requestId += 1}`;
-    let buffer = '';
-    socket.on('error', reject);
-    socket.on('connect', () => socket.write(`${JSON.stringify({ id, method, params })}\n`));
-    socket.on('data', (chunk) => {
-        buffer += String(chunk);
-        for (const line of buffer.split('\n').slice(0, -1)) {
-            const message = JSON.parse(line);
-            if (message.id !== id) continue;
-            socket.destroy();
-            message.error == null ? resolve(message.result) : reject(new Error(JSON.stringify(message.error)));
-        }
-    });
-});
-
 // Each SIGUSR1 mints one browser pairing link (eight hours), approved by this
 // throwaway host. The socket stays open so the PWA can finish the claim.
 const mint = async () => {
@@ -49,12 +30,12 @@ process.on('SIGUSR1', () => void mint().catch((error) => console.error(error)));
 // the two agents in turn, so a badge proof records setAppBadge(1), (2), (1),
 // clearAppBadge().
 const drive = async () => {
-    const panes = stack.world.agents.map((agent) => agent.pane_id);
+    const panes = stack.rig.agents().map((agent) => agent.id);
     if (panes.length < 2) throw new Error('the lab needs two agents');
     for (const [pane, status, hold] of [
         [panes[0], 'blocked', 4_000], [panes[1], 'blocked', 30_000], [panes[0], 'idle', 4_000], [panes[1], 'idle', 1_000],
     ]) {
-        await rpc('lab.set_agent_status', { pane_id: pane, agent_status: status });
+        await stack.rig.reportStatus(pane, status);
         console.log(`drive: ${pane} ${status}`);
         await sleep(hold);
     }
@@ -69,17 +50,17 @@ process.stdin.setEncoding('utf8').on('data', (chunk) => {
     for (const line of chunk.split('\n').map((text) => text.trim()).filter(Boolean)) {
         const [index, status] = line.split(/\s+/);
         if (index === 'protocol') {
-            void rpc('lab.protocol', { protocol: Number(status) }).then(() => console.log(`protocol: ${status}`), (error) => console.error(error));
+            void stack.rig.setServerVersion(status).then(() => console.log(`protocol: ${status}`), (error) => console.error(error));
             continue;
         }
-        const pane = stack.world.agents[Number(index) - 1]?.pane_id;
+        const pane = stack.rig.agents()[Number(index) - 1]?.id;
         if (pane === undefined || status === undefined) { console.error(`set: no agent ${index}`); continue; }
-        void rpc('lab.set_agent_status', { pane_id: pane, agent_status: status })
+        void stack.rig.reportStatus(pane, status)
             .then(() => console.log(`set: ${pane} ${status}`), (error) => console.error(error));
     }
 });
 
-console.log(`lab ready: relay port ${stack.relayPort}, agent panes ${stack.world.agents.map((a) => a.pane_id).join(',')}, pid ${process.pid}`);
+console.log(`lab ready: relay port ${stack.relayPort}, agent panes ${stack.rig.agents().map((a) => a.id).join(',')}, pid ${process.pid}`);
 try {
     await mint();
 } catch (error) {
