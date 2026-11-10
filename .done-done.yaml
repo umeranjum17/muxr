@@ -153,6 +153,14 @@ journeys:
   herdr-core-lab:
     command: node .agents/skills/done-done-verify-pockit/features/herdrCoreLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 5m
+  # Which agent CLIs report status inside Herdr Core (plan slice jg-kile-s2): each installed CLI
+  # runs as installed in a private lab core with one tiny prompt; the table is measured twice and
+  # must agree. A missing CLI, or one that asks a question or draws nothing, reads "not measured".
+  # No phone, no host, no build. Writes 01-status-table.md, 02-repeat.txt, gate.log, steps.json.
+  # See features/herdr-core-status-table.md.
+  herdr-core-status-table:
+    command: node .agents/skills/done-done-verify-pockit/features/herdrCoreStatusTable.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 20m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A

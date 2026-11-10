@@ -500,3 +500,4 @@ the non-default session you created. Never kill by process name. Never remove
 the evidence directory. If a drive failed midway, run this same cleanup before
 retrying so broken attempts strand no processes or ports. On an iOS drive, run the
 iOS Cleanup bullet as well, before removing `$RUN_ROOT` so its claim marker remains available.
+- Herdr Core status table (jg-kile-s2): `done-done verify herdr-core-status-table` starts each installed agent CLI in a lab core, prompts it once and records the status it reports; `features/herdr-core-status-table.md` is the recipe and holds the dated table.

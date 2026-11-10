@@ -22,11 +22,11 @@ import { spawnCommand as spawn, onCommandCleanup } from './commands.mjs';
 
 /** The one Herdr Core release labs run. Bump version and digests together, from its manifest. */
 export const HERDR_CORE_PIN = {
-    version: '0.1.18',
+    version: '0.1.19',
     generation: 1,
     sha256: {
-        'linux-x86_64': '5b2f97cb4b2a9d7a6b2cc5942628203ed9fbb7cc0c2b4b09ad8a6f5648e246b7',
-        'linux-aarch64': 'cf33393cf950bb763734dc3e16610ab9daf8492391a4ef0de56026cd7f752853',
+        'linux-x86_64': '4adcfb423d52f24c5cc4a1e2cd2fcad1f62d28bb77876ac472c29082a3eaa424',
+        'linux-aarch64': 'f95c34fd7177ed58807d74fe4ee78bb3dc73eb37f21c69496064000a21abcb10',
     },
 };
 const RELEASES = 'https://releases.herdr.dev/core';
