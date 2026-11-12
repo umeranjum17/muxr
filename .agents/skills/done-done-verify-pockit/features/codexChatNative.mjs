@@ -16,6 +16,8 @@ const serial = `emulator-${port}`;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const adb = (...args) => execFileSync('adb', ['-s', serial, ...args], {encoding:'utf8',timeout:120_000});
 const sh = cmd => adb('shell', cmd);
+// adb refuses while the emulator is still coming up; that is the only failure a boot poll may treat as "not yet".
+const booted = () => { try { return sh('getprop sys.boot_completed').trim()==='1' && sh('pm path android').includes('package:'); } catch (e) { if(typeof e.status!=='number') throw e; return false; } };
 const dump = () => { sh('uiautomator dump /sdcard/codex-chat.xml >/dev/null'); return adb('exec-out','cat','/sdcard/codex-chat.xml'); };
 async function tap(pattern) {
     for (let i=0;i<15;i++) {
@@ -32,7 +34,7 @@ let emulatorLog=''; emulator.stdout.on('data',b=>emulatorLog+=b); emulator.stder
 try {
     for(let i=0;;i++) {
         if(emulator.exitCode!==null) throw Error(`emulator exited: ${emulatorLog}`);
-        try { if(sh('getprop sys.boot_completed').trim()==='1' && sh('pm path android').includes('package:')) { if(!adb('emu','avd','name').startsWith('codex-visibility')) throw Error('emulator identity mismatch'); ownsEmulator=true; break; } } catch {}
+        if(booted()) { if(!adb('emu','avd','name').startsWith('codex-visibility')) throw Error('emulator identity mismatch'); ownsEmulator=true; break; }
         if(i===180) throw Error('emulator boot timeout');
         await sleep(2000);
     }
