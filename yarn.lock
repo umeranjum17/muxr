@@ -1149,16 +1149,16 @@
     "@byokit/seal" "0.3.2"
     ws "8.22.0"
 
-"@byokit/pair@0.10.3", "@byokit/pair@0.11.0":
-  version "0.10.3"
-  resolved "https://registry.yarnpkg.com/@byokit/pair/-/pair-0.10.3.tgz#b6f42900054a02b4d7b1b8ca3a70b0a427dc8138"
-  integrity sha512-1fCiGdreVkNk9VxnE0+b68fNBAIMm2T5yubiwDGKTWUAN+1H+7o0fH8eGMjgkO1zeGaUXWZ8kB748jWg6xtQxQ==
+"@byokit/pair@0.11.0":
+  version "0.11.0"
+  resolved "https://registry.yarnpkg.com/@byokit/pair/-/pair-0.11.0.tgz#ab35c9b8bee48372cb53d0ab45e150362745ec7a"
+  integrity sha512-Qbn9Jry8P73CQW1P223Teo3XdRC7fNvsx2oAMvSj/IE3paplcZNMmKE6YWBiNQLDiCUoFHKlgtgk/Nh3ZGfyGw==
   dependencies:
     "@noble/ciphers" "2.4.0"
     b4a "1.9.0"
     noise-handshake "4.2.0"
     sodium-javascript "0.8.0"
-    sodium-native "5.1.0"
+    sodium-native "5.2.0"
     sodium-universal "5.0.1"
 
 "@byokit/phone@0.1.6":
@@ -5654,7 +5654,7 @@ domhandler@^5.0.2, domhandler@^5.0.3:
   dependencies:
     domelementtype "^2.3.0"
 
-dompurify@3.4.14, dompurify@3.4.16, dompurify@^3.3.3:
+dompurify@3.4.14, dompurify@3.4.17, dompurify@^3.3.3:
   version "3.4.14"
   resolved "https://registry.yarnpkg.com/dompurify/-/dompurify-3.4.14.tgz#a789edb2c7bcdb69a93713a34edb7e0a5245d8c9"
   integrity sha512-dVoH9z+MY+C9IilgGCk3YfFqjLi3fChm2OiKJMzh6axrJ5qwxqWaZamgmHrpv22CN/KdbZJuGEGgfQoL00LTdg==
@@ -10247,16 +10247,7 @@ sodium-javascript@0.8.0:
     siphash24 "^1.0.1"
     xsalsa20 "^1.0.0"
 
-sodium-native@5.1.0:
-  version "5.1.0"
-  resolved "https://registry.yarnpkg.com/sodium-native/-/sodium-native-5.1.0.tgz#5b11d779c9eb7cb76baf1f0fc98bb6f821ff24cf"
-  integrity sha512-3RxgyWyJlhTsABPnJVpCI5CoTDANZTqqFrEPqr+kjfnRaBihpVtMUE3yTF40ukdoB1APXeoBNKF3MzZAIHg39g==
-  dependencies:
-    bare-assert "^1.2.0"
-    require-addon "^1.1.0"
-    which-runtime "^1.2.1"
-
-sodium-native@^5.0.1:
+sodium-native@5.2.0, sodium-native@^5.0.1:
   version "5.2.0"
   resolved "https://registry.yarnpkg.com/sodium-native/-/sodium-native-5.2.0.tgz#75e9616420aa772307cd28f31bbe4d5dc51a2dff"
   integrity sha512-ntJqNSc9bWmWqcJkx8NA5eS0HUwQnmDlluUzoKCOQUWey8i7LXptk+E/qo2T2RPO9uK2br+3N0zYQme8qPXG+g==
