@@ -1267,30 +1267,30 @@
   resolved "https://registry.yarnpkg.com/@chevrotain/types/-/types-11.1.2.tgz#e83a1a2704f0c5e49e7592b214031a0f4a34d7e5"
   integrity sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==
 
-"@desklink/host-darwin-arm64@0.5.10":
-  version "0.5.10"
-  resolved "https://registry.yarnpkg.com/@desklink/host-darwin-arm64/-/host-darwin-arm64-0.5.10.tgz#9c209c19ced36f22b87b9dc7b4639e601ff0495a"
-  integrity sha512-sBw15VhfD+r73scr7BhSnQTTr4nu6SqPsAnZJLFj98rGOOaJAMVU2tJHarN/YbP3zo6gcjqYVtgsfqZPpw5exQ==
+"@desklink/host-darwin-arm64@0.5.17":
+  version "0.5.17"
+  resolved "https://registry.yarnpkg.com/@desklink/host-darwin-arm64/-/host-darwin-arm64-0.5.17.tgz#6c505a6f04798d74173e5635fae54b8446cf9cc8"
+  integrity sha512-mCqDu5xKrHpa1KYgkcieiT7Vg/YqW5qcifezvfH6GSLNkptOJ0aWClpEjq/YFTBmOPR8iL7SlsU6rQYv/aKb+w==
 
-"@desklink/host-linux-x64-gnu@0.5.10":
-  version "0.5.10"
-  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.5.10.tgz#bb6e325b992b57c5607871c076849488f5e21cf7"
-  integrity sha512-/IsD1ZtGRmO4AcnllcSGDGuTNuP1RryLV/9wK2MRpZCLFExcs0o//ek2PoAbzGm5Nn+0zk5nGPI2dblfLwP8uw==
+"@desklink/host-linux-x64-gnu@0.5.17":
+  version "0.5.17"
+  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.5.17.tgz#52f9e9fa5b7e21513544302575d5ebdc138a4d6b"
+  integrity sha512-RxOpTSp1XlDHNt8I5YKfvGFAKD1OFhwBTxZyPZ8PYkRj2WwfY3kiWz4W99M08D2M74Xeb3kMT9vQzTZi1/IttA==
 
-"@desklink/host@0.5.10":
-  version "0.5.10"
-  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.5.10.tgz#f1df02716af1d580d33e1cb9640f78cee241fcea"
-  integrity sha512-ebfuTZ006qFsb5ct1JWa3Ef/lNtc1KFi5a1CnGBC4qduzftIPE4neu92PFJJk+uEGBHB37GdrWCdsmCSx/Ho5Q==
+"@desklink/host@0.5.17":
+  version "0.5.17"
+  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.5.17.tgz#b4000cff04f660d22d71af6a50b9c1016ce6c22a"
+  integrity sha512-CxH07RwJp6PuF60Om6Gh0Kr+QbbrMSc8MlWNFduhZFfs5e728a2ww6e8mFDZa8zW/yaVfI0fj1XMwNqoNxVJ6Q==
   dependencies:
     ws "8.21.3"
   optionalDependencies:
-    "@desklink/host-darwin-arm64" "0.5.10"
-    "@desklink/host-linux-x64-gnu" "0.5.10"
+    "@desklink/host-darwin-arm64" "0.5.17"
+    "@desklink/host-linux-x64-gnu" "0.5.17"
 
-"@desklink/react-native@0.5.8":
-  version "0.5.8"
-  resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.5.8.tgz#c9ea9cf27557f1510a6ab581755a77f883ba5cc9"
-  integrity sha512-V6cdSl6aF6dcduwxwoUT8guZbuMuUp5d2lklQm32Qg+IHHFt8JWPITDil4M9gEtxlY9BO4nQ7mX0ZUQ+QYnkpQ==
+"@desklink/react-native@0.5.17":
+  version "0.5.17"
+  resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.5.17.tgz#4eecf72773b9c8e07c87af9bbf268330f1cfe6a8"
+  integrity sha512-JrgV//GAoSk21OX79FT41JCA1nn1KrRu6ZoWLIrCURPa7+fxYdjuhE7zvQpcu5/y8oq2sqSxLPWOJZNJhFjGVA==
 
 "@earendil-works/pi-ai@^1.3.0":
   version "1.4.0"
@@ -5654,7 +5654,7 @@ domhandler@^5.0.2, domhandler@^5.0.3:
   dependencies:
     domelementtype "^2.3.0"
 
-dompurify@3.4.14, dompurify@3.4.16, dompurify@^3.3.3:
+dompurify@3.4.14, dompurify@3.4.17, dompurify@^3.3.3:
   version "3.4.14"
   resolved "https://registry.yarnpkg.com/dompurify/-/dompurify-3.4.14.tgz#a789edb2c7bcdb69a93713a34edb7e0a5245d8c9"
   integrity sha512-dVoH9z+MY+C9IilgGCk3YfFqjLi3fChm2OiKJMzh6axrJ5qwxqWaZamgmHrpv22CN/KdbZJuGEGgfQoL00LTdg==

@@ -14,7 +14,7 @@
         "@byokit/relay": "0.8.4",
         "@byokit/secrets": "0.5.3",
         "@byokit/usage": "0.10.1",
-        "@desklink/host": "0.5.10",
+        "@desklink/host": "0.5.17",
         "@trymuxr/contract": "0.1.0",
         "@trymuxr/crypto": "0.1.0",
         "ws": "^8.18.0"
