@@ -97,7 +97,7 @@ const dependencies = licenseInventory({
 });
 // Transitive ranges that float past the audited closure; see the pin in `pkg`.
 const pinnedTransitives = Object.fromEntries(
-    ['@earendil-works/pi-ai']
+    ['@earendil-works/pi-ai', 'bare-addon-resolve']
         .map((name) => dependencies.find((dependency) => dependency.name === name))
         .filter((dependency) => dependency !== undefined)
         .map((dependency) => [dependency.name, dependency.auditedVersion]),
