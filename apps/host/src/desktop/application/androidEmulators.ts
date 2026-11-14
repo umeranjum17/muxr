@@ -9,6 +9,7 @@ import { connect, createServer, type Server, type Socket } from 'node:net';
 import { EngineClient, EngineRefused, resolveEngine } from '@desklink/host';
 import type { DesktopEvent, DesktopPermission, DesktopSurfaceGeometry, PreviewPresence } from '@trymuxr/contract';
 
+import { paneIdFromEnvironment } from '../../platform/paneIdentity.js';
 import { onPath } from '../infrastructure/x11Display.js';
 import type { PreviewLeaseTracker } from './previewLease.js';
 import type { ScrcpyVideoEvent } from './scrcpy.js';
@@ -88,11 +89,12 @@ function environOf(pid: string, procRoot: string): Record<string, string> | unde
     return env;
 }
 
-/** The pane that owns a process: the nearest ancestor still carrying `HERDR_PANE_ID`. */
+/** The pane that owns a process: the nearest ancestor still carrying a pane id. */
 function owningPane(pid: string, procRoot: string): string | undefined {
     let current: string | undefined = pid;
     for (let hops = 0; current !== undefined && current !== '0' && current !== '1' && hops < 64; hops += 1) {
-        const paneId = environOf(current, procRoot)?.HERDR_PANE_ID;
+        const environment = environOf(current, procRoot);
+        const paneId = environment === undefined ? undefined : paneIdFromEnvironment(environment);
         if (paneId !== undefined) return paneId;
         current = parentPid(current, procRoot);
     }

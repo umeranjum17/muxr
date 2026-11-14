@@ -3,6 +3,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { currentPaneId } from '../terminal/paneIdentity.mjs';
 
 const UDID = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
 
@@ -12,7 +13,7 @@ const UDID = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A
  * so a claim left behind by a closed pane offers nothing.
  */
 function claimFile() {
-    const paneId = process.env.HERDR_PANE_ID?.trim();
+    const paneId = currentPaneId();
     if (!paneId) throw new Error('run inside a Herdr pane (HERDR_PANE_ID is missing)');
     if (paneId === '.' || paneId === '..' || /[/\\]/.test(paneId)) throw new Error('invalid pane');
     const home = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');

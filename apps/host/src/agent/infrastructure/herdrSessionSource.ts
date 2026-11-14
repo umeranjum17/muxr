@@ -40,6 +40,7 @@ import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent, widened } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
 import { foregroundProgramPids, shellHasLiveChild, shellPidOf, writeModeResetToPane } from './paneModeReset.js';
+import { PANE_ID_VARIABLE } from '../../platform/paneIdentity.js';
 import { MODE_RESET_CSI } from './terminalModes.js';
 import { ArtifactWatcher } from './artifactWatcher.js';
 import { ArtifactDownloadServer } from './artifactDownloads.js';
@@ -2560,7 +2561,7 @@ export async function createHerdrSessionSource(
             HERDR_SOCKET_PATH: socketPath,
             HERDR_WORKSPACE_ID: workspaceId,
             HERDR_TAB_ID: tabId,
-            HERDR_PANE_ID: anchor,
+            [PANE_ID_VARIABLE]: anchor,
             HERDR_PLUGIN_ID: entry.pluginId,
             HERDR_PLUGIN_ACTION_ID: entry.actionId,
             HERDR_PLUGIN_ROOT: entry.pluginRoot,

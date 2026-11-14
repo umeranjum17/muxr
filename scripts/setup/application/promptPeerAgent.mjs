@@ -3,6 +3,7 @@ import { lstatSync, readFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
+import { currentPaneId } from '../../terminal/paneIdentity.mjs';
 
 const HELP = `muxr peers list [--machine <name>]
 muxr peers read --machine <name> [--agent <name>] [--lines <n>]
@@ -147,7 +148,7 @@ export async function promptPeerAgent(command) {
     // The pane this ran in is how the host names us to the recipient: an id,
     // never a name we assert about ourselves. Resolved at the call rather than
     // during parsing, so every caller of this function carries it.
-    const fromPaneId = command.fromPaneId?.trim() || process.env.HERDR_PANE_ID?.trim();
+    const fromPaneId = command.fromPaneId?.trim() || currentPaneId();
     const params = {
         method: 'prompt',
         machine: command.machine,

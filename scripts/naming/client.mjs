@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { currentPaneId } from '../terminal/paneIdentity.mjs';
 
 const fields = new Set(['tab', 'workspace', 'pane', 'provider', 'model']);
 const USAGE = 'usage: muxr name [--tab LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]';
@@ -77,8 +78,8 @@ export async function nameAgent(args) {
         body[field] = valueFor(args, index, flag);
         index += 1;
     }
-    const paneId = process.env.HERDR_PANE_ID?.trim();
-    if (paneId === undefined || paneId === '') throw new Error('muxr name must run inside a Herdr pane (HERDR_PANE_ID is missing)');
+    const paneId = currentPaneId();
+    if (paneId === undefined) throw new Error('muxr name must run inside a Herdr pane (HERDR_PANE_ID is missing)');
     if (!HERDR_TARGET.test(paneId)) throw new Error('HERDR_PANE_ID is not a supported Herdr pane target');
     if (Object.keys(body).length === 0) throw new Error('muxr name needs at least one name or metadata value');
     for (const [field, value] of Object.entries(body)) {
