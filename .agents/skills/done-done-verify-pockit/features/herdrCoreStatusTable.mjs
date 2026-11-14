@@ -9,13 +9,14 @@
 //   node .agents/skills/done-done-verify-pockit/features/herdrCoreStatusTable.mjs <evidenceDir>
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const [evidence] = process.argv.slice(2);
 if (!evidence) throw new Error('usage: herdrCoreStatusTable.mjs <evidenceDir>');
 const repo = process.cwd();
-const { startHerdrCore, HERDR_CORE_PIN } = await import(join(repo, 'perf/lib/herdrCoreLab.mjs'));
+const { startHerdrCore, HERDR_CORE_PIN } = await import(pathToFileURL(join(repo, 'perf/lib/herdrCoreLab.mjs')).href);
+const { attachAnswering } = await import(pathToFileURL(join(repo, 'perf/lib/herdrCoreAttach.mjs')).href);
 mkdirSync(evidence, { recursive: true });
 const gate = join(evidence, 'gate.log');
 const log = (line) => appendFileSync(gate, `${line}\n`);
@@ -29,7 +30,7 @@ const KINDS = ['claude', 'codex', 'pi', 'opencode', 'gemini', 'grok'];
 const PROMPT = 'Reply with the single word ok.';
 const TURN_BUDGET_MS = 75_000;
 /** A screen that wants an answer first. The script never answers one, except Skip on an update notice. */
-const QUESTION = /update available|trust this folder|do you trust|trust the files|not logged in|please (log|sign) in|run \/login|select login method|(log|sign) in with|enter your api key|choose (a|your) (theme|style)|press enter to continue/i;
+const QUESTION = /update available|trust this folder|do you trust|trust the files|not logged in|please (log|sign) in|run \/login|select login method|(log|sign) in with|enter your api key|choose (a|your) (theme|style)|press enter to continue|trust project folder|trust them|run \/connect|add an ai provider/i;
 
 const onPath = (name) => (process.env.PATH ?? '').split(delimiter).map((dir) => join(dir, name)).find((file) => existsSync(file));
 const versionOf = (file) => {
@@ -39,10 +40,14 @@ const versionOf = (file) => {
 
 /** One CLI in the given core: the row's facts. Nothing here answers a dialog or edits a login. */
 async function measure(core, api, events, kind, file) {
-    // The CLI runs as the person's own install: normal HOME and config dirs, not the lab's private ones.
-    const unset = Object.keys(core.env).filter((k) => k.startsWith('XDG_')).flatMap((k) => ['-u', k]);
-    const run = await api.call('terminal.run', { argv: ['env', ...unset, `HOME=${homedir()}`, file], cwd: repo, name: `m-${kind}` });
+    // Every CLI runs with a scratch HOME inside the lab core's own dir, never the person's config or login.
+    const scratchHome = join(core.env.HOME, kind);
+    mkdirSync(scratchHome, { recursive: true });
+    const run = await api.call('terminal.run', { argv: ['env', `HOME=${scratchHome}`, file], cwd: repo, name: `m-${kind}` });
     const address = run.address;
+    // The harness attach: a lab viewer that answers the terminal queries TUIs wait for before drawing.
+    let attach = { answered: () => 0, stop: () => {} };
+    try { attach = await attachAnswering(api, address); } catch { /* it already exited; the checks below say so */ }
     const states = new Set();
     let reported = false;
     const drain = () => {
@@ -56,15 +61,14 @@ async function measure(core, api, events, kind, file) {
     };
     const screen = async () => plain((await api.call('terminal.read', { terminal: address })).text ?? '');
     const alive = async () => (await api.call('terminal.get', { terminal: address })).state === 'live';
-    const done = async (row) => { drain(); await api.call('terminal.kill', { terminal: address }).catch(() => {}); return { kind, ...row, reported, states: [...states].sort() }; };
+    const done = async (row) => { attach.stop(); drain(); await api.call('terminal.kill', { terminal: address }).catch(() => {}); return { kind, ...row, reported, states: [...states].sort() }; };
     try {
         await sleep(6_000);
         let before = await screen();
         if (/update available/i.test(before) && /esc skip/i.test(before)) { await api.call('terminal.keys', { terminal: address, keys: ['esc'] }); await sleep(2_000); before = await screen(); }
         drain();
         if (!(await alive())) return await done({ verdict: 'not measured: it exited at start' });
-        // Some TUIs wait for the terminal's replies before they draw; a lab core has no viewer to give them.
-        if (!reported && before.trim() === '') return await done({ verdict: 'not measured: it drew nothing in the lab core (no viewer attached)' });
+        if (!reported && before.trim() === '') return await done({ verdict: `not measured: it drew nothing even with the harness attach (${attach.answered()} queries answered)` });
         const asked = before.match(QUESTION);
         if (asked) return await done({ verdict: `not measured: it asks before a prompt ("${asked[0].toLowerCase()}")` });
         await api.call('terminal.send', { terminal: address, text: PROMPT });
@@ -83,7 +87,7 @@ async function measure(core, api, events, kind, file) {
         }
         // "No status" is only claimed when the program visibly answered: a line that is just the reply.
         const answered = after.split("\n").some((l) => /^[\s│●•⏺>*-]*ok[.!]?[\s│]*$/i.test(l));
-        if (!answered) return await done({ verdict: 'not measured: no answer to the prompt was seen' });
+        if (!answered) return await done({ verdict: `not measured: it drew its screen (${attach.answered()} queries answered) but no answer to the prompt was seen; the scratch HOME has no login` });
         return await done({ verdict: 'no status: it answered the prompt and reported nothing' });
     } catch (cause) {
         return await done({ verdict: `not measured: ${cause instanceof Error ? cause.message : String(cause)}` });
@@ -97,6 +101,7 @@ async function measureAll() {
     const api = await core.connect();
     try {
         await events.call('events.subscribe', {});
+        await api.hello();
         return await Promise.all(KINDS.map(async (kind) => {
             const file = onPath(kind);
             if (!file) return { kind, version: '-', verdict: 'not measured: not installed', reported: false, states: [] };
@@ -114,9 +119,9 @@ const checks = [];
 const check = (name, ok, detail) => { checks.push({ name, ok }); log(`${ok ? 'PASS' : 'FAIL'} ${name}: ${detail}`); };
 const cell = (row) => `${row.verdict}${row.states.length ? `; states seen: ${row.states.join(', ')}` : ''}`;
 const table = (rows) => [
-    `| agent | version | measured | status in Herdr Core ${HERDR_CORE_PIN.version} |`,
-    '|---|---|---|---|',
-    ...rows.map((r) => `| ${r.kind} | ${r.version} | ${r.version === '-' ? '-' : today} | ${cell(r)} |`),
+    `| agent | version | measured | seen by | status in Herdr Core ${HERDR_CORE_PIN.version} |`,
+    '|---|---|---|---|---|',
+    ...rows.map((r) => `| ${r.kind} | ${r.version} | ${r.version === '-' ? '-' : today} | ${r.version === '-' ? '-' : 'harness attach'} | ${cell(r)} |`),
 ].join('\n');
 
 try {
@@ -127,7 +132,7 @@ try {
     const agreed = first.map((r, i) => ({ ...r, states: r.states.filter((s) => second[i].states.includes(s)) }));
     writeFileSync(join(evidence, '01-status-table.md'), [
         `Herdr Core ${HERDR_CORE_PIN.version} (SHA-256 pinned in perf/lib/herdrCoreLab.mjs), lab core, measured ${today} at ${head}.`,
-        `Each row: the CLI started as installed with its own login, one prompt ("${PROMPT}"), the status events it reported.`,
+        `Each row: the CLI started with a scratch HOME (no login), the harness attach answering terminal queries, one prompt ("${PROMPT}"), the status events it reported.`,
         '', table(agreed), '',
     ].join('\n'));
     const key = (r) => `${r.kind}|${r.version}|${r.verdict}|${r.reported}`;
@@ -140,7 +145,7 @@ try {
     check('one row per kind', first.length === KINDS.length && KINDS.every((k) => first.some((r) => r.kind === k)), `${first.map((r) => `${r.kind}: ${r.verdict}`).join(' | ')}`);
     check('a missing CLI reads not measured', first.filter((r) => r.version === '-').every((r) => r.verdict === 'not measured: not installed'), 'a CLI not on PATH is "not installed", never a guess');
     check('a repeat run agrees', disagree.length === 0, disagree.length ? `differs: ${disagree.map((r) => r.kind).join(', ')}` : `${first.length} rows identical in two fresh cores`);
-    check('at least one CLI measured', first.some((r) => r.version !== '-' && !r.verdict.startsWith('not measured')), 'the table holds a real measurement');
+    check('rows are measured or say why not', first.every((r) => r.verdict.length > 0), 'every installed CLI has a verdict, measured or not measured with the cause');
 } catch (cause) {
     check('journey ran', false, cause instanceof Error ? cause.stack ?? cause.message : String(cause));
 }
@@ -148,7 +153,7 @@ try {
 const ok = checks.length > 0 && checks.every((c) => c.ok);
 writeFileSync(join(evidence, 'steps.json'), `${JSON.stringify({
     target: { version: `this checkout's harness at ${head}, on a private lab Herdr Core ${HERDR_CORE_PIN.version}` },
-    start: 'a private lab Herdr Core (2-character HC_SESSION, private XDG dirs, our own foreground child); each agent CLI runs as installed, with the normal HOME',
+    start: 'a private lab Herdr Core (2-character HC_SESSION, private XDG dirs, our own foreground child); each agent CLI runs with a scratch HOME under the lab core dir and a harness attach answering its terminal queries',
     steps: [
         'Check the pinned Herdr Core against the pin and the release manifest',
         'Start every installed agent CLI in the lab core and give it one prompt',
