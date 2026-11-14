@@ -97,11 +97,12 @@ function shortDir() {
 
 /**
  * Start a private Herdr Core and wait until it answers as our own child.
+ * `prepare({ dir, env })` runs once the private dirs exist, before the server starts.
  * @returns {Promise<{ dir: string, session: string, socket: string, pid: number, version: string,
  *   env: Record<string,string>, hc: (args: string[]) => any, connect: () => Promise<ReturnType<typeof coreClient>>,
  *   log: () => string, stop: () => Promise<{ stoppedBy: string }> }>}
  */
-export async function startHerdrCore({ binary } = {}) {
+export async function startHerdrCore({ binary, prepare } = {}) {
     const bin = binary ?? (await ensureHerdrCore()).binary;
     const { dir, session } = shortDir();
     const dirs = { HOME: 'h', XDG_RUNTIME_DIR: 'r', XDG_STATE_HOME: 's', XDG_CONFIG_HOME: 'c', XDG_DATA_HOME: 'd', XDG_CACHE_HOME: 'x' };
@@ -111,6 +112,8 @@ export async function startHerdrCore({ binary } = {}) {
         env[key] = join(dir, sub);
         mkdirSync(env[key], { mode: 0o700 });
     }
+    // A journey may shape the core's private env (a PATH shim, say) before the server starts.
+    prepare?.({ dir, env });
     const socket = join(env.XDG_RUNTIME_DIR, 'herdr-core', `${session}.sock`);
     const logPath = join(dir, 'core.log');
     const logFd = openSync(logPath, 'a');

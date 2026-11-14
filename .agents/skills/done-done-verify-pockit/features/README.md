@@ -118,6 +118,7 @@ rules, with no H2 sections.
   every Herdr journey is [herdr-core-ports.md](./herdr-core-ports.md).
 
 - [Home on Herdr Core (lab)](./core-home-status.md) — the host's lab-only Herdr Core source: a Core agent on Home, Working then Done.
+- [A computer joins the host (lab)](./computers-join.md) — `muxr computers add` over two Docker computers with real sshd: host key by fingerprint, muxr's key, older Core updated to the pin, a cut link.
 - [Read the desktop receiver's decoder and frame rate (developer probe)](./desktop-decoder-probe.md) —
   developer-mode-only machine row and `/debug/decode` route: absent until ten
   taps enable dev mode, then the live receiver reports `VideoToolbox`/H.264,
