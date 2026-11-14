@@ -14,7 +14,10 @@ const terminal = (address: string, patch: Partial<CoreTerminal> = {}): CoreTermi
     state: 'live', exit_code: null, reported: true, status: { state: 'idle' }, status_ms: 2, created_ms: 1, turn: 0, ...patch,
 });
 
-function fakeCore(generation: number, terminals: CoreTerminal[]) {
+function fakeCore(generation: number, terminals: CoreTerminal[], seed?: unknown) {
+    // The one document Core keeps, with its version; `outbid` makes the next write lose to another writer.
+    const doc = { value: (seed ?? null) as unknown, version: seed === undefined ? 0 : 1, outbid: false };
+    let runs = 0;
     const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const dir = mkdtempSync(join(tmpdir(), 'hc-'));
     const path = join(dir, 'core.sock');
@@ -27,12 +30,21 @@ function fakeCore(generation: number, terminals: CoreTerminal[]) {
                 const request = JSON.parse(buffer.slice(0, end)) as { id: number; method: string; params: Record<string, unknown> };
                 calls.push({ method: request.method, params: request.params });
                 buffer = buffer.slice(end + 1);
+                if (request.method === 'doc.set') {
+                    const conflict = doc.outbid || request.params.version !== doc.version;
+                    doc.outbid = false;
+                    if (conflict) { doc.version += 1; socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message: 'conflict', data: { kind: 'conflict' } } })}\n`); continue; }
+                    doc.value = request.params.value;
+                    doc.version += 1;
+                }
                 const results: Record<string, unknown> = {
+                    'doc.get': { value: doc.value, version: doc.version },
+                    'doc.set': { version: doc.version },
                     hello: { generation, version: '9.9.9' },
                     'events.subscribe': { seq: 5, terminals },
                     'terminal.list': { terminals },
-                    'terminal.run': terminal('t9', { labels: request.params.labels as Record<string, string>, cwd: String(request.params.cwd), reported: false, status: null }),
-                    'terminal.get': terminal('t9', { state: 'finished', exit_code: 0 }),
+                    'terminal.run': terminal(`t${String(request.method === 'terminal.run' ? 9 + runs++ : 9)}`, { labels: request.params.labels as Record<string, string>, cwd: String(request.params.cwd), reported: false, status: null }),
+                    'terminal.get': terminal(String(request.params.terminal), { state: 'finished', exit_code: 0 }),
                 };
                 const result = results[request.method] ?? {};
                 if (request.method === 'events.subscribe') stream = socket;
@@ -43,6 +55,7 @@ function fakeCore(generation: number, terminals: CoreTerminal[]) {
     return {
         path,
         calls,
+        doc,
         listen: () => new Promise<void>((resolve) => server.listen(path, resolve)),
         push: (type: string, event: Record<string, unknown>) => stream?.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type, ...event } })}\n`),
         stop: () => { server.close(); rmSync(dir, { recursive: true, force: true }); },
@@ -114,4 +127,65 @@ test('the phone starts, prompts and stops an agent through Core, which holds its
     expect(core.calls.map((call) => call.method).filter((method) => method.startsWith('terminal.') && method !== 'terminal.list')).toEqual(['terminal.run', 'terminal.send', 'terminal.kill', 'terminal.get', 'terminal.rm']);
     expect(events).toEqual(['hc_t9 session.created', 'hc_t9 session.removed']);
     expect(await source.list()).toEqual([]);
+});
+
+test('Home groups agents by the Herdr app layout, keeps what the layout holds that muxr does not know, and falls back to labels', async () => {
+    const block = (id: string, terminal: string) => ({ id, type: 'block', content: { terminal } });
+    // The Herdr app's own document: a space and tab renamed from the labels, with fields muxr has never heard of.
+    const seed = { future: { a: 1 }, spaces: [{ id: 'sp1', name: 'Pockit', folder: '/work', pinned: true, tabs: [
+        { id: 'tb1', name: 'Fixes', accent: 'green', root: { id: 'r1', type: 'row', gap: 4, children: [block('b1', 't1'), block('b2', 't2')] } },
+    ] }] };
+    const core = fakeCore(1, [terminal('t1'), terminal('t2', { labels: { 'muxr.kind': 'pi', 'herdr.space': 'pockit', 'herdr.tab': 'review' } })], seed);
+    cleanups.push(core.stop);
+    await core.listen();
+    const source = await createHerdrCoreSessionSource({ socketPath: core.path, agentCommands: { pi: ['/lab/pi'] } });
+    cleanups.push(() => source.close());
+    const events: string[] = [];
+    source.subscribe((id, event) => events.push(`${id} ${event.type}`));
+    const shape = async () => (await source.herdrTree()).workspaces.map((w) => [w.label, w.tabs.map((t) => [t.label, t.panes.map((p) => p.paneId)])]);
+
+    // The document wins over the labels: both agents are panes of its one tab.
+    expect(await shape()).toEqual([['Pockit', [['Fixes', ['t1', 't2']]]]]);
+    expect((await source.list()).map((s) => [s.id, s.workspaceLabel, s.tabLabel])).toEqual([['hc_t1', 'Pockit', 'Fixes'], ['hc_t2', 'Pockit', 'Fixes']]);
+
+    // Rename a tab: the write loses once to the Herdr app, then lands; clients hear it; unknown fields survive.
+    core.doc.outbid = true;
+    await source.rename('tab', 'tb1', ' Ship it ');
+    expect((await source.list()).map((s) => s.tabLabel)).toEqual(['Ship it', 'Ship it']);
+    expect(events).toContain('hc_t1 session.updated');
+    expect(core.doc.value).toMatchObject({ future: { a: 1 }, spaces: [{ id: 'sp1', pinned: true, tabs: [{ name: 'Ship it', accent: 'green', root: { gap: 4 } }] }] });
+    await source.rename('workspace', 'sp1', 'pockit-app');
+
+    // New tab: a second tab in the same space, running the anchor's kind. Split: a column inside the row.
+    const tab = await source.createTab('hc_t1', { label: 'Review' });
+    expect(tab.sessionId).toBe('hc_t9');
+    const split = await source.paneSplit({ sessionId: 'hc_t1', direction: 'down', kind: 'pi' });
+    expect(split).toEqual({ paneId: 't10', sessionId: 'hc_t10' });
+    await expect(source.paneSplit({ sessionId: 'hc_t1', direction: 'down' })).rejects.toThrow(/without an agent/);
+    expect(await shape()).toEqual([['pockit-app', [['Ship it', ['t1', 't10', 't2']], ['Review', ['t9']]]]]);
+    const tabs = (core.doc.value as { spaces: Array<{ tabs: Array<{ root: { children: Array<{ type: string; children?: unknown[] }> } }> }> }).spaces[0]?.tabs;
+    expect(tabs?.[0]?.root.children.map((child) => child.type)).toEqual(['column', 'block']);
+    expect(core.calls.find((call) => call.method === 'terminal.run')?.params).toMatchObject({ labels: { 'herdr.space': 'pockit-app', 'herdr.tab': 'Review' } });
+
+    // Close: a tab ends its agents and leaves the document without it; closing the last tab drops the space.
+    await source.closeTab('hc_t1', (await source.herdrTree()).workspaces[0]?.tabs[1]?.tabId ?? '');
+    expect(await shape()).toEqual([['pockit-app', [['Ship it', ['t1', 't10', 't2']]]]]);
+    await source.closeWorkspace((await source.herdrTree()).workspaces[0]?.workspaceId ?? '');
+    expect(await shape()).toEqual([]);
+    expect(core.doc.value).toMatchObject({ future: { a: 1 }, spaces: [] });
+
+    // A layout muxr cannot read is never written over: agents are still listed by their labels,
+    // starting still works, and a rename says why it cannot happen.
+    const broken = fakeCore(1, [terminal('t1')], { spaces: 'not a list' });
+    cleanups.push(broken.stop);
+    await broken.listen();
+    const problems: string[] = [];
+    const fallback = await createHerdrCoreSessionSource({ socketPath: broken.path, agentCommands: { pi: ['/lab/pi'] }, onProblem: (message) => problems.push(message) });
+    cleanups.push(() => fallback.close());
+    expect((await fallback.herdrTree()).workspaces.map((w) => [w.label, w.tabs.map((t) => t.label)])).toEqual([['pockit', ['fix-login']]]);
+    await expect(fallback.rename('tab', 'tab:pockit/fix-login', 'x')).rejects.toThrow(/cannot be read/);
+    await fallback.start({ cwd: '/work/other', kind: 'pi' });
+    expect((await fallback.list()).map((s) => s.workspaceLabel)).toEqual(['pockit', 'other']);
+    expect(broken.doc.value).toEqual({ spaces: 'not a list' });
+    expect(problems.some((message) => /cannot be read/.test(message))).toBe(true);
 });
