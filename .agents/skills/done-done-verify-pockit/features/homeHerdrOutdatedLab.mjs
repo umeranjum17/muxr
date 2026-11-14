@@ -8,7 +8,6 @@
 // node <this> <apk> <evidence-dir>; MUXR_LAB_AVD_HOME picks the emulator home.
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -57,14 +56,6 @@ const cell = (dir, name, end) => {
     writeFileSync(join(dir, `${name}.check.txt`), report);
     note(`captured ${name}: ${report.split('\n').filter((r) => r.startsWith('DEFECT')).length} defect leads`);
 };
-// The fake's own control method, on its socket: a restart onto the updated Herdr.
-const setProtocol = (socketPath, protocol) => new Promise((done, fail) => {
-    const socket = createConnection(socketPath);
-    socket.on('error', fail);
-    socket.on('connect', () => socket.write(`${JSON.stringify({ id: 'lab', method: 'lab.protocol', params: { protocol } })}\n`));
-    socket.on('data', () => { socket.destroy(); done(); });
-});
-
 let stack;
 let finished = false;
 try {
@@ -77,7 +68,6 @@ try {
     await adb('shell', 'pm', 'clear', PKG);
     note('installed release APK, cleared data');
     stack = await startFakeStack({ panes: 4, agents: 1, protocol: 21 });
-    const herdrSocket = join(stack.root, 'herdr', 'herdr.sock');
     note(`lab stack: relay ${stack.relayPort}, host pid ${stack.pids.host}, relay pid ${stack.pids.relay}, fake Herdr pid ${stack.herdrPid} answering protocol 21`);
     setAndroidSerial(emu.serial);
     for (const args of [['svc', 'power', 'stayon', 'true'], ['input', 'keyevent', 'KEYCODE_WAKEUP'], ['wm', 'dismiss-keyguard']]) await adb('shell', ...args).catch(() => undefined);
@@ -128,7 +118,7 @@ try {
     await adb('shell', 'settings', 'put', 'system', 'font_scale', '1.0');
     await adb('shell', 'cmd', 'uimode', 'night', 'yes');
     const flipped = Date.now();
-    await setProtocol(herdrSocket, 22);
+    await stack.rig.setServerVersion(22);
     note('fake Herdr now answers protocol 22 (restarted onto the update)');
     const recovered = await waitFor((xml) => !OUTDATED.test(xml) && !/Agent runtime unavailable/.test(xml) && /Claude|Codex|pi|shell/i.test(xml), 90);
     note(`Home dropped the card with no tap: ${recovered} after ${Math.round((Date.now() - flipped) / 1000)}s`);
