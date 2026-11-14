@@ -108,6 +108,15 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
             if (previousWayland === undefined) delete process.env.WAYLAND_DISPLAY;
             else process.env.WAYLAND_DISPLAY = previousWayland;
         });
+        // A Wayland host pings the session bus's portal backends before it opens a
+        // desktop; point that at a bus that is not there so the real desktop's portal
+        // cannot hold this test up.
+        const previousBus = process.env.DBUS_SESSION_BUS_ADDRESS;
+        process.env.DBUS_SESSION_BUS_ADDRESS = `unix:path=${join(dir, 'no-session-bus')}`;
+        cleanups.push(() => {
+            if (previousBus === undefined) delete process.env.DBUS_SESSION_BUS_ADDRESS;
+            else process.env.DBUS_SESSION_BUS_ADDRESS = previousBus;
+        });
         const engineLog = join(dir, 'engine-close.jsonl');
         writeFileSync(engineLog, '');
         const engine = join(dir, 'desktop-engine.cjs');
