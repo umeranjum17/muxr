@@ -7,7 +7,7 @@
  * `terminal.run`, `terminal.send` and `terminal.kill`. Spaces, tabs and panes (slice 8) live in the
  * Herdr app's layout document (`domain/herdrAppLayout.ts`): the tree, rename, new tab, split and
  * close read and write it, and an unreadable document falls back to each agent's labels. The live
- * view and the rest stay unavailable until the slices that build them, and say so instead of
+ * terminal is `herdrCoreTerminal.ts` (slice 7); the rest stays unavailable until the slices that build it, and says so instead of
  * pretending. Real homes never get this source: `runHost.ts` refuses it.
  */
 
@@ -39,6 +39,7 @@ import {
     type Placement,
 } from '../domain/herdrAppLayout.js';
 import type { SessionSource } from '../application/sessionSource.js';
+import { openHerdrCoreTerminal } from './herdrCoreTerminal.js';
 import { connectHerdrCore, type CoreEvent, type HerdrCoreClient } from './herdrCoreClient.js';
 import { createLayoutStore } from './herdrCoreLayoutStore.js';
 
@@ -237,6 +238,7 @@ export async function createHerdrCoreSessionSource(options: HerdrCoreSessionSour
     }
     const all = agents;
     const infos = (): SessionInfo[] => all().map(infoFor);
+    const addressOf = (sessionId: string): string => agentOrThrow(sessionId).address;
 
     return {
         async list(listOptions = {}) {
@@ -284,17 +286,25 @@ export async function createHerdrCoreSessionSource(options: HerdrCoreSessionSour
             return { info: infoFor(run), status: statusOf(run), page: { messages: [], hasMore: false } };
         },
         applicationsLaunch: notYetAsync('Applications'),
-        herdrTerminal: notYet('The live terminal'),
+        herdrTerminal: (paneId, opts) => openHerdrCoreTerminal(options.socketPath, paneId, opts),
+        // Core has no focused pane, and its viewer keeps no scrollback offset the phone could read.
+        paneFocus: async () => undefined,
+        paneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),
         voiceStream: notYetAsync('Voice'),
         herdrLayout: notYetAsync('Pane layout'),
-        paneRead: notYetAsync('Reading a pane'),
-        paneScroll: notYetAsync('Pane scroll'),
-        paneVisibleText: notYetAsync('Reading a pane'),
+        // A read watches only: Core answers from its own screen and history and moves no viewport.
+        async paneRead(readOptions) {
+            const lines = readOptions.source === 'visible' || readOptions.source === undefined ? 0 : (readOptions.lines ?? 200);
+            const read = await client.call<{ text: string; complete: boolean }>('terminal.read', { terminal: addressOf(readOptions.sessionId), lines });
+            return { text: read.text, truncated: !read.complete };
+        },
+        async paneVisibleText(paneId) {
+            return (await client.call<{ text: string }>('terminal.read', { terminal: paneId, lines: 0 })).text;
+        },
         agentWatch: notYetAsync('Watching an agent'),
         agentWait: notYetAsync('Waiting on an agent'),
         layoutExport: notYetAsync('Layouts'),
         layoutApply: notYetAsync('Layouts'),
-        paneFocus: notYetAsync('Focusing a pane'),
         focusNeighbor: notYetAsync('Focusing a pane'),
         focusTabNeighbor: notYetAsync('Focusing a tab'),
         focusWorkspaceNeighbor: notYetAsync('Focusing a space'),

@@ -21,22 +21,24 @@ this and no product setting changes.
 ## How to get to it
 
 `done-done verify herdr-core-status-table --outcome "<claim>"` from the repo root. It needs no
-build and no phone. It makes no model call: the scratch HOME has no login.
+build and no phone. It sends one short prompt to each installed CLI and does not control whether a model answers.
 
 ## Table (2026-11-14, Herdr Core 0.1.20, Linux)
 
-Every CLI runs with a scratch HOME inside the lab core's dir, so none has a login. The harness
-attach (`perf/lib/herdrCoreAttach.mjs`, lab-only, shares no code with the product terminal
-bridge) answers the terminal queries a TUI sends before it draws. Each row is seen by it.
+Every CLI runs with a scratch HOME inside the lab core's dir. The harness attach
+(`perf/lib/herdrCoreAttach.mjs`, lab-only, shares no code with the product terminal bridge)
+answers the terminal queries a TUI sends before it draws. The "seen by" column says whether it
+attached: `harness attach`, or `none: attach failed (<error text>)`.
 
-| agent | version | seen by | status in Herdr Core |
-|---|---|---|---|
-| claude | 2.1.325 | harness attach | not measured: no answer to the prompt was seen (no login) |
-| codex | 0.159.2 | harness attach | not measured: it exited at start (no login) |
-| pi | 1.0.0 | harness attach | not measured: no answer to the prompt was seen (no login) |
-| opencode | 1.18.25 | harness attach | not measured: no answer to the prompt was seen (no login) |
-| gemini | 0.56.0 | harness attach | not measured: no answer to the prompt was seen (no login) |
-| grok | 1.0.0 | harness attach | not measured: no answer to the prompt was seen (no login) |
+| agent | version | measured | seen by | status in Herdr Core 0.1.20 |
+|---|---|---|---|---|
+| claude | 2.1.325 (Claude Code) | 2026-11-14 | harness attach | not measured: no answer to the prompt was seen (0 queries answered through the attach) |
+| codex | codex-cli 0.159.2 | 2026-11-14 | none: attach failed | not measured: it exited at start |
+| pi | 1.0.0 | 2026-11-14 | harness attach | not measured: it asks before a prompt ("trust them") |
+| opencode | 1.18.25 | 2026-11-14 | harness attach | not measured: it asks before a prompt ("trust them") |
+| gemini | 0.56.0 | 2026-11-14 | harness attach | not measured: it asks before a prompt ("trust them") |
+| grok | grok 1.0.0 (3cd0d0cbce) | 2026-11-14 | harness attach | not measured: it asks before a prompt ("trust them") |
 
-A scratch HOME has no login, so no CLI reaches a model turn and `done` is not measured for any
-of them. A logged-in measurement needs a decision about lending a scratch HOME a login.
+No status was measured in this run: no row reports a status event. A row that did not answer
+names only what was seen on screen (for example the question it asked, quoted), never a guessed cause. The gate "a CLI drew its screen through the attach"
+passes when an installed CLI was seen by the harness attach and drew or reported through the harness attach.

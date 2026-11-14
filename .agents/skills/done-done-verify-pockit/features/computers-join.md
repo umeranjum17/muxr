@@ -15,7 +15,7 @@ the real home, and no user can opt in. Nothing on a phone changes.
   `hc machine update` when the Core is older and the protocol generation matches. The agent keeps running; no prompt, no error.
 - A cut link shows offline within 60 s and ready again within 30 s (polled through `hc machine ls`; Core has no machine event).
 - Words only, not run on the real thing: the Mac app bundle ("Update Herdr Core on the Mac"), a newer protocol generation
-  ("refused: update muxr"), and the stops-at-logout warning (Core's `keeps_running_after_logout` is absent on 0.1.19, so a
+  ("refused: update muxr"), and the stops-at-logout warning (Core's `keeps_running_after_logout` is absent on the 0.1.20 pin, so a
   plain-sshd box shows no warning; the field is read only when Core sends it).
 
 ## Run
@@ -25,8 +25,9 @@ yarn build
 done-done verify computers-join --outcome "<claim>"
 ```
 
-Needs Docker (the image `muxr-lab-sshd:1`, debian:12 with openssh-server, is built on first use) and the pinned lab Herdr Core
-(`perf/lib/herdrCoreLab.mjs`). The journey starts two containers with real `sshd`, a private lab Core, and an ssh shim in that
+Needs Docker (the image `muxr-lab-sshd:1`, debian:12 with openssh-server, is built on first use), the pinned lab Herdr Core
+(`perf/lib/herdrCoreLab.mjs`) and the older Herdr Core 0.1.18 release placed by hand at `~/.cache/muxr-lab/herdr-core/0.1.18/herdr-core`
+(the journey does not fetch it, and stops with a message naming that path when it is absent). The journey starts two containers with real `sshd`, a private lab Core, and an ssh shim in that
 Core's PATH so its ssh reads the lab's own config. It removes what it starts. `journey.log` holds every PASS/DEFECT line,
 the `--install` finding and the footprint (container memory and CPU before and after a join, Core's disk on the box).
 

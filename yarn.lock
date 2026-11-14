@@ -3867,6 +3867,11 @@
   resolved "https://registry.yarnpkg.com/@xterm/addon-webgl/-/addon-webgl-0.19.0.tgz#02533c3f7c0af3ac9a44bbb095cbd47d48e90c25"
   integrity sha512-b3fMOsyLVuCeNJWxolACEUED0vm7qC0cy4wRvf3oURSzDTYVQiGPhTnhWZwIHdvC48Y+oLhvYXnY4XDXPoJo6A==
 
+"@xterm/headless@6.0.0":
+  version "6.0.0"
+  resolved "https://registry.yarnpkg.com/@xterm/headless/-/headless-6.0.0.tgz#a839dee397c49834bb220fa5951d60f4b7f0aa11"
+  integrity sha512-5Yj1QINYCyzrZtf8OFIHi47iQtI+0qYFPHmouEfG8dHNxbZ9Tb9YGSuLcsEwj9Z+OL75GJqPyJbyoFer80a2Hw==
+
 "@xterm/xterm@^6.0.0":
   version "6.0.0"
   resolved "https://registry.yarnpkg.com/@xterm/xterm/-/xterm-6.0.0.tgz#93637b0f2ee3a70718b5746a27c9c506af16745b"
@@ -5654,7 +5659,7 @@ domhandler@^5.0.2, domhandler@^5.0.3:
   dependencies:
     domelementtype "^2.3.0"
 
-dompurify@3.4.14, dompurify@3.4.16, dompurify@^3.3.3:
+dompurify@3.4.14, dompurify@3.4.17, dompurify@^3.3.3:
   version "3.4.14"
   resolved "https://registry.yarnpkg.com/dompurify/-/dompurify-3.4.14.tgz#a789edb2c7bcdb69a93713a34edb7e0a5245d8c9"
   integrity sha512-dVoH9z+MY+C9IilgGCk3YfFqjLi3fChm2OiKJMzh6axrJ5qwxqWaZamgmHrpv22CN/KdbZJuGEGgfQoL00LTdg==
