@@ -18,13 +18,16 @@ let pairing;
 const stop = (code = 0) => { pairing?.release(); stack.stop(); process.exit(code); };
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => stop());
 
+// The neutral rig has no "close an agent" helper yet (perf/lib/fakeStack.mjs is
+// owned by another batch), so the empty-Herdr case still closes the pane on the
+// fake Herdr TUI's own socket. Move this onto the rig when it gains one.
 let requestId = 0;
-const rpc = (method, params) => new Promise((resolve, reject) => {
+const closePane = (paneId) => new Promise((resolve, reject) => {
     const socket = createConnection(stack.cellMetricsJsonl.replace(/\.cell-metrics\.jsonl$/, ''));
     const id = `lab_${requestId += 1}`;
     let buffer = '';
     socket.on('error', reject);
-    socket.on('connect', () => socket.write(`${JSON.stringify({ id, method, params })}\n`));
+    socket.on('connect', () => socket.write(`${JSON.stringify({ id, method: 'pane.close', params: { pane_id: paneId } })}\n`));
     socket.on('data', (chunk) => {
         buffer += String(chunk);
         for (const line of buffer.split('\n').slice(0, -1)) {
@@ -46,13 +49,13 @@ process.stdin.setEncoding('utf8').on('data', (chunk) => {
     for (const line of chunk.split('\n').map((text) => text.trim()).filter(Boolean)) {
         if (line === 'browser' || line === 'native') { void mint(line).catch((error) => console.error(error)); continue; }
         const [index, status] = line.split(/\s+/);
-        const pane = stack.world.agents[Number(index) - 1]?.pane_id;
+        const pane = stack.rig.agents()[Number(index) - 1]?.id;
         if (pane === undefined || status === undefined) { console.error(`set: no agent ${index}`); continue; }
         const call = status === 'off'
-            ? rpc('pane.close', { pane_id: pane })
-            : rpc('lab.set_agent_status', { pane_id: pane, agent_status: status, title: LAB_TITLE });
+            ? closePane(pane)
+            : stack.rig.reportStatus(pane, status, { title: LAB_TITLE });
         void call.then(() => console.log(`set: ${pane} ${status}`), (error) => console.error(error));
     }
 });
 
-console.log(`lab ready: relay port ${stack.relayPort}, agent panes ${stack.world.agents.map((a) => a.pane_id).join(',')}, pid ${process.pid}`);
+console.log(`lab ready: relay port ${stack.relayPort}, agent panes ${stack.rig.agents().map((a) => a.id).join(',')}, pid ${process.pid}`);
