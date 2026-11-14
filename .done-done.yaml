@@ -182,6 +182,13 @@ journeys:
   core-home-status:
     command: node .agents/skills/done-done-verify-pockit/features/herdrCoreHomeLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 20m
+  # Start, prompt and stop an agent on Herdr Core (jg-kile slice 6): the phone's New agent starts a
+  # stand-in Pi through the lab host's Core source; Core must hold it with the herdr.space and
+  # herdr.tab labels; Home reads Working, then Done; Stop agent removes it from Core. Needs
+  # `yarn build` and an x86_64 release APK in MUXR_LAB_APK. See features/core-start-stop.md.
+  core-start-stop:
+    command: node .agents/skills/done-done-verify-pockit/features/herdrCoreStartLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A

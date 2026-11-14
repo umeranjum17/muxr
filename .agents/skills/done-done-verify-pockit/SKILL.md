@@ -36,6 +36,7 @@ done-done receipt --verify <head>       # read-only: verify the recorded receipt
 - Herdr Core installer entry (plan slice 4): `done-done verify herdr-core-install` runs `scripts/setup/infrastructure/herdrCore.mjs` in a scratch `MUXR_HOME`: the pinned release installs with its SHA-256 checked against the pin and the release manifest, a changed archive is refused with the cause, and the doctor row (`MUXR_HERDR_CORE_CHECK=1`, lab-only until the switch) reads missing, ok or too old. Supported: Linux x86_64 and aarch64; macOS is refused until a Mac run proves the bundle path.
 - Home on Herdr Core entry (jg-kile slice 1): `done-done verify core-home-status` pairs the emulator to a lab host started with `--herdr-core-lab` and shows a Core agent Working, then Done; `features/core-home-status.md`.
 - Computer join entry (jg-kile slice 9): `done-done verify computers-join` runs `muxr computers add` against two Docker computers with real `sshd` over a private lab Herdr Core, host side only; `features/computers-join.md`.
+- Start and stop on Herdr Core entry (jg-kile slice 6): `done-done verify core-start-stop` starts a stand-in Pi from New agent on the lab Core source, prompts it, shows Working then Done, stops it, and reads the herdr.space and herdr.tab labels from Core; `features/core-start-stop.md`.
 
 ## Isolation contract (read first)
 

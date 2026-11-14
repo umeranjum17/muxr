@@ -3,9 +3,10 @@
  *
  * It answers list, status, open and the tree, and pushes status changes, from the terminals
  * Core reports: an agent is a terminal labelled `muxr.kind`, its space and tab are labels, its
- * status is the program's own word (see `domain/herdrCoreAgents.ts`). Everything that acts on an
- * agent (start, prompt, stop, live view) stays unavailable until the slices that build it, and
- * says so instead of pretending. Real homes never get this source: `runHost.ts` refuses it.
+ * status is the program's own word (see `domain/herdrCoreAgents.ts`). Start, prompt and stop
+ * (jg-kile slice 6) are Core's own `terminal.run`, `terminal.send` and `terminal.kill`. The live
+ * view and the rest stay unavailable until the slices that build them, and say so instead of
+ * pretending. Real homes never get this source: `runHost.ts` refuses it.
  */
 
 import type { SessionEventBody, SessionInfo } from '@trymuxr/contract';
@@ -13,6 +14,7 @@ import {
     addressFor,
     infoOf,
     isAgentTerminal,
+    launchLabels,
     sessionIdFor,
     statusOf,
     treeOf,
@@ -29,6 +31,8 @@ const notYetAsync = (what: string) => async (): Promise<never> => notYet(what)()
 
 export interface HerdrCoreSessionSourceOptions {
     socketPath: string;
+    /** The command that starts each agent kind. A kind absent here cannot be started on this Core. */
+    agentCommands?: Record<string, string[]>;
     /** Receives a failure the source cannot show a caller: the event stream ending, a refresh failing. */
     onProblem?: (message: string) => void;
 }
@@ -123,12 +127,31 @@ export async function createHerdrCoreSessionSource(options: HerdrCoreSessionSour
     });
     await settled;
 
+    const commands = options.agentCommands ?? {};
+    /** Wait until Core has finished a terminal that was told to die; `terminal.rm` refuses a live one. */
+    async function waitFinished(address: string): Promise<void> {
+        for (let tries = 0; tries < 100; tries += 1) {
+            if ((await client.call<CoreTerminal>('terminal.get', { terminal: address })).state === 'finished') return;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        throw new Error(`the agent ${address} did not stop`);
+    }
+
     const agentOrThrow = (sessionId: string): CoreTerminal => {
         const address = addressFor(sessionId);
         const terminal = address === undefined ? undefined : terminals.get(address);
         if (terminal === undefined) throw new Error(`unknown session: ${sessionId}`);
         return terminal;
     };
+
+    async function stopAgent(sessionId: string): Promise<{ status: 'closed' }> {
+        const address = agentOrThrow(sessionId).address;
+        await client.call('terminal.kill', { terminal: address });
+        await waitFinished(address);
+        await client.call('terminal.rm', { terminal: address });
+        remove(address, true);
+        return { status: 'closed' };
+    }
     const all = (): CoreTerminal[] => [...terminals.values()].sort((a, b) => a.created_ms - b.created_ms);
     const infos = (): SessionInfo[] => all().map(infoOf);
 
@@ -145,8 +168,8 @@ export async function createHerdrCoreSessionSource(options: HerdrCoreSessionSour
             return { workspaces: treeOf(all()), connected: live };
         },
         async refreshHerdr() { replaceAll(await client.list(), true); },
-        async agentKinds() { return [...new Set(infos().flatMap((info) => info.agentKind ?? []))]; },
-        async installedAgentKinds() { return []; },
+        async agentKinds() { return [...new Set([...Object.keys(commands), ...infos().flatMap((info) => info.agentKind ?? [])])]; },
+        async installedAgentKinds(kinds) { return kinds.filter((kind) => commands[kind] !== undefined); },
         async agentInstallStates() { return {}; },
         async applicationsList() { return { items: [] }; },
         async herdrCli() { return { stdout: '', stderr: 'the Herdr Core source has no herdr CLI', exitCode: null, timedOut: false }; },
@@ -167,7 +190,15 @@ export async function createHerdrCoreSessionSource(options: HerdrCoreSessionSour
             client.close();
         },
 
-        start: notYetAsync('Starting an agent'),
+        async start(startOptions) {
+            const kind = startOptions.kind ?? Object.keys(commands)[0];
+            const argv = kind === undefined ? undefined : commands[kind];
+            if (kind === undefined || argv === undefined) throw new Error(`Herdr Core has no way to start ${kind ?? 'an agent'} here`);
+            const labels = launchLabels({ cwd: startOptions.cwd, kind, ...(startOptions.label === undefined ? {} : { label: startOptions.label }), ...(startOptions.taskTitle === undefined ? {} : { taskTitle: startOptions.taskTitle }) });
+            const run = await client.call<CoreTerminal>('terminal.run', { argv, cwd: startOptions.cwd, labels, keep: true });
+            upsert(run, true);
+            return { info: infoOf(run), status: statusOf(run), page: { messages: [], hasMore: false } };
+        },
         applicationsLaunch: notYetAsync('Applications'),
         herdrTerminal: notYet('The live terminal'),
         voiceStream: notYetAsync('Voice'),
@@ -186,15 +217,19 @@ export async function createHerdrCoreSessionSource(options: HerdrCoreSessionSour
         focusWorkspaceNeighbor: notYetAsync('Focusing a space'),
         createTab: notYetAsync('Creating a tab'),
         closeTab: notYetAsync('Closing a tab'),
-        closePane: notYetAsync('Closing a pane'),
         closeWorkspace: notYetAsync('Closing a space'),
         rename: notYetAsync('Renaming'),
         sendKeys: notYetAsync('Sending keys'),
         paneZoom: notYetAsync('Zooming a pane'),
-        stop: notYetAsync('Stopping an agent'),
+        stop: stopAgent,
+        // A Core terminal is its own pane, so closing the pane is stopping the agent.
+        async closePane(sessionId) { await stopAgent(sessionId); },
         abort: notYetAsync('Aborting an agent'),
         reload: notYetAsync('Reloading an agent'),
-        prompt: notYetAsync('Prompting an agent'),
+        async prompt(promptOptions) {
+            const terminal = agentOrThrow(promptOptions.sessionId);
+            await client.call('terminal.send', { terminal: terminal.address, text: promptOptions.text });
+        },
         handoff: notYetAsync('Handoff'),
         shell: notYetAsync('Running a command'),
         readFile: notYetAsync('Reading a file'),

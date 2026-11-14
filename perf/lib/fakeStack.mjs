@@ -170,7 +170,7 @@ function childEnv(home, muxrHome, extra, base = process.env) {
 /**
  * @param {{ panes?: number, agents?: number, titleChurnHz?: number,
  *   terminalBytesPerSecond?: number, emptyPanes?: number, emptyAfterMs?: number,
- *   transport?: 'adb' | 'loopback', advertiseHost?: string, herdrCore?: boolean, hostOnHerdrCore?: boolean }} [options]
+ *   transport?: 'adb' | 'loopback', advertiseHost?: string, herdrCore?: boolean, hostOnHerdrCore?: boolean, coreAgent?: string }} [options]
  * `advertiseHost` names the address the pairing offer carries instead of
  * 127.0.0.1 (a lab forwards it to the loopback relay itself).
  * `herdrCore` also starts a private lab Herdr Core (`herdrCoreLab.mjs`) beside the
@@ -178,7 +178,7 @@ function childEnv(home, muxrHome, extra, base = process.env) {
  * the host reads Herdr Core (plan step 3), a journey drives the core directly.
  * `hostOnHerdrCore` starts that core and points the host at it with the lab-only
  * `--herdr-core-lab` source (jg-kile slice 1): the host lists agents from the core, not from
- * the fake Herdr TUI.
+ * the fake Herdr TUI. `coreAgent` (a program path) is what the lab source starts for a New agent.
  */
 export async function startFakeStack(options = {}) {
     return startStack(options);
@@ -360,7 +360,7 @@ async function startStack(options, live) {
                 HERDR_SOCKET_PATH: fake.socketPath,
                 HERDR_CLIENT_SOCKET_PATH: fake.clientSocketPath,
                 HERDR_BIN: fake.binPath,
-                ...(options.hostOnHerdrCore && core ? { MUXR_HERDR_CORE_SOCKET: core.socket } : {}),
+                ...(options.hostOnHerdrCore && core ? { MUXR_HERDR_CORE_SOCKET: core.socket, ...(options.coreAgent ? { MUXR_HERDR_CORE_LAB_AGENT: options.coreAgent } : {}) } : {}),
                 ...fixtureEnv,
             }, live?.env),
         });

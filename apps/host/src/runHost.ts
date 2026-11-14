@@ -490,6 +490,8 @@ async function main(): Promise<void> {
         }
         source = await createHerdrCoreSessionSource({
             socketPath: coreSocket,
+            // Lab only: one stand-in program starts as Pi, so a journey needs no real agent CLI.
+            ...(env('MUXR_HERDR_CORE_LAB_AGENT') === undefined ? {} : { agentCommands: { pi: [env('MUXR_HERDR_CORE_LAB_AGENT') as string] } }),
             onProblem: (message) => process.stderr.write(`herdr core: ${message}\n`),
         });
     } else {
