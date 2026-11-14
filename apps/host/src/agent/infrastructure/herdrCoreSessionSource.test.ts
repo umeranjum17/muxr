@@ -15,6 +15,7 @@ const terminal = (address: string, patch: Partial<CoreTerminal> = {}): CoreTermi
 });
 
 function fakeCore(generation: number, terminals: CoreTerminal[]) {
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const dir = mkdtempSync(join(tmpdir(), 'hc-'));
     const path = join(dir, 'core.sock');
     let stream: Socket | undefined;
@@ -23,12 +24,15 @@ function fakeCore(generation: number, terminals: CoreTerminal[]) {
         socket.on('data', (chunk) => {
             buffer += String(chunk);
             for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
-                const request = JSON.parse(buffer.slice(0, end)) as { id: number; method: string };
+                const request = JSON.parse(buffer.slice(0, end)) as { id: number; method: string; params: Record<string, unknown> };
+                calls.push({ method: request.method, params: request.params });
                 buffer = buffer.slice(end + 1);
                 const results: Record<string, unknown> = {
                     hello: { generation, version: '9.9.9' },
                     'events.subscribe': { seq: 5, terminals },
                     'terminal.list': { terminals },
+                    'terminal.run': terminal('t9', { labels: request.params.labels as Record<string, string>, cwd: String(request.params.cwd), reported: false, status: null }),
+                    'terminal.get': terminal('t9', { state: 'finished', exit_code: 0 }),
                 };
                 const result = results[request.method] ?? {};
                 if (request.method === 'events.subscribe') stream = socket;
@@ -38,6 +42,7 @@ function fakeCore(generation: number, terminals: CoreTerminal[]) {
     });
     return {
         path,
+        calls,
         listen: () => new Promise<void>((resolve) => server.listen(path, resolve)),
         push: (type: string, event: Record<string, unknown>) => stream?.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type, ...event } })}\n`),
         stop: () => { server.close(); rmSync(dir, { recursive: true, force: true }); },
@@ -85,4 +90,28 @@ test('Home reads agents, status and spaces from Herdr Core, resyncs after missed
     await until(() => events.some(([, e]) => e.type === 'session.removed'));
     expect(events.map(([id, e]) => `${id} ${e.type}`).sort()).toEqual(['hc_t1 session.removed', 'hc_t2 session.removed', 'hc_t4 session.created']);
     expect((await source.list()).map((s) => s.id)).toEqual(['hc_t4']);
+});
+
+test('the phone starts, prompts and stops an agent through Core, which holds its space and tab', async () => {
+    const core = fakeCore(1, []);
+    cleanups.push(core.stop);
+    await core.listen();
+    const source = await createHerdrCoreSessionSource({ socketPath: core.path, agentCommands: { pi: ['/lab/pi'] } });
+    cleanups.push(() => source.close());
+    const events: string[] = [];
+    source.subscribe((id, event) => events.push(`${id} ${event.type}`));
+
+    expect(await source.installedAgentKinds(['pi', 'claude'])).toEqual(['pi']);
+    await expect(source.start({ cwd: '/work/pockit', kind: 'claude' })).rejects.toThrow(/no way to start claude/);
+    const started = await source.start({ cwd: '/work/pockit', kind: 'pi', label: 'Fix login' });
+    expect(started).toMatchObject({ info: { id: 'hc_t9', workspaceLabel: 'pockit', tabLabel: 'fix-login', agentStatus: 'starting' } });
+    expect(core.calls.find((call) => call.method === 'terminal.run')?.params).toMatchObject({ argv: ['/lab/pi'], labels: { 'muxr.kind': 'pi', 'herdr.space': 'pockit', 'herdr.tab': 'fix-login' } });
+
+    await source.prompt({ sessionId: 'hc_t9', text: 'fix the login bug' });
+    expect(core.calls.find((call) => call.method === 'terminal.send')?.params).toMatchObject({ terminal: 't9', text: 'fix the login bug' });
+
+    expect(await source.stop('hc_t9', {})).toEqual({ status: 'closed' });
+    expect(core.calls.map((call) => call.method).filter((method) => method.startsWith('terminal.') && method !== 'terminal.list')).toEqual(['terminal.run', 'terminal.send', 'terminal.kill', 'terminal.get', 'terminal.rm']);
+    expect(events).toEqual(['hc_t9 session.created', 'hc_t9 session.removed']);
+    expect(await source.list()).toEqual([]);
 });

@@ -43,6 +43,20 @@ export function addressFor(sessionId: string): string | undefined {
     return sessionId.startsWith('hc_') ? sessionId.slice(3) : undefined;
 }
 
+/**
+ * The labels a new agent is born with. Core keeps no agent concept, so these three labels ARE the
+ * agent's place: its kind, its space (the folder's name) and its tab (the task, else the kind).
+ */
+export function launchLabels(options: { cwd: string; kind: string; label?: string; taskTitle?: string }): Record<string, string> {
+    const slug = (text: string): string => text.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+    const space = options.cwd.split('/').filter((part) => part !== '').at(-1) ?? DEFAULT_SPACE;
+    return {
+        [KIND_LABEL]: options.kind,
+        [SPACE_LABEL]: space,
+        [TAB_LABEL]: slug(options.label ?? options.taskTitle ?? '') || options.kind,
+    };
+}
+
 export const isAgentTerminal = (terminal: CoreTerminal): boolean => typeof terminal.labels?.[KIND_LABEL] === 'string';
 
 /**
