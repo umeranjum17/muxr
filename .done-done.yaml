@@ -189,6 +189,13 @@ journeys:
   core-start-stop:
     command: node .agents/skills/done-done-verify-pockit/features/herdrCoreStartLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # Spaces, tabs and panes on Herdr Core (jg-kile slice 8): the lab Core is seeded with the Herdr app's
+  # layout document (names that differ from the labels, plus fields muxr does not know); Home groups by it;
+  # New tab, Rename tab, New pane, Close pane and Close workspace change Core and the document; the unknown
+  # fields survive. Needs `yarn build` and an x86_64 release APK in MUXR_LAB_APK. See features/core-spaces.md.
+  core-spaces:
+    command: node .agents/skills/done-done-verify-pockit/features/herdrCoreSpacesLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 30m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A

@@ -2,11 +2,13 @@
  * What an agent is in Herdr Core, read from the terminal record alone.
  *
  * Core keeps no agent concept: an agent is a terminal that carries the `muxr.kind` label, its
- * space and tab are the `herdr.space` and `herdr.tab` labels, and its status is the word the
- * program itself reported (OSC 7501). Nothing here touches a socket, so every rule is plain data.
+ * space and tab come from the Herdr app's layout document (the `herdr.space` and `herdr.tab`
+ * labels when the document does not place it), and its status is the word the program itself
+ * reported (OSC 7501). Nothing here touches a socket, so every rule is plain data.
  */
 
 import { rollupLifecycle } from './lifecycle.js';
+import { DEFAULT_SPACE, SPACE_LABEL, TAB_LABEL, type ArrangedSpace, type Placement } from './herdrAppLayout.js';
 import type { AgentLifecycle, HerdrTreeWorkspace, SessionInfo, SessionStatus } from '@trymuxr/contract';
 
 /** The Herdr Core status record (`Status` in its schema): the program's own words. */
@@ -32,9 +34,6 @@ export interface CoreTerminal {
 }
 
 export const KIND_LABEL = 'muxr.kind';
-export const SPACE_LABEL = 'herdr.space';
-export const TAB_LABEL = 'herdr.tab';
-const DEFAULT_SPACE = 'Agents';
 
 /** The host's session id for a Core terminal. Local computer only; later slices prefix the machine. */
 export const sessionIdFor = (address: string): string => `hc_${address}`;
@@ -78,12 +77,8 @@ export function lifecycleOf(terminal: CoreTerminal): AgentLifecycle {
 
 export const promptableOf = (terminal: CoreTerminal): boolean => terminal.state === 'live';
 
-const spaceOf = (terminal: CoreTerminal): string => terminal.labels[SPACE_LABEL] ?? DEFAULT_SPACE;
-const tabOf = (terminal: CoreTerminal): string => terminal.labels[TAB_LABEL] ?? terminal.name ?? terminal.address;
-
-export function infoOf(terminal: CoreTerminal): SessionInfo {
-    const space = spaceOf(terminal);
-    const tab = tabOf(terminal);
+/** The session record for a terminal, placed in its space and tab by the layout (`herdrAppLayout.ts`). */
+export function infoOf(terminal: CoreTerminal, placement: Placement): SessionInfo {
     const kind = terminal.labels[KIND_LABEL];
     return {
         id: sessionIdFor(terminal.address),
@@ -97,10 +92,10 @@ export function infoOf(terminal: CoreTerminal): SessionInfo {
         ...(kind === undefined ? {} : { agentKind: kind }),
         agentStatus: lifecycleOf(terminal),
         promptable: promptableOf(terminal),
-        workspaceId: `space:${space}`,
-        workspaceLabel: space,
-        tabId: `tab:${space}/${tab}`,
-        tabLabel: tab,
+        workspaceId: placement.spaceId,
+        workspaceLabel: placement.space,
+        tabId: placement.tabId,
+        tabLabel: placement.tab,
     };
 }
 
@@ -115,24 +110,20 @@ export function statusOf(terminal: CoreTerminal): SessionStatus {
     };
 }
 
-/** Spaces, tabs and panes from labels, in the order the terminals were created. */
-export function treeOf(terminals: readonly CoreTerminal[]): HerdrTreeWorkspace[] {
-    const spaces = new Map<string, Map<string, CoreTerminal[]>>();
-    for (const terminal of [...terminals].filter(isAgentTerminal).sort((a, b) => a.created_ms - b.created_ms)) {
-        const tabs = spaces.get(spaceOf(terminal)) ?? new Map<string, CoreTerminal[]>();
-        tabs.set(tabOf(terminal), [...(tabs.get(tabOf(terminal)) ?? []), terminal]);
-        spaces.set(spaceOf(terminal), tabs);
-    }
-    return [...spaces].map(([space, tabs], order): HerdrTreeWorkspace => {
-        const treeTabs = [...tabs].map(([tab, members]) => {
-            const tabId = `tab:${space}/${tab}`;
-            const panes = members.map((terminal) => {
-                const info = infoOf(terminal);
-                return {
+/** The tree Home shows: the arranged spaces, tabs and panes, each pane the terminal's own record. */
+export function treeOf(arranged: readonly ArrangedSpace[], terminals: readonly CoreTerminal[], placementOf: (terminal: CoreTerminal) => Placement): HerdrTreeWorkspace[] {
+    const byAddress = new Map(terminals.map((terminal) => [terminal.address, terminal]));
+    return arranged.map((space, order): HerdrTreeWorkspace => {
+        const tabs = space.tabs.map((tab) => {
+            const panes = tab.terminals.flatMap((address) => {
+                const terminal = byAddress.get(address);
+                if (terminal === undefined) return [];
+                const info = infoOf(terminal, placementOf(terminal));
+                return [{
                     paneId: terminal.address,
-                    tabId,
+                    tabId: tab.id,
                     ...(terminal.name === null ? {} : { label: terminal.name }),
-                    tabLabel: tab,
+                    tabLabel: tab.name,
                     cwd: terminal.cwd,
                     ...(info.agentKind === undefined ? {} : { agentKind: info.agentKind }),
                     ...(info.agentName === undefined ? {} : { agentName: info.agentName }),
@@ -140,17 +131,10 @@ export function treeOf(terminals: readonly CoreTerminal[]): HerdrTreeWorkspace[]
                     promptable: info.promptable,
                     focused: false,
                     sessionId: info.id,
-                };
+                }];
             });
-            return { tabId, label: tab, focused: false, agentStatus: rollupLifecycle(panes.map((pane) => pane.agentStatus)), panes };
+            return { tabId: tab.id, label: tab.name, focused: false, agentStatus: rollupLifecycle(panes.map((pane) => pane.agentStatus)), panes };
         });
-        return {
-            workspaceId: `space:${space}`,
-            label: space,
-            focused: false,
-            order,
-            agentStatus: rollupLifecycle(treeTabs.map((tab) => tab.agentStatus)),
-            tabs: treeTabs,
-        };
+        return { workspaceId: space.id, label: space.name, focused: false, order, agentStatus: rollupLifecycle(tabs.map((tab) => tab.agentStatus)), tabs };
     });
 }
