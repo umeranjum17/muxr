@@ -38,7 +38,7 @@ try {
     const real = `https://releases.herdr.dev/core/${core.HERDR_CORE_PIN.version}`;
     const manifest = Buffer.from(await (await fetch(`${real}/manifest.json`)).arrayBuffer());
     const tamper = mkdtempSync(join(tmpdir(), 'hct-'));
-    writeFileSync(join(tamper, 'herdr-core'), '#!/bin/sh\necho hc 0.1.19\n');
+    writeFileSync(join(tamper, 'herdr-core'), '#!/bin/sh\necho hc 0.1.20\n');
     chmodSync(join(tamper, 'herdr-core'), 0o755);
     execFileSync('tar', ['-czf', join(tamper, 'a.tgz'), '-C', tamper, 'herdr-core']);
     const bad = execFileSync('cat', [join(tamper, 'a.tgz')]);
@@ -61,7 +61,7 @@ try {
     const reported = execFileSync(first.binary, ['--version'], { encoding: 'utf8' }).trim();
     const doctorOk = doctor();
     capture('03-real-install.txt', [JSON.stringify(first), `reported: ${reported}`, `second call reused: ${second.reused}`, `doctor: ${doctorOk}`]);
-    check('fresh home gets the pinned build', reported === `hc ${core.HERDR_CORE_PIN.version}` && !first.reused && second.reused && /Herdr Core 0\.1\.19/.test(doctorOk), `${reported}; doctor: ${doctorOk}`);
+    check('fresh home gets the pinned build', reported === `hc ${core.HERDR_CORE_PIN.version}` && !first.reused && second.reused && /Herdr Core 0\.1\.20/.test(doctorOk), `${reported}; doctor: ${doctorOk}`);
 
     // 4. An older core is "too old"; a Mac is refused with the reason.
     writeFileSync(first.binary, '#!/bin/sh\necho hc 0.1.18\n');

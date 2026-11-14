@@ -13,12 +13,12 @@ import { platform, run, stateDir } from './runtime.mjs';
  * the install, so it is refused with that reason; Windows has no support.
  */
 export const HERDR_CORE_PIN = {
-    version: '0.1.19',
+    version: '0.1.20',
     sha256: {
-        'linux-x86_64': '4adcfb423d52f24c5cc4a1e2cd2fcad1f62d28bb77876ac472c29082a3eaa424',
-        'linux-aarch64': 'f95c34fd7177ed58807d74fe4ee78bb3dc73eb37f21c69496064000a21abcb10',
-        'macos-x86_64': '2f95bedae2ca1bf9f9611d61066ef3ac211c62ca08282132d48e287b6da14d08',
-        'macos-aarch64': '5338d900adadb6d273b9c8e97027247db3179ccffede10a1793358f16e08d683',
+        'linux-x86_64': 'ac6b86890c451a37584620aaa438b71bc0d0bd430a2e7c1d7e095f052c414e74',
+        'linux-aarch64': '5f3037379d15cc76cfc72d2fd1a4262ea1c5b24df278bf7cfd8adcff7b914862',
+        'macos-x86_64': '36c0331c3ffea0ffaada195b89a3c7496f7f3fc5bf35e4605c19c84e5c205a56',
+        'macos-aarch64': 'e58985d3fef6e909f33d3c5a4426e4898c81564a557d4636591cec9e3a06af26',
     },
     installable: ['linux-x86_64', 'linux-aarch64'],
 };
