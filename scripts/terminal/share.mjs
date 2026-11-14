@@ -4,6 +4,7 @@ import { copyFileSync, linkSync, mkdirSync, readdirSync, readFileSync, realpathS
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
+import { currentPaneId } from './paneIdentity.mjs';
 
 const IMAGE_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
 /** The phone's preview limit for a page; inlined images count against it. */
@@ -114,7 +115,7 @@ export function share(args = []) {
         return;
     }
 
-    const paneId = parsed.pane || process.env.HERDR_PANE_ID?.trim();
+    const paneId = parsed.pane || currentPaneId();
     if (!paneId) {
         fail('no pane: run inside a Herdr pane (HERDR_PANE_ID) or pass --pane <id>');
         return;

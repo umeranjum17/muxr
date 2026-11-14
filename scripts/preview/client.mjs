@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { currentPaneId } from '../terminal/paneIdentity.mjs';
 
 const CLIENT_TIMEOUT_MS = 45_000;
 
@@ -21,8 +22,8 @@ export async function previewStatus(args) {
         if (flag !== '--json') throw new Error('usage: muxr preview status [--json]');
         json = true;
     }
-    const paneId = process.env.HERDR_PANE_ID?.trim();
-    if (paneId === undefined || paneId === '') throw new Error('muxr preview status must run inside a Herdr pane (HERDR_PANE_ID is missing)');
+    const paneId = currentPaneId();
+    if (paneId === undefined) throw new Error('muxr preview status must run inside a Herdr pane (HERDR_PANE_ID is missing)');
 
     let token;
     try {

@@ -1,6 +1,7 @@
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { currentPaneId } from '../terminal/paneIdentity.mjs';
 
 /**
  * `muxr accounts`: the signed-in Claude accounts, which one each agent runs
@@ -149,7 +150,7 @@ export async function pane(argv) {
     const [sub, ...rest] = argv;
     const args = parse(rest);
     if (!['account', 'move-to-account'].includes(sub) || args.positional.length !== (sub === 'account' ? 0 : 1)) throw new Error(PANE_USAGE);
-    const paneId = args.pane ?? process.env.HERDR_PANE_ID;
+    const paneId = args.pane ?? currentPaneId();
     if (!paneId?.trim()) throw new Error('no pane selected; use --pane <P> or run inside a Herdr pane');
     const sessions = await ask('session.list');
     const agent = sessions.find((session) => session.paneId === paneId && session.agentKind && session.agentKind !== 'shell');
