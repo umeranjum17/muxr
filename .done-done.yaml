@@ -167,6 +167,13 @@ journeys:
   herdr-core-install:
     command: node .agents/skills/done-done-verify-pockit/features/herdrCoreInstall.mjs "$DONE_DONE_EVIDENCE_ROOT" > /dev/null 2>> "$DONE_DONE_EVIDENCE_ROOT/gate.log"
     timeout: 5m
+  # A computer joins the host (jg-kile slice 9): `muxr computers add` against two Docker computers with
+  # real sshd over a private lab Herdr Core: unknown, changed and unaccepted keys, a firewall, an older
+  # Core updated to the pin with its agent still running, and a cut link. Needs Docker and `yarn build`.
+  # See features/computers-join.md.
+  computers-join:
+    command: node .agents/skills/done-done-verify-pockit/features/computersJoinLab.mjs "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 10m
   # Home on a host that reads Herdr Core (jg-kile slice 1): the host runs with the lab-only
   # --herdr-core-lab source over a private lab Herdr Core; a stand-in agent there reports
   # status and Home shows it Working, then Done, on an owned Android emulator. An agent that

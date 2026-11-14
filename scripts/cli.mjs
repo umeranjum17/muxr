@@ -510,6 +510,13 @@ async function dispatch(command, args = []) {
         try { return await accounts(args); }
         catch (error) { process.stderr.write(`muxr accounts: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
     }
+    if (command === 'computers') {
+        // Lab only (jg-kile slice 9): the command refuses a real muxr home. It runs from a source build.
+        try {
+            const { computersCli } = await import('../apps/host/dist/computers/index.js');
+            return await computersCli(args);
+        } catch (error) { process.stderr.write(`muxr computers: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
+    }
     if (command === 'artifacts') return await artifacts(args);
     if (command === 'name') {
         try { return await nameAgent(args); }
