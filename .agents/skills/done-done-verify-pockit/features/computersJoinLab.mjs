@@ -3,7 +3,7 @@
 // and read in its words; an older Core ends at the pin with its agent still running; a cut link
 // shows offline and comes back. Run from the repo root after `yarn build`: node <this> <evidence-dir>.
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -38,6 +38,10 @@ try {
     }
     const hcRelease = await ensureHerdrCore();
     const older = join(homedir(), '.cache/muxr-lab/herdr-core/0.1.18/herdr-core');
+    // The older Core release is placed by hand, never fetched here: say so before anything starts.
+    if (!existsSync(older)) {
+        throw new Error(`the older Herdr Core release (0.1.18) is not at ${older}: place that release's herdr-core binary there, then run the journey again`);
+    }
     const box = (name, port) => {
         const id = docker('run', '-d', '--name', `mxk4-${tag}-${name}`, '-p', `127.0.0.1:${port}:22`, IMAGE, '/usr/sbin/sshd', '-D', '-e');
         started.push(id);
@@ -51,7 +55,8 @@ try {
     const gateway = docker('network', 'inspect', 'bridge', '-f', '{{(index .IPAM.Config 0).Gateway}}');
     const hostFingerprint = (b) => docker('exec', b.id, 'ssh-keygen', '-lf', '/etc/ssh/ssh_host_ed25519_key.pub').split(' ')[1];
     const authorize = (b, line) => {
-        spawnSync('docker', ['exec', '-i', b.id, 'bash', '-c', 'cat >> /home/muxr/.ssh/authorized_keys && chown muxr:muxr /home/muxr/.ssh/authorized_keys && chmod 600 /home/muxr/.ssh/authorized_keys'], { input: `${line}\n` });
+        const wrote = spawnSync('docker', ['exec', '-i', b.id, 'bash', '-c', 'cat >> /home/muxr/.ssh/authorized_keys && chown muxr:muxr /home/muxr/.ssh/authorized_keys && chmod 600 /home/muxr/.ssh/authorized_keys'], { input: `${line}\n`, encoding: 'utf8' });
+        if (wrote.status !== 0) throw new Error(`could not add muxr's key to the authorized keys of ${b.id.slice(0, 12)}: ${(wrote.stderr || String(wrote.error ?? 'no output')).trim()}`);
     };
 
     // The person's own ssh config names both computers; the private Core's ssh reads it through a shim.
@@ -75,10 +80,14 @@ try {
     };
     const rows = () => Object.fromEntries(cli('ls').text.split('\n').filter(Boolean).map((l) => { const [n, s, v] = l.split('\t'); return [n, { state: s, version: v }]; }));
 
-    // A real muxr home and a missing switch both refuse, and change nothing.
-    const refused = spawnSync(process.execPath, [join(repo, 'scripts/cli.mjs'), 'computers', 'ls'], { env: { ...labEnv, MUXR_HOME: join(homedir(), '.muxr') }, encoding: 'utf8' });
-    const noSwitch = spawnSync(process.execPath, [join(repo, 'scripts/cli.mjs'), 'computers', 'ls'], { env: { ...labEnv, MUXR_COMPUTERS_LAB: '' }, encoding: 'utf8' });
-    check(refused.status === 1 && /lab command/.test(refused.stderr) && noSwitch.status === 1, 'a real muxr home and a missing lab switch both refuse `muxr computers`');
+    // The lab never points a command at the owner's own muxr home: no MUXR_HOME, the owner's real home, and a missing switch all refuse, and change nothing.
+    const { MUXR_HOME: _noHome, ...withoutHome } = labEnv;
+    const computersLs = (env) => spawnSync(process.execPath, [join(repo, 'scripts/cli.mjs'), 'computers', 'ls'], { env, encoding: 'utf8' });
+    const refused = computersLs(withoutHome);
+    const ownerHome = computersLs({ ...labEnv, MUXR_HOME: join(homedir(), '.muxr') });
+    const noSwitch = computersLs({ ...labEnv, MUXR_COMPUTERS_LAB: '' });
+    check(refused.status === 1 && /lab command/.test(refused.stderr) && ownerHome.status === 1 && /lab command/.test(ownerHome.stderr) && noSwitch.status === 1,
+        'a missing MUXR_HOME, MUXR_HOME set to the owner\'s real ~/.muxr, and a missing lab switch all refuse `muxr computers`');
 
     check(/box1\tknown, not joined/.test(cli('ls').text) && /box2\tknown, not joined/.test(cli('ls').text), 'ls offers both ssh config names as known, not joined');
 
@@ -89,6 +98,7 @@ try {
     const needsKey = cli('add', 'box1', '--fingerprint', fp1);
     const keyLine = /echo '(restrict,from="[^"]+" ssh-ed25519 \S+ muxr-main)'/.exec(needsKey.text)?.[1];
     check(needsKey.code === 1 && keyLine !== undefined && keyLine.includes(`from="${gateway}"`), 'key not accepted: refused with the one restrict,from= line to paste');
+    if (keyLine === undefined) throw new Error('the refused connect printed no restrict,from= line to paste, so the key cannot be authorized');
     docker('exec', box1.id, 'bash', '-c', 'rm /etc/ssh/ssh_host_ed25519_key* && ssh-keygen -q -t ed25519 -N "" -f /etc/ssh/ssh_host_ed25519_key');
     docker('restart', box1.id);
     await sleep(2000);
@@ -118,12 +128,12 @@ try {
     const agentBefore = boxHc(box2, 'ls');
     check(boxHc(box2, '--version').includes('0.1.18') && /sleep/.test(agentBefore), 'box2 starts one release behind with an agent running');
     const joined2 = cli('add', 'box2', '--fingerprint', fp2);
-    check(joined2.code === 0 && /updated Herdr Core on box2 from 0\.1\.18 to 0\.1\.19/.test(joined2.text) && /ready/.test(joined2.text), 'box2 join ends ready and says it updated 0.1.18 to 0.1.19');
+    check(joined2.code === 0 && /updated Herdr Core on box2 from 0\.1\.18 to 0\.1\.20/.test(joined2.text) && /ready/.test(joined2.text), 'box2 join ends ready and says it updated 0.1.18 to 0.1.20');
     note(`box2 join output: ${joined2.text.trim()}`);
     const agentAfter = boxHc(box2, 'ls');
-    check(rows().box2?.version === '0.1.19' && !/error|refused/i.test(joined2.text), 'older Core ends at the pin with no error');
-    if (process.env.COMPUTERS_JOIN_BREAK !== '1') check(/sleep/.test(agentAfter), 'the agent started before the update is still running');
-    check(boxHc(box2, '--version').includes('0.1.19'), 'box2 Core binary reports the pin');
+    check(rows().box2?.version === '0.1.20' && !/error|refused/i.test(joined2.text), 'older Core ends at the pin with no error');
+    check(/sleep/.test(agentAfter), 'the agent started before the update is still running');
+    check(boxHc(box2, '--version').includes('0.1.20'), 'box2 Core binary reports the pin');
 
     // Does `--install` alone update an older Core? Staged again on box2 after muxr's join, recorded as found.
     spawnSync(hcRelease.binary, ['machine', 'rm', 'box2', '--json'], { env: labEnv });
@@ -153,9 +163,8 @@ try {
 
     // The stops-at-logout warning rests on Core's own field; no systemd box here, so its words only.
     const dist = await import(join(repo, 'apps/host/dist/computers/index.js'));
-    const fake = { list: async () => [{ id: '1', name: 'b', target: 'muxr-b', version: '0.1.19', state: 'connected', keepsRunningAfterLogout: false }], update: async () => undefined, add: async () => ({ id: '1', name: 'b', target: 'muxr-b', version: '0.1.19', state: 'connected', keepsRunningAfterLogout: false }) };
     const text = dist.words.logout('box1', 'muxr');
-    check(text === 'Agents on box1 stop when you log out. Run this once on box1: sudo loginctl enable-linger muxr' && typeof fake.add === 'function', 'logout warning words (not run on real logind)');
+    check(text === 'Agents on box1 stop when you log out. Run this once on box1: sudo loginctl enable-linger muxr', 'logout warning words (not run on real logind)');
     check(dist.classifyCoreError('mac', 'a bundled remote core needs a complete bundle').message === 'Update Herdr Core on the Mac', 'Mac app bundle words');
 
     // Footprint of the two boxes' Core (first input of the cost section).

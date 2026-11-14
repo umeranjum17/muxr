@@ -17,6 +17,7 @@
         "@desklink/host": "0.5.10",
         "@trymuxr/contract": "0.1.0",
         "@trymuxr/crypto": "0.1.0",
+        "@xterm/headless": "6.0.0",
         "ws": "^8.18.0"
     }
 }

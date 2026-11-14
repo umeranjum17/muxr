@@ -88,6 +88,8 @@ const cell = (dir, name) => {
     catch (cause) { report = `${cause.stdout ?? ''}${cause.stderr ?? ''}`; }
     // The screenshot is the evidence; the view dumps only feed the visual lead check above.
     for (const suffix of ['.xml', '.compressed.xml']) rmSync(join(dir, `${name}${suffix}`), { force: true });
+    // Layout of existing screens is reported here, not gated: the judge still reads the captures for the claimed outcome.
+    for (const line of report.split('\n').filter((l) => /DEFECT/.test(l))) note(`visual note on ${name}: ${line.replace(/^DEFECT /, '').trim()}`);
     note(`captured ${name}`);
 };
 // A relaunch can reopen the agent screen; step back until Home (its Right now card and prompt box) shows.
@@ -288,6 +290,7 @@ try {
     for (const pid of pids) {
         for (let i = 0; i < 50 && spawnSync('ps', ['-p', String(pid)], { stdio: 'ignore' }).status === 0; i += 1) await sleep(200);
     }
+    rmSync(scratch, { recursive: true, force: true });
     for (const defect of defects) note(`DEFECT ${defect}`);
     note(`done; defects: ${defects.length}`);
     process.exitCode = defects.length > 0 ? 1 : 0;

@@ -1,6 +1,7 @@
 // Which agent CLIs report status inside Herdr Core (Herdr Core plan, slice 2, ticket jg-kile-s2).
-// Starts each installed agent CLI as it is (the person's own login, normal HOME) in a private lab
-// Herdr Core, gives it one tiny prompt and records the status the program itself reported over
+// Starts each installed agent CLI in a private lab Herdr Core with a scratch HOME under the lab
+// core's own dir and a harness attach answering its terminal queries (the person's own config and
+// login are never used), gives it one tiny prompt and records the status the program itself reported over
 // OSC 7501: which states, and whether it ever reported at all. A CLI that is not installed, asks a
 // question before a prompt, or never reacts to the prompt reads "not measured", never a guess.
 // The whole table is measured twice in two fresh cores and the two must agree. Writes
@@ -47,9 +48,11 @@ async function measure(core, api, events, kind, file) {
     const address = run.address;
     // The harness attach: a lab viewer that answers the terminal queries TUIs wait for before drawing.
     let attach = { answered: () => 0, stop: () => {} };
-    try { attach = await attachAnswering(api, address); } catch { /* it already exited; the checks below say so */ }
+    let seenBy = 'none: attach failed';
+    try { attach = await attachAnswering(api, address); seenBy = 'harness attach'; } catch (error) { seenBy = `none: attach failed (${String(error?.message ?? error).split('\n')[0].slice(0, 80)})`; }
     const states = new Set();
     let reported = false;
+    let sawScreen = false;
     const drain = () => {
         for (const e of events.events.splice(0)) {
             const p = e.params;
@@ -61,12 +64,13 @@ async function measure(core, api, events, kind, file) {
     };
     const screen = async () => plain((await api.call('terminal.read', { terminal: address })).text ?? '');
     const alive = async () => (await api.call('terminal.get', { terminal: address })).state === 'live';
-    const done = async (row) => { attach.stop(); drain(); await api.call('terminal.kill', { terminal: address }).catch(() => {}); return { kind, ...row, reported, states: [...states].sort() }; };
+    const done = async (row) => { attach.stop(); drain(); await api.call('terminal.kill', { terminal: address }).catch(() => {}); return { kind, ...row, seenBy, drew: reported || sawScreen, reported, states: [...states].sort() }; };
     try {
         await sleep(6_000);
         let before = await screen();
         if (/update available/i.test(before) && /esc skip/i.test(before)) { await api.call('terminal.keys', { terminal: address, keys: ['esc'] }); await sleep(2_000); before = await screen(); }
         drain();
+        sawScreen = before.trim() !== '';
         if (!(await alive())) return await done({ verdict: 'not measured: it exited at start' });
         if (!reported && before.trim() === '') return await done({ verdict: `not measured: it drew nothing even with the harness attach (${attach.answered()} queries answered)` });
         const asked = before.match(QUESTION);
@@ -87,7 +91,7 @@ async function measure(core, api, events, kind, file) {
         }
         // "No status" is only claimed when the program visibly answered: a line that is just the reply.
         const answered = after.split("\n").some((l) => /^[\s│●•⏺>*-]*ok[.!]?[\s│]*$/i.test(l));
-        if (!answered) return await done({ verdict: `not measured: it drew its screen (${attach.answered()} queries answered) but no answer to the prompt was seen; the scratch HOME has no login` });
+        if (!answered) return await done({ verdict: seenBy === 'harness attach' ? `not measured: no answer to the prompt was seen (${attach.answered()} queries answered through the attach)` : 'not measured: no answer to the prompt was seen (the attach failed, 0 queries answered)' });
         return await done({ verdict: 'no status: it answered the prompt and reported nothing' });
     } catch (cause) {
         return await done({ verdict: `not measured: ${cause instanceof Error ? cause.message : String(cause)}` });
@@ -104,7 +108,7 @@ async function measureAll() {
         await api.hello();
         return await Promise.all(KINDS.map(async (kind) => {
             const file = onPath(kind);
-            if (!file) return { kind, version: '-', verdict: 'not measured: not installed', reported: false, states: [] };
+            if (!file) return { kind, version: '-', verdict: 'not measured: not installed', seenBy: '-', drew: false, reported: false, states: [] };
             const version = versionOf(file);
             return { ...(await measure(core, api, events, kind, file)), version };
         }));
@@ -121,7 +125,7 @@ const cell = (row) => `${row.verdict}${row.states.length ? `; states seen: ${row
 const table = (rows) => [
     `| agent | version | measured | seen by | status in Herdr Core ${HERDR_CORE_PIN.version} |`,
     '|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.kind} | ${r.version} | ${r.version === '-' ? '-' : today} | ${r.version === '-' ? '-' : 'harness attach'} | ${cell(r)} |`),
+    ...rows.map((r) => `| ${r.kind} | ${r.version} | ${r.version === '-' ? '-' : today} | ${r.seenBy} | ${cell(r)} |`),
 ].join('\n');
 
 try {
@@ -132,7 +136,7 @@ try {
     const agreed = first.map((r, i) => ({ ...r, states: r.states.filter((s) => second[i].states.includes(s)) }));
     writeFileSync(join(evidence, '01-status-table.md'), [
         `Herdr Core ${HERDR_CORE_PIN.version} (SHA-256 pinned in perf/lib/herdrCoreLab.mjs), lab core, measured ${today} at ${head}.`,
-        `Each row: the CLI started with a scratch HOME (no login), the harness attach answering terminal queries, one prompt ("${PROMPT}"), the status events it reported.`,
+        `Each row: the CLI started with a scratch HOME, the harness attach answering terminal queries, one prompt ("${PROMPT}"), the status events it reported.`,
         '', table(agreed), '',
     ].join('\n'));
     const key = (r) => `${r.kind}|${r.version}|${r.verdict}|${r.reported}`;
@@ -145,7 +149,8 @@ try {
     check('one row per kind', first.length === KINDS.length && KINDS.every((k) => first.some((r) => r.kind === k)), `${first.map((r) => `${r.kind}: ${r.verdict}`).join(' | ')}`);
     check('a missing CLI reads not measured', first.filter((r) => r.version === '-').every((r) => r.verdict === 'not measured: not installed'), 'a CLI not on PATH is "not installed", never a guess');
     check('a repeat run agrees', disagree.length === 0, disagree.length ? `differs: ${disagree.map((r) => r.kind).join(', ')}` : `${first.length} rows identical in two fresh cores`);
-    check('rows are measured or say why not', first.every((r) => r.verdict.length > 0), 'every installed CLI has a verdict, measured or not measured with the cause');
+    // The gate is that the attach worked on a program that drew: it does not require a status verdict, and a run can pass with every row not measured.
+    check('a CLI drew its screen through the attach', first.some((r) => r.version !== '-' && r.seenBy === 'harness attach' && r.drew), `${first.filter((r) => r.drew).map((r) => r.kind).join(', ') || 'none'} drew or reported through the harness attach`);
 } catch (cause) {
     check('journey ran', false, cause instanceof Error ? cause.stack ?? cause.message : String(cause));
 }

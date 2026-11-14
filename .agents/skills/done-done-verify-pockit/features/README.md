@@ -121,6 +121,7 @@ rules, with no H2 sections.
 - [A computer joins the host (lab)](./computers-join.md) — `muxr computers add` over two Docker computers with real sshd: host key by fingerprint, muxr's key, older Core updated to the pin, a cut link.
 - [Start and stop on Herdr Core (lab)](./core-start-stop.md) — New agent, prompt, Working, Done, Stop through the lab Core source; the agent carries herdr.space and herdr.tab.
 - [Spaces, tabs and panes on Herdr Core (lab)](./core-spaces.md) — Home groups by the Herdr app's layout document; New tab, Rename, split, Close pane and Close workspace; unknown fields kept.
+- [Terminal on Herdr Core (lab)](./core-terminal.md) — open a Core agent's terminal, type `echo hi`, a preview that never resizes.
 - [Read the desktop receiver's decoder and frame rate (developer probe)](./desktop-decoder-probe.md) —
   developer-mode-only machine row and `/debug/decode` route: absent until ten
   taps enable dev mode, then the live receiver reports `VideoToolbox`/H.264,

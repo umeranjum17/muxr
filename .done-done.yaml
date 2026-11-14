@@ -196,6 +196,12 @@ journeys:
   core-spaces:
     command: node .agents/skills/done-done-verify-pockit/features/herdrCoreSpacesLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
     timeout: 30m
+  # Open and type in an agent's terminal on Herdr Core (jg-kile slice 7): the same lab host and
+  # core; Home's preview watches without resizing the terminal, then the phone opens it, types
+  # `echo hi`, and the terminal on the computer answers hi. See features/core-terminal.md.
+  core-terminal:
+    command: node .agents/skills/done-done-verify-pockit/features/herdrCoreTerminalLab.mjs "$MUXR_LAB_APK" "$DONE_DONE_EVIDENCE_ROOT" > "$DONE_DONE_EVIDENCE_ROOT/journey.out" 2>&1
+    timeout: 20m
   # The npm latest gate on a real stable release: release.yml's own gate step
   # command, the release's sealed manifest and npm tarball from GitHub, and a
   # scratch clone carrying a stand-in journey receipt for that exact build. A

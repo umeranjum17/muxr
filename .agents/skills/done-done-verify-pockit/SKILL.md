@@ -38,6 +38,7 @@ done-done receipt --verify <head>       # read-only: verify the recorded receipt
 - Computer join entry (jg-kile slice 9): `done-done verify computers-join` runs `muxr computers add` against two Docker computers with real `sshd` over a private lab Herdr Core, host side only; `features/computers-join.md`.
 - Start and stop on Herdr Core entry (jg-kile slice 6): `done-done verify core-start-stop` starts a stand-in Pi from New agent on the lab Core source, prompts it, shows Working then Done, stops it, and reads the herdr.space and herdr.tab labels from Core; `features/core-start-stop.md`.
 - Spaces, tabs and panes on Herdr Core entry (jg-kile slice 8): `done-done verify core-spaces` seeds the lab Core with the Herdr app's layout document, shows Home grouped by it, runs New tab, Rename tab, New pane, Close pane and Close workspace from the phone, and checks Core and the document (unknown fields kept); `features/core-spaces.md`.
+- Terminal on Herdr Core entry (jg-kile slice 7): `done-done verify core-terminal` opens a Core agent's terminal from the emulator, types `echo hi` and reads hi on the computer; Home's preview must leave the terminal's size alone; `features/core-terminal.md`.
 
 ## Isolation contract (read first)
 
