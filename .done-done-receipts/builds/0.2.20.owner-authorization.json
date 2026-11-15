@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "ownerTested": false,
+  "words": "merge muxr 1152 when its checks finish, even before your test",
+  "provenance": "the captain's words of 14 Nov 2026, relayed by Main; the captain did not test this build",
+  "device": "emulator-5554 (task-owned Android 35 x86_64 emulator running the release's x86_64 twin APK)",
+  "date": "2026-11-15T10:11:21Z",
+  "version": "0.2.20",
+  "commit": "e121993905c6ae3ed4e4b39ab9ae5b54701e7a18",
+  "apk": "edd8cc489e67156d84477c8885ccbac815661ece2cb97fb12ae81330f7e6ad6e",
+  "package": "b69a13f92673d559afff5c25b224ea40c8a900e8f861bb4f721dc6e648cf54f3",
+  "receipt": ".done-done-receipts/e121993905c6ae3ed4e4b39ab9ae5b54701e7a18.json"
+}

@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "journey": "phone-attach",
+  "version": "0.2.20",
+  "install": "fresh",
+  "build": {
+    "apk": "8d4c9d9518cb500b49f2cc95c48807c0b70c787ee1fe9150e17c3ecb501df5a5",
+    "package": "b69a13f92673d559afff5c25b224ea40c8a900e8f861bb4f721dc6e648cf54f3"
+  },
+  "result": "pass",
+  "steps": {
+    "pair": "pass",
+    "attach": "pass",
+    "send": "pass",
+    "scroll": "pass",
+    "usage": "pass",
+    "one-host": "pass"
+  },
+  "hosts": 1,
+  "timings": {
+    "attachMs": 1266,
+    "scrollMs": 4227
+  }
+}
