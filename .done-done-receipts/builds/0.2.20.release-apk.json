@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "version": "0.2.20",
+  "releaseApk": {
+    "name": "muxr-0.2.20-406.apk",
+    "sha256": "edd8cc489e67156d84477c8885ccbac815661ece2cb97fb12ae81330f7e6ad6e",
+    "checks": {
+      "signature": "pass",
+      "manifest": "pass",
+      "nativeLibs": "pass",
+      "version": "pass",
+      "code": "pass",
+      "source": "pass"
+    }
+  },
+  "journeyApk": {
+    "name": "app-release.apk",
+    "sha256": "8d4c9d9518cb500b49f2cc95c48807c0b70c787ee1fe9150e17c3ecb501df5a5",
+    "abi": "x86_64",
+    "commit": "e121993905c6ae3ed4e4b39ab9ae5b54701e7a18",
+    "sourceSha256": "692b9fb53f59026e5c74a0b53431f1ed6e15dda1d738d305d13eb55f92035004",
+    "builtBy": "unknown"
+  },
+  "passed": true
+}

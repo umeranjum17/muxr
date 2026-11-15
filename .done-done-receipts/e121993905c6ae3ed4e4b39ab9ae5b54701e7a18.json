@@ -1,0 +1,90 @@
+{
+  "schema": 2,
+  "repo": "pockit",
+  "head": "e121993905c6ae3ed4e4b39ab9ae5b54701e7a18",
+  "tree": "e3f076352362549ae9e2e68436b4885d1f37ec17",
+  "claim": "muxr 0.2.20 pairs, attaches through pane churn, sends text from the box, scrolls history back and forward, opens Usage and comes back, with exactly one host alive",
+  "result": "pass",
+  "at": "2026-11-15T10:11:08.086Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261115T100426Z-e1219939-57c79b/04-typed-command-and-output.png",
+      "sha256": "a6919c4db9d3dcc21f70021c8b7a59853229d02aeb78a4b7b79064b5296dcd34"
+    },
+    {
+      "path": "<evidence root>/20261115T100426Z-e1219939-57c79b/05-scrolled-back.png",
+      "sha256": "f4e85c843049b613af964b29b99e2772506429c3fbf5fc0e5b880def88fbc6a9"
+    },
+    {
+      "path": "<evidence root>/20261115T100426Z-e1219939-57c79b/06-scrolled-to-latest.png",
+      "sha256": "67a3dd18315297ee79ad48d244e069596ce9c838dc8f143db0dc9f71cd42e160"
+    },
+    {
+      "path": "<evidence root>/20261115T100426Z-e1219939-57c79b/release-build.json",
+      "sha256": "3241098daa9882fd7a498d8cfc2964f51fb69b42fcd3e2439dba0aff99ef00ee"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261115T100426Z-e1219939-57c79b",
+      "commit": "e121993905c6ae3ed4e4b39ab9ae5b54701e7a18",
+      "journey": "phone-attach",
+      "command": "node scripts/diagnostics/application/checkPhoneAttach.mjs",
+      "tool": "0.6.31",
+      "steps": {
+        "target": {
+          "version": "0.2.20"
+        },
+        "start": "the release app freshly installed on the phone, with a lab computer running two agent panes that the phone is not yet paired to",
+        "steps": [
+          "pair the phone to the lab computer",
+          "open an agent and time its first attach, from the tap to the host's new terminal stream",
+          "close agent panes and attach again through pane churn",
+          "type a command at the agent",
+          "scroll its history back and forward fast",
+          "open Usage and come back",
+          "count the hosts alive"
+        ],
+        "result": "the first attach took 1266 ms from the tap to the host's new terminal stream, the phone attached after every round of pane churn, the typed command printed its output on a clean screen, the history scrolled back and forward, Usage opened and closed, and one host stayed alive"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261115T100426Z-e1219939-57c79b/04-typed-command-and-output.png",
+        "sha256": "a6919c4db9d3dcc21f70021c8b7a59853229d02aeb78a4b7b79064b5296dcd34",
+        "verdict": "pass",
+        "seen": "The outcome names pairing, attaching, sending text from the box, scrolling, opening Usage, and one live host. The screenshot shows a terminal tab ('Tab 1') with the typed command 'echo lab-typed-4326' and the reply 'lab agent got: echo lab-typed-4326', which shows text was sent and answered. The prompt box is empty ('Type a prompt...'), consistent with a send. The keyboard covers the lower screen but not the terminal output. The screenshot cannot confirm scrolling, Usage, or the single-host claim, but nothing visible contradicts the outcome."
+      },
+      {
+        "path": "<evidence root>/20261115T100426Z-e1219939-57c79b/05-scrolled-back.png",
+        "sha256": "f4e85c843049b613af964b29b99e2772506429c3fbf5fc0e5b880def88fbc6a9",
+        "verdict": "pass",
+        "seen": "The terminal shows a long run of scrolled-back history rows, e.g. \"row 276 of the lab agent's history\" through \"row 317 of the lab agent's history\", with a \"Latest\" button at the bottom right. That matches the outcome's claim of scrolling history back. The screen is not a dialog, error, or overlay, and the screenshot cannot show the pairing, sending, Usage, or host-count steps. The outcome names one part, so parts is empty."
+      },
+      {
+        "path": "<evidence root>/20261115T100426Z-e1219939-57c79b/06-scrolled-to-latest.png",
+        "sha256": "67a3dd18315297ee79ad48d244e069596ce9c838dc8f143db0dc9f71cd42e160",
+        "verdict": "pass",
+        "seen": "The outcome says history was scrolled back and forward and ends at the latest output. The bottom of the terminal shows 'row 400 of the lab agent's history' as the last line, directly above the 'Tab 1' bar and the 'Type a prompt...' box, which is consistent with being scrolled to the latest position. The keyboard shortcut bar (ctrl, shift, esc, tab) sits below the prompt and does not hide the content. The screenshot does not show the other named steps (pairing, attach, Usage), but it does not contradict them. The outcome names one capture, so parts is empty."
+      },
+      {
+        "path": "<evidence root>/20261115T100426Z-e1219939-57c79b/release-build.json",
+        "sha256": "3241098daa9882fd7a498d8cfc2964f51fb69b42fcd3e2439dba0aff99ef00ee",
+        "verdict": "pass",
+        "seen": "I read the single capture record (release-build.json). It shows version 0.2.20, journey phone-attach, install fresh, and result pass. Every step is pass: pair, attach, send, scroll, usage, and one-host. It also shows hosts 1, with attachMs 1266 and scrollMs 4227. These match the outcome: 0.2.20 pairs, attaches, sends, scrolls, opens Usage, and exactly one host is alive. The outcome names only this one part, so parts and covers are empty."
+      }
+    ]
+  },
+  "suite": {
+    "command": null
+  }
+}
