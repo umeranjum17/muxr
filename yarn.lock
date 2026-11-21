@@ -1141,24 +1141,24 @@
     bonjour-service "^1.4.4"
     react-native-zeroconf "0.17.3"
 
-"@byokit/herdr@0.18.0":
-  version "0.18.0"
-  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.18.0.tgz#6511ee75658221995cb3443cb2b9a58f49711ae0"
-  integrity sha512-18FGpxchJTMJhp6I6sEzpgx6ky5x5TjV0PwqIPUmYougxiOgAI17hPBFtoQJ1Hdcghxij+fHS40+eL6bJV3sDA==
+"@byokit/herdr@0.19.0":
+  version "0.19.0"
+  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.19.0.tgz#31452372f17f6573f749e0f89cad4e9350201416"
+  integrity sha512-BKvbLgoKP27gpTux8amRd8hKyDpSuzjNldSMwuxAsXWWusE1nHNed+cLihSAk4/gje9IEiasmaSlrD7FeQtg0A==
   dependencies:
     "@byokit/seal" "0.3.2"
     ws "8.22.0"
 
-"@byokit/pair@0.10.3", "@byokit/pair@0.11.0":
-  version "0.10.3"
-  resolved "https://registry.yarnpkg.com/@byokit/pair/-/pair-0.10.3.tgz#b6f42900054a02b4d7b1b8ca3a70b0a427dc8138"
-  integrity sha512-1fCiGdreVkNk9VxnE0+b68fNBAIMm2T5yubiwDGKTWUAN+1H+7o0fH8eGMjgkO1zeGaUXWZ8kB748jWg6xtQxQ==
+"@byokit/pair@0.11.0":
+  version "0.11.0"
+  resolved "https://registry.yarnpkg.com/@byokit/pair/-/pair-0.11.0.tgz#ab35c9b8bee48372cb53d0ab45e150362745ec7a"
+  integrity sha512-Qbn9Jry8P73CQW1P223Teo3XdRC7fNvsx2oAMvSj/IE3paplcZNMmKE6YWBiNQLDiCUoFHKlgtgk/Nh3ZGfyGw==
   dependencies:
     "@noble/ciphers" "2.4.0"
     b4a "1.9.0"
     noise-handshake "4.2.0"
     sodium-javascript "0.8.0"
-    sodium-native "5.1.0"
+    sodium-native "5.2.0"
     sodium-universal "5.0.1"
 
 "@byokit/phone@0.1.6":
@@ -6588,9 +6588,9 @@ flow-enums-runtime@^0.0.6:
   integrity sha512-3PYnM29RFXwvAN6Pc/scUfkI7RwhQ/xqyLUyPNlXUp9S40zI8nup9tUSrTLSVnWGBN38FNiGWbwZOB6uR4OGdw==
 
 follow-redirects@^1.16.0:
-  version "1.16.2"
-  resolved "https://registry.yarnpkg.com/follow-redirects/-/follow-redirects-1.16.2.tgz#a233160dd1bc9b16cbbab43709e6adc7cc941c8c"
-  integrity sha512-/kVP2U8z596Ia0gwFrwyIeo74ta5aVmSeU1FfAUMAmcEP5EP7zydmag3SLiN64NaRKef3lxsq7i/g7ltJQDGow==
+  version "1.16.3"
+  resolved "https://registry.yarnpkg.com/follow-redirects/-/follow-redirects-1.16.3.tgz#62b60932427f616327014a5e401e8fc5e9027e9b"
+  integrity sha512-toOSoqN6d51Wjf1aOFJYcoVv1aND9rj/CwjLU0Vz40oDuSpWDayCeKe4JpL5NL0WdFvoOOCI3BRo69HahjbR1A==
 
 fontfaceobserver@^2.1.0:
   version "2.3.0"
@@ -10252,16 +10252,7 @@ sodium-javascript@0.8.0:
     siphash24 "^1.0.1"
     xsalsa20 "^1.0.0"
 
-sodium-native@5.1.0:
-  version "5.1.0"
-  resolved "https://registry.yarnpkg.com/sodium-native/-/sodium-native-5.1.0.tgz#5b11d779c9eb7cb76baf1f0fc98bb6f821ff24cf"
-  integrity sha512-3RxgyWyJlhTsABPnJVpCI5CoTDANZTqqFrEPqr+kjfnRaBihpVtMUE3yTF40ukdoB1APXeoBNKF3MzZAIHg39g==
-  dependencies:
-    bare-assert "^1.2.0"
-    require-addon "^1.1.0"
-    which-runtime "^1.2.1"
-
-sodium-native@^5.0.1:
+sodium-native@5.2.0, sodium-native@^5.0.1:
   version "5.2.0"
   resolved "https://registry.yarnpkg.com/sodium-native/-/sodium-native-5.2.0.tgz#75e9616420aa772307cd28f31bbe4d5dc51a2dff"
   integrity sha512-ntJqNSc9bWmWqcJkx8NA5eS0HUwQnmDlluUzoKCOQUWey8i7LXptk+E/qo2T2RPO9uK2br+3N0zYQme8qPXG+g==
