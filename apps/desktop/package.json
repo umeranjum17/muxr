@@ -19,7 +19,7 @@
         "@byokit/relay": "0.8.4",
         "@byokit/seal": "0.3.2",
         "@byokit/ui-core": "0.7.0",
-        "@desklink/host": "0.5.10",
+        "@desklink/host": "0.5.17",
         "bonjour-service": "^1.4.4",
         "ccusage": "20.0.20",
         "ws": "^8.18.0"
